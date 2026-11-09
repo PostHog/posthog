@@ -13,7 +13,7 @@ from uuid import UUID
 
 from django.db.models import Expression, Prefetch, Q, QuerySet, Subquery, Value
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Concat, Lower
+from django.db.models.functions import Coalesce, Concat, Lower
 from django.utils import timezone
 
 from social_django.models import UserSocialAuth
@@ -129,6 +129,7 @@ def enrich_reviewer_dicts_with_org_members(
     uuid_to_user: Mapping[str, User] | None = None,
     scout_display_names: Mapping[str, str] | None = None,
     manual_adders: Sequence[User | None] | None = None,
+    user_authored: bool = False,
 ) -> list[dict]:
     """Enrich reviewer dicts (from artefact content) with fresh PostHog user info.
 
@@ -179,7 +180,11 @@ def enrich_reviewer_dicts_with_org_members(
             user = resolved_map.get(login.strip().lower())
         enriched.append(
             _with_reviewer_presentation(
-                r, user, scout_display_names, manual_adders[index] if manual_adders is not None else None
+                r,
+                user,
+                scout_display_names,
+                manual_adders[index] if manual_adders is not None else None,
+                user_authored=user_authored,
             )
         )
 
@@ -282,7 +287,12 @@ def _commit_explanation(commits: list[object]) -> str:
 
 
 def _with_reviewer_presentation(
-    reviewer: dict, user: User | None, scout_display_names: Mapping[str, str], manual_adder: User | None
+    reviewer: dict,
+    user: User | None,
+    scout_display_names: Mapping[str, str],
+    manual_adder: User | None,
+    *,
+    user_authored: bool = False,
 ) -> dict:
     commits = reviewer.get("relevant_commits")
     commit_list: list[object] = commits if isinstance(commits, list) else []
@@ -297,7 +307,10 @@ def _with_reviewer_presentation(
     safe_reason = bounded_reviewer_reason(reason)
     explanation: str | None
 
-    if safe_commits:
+    if reviewer.get("is_default_owner"):
+        source_label = "Default owner"
+        explanation = safe_reason
+    elif safe_commits:
         source_label = "Code history"
         explanation = _commit_explanation(safe_commits)
     elif isinstance(source_skill, str) and source_skill:
@@ -309,6 +322,10 @@ def _with_reviewer_presentation(
         source_label = "Added by teammate"
         name = manual_adder.get_full_name().strip() or manual_adder.email if manual_adder else None
         explanation = f"Added by {name}" if name else None
+    elif user_authored:
+        # The member who filed the report named this reviewer, so no agent suggested them.
+        source_label = "Added by teammate"
+        explanation = safe_reason
     else:
         source_label = "Agent suggestion"
         explanation = safe_reason
@@ -363,6 +380,31 @@ def source_skills_from_suggested_reviewer_artefacts(artefacts: Iterable[SignalRe
             if isinstance(row, dict) and isinstance(row.get("source_skill"), str):
                 skills.add(row["source_skill"])
     return frozenset(skills)
+
+
+def latest_suggested_reviewer_logins(team_id: int, report_id: str) -> list[str]:
+    """Normalized GitHub logins from the report's latest `suggested_reviewers` artefact, in assignment order.
+
+    Empty when the report has no such artefact or its content does not parse as a list.
+    """
+    artefact = (
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if artefact is None:
+        return []
+    try:
+        reviewers = json.loads(artefact.content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return []
+    if not isinstance(reviewers, list):
+        return []
+    return [str(r["github_login"]).strip().lower() for r in reviewers if isinstance(r, dict) and r.get("github_login")]
 
 
 def normalized_github_logins_from_reviewer_payloads(rows: Iterable[object]) -> frozenset[str]:
@@ -914,20 +956,34 @@ def resolve_org_users_by_uuid(team_id: int, user_uuids: Iterable[str]) -> dict[s
     return {str(user.uuid): user for user in users}
 
 
-def get_org_member_users_by_uuid(team_id: int) -> dict[str, User] | None:
-    """Every active org member on the team's organization, keyed by user UUID.
-
-    Backs the inbox reviewer picker. A linked GitHub identity is not required, so a member who
-    never connected GitHub can be picked (and can pick themselves). Returns None if the team doesn't
-    exist, otherwise a dict (possibly empty).
-    """
+def search_org_member_users_by_uuid(team_id: int, *, query: str = "", limit: int) -> dict[str, User] | None:
+    """Search active org members for the inbox reviewer picker, keyed by user UUID."""
     try:
         org_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
     except Team.DoesNotExist:
         return None
 
     member_ids = OrganizationMembership.objects.filter(organization_id=org_id).values_list("user_id", flat=True)
-    users = User.objects.filter(id__in=member_ids, is_active=True).order_by("id")
+    users = User.objects.filter(id__in=member_ids, is_active=True)
+    if query:
+        users = users.annotate(
+            _full_name=Concat(
+                Coalesce("first_name", Value("")),
+                Value(" "),
+                Coalesce("last_name", Value("")),
+            )
+        ).filter(
+            Q(first_name__icontains=query)
+            | Q(last_name__icontains=query)
+            | Q(email__icontains=query)
+            | Q(_full_name__icontains=query)
+        )
+    users = users.order_by(
+        Lower(Coalesce("first_name", Value(""))),
+        Lower(Coalesce("last_name", Value(""))),
+        Lower(Coalesce("email", Value(""))),
+        "uuid",
+    )[:limit]
     return {str(user.uuid): user for user in users}
 
 

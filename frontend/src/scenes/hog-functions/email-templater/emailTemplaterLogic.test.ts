@@ -1,9 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -16,6 +14,7 @@ import {
     EditorRef,
     EmailTemplate,
     EmailTemplaterLogicProps,
+    buildHtmlWrapDesign,
     buildPersonPropertyMergeValue,
     emailTemplaterLogic,
 } from './emailTemplaterLogic'
@@ -40,6 +39,21 @@ function makeProps(overrides?: Partial<EmailTemplaterLogicProps>): EmailTemplate
 
 const ADVANCED_FIELDS = EMAIL_TYPE_SUPPORTED_FIELDS.native_email.filter((f) => f.isAdvancedField)
 const NON_ADVANCED_FIELDS = EMAIL_TYPE_SUPPORTED_FIELDS.native_email.filter((f) => !f.isAdvancedField)
+
+const renderAround = (block: string): string =>
+    `<html><head><style>#u_body a { color: #00e; }</style></head><body class="clean-body u_body"><!--[if mso]><table><tr><td><![endif]--><table id="u_body"><tbody><tr><td><div class="u-row">${block}</div></td></tr></tbody></table></body></html>`
+const RENDER_OF_OLD = renderAround('<p>old</p>')
+const RENDER_WITH_FOOTER = renderAround('<p>old</p><p>P.S.</p>')
+const RENDERED_PAGE = renderAround('<p>page</p>')
+const RENDERED_PAGE_WITH_FOOTER = `<div>${RENDERED_PAGE}<p>footer</p></div>`
+const RENDER_WITH_IMAGE = renderAround('<p>old</p><img src="https://example.com/offer.png">')
+const UNLAYER_COLUMN_OPEN =
+    '<!--[if (mso)|(IE)]><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center"><![endif]--><!--[if (!mso)&(!IE)]><!--><div style="height: 100%;"><!--<![endif]-->'
+const UNLAYER_COLUMN_CLOSE =
+    '<!--[if (!mso)&(!IE)]><!--></div><!--<![endif]--><!--[if (mso)|(IE)]></td></tr></table><![endif]-->'
+const RENDER_IN_OUTLOOK_COLUMN = renderAround(`${UNLAYER_COLUMN_OPEN}<p>old</p>${UNLAYER_COLUMN_CLOSE}`)
+const RENDER_WITH_OUTLOOK_FOOTER = renderAround('<p>old</p><!--[if mso]><p>footer</p><![endif]-->')
+const RENDER_WITH_NON_OUTLOOK_FOOTER = renderAround('<p>old</p><!--[if !mso]><!--><p>footer</p><!--<![endif]-->')
 
 describe('emailTemplaterLogic', () => {
     let logic: ReturnType<typeof emailTemplaterLogic.build>
@@ -144,26 +158,58 @@ describe('emailTemplaterLogic', () => {
             {
                 description: 'identifies the project to Unlayer in the native editor',
                 type: 'native_email',
-                flagOn: true,
                 identified: true,
             },
-            {
-                description: 'leaves Unlayer anonymous with the flag off',
-                type: 'native_email',
-                flagOn: false,
-                identified: false,
-            },
-            { description: 'leaves the destination editor untouched', type: 'email', flagOn: true, identified: false },
-        ] as const)('$description', ({ type, flagOn, identified }) => {
+            { description: 'leaves the destination editor untouched', type: 'email', identified: false },
+        ] as const)('$description', ({ type, identified }) => {
             preflightLogic.mount()
             preflightLogic.actions.loadPreflightSuccess({ realm: Realm.Cloud } as any)
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_MEDIA_LIBRARY]: flagOn })
 
             logic = emailTemplaterLogic(makeProps({ type }))
             logic.mount()
 
             expect(logic.values.unlayerEditorUser?.id.startsWith('project-') ?? false).toBe(identified)
+        })
+    })
+
+    describe('merge tags', () => {
+        beforeEach(() => {
+            useMocks({ get: { '/api/projects/:team_id/property_definitions/': { results: [{ name: 'email' }] } } })
+        })
+
+        it.each([
+            { type: 'native_email_template', variables: undefined, expected: ['email'] },
+            {
+                type: 'native_email_transactional_template',
+                variables: { variables: { first_name: '', reset_link: '' } },
+                expected: ['variables.first_name', 'variables.reset_link'],
+            },
+        ] as const)('$type offers $expected', async ({ type, variables, expected }) => {
+            logic = emailTemplaterLogic(makeProps({ type, variables }))
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const offered = Object.keys(logic.values.mergeTags).filter((key) => !key.startsWith('unsubscribe'))
+            expect(offered).toEqual(expected)
+        })
+
+        it('pushes a newly added variable into the open editor', async () => {
+            const setMergeTags = jest.fn()
+            const props = makeProps({ type: 'native_email_transactional_template', variables: { variables: {} } })
+            logic = emailTemplaterLogic(props)
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { setMergeTags, addEventListener: jest.fn(), loadDesign: jest.fn() },
+            } as any)
+            logic.actions.onEmailEditorReady()
+
+            emailTemplaterLogic({ ...props, variables: { variables: { code: '' } } })
+
+            expect(setMergeTags).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    'variables.code': expect.objectContaining({ value: '{{ variables.code }}' }),
+                })
+            )
         })
     })
 
@@ -236,6 +282,61 @@ describe('emailTemplaterLogic', () => {
                 }),
             })
         })
+
+        it('applying a text-only template clears the previous html body and design', async () => {
+            const onChange = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({
+                    value: {
+                        ...DEFAULT_EMAIL_TEMPLATE,
+                        html: '<p>Hello from PostHog!</p>',
+                        design: {} as EmailTemplate['design'],
+                    },
+                    onChange,
+                })
+            )
+            logic.mount()
+
+            logic.actions.applyTemplate({
+                id: 'template-2',
+                name: 'Plain receipt',
+                content: {
+                    templating: 'liquid',
+                    email: { subject: 'Your receipt', text: 'Thanks for your order.' },
+                },
+            } as MessageTemplate)
+
+            expect(onChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    subject: 'Your receipt',
+                    text: 'Thanks for your order.',
+                    html: '',
+                    design: null,
+                })
+            )
+        })
+
+        it('applying a template whose stored wrap is stale loads its current html', () => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+            loadDesign.mockClear()
+
+            logic.actions.applyTemplate({
+                id: 'template-3',
+                name: 'Newsletter',
+                content: {
+                    templating: 'liquid',
+                    email: { subject: 'News', html: '<p>new</p>', design: buildHtmlWrapDesign('<p>old</p>') },
+                },
+            } as MessageTemplate)
+
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'))
+        })
     })
 
     describe('html-only emails', () => {
@@ -256,6 +357,50 @@ describe('emailTemplaterLogic', () => {
                 type: 'html',
                 values: { html: '<p>raw</p>' },
             })
+        })
+
+        it.each([
+            ['the html was rewritten', '<p>old</p>', '<p>new</p>', '<p>new</p>'],
+            ['copy was appended to the block', '<p>old</p>', '<p>old</p><p>footer</p>', '<p>old</p><p>footer</p>'],
+            ['copy was appended inside its Unlayer render', '<p>old</p>', RENDER_WITH_FOOTER, RENDER_WITH_FOOTER],
+            [
+                'the block itself is an Unlayer page that got a footer',
+                RENDERED_PAGE,
+                RENDERED_PAGE_WITH_FOOTER,
+                RENDERED_PAGE_WITH_FOOTER,
+            ],
+            ['an image was added inside its Unlayer render', '<p>old</p>', RENDER_WITH_IMAGE, RENDER_WITH_IMAGE],
+            [
+                'an Outlook-only footer was added inside its Unlayer render',
+                '<p>old</p>',
+                RENDER_WITH_OUTLOOK_FOOTER,
+                RENDER_WITH_OUTLOOK_FOOTER,
+            ],
+            [
+                'a footer hidden from Outlook was added inside its Unlayer render',
+                '<p>old</p>',
+                RENDER_WITH_NON_OUTLOOK_FOOTER,
+                RENDER_WITH_NON_OUTLOOK_FOOTER,
+            ],
+            ['the html is the Unlayer render of the wrap', '<p>old</p>', RENDER_OF_OLD, '<p>old</p>'],
+            [
+                'the html is the Unlayer render of the wrap in Outlook column wrappers',
+                '<p>old</p>',
+                RENDER_IN_OUTLOOK_COLUMN,
+                '<p>old</p>',
+            ],
+        ])('when %s, the canvas loads a wrap of the right html', (_name, blockHtml, html, expectedBlockHtml) => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({ value: { ...DEFAULT_EMAIL_TEMPLATE, design: buildHtmlWrapDesign(blockHtml), html } })
+            )
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign(expectedBlockHtml))
         })
 
         it('does not load anything when there is neither design nor html', () => {

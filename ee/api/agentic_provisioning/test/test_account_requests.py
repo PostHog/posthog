@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.db import IntegrityError
 from django.http import JsonResponse
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,7 +21,8 @@ from posthog.test.authentication_checks import covers_authentication
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
+from ee.api.agentic_provisioning.serializers import AccountRequestSerializer
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_JWKS_URI, ProvisioningTestBase, provisioning_config
 
 ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
 VALID_CODE_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
@@ -39,7 +40,7 @@ class TestAccountRequests(ProvisioningTestBase):
         return payload
 
     def _post_account_request(self, payload):
-        return self._post_with_client_secret(ACCOUNT_REQUESTS_URL, payload)
+        return self._post_as_partner(ACCOUNT_REQUESTS_URL, payload)
 
     def test_no_identified_partner_returns_401(self):
         res = self._post_api(ACCOUNT_REQUESTS_URL, self._account_request_payload())
@@ -236,6 +237,31 @@ class TestAccountRequests(ProvisioningTestBase):
         assert refusals[0].kwargs["error_code"] == "account_creation_disabled"
         assert refusals[0].kwargs["partner"] == self.partner
 
+    @parameterized.expand(
+        [
+            ("unverified_radar_block", False, "block", "newuser@example.com", 403, "suspicious_attempt_blocked"),
+            ("unverified_radar_challenge", False, "challenge", "newuser@example.com", 200, None),
+            ("verified_ignores_radar_block", True, "block", "newuser@example.com", 200, None),
+            ("verified_disposable_email", True, "allow", "newuser@mailinator.com", 403, "access_blocked"),
+            ("verified_disposable_subdomain", True, "allow", "newuser@inbox.mailinator.com", 403, "access_blocked"),
+        ]
+    )
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test-key")
+    def test_new_user_signup_risk_check(
+        self, _name, partner_verified, verdict, email, expected_status, expected_error_code
+    ):
+        self.partner.is_verified = partner_verified
+        self.partner.save(update_fields=["is_verified"])
+
+        with patch("posthog.workos_radar.requests.post") as mock_radar:
+            mock_radar.return_value.status_code = 200
+            mock_radar.return_value.json.return_value = {"verdict": verdict}
+            res = self._post_account_request(self._account_request_payload(email=email))
+
+        assert res.status_code == expected_status, res.json()
+        assert res.json().get("error", {}).get("code") == expected_error_code
+        assert User.objects.filter(email=email).exists() is (expected_status == 200)
+
 
 class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
     def setUp(self):
@@ -244,7 +270,8 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
             client_id="pkce-test-partner",
             name="PKCE Test Partner",
             client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            jwks_uri=TEST_PARTNER_JWKS_URI,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
@@ -256,7 +283,7 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         )
 
     def _post_as_pkce_partner(self, data: dict):
-        return self._post_api(ACCOUNT_REQUESTS_URL, data)
+        return self._post_as_partner(ACCOUNT_REQUESTS_URL, data, partner=self.pkce_partner)
 
     def _account_request_payload(self, **overrides):
         payload = {
@@ -422,3 +449,30 @@ class TestCaptureProvisioningEvent(ProvisioningTestBase):
         else:
             assert "client_name" not in props
             assert "partner_id" not in props
+
+
+class TestAccountRequestEmail(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("uppercase_domain", "Jane@Example.ORG", "Jane@example.org"),
+            ("internationalized_domain_kept", "jane@B\u00fccher.de", "jane@B\u00fccher.de"),
+        ]
+    )
+    def test_email_domain_is_normalized(self, _name, raw, expected):
+        serializer = AccountRequestSerializer(data={"email": raw})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["email"] == expected
+
+    @parameterized.expand(
+        [
+            ("not_an_email", "not-an-email"),
+            ("trailing_dot", "jane@example.org."),
+            ("fullwidth_dot", "jane@example\uff0eorg"),
+            ("ideographic_dot", "jane@example\u3002org"),
+            ("too_long", f"{'j' * 250}@example.org"),
+        ]
+    )
+    def test_invalid_email_is_rejected(self, _name, raw):
+        serializer = AccountRequestSerializer(data={"email": raw})
+        assert not serializer.is_valid()
+        assert "email" in serializer.errors

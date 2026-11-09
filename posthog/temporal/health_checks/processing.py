@@ -5,7 +5,7 @@ import structlog
 from posthog.temporal.health_checks.alerts import emit_health_check_alert
 from posthog.temporal.health_checks.db import resolve_stale_issues_with_deltas, upsert_issues_with_deltas
 from posthog.temporal.health_checks.framework import health_check_class_for_kind
-from posthog.temporal.health_checks.models import BatchDetectFn, BatchResult
+from posthog.temporal.health_checks.models import BatchDetectFn, BatchResult, HealthCheckBatchSkipped
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
 from posthog.temporal.health_checks.signal_emitter import emit_health_check_signals
 from posthog.temporal.health_checks.validation import _validate_batch_output
@@ -46,8 +46,14 @@ def _process_batch_detection(
         return result
 
     start = time.monotonic()
-    issues_by_team = detect_fn(eligible_team_ids)
-    result.detect_duration = time.monotonic() - start
+    try:
+        issues_by_team = detect_fn(eligible_team_ids)
+    except HealthCheckBatchSkipped as skipped:
+        logger.warning("health check batch skipped", kind=kind, reason=str(skipped), teams=len(eligible_team_ids))
+        result.teams_skipped = len(eligible_team_ids)
+        return result
+    finally:
+        result.detect_duration = time.monotonic() - start
 
     issues_by_team, teams_dropped = _validate_batch_output(issues_by_team, set(eligible_team_ids), kind)
 
@@ -78,10 +84,11 @@ def _process_batch_detection(
     result.issues_resolved = len(newly_resolved)
     result.resolve_duration = time.monotonic() - start
 
-    for issue in newly_active:
-        emit_health_check_alert(issue, status="firing")
+    if check_cls is None or check_cls.emits_alerts:
+        for issue in newly_active:
+            emit_health_check_alert(issue, status="firing")
+        for issue in newly_resolved:
+            emit_health_check_alert(issue, status="resolved")
     emit_health_check_signals(newly_active)
-    for issue in newly_resolved:
-        emit_health_check_alert(issue, status="resolved")
 
     return result

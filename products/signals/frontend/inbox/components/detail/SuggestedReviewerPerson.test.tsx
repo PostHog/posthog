@@ -24,6 +24,8 @@ describe('Suggested reviewer presentation', () => {
         [
             'keyboard focus',
             async (tag: HTMLElement) => {
+                // The reviewer's name is the first tab stop because it opens the row menu.
+                await userEvent.tab()
                 await userEvent.tab()
                 expect(tag).toHaveFocus()
             },
@@ -93,11 +95,15 @@ describe('Suggested reviewer presentation', () => {
             screen.getByText('Quinn Foster').compareDocumentPosition(addButton) & Node.DOCUMENT_POSITION_FOLLOWING
         ).toBeTruthy()
 
-        const removeButton = screen.getByLabelText('Remove Maya Rivera')
-        expect(removeButton).toBeVisible()
-        expect(removeButton).not.toHaveClass('opacity-0')
-        await userEvent.click(removeButton)
-        expect(onRemove).toHaveBeenCalledWith([maya])
+        // The row shows no buttons. The name opens the reviewer's menu, and the picked reason travels with the removal.
+        const row = screen.getByLabelText('Actions for Maya Rivera')
+        expect(row).toBeVisible()
+        await userEvent.click(row)
+        await userEvent.click(await screen.findByText('Not their area'))
+        expect(onRemove).toHaveBeenLastCalledWith([maya], { reason: 'wrong_area' })
+        await userEvent.click(row)
+        await userEvent.click(await screen.findByText('Without a reason'))
+        expect(onRemove).toHaveBeenLastCalledWith([maya], undefined)
     })
     test.each([
         ['your own row while your claim is saving', 'me', true, 'Updating…'],

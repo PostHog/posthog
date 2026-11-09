@@ -12,9 +12,14 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.models import Organization, ProxyRecord
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
+
 from products.surveys.backend.models import Survey
 
 EXTERNAL_SITE_URL = "https://app.posthog-test.example"
+OWN_PROXY_DOMAIN = "surveys.own-org.example.com"
+OTHER_PROXY_DOMAIN = "surveys.other-org.example.com"
 
 
 class TestExternalSurveys(APIBaseTest):
@@ -103,6 +108,43 @@ class TestExternalSurveys(APIBaseTest):
 
         assert xss_payload not in content
         assert "\\u003C/script\\u003E" in content or "\\u003c/script\\u003e" in content
+
+    @parameterized.expand(
+        [
+            (
+                "null_appearance",
+                None,
+                None,
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
+            ),
+            (
+                "team_header_html_is_sanitized",
+                None,
+                {"appearance": {"thankYouMessageHeader": "<script>alert(1)</script>Thanks"}},
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thanks"},
+            ),
+            (
+                "team_appearance_not_an_object",
+                None,
+                {"appearance": "dark"},
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
+            ),
+            ("saved_opt_out", {"displayThankYouMessage": False}, None, {"displayThankYouMessage": False}),
+            ("saved_partial", {"backgroundColor": "#1d4ed8"}, None, {"backgroundColor": "#1d4ed8"}),
+        ]
+    )
+    def test_hosted_page_shows_confirmation_screen_for_unset_appearance(
+        self, _name: str, appearance: dict | None, survey_config: dict | None, expected: dict
+    ) -> None:
+        if survey_config:
+            self.team.survey_config = survey_config
+            self.team.save(update_fields=["survey_config"])
+        survey = self.create_external_survey(appearance=appearance)
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+
+        assert response.status_code == 200
+        assert response.context["survey_data"]["appearance"] == expected
 
     def test_valid_survey_id_required(self):
         """Test that invalid survey IDs are rejected"""
@@ -296,11 +338,17 @@ class TestExternalSurveys(APIBaseTest):
 
     # FUNCTIONALITY TESTS
 
+    def test_organization_ip_restrictions_do_not_block_public_survey(self):
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        self.client.force_login(self.user)
+        survey = self.create_external_survey()
+        self.assertEqual(self.client.get(f"/external_surveys/{survey.id}/").status_code, 200)
+
     def test_successful_survey_rendering(self):
         """Test that a valid external survey renders correctly"""
         survey = self.create_external_survey()
 
-        response = self.client.get(f"/external_surveys/{survey.id}/")
+        response = self.client.get(f"/external_surveys/{survey.id}/", REMOTE_ADDR="198.51.100.7")
         assert response.status_code == 200
 
         # Check that essential elements are present
@@ -380,6 +428,79 @@ class TestExternalSurveys(APIBaseTest):
         error_content = error_response.content.decode()
         assert f'href="{EXTERNAL_SITE_URL}/static/icons/favicon-32x32.png' in error_content
         assert 'href="/static/' not in error_content
+
+    @parameterized.expand(
+        [
+            ("own_proxy_domain", OWN_PROXY_DOMAIN, {}, {}, 200, "Quarterly feedback"),
+            ("unregistered_host", "surveys.self-run-proxy.example.com", {}, {}, 200, "Quarterly feedback"),
+            ("other_org_proxy_domain", OTHER_PROXY_DOMAIN, {}, {}, 404, "Survey not available"),
+            (
+                "other_org_domain_stored_mixed_case",
+                OTHER_PROXY_DOMAIN,
+                {"domain": "Surveys.Other-Org.example.com"},
+                {},
+                404,
+                "Survey not available",
+            ),
+            (
+                "other_org_record_being_deleted",
+                OTHER_PROXY_DOMAIN,
+                {"status": ProxyRecord.Status.DELETING},
+                {},
+                404,
+                "Survey not available",
+            ),
+            (
+                "other_org_record_retrying",
+                OTHER_PROXY_DOMAIN,
+                {"status": ProxyRecord.Status.WAITING},
+                {},
+                404,
+                "Survey not available",
+            ),
+            (
+                "other_org_proxy_domain_archived_survey",
+                OTHER_PROXY_DOMAIN,
+                {},
+                {"archived": True},
+                404,
+                "Survey not available",
+            ),
+        ]
+    )
+    @override_settings(USE_X_FORWARDED_HOST=True)
+    def test_managed_proxy_domain_serves_only_its_own_organization_surveys(
+        self,
+        _name: str,
+        host: str,
+        other_record_overrides: dict,
+        survey_overrides: dict,
+        expected_status: int,
+        expected_text: str,
+    ) -> None:
+        survey = self.create_external_survey(name="Quarterly feedback", **survey_overrides)
+        ProxyRecord.objects.create(
+            organization=self.organization,
+            domain=OWN_PROXY_DOMAIN,
+            target_cname="own.proxy.example.com",
+            status=ProxyRecord.Status.VALID,
+        )
+        ProxyRecord.objects.create(
+            **{
+                "organization": Organization.objects.create(name="Other organization"),
+                "domain": OTHER_PROXY_DOMAIN,
+                "target_cname": "other.proxy.example.com",
+                "status": ProxyRecord.Status.VALID,
+                **other_record_overrides,
+            }
+        )
+
+        response = self.client.get(
+            f"/external_surveys/{survey.id}/", HTTP_HOST=host, HTTP_X_FORWARDED_HOST="testserver"
+        )
+
+        assert response.status_code == expected_status
+        assert expected_text in response.content.decode()
 
     @override_settings(SITE_URL="http://localhost:8010")
     def test_localhost_site_url_falls_back_to_relative_asset_urls(self):

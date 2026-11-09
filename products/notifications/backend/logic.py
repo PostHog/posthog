@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from django.db import transaction
 
 import structlog
@@ -119,6 +121,27 @@ def publish_resource_edited(
     `resource_type` is the value the frontend matches on (e.g. "HogFlow"); `ac_resource_type` is the
     access-control scope used to drop recipients without viewer access (e.g. "hog_flow").
     """
+    publish_resources_edited(
+        team=team,
+        resource_type=resource_type,
+        edits=[(resource_id, updated_at)],
+        actor_user_id=actor_user_id,
+        ac_resource_type=ac_resource_type,
+    )
+
+
+def publish_resources_edited(
+    *,
+    team: Team,
+    resource_type: str,
+    edits: Sequence[tuple[str, str]],
+    actor_user_id: int | None = None,
+    ac_resource_type: str | None = None,
+) -> None:
+    """`publish_resource_edited` for many resources of one type at once. `edits` holds (resource_id, updated_at)
+    pairs. The flag check and the recipients resolve once for the whole set, not once per resource."""
+    if not edits:
+        return
     organization_id = team.organization_id
 
     if not posthoganalytics.feature_enabled(
@@ -138,24 +161,32 @@ def publish_resource_edited(
     if not recipient_user_ids:
         return
 
-    payload = {
-        "organization_id": str(organization_id),
-        "team_id": team.id,
-        "notification_type": RESOURCE_EDITED_EVENT_TYPE,
-        "resource_type": resource_type,
-        "resource_id": str(resource_id),
-        "updated_at": updated_at,
-        "actor_user_id": actor_user_id,
-        "resolved_user_ids": recipient_user_ids,
-        "priority": "normal",
-    }
+    payloads = [
+        {
+            "organization_id": str(organization_id),
+            "team_id": team.id,
+            "notification_type": RESOURCE_EDITED_EVENT_TYPE,
+            "resource_type": resource_type,
+            "resource_id": str(resource_id),
+            "updated_at": updated_at,
+            "actor_user_id": actor_user_id,
+            "resolved_user_ids": recipient_user_ids,
+            "priority": "normal",
+        }
+        for resource_id, updated_at in edits
+    ]
 
     def _on_commit() -> None:
         try:
             producer = get_producer(topic=KAFKA_NOTIFICATION_EVENTS)
-            producer.produce(topic=KAFKA_NOTIFICATION_EVENTS, data=payload, key=str(organization_id))
         except Exception:
-            logger.exception("notifications.resource_edited_publish_failed", resource_id=str(resource_id))
+            logger.exception("notifications.resource_edited_publish_failed", resource_id=edits[0][0])
+            return
+        for payload in payloads:
+            try:
+                producer.produce(topic=KAFKA_NOTIFICATION_EVENTS, data=payload, key=str(organization_id))
+            except Exception:
+                logger.exception("notifications.resource_edited_publish_failed", resource_id=payload["resource_id"])
 
     transaction.on_commit(_on_commit)
 
@@ -236,7 +267,7 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
     if data.idempotency_key:
         event, created = NotificationEvent.objects.get_or_create(
             organization_id=organization.id,
-            team_id=data.team_id,
+            team_id=data.team_id,  # type: ignore[misc]  # nullable FK; django-stubs drops None from *_id lookups
             idempotency_key=data.idempotency_key,
             defaults=event_data,
         )

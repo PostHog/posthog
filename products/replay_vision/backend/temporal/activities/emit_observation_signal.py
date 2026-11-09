@@ -134,5 +134,5 @@ def _emit_observation_signals(inputs: EmitObservationSignalInputs) -> list[Emitt
 @track_activity(side_effect="signal")
 def emit_observation_signal_summaries_activity(inputs: EmitObservationSignalInputs) -> list[EmittedSignal]:
     """Emit the observation's side-mission findings and return each emitted signal, in emission order — the
-    watch feed names them on the card and weighs them by confidence when it ranks."""
+    highlight feed names them on the card and weighs them by confidence when it ranks."""
     return _emit_observation_signals(inputs)

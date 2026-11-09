@@ -238,6 +238,15 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return self.owner == PlatformAlertOwner.PLATFORM
 
     @property
+    def platform_owned_since(self) -> datetime | None:
+        """When the platform took this alert over, or None while the insight stack owns it.
+
+        The alert's own checks before then are its history. Its own checks after then are the shadow's,
+        which sent nothing, so the platform's checks replace them.
+        """
+        return self.owner_changed_at if self.platform_owned else None
+
+    @property
     def is_high_frequency_interval(self) -> bool:
         # Real-time counts as high frequency so its checks always run fresh ClickHouse
         # queries (CALCULATE_BLOCKING_ALWAYS) instead of reading a possibly stale cache.
@@ -334,19 +343,40 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     def check_alert_limit(cls, team_id: int, organization: Organization) -> str | None:
         """Return an error message if the team has reached its alert limit, else None."""
         alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
-        existing_count = cls.objects.filter(team_id=team_id).count()
 
         if alerts_feature:
             allowed = alerts_feature.get("limit")
             # If allowed is None then the user is allowed unlimited alerts
-            if allowed is not None and existing_count >= allowed:
+            if allowed is not None and cls._counted(team_id) >= allowed:
                 return f"Your team has reached the limit of {allowed} alerts on your plan."
         else:
             # If the org doesn't have alerts feature, limit to that on free tier
-            if existing_count >= cls.ALERTS_ALLOWED_ON_FREE_TIER:
+            if cls._counted(team_id) >= cls.ALERTS_ALLOWED_ON_FREE_TIER:
                 return f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts."
 
         return None
+
+    @classmethod
+    def _counted(cls, team_id: int, *, active_real_time: bool = False, exclude_id: str | None = None) -> int:
+        """The team's insight alerts: each insight row, and each platform alert with no insight row."""
+        # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.
+        from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES  # noqa: PLC0415
+
+        rows = cls.objects.filter(team_id=team_id)
+        if active_real_time:
+            rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
+        if exclude_id:
+            rows = rows.exclude(pk=exclude_id)
+        native = count_configurations(
+            team_id=team_id,
+            source_kind=SourceKind.INSIGHT,
+            native_only=True,
+            enabled_only=active_real_time,
+            check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
+        )
+        return rows.count() + native
 
     @classmethod
     def supports_high_frequency_intervals(cls, organization: Organization) -> bool:
@@ -412,10 +442,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         if allowed is None:
             return None
 
-        qs = cls.objects.filter(team_id=team_id, calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
-        if exclude_id:
-            qs = qs.exclude(pk=exclude_id)
-        existing_count = qs.count()
+        existing_count = cls._counted(team_id, active_real_time=True, exclude_id=exclude_id)
         if existing_count >= allowed:
             return f"Your team has reached the limit of {allowed} real-time alerts on your plan."
         return None

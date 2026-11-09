@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import time
 import random
 import signal
@@ -580,6 +581,7 @@ class BatchConsumer:
         # batch_id -> the attempt this consumer wrote as 'executing', for the shutdown marker.
         self._executing: dict[str, ExecutingAttempt] = {}
         self._last_stuck_log_monotonic = 0.0
+        self._stack_dumped_batch_id: str | None = None
         # Consecutive failed polls, for the poll-failure liveness trip.
         self._consecutive_poll_failures = 0
         self._last_poll_failure_log_monotonic = 0.0
@@ -2011,10 +2013,16 @@ class BatchConsumer:
             now = time.monotonic()
             oldest_id, oldest_started = min(self._inflight_started.items(), key=lambda kv: kv[1])
             if now - oldest_started > timeout:
+                progress = self._inflight_progress.get(oldest_id)
+                phase, phase_seconds = progress.snapshot() if progress is not None else ("unknown", 0.0)
+                if self._stack_dumped_batch_id != oldest_id:
+                    # Worker threads can hang in native code while the event loop stays alive, so the
+                    # timer-based stall dump never fires. Dump once per stuck batch before the pod restarts.
+                    self._stack_dumped_batch_id = oldest_id
+                    logger.error(self._event("stuck_batch_stack_dump"), batch_id=oldest_id, phase=phase)
+                    faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
                 if now - self._last_stuck_log_monotonic > 60:
                     self._last_stuck_log_monotonic = now
-                    progress = self._inflight_progress.get(oldest_id)
-                    phase, phase_seconds = progress.snapshot() if progress is not None else ("unknown", 0.0)
                     logger.error(
                         self._event("stuck_batch_watchdog_tripped"),
                         batch_id=oldest_id,

@@ -1,16 +1,19 @@
 import { useActions, useValues } from 'kea'
+import { Fragment, useMemo } from 'react'
 
 import { Text } from '@posthog/quill'
 
 import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
 import { productsItemName } from '~/layout/panel-layout/navbar/tabs/productsCatalog'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
-import { TodayPaneRow } from './TodayPaneRow'
 import { analyticsTypesForPaneSearch } from './todayPaneSearch'
-import { TodayPaneSearchList } from './TodayPaneSearchList'
-import { TodayPaneSection } from './TodayPaneSection'
+import { productPreview } from './todayPreviewCards'
+import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodayProductRow } from './TodayProductRow'
 import { TodayProductsAnalyticsHint } from './TodayProductsAnalyticsHint'
 import { todayProductsLogic } from './todayProductsLogic'
@@ -31,6 +34,11 @@ export function TodayProductsSidebar(): JSX.Element {
     const searching = !!search.trim()
     const searchedAnalyticsTypes = analyticsTypesForPaneSearch(search)
     const hasProducts = pinnedProducts.length > 0 || starredProducts.length > 0 || productCount > 0
+    // The shared card stores the payload, so it must keep its identity between renders.
+    const pinnedPreviews = useMemo(
+        () => new Map(pinnedProducts.map((item) => [item.href, productPreview(productsItemName(item), item)])),
+        [pinnedProducts]
+    )
 
     // A product can show in Starred and in its category, so the group keeps the rows apart on the keyboard path.
     const renderProduct = (item: FileSystemImport, group: string): JSX.Element => (
@@ -48,7 +56,7 @@ export function TodayProductsSidebar(): JSX.Element {
 
     return (
         <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
-            <TodayPaneSearchList
+            <SidebarSearchList
                 query={search}
                 onQueryChange={setSearch}
                 searchLabel="Search products"
@@ -64,21 +72,30 @@ export function TodayProductsSidebar(): JSX.Element {
                     ))}
                 {pinnedProducts.length > 0 && (
                     <div className="flex flex-col gap-px pb-2">
-                        {pinnedProducts.map((item) => (
-                            <TodayPaneRow
-                                key={item.href}
-                                value={`pinned:${item.href}`}
-                                label={productsItemName(item)}
-                                icon={<NavProductIcon item={item} />}
-                                to={item.href ?? ''}
-                                active={item.href === activeHref}
-                                dataAttr="today-tool-pinned"
-                            />
-                        ))}
+                        {pinnedProducts.map((item) => {
+                            const row = (
+                                <SidebarRow
+                                    value={`pinned:${item.href}`}
+                                    label={productsItemName(item)}
+                                    icon={<NavProductIcon item={item} />}
+                                    to={item.href ?? ''}
+                                    active={item.href === activeHref}
+                                    dataAttr="today-tool-pinned"
+                                />
+                            )
+                            const preview = pinnedPreviews.get(item.href)
+                            return preview?.description ? (
+                                <TodayPreviewTrigger key={item.href} payload={preview}>
+                                    {row}
+                                </TodayPreviewTrigger>
+                            ) : (
+                                <Fragment key={item.href}>{row}</Fragment>
+                            )
+                        })}
                     </div>
                 )}
                 {starredProducts.length > 0 && (
-                    <TodayPaneSection
+                    <SidebarSection
                         label="Starred"
                         open={starredOpen || searching}
                         count={starredProducts.length}
@@ -86,10 +103,10 @@ export function TodayProductsSidebar(): JSX.Element {
                         dataAttr="today-section-starred"
                     >
                         {starredProducts.map((item) => renderProduct(item, 'starred'))}
-                    </TodayPaneSection>
+                    </SidebarSection>
                 )}
                 {productCount > 0 && (
-                    <TodayPaneSection
+                    <SidebarSection
                         label="All products"
                         open={allProductsOpen || searching}
                         count={productCount}
@@ -102,9 +119,9 @@ export function TodayProductsSidebar(): JSX.Element {
                                 {group.items.map((item) => renderProduct(item, group.label))}
                             </div>
                         ))}
-                    </TodayPaneSection>
+                    </SidebarSection>
                 )}
-            </TodayPaneSearchList>
+            </SidebarSearchList>
         </div>
     )
 }

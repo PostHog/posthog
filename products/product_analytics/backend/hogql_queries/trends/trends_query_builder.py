@@ -27,7 +27,8 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.product_analytics.backend.hogql_queries.trends.aggregation_operations import AggregationOperations
 from products.product_analytics.backend.hogql_queries.trends.breakdown import Breakdown
 from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay
@@ -906,9 +907,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _get_action_expr(self, series: ActionsNode) -> ast.Expr | None:
         try:
-            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+            action = get_action(action_id=int(series.id), project_id=self.team.project_id)
             return action_to_expr(action)
-        except Action.DoesNotExist:
+        except ActionNotFound:
             # If an action doesn't exist, we want to return no events
             return parse_expr("1 = 2")
 

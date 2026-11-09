@@ -32,6 +32,7 @@ from posthog.sync import database_sync_to_async
 
 from products.notebooks.backend.facade import api as notebooks_facade
 from products.notebooks.backend.facade.widgets import reusable_widget_catalog_context
+from products.product_analytics.backend.facade.api import viewable_saved_queries
 
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
@@ -185,6 +186,11 @@ class AssistantContextManager(AssistantContextMixin):
         )
 
     @database_sync_to_async
+    def _get_viewable_saved_queries(self, short_ids: list[str]) -> dict[str, dict[str, Any]]:
+        # The ids come from the client, so apply the same viewer check as reading an insight.
+        return viewable_saved_queries(team=self._team, user=self._user, short_ids=short_ids)
+
+    @database_sync_to_async
     def check_has_audit_logs_access(self) -> bool:
         """
         Check if the user has access to the audit logs tool.
@@ -261,6 +267,7 @@ class AssistantContextManager(AssistantContextMixin):
 
                 # Build DashboardInsightContext models for this dashboard
                 insights_data: list[DashboardInsightContext] = []
+                saved_queries = await self._get_viewable_saved_queries([insight.id for insight in dashboard.insights])
                 for insight in dashboard.insights:
                     filters_override = (
                         insight.filtersOverride.model_dump(mode="json") if insight.filtersOverride else None
@@ -278,6 +285,7 @@ class AssistantContextManager(AssistantContextMixin):
                             short_id=insight.id,
                             filters_override=filters_override,
                             variables_override=variables_override,
+                            saved_query=saved_queries.get(insight.id),
                         )
                     )
 

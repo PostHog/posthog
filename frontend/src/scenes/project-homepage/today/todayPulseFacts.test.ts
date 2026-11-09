@@ -1,43 +1,50 @@
-import { dayjs } from 'lib/dayjs'
-
-import { pulsePeak, pulseWhy } from './todayPulseFacts'
+import { pulseChange } from './todayPulseFacts'
 import { makePulseMetric } from './todayTestFixtures'
 
 describe('todayPulseFacts', () => {
-    const today = dayjs('2026-09-30T10:00:00')
-
     it.each([
+        ['a count', { value: 120, previous_value: 100, change_pct: 20, value_format: null }, { value: 20, unit: '%' }],
         [
-            'an insight opened on several days',
-            { reason: 'routine', opened_days: 5, last_opened: '2026-09-29' },
-            'You opened this insight on 5 of the last 14 days, most recently yesterday.',
+            'a 0-100 rate',
+            {
+                value: 3.4,
+                previous_value: 3,
+                change_pct: 13.3,
+                value_format: { format: 'percentage', prefix: null, postfix: null, decimal_places: 1 },
+            },
+            { value: 3.4 - 3, unit: 'pp' },
         ],
         [
-            'an insight opened once',
-            { reason: 'routine', opened_days: 1, last_opened: '2026-09-21' },
-            'You last opened this insight on Sep 21.',
+            'a 0-1 rate',
+            {
+                value: 0.25,
+                previous_value: 0.2,
+                change_pct: 25,
+                value_format: { format: 'percentage_scaled', prefix: null, postfix: null, decimal_places: 1 },
+            },
+            { value: (0.25 - 0.2) * 100, unit: 'pp' },
         ],
         [
-            'a dashboard tile opened today',
-            { reason: 'dashboard', dashboard_name: 'Growth', opened_days: 9, last_opened: '2026-09-30' },
-            'You opened the Growth dashboard on 9 of the last 14 days, most recently today. This is the first chart on that dashboard.',
+            'a rate that starts from zero',
+            {
+                value: 5,
+                previous_value: 0,
+                change_pct: null,
+                value_format: { format: 'percentage', prefix: null, postfix: null, decimal_places: 1 },
+            },
+            { value: 5, unit: 'pp' },
         ],
         [
-            'a key metric',
-            { reason: 'key_metric', opened_days: null, last_opened: null },
-            'It is a key metric for this project, set in Customer analytics.',
+            'a rate with no earlier period',
+            {
+                value: 5,
+                previous_value: null,
+                change_pct: null,
+                value_format: { format: 'percentage', prefix: null, postfix: null, decimal_places: 1 },
+            },
+            { value: null, unit: 'pp' },
         ],
-        ['a metric computed before reasons existed', { reason: null }, null],
-    ] as const)('explains %s', (_name, overrides, expected) => {
-        expect(pulseWhy(makePulseMetric(overrides), today)).toBe(expected)
-    })
-
-    it('finds the highest value with the period it belongs to, skipping missing values', () => {
-        const metric = makePulseMetric({
-            interval: 'day',
-            series: [3, NaN, 9, 4],
-            period_starts: ['2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29'],
-        })
-        expect(pulsePeak(metric)).toEqual({ label: 'Top day', value: 9, start: '2026-09-28', latest: null })
+    ] as const)('measures the change of %s', (_name, overrides, expected) => {
+        expect(pulseChange(makePulseMetric(overrides))).toEqual(expected)
     })
 })

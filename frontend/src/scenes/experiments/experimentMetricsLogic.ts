@@ -73,13 +73,16 @@ export interface ExperimentMetricsLogicProps {
 // minutes a dashboard waits between bulk refreshes. The backend applies the same window and returns that run.
 const MIN_MANUAL_REFRESH_INTERVAL_MINUTES = 5
 const RECALCULATION_POLL_INTERVAL_MS = 2000
+/** A run past the backend's 30-minute staleness threshold is usually waiting for a slot in a capped queue. */
+const QUEUED_RUN_AGE_MS = 30 * 60 * 1000
+const QUEUED_RUN_POLL_INTERVAL_MS = 60 * 1000
 const MAX_POLL_RETRIES = 5
 /**
- * Mirrors the backend's 30-minute staleness threshold (_STALE_RECALC_THRESHOLD): a run still non-terminal
- * past it is a zombie whose worker died, and the backend will force-fail it on the next trigger. Without
- * this cap every tab that resumed the run would poll its id (and the per-tick live-progress query) forever.
+ * Mirrors the backend's 1-hour ceiling (_QUEUED_RECALC_CEILING): a run still non-terminal past it is treated
+ * as dead, and the backend fails it on the next trigger. Without this cap every tab that resumed the run would
+ * poll its id (and the per-tick live-progress query) forever.
  */
-const MAX_POLL_DURATION_MS = 30 * 60 * 1000
+const MAX_POLL_DURATION_MS = 60 * 60 * 1000
 // A request that never settles neither resolves nor rejects, so without a deadline the page loads forever.
 const LATEST_REQUEST_TIMEOUT_MS = 30 * 1000
 const POLL_REQUEST_TIMEOUT_MS = 15 * 1000
@@ -90,6 +93,10 @@ const STALE_REFRESH_STATUSES: ReadonlySet<ExperimentStatus> = new Set([
     ExperimentStatus.Running,
     ExperimentStatus.ExposureFrozen,
 ])
+
+function pollIntervalMs(runAgeMs: number): number {
+    return runAgeMs > QUEUED_RUN_AGE_MS ? QUEUED_RUN_POLL_INTERVAL_MS : RECALCULATION_POLL_INTERVAL_MS
+}
 
 class RecalculationRequestTimeoutError extends Error {}
 
@@ -257,6 +264,8 @@ const resolveResultByUuid = (
  * wins (it covers FAILED rows AND discovery-step failures absent from `results`), falling back to a
  * failed row's error_message. A rejected run carries the earlier run's rows, so its error is dropped on a
  * metric that has a row: the banner shows the message and the cell keeps the earlier result.
+ * `_shown_failure` in products/experiments/backend/health/latest_calculation.py repeats this rule for the health
+ * checks, so change both together.
  */
 const resolveErrorByUuid = (recalculation: RecalculationPayload): ResolveByUuid<MetricErrorState> => {
     const metricErrors = metricErrorEntries(recalculation)
@@ -1073,13 +1082,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  * stop polling, and clear recalculation state. This includes any queued rerun, that will never
                  * be fired.
                  */
-                if (Date.now() - (cache.recalcStartMs ?? Date.now()) > MAX_POLL_DURATION_MS) {
+                const runAgeMs = Date.now() - (cache.recalcStartMs ?? Date.now())
+                if (runAgeMs > MAX_POLL_DURATION_MS) {
                     actions.abandonRecalculation('poll_duration_cap', recalculationId)
                     return
                 }
 
                 // Pace this tick; aborts here if a newer poll superseded us or the logic unmounted.
-                await breakpoint(RECALCULATION_POLL_INTERVAL_MS)
+                await breakpoint(pollIntervalMs(runAgeMs))
 
                 let recalculation: ExperimentMetricsRecalculationRunApi
                 try {

@@ -1,16 +1,18 @@
-import { dayjs } from 'lib/dayjs'
+import { pluralize } from 'lib/utils/strings'
 import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 
 import type {
     AEOPromptCheckApi,
-    AEOPromptStatsApi,
+    AEOPromptApi,
+    AEOPromptImportResultApi,
     ContentAutopilotOpportunityApi,
     ContentAutopilotProposalListApi,
+    PatchedAEOPromptUpdateRequestApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 const OPPORTUNITIES_STALE_AFTER_MS = 60 * 60 * 1000
 
-const ENGINE_LABELS: Record<string, string> = {
+export const ENGINE_LABELS: Record<string, string> = {
     'claude-web-search': 'Claude',
     'openai-web-search': 'ChatGPT',
     'exa-answer': 'Exa',
@@ -24,48 +26,6 @@ export const sortEngines = (engines: Iterable<string>): string[] => {
     const known = Object.keys(ENGINE_LABELS)
     const rank = (engine: string): number => (known.includes(engine) ? known.indexOf(engine) : known.length)
     return [...new Set(engines)].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
-}
-
-export type PromptHistoryCellStatus = 'cited' | 'not_cited' | 'failed' | 'no_run'
-
-export interface PromptHistoryCell {
-    date: string
-    status: PromptHistoryCellStatus
-    checks: number
-    cited: number
-    failed: number
-}
-
-export interface PromptHistoryGrid {
-    dates: string[]
-    rows: { engine: string; cells: PromptHistoryCell[] }[]
-}
-
-const historyCellStatus = ({
-    checks,
-    cited,
-    failed,
-}: Omit<PromptHistoryCell, 'date' | 'status'>): PromptHistoryCellStatus =>
-    checks === 0 ? 'no_run' : cited > 0 ? 'cited' : failed === checks ? 'failed' : 'not_cited'
-
-/** One cell per day and engine across the stats window, with days the engine did not run filled in. */
-export const promptHistoryGrid = (stats: AEOPromptStatsApi, engines: string[]): PromptHistoryGrid => {
-    const dates: string[] = []
-    for (let day = dayjs(stats.daily_from); !day.isAfter(dayjs(stats.daily_to), 'day'); day = day.add(1, 'day')) {
-        dates.push(day.format('YYYY-MM-DD'))
-    }
-    const byKey = new Map(stats.daily.map((row) => [`${row.engine}|${row.date}`, row]))
-    return {
-        dates,
-        rows: engines.map((engine) => ({
-            engine,
-            cells: dates.map((date) => {
-                const row = byKey.get(`${engine}|${date}`)
-                const counts = { checks: row?.checks ?? 0, cited: row?.cited ?? 0, failed: row?.failed ?? 0 }
-                return { date, status: historyCellStatus(counts), ...counts }
-            }),
-        })),
-    }
 }
 
 export type ContentAutopilotPageTarget =
@@ -113,3 +73,53 @@ export const opportunitiesNeedRefresh = (
 // before then, so those checks all ran the text that became version 1.
 export const checkPromptVersion = (check: Pick<AEOPromptCheckApi, 'prompt_version'>): number =>
     check.prompt_version ?? 1
+
+export const promptLines = (text: string): string[] => {
+    const seen = new Set<string>()
+    return text
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => {
+            const key = line.toLowerCase()
+            if (!line || seen.has(key)) {
+                return false
+            }
+            seen.add(key)
+            return true
+        })
+}
+
+export const promptImportMessage = ({ created, updated, skipped }: AEOPromptImportResultApi): string => {
+    const sentences = [
+        created ? `Added ${pluralize(created, 'prompt')}. The next daily run checks new prompts.` : null,
+        updated ? `Updated ${pluralize(updated, 'existing prompt')}.` : null,
+        skipped ? `Skipped ${pluralize(skipped, 'prompt')} (empty, too long, or archived).` : null,
+    ].filter(Boolean)
+    return sentences.join(' ') || 'No prompts changed.'
+}
+
+export const promptEditPatch = (
+    prompt: Pick<AEOPromptApi, 'prompt' | 'topic'>,
+    text: string,
+    topic: string
+): PatchedAEOPromptUpdateRequestApi | null => {
+    const patch: PatchedAEOPromptUpdateRequestApi = {}
+    if (text.trim() !== prompt.prompt) {
+        patch.prompt = text.trim()
+    }
+    if (topic.trim() !== prompt.topic) {
+        patch.topic = topic.trim()
+    }
+    return Object.keys(patch).length ? patch : null
+}
+
+const normalizedPrompt = (text: string): string => text.trim().replace(/\s+/g, ' ').toLowerCase()
+
+// An opportunity drafts from the text it was found for, so after an edit it stays hidden until a refresh matches it.
+export const draftableOpportunity = (
+    opportunityByPromptId: Record<string, ContentAutopilotOpportunityApi>,
+    prompt: Pick<AEOPromptApi, 'id' | 'prompt'>
+): ContentAutopilotOpportunityApi | null => {
+    const opportunity = opportunityByPromptId[prompt.id]
+    return opportunity && normalizedPrompt(opportunity.title) === normalizedPrompt(prompt.prompt) ? opportunity : null
+}
