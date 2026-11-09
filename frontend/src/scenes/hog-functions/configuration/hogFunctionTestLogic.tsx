@@ -250,6 +250,13 @@ export type hogFunctionTestLogicType = MakeLogicType<
     hogFunctionTestLogicMeta
 >
 
+function testInvocationFailureMessage(error: any): string {
+    const filterErrors = error?.data?.configuration?.filters?.non_field_errors
+    return filterErrors
+        ? `Testing failed: ${filterErrors}`
+        : `An unexpected server error occurred while testing the function: ${error}`
+}
+
 export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     props({} as HogFunctionConfigurationLogicProps),
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
@@ -548,11 +555,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                         actions.requireSecretReentry(refusal, 'test', () => actions.submitTestInvocation())
                         return
                     }
-                    if (e?.data?.configuration?.filters?.non_field_errors) {
-                        lemonToast.error(`Testing failed: ${e.data.configuration.filters.non_field_errors}`)
-                        return
-                    }
-                    lemonToast.error(`An unexpected server error occurred while testing the function: ${e}`)
+                    lemonToast.error(testInvocationFailureMessage(e))
                 }
             },
         },
