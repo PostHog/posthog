@@ -229,7 +229,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     plan_lens_chunks,
     reconcile_chunks,
 )
-from products.review_hog.backend.silent_stamphog import FinishedTurn
+from products.review_hog.backend.silent_stamphog import record_turn_coverage, start_silent_stamphog
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.review_hog.backend.temporal.types import (
     REQUESTED_TRIGGERS,
@@ -237,6 +237,8 @@ from products.review_hog.backend.temporal.types import (
     TRIGGER_LABEL,
     TRIGGER_MANUAL,
     TRIGGER_STAMPHOG,
+    SilentStamphogRequest,
+    TurnCoverageInput,
 )
 from products.signals.backend.facade.report_artefacts import (
     CodeReview,
@@ -2957,8 +2959,32 @@ async def nudge_stamphog_activity(input: TurnEndedInput) -> None:
     await database_sync_to_async(_nudge_stamphog, thread_sensitive=False)(input)
 
 
-def _start_silent_stamphog(input: FinishedTurn) -> None:
-    if input.start_silent_stamphog():
+def _record_turn_coverage(input: TurnCoverageInput) -> None:
+    record_turn_coverage(
+        team_id=input.team_id,
+        report_id=input.report_id,
+        head_sha=input.head_sha,
+        run_index=input.run_index,
+        lens_chunks_capped=input.lens_chunks_capped,
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def record_turn_coverage_activity(input: TurnCoverageInput) -> None:
+    """Record on the turn marker whether a finished Standard automatic turn was clean with full coverage.
+
+    The workflow catches the final failure. The turn then stays unrecorded, which never counts as clean.
+    """
+    await database_sync_to_async(_record_turn_coverage, thread_sensitive=False)(input)
+
+
+def _start_silent_stamphog(input: SilentStamphogRequest) -> None:
+    queued = start_silent_stamphog(
+        team_id=input.team_id, repository=input.repository, pr_number=input.pr_number, head_sha=input.head_sha
+    )
+    if queued:
         logger.info(
             "Queued a silent stamphog review of %s#%s at %s after a clean Standard review",
             input.repository,
@@ -2970,8 +2996,8 @@ def _start_silent_stamphog(input: FinishedTurn) -> None:
 @activity.defn
 @scoped_temporal()
 @close_db_connections
-async def start_silent_stamphog_activity(input: FinishedTurn) -> None:
-    """Ask stamphog for a silent review of the turn's head when the turn was clean and read every file.
+async def start_silent_stamphog_activity(input: SilentStamphogRequest) -> None:
+    """Ask stamphog for a silent review of a head that an event marked ready, when its automatic turn was recorded clean.
 
     A dispatch error raises, so Temporal retries it. The workflow catches the final failure, because
     a missed stamphog review must never fail the review.

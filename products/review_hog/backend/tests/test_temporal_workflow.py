@@ -33,7 +33,6 @@ from products.review_hog.backend.reviewer.push_gate import PushGateDecision
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import ChunkSelectionDTO, PerspectiveSelectionDTO
 from products.review_hog.backend.reviewer.tools.single_agent_review import FlashTurnStats
-from products.review_hog.backend.silent_stamphog import FinishedTurn
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
@@ -79,6 +78,8 @@ from products.review_hog.backend.temporal.resolution import (
 from products.review_hog.backend.temporal.types import (
     ResolvePRWorkflowInputs,
     ReviewPRWorkflowInputs,
+    SilentStamphogRequest,
+    TurnCoverageInput,
     resolve_pr_workflow_id,
 )
 from products.review_hog.backend.temporal.workflow import (
@@ -172,7 +173,7 @@ async def _run_full_review_pr_workflow(
     workflow_max_attempts: int | None = None,
     publish_posts: bool = True,
     fail_nudge: bool = False,
-    trigger_action: str | None = None,
+    marks_ready: bool = False,
     fail_silent_stamphog: bool = False,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
@@ -457,10 +458,16 @@ async def _run_full_review_pr_workflow(
         if fail_nudge:
             raise ApplicationError("stamphog unavailable", non_retryable=True)
 
-    silent_stamphog_calls: list[FinishedTurn] = []
+    coverage_calls: list[TurnCoverageInput] = []
+
+    @activity.defn(name="record_turn_coverage_activity")
+    async def record_coverage(input: TurnCoverageInput) -> None:
+        coverage_calls.append(input)
+
+    silent_stamphog_calls: list[SilentStamphogRequest] = []
 
     @activity.defn(name="start_silent_stamphog_activity")
-    async def silent_stamphog(input: FinishedTurn) -> None:
+    async def silent_stamphog(input: SilentStamphogRequest) -> None:
         silent_stamphog_calls.append(input)
         if fail_silent_stamphog:
             raise ApplicationError("stamphog unavailable", non_retryable=True)
@@ -540,6 +547,7 @@ async def _run_full_review_pr_workflow(
                 add_reaction,
                 remove_reaction,
                 nudge,
+                record_coverage,
                 silent_stamphog,
                 track_failed,
                 track_completed,
@@ -565,7 +573,7 @@ async def _run_full_review_pr_workflow(
                         resolve_comments=input_resolve_comments,
                         review_mode=review_mode,
                         requested_head_sha="sha1",
-                        trigger_action=trigger_action,
+                        marks_ready=marks_ready,
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
@@ -622,6 +630,7 @@ async def _run_full_review_pr_workflow(
         "fail_status": fail_status_calls,
         "reactions": reaction_calls,
         "nudges": nudge_calls,
+        "coverage": coverage_calls,
         "silent_stamphog": silent_stamphog_calls,
     }
 
@@ -740,46 +749,48 @@ async def test_review_pr_workflow_nudges_stamphog_when_the_turn_ends(
     assert recorded["nudges"] == [("o/r", 7, "sha1")]
 
 
+_COVERAGE = TurnCoverageInput(team_id=1, report_id="rep-1", head_sha="sha1", run_index=1, lens_chunks_capped=True)
+_SILENT_STAMPHOG = SilentStamphogRequest(team_id=1, repository="o/r", pr_number=7, head_sha="sha1")
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "trigger_action, fail_dedup, fail_silent_stamphog, expect_call",
+    "review_mode, marks_ready, already_completed, fail_dedup, fail_silent_stamphog, expected_coverage, expected_silent",
     [
-        pytest.param("opened", False, False, True, id="completed-turn-of-an-event"),
-        pytest.param("opened", False, True, True, id="raising-dispatch-keeps-the-turn"),
-        pytest.param("opened", True, False, False, id="failed-turn"),
-        pytest.param(None, False, False, False, id="turn-without-an-event"),
+        pytest.param("flash", True, False, False, False, [_COVERAGE], [_SILENT_STAMPHOG], id="ready-turn"),
+        pytest.param(
+            "flash", True, False, False, True, [_COVERAGE], [_SILENT_STAMPHOG], id="raising-dispatch-keeps-the-turn"
+        ),
+        pytest.param("flash", False, False, False, False, [_COVERAGE], [], id="draft-turn-records-only"),
+        pytest.param("flash", True, False, True, False, [], [], id="failed-turn"),
+        pytest.param("full", True, False, False, False, [], [], id="deep-turn"),
+        pytest.param("flash", True, True, False, False, [], [_SILENT_STAMPHOG], id="ready-at-an-already-reviewed-head"),
+        pytest.param("flash", False, True, False, False, [], [], id="push-at-an-already-reviewed-head"),
     ],
 )
-async def test_review_pr_workflow_hands_a_finished_event_turn_to_the_silent_stamphog_check(
-    trigger_action: str | None, fail_dedup: bool, fail_silent_stamphog: bool, expect_call: bool
+async def test_review_pr_workflow_records_automatic_standard_coverage_and_starts_silent_stamphog_when_ready(
+    review_mode: str,
+    marks_ready: bool,
+    already_completed: bool,
+    fail_dedup: bool,
+    fail_silent_stamphog: bool,
+    expected_coverage: list[TurnCoverageInput],
+    expected_silent: list[SilentStamphogRequest],
 ):
     recorded = await _run_full_review_pr_workflow(
         publish=True,
-        review_mode="flash",
+        review_mode=review_mode,
         trigger_source="automatic",
         review_authored_prs=True,
-        trigger_action=trigger_action,
+        marks_ready=marks_ready,
+        already_completed=already_completed,
         fail_dedup=fail_dedup,
         fail_silent_stamphog=fail_silent_stamphog,
         lens_chunks_capped=True,
     )
     assert recorded["failed"] is fail_dedup
-    expected = [
-        FinishedTurn(
-            team_id=1,
-            report_id="rep-1",
-            repository="o/r",
-            pr_number=7,
-            run_index=1,
-            review_mode="flash",
-            head_sha="sha1",
-            requested_head_sha="sha1",
-            trigger_action="opened",
-            draft=False,
-            lens_chunks_capped=True,
-        )
-    ]
-    assert recorded["silent_stamphog"] == (expected if expect_call else [])
+    assert recorded["coverage"] == expected_coverage
+    assert recorded["silent_stamphog"] == expected_silent
 
 
 def test_nudge_stamphog_raises_a_dispatch_error_so_temporal_retries_it():

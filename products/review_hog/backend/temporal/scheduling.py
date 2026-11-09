@@ -4,7 +4,7 @@ from datetime import timedelta
 from temporalio import activity, workflow
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ChildWorkflowError
+from temporalio.exceptions import ActivityError, ChildWorkflowError
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import async_connect
@@ -14,14 +14,40 @@ from products.review_hog.backend.temporal.types import (
     TRIGGER_AUTOMATIC,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
+    SilentStamphogRequest,
     resolve_pr_workflow_id,
 )
+
+SILENT_STAMPHOG_PATCH = "reviewhog-silent-stamphog-2026-11"
+
+
+async def start_silent_stamphog(request: ReviewPRWorkflowInputs, head_sha: str) -> None:
+    """Ask stamphog for a silent review of a head that `request` marked ready. Best effort.
+
+    The activity reads the coverage that the head's automatic turn recorded, so the review turn and
+    the queue both start the review through here.
+    """
+    if request.pr_number is None:
+        return
+    try:
+        await workflow.execute_activity(
+            "start_silent_stamphog_activity",
+            SilentStamphogRequest(
+                team_id=request.team_id, repository=request.repository, pr_number=request.pr_number, head_sha=head_sha
+            ),
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+    except ActivityError:
+        workflow.logger.warning("Could not ask stamphog for a silent review")
 
 
 class ReviewRequestQueue:
     def __init__(self, active: ReviewPRWorkflowInputs | None = None) -> None:
         self.active = active
         self.pending: dict[str, ReviewPRWorkflowInputs] = {}
+        # A request that marked the PR ready at the active request's head and was dropped as its duplicate.
+        self.active_marked_ready = False
 
     def add(self, request: ReviewPRWorkflowInputs) -> None:
         if self.active is not None:
@@ -40,6 +66,9 @@ class ReviewRequestQueue:
                 and request.resolve_comments == self.active.resolve_comments
                 and (request.trigger_source == TRIGGER_AUTOMATIC) == (self.active.trigger_source == TRIGGER_AUTOMATIC)
             ):
+                # The running turn reviews this head, but its own request can predate the PR being ready.
+                if request.marks_ready and not self.active.marks_ready:
+                    self.active_marked_ready = True
                 return
         key = TRIGGER_AUTOMATIC if request.trigger_source == TRIGGER_AUTOMATIC else request.review_mode
         self.pending[key] = request
@@ -55,6 +84,7 @@ class ReviewRequestQueue:
         # Explicit requests take precedence over another automatic follow-up.
         key = next(key for key in (REVIEW_MODE_FULL, REVIEW_MODE_FLASH, TRIGGER_AUTOMATIC) if key in self.pending)
         self.active = self.pending.pop(key)
+        self.active_marked_ready = False
         return self.active
 
 
@@ -118,6 +148,12 @@ class ReviewPRQueueWorkflow:
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
+                if (
+                    workflow.patched(SILENT_STAMPHOG_PATCH)
+                    and self._requests.active_marked_ready
+                    and request.requested_head_sha is not None
+                ):
+                    await start_silent_stamphog(request, request.requested_head_sha)
             except ChildWorkflowError:
                 if not self._requests.pending:
                     raise

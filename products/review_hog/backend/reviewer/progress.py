@@ -274,6 +274,13 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
     return stats
 
 
+def _json_bool(value: str | None) -> bool | None:
+    # KeyTextTransform renders a JSON boolean as the text "true" or "false".
+    if value is None:
+        return None
+    return value == "true"
+
+
 @frozen
 class TurnMarker:
     """The mode, design and head of one executed turn, from its `turn_marker` artefact."""
@@ -283,6 +290,8 @@ class TurnMarker:
     # When the marker row was written, which is just before the turn's review sessions start.
     started_at: datetime
     review_design: str = REVIEW_DESIGN_PIPELINE
+    # Recorded at the end of a Standard automatic turn only. See `TurnMarkerArtefact.clean_full_coverage`.
+    clean_full_coverage: bool | None = None
 
 
 def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], TurnMarker]:
@@ -297,6 +306,7 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
             marker_run_index=KeyTextTransform("run_index", _content_json()),
             marker_review_mode=KeyTextTransform("review_mode", _content_json()),
             marker_review_design=KeyTextTransform("review_design", _content_json()),
+            marker_clean_full_coverage=KeyTextTransform("clean_full_coverage", _content_json()),
             fingerprint_review_design=KeyTextTransform(
                 "review_design", KeyTransform("fingerprint_inputs", _content_json())
             ),
@@ -308,6 +318,7 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
             "marker_run_index",
             "marker_review_mode",
             "marker_review_design",
+            "marker_clean_full_coverage",
             "fingerprint_review_design",
             "created_at",
         )
@@ -325,6 +336,7 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
             head_sha=row["head_sha"],
             started_at=row["created_at"],
             review_design=review_design,
+            clean_full_coverage=_json_bool(row["marker_clean_full_coverage"]),
         )
     return markers
 

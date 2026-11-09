@@ -1,4 +1,3 @@
-from dataclasses import replace
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
@@ -27,7 +26,7 @@ from products.review_hog.backend.reviewer.models.issues_review import IssuePrior
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.persistence import persist_chunk_set, persist_perspective_results
 from products.review_hog.backend.reviewer.progress import record_run_outcome
-from products.review_hog.backend.silent_stamphog import FinishedTurn
+from products.review_hog.backend.silent_stamphog import record_turn_coverage, start_silent_stamphog
 from products.review_hog.backend.temporal.client import QueuedReviewHeads
 from products.signals.backend.facade.taxonomy import ArtefactAttribution
 from products.stamphog.backend.facade.review_evidence import ReviewEvidenceState, get_review_evidence_providers
@@ -285,48 +284,107 @@ class TestHeadReviewStatus(BaseTest):
         assert status is not None
         assert (status.state, status.skipped_paths) == (HeadReviewState.COMPLETED, expected_skipped)
 
+    def _add_marker(self, report: ReviewReport, run_index: int, review_mode: str) -> ReviewReportArtefact:
+        return ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=TurnMarkerArtefact(
+                head_sha=HEAD,
+                run_index=run_index,
+                review_mode=review_mode,
+                reviewhog_version="v",
+                reviewhog_fingerprint="f",
+                publishes=True,
+                skipped_paths=[],
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    def _chunk_read_only_by_an_earlier_turn(self) -> ReviewReport:
+        report = self._completed_turn(REVIEW_MODE_FULL, skipped_paths=())
+        ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(run_count=2)
+        chunks = ChunksList(
+            chunks=[
+                Chunk(chunk_id=1, files=[FileInfo(filename="a.py")]),
+                Chunk(chunk_id=2, files=[FileInfo(filename="b.py")]),
+            ]
+        )
+        persist_chunk_set(team_id=self.team.id, report_id=str(report.id), head_sha=HEAD, chunks=chunks)
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            head_sha=HEAD,
+            results={(1, 1): IssuesReview(), (1, 2): IssuesReview()},
+            review_arm=FLASH_ARM,
+        )
+        marker = self._add_marker(report, 2, REVIEW_MODE_FLASH)
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            head_sha=HEAD,
+            results={(1, 1): IssuesReview()},
+            review_arm=FLASH_ARM,
+        )
+        # Two writes in a row can share a timestamp, so the test sets the order: the earlier turn's
+        # reads before the marker of turn 2, and turn 2's read of chunk 1 after it.
+        artefacts = ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id)
+        results = artefacts.filter(type=ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT).order_by(
+            "created_at", "id"
+        )
+        earlier_reads, own_read = list(results[:2]), results[2]
+        artefacts.filter(id__in=[row.id for row in earlier_reads]).update(
+            created_at=marker.created_at - timedelta(minutes=1)
+        )
+        artefacts.filter(id=own_read.id).update(created_at=marker.created_at + timedelta(minutes=1))
+        return report
+
     @parameterized.expand(
         [
-            ("clean_standard_turn_of_an_opened_pr", {}, True),
-            ("clean_standard_turn_of_a_pr_marked_ready", {"trigger_action": "ready_for_review"}, True),
-            ("deep_turn", {"review_mode": REVIEW_MODE_FULL}, False),
-            ("push", {"trigger_action": "synchronize"}, False),
-            ("turn_reviewed_a_newer_head_than_the_event", {"requested_head_sha": OLDER_HEAD}, False),
-            ("draft", {"draft": True}, False),
-            ("capped_lens_parts", {"lens_chunks_capped": True}, False),
-            ("valid_finding_below_the_threshold", {"finding": IssuePriority.CONSIDER}, False),
-            ("invalid_finding", {"invalid_finding": True}, True),
-            ("skipped_paths", {"skipped_paths": ("pnpm-lock.yaml",)}, False),
-            ("turn_without_a_marker", {"marker": False}, False),
+            ("clean", "clean", 1, False, True),
+            ("valid_finding_below_the_threshold", "finding", 1, False, False),
+            ("invalid_finding", "invalid_finding", 1, False, True),
+            ("skipped_paths", "skipped_paths", 1, False, False),
+            ("capped_lens_parts", "clean", 1, True, False),
+            ("turn_without_a_marker", "no_marker", 1, False, False),
+            ("chunk_read_only_by_an_earlier_turn_on_the_head", "earlier_read", 2, False, False),
+            ("newer_deep_turn_on_the_head", "newer_deep_turn", 1, False, True),
         ]
     )
     @patch("products.review_hog.backend.silent_stamphog.queue_silent_review")
-    def test_only_a_clean_full_coverage_standard_turn_of_an_opened_or_ready_pr_queues_silent_stamphog(
-        self, _name: str, change: dict, expect_queued: bool, queue_silent_review: MagicMock
+    def test_silent_stamphog_starts_only_for_a_head_whose_automatic_turn_recorded_clean_full_coverage(
+        self,
+        _name: str,
+        setup: str,
+        run_index: int,
+        lens_chunks_capped: bool,
+        expect_queued: bool,
+        queue_silent_review: MagicMock,
     ) -> None:
-        if change.pop("marker", True):
-            report = self._completed_turn(REVIEW_MODE_FLASH, skipped_paths=change.pop("skipped_paths", ()))
-        else:
+        if setup == "no_marker":
             report = self._report(run_count=1, head_sha=HEAD, completed_head_sha=HEAD)
-        if "finding" in change:
-            self._finding(report, "1-a", is_valid=True, priority=change.pop("finding"))
-        if change.pop("invalid_finding", False):
+        elif setup == "earlier_read":
+            report = self._chunk_read_only_by_an_earlier_turn()
+        else:
+            report = self._completed_turn(
+                REVIEW_MODE_FLASH, skipped_paths=("pnpm-lock.yaml",) if setup == "skipped_paths" else ()
+            )
+        if setup == "finding":
+            self._finding(report, "1-a", is_valid=True, priority=IssuePriority.CONSIDER)
+        if setup == "invalid_finding":
             self._finding(report, "1-a", is_valid=False)
-        turn = FinishedTurn(
+
+        record_turn_coverage(
             team_id=self.team.id,
             report_id=str(report.id),
-            repository=REPOSITORY,
-            pr_number=5,
-            run_index=1,
-            review_mode=REVIEW_MODE_FLASH,
             head_sha=HEAD,
-            requested_head_sha=HEAD,
-            trigger_action="opened",
-            draft=False,
-            lens_chunks_capped=False,
+            run_index=run_index,
+            lens_chunks_capped=lens_chunks_capped,
         )
-
-        replace(turn, **change).start_silent_stamphog()
+        if setup == "newer_deep_turn":
+            # A Deep turn on the same head records nothing, so it cannot replace the automatic turn's answer.
+            self._add_marker(report, 2, REVIEW_MODE_FULL)
+            ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(run_count=2)
+        start_silent_stamphog(team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD)
 
         if expect_queued:
             queue_silent_review.assert_called_once_with(

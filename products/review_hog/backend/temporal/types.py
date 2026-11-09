@@ -81,11 +81,11 @@ class ReviewPRWorkflowInputs:
     review_mode: str = REVIEW_MODE_FULL
     requested_head_sha: str | None = None
     # The GitHub `pull_request` action (`opened`, `ready_for_review`, `synchronize`) that asked for an
-    # automatic review of `requested_head_sha`. None for every other trigger. The review queue keeps
-    # one request per automatic slot, and a newer push replaces the waiting one, so a turn always
-    # carries the action of the request it runs. A request for the head the running turn already
-    # reviews is dropped, and its action with it, because that turn answers for the head.
+    # automatic review of `requested_head_sha`. None for every other trigger.
     trigger_action: str | None = None
+    # The event says the PR is ready for review at `requested_head_sha`: it was marked ready, or it
+    # opened as a non-draft. A clean Standard turn on that head then starts a silent stamphog review.
+    marks_ready: bool = False
     installation_id: str | None = None
     github_repo_id: int | None = None
 
@@ -104,6 +104,27 @@ class ReviewPRWorkflowInputs:
             "review_mode": self.review_mode,
             "trigger_action": self.trigger_action,
         }
+
+
+@frozen
+class TurnCoverageInput:
+    """A finished Standard automatic turn whose coverage the workflow records on its turn marker."""
+
+    team_id: int
+    report_id: str
+    head_sha: str
+    run_index: int
+    lens_chunks_capped: bool
+
+
+@frozen
+class SilentStamphogRequest:
+    """A PR head that an event marked ready, for a silent stamphog review if its automatic turn was clean."""
+
+    team_id: int
+    repository: str
+    pr_number: int
+    head_sha: str
 
 
 @frozen
