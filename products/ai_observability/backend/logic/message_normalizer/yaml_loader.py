@@ -2,11 +2,13 @@ import re
 
 from ruamel.yaml import YAML
 from ruamel.yaml.composer import Composer, ComposerError
-from ruamel.yaml.constructor import SafeConstructor
+from ruamel.yaml.constructor import ConstructorError, DuplicateKeyError, SafeConstructor
 from ruamel.yaml.error import YAMLError
 from ruamel.yaml.events import AliasEvent
+from ruamel.yaml.nodes import MappingNode
 
 from .errors import RecipeCompileError
+from .values import key_text
 
 _YAML_1_2_CORE_INT = re.compile(r"[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+")
 
@@ -25,9 +27,25 @@ class _RecipeComposer(Composer):
 
 
 class _RecipeConstructor(SafeConstructor):
-    # The frontend parser has no merge keys, so `<<` is an ordinary key that holds its value.
-    def flatten_mapping(self, node):
-        pass
+    # The frontend parser rejects two keys only when their values are strictly equal, so `true:` and `1:` are two
+    # fields there, while Python's `True == 1` would make them one duplicate. It then names each field by the key's
+    # text, so `1:` and `"1":` are one field that holds the later value. The frontend parser also has no merge keys,
+    # so `<<` is an ordinary key that holds its value.
+    def construct_mapping(self, node, deep=False):
+        if not isinstance(node, MappingNode):
+            raise ConstructorError(None, None, f"expected a mapping node, but found {node.id}", node.start_mark)
+        mapping: dict[str, object] = {}
+        seen: set[tuple[bool, object]] = set()
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=True)
+            identity = (isinstance(key, bool), tuple(key) if isinstance(key, list) else key)
+            if identity in seen:
+                raise DuplicateKeyError(
+                    "while constructing a mapping", node.start_mark, f'found duplicate key "{key}"', key_node.start_mark
+                )
+            seen.add(identity)
+            mapping[key_text(key)] = self.construct_object(value_node, deep=deep)
+        return mapping
 
     # ruamel's resolver tags YAML 1.1 spellings (`1_000`, `0b11`, `-0x1`) as numbers. The frontend parser reads them
     # as text, so the constructor hands the text back unless the scalar is a YAML 1.2 core number.
