@@ -29,6 +29,7 @@ from products.messaging.backend.services.transactional_email import (
     send_transactional_email,
     sender_address_error,
     sync_transactional_workflow,
+    template_category_type,
     transactional_email_stage,
 )
 from products.messaging.backend.services.transactional_email_status import get_email_status
@@ -61,5 +62,6 @@ __all__ = [
     "send_transactional_email",
     "sender_address_error",
     "sync_transactional_workflow",
+    "template_category_type",
     "transactional_email_stage",
 ]

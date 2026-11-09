@@ -715,10 +715,20 @@ class TransactionalEmailContent:
     message_category_id: UUID | None
     # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
     sensitive: bool = False
+    message_category_type: Literal["marketing", "transactional"] = "transactional"
     # Empty values use the sender's own address, name and default reply-to.
     from_email: str = ""
     from_name: str = ""
     reply_to: str = ""
+
+
+@frozen
+class TransactionalEmailWorkflow:
+    """What a send checks on a transactional email's workflow before it runs it."""
+
+    status: str
+    # The type the email step sends as, or None when someone removed the step from the workflow.
+    message_category_type: str | None
 
 
 class TransactionalEmailSenderUnavailable(Exception):

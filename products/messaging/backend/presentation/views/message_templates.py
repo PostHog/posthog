@@ -92,6 +92,7 @@ from products.messaging.backend.facade.transactional_email import (
     send_transactional_email,
     sender_address_error,
     sync_transactional_workflow,
+    template_category_type,
     transactional_email_stage,
 )
 from products.messaging.backend.presentation.views.code_send_fields import (
@@ -930,14 +931,21 @@ class TransactionalEmailSendMixin:
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
                 category=self._enabled_category(data.get("category")),
+                marketing_enabled=self._marketing_enabled(),
             ),
-            addressed={"template_id": str(template.id)},
+            addressed={
+                "template_id": str(template.id),
+                "category_type": template_category_type(self.team_id, template.message_category_id),
+            },
         )
 
     def _enabled_category(self, category: str | None) -> str | None:
-        if is_marketing_category(category) and not _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG):
+        if is_marketing_category(category) and not self._marketing_enabled():
             raise CategoriesNotEnabled()
         return category
+
+    def _marketing_enabled(self) -> bool:
+        return _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG)
 
     def _queue_send(
         self,
@@ -1180,7 +1188,9 @@ class MessageTemplatesViewSet(
             if hog_flow_id:
                 self._require_workflow_editor(hog_flow_id)
                 try:
-                    check_transactional_update(template.id, self.team_id, fields)
+                    check_transactional_update(
+                        template.id, self.team_id, fields, marketing_enabled=self._marketing_enabled()
+                    )
                 except TransactionalEmailError as e:
                     raise TransactionalEmailRejected(e) from None
             updated = update_template(self.team_id, template.id, fields)
@@ -1281,7 +1291,9 @@ class MessageTemplatesViewSet(
         description=(
             "Send one transactional email from this template to one recipient. The template must be made "
             "transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. "
-            "Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry "
+            "A template with no category or a transactional one skips opt-outs and frequency caps. A template in a "
+            "marketing category sends as marketing email in that category and skips recipients who opted out. "
+            "Send an `Idempotency-Key` header to retry "
             "safely without sending the email twice. Needs the `transactional_email:write` scope. A key with "
             "`hog_flow:write` also works, but that scope reaches the rest of Workflows too."
         ),
@@ -1307,7 +1319,9 @@ class MessageTemplatesViewSet(
         description=(
             "Make this template sendable over the transactional email API. This creates the workflow that sends it, "
             "with its own metrics, run history and versions. This can't be undone: the template stays transactional. "
-            "Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes "
+            "Sends of a template with no category or a transactional one ignore marketing opt-outs. A template in a "
+            "marketing category is refused unless the project can send marketing email over the API, and its sends "
+            "then skip recipients who opted out. Calling it again on a transactional template changes "
             "nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with "
             "`hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, "
             "the response leaves out `content` and `draft_content`."
@@ -1329,6 +1343,7 @@ class MessageTemplatesViewSet(
                 template.id,
                 user_id=self._actor_id(),
                 from_integration_id=request.validated_data.get("from_integration_id"),
+                marketing_enabled=self._marketing_enabled(),
             )
         except TransactionalEmailError as e:
             raise TransactionalEmailRejected(e) from None

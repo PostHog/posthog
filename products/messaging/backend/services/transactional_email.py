@@ -69,6 +69,7 @@ from products.workflows.backend.facade.transactional_emails import (
     code_send_sender_id,
     create_code_email_workflow,
     create_transactional_email_workflow,
+    get_transactional_email_workflow,
     resolve_transactional_email_sender,
     update_transactional_email_workflow,
 )
@@ -191,26 +192,43 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
 TRANSACTIONAL_CATEGORY = "transactional"
+CategoryType = Literal["marketing", "transactional"]
 
 TRANSACTIONAL_EMAIL_KEY_LIMIT = 1000
 TRANSACTIONAL_EMAIL_KEY_LOCK = "transactional-email-keys"
 
 
-def check_sendable(team_id: int, *, template_type: str, content: dict, message_category_id: UUID | None) -> None:
-    """Raise when a template with these fields can't be a transactional email."""
+def check_sendable(
+    team_id: int,
+    *,
+    template_type: str,
+    content: dict,
+    message_category_id: UUID | None,
+    marketing_enabled: bool = False,
+) -> None:
+    """Raise when a template with these fields can't be sent over the API."""
     email = (content or {}).get("email")
     if template_type != "email" or not isinstance(email, dict) or not email.get("subject"):
         raise TemplateNotSendable("The template has no email subject, so it can't be sent.")
     if not (email.get("text") or email.get("html")):
         raise TemplateNotSendable("The template has no email body, so it can't be sent.")
-    if message_category_id:
-        # A deleted category still classifies the template, and the category field accepts one.
-        category = MessageCategory.objects.filter(team_id=team_id, id=message_category_id).first()
-        # Transactional sends skip opt-outs, so a marketing template must never go out this way.
-        if category and category.category_type == MessageCategoryType.MARKETING:
-            raise MarketingTemplate(
-                "The template is in a marketing category. Only transactional templates can be sent."
-            )
+    if not marketing_enabled and _is_marketing(_template_category(team_id, message_category_id)):
+        raise MarketingTemplate("The template is in a marketing category. Only transactional templates can be sent.")
+
+
+def _template_category(team_id: int, message_category_id: UUID | None) -> MessageCategory | None:
+    if not message_category_id:
+        return None
+    # A deleted category still classifies the template, and the category field accepts one.
+    return MessageCategory.objects.filter(team_id=team_id, id=message_category_id).first()
+
+
+def _is_marketing(category: MessageCategory | None) -> bool:
+    return category is not None and category.category_type == MessageCategoryType.MARKETING
+
+
+def template_category_type(team_id: int, message_category_id: UUID | None) -> CategoryType:
+    return "marketing" if _is_marketing(_template_category(team_id, message_category_id)) else "transactional"
 
 
 # An address longer than this can't be delivered, and the bound keeps the pattern below fast.
@@ -266,6 +284,7 @@ def _content(template: MessageTemplate) -> TransactionalEmailContent:
         # Templates made transactional before they stored a sender keep their workflow's sender.
         from_integration_id=sender.get("integrationId"),
         message_category_id=template.message_category_id,
+        message_category_type=template_category_type(template.team_id, template.message_category_id),
         sensitive=template.sensitive,
         from_email=sender.get("email") or "",
         from_name=sender.get("name") or "",
@@ -274,7 +293,12 @@ def _content(template: MessageTemplate) -> TransactionalEmailContent:
 
 
 def make_transactional(
-    team_id: int, template_id: UUID, *, user_id: int | None, from_integration_id: int | None
+    team_id: int,
+    template_id: UUID,
+    *,
+    user_id: int | None,
+    from_integration_id: int | None,
+    marketing_enabled: bool = False,
 ) -> UUID:
     """Create the template's workflow and link it, and return the workflow's id. A template that is already
     transactional keeps the workflow it has."""
@@ -288,6 +312,7 @@ def make_transactional(
             template_type=template.type,
             content=template.content,
             message_category_id=template.message_category_id,
+            marketing_enabled=marketing_enabled,
         )
         email = template.content["email"]
         sender = _template_sender(email)
@@ -331,7 +356,9 @@ def lock_transactional_workflow_id(team_id: int, template_id: UUID) -> UUID | No
     )
 
 
-def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str, Any]) -> None:
+def check_transactional_update(
+    template_id: UUID, team_id: int, fields: dict[str, Any], *, marketing_enabled: bool = False
+) -> None:
     """Raise when an update would leave a transactional template unable to send. `fields` are validated
     serializer fields, where `message_category` holds a category id."""
     template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
@@ -345,6 +372,7 @@ def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str
         template_type=fields.get("type", template.type),
         content=fields.get("content", template.content),
         message_category_id=fields.get("message_category", template.message_category_id),
+        marketing_enabled=marketing_enabled,
     )
 
 
@@ -393,7 +421,9 @@ class TransactionalTemplate(Protocol):
     def transactional_hog_flow_id(self) -> UUID | None: ...
 
 
-def _transactional_workflow_id(team_id: int, template: TransactionalTemplate) -> UUID:
+def _transactional_workflow_id(
+    team_id: int, template: TransactionalTemplate, *, marketing_enabled: bool = False
+) -> UUID:
     if not template.transactional_hog_flow_id:
         raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
     # A category's type can change after the template was made transactional.
@@ -402,8 +432,20 @@ def _transactional_workflow_id(team_id: int, template: TransactionalTemplate) ->
         template_type=template.type,
         content=template.content,
         message_category_id=template.message_category_id,
+        marketing_enabled=marketing_enabled,
     )
-    _require_active(team_id, template.transactional_hog_flow_id)
+    try:
+        workflow = get_transactional_email_workflow(team_id=team_id, hog_flow_id=template.transactional_hog_flow_id)
+    except WorkflowNotFound as e:
+        raise TransactionalEmailPaused("This email's workflow no longer exists.") from e
+    _require_status_active(workflow.status)
+    # The step keeps the type from the template's last save, and the CDP trusts it for opt-outs.
+    sends_as = workflow.message_category_type
+    if sends_as is not None and sends_as != template_category_type(team_id, template.message_category_id):
+        raise TemplateNotSendable(
+            "The template's category changed between marketing and transactional since the template was last saved. "
+            "Save the template again to send it."
+        )
     return template.transactional_hog_flow_id
 
 
@@ -412,7 +454,11 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
         workflow = get_workflow_summary(team_id=team_id, workflow_id=str(hog_flow_id))
     except WorkflowNotFound as e:
         raise TransactionalEmailPaused("This email's workflow no longer exists.") from e
-    if workflow.status != "active":
+    _require_status_active(workflow.status)
+
+
+def _require_status_active(status: str) -> None:
+    if status != "active":
         raise TransactionalEmailPaused("This email's workflow isn't active. Turn it back on to send.")
 
 
@@ -522,9 +568,13 @@ def code_send_category_id(team_id: int, category: str | None) -> UUID | None:
     return category_id
 
 
-def _require_transactional_category(category: str | None) -> None:
-    if category is not None and category != TRANSACTIONAL_CATEGORY:
-        raise CategoryMismatch(TRANSACTIONAL_CATEGORY)
+def _require_template_category(team_id: int, message_category_id: UUID | None, category: str | None) -> None:
+    if category is None:
+        return
+    own = _template_category(team_id, message_category_id)
+    own_key = own.key if _is_marketing(own) else TRANSACTIONAL_CATEGORY
+    if category != own_key:
+        raise CategoryMismatch(own_key)
 
 
 def send_transactional_email(
@@ -536,6 +586,7 @@ def send_transactional_email(
     message_data: dict[str, Any],
     idempotency_key: str | None = None,
     category: str | None = None,
+    marketing_enabled: bool = False,
     timeout: float = 10,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key)
@@ -543,10 +594,12 @@ def send_transactional_email(
         # A template passed in must be one of the team's templates that is not deleted, as this lookup returns.
         if isinstance(template, UUID):
             model = MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False)
-            hog_flow_id = _transactional_workflow_id(team.id, model)
+            hog_flow_id = _transactional_workflow_id(team.id, model, marketing_enabled=marketing_enabled)
+            message_category_id = model.message_category_id
         else:
-            hog_flow_id = _transactional_workflow_id(team.id, template)
-        _require_transactional_category(category)
+            hog_flow_id = _transactional_workflow_id(team.id, template, marketing_enabled=marketing_enabled)
+            message_category_id = template.message_category_id
+        _require_template_category(team.id, message_category_id, category)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 

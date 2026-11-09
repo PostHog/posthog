@@ -358,13 +358,16 @@ class TestTransactionalEmail(APIBaseTest):
             ("not_transactional", "template_not_transactional"),
             ("workflow_archived", "transactional_email_paused"),
             ("category_turned_marketing", "marketing_template"),
+            ("category_turned_marketing_since_its_workflow_was_saved", "template_not_sendable"),
             ("liquid_in_recipient", "invalid_recipient"),
             ("idempotency_key_with_spaces", "invalid_idempotency_key"),
             ("idempotency_key_too_long", "invalid_idempotency_key"),
         ]
     )
-    def test_rejects_a_send_it_cannot_make(self, mock_post, _flag, _capture, case, expected_code):
+    def test_rejects_a_send_it_cannot_make(self, mock_post, flag, _capture, case, expected_code):
         url, body, headers = self.url, dict(self.body), {}
+        if case == "category_turned_marketing":
+            flag.side_effect = lambda key, *_args, **_kwargs: key != CODE_SEND_CATEGORIES_FLAG
         if case == "not_transactional":
             url = f"/api/projects/{self.team.id}/messaging_templates/{self._template().id}/send/"
         elif case == "workflow_archived":
@@ -372,7 +375,7 @@ class TestTransactionalEmail(APIBaseTest):
                 f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}", {"status": "archived"}
             )
             assert archived.status_code == status.HTTP_200_OK, archived.json()
-        elif case == "category_turned_marketing":
+        elif case.startswith("category_turned_marketing"):
             category = MessageCategory.objects.create(
                 team=self.team, key="account", name="Account", category_type=MessageCategoryType.TRANSACTIONAL
             )
@@ -1364,11 +1367,12 @@ class TestTransactionalEmail(APIBaseTest):
         ]
     )
     def test_rejects_making_a_template_transactional_it_cannot_send(
-        self, mock_post, _flag, _capture, case, expected_code
+        self, mock_post, flag, _capture, case, expected_code
     ):
         template = self._template()
         body: dict[str, Any] = {}
         if case in ("marketing_template", "deleted_marketing_category"):
+            flag.side_effect = lambda key, *_args, **_kwargs: key != CODE_SEND_CATEGORIES_FLAG
             template.message_category = MessageCategory.objects.create(
                 team=self.team,
                 key="news",
@@ -1405,6 +1409,69 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["code"] == expected_code
         template.refresh_from_db()
         assert template.transactional_hog_flow_id is None
+
+    def _email_step(self, hog_flow_id) -> dict:
+        return self._workflow(hog_flow_id)["actions"][1]["config"]
+
+    @parameterized.expand(
+        [
+            ("left_out", {}, status.HTTP_202_ACCEPTED, None),
+            ("its_own_key", {"category": "newsletter"}, status.HTTP_202_ACCEPTED, None),
+            ("transactional", {"category": "transactional"}, status.HTTP_400_BAD_REQUEST, "category_mismatch"),
+            ("another_key", {"category": "promos"}, status.HTTP_400_BAD_REQUEST, "category_mismatch"),
+        ]
+    )
+    def test_a_marketing_template_sends_as_marketing_in_its_category(
+        self, mock_post, _flag, capture, _name, fields, expected_status, expected_code
+    ):
+        self._cdp_accepts(mock_post)
+        newsletter = self._newsletter()
+        template = self._template()
+        template.message_category = newsletter
+        template.save()
+
+        made = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/make_transactional/", {}, format="json"
+        )
+        assert made.status_code == status.HTTP_200_OK, made.json()
+        step = self._email_step(made.json()["transactional_hog_flow_id"])
+        assert (step["message_category_type"], step["message_category_id"], step.get("skip_frequency_cap")) == (
+            "marketing",
+            str(newsletter.id),
+            True,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/send/",
+            {**self.body, **fields},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_code:
+            assert (response.json()["code"], response.json()["attr"]) == (expected_code, "category")
+            assert "`newsletter`" in response.json()["detail"]
+        assert mock_post.called == (expected_status == status.HTTP_202_ACCEPTED)
+        assert capture.call_args.kwargs["properties"]["category_type"] == "marketing"
+
+    def test_moving_a_transactional_template_into_a_marketing_category_makes_its_sends_marketing(
+        self, mock_post, _flag, _capture
+    ):
+        newsletter = self._newsletter()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+            {"message_category": str(newsletter.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        step = self._email_step(self.hog_flow_id)
+        assert (step["message_category_type"], step["message_category_id"], step.get("skip_frequency_cap")) == (
+            "marketing",
+            str(newsletter.id),
+            True,
+        )
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_saving_a_transactional_template_writes_a_new_workflow_version(self, reload, mock_post, _flag, _capture):
@@ -1511,10 +1578,11 @@ class TestTransactionalEmail(APIBaseTest):
         ]
     )
     def test_rejects_an_update_that_would_stop_a_transactional_template_sending(
-        self, mock_post, _flag, _capture, case, expected_code
+        self, mock_post, flag, _capture, case, expected_code
     ):
         before = MessageTemplate.objects.get(id=self.template.id)
         if case == "marketing_category":
+            flag.side_effect = lambda key, *_args, **_kwargs: key != CODE_SEND_CATEGORIES_FLAG
             category = MessageCategory.objects.create(
                 team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
             )

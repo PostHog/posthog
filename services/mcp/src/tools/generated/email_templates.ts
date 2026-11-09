@@ -163,7 +163,7 @@ const workflowsMakeEmailTemplateTransactionalPrepare = (): ToolBase<
             purpose: 'workflows-make-email-template-transactional',
             actionLabel: 'make email template transactional',
             messageTemplate:
-                "About to make email template '{id}' transactional. This can't be undone, and its sends will ignore marketing opt-outs. Reply 'confirm' to proceed.\n",
+                "About to make email template '{id}' transactional. This can't be undone. Unless the template is in a marketing category, its sends will ignore marketing opt-outs. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },

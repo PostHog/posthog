@@ -91,8 +91,10 @@ tools:
         description: >
             Make an email template sendable from code with one API call, for emails a person triggers such as password
             resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again.
-            Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a
-            subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one,
+            Sends of a template with no category or a transactional one ignore marketing opt-outs, so never file
+            marketing email there. A template in a marketing category is refused unless the project can send marketing
+            email over the API, and its sends then skip recipients who opted out. The template needs a subject and a
+            body, and the project needs a verified email sender (pass from_integration_id to pick one,
             otherwise the project's default sender is used). Requires human typed confirmation. The response has
             transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user
             can review and publish it. Then tell the user what is left: create a project secret API key with
@@ -108,8 +110,8 @@ tools:
                 - created_by
         confirmed_action:
             message: >
-                About to make email template '{id}' transactional. This can't be undone, and its sends will ignore
-                marketing opt-outs. Reply 'confirm' to proceed.
+                About to make email template '{id}' transactional. This can't be undone. Unless the template is in a
+                marketing category, its sends will ignore marketing opt-outs. Reply 'confirm' to proceed.
             action_label: make email template transactional
     workflows-patch-email-template:
         operation: messaging_templates_design_partial_update
