@@ -50,7 +50,7 @@ from products.data_modeling.backend.facade.models import (
     ViewEngine,
 )
 from products.managed_warehouse.backend.facade.sql_editor import managed_trino_query_flag_enabled
-from products.warehouse_sources.backend.facade.api import team_may_have_direct_query_source
+from products.warehouse_sources.backend.facade.api import team_has_had_direct_query_source
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
@@ -258,7 +258,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             # can promote the warehouse lifecycle, which a list must not do.
             read_query_keys = managed_trino_query_flag_enabled(
                 self.team.organization_id
-            ) or team_may_have_direct_query_source(self.team.pk)
+            ) or team_has_had_direct_query_source(self.team.pk)
             base_queryset = base_queryset.annotate(**ViewEngine.queryset_annotations(read_query_keys=read_query_keys))
 
         if self.action == "list" and not self._include_columns:

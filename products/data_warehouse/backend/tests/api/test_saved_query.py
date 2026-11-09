@@ -231,7 +231,8 @@ class TestSavedQuery(APIBaseTest):
         # Expanding the view would fail on its inner Trino table instead, so the view name pins the filter.
         self.assertIn("Unknown table `hub_occupancy`", response.json()["detail"])
 
-    def test_list_marks_a_connection_view_without_the_trino_flag(self) -> None:
+    @parameterized.expand([("live_source", False), ("deleted_source", True)])
+    def test_list_marks_a_connection_view_without_the_trino_flag(self, _name: str, source_deleted: bool) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source-id",
@@ -239,6 +240,7 @@ class TestSavedQuery(APIBaseTest):
             destination_id="destination-id",
             source_type="Postgres",
             access_method=ExternalDataSource.AccessMethod.DIRECT,
+            deleted=source_deleted,
         )
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -250,6 +252,47 @@ class TestSavedQuery(APIBaseTest):
         engine = {row["name"]: row["engine"] for row in listed["results"]}["hub_occupancy"]
         self.assertEqual(engine["target"], "connection")
         self.assertFalse(engine["capabilities"]["materialize"]["available"])
+
+    def test_create_refuses_a_connection_the_team_does_not_have(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "hub_occupancy",
+                "query": {"kind": "HogQLQuery", "query": "SELECT 1 AS x", "connectionId": str(uuid.uuid4())},
+                "types": [["x", "Int64"]],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("Invalid connectionId", response.json()["detail"])
+        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="hub_occupancy").exists())
+
+    @parameterized.expand(
+        [
+            ("rename", {"name": "occupancy_report"}),
+            ("query_edit", {"query": {"kind": "HogQLQuery", "query": "SELECT 2 AS x FROM hub_occupancy"}}),
+        ]
+    )
+    def test_saving_a_view_that_reads_a_connection_view_names_it(self, _name: str, body: dict) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="hub_occupancy",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS x", "connectionId": str(uuid.uuid4())},
+            columns={"x": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        reader = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="hub_report",
+            query={"kind": "HogQLQuery", "query": "SELECT x FROM hub_occupancy"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{reader.id}", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("This view reads 'hub_occupancy'.", response.json()["detail"])
+        self.assertIn("direct connection", response.json()["detail"])
 
     @parameterized.expand(
         [

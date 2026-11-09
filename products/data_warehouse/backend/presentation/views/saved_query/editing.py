@@ -21,8 +21,10 @@ from posthog.hogql.database.database import (
     is_reserved_models_name,
     models_namespace_chain,
 )
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql.trino_adapter import ensure_read_only_raw_trino_statement
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
@@ -46,6 +48,7 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQueryColumnAnnotation,
     ViewColumnSource,
     ViewEngine,
+    ViewEngineTarget,
     validate_saved_query_name,
 )
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
@@ -110,6 +113,28 @@ def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
     if isinstance(e, ExposedHogQLError | ExposedCHQueryError):
         return serializers.ValidationError(f"Failed to retrieve types for view: {e}")
     return serializers.ValidationError(f"Failed to retrieve types for view: unexpected {type(e).__name__}")
+
+
+def _unreferenceable_view_refusal(team_id: int, sql: str) -> str | None:
+    """Why `sql` fails to resolve, when it names a saved view that HogQL on ClickHouse cannot reference.
+
+    The HogQL database leaves such views out, so without this the refusal only says the table is unknown.
+    """
+    try:
+        names = get_table_names(parse_select(sql))
+    except ExposedHogQLError:
+        return None
+    views = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, name__in=names)
+        .exclude(deleted=True)
+        .only("name", "query")
+        .order_by("name")
+    )
+    for view in views:
+        reference = view.engine.referenceable_from_clickhouse
+        if not reference.available:
+            return f"This view reads '{view.name}'. {reference.reason} Remove that reference to save this view."
+    return None
 
 
 def _apply_frequency_target(
@@ -388,6 +413,9 @@ class DataWarehouseSavedQuerySerializer(
         except (RecursionError, ResolutionCycleError):
             raise serializers.ValidationError("Model contains a cycle")
         except Exception as error:
+            refusal = _unreferenceable_view_refusal(team.pk, query)
+            if refusal is not None:
+                raise serializers.ValidationError(refusal)
             _capture_unless_user_error(error)
             raise _view_types_validation_error(error)
 
@@ -688,8 +716,14 @@ class DataWarehouseSavedQuerySerializer(
 
         team_id = self.context["team_id"]
         user = self.context["request"].user
+        engine = ViewEngine.from_query(query)
 
-        if ViewEngine.from_query(query).is_raw_trino:
+        if engine.target == ViewEngineTarget.CONNECTION and (
+            get_direct_connection_source(self.context["get_team"](), engine.connection_id, user=user) is None
+        ):
+            raise exceptions.ValidationError(detail=INVALID_CONNECTION_ID_ERROR)
+
+        if engine.is_raw_trino:
             try:
                 validate_managed_trino_query(
                     HogQLQuery(query=query["query"], executionTarget=ExecutionTarget.MANAGED_TRINO, sendRawQuery=True),
@@ -728,8 +762,8 @@ class DataWarehouseSavedQuerySerializer(
             )
         except Exception as err:
             if isinstance(err, ExposedHogQLError):
-                error = str(err)
-                raise exceptions.ValidationError(detail=f"Invalid query: {error}")
+                refusal = _unreferenceable_view_refusal(team_id, query["query"])
+                raise exceptions.ValidationError(detail=refusal or f"Invalid query: {err}")
             elif not settings.DEBUG:
                 # We don't want to accidentally expose too much data via errors
                 raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")
