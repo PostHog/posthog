@@ -975,6 +975,7 @@ def _populate_static_cohort(
     a finished insert's marker and row count into a retry.
     """
     from products.cohorts.backend.models.util import (
+        PopulationEmptyResult,
         PopulationSuperseded,
         clear_population_run_fields,
         insert_cohort_people_into_pg,
@@ -1077,6 +1078,11 @@ def _populate_static_cohort(
 
         # Re-running the sync is safe because InsertCohortMembers ignores existing membership.
         if marker is not None:
+            # A replace never empties a cohort. A query that matches nobody is far likelier to be a mistake, such as a
+            # misspelled property, than a request to drop every member, and the flags and surveys built on the cohort
+            # would all change at once. Nothing is pruned yet, so both stores keep every member.
+            if not rows_written:
+                raise PopulationEmptyResult(f"Cohort {cohort_id}: the replace query matched nobody")
             insert_cohort_people_into_pg(cohort, team_id=team_id, min_rows=rows_written, replace_marker=marker)
             if not population_marker_is_current(cohort_id, marker):
                 raise PopulationSuperseded(cohort_id)
@@ -1120,8 +1126,9 @@ def _populate_static_cohort(
             team_id=team_id,
             error=str(err),
         )
-        # ExposedHogQLError is a user validation failure, so do not send it to error tracking.
-        if not isinstance(err, ExposedHogQLError):
+        # ExposedHogQLError is a user validation failure, and an empty replace is the user's outcome, so neither goes
+        # to error tracking.
+        if not isinstance(err, (ExposedHogQLError, PopulationEmptyResult)):
             capture_exception()
     except BaseException as err:
         # A run the worker cut short (shutdown, revoke) failed; it must not be saved as a success.
