@@ -14,7 +14,10 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import DateTimeField, F, Q
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast
+from django.db.models.lookups import IsNull, LessThanOrEqual
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -48,7 +51,7 @@ from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInf
 from ee.billing.grants import EffectiveBillingGrants
 from ee.billing.quota_limiting import (
     BILLING_STATUS_STAMP_KEYS,
-    _patch_organization_usage_jsonb,
+    _usage_patch_expression,
     set_org_usage_summary,
     update_org_billing_quotas,
 )
@@ -162,6 +165,16 @@ def _billing_package(customer: CustomerInfo) -> Literal["paid", "none"] | None:
 def _is_older_than_applied_billing_status(organization: Organization, computed_at: datetime) -> bool:
     applied_at = parse_datetime((organization.usage or {}).get("billing_status_computed_at") or "")
     return applied_at is not None and computed_at < applied_at
+
+
+def _patch_usage_unless_a_newer_status_applied(
+    organization: Organization, ops: list[tuple[list[str], Any]], computed_at: datetime | None
+) -> bool:
+    rows = Organization.objects.filter(id=organization.id)
+    if computed_at is not None:
+        applied_at = Cast(KeyTextTransform("billing_status_computed_at", "usage"), DateTimeField())
+        rows = rows.filter(IsNull(applied_at, True) | LessThanOrEqual(applied_at, computed_at))
+    return rows.update(usage=_usage_patch_expression(ops)) > 0
 
 
 def _free_trial_active(customer: CustomerInfo) -> bool:
@@ -934,11 +947,20 @@ class BillingManager:
                 usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
         with transaction.atomic():
+            applied = True
             if org_modified:
                 organization.save()
             elif package_changed and usage is not None:
-                _patch_organization_usage_jsonb(organization, [([key], usage[key]) for key in patched_keys])
-            if plan_changed or (package_switched and organization.billing_plan_label() == "paid"):
+                applied = _patch_usage_unless_a_newer_status_applied(
+                    organization, [([key], usage[key]) for key in patched_keys], computed_at
+                )
+                if not applied:
+                    logger.info(
+                        "billing_status_out_of_order_skipped",
+                        organization_id=str(organization.id),
+                        computed_at=computed_at.isoformat() if computed_at else None,
+                    )
+            if applied and (plan_changed or (package_switched and organization.billing_plan_label() == "paid")):
                 data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
 
         if events_retention_changed:

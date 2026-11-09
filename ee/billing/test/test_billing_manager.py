@@ -615,6 +615,35 @@ class TestBillingManager(BaseTest):
         assert organization.usage["billing_status_computed_at"] == "2026-11-01T00:00:00+00:00"
         assert "billing_latest_usage_report_date" not in organization.usage
 
+    def test_package_write_yields_to_a_newer_status_stored_since_the_organization_loaded(self):
+        organization = self.organization
+        organization.has_active_subscription = True
+        organization.usage = {}
+        organization.save()
+        Organization.objects.filter(id=organization.id).update(
+            usage={"billing_package": "paid", "billing_status_computed_at": "2026-11-03T00:00:00+00:00"}
+        )
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        BillingManager(license).update_org_details(
+            organization,
+            cast(
+                BillingStatus,
+                {
+                    "customer": {"billing_plan": "paid", "never_drop_data": False},
+                    "computed_at": "2026-11-02T00:00:00+00:00",
+                },
+            ),
+        )
+
+        organization.refresh_from_db()
+        assert organization.billing_package_label() == "paid"
+        assert organization.usage["billing_status_computed_at"] == "2026-11-03T00:00:00+00:00"
+
     def test_older_billing_status_does_not_reverse_a_package_change(self):
         organization = self.organization
         organization.has_active_subscription = True
