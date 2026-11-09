@@ -104,3 +104,66 @@ class TestStratoFanout:
         result = _driver("secret-token").run("Snapshots", [redirect])
 
         assert all("evil.example.com" not in url for url in result.urls)
+
+
+class TestUsages:
+    def test_report_is_flattened_to_one_row_per_resource_and_requests_a_period(self) -> None:
+        report = {
+            "SERVERS": [{"id": "srv1", "name": "web-1", "services": [{"type": "CPU", "usage": 10}]}],
+            "IMAGES": [{"id": "img1", "name": "base", "services": []}],
+            "PUBLIC_IPS": [{"name": "203.0.113.7", "services": [{"type": "UNUSED_IP", "usage": 5}]}],
+        }
+
+        result = _driver().run("Usages", [ScriptedResponse(json=report)])
+
+        assert result.raised is None
+        assert result.queries == [{"period": ("LAST_365D",)}]
+        assert result.paths == ["/v1/usages"]
+        assert [(row["resource_type"], row["resource_key"]) for row in result.rows] == [
+            ("SERVERS", "srv1"),
+            ("IMAGES", "img1"),
+            ("PUBLIC_IPS", "203.0.113.7"),
+        ]
+        assert result.rows[0]["services"] == [{"type": "CPU", "usage": 10}]
+        assert result.response is not None
+        assert result.response.primary_keys == ["resource_type", "resource_key"]
+
+    @parameterized.expand(
+        [
+            ("empty_report", {}, []),
+            ("empty_resource_lists", {"SERVERS": [], "IMAGES": []}, []),
+            ("non_list_value_is_skipped", {"SERVERS": None, "IMAGES": [{"id": "img1"}]}, [("IMAGES", "img1")]),
+            ("non_dict_resource_is_skipped", {"SERVERS": ["oops", {"id": "srv1"}]}, [("SERVERS", "srv1")]),
+            (
+                "id_wins_over_name",
+                {"SHARED_STORAGES": [{"id": "st1", "name": "data"}, {"name": "backup"}]},
+                [("SHARED_STORAGES", "st1"), ("SHARED_STORAGES", "backup")],
+            ),
+        ]
+    )
+    def test_flatten_edge_cases(self, _name: str, report: dict[str, Any], expected: list[tuple[str, str]]) -> None:
+        data_map = get_resource("Usages")["data_map"]
+        assert data_map is not None
+
+        rows = cast(list[dict[str, Any]], data_map(report))
+
+        assert [(row["resource_type"], row["resource_key"]) for row in rows] == expected
+
+
+class TestServerMonitoring:
+    def test_fans_out_per_server_with_a_period_and_skips_deleted_servers(self) -> None:
+        result = _driver().run(
+            "ServerMonitoring",
+            [
+                ScriptedResponse(json=[{"id": "srv1"}, {"id": "srv2"}]),
+                ScriptedResponse(json={"id": "srv1", "name": "web-1", "cpu": {"data": [{"used_percent": 3}]}}),
+                ScriptedResponse(status=404, json={"type": "NOT_FOUND", "message": "Server not found"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/servers", "/v1/monitoring_center/srv1", "/v1/monitoring_center/srv2"]
+        assert result.queries[1:] == [{"period": ("LAST_30D",)}, {"period": ("LAST_30D",)}]
+        assert result.rows == [
+            {"id": "srv1", "name": "web-1", "cpu": {"data": [{"used_percent": 3}]}, "server_id": "srv1"}
+        ]

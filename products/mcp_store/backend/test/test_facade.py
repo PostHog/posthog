@@ -21,9 +21,11 @@ from products.mcp_store.backend.facade.api import (
     member_server_tools,
     resolve_agent_gateway_server_ids,
     resolve_installations_for_sandbox,
+    team_tools_not_connected,
 )
 from products.mcp_store.backend.facade.contracts import (
     ActiveInstallation,
+    UnconnectedTeamTool,
     UnmountedInstallation,
     UnmountedInstallationReason,
 )
@@ -219,6 +221,49 @@ class TestGetActiveInstallations(BaseTest):
         results = get_active_installations(self.team.id, self.user.id)
 
         assert (len(results) == 1) == expected_included
+
+
+class TestTeamToolsNotConnected(BaseTest):
+    @parameterized.expand(
+        [
+            ("not_connected", True),
+            ("connected", False),
+            ("turned_off_for_the_team", False),
+            ("revoked_for_the_member", False),
+            ("registers_a_client_per_person", True),
+        ]
+    )
+    def test_lists_turned_on_tools_the_member_has_not_connected(self, case: str, listed: bool) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Linear",
+            url="https://mcp.linear.app/mcp",
+            auth_type="oauth",
+            is_active=True,
+            oauth_credentials={} if case == "registers_a_client_per_person" else {"client_id": "cid"},
+            created_by=self.user,
+        )
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Linear",
+            url=template.url,
+            template=template,
+            is_team_enabled=case != "turned_off_for_the_team",
+        )
+        if case == "connected":
+            MCPServerInstallation.objects.create(
+                team=self.team, user=self.user, url=template.url, auth_type="api_key", is_enabled=True
+            )
+        if case == "revoked_for_the_member":
+            MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+                team_id=self.team.id, gateway_server=server, user=self.user
+            )
+
+        tools = team_tools_not_connected(self.team.id, self.user.id)
+
+        # A template that registers a client per person only connects through install, never from a plain link.
+        connects = case != "registers_a_client_per_person"
+        expected = [UnconnectedTeamTool(template_id=str(template.id), name="Linear", connects_with_oauth=connects)]
+        assert tools == (expected if listed else [])
 
 
 class TestGetInstallationsForSandbox(BaseTest):

@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any, Optional
 
 import requests
@@ -15,8 +15,12 @@ from products.warehouse_sources.sources.sdk import (
     retry_with_deadline,
 )
 from products.warehouse_sources.sources.smaily.settings import (
+    AB_TEST_STATISTICS,
+    ACTION_LOG_ENDPOINTS,
     CAMPAIGN_STATISTICS,
+    SEGMENT_RULES,
     SEGMENT_SUBSCRIBERS,
+    SEQ_ID_FIELD,
     SMAILY_ENDPOINTS,
     SmailyEndpointConfig,
 )
@@ -42,6 +46,8 @@ class SmailyResumeConfig:
     # Fan-out endpoints only: parent ids (segments / campaigns) still to fetch, current one first.
     # `None` for top-level endpoints.
     pending_parent_ids: list[str] | None = None
+    # Action log endpoints only: the `since_seq_id` of the next page.
+    since_seq_id: int | None = None
 
 
 def normalize_subdomain(subdomain: str) -> str:
@@ -219,39 +225,145 @@ def _segment_subscriber_rows(
         page = 0
 
 
+def _per_parent_rows(
+    manager: ResumableSourceManager[SmailyResumeConfig],
+    list_parent_ids: Callable[[], list[str]],
+    rows_for_parent: Callable[[str], list[dict[str, Any]]],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = manager.load_state() if manager.can_resume() else None
+    if resume and resume.pending_parent_ids is not None:
+        pending = list(resume.pending_parent_ids)
+    else:
+        pending = list_parent_ids()
+
+    # The rows of one parent are yielded at once: a local batch would hold rows across many
+    # requests, where the run can neither stop nor commit its cursor.
+    while pending:
+        rows = rows_for_parent(pending[0])
+        pending = pending[1:]
+        manager.save_state(SmailyResumeConfig(page=0, pending_parent_ids=pending))
+        if rows:
+            yield rows
+        else:
+            manager.safe_point()
+
+
 def _campaign_statistics_rows(
     session: requests.Session,
     base_url: str,
     manager: ResumableSourceManager[SmailyResumeConfig],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    config = SMAILY_ENDPOINTS[CAMPAIGN_STATISTICS]
+    url = f"{base_url}/{SMAILY_ENDPOINTS[CAMPAIGN_STATISTICS].path}"
+
+    def list_campaign_ids() -> list[str]:
+        campaigns = _fetch_all_pages(session, base_url, SMAILY_ENDPOINTS["campaigns"], logger)
+        return [str(campaign["id"]) for campaign in campaigns]
+
+    def stats_for_campaign(campaign_id: str) -> list[dict[str, Any]]:
+        stats = _fetch(session, url, {"id": campaign_id}, logger)
+        if isinstance(stats, dict) and stats:
+            return [stats]
+        # Keep one row per campaign even when the stats payload is unusable (e.g. an empty
+        # list for a never-sent campaign) so the table doesn't silently omit campaigns;
+        # the stats columns stay null. Match the numeric id type of regular stats rows.
+        logger.warning(f"Smaily: campaign {campaign_id} statistics had an unexpected payload shape")
+        return [{"id": int(campaign_id) if campaign_id.isdigit() else campaign_id}]
+
+    yield from _per_parent_rows(manager, list_campaign_ids, stats_for_campaign)
+
+
+def _segment_rules_rows(
+    session: requests.Session,
+    base_url: str,
+    manager: ResumableSourceManager[SmailyResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{base_url}/{SMAILY_ENDPOINTS[SEGMENT_RULES].path}"
+
+    def list_segment_ids() -> list[str]:
+        segments = _fetch(session, url, {}, logger, expect_list=True)
+        return sorted(str(segment["id"]) for segment in segments)
+
+    def rules_for_segment(segment_id: str) -> list[dict[str, Any]]:
+        segment = _fetch(session, url, {"id": segment_id}, logger)
+        if isinstance(segment, dict) and segment:
+            return [segment]
+        logger.warning(f"Smaily: segment {segment_id} rules had an unexpected payload shape")
+        return []
+
+    yield from _per_parent_rows(manager, list_segment_ids, rules_for_segment)
+
+
+def _ab_test_statistics_rows(
+    session: requests.Session,
+    base_url: str,
+    manager: ResumableSourceManager[SmailyResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{base_url}/{SMAILY_ENDPOINTS[AB_TEST_STATISTICS].path}"
+
+    def list_ab_test_ids() -> list[str]:
+        ab_tests = _fetch_all_pages(session, base_url, SMAILY_ENDPOINTS["ab_tests"], logger)
+        return [str(ab_test["id"]) for ab_test in ab_tests]
+
+    def stats_for_ab_test(ab_test_id: str) -> list[dict[str, Any]]:
+        # Without `detailed=1` the response is one summary object per section, with no
+        # per-recipient `addresses` list.
+        sections = _fetch(session, url, {"id": ab_test_id}, logger)
+        if isinstance(sections, dict):
+            sections = [sections] if sections else []
+        if not isinstance(sections, list) or not all(isinstance(section, dict) for section in sections):
+            logger.warning(f"Smaily: A/B test {ab_test_id} statistics had an unexpected payload shape")
+            return []
+        typed_id: int | str = int(ab_test_id) if ab_test_id.isdigit() else ab_test_id
+        return [{**section, "ab_test_id": typed_id, "section_index": index} for index, section in enumerate(sections)]
+
+    yield from _per_parent_rows(manager, list_ab_test_ids, stats_for_ab_test)
+
+
+def _action_log_rows(
+    session: requests.Session,
+    base_url: str,
+    config: SmailyEndpointConfig,
+    manager: ResumableSourceManager[SmailyResumeConfig],
+    logger: FilteringBoundLogger,
+    since_seq_id: int,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk an action log by `since_seq_id`, which returns the actions after that sequence number
+    in ascending `seq_id` order. The API rejects `offset` together with `since_seq_id`, so each page
+    starts after the last `seq_id` of the page before."""
     url = f"{base_url}/{config.path}"
 
     resume = manager.load_state() if manager.can_resume() else None
-    if resume and resume.pending_parent_ids is not None:
-        pending = list(resume.pending_parent_ids)
-    else:
-        campaigns = _fetch_all_pages(session, base_url, SMAILY_ENDPOINTS["campaigns"], logger)
-        pending = [str(campaign["id"]) for campaign in campaigns]
+    if resume and resume.since_seq_id is not None:
+        since_seq_id = resume.since_seq_id
 
-    # One row per campaign is yielded at once: a local batch would hold rows across many requests,
-    # where the run can neither stop nor commit its cursor.
-    while pending:
-        campaign_id = pending[0]
-        stats = _fetch(session, url, {"id": campaign_id}, logger)
-        if isinstance(stats, dict) and stats:
-            row = stats
-        else:
-            # Keep one row per campaign even when the stats payload is unusable (e.g. an empty
-            # list for a never-sent campaign) so the table doesn't silently omit campaigns;
-            # the stats columns stay null. Match the numeric id type of regular stats rows.
-            logger.warning(f"Smaily: campaign {campaign_id} statistics had an unexpected payload shape")
-            row = {"id": int(campaign_id) if campaign_id.isdigit() else campaign_id}
+    assert config.page_size is not None
+    while True:
+        params = {"since_seq_id": since_seq_id, "limit": config.page_size}
+        rows = _fetch(session, url, params, logger, expect_list=True)
+        if not rows:
+            return
 
-        pending = pending[1:]
-        manager.save_state(SmailyResumeConfig(page=0, pending_parent_ids=pending))
-        yield [row]
+        last_seq_id = max(int(row[SEQ_ID_FIELD]) for row in rows)
+        if last_seq_id <= since_seq_id:
+            raise ValueError(f"Smaily {config.name}: since_seq_id={since_seq_id} returned no newer actions")
+
+        # Checkpoint the final page too: an append resume must not fetch its rows again.
+        manager.save_state(SmailyResumeConfig(since_seq_id=last_seq_id))
+        yield rows
+
+        if len(rows) < config.page_size:
+            return
+        since_seq_id = last_seq_id
+
+
+def _initial_since_seq_id(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> int:
+    # 0 reads the log from its first retained action.
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        return int(db_incremental_field_last_value)
+    return 0
 
 
 def get_rows(
@@ -261,6 +373,7 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SmailyResumeConfig],
+    since_seq_id: int = 0,
 ) -> Iterator[list[dict[str, Any]]]:
     config = SMAILY_ENDPOINTS[endpoint]
     session = _make_session(username, password)
@@ -270,6 +383,12 @@ def get_rows(
         yield from _segment_subscriber_rows(session, base_url, resumable_source_manager, logger)
     elif endpoint == CAMPAIGN_STATISTICS:
         yield from _campaign_statistics_rows(session, base_url, resumable_source_manager, logger)
+    elif endpoint == SEGMENT_RULES:
+        yield from _segment_rules_rows(session, base_url, resumable_source_manager, logger)
+    elif endpoint == AB_TEST_STATISTICS:
+        yield from _ab_test_statistics_rows(session, base_url, resumable_source_manager, logger)
+    elif endpoint in ACTION_LOG_ENDPOINTS:
+        yield from _action_log_rows(session, base_url, config, resumable_source_manager, logger, since_seq_id)
     else:
         yield from _list_rows(session, base_url, config, resumable_source_manager, logger)
 
@@ -281,8 +400,12 @@ def smaily_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SmailyResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config = SMAILY_ENDPOINTS[endpoint]
+    is_action_log = endpoint in ACTION_LOG_ENDPOINTS
+    since_seq_id = _initial_since_seq_id(should_use_incremental_field, db_incremental_field_last_value)
 
     return SourceResponse(
         name=endpoint,
@@ -293,10 +416,16 @@ def smaily_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            since_seq_id=since_seq_id,
         ),
         primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
+        # The action logs return rows in ascending `seq_id` order when paged by `since_seq_id`.
+        sort_mode="asc" if is_action_log else None,
+        partition_count=None if config.partition_key else 1,
+        partition_size=None if config.partition_key else 1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
     )
 
 
