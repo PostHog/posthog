@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog_ai", "0002_migrate_posthog_ai_models"),
         ("signals", "0026_alter_signalsourceconfig_source_product_and_more"),
     ]
 
