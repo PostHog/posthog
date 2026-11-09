@@ -19,10 +19,10 @@ import threading
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from django.conf import settings
 from django.core.cache import cache
@@ -80,6 +80,23 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 _QUERY_PAGE_SIZE = 5000
+_GITHUB_RUN_IDS = "ea_github_run_ids"
+_DEPOT_RUN_IDS = "ea_depot_run_ids"
+
+
+def _scope_github_table(
+    table: str, column: Literal["id", "run_id"], *, run_id_filter: bool = False, run_ids_filter: bool = False
+) -> str:
+    predicates = []
+    if run_id_filter:
+        predicates.append(f"{column} = {{run_id}}")
+    if run_ids_filter:
+        # Bounds let Parquet prune before the dynamic IN set is available. Array membership alone is linear.
+        bounds = f"{column} >= arrayMin({_GITHUB_RUN_IDS}) AND {column} <= arrayMax({_GITHUB_RUN_IDS})"
+        membership = f"{column} IN (SELECT arrayJoin({_GITHUB_RUN_IDS}))"
+        # Missing IDs cannot make this conservative prefilter discard otherwise attributable rows.
+        predicates.append(f"(({bounds} AND {membership}) OR {column} IS NULL)")
+    return f"(SELECT * FROM {table} WHERE {' AND '.join(predicates)})" if predicates else table
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -244,23 +261,38 @@ class CuratedGitHubSource:
         """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""
         return f"({pull_requests.build_query(self._tables.pull_requests)})"
 
-    def run_source(self, *, started_floor: bool = False, since: datetime | None = None, live: bool = False) -> str:
+    def run_source(
+        self,
+        *,
+        started_floor: bool = False,
+        since: datetime | None = None,
+        live: bool = False,
+        run_id_filter: bool = False,
+        run_ids_filter: bool = False,
+    ) -> str:
         """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery. ``started_floor``
         adds the raw-string scan floor — callers must register {run_started_floor} (see
         run_started_floor_constant). ``since`` is the read's window start; the stored rows serve a
         read only when they cover it, and an unbounded read never (see ``MaterializedCI.covers``).
-        ``live`` preserves current-status reads and raw step lookups."""
+        ``live`` preserves current-status reads and raw step lookups. ``run_id_filter`` bounds raw
+        GitHub runs and shell-evidence jobs to {run_id}, which the caller must register as a placeholder.
+        ``run_ids_filter`` applies the page's GitHub-run and native Depot-run CTEs before normalization."""
         if not live and (stored := self._stored_ci_covering(since)):
             return f"({stored.runs(started_floor=started_floor)})"
         query = workflow_runs.build_query(
-            self._runs_table(),
+            self._runs_table(run_id_filter=run_id_filter, run_ids_filter=run_ids_filter),
             pull_requests_table=self._tables.pull_requests,
             started_floor=started_floor,
         )
         return f"({query})"
 
     def jobs_source(
-        self, *, created_floor: bool = False, since: datetime | None = None, include_steps: bool = False
+        self,
+        *,
+        created_floor: bool = False,
+        since: datetime | None = None,
+        include_steps: bool = False,
+        run_id_filter: bool = False,
     ) -> str | None:
         """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced.
 
@@ -269,17 +301,21 @@ class CuratedGitHubSource:
         ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it.
         ``since`` is the read's window start, as for ``run_source``.
 
-        ``include_steps`` appends the raw ``steps`` JSON column, for a read bounded to one run."""
+        ``include_steps`` appends the raw ``steps`` JSON column, for a read bounded to one run.
+        ``run_id_filter`` bounds every raw GitHub jobs scan to {run_id}, including duplicate and shell
+        evidence. The caller must register that placeholder."""
         if not self._tables.workflow_jobs:
             return None
         if not include_steps and (stored := self._stored_ci_covering(since)):
             return f"({stored.jobs(created_floor=created_floor)})"
         query = workflow_jobs.build_query(
-            self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor, include_steps=include_steps
+            self._jobs_table(self._tables.workflow_jobs, run_id_filter=run_id_filter),
+            created_floor=created_floor,
+            include_steps=include_steps,
         )
         return f"({query})"
 
-    def _depot_job_attempts(self) -> depot_ci.DepotJobAttempts | None:
+    def _depot_job_attempts(self, *, native_run_ids_filter: bool = False) -> depot_ci.DepotJobAttempts | None:
         """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
         Trunk tables, so a read that never touches CI pays no lookup."""
         with self._lock:
@@ -287,14 +323,32 @@ class CuratedGitHubSource:
                 depot_tables = resolve_depot_job_attempts_tables(self._team, self._user_access_control)
                 self._depot_job_attempts_table = depot_tables.get(self.repository.casefold())
                 self._depot_job_attempts_resolved = True
-            return self._depot_job_attempts_table
+            depot = self._depot_job_attempts_table
+        if depot is None or not native_run_ids_filter:
+            return depot
+        # Keep whole native runs: partial metadata and single-workflow IDs can link their jobs and workflows.
+        return replace(
+            depot,
+            table=f"(SELECT * FROM {depot.table} "
+            f"WHERE run_id IN (SELECT arrayJoin({_DEPOT_RUN_IDS})) OR run_id IS NULL)",
+        )
 
-    def _runs_table(self) -> str:
+    def _runs_table(self, *, run_id_filter: bool = False, run_ids_filter: bool = False) -> str:
+        runs = _scope_github_table(
+            self._tables.workflow_runs, "id", run_id_filter=run_id_filter, run_ids_filter=run_ids_filter
+        )
+        jobs = (
+            _scope_github_table(
+                self._tables.workflow_jobs, "run_id", run_id_filter=run_id_filter, run_ids_filter=run_ids_filter
+            )
+            if self._tables.workflow_jobs is not None
+            else None
+        )
         return depot_ci.with_depot_runs(
-            self._tables.workflow_runs,
-            self._depot_job_attempts(),
+            runs,
+            self._depot_job_attempts(native_run_ids_filter=run_ids_filter),
             self._tables.pull_requests,
-            self._tables.workflow_jobs,
+            jobs,
             optional_columns=self._tables.workflow_runs_optional_columns,
         )
 
@@ -347,8 +401,49 @@ class CuratedGitHubSource:
                 self._materialized_ci_resolved = True
             return self._materialized_ci
 
-    def _jobs_table(self, workflow_jobs_table: str) -> workflow_jobs.JobsTable:
-        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts(), self._tables.workflow_runs)
+    def _depot_run_ids_cte(self, predicate: str) -> str | None:
+        if depot := self._depot_job_attempts():
+            return f"(SELECT groupUniqArray(run_id) FROM {depot.table} WHERE {predicate}) AS {_DEPOT_RUN_IDS}"
+        return None
+
+    def pr_history_scope_ctes(self) -> list[str]:
+        if self._tables.workflow_jobs is None:
+            return []
+        # Scalar subqueries run once, rather than rescanning candidates for every jobs/evidence input.
+        # These are conservative sets; exact PR and queue attribution stays in the builders.
+        # Read all history because associated CI can predate the PR's creation.
+        pattern = "arrayStringConcat(arrayMap(number -> toString(number), {pr_numbers}), '|')"
+        # An Int64 set avoids narrowing unrelated large associations when the requested numbers are small.
+        ctes = [
+            f"""(SELECT groupUniqArray(id) FROM {self._tables.workflow_runs}
+                WHERE {workflow_runs.ASSOCIATION_PR_NUMBER} IN (
+                    SELECT arrayJoin(arrayMap(number -> toInt(number), {{pr_numbers}}))
+                ) OR {workflow_runs.MERGE_QUEUE_PR_NUMBER} IN (
+                    SELECT arrayJoin(arrayMap(number -> toInt(number), {{pr_numbers}}))
+                ))
+                AS {_GITHUB_RUN_IDS}"""
+        ]
+        # A native ref can name the queue's throwaway PR, whose snapshot supplies the source-PR branch.
+        depot_cte = self._depot_run_ids_cte(
+            f"""match(ifNull(ref, ''), {pattern}) OR {depot_ci.ref_pr_number_expr("ref")} IN (
+                SELECT number FROM {self._tables.pull_requests}
+                WHERE match(JSONExtractString(ifNull(head, '{{}}'), 'ref'), {pattern})
+            )"""
+        )
+        if depot_cte is not None:
+            ctes.append(depot_cte)
+        return ctes
+
+    def _jobs_table(
+        self, workflow_jobs_table: str, *, run_id_filter: bool = False, run_ids_filter: bool = False
+    ) -> workflow_jobs.JobsTable:
+        jobs = _scope_github_table(
+            workflow_jobs_table, "run_id", run_id_filter=run_id_filter, run_ids_filter=run_ids_filter
+        )
+        runs = _scope_github_table(
+            self._tables.workflow_runs, "id", run_id_filter=run_id_filter, run_ids_filter=run_ids_filter
+        )
+        return depot_ci.with_depot_jobs(jobs, self._depot_job_attempts(native_run_ids_filter=run_ids_filter), runs)
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
@@ -488,7 +583,9 @@ class CuratedGitHubSource:
             )
         """
 
-    def job_cost_source(self, *, created_floor: bool = False, since: datetime | None = None) -> str | None:
+    def job_cost_source(
+        self, *, created_floor: bool = False, since: datetime | None = None, run_ids_filter: bool = False
+    ) -> str | None:
         """Per-job cost ``SELECT`` subquery: the rows ``engineering_analytics_job_costs`` exposes, with
         the pass-through columns the public view leaves out (``run_started_at`` and ``run_head_branch``
         among them). None when the jobs table isn't synced, exactly like ``jobs_source``.
@@ -514,21 +611,23 @@ class CuratedGitHubSource:
             )
             return f"({query})"
         query = job_costs.build_query(
-            jobs_table=self._jobs_table(self._tables.workflow_jobs),
-            runs_table=self._runs_table(),
+            jobs_table=self._jobs_table(self._tables.workflow_jobs, run_ids_filter=run_ids_filter),
+            runs_table=self._runs_table(run_ids_filter=run_ids_filter),
             created_floor=created_floor,
         )
         return f"({query})"
 
-    def runs_cte(self) -> str:
+    def runs_cte(self, *, run_ids_filter: bool = False) -> str:
         """CTE naming the curated workflow-runs source for ``ci_rollup``.
 
         ClickHouse inlines a CTE at every reference, so each extra reader of ``runs`` scans and
         parses the whole runs source again.
         """
-        return f"runs AS {self.run_source(live=True)}"
+        return f"runs AS {self.run_source(live=True, run_ids_filter=run_ids_filter)}"
 
-    def _pr_scope_cte(self, pr_scope_where: str) -> str:
+    def _pr_scope_cte(
+        self, pr_scope_where: str, *, order_by: str | None = None, limit: int | None = None, offset: int = 0
+    ) -> str:
         """CTE: the number and head SHA of PRs matching ``pr_scope_where`` (a predicate over
         unqualified curated PR columns).
 
@@ -537,7 +636,12 @@ class CuratedGitHubSource:
         run history — millions of ``(head_sha, workflow)`` groups on a busy repo — and
         the query runs out of memory before the join discards almost all of it.
         """
-        return f"pr_scope AS (SELECT number, head_sha FROM {self.pr_source()} AS scope_pr WHERE {pr_scope_where})"
+        paging = ""
+        if order_by is not None and limit is not None:
+            paging = f" ORDER BY {order_by.replace('pr.', 'scope_pr.')} LIMIT {limit} OFFSET {offset}"
+        return (
+            f"pr_scope AS (SELECT number, head_sha FROM {self.pr_source()} AS scope_pr WHERE {pr_scope_where}{paging})"
+        )
 
     def ci_rollup_cte(self) -> str:
         """CTE collapsing each head SHA's workflow runs into pass/fail/pending counts.
@@ -580,7 +684,14 @@ class CuratedGitHubSource:
         """
 
     def pr_rollup_query(
-        self, select: str, *, pr_scope_where: str, ready: ReadyToMergeSql = READY_TO_MERGE_UNOBSERVABLE
+        self,
+        select: str,
+        *,
+        pr_scope_where: str,
+        ready: ReadyToMergeSql = READY_TO_MERGE_UNOBSERVABLE,
+        pr_scope_order_by: str | None = None,
+        pr_scope_limit: int | None = None,
+        pr_scope_offset: int = 0,
     ) -> str:
         """Compose a pull-requests query that reads ``FROM __PR_SOURCE__ AS pr LEFT JOIN ci_rollup``.
 
@@ -588,9 +699,27 @@ class CuratedGitHubSource:
         measure when ``select`` reads it, and fills its ``__PR_SOURCE__`` placeholder with the
         curated pull-requests source. The cards and PR-list queries always do these steps together.
         ``pr_scope_where`` must keep every PR the ``select`` reads CI for (it prunes the rollup scan,
-        see ``_pr_scope_cte``); a PR outside it joins as if it had no runs.
+        see ``_pr_scope_cte``); a PR outside it joins as if it had no runs. Paging is valid only when
+        the consuming query's filters and ordering depend solely on PR columns.
         """
-        ctes = [self.runs_cte(), self._pr_scope_cte(pr_scope_where), self.ci_rollup_cte()]
+        if pr_scope_limit is not None and self._tables.workflow_jobs is not None:
+            # The page is ordered only by PR fields, so selecting it before CI aggregation is equivalent.
+            # Scope by head SHA here, not PR association: CI can belong to another PR sharing this commit.
+            ctes = [
+                self._pr_scope_cte(
+                    pr_scope_where, order_by=pr_scope_order_by, limit=pr_scope_limit, offset=pr_scope_offset
+                ),
+                f"(SELECT groupUniqArray(id) FROM {self._tables.workflow_runs} "
+                f"WHERE head_sha IN (SELECT head_sha FROM pr_scope)) AS {_GITHUB_RUN_IDS}",
+            ]
+            depot_cte = self._depot_run_ids_cte(
+                "coalesce(nullIf(head_sha, ''), sha) IN (SELECT head_sha FROM pr_scope)"
+            )
+            if depot_cte is not None:
+                ctes.append(depot_cte)
+            ctes.extend([self.runs_cte(run_ids_filter=True), self.ci_rollup_cte()])
+        else:
+            ctes = [self.runs_cte(), self._pr_scope_cte(pr_scope_where), self.ci_rollup_cte()]
         if ready.cte:
             ctes.append(ready.cte)
         return self._compose_pr_query(ctes, select)

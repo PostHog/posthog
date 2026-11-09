@@ -136,10 +136,14 @@ def build_billed_seconds_query(depot: DepotJobAttempts) -> str:
     """
 
 
+def ref_pr_number_expr(column: str) -> str:
+    return f"ifNull(toInt(extract({column}, '^refs/pull/([0-9]+)/')), 0)"
+
+
 def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None, where: str = "1") -> str:
     # Depot reports no branch, so a PR run takes its head branch from the PR snapshot, and branch
     # filters then match it like a GitHub run of the same PR.
-    pr_number = "ifNull(toInt(extract(a.ref, '^refs/pull/([0-9]+)/')), 0)"
+    pr_number = ref_pr_number_expr("a.ref")
     if pull_requests_table:
         head_branch = "nullIf(pr.head_branch, '')"
         actor = "nullIf(pr.author, '')"

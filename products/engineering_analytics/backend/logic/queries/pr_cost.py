@@ -237,7 +237,10 @@ def query_pr_costs(
     A population that can be repo-wide (every PR merged in a window) passes ``run_from``: runs started
     before it are left out, which trims the jobs scan for a population of thousands of PRs.
     """
-    cost_source = curated.job_cost_source(created_floor=run_from is not None, since=run_from)
+    scope_ctes = curated.pr_history_scope_ctes() if run_from is None else []
+    cost_source = curated.job_cost_source(
+        created_floor=run_from is not None, since=run_from, run_ids_filter=bool(scope_ctes)
+    )
     if cost_source is None or not pr_numbers:
         return {}
     placeholders: dict[str, ast.Expr] = {"pr_numbers": ast.Constant(value=pr_numbers)}
@@ -251,6 +254,8 @@ def query_pr_costs(
         .replace("__COST_AGGREGATES__", _cost_aggregates())
         .replace("__RUN_FROM__", run_from_clause)
     )
+    if scope_ctes:
+        sql = f"WITH {', '.join(scope_ctes)} {sql}"
 
     def load(numbers: list[int]) -> dict[int, tuple[_CostRow, ...]]:
         response = curated.run(
