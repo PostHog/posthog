@@ -18,9 +18,9 @@ import { switchMetricsQueryLanguage } from '../components/metricsQueryLanguageSw
 import { isBuilderCompatibleQuery } from '../components/metricsViewerLogic'
 import { MetricsPanel } from '../panels/MetricsPanel'
 import { metricsQueryText, queryLanguage } from '../queryLanguages/convert'
+import { metricsDataNodeKey } from './dataNodeKey'
 import { seriesFromMetricsResponse } from './metricsResponseSeries'
 
-let uniqueNode = 0
 let uniqueEditor = 0
 
 interface MetricsQueryNodeProps {
@@ -48,7 +48,11 @@ export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | nu
     const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
     // A language switch replaces the query, so the editor remounts to seed its logic from the new one.
     const [editorKey, setEditorKey] = useState(() => `MetricsQueryEditor.${uniqueEditor++}`)
-    const [dataKey] = useState(() => `MetricsQueryNode.${uniqueNode++}`)
+    const dataQuery = useMemo(() => {
+        const { display: _display, ...rest } = props.query
+        return rest
+    }, [props.query])
+    const dataKey = metricsDataNodeKey('MetricsQueryNode', dataQuery)
     const language = queryLanguage(props.query)
 
     // A new insight starts with no clauses, which the backend rejects, so there is nothing to run yet.
