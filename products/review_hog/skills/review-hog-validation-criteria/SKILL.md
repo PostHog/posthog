@@ -1,7 +1,8 @@
 ---
 name: review-hog-validation-criteria
 description: >
-  Keeps verified defects and consequential repository standards, maintainability, and test-quality findings.
+  Keeps verified defects and consequential DevEx findings across the repository, including
+  repository standards, maintainability, test quality, and developer workflows.
   Drops speculative issues and style suggestions before publishing.
 metadata:
   owner_team: review_hog
@@ -38,6 +39,8 @@ Keep it if the flagged code, as written and as actually reached, would cause one
   swallowed errors that hide failures, missing handling for a failure mode that will occur.
 
 Also keep a **standards finding** when the change violates applicable repository guidance or demonstrates a concrete maintenance or test-quality cost. Verify the exact rule, its scope, and exceptions, or identify the repeated edit obligation, contract ambiguity, or outcome the test fails to prove. A production failure is not required. Keep the `[Standards]` title prefix and distinguish required corrections from advisory improvements. Use `code_quality`, `best_practice`, or `testing` as appropriate, and do not raise a standards-only finding to `must_fix`.
+These DevEx concerns apply across products, languages, and owning teams, including application code and tests.
+Apply each rule only within its documented scope, regardless of which perspective raised the candidate.
 
 A good defect "keep" can name the concrete trigger and the concrete consequence ("if `items` is empty this
 raises `IndexError`", "this query runs once per row → N+1 on the dashboard"). If you can't name both,
