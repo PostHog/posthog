@@ -14,7 +14,7 @@ import type { BaselineEntryApi, BaselineOverviewApi } from '../generated/api.sch
 import type { RepoApi } from '../generated/api.schemas'
 import { parseArea, parseTheme, runTypeLabel } from '../lib/parseIdentifier'
 import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
-import { resolveRepoId } from '../lib/repoIds'
+import { resolveRepoIdOrNull } from '../lib/repoIds'
 import { repoFullNameFromParams, splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 
@@ -202,10 +202,10 @@ export interface visualReviewSnapshotOverviewSceneLogicActions {
         errorObject?: any
     }
     loadOverviewSuccess: (
-        overview: BaselineOverviewApi,
+        overview: BaselineOverviewApi | null,
         payload?: any
     ) => {
-        overview: BaselineOverviewApi
+        overview: BaselineOverviewApi | null
         payload?: any
     }
     setOverviewRepoId: (repoId: string) => {
@@ -357,7 +357,10 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
             {
                 loadOverview: async () => {
                     const projectId = String(values.currentProjectId)
-                    const repoId = await resolveRepoId(projectId, props.repoFullName)
+                    const repoId = await resolveRepoIdOrNull(projectId, props.repoFullName)
+                    if (!repoId) {
+                        return null
+                    }
                     actions.setOverviewRepoId(repoId)
                     return visualReviewReposBaselinesRetrieve(projectId, repoId)
                 },

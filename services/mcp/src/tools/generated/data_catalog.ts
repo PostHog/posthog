@@ -432,6 +432,9 @@ const dataCatalogMetricRun = (): ToolBase<
         if (params.interval !== undefined) {
             body['interval'] = params.interval
         }
+        if (params.offset !== undefined) {
+            body['offset'] = params.offset
+        }
         if (params.query_id !== undefined) {
             body['query_id'] = params.query_id
         }

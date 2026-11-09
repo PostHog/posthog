@@ -75,9 +75,7 @@ class PulseChoice:
 
 def find(context: Context) -> Found:
     pinned = context.pinned
-    if context.publish_pulse is not None:
-        return Found(pulse=tuple(_progressive_metrics(context, pinned, PULSE_CANDIDATES - len(pinned))))
-    return Found(pulse=tuple(_frecent_metrics(context, pinned, PULSE_CANDIDATES - len(pinned))))
+    return Found(pulse=tuple(_progressive_metrics(context, pinned, PULSE_CANDIDATES - len(pinned))))
 
 
 def _dashboard_context(candidate: PulseCandidate) -> InsightDashboardContext | None:
@@ -91,7 +89,7 @@ def _dashboard_context(candidate: PulseCandidate) -> InsightDashboardContext | N
 
 
 def _progressive_metrics(context: Context, excluded: Collection[str], budget: int) -> list[contracts.HighlightMetric]:
-    if budget <= 0 or context.publish_pulse is None:
+    if budget <= 0:
         return []
     deadline = monotonic() + BLOCKING_SECONDS
     candidates: list[PulseCandidate] = []
@@ -239,39 +237,6 @@ def frecency(view_days: Collection[date], today: date) -> float:
     return sum(0.5 ** (age / FRECENCY_HALF_LIFE_DAYS) for age in ages if 0 <= age <= FRECENCY_LOOKBACK_DAYS)
 
 
-def _frecent_metrics(context: Context, excluded: Collection[str], budget: int) -> list[contracts.HighlightMetric]:
-    if budget <= 0:
-        return []
-    deadline = monotonic() + BLOCKING_SECONDS
-    candidates: list[tuple[ViewedItem, contracts.HighlightMetric | None]] = []
-    available: set[str] = set()
-    for item in _own_candidates(context):
-        shown = frozenset([*excluded, *available])
-        metric = context.guard(
-            f"frecent {item.kind} {item.ref}",
-            partial(_frecent_metric, context, item, shown, deadline, wait=False),
-            None,
-        )
-        candidates.append((item, metric))
-        if metric is not None:
-            available.add(metric.key)
-        if len(available) >= budget:
-            break
-
-    metrics: list[contracts.HighlightMetric] = []
-    for item, metric in candidates:
-        if len(metrics) >= budget:
-            break
-        shown = frozenset([*excluded, *(metric.key for metric in metrics)])
-        if metric is None or metric.key in shown:
-            metric = context.guard(
-                f"frecent {item.kind} {item.ref}", partial(_frecent_metric, context, item, shown, deadline), None
-            )
-        if metric is not None:
-            metrics.append(metric)
-    return metrics
-
-
 def _own_candidates(context: Context) -> list[ViewedItem]:
     none: list[str] = []
     used = [item for item in _frecent_views(context) if _repeated(item.days, context.today)]
@@ -352,48 +317,6 @@ def _frecent_views(context: Context) -> list[ViewedItem]:
     scored = [(frecency(item.days, context.today), max(item.days), item) for item in items]
     scored.sort(key=lambda row: row[:2], reverse=True)
     return [item for score, _last, item in scored if score > 0]
-
-
-def _frecent_metric(
-    context: Context, item: ViewedItem, shown: frozenset[str], deadline: float, *, wait: bool = True
-) -> contracts.HighlightMetric | None:
-    if item.kind == "insight":
-        if f"insight:{item.ref}" in shown:
-            return None
-        return insight_metric(
-            context,
-            item.ref,
-            viewed=item,
-            reason=item.reason,
-            blocking=wait and monotonic() < deadline,
-            wait_until=deadline,
-        )
-    if not item.ref.isdigit():
-        return None
-    dashboard = dashboard_insights(
-        team=context.team, user=context.user, dashboard_id=int(item.ref), limit=DASHBOARD_TILES_TRIED
-    )
-    if dashboard is None:
-        return None
-    for tile in dashboard.tiles:
-        if f"insight:{tile.insight_short_id}" in shown:
-            continue
-        metric = context.guard(
-            f"dashboard {item.ref} tile {tile.insight_short_id}",
-            partial(
-                _tile_metric,
-                context,
-                dashboard,
-                tile,
-                viewed=item,
-                blocking=wait and monotonic() < deadline,
-                wait_until=deadline,
-            ),
-            None,
-        )
-        if metric is not None:
-            return metric
-    return None
 
 
 def dashboard_tile_metric(

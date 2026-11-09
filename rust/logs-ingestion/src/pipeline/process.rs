@@ -295,6 +295,9 @@ async fn process_log_message(
         headers.set("retention-days", number_to_string(retention_days));
         headers.set("source_topic", message.message.topic.clone());
         headers.set("source_partition", message.message.partition.to_string());
+        if context.deps.source_offset_header {
+            headers.set("source_offset", message.message.offset.to_string());
+        }
         if let Some(n) = override_uncompressed {
             headers.set("bytes_uncompressed", number_to_string(n));
         }

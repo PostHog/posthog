@@ -1047,8 +1047,12 @@ class APIScopePermission(ScopeBasePermission):
                 f"`scope_object = 'INTERNAL'`; {type(view).__name__} declares `scope_object = {scope_object!r}`."
             )
 
-        if scope_object == "user":
-            return  # The /api/users/@me/ endpoint is exempt from team and org scoping
+        if (
+            scope_object == "user"
+            and not getattr(view, "parent_query_kwargs", {})
+            and not getattr(view, "param_derived_from_user_current_team", None)
+        ):
+            return  # User-only routes such as /api/users/@me/ have no tenant target.
 
         self._check_organization_personal_api_key_restrictions(request, view)
 
@@ -1259,10 +1263,15 @@ class AccessControlPermission(ScopeBasePermission):
         if not required_level:
             return True
 
-        if isinstance(object, ObjectAccessRef):
-            has_access = uac.check_access_level_for_ref(object, required_level=required_level)
-        else:
+        if isinstance(object, Model):
             has_access = uac.check_access_level_for_object(object, required_level=required_level)
+        elif isinstance(object, ObjectAccessRef):
+            has_access = uac.check_access_level_for_ref(object, required_level=required_level)
+        elif not view.records_have_object_access_rules:
+            # has_permission already checked the resource-level rules, and no rule names one record.
+            return True
+        else:
+            has_access = uac.check_access_level_for_ref(view.object_access_ref(object), required_level=required_level)
 
         if not has_access:
             self.message = f"You do not have {required_level} access to this resource."

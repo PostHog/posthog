@@ -91,6 +91,7 @@ from products.signals.backend.scout_harness.trial_result import export_trial_res
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
 from products.signals.backend.scout_report import scout_report_tags_in_use
 from products.signals.backend.spend import record_task_spend
+from products.signals.backend.task_profiles import scout_profile
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -1058,16 +1059,11 @@ async def _spawn_and_run(
     # provisioning layer enforces. Trusted (default) shares the research env; full gets its own
     # env name so its unrestricted policy can't be reasserted onto the shared one.
     github_optional = await database_sync_to_async(ResearchAccessPolicy.enabled, thread_sensitive=False)(team.id)
-    if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
-        sandbox_env_name = SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME
-        network_access_level = tasks_facade.SandboxNetworkAccessLevel.FULL
-    else:
-        sandbox_env_name = SIGNALS_SCOUT_SANDBOX_ENV_NAME
-        network_access_level = tasks_facade.SandboxNetworkAccessLevel.TRUSTED
+    full_network = config.network_access == SignalScoutConfig.NetworkAccess.FULL
+    profile = scout_profile(first_report=skill.name == FIRST_REPORT_SCOUT, full_network=full_network)
+    sandbox_env_name = SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME if full_network else SIGNALS_SCOUT_SANDBOX_ENV_NAME
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-        team.id,
-        sandbox_env_name,
-        network_access_level,
+        team.id, sandbox_env_name, profile
     )
     report_channel = skill_uses_report_channel(skill.allowed_tools)
     # `write_scopes` adds the user-facing writes this ONE scout was granted from its settings, so a
@@ -1253,9 +1249,7 @@ async def _spawn_and_run(
         model=summary_model,
         step_name=_step_name(skill),
         verbose=verbose,
-        origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
-        internal=skill.name == FIRST_REPORT_SCOUT,
-        mcp_builtin_agent_key="scout",
+        profile=profile,
         # No credential owner on purpose: a scout is a team resource, so its runs mount only
         # connections members shared to the whole team, never anyone's personal grants. That
         # keeps runs identical no matter who created or edits the scout, and covers ownerless

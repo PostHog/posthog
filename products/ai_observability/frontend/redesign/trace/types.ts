@@ -75,6 +75,8 @@ export type NodeContent =
     | { kind: 'loading' }
     | { kind: 'error'; message: string }
 
+export type LoadedNodeContent = Extract<NodeContent, { kind: 'messages' | 'io' }>
+
 export interface NodeProperties {
     timestamp: string | null
     provider: string | null
