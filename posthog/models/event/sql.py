@@ -511,7 +511,6 @@ def _cast_temporary_properties(field: str) -> str:
 
 
 def _events_json_rows_sql(kafka_table: str) -> str:
-    # The rows events_json stores, read from its Kafka table. Shared with events_json_recent_mv.
     return """SELECT
 *,
 accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
