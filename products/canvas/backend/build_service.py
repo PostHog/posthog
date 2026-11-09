@@ -765,10 +765,8 @@ def publish_grid_layout(
             expected = str(expected_version_id) if expected_version_id else None
             if current_id != expected:
                 raise CanvasVersionConflict(current_id)
-    # Pins the caller may not add are allowed only when the head layout already
-    # holds them. Reading that layout needs storage, so it happens only when
-    # such pins exist, before the head lock, and again under the lock only when
-    # the head moved meanwhile.
+    # The head layout is read from storage only for pins that need the component
+    # creator, and again under the head lock only when the head moved meanwhile.
     with team_scope(canvas.team_id):
         refused_pins = _pins_needing_component_creator(canvas.team_id, created_by, layout)
         checked_head_id = None
@@ -933,8 +931,6 @@ def revert_to_version(
             pk=version_id, canvas_id=canvas.id, draft=False
         )
         if canvas.kind == Canvas.KIND_GRID:
-            # Unlike a publish, a revert gets no allowance for pins the current
-            # layout holds: every pin it restores must be live or the caller's own.
             refused_pins = _pins_needing_component_creator(canvas.team_id, user, read_source_project(version))
             if refused_pins:
                 raise CanvasPinnedVersionDenied(sorted({pin.component_id for pin in refused_pins}))
