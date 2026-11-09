@@ -62,7 +62,9 @@ import {
     TransactionalEmailRequest,
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
+    hogFlowWithSendCategory,
     isRecipientFormatIssue,
+    marketingEmailStep,
     transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
@@ -77,6 +79,7 @@ import { EmailSuppressionService } from './services/messaging/email-suppression.
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
+import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
     HogWatcherService,
@@ -239,6 +242,7 @@ export class CdpApi {
     private transactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private emailSuppressionService: EmailSuppressionService
+    private recipientPreferencesService: RecipientPreferencesService
     private emailValidationService: EmailValidationService
     private teamWorkflowsConfigService: TeamWorkflowsConfigService
     private emailStatusService: EmailStatusService
@@ -256,6 +260,7 @@ export class CdpApi {
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
         this.emailSuppressionService = services.emailSuppressionService
+        this.recipientPreferencesService = services.recipientPreferencesService
         this.emailValidationService = services.emailValidationService
         this.teamWorkflowsConfigService = services.teamWorkflowsConfigService
         this.hogExecutorAsync = services.hogExecutorAsync
@@ -1258,7 +1263,8 @@ export class CdpApi {
     // in its path (step resume) pins the job through extraClaims instead. Writes the 401 itself
     // and returns false on any mismatch.
     // Run a transactional email's workflow once. Django checks the template and the workflow, then calls this
-    // once per send. The job goes straight onto the email queue's fast lane.
+    // once per send. The job goes straight onto the email queue: a transactional send on its fast lane, a marketing
+    // send on its bulk lane.
     //
     // Auth: a per-call JWT minted by Django on its own audience and key, pinned to the team and the workflow,
     // never the fleet-wide internal secret.
@@ -1316,10 +1322,11 @@ export class CdpApi {
                 if (!team) {
                     return reply('not_found', 404, { error: 'Team not found' })
                 }
-                const hogFlow = await hogFlowLookup
-                if (!hogFlow || hogFlow.team_id !== team.id) {
+                const savedHogFlow = await hogFlowLookup
+                if (!savedHogFlow || savedHogFlow.team_id !== team.id) {
                     return reply('not_found', 404, { error: 'Workflow not found' })
                 }
+                const hogFlow = hogFlowWithSendCategory(savedHogFlow, send)
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
@@ -1360,7 +1367,8 @@ export class CdpApi {
                 invocation.state.triggerMetricPending = true
                 // Straight to the email queue: the flow's only step is the email, so a hop through the
                 // workflow queue would only add latency to a password reset or a verification code.
-                const priorityClass: EmailQueuePriorityClass = 'fast'
+                const marketingStep = marketingEmailStep(hogFlow)
+                const priorityClass: EmailQueuePriorityClass = marketingStep ? 'bulk' : 'fast'
                 invocation.queue = 'email'
                 invocation.queuePriority = EMAIL_QUEUE_PRIORITY[priorityClass]
 
@@ -1396,7 +1404,8 @@ export class CdpApi {
                     const refusal = await this.refuseTransactionalEmail(
                         team.id,
                         hogFlow,
-                        transactionalEmailRecipients(parsed.data)
+                        transactionalEmailRecipients(parsed.data),
+                        marketingStep && { to, categoryId: marketingStep.config.message_category_id || '$all' }
                     )
                     if (refusal) {
                         if (idempotencyKey) {
@@ -1462,7 +1471,8 @@ export class CdpApi {
     private async refuseTransactionalEmail(
         teamId: number,
         hogFlow: HogFlow,
-        recipients: string[]
+        recipients: string[],
+        marketing: { to: string; categoryId: string } | undefined
     ): Promise<{ outcome: TransactionalEmailOutcome; status: number } | null> {
         if (hogFlow.status !== 'active') {
             return { outcome: 'not_sendable', status: 400 }
@@ -1473,16 +1483,19 @@ export class CdpApi {
         const suspension = this.teamWorkflowsConfigService.getEmailSendingSuspension(teamId)
         const suppressed = Promise.all(
             recipients.map((email) =>
-                this.emailSuppressionService.isKnownSuppressed(teamId, email, { transactional: true })
+                this.emailSuppressionService.isKnownSuppressed(teamId, email, { transactional: !marketing })
             )
         )
+        const optedOut = marketing
+            ? this.recipientPreferencesService.isOptedOut(teamId, marketing.to, marketing.categoryId)
+            : Promise.resolve(false)
         const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
         // A DNS failure lets the send through.
         const recipientSkipReasons = Promise.all(
             recipients.map((email) => this.emailValidationService.getRecipientSkipReason(teamId, email))
         )
         // An earlier refusal returns before the later lookups are awaited, so their failures must not go unhandled.
-        const lookups: Promise<unknown>[] = [suspension, suppressed, quota, recipientSkipReasons]
+        const lookups: Promise<unknown>[] = [suspension, suppressed, optedOut, quota, recipientSkipReasons]
         for (const lookup of lookups) {
             lookup.catch(() => undefined)
         }
@@ -1495,6 +1508,9 @@ export class CdpApi {
         }
         if ((await suppressed).some(Boolean)) {
             return { outcome: 'recipient_suppressed', status: 422 }
+        }
+        if (await optedOut) {
+            return { outcome: 'recipient_opted_out', status: 422 }
         }
         if ((await quota).isLimited) {
             return { outcome: 'quota_limited', status: 429 }

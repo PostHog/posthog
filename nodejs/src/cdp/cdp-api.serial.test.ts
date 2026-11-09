@@ -2240,7 +2240,8 @@ describe('CDP API', () => {
         const transactionalFlow = (
             trigger: 'api' | 'schedule',
             status: HogFlow['status'],
-            category: 'transactional' | 'marketing' = 'transactional'
+            category: 'transactional' | 'marketing' = 'transactional',
+            categoryId?: string
         ): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
@@ -2251,7 +2252,12 @@ describe('CDP API', () => {
                         trigger: { type: 'trigger', config: { type: trigger } },
                         email: {
                             type: 'function_email',
-                            config: { template_id: 'template-email', inputs: {}, message_category_type: category },
+                            config: {
+                                template_id: 'template-email',
+                                inputs: {},
+                                message_category_type: category,
+                                ...(categoryId && { message_category_id: categoryId }),
+                            },
                         },
                     },
                     edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
@@ -2305,6 +2311,8 @@ describe('CDP API', () => {
             replyTo: ['help@example.com'],
             tracking: { captureEngagement: true },
         }
+        const newsletterId = '0195d6b4-6c3e-7a1f-9b2d-3f4e5a6b7c8d'
+        const newsletterSend = { ...codeSend, messageCategoryId: newsletterId }
 
         beforeEach(async () => {
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
@@ -2596,6 +2604,7 @@ describe('CDP API', () => {
                 'a tracking field this version does not know',
                 { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
             ],
+            ['a category that is not an id', { ...codeSend, messageCategoryId: 'newsletter' }],
             ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
@@ -2714,18 +2723,128 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
-        it('refuses a send of a marketing email when the team is over its email quota', async () => {
-            jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
-            const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
-            const limitedBefore = await outcomeCount('quota_limited')
+        it.each([
+            ['a marketing email', 'marketing', 'transactional_email', {}],
+            [
+                'a code send in a marketing category',
+                'transactional',
+                'transactional_email/send',
+                { send: newsletterSend },
+            ],
+        ] as const)(
+            'refuses a send of %s when the team is over its email quota',
+            async (_desc, category, route, extra) => {
+                jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+                const flow = await insertHogFlow(transactionalFlow('api', 'active', category))
+                const limitedBefore = await outcomeCount('quota_limited')
 
-            const res = await send(marketingFlow.id, {
-                Authorization: `Bearer ${mintToken(team.id, marketingFlow.id)}`,
+                const res = await sendOn(
+                    route,
+                    flow.id,
+                    { Authorization: `Bearer ${tokenFor(route, team.id, flow.id)}` },
+                    { ...body, ...extra }
+                )
+
+                expect(res.status).toEqual(429)
+                expect(await outcomeCount('quota_limited')).toEqual(limitedBefore + 1)
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+            }
+        )
+
+        it.each([
+            ['a transactional code send on the fast lane', 'transactional', 'transactional_email/send', codeSend, 0],
+            [
+                'a code send in a marketing category on the bulk lane',
+                'transactional',
+                'transactional_email/send',
+                newsletterSend,
+                1,
+            ],
+            ['a marketing email on the bulk lane', 'marketing', 'transactional_email', undefined, 1],
+        ] as const)('queues %s', async (_desc, category, route, acceptedSend, queuePriority) => {
+            const flow = await insertHogFlow(transactionalFlow('api', 'active', category))
+
+            const res = await sendOn(
+                route,
+                flow.id,
+                { Authorization: `Bearer ${tokenFor(route, team.id, flow.id)}` },
+                { ...body, ...(acceptedSend && { send: acceptedSend }) }
+            )
+
+            expect(res.status).toEqual(202)
+            const [invocation] = mockQueueInvocations.mock.calls[0][0]
+            expect(invocation).toMatchObject({ queue: 'email', queuePriority })
+            expect(invocation.state.send).toEqual(acceptedSend)
+        })
+
+        describe('to a recipient who opted out', () => {
+            const recipientOptedOutOf = async (categoryId: string): Promise<string> => {
+                const to = `opted-out-${new UUIDT().toString()}@example.com`
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_messagerecipientpreference
+                        (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                     VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
+                    [team.id, to, JSON.stringify({ [categoryId]: 'OPTED_OUT' })],
+                    'test-insert-opt-out'
+                )
+                return to
+            }
+
+            it.each([
+                [
+                    'a code send to a recipient opted out of its category',
+                    'transactional',
+                    'transactional_email/send',
+                    newsletterSend,
+                    newsletterId,
+                ],
+                [
+                    'a code send to a recipient opted out of all marketing',
+                    'transactional',
+                    'transactional_email/send',
+                    newsletterSend,
+                    '$all',
+                ],
+                [
+                    'a marketing email to a recipient opted out of its category',
+                    'marketing',
+                    'transactional_email',
+                    undefined,
+                    newsletterId,
+                ],
+            ] as const)('refuses %s', async (_desc, category, route, acceptedSend, optedOutOf) => {
+                const flow = await insertHogFlow(transactionalFlow('api', 'active', category, newsletterId))
+                const refusedBefore = await outcomeCount('recipient_opted_out')
+                const keyed = {
+                    ...body,
+                    to: await recipientOptedOutOf(optedOutOf),
+                    idempotency_key: `key-${new UUIDT().toString()}`,
+                    ...(acceptedSend && { send: acceptedSend }),
+                }
+                const headers = { Authorization: `Bearer ${tokenFor(route, team.id, flow.id)}` }
+
+                const res = await sendOn(route, flow.id, headers, keyed)
+
+                expect(res.status).toEqual(422)
+                expect(res.body).toEqual({ error: 'recipient_opted_out' })
+                expect(await outcomeCount('recipient_opted_out')).toEqual(refusedBefore + 1)
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
             })
 
-            expect(res.status).toEqual(429)
-            expect(await outcomeCount('quota_limited')).toEqual(limitedBefore + 1)
-            expect(mockQueueInvocations).not.toHaveBeenCalled()
+            it.each([
+                ['a transactional code send', codeSend, '$all'],
+                ['a code send in another category', newsletterSend, '0195d6b4-0000-7000-8000-000000000000'],
+            ])('queues %s', async (_desc, acceptedSend, optedOutOf) => {
+                const res = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    to: await recipientOptedOutOf(optedOutOf),
+                    send: acceptedSend,
+                })
+
+                expect(res.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            })
         })
 
         describe.each([
@@ -2916,23 +3035,41 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
-        it('sends to a recipient whose only suppression is a spam complaint', async () => {
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `INSERT INTO posthog_messagesuppression
-                    (id, team_id, identifier, source, reason, transient_bounce_count,
-                     suppressed, suppressed_at, deleted, created_at, updated_at)
-                 VALUES (gen_random_uuid(), $1, $2, 'COMPLAINT', 'test row', 0,
-                     true, NOW(), false, NOW(), NOW())`,
-                [team.id, body.to],
-                'test-insert-suppression'
-            )
+        it.each([
+            ['sends a transactional email', 'transactional_email', {}, 202, 1],
+            [
+                'refuses a code send in a marketing category',
+                'transactional_email/send',
+                { send: newsletterSend },
+                422,
+                0,
+            ],
+        ])(
+            '%s to a recipient whose only suppression is a spam complaint',
+            async (_desc, route, extra, status, queued) => {
+                const to = `complained-${new UUIDT().toString()}@example.com`
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_messagesuppression
+                        (id, team_id, identifier, source, reason, transient_bounce_count,
+                         suppressed, suppressed_at, deleted, created_at, updated_at)
+                     VALUES (gen_random_uuid(), $1, $2, 'COMPLAINT', 'test row', 0,
+                         true, NOW(), false, NOW(), NOW())`,
+                    [team.id, to],
+                    'test-insert-suppression'
+                )
 
-            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+                const res = await sendOn(
+                    route,
+                    hogFlow.id,
+                    { Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` },
+                    { ...body, ...extra, to }
+                )
 
-            expect(res.status).toEqual(202)
-            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-        })
+                expect(res.status).toEqual(status)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(queued)
+            }
+        )
 
         it.each([
             ['a workflow with another trigger', 'schedule', 'active'],

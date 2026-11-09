@@ -34,6 +34,7 @@ import {
     resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
+import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
@@ -673,7 +674,7 @@ export class EmailService {
                 )
             }
             // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
-            const deliverableParams = {
+            const deliverableParams = this.withCodeSendUnsubscribeUrl(invocation, {
                 ...params,
                 to:
                     suppression.promotedTo ??
@@ -682,7 +683,7 @@ export class EmailService {
                         : params.to),
                 cc: suppression.cc,
                 bcc: suppression.bcc,
-            }
+            })
 
             // Like suppression, the tracking decision lives at this choke point so every send path
             // (workflow action or email destination hog function) resolves it the same way.
@@ -769,11 +770,11 @@ export class EmailService {
             // Tagged before click tracking wraps the links, so the tags land on the destination URL.
             const metadata = invocation.hogFunction.metadata
             const utmTaggedParams =
-                metadata?.utm_tags_enabled === true && params.html
+                metadata?.utm_tags_enabled === true && paramsWithReplyTo.html
                     ? {
                           ...paramsWithReplyTo,
                           html: addUtmTagsToEmail(
-                              params.html,
+                              paramsWithReplyTo.html,
                               resolveUtmTags(
                                   {
                                       utm_source: 'posthog',
@@ -1405,6 +1406,27 @@ export class EmailService {
         }
     }
 
+    // A code send brings its own body, so nothing rendered its unsubscribe placeholder. It is filled here, for the
+    // recipient the email goes to, and the queued send keeps the placeholder so a retry or a rerun signs a new link.
+    private withCodeSendUnsubscribeUrl(
+        invocation: CyclotronJobInvocationHogFunction,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): CyclotronInvocationQueueParametersEmailType {
+        const isMarketing = invocation.hogFunction?.metadata?.message_category_type !== 'transactional'
+        if (!invocation.state.send?.content || !isMarketing || !params.to?.email) {
+            return params
+        }
+        const url = this.recipientTokensService.generatePreferencesUrl(
+            { team_id: invocation.teamId, identifier: unquoteMailbox(params.to.email) },
+            preferencesTokenSourceForInvocation(invocation)
+        )
+        return {
+            ...params,
+            html: params.html && replaceUnsubscribePlaceholder(params.html, escapeHtml(url)),
+            text: params.text && replaceUnsubscribePlaceholder(params.text, url),
+        }
+    }
+
     private generateUnsubscribeHeaders(
         recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>,
         source: PreferencesTokenSource | undefined
@@ -1427,3 +1449,8 @@ export class EmailService {
         ]
     }
 }
+
+const UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/g
+
+const replaceUnsubscribePlaceholder = (body: string, url: string): string =>
+    body.replace(UNSUBSCRIBE_PLACEHOLDER, () => url)

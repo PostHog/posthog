@@ -2,6 +2,7 @@ import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
 import { CyclotronInvocationQueueParametersEmailType, EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 
 export const MAX_COPY_RECIPIENTS = 10
 
@@ -39,6 +40,8 @@ export const AcceptedSendSchema = z
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
         tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
+        // The marketing category the send belongs to. Without it the send is transactional.
+        messageCategoryId: z.uuid().optional(),
     })
     .strict()
     .readonly()
@@ -46,6 +49,40 @@ export const AcceptedSendSchema = z
 export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
 
 export type QueuedSend = AcceptedSend & { attachments?: readonly EmailAttachmentMetadata[] }
+
+type EmailStep = Extract<HogFlowAction, { type: 'function_email' }>
+
+// The send's category replaces the email step's, so every check that reads the step treats the send as the
+// marketing email it is. The frequency cap stays off for code sends.
+export const emailStepWithSendCategory = <Action extends HogFlowAction>(
+    action: Action,
+    send: QueuedSend | undefined
+): Action => {
+    if (action.type !== 'function_email' || !send?.messageCategoryId) {
+        return action
+    }
+    const step: EmailStep = {
+        ...action,
+        config: {
+            ...action.config,
+            message_category_type: 'marketing',
+            message_category_id: send.messageCategoryId,
+            skip_frequency_cap: true,
+        },
+    }
+    return step as Action
+}
+
+export const hogFlowWithSendCategory = (hogFlow: HogFlow, send: QueuedSend | undefined): HogFlow =>
+    send?.messageCategoryId
+        ? { ...hogFlow, actions: hogFlow.actions.map((action) => emailStepWithSendCategory(action, send)) }
+        : hogFlow
+
+export const marketingEmailStep = (hogFlow: HogFlow): EmailStep | undefined =>
+    hogFlow.actions.find(
+        (action): action is EmailStep =>
+            action.type === 'function_email' && action.config.message_category_type !== 'transactional'
+    )
 
 export const acceptedSendEmailFields = (
     send: QueuedSend | undefined
@@ -106,6 +143,7 @@ export type TransactionalEmailOutcome =
     | 'sending_suspended'
     | 'sending_paused'
     | 'recipient_suppressed'
+    | 'recipient_opted_out'
     | 'recipient_unreachable'
     | 'error'
 
@@ -129,7 +167,7 @@ export type TransactionalEmailStage = (typeof TRANSACTIONAL_EMAIL_STAGES)[number
 
 export const transactionalEmailStageDurationMs = new Histogram({
     name: 'cdp_transactional_email_stage_duration_ms',
-    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, quota and MX), queue_insert (the email queue insert), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
+    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, opt-out, quota and MX), queue_insert (the email queue insert), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
     labelNames: ['stage'],
     buckets: [1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000],
 })

@@ -3330,7 +3330,7 @@ describe('Hogflow Executor', () => {
                 },
             }) as const
 
-        const emailFlow = (email: Record<string, any>): HogFlow =>
+        const emailFlow = (email: Record<string, any>, stepConfig: Record<string, unknown> = {}): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withExitCondition('exit_only_at_end')
@@ -3348,6 +3348,7 @@ describe('Hogflow Executor', () => {
                             config: {
                                 template_id: 'template-email-routing-test',
                                 inputs: { email: { value: email } },
+                                ...stepConfig,
                             },
                         },
                         exit: {
@@ -3760,5 +3761,146 @@ if (not res.success) { throw Error(res.error) }`,
                 expect(sesSend).toHaveBeenCalledTimes(1)
             }
         )
+
+        describe('for a code send in a marketing category', () => {
+            const newsletterId = '0195d6b4-6c3e-7a1f-9b2d-3f4e5a6b7c8d'
+            // Django saves every code send's email step as transactional, and the send carries its category.
+            const codeSendFlow = () => emailFlow(codeKeyStep(), { message_category_type: 'transactional' })
+            const unsubscribeSend = (messageCategoryId?: string): QueuedSend => ({
+                content: {
+                    subject: 'Our news',
+                    html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                    text: 'Unsubscribe: {{unsubscribe_url}}',
+                },
+                from: { integrationId, email: 'news@posthog.com' },
+                tracking: { captureEngagement: false },
+                ...(messageCategoryId && { messageCategoryId }),
+            })
+            const sendThrough = async (
+                runner: HogFlowExecutorService,
+                invocation: CyclotronJobInvocationHogFlow
+            ): Promise<jest.SpyInstance> => {
+                const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
+                sesSend.mockResolvedValue({ MessageId: 'news-email' })
+                let result = await runner.execute(invocation)
+                while (!result.finished) {
+                    result = await runner.execute(result.invocation)
+                }
+                return sesSend
+            }
+            const sentEmail = (sesSend: jest.SpyInstance) => {
+                const { Headers, Body } = sesSend.mock.calls[0][0].input.Content.Simple
+                return {
+                    unsubscribeHeader: Headers.find((h: { Name: string }) => h.Name === 'List-Unsubscribe')?.Value,
+                    html: Body.Html.Data as string,
+                    text: Body.Text.Data as string,
+                }
+            }
+
+            it.each([
+                {
+                    name: 'sends a transactional code send to a recipient opted out of all marketing',
+                    category: undefined,
+                    optedOutOf: '$all',
+                    sent: true,
+                },
+                {
+                    name: 'sends a code send in a marketing category',
+                    category: newsletterId,
+                    optedOutOf: null,
+                    sent: true,
+                },
+                {
+                    name: 'skips a code send to a recipient opted out of its category',
+                    category: newsletterId,
+                    optedOutOf: newsletterId,
+                    sent: false,
+                },
+                {
+                    name: 'skips a code send to a recipient opted out of all marketing',
+                    category: newsletterId,
+                    optedOutOf: '$all',
+                    sent: false,
+                },
+            ])('$name', async ({ category, optedOutOf, sent }) => {
+                await insertEmailSetup('ses')
+                if (optedOutOf) {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO posthog_messagerecipientpreference
+                            (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                         VALUES (gen_random_uuid(), $1, 'recipient@example.com', $2, NOW(), NOW(), false)`,
+                        [team.id, JSON.stringify({ [optedOutOf]: 'OPTED_OUT' })],
+                        'test-insert-opt-out'
+                    )
+                }
+                const invocation = flowInvocation(codeSendFlow())
+                invocation.state.send = unsubscribeSend(category)
+
+                const sesSend = await sendThrough(executor, invocation)
+
+                expect(sesSend).toHaveBeenCalledTimes(sent ? 1 : 0)
+            })
+
+            it("puts the recipient's unsubscribe link in the body and headers of a marketing code send", async () => {
+                await insertEmailSetup('ses')
+                const invocation = flowInvocation(codeSendFlow())
+                invocation.state.send = unsubscribeSend(newsletterId)
+
+                const email = sentEmail(await sendThrough(executor, invocation))
+
+                const link = email.html.match(/href="([^"]+)"/)![1]
+                expect(email.text).toEqual(`Unsubscribe: ${link}`)
+                expect(email.unsubscribeHeader).toEqual(`<${link}?one_click_unsubscribe=1>`)
+                const token = link.match(/\/messaging-preferences\/([^/]+)\/$/)![1]
+                expect(
+                    new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL).validatePreferencesToken(token)
+                ).toMatchObject({ valid: true, team_id: team.id, identifier: 'recipient@example.com' })
+                // The queued send keeps the placeholder, so a retry or a rerun makes its own link.
+                expect(invocation.state.send?.content?.html).toContain('{{ unsubscribe_url }}')
+            })
+
+            it.each([
+                {
+                    name: 'holds back a marketing workflow email',
+                    stepCategory: 'marketing',
+                    category: undefined,
+                    sent: false,
+                },
+                {
+                    name: 'sends a code send in a marketing category',
+                    stepCategory: 'transactional',
+                    category: newsletterId,
+                    sent: true,
+                },
+            ])('$name to a recipient at the frequency cap', async ({ stepCategory, category, sent }) => {
+                await insertEmailSetup('ses')
+                const cappedExecutor = new HogFlowExecutorService(
+                    hogFlowFunctionsService,
+                    new RecipientPreferencesService(
+                        new RecipientsManagerService(hub.postgres),
+                        new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                        {
+                            teamWorkflowsConfig: {
+                                getFrequencyCap: () =>
+                                    Promise.resolve({ max_messages: 1, window_days: 1, hold_hours: null }),
+                            } as unknown as TeamWorkflowsConfigService,
+                            valkey: { useClient: () => Promise.resolve(Date.now() + 60 * 60 * 1000) } as any,
+                            persons: { getCyclotronPerson: jest.fn() },
+                        }
+                    ),
+                    { getSkipReason: () => Promise.resolve(null) } as unknown as EmailValidationService,
+                    cohortMembershipRepository,
+                    hub.integrationManager,
+                    null
+                )
+                const invocation = flowInvocation(emailFlow(codeKeyStep(), { message_category_type: stepCategory }))
+                invocation.state.send = unsubscribeSend(category)
+
+                const sesSend = await sendThrough(cappedExecutor, invocation)
+
+                expect(sesSend).toHaveBeenCalledTimes(sent ? 1 : 0)
+            })
+        })
     })
 })
