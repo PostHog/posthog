@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react'
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { GestureDetector, type NativeGesture } from 'react-native-gesture-handler'
+import { GestureDetector } from 'react-native-gesture-handler'
 import type { ModelChoiceApi, ReasoningEffortApi, ResolvedAiRunDefaultsApi } from '@/api/tasks'
 import { Eyebrow } from '@/ui/Eyebrow'
+import type { NativeGesture } from '@/ui/gestureTypes'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
@@ -90,7 +91,7 @@ export function ModelPage({
     const showsCost = models.some((option) => option.cost_multiplier)
 
     return (
-        <View testID="handoff-model-page">
+        <View style={styles.page} testID="handoff-model-page">
             <SheetPageHeader title="Model and reasoning" onBack={onBack} testID="handoff-model-page" />
             {catalogue.loading ? (
                 <ActivityIndicator style={styles.loading} color={colors.ink} />
@@ -177,6 +178,10 @@ export function ModelPage({
 }
 
 const useStyles = createStyles(({ colors }) => ({
+    page: {
+        flexShrink: 1,
+        minHeight: 0,
+    },
     loading: {
         paddingVertical: 28,
     },
@@ -221,6 +226,8 @@ const useStyles = createStyles(({ colors }) => ({
     list: {
         marginTop: 8,
         flexGrow: 0,
+        flexShrink: 1,
+        minHeight: 0,
     },
     harness: {
         paddingHorizontal: 4,

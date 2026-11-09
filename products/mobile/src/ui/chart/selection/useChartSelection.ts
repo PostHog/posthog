@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useEffect, useId, useMemo, useRef } from 'react'
-import type { View } from 'react-native'
+import type { ViewInstance } from 'react-native'
 import { type SharedValue, useSharedValue } from 'react-native-reanimated'
 
 import { track } from '@/lib/analytics'
@@ -44,7 +44,7 @@ export interface ChartSelection {
 
 interface SelectionOptions {
     selectionId?: string
-    viewRef: RefObject<View | null>
+    viewRef: RefObject<ViewInstance | null>
     /** Changes identity when the data changes, which clears the selection. */
     dataKey: unknown
     /** The first visible series' point at an index, for `onSelect`. */

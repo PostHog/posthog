@@ -4,13 +4,13 @@ A configuration its source owns is a copy of the source's own row, which the sou
 and the next check reads back. Writing the copy here would fork it, so those are refused.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Final
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import QuerySet
 from django.utils import timezone as django_timezone
 
@@ -29,6 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
     NativeAlertLifecycle,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
+    PlatformAlertCreateRefused,
     PlatformAlertNotEditable,
     PlatformAlertSnapshot,
     PlatformAlertUpsert,
@@ -118,6 +119,44 @@ def _validated(
     return validated
 
 
+def hold_cap_lock(team_id: int, source_kind: SourceKind) -> None:
+    """Serializes a team's cap checks for a kind until the caller's transaction ends. A source that
+    also creates alerts outside the platform takes it too, so two creates cannot both pass a count."""
+    # In autocommit the lock ends with its own statement, so it would serialize nothing.
+    if not connection.in_atomic_block:
+        raise RuntimeError("The cap lock must be taken inside a transaction.")
+    # A transaction-scoped advisory lock per team and kind, rather than a lock on the Team row, which
+    # foreign-key checks from every child write also take.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"alerts_platform:{team_id}:{source_kind.value}"]
+        )
+
+
+def _admit(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    current: PlatformAlertConfigurationEdit | None,
+    edit: PlatformAlertConfigurationEdit,
+    check_interval_minutes: int | None,
+) -> None:
+    """Runs the source's admission for a write, in the caller's transaction."""
+    spec = source_configs.spec(source_kind)
+    if spec is None:
+        return
+    cap = spec.native.max_per_team if spec.native is not None and current is None else None
+    if spec.admit is None and cap is None:
+        return
+    hold_cap_lock(team_id, source_kind)
+    if cap is not None and platform_reads.count_configurations(team_id=team_id, source_kind=source_kind.value) >= cap:
+        raise PlatformAlertCreateRefused(
+            f"This project has reached the limit of {cap} alerts of this type. Delete one to add another."
+        )
+    if spec.admit is not None:
+        spec.admit(team_id=team_id, current=current, edit=edit, check_interval_minutes=check_interval_minutes)
+
+
 def update_configuration(
     *,
     team_id: int,
@@ -150,7 +189,7 @@ def update_configuration(
         configuration = readable.select_for_update().first()
         if configuration is None:
             return None
-        edit, pending = _apply(configuration, change, now=django_timezone.now())
+        edit, pending = _apply(configuration, change, now=django_timezone.now(), admit=True)
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)
@@ -174,16 +213,24 @@ def create_configuration(
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
     validated = _validated(source_kind, None, edit, team_id=team_id)
     if spec.native is not None:
-        configuration = platform_lifecycle.create_native_configuration(
-            team_id=team_id,
-            source_kind=source_kind,
-            edit=validated,
-            check_interval_minutes=spec.native.check_interval_minutes,
-            destinations_owner=PlatformAlertOwner.PLATFORM
-            if spec.native.platform_destinations
-            else PlatformAlertOwner.SOURCE,
-            now=django_timezone.now(),
-        )
+        with transaction.atomic():
+            _admit(
+                team_id=team_id,
+                source_kind=source_kind,
+                current=None,
+                edit=validated,
+                check_interval_minutes=spec.native.check_interval_minutes,
+            )
+            configuration = platform_lifecycle.create_native_configuration(
+                team_id=team_id,
+                source_kind=source_kind,
+                edit=validated,
+                check_interval_minutes=spec.native.check_interval_minutes,
+                destinations_owner=PlatformAlertOwner.PLATFORM
+                if spec.native.platform_destinations
+                else PlatformAlertOwner.SOURCE,
+                now=django_timezone.now(),
+            )
     else:
         assert spec.create is not None
         configuration = _create_through_source(team_id, source_kind, spec.create, validated, created_by_id)
@@ -203,6 +250,7 @@ def _create_through_source(
     created_by_id: int | None,
 ) -> PlatformAlertConfiguration:
     with transaction.atomic():
+        _admit(team_id=team_id, source_kind=source_kind, current=None, edit=validated, check_interval_minutes=None)
         legacy_configuration_id = create(team_id=team_id, edit=validated, created_by_id=created_by_id)
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
@@ -373,13 +421,61 @@ def _delete_native(team_id: int, configuration_id: UUID, native: NativeAlertLife
     )
 
 
-def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
-    """Deletes the copy of a source alert the platform owns, with its instances and threads."""
-    _delete_each(
-        PlatformAlertConfiguration.objects.for_team(team_id).filter(
-            legacy_configuration_id=legacy_configuration_id, owner=PlatformAlertOwner.PLATFORM
-        )
+def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> None:
+    """Deletes the copy of a source alert, with its instances and threads. With `owner`, only a copy
+    that stack owns.
+
+    Call it with the source row's delete, in its transaction or after it commits. The copy has no
+    foreign key to that row, so nothing else removes it.
+    """
+    copies = PlatformAlertConfiguration.objects.for_team(team_id).filter(
+        legacy_configuration_id=legacy_configuration_id
     )
+    _delete_each(copies if owner is None else copies.filter(owner=owner))
+
+
+def delete_orphaned_shadow_copies(
+    *,
+    source_kind: SourceKind,
+    existing_source_ids: Callable[[Collection[UUID]], Collection[UUID]],
+    dry_run: bool,
+    batch_size: int = 500,
+) -> int:
+    """Deletes every shadow copy of `source_kind` whose source row no longer exists, and returns
+    how many it deleted, or would delete with `dry_run`.
+
+    `existing_source_ids` returns which of the given source row ids still exist. A copy is created
+    only from a source row that exists, and a deleted source row cannot come back with the same id,
+    so a copy found without its row stays an orphan.
+    """
+    # Cross-team on purpose: a one-off sweep over every copy of the kind. Each delete is scoped to
+    # the copy's own team. Paged by id rather than with `iterator()`, because PgBouncer disables
+    # server-side cursors and `iterator()` would then load every copy at once.
+    copies = PlatformAlertConfiguration.objects.unscoped().filter(
+        source_kind=source_kind.value, owner=PlatformAlertOwner.SOURCE, legacy_configuration_id__isnull=False
+    )
+    found = 0
+    after: UUID | None = None
+    while batch := list(
+        (copies if after is None else copies.filter(id__gt=after))
+        .order_by("id")
+        .values_list("id", "team_id", "legacy_configuration_id")[:batch_size]
+    ):
+        after = batch[-1][0]
+        existing = set(existing_source_ids([legacy_id for _, _, legacy_id in batch if legacy_id is not None]))
+        orphans = [
+            (configuration_id, team_id) for configuration_id, team_id, legacy_id in batch if legacy_id not in existing
+        ]
+        found += len(orphans)
+        if dry_run:
+            continue
+        for configuration_id, team_id in orphans:
+            _delete_each(
+                PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+                    id=configuration_id, owner=PlatformAlertOwner.SOURCE
+                )
+            )
+    return found
 
 
 def _delete_each(
@@ -419,15 +515,26 @@ def _apply(
     *,
     now: datetime,
     snoozing: bool = False,
+    admit: bool = False,
 ) -> tuple[PlatformAlertConfigurationEdit, control_plane.PendingClose | None]:
     """Validates and writes an edit onto a configuration locked by the caller, and ends the firings it
-    makes meaningless."""
+    makes meaningless. With `admit`, the source's admission decides first on an edit that turns the
+    alert on: an edit the source made on its own row has already passed its own checks."""
     if configuration.owner != PlatformAlertOwner.PLATFORM:
         raise PlatformAlertNotEditable(
             f"This alert is managed by the {configuration.source_kind} product. Edit it there."
         )
+    source_kind = SourceKind(configuration.source_kind)
     current = edit_of(configuration)
-    edit = _validated(SourceKind(configuration.source_kind), current, change(current), team_id=configuration.team_id)
+    edit = _validated(source_kind, current, change(current), team_id=configuration.team_id)
+    if admit and edit.enabled and not current.enabled:
+        _admit(
+            team_id=configuration.team_id,
+            source_kind=source_kind,
+            current=current,
+            edit=edit,
+            check_interval_minutes=configuration.check_interval_minutes,
+        )
 
     regrouped = not edit.grouping.splits_like(current.grouping)
     ending = control_plane.ending_reason(current, edit, regrouped=regrouped, snoozing=snoozing)

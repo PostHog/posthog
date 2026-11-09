@@ -415,6 +415,26 @@ export interface RowFilterColumnApi {
     operators: string[]
 }
 
+/**
+ * The kind of personal or secret data the column's name and type suggest, or null.
+ * @nullable
+ */
+export type ExternalDataSchemaApiAvailableColumnsItemSensitivity =
+    | (typeof ExternalDataSchemaApiAvailableColumnsItemSensitivity)[keyof typeof ExternalDataSchemaApiAvailableColumnsItemSensitivity]
+    | null
+
+export const ExternalDataSchemaApiAvailableColumnsItemSensitivity = {
+    Email: 'email',
+    Phone: 'phone',
+    Name: 'name',
+    Address: 'address',
+    DateOfBirth: 'date_of_birth',
+    IpAddress: 'ip_address',
+    Token: 'token',
+    Secret: 'secret',
+    CardNumber: 'card_number',
+} as const
+
 export interface ExternalDataSourceApiVersionDeprecationApi {
     /** The deprecated vendor API version this source is pinned to. */
     version: string
@@ -444,6 +464,11 @@ export type ExternalDataSchemaApiAvailableColumnsItem = {
     name: string
     data_type?: string
     is_nullable?: boolean
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    sensitivity?: ExternalDataSchemaApiAvailableColumnsItemSensitivity
 }
 
 /**
@@ -578,11 +603,18 @@ export interface ExternalDataSchemaApi {
      * * `missing_primary_key` - Missing primary key
      * * `duplicate_primary_key` - Duplicate primary key */
     readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnumApi | null
+    /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+    readonly webhook_not_registered: boolean
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+     * @nullable
+     */
+    masked_columns?: string[] | null
     /**
      * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
      * @nullable
@@ -602,6 +634,13 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     readonly history_table_name: string | null
+    /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
+    drop_history_table?: boolean
+    /**
+     * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+     * @nullable
+     */
+    readonly registered_history_table_name: string | null
     /**
      * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
@@ -644,10 +683,35 @@ export type PatchedExternalDataSchemaApiRowFiltersItem = {
     value: unknown
 }
 
+/**
+ * The kind of personal or secret data the column's name and type suggest, or null.
+ * @nullable
+ */
+export type PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity =
+    | (typeof PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity)[keyof typeof PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity]
+    | null
+
+export const PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity = {
+    Email: 'email',
+    Phone: 'phone',
+    Name: 'name',
+    Address: 'address',
+    DateOfBirth: 'date_of_birth',
+    IpAddress: 'ip_address',
+    Token: 'token',
+    Secret: 'secret',
+    CardNumber: 'card_number',
+} as const
+
 export type PatchedExternalDataSchemaApiAvailableColumnsItem = {
     name: string
     data_type?: string
     is_nullable?: boolean
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    sensitivity?: PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity
 }
 
 /**
@@ -782,11 +846,18 @@ export interface PatchedExternalDataSchemaApi {
      * * `missing_primary_key` - Missing primary key
      * * `duplicate_primary_key` - Duplicate primary key */
     readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnumApi | null
+    /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+    readonly webhook_not_registered?: boolean
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+     * @nullable
+     */
+    masked_columns?: string[] | null
     /**
      * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
      * @nullable
@@ -806,6 +877,13 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     readonly history_table_name?: string | null
+    /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
+    drop_history_table?: boolean
+    /**
+     * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+     * @nullable
+     */
+    readonly registered_history_table_name?: string | null
     /**
      * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
@@ -966,6 +1044,8 @@ export interface ExternalDataSourceSerializersApi {
      */
     readonly user_access_level: string | null
     readonly supports_webhooks: boolean
+    /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+    readonly webhook_not_registered: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection: boolean
     /**
@@ -1123,6 +1203,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     readonly user_access_level?: string | null
     readonly supports_webhooks?: boolean
+    /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+    readonly webhook_not_registered?: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection?: boolean
     /**
@@ -1214,6 +1296,11 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table.
+     * @nullable
+     */
+    masked_columns?: string[] | null
     /**
      * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
      * @nullable
@@ -2261,6 +2348,288 @@ export interface PaginatedWarehouseColumnStatisticsListApi {
     results: WarehouseColumnStatisticsApi[]
 }
 
+/**
+ * * `fivetran` - Fivetran
+ */
+export type WarehouseMigrationProviderEnumApi =
+    (typeof WarehouseMigrationProviderEnumApi)[keyof typeof WarehouseMigrationProviderEnumApi]
+
+export const WarehouseMigrationProviderEnumApi = {
+    Fivetran: 'fivetran',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `crawling` - Crawling
+ * * `ready` - Ready
+ * * `failed` - Failed
+ */
+export type WarehouseMigrationStatusEnumApi =
+    (typeof WarehouseMigrationStatusEnumApi)[keyof typeof WarehouseMigrationStatusEnumApi]
+
+export const WarehouseMigrationStatusEnumApi = {
+    Pending: 'pending',
+    Crawling: 'crawling',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+export interface WarehouseMigrationItemCountsApi {
+    /** Connections that move to PostHog as they are. */
+    as_is: number
+    /** Connections that move with differences the user should review. */
+    caveats: number
+    /** Connections PostHog cannot create yet. */
+    unsupported: number
+    /** Connections already created as PostHog sources. */
+    applied: number
+    /** Connections the user chose not to move. */
+    skipped: number
+}
+
+export interface WarehouseMigrationApi {
+    /** Migration ID. */
+    id: string
+    /** The ETL vendor this migration imports from.
+     *
+     * * `fivetran` - Fivetran */
+    provider: WarehouseMigrationProviderEnumApi
+    /** `pending` and `crawling` mean the vendor account is still being read. `ready` means the items are planned. `failed` means reading the account failed; see `latest_error`.
+     *
+     * * `pending` - Pending
+     * * `crawling` - Crawling
+     * * `ready` - Ready
+     * * `failed` - Failed */
+    status: WarehouseMigrationStatusEnumApi
+    /** Name of the vendor account. */
+    account_name: string
+    /**
+     * When the vendor account was last read.
+     * @nullable
+     */
+    crawled_at: string | null
+    /** Why the last read failed, if it did. */
+    latest_error: string
+    /** When the migration was started. */
+    created_at: string
+    /** How many connections fall into each group. */
+    item_counts: WarehouseMigrationItemCountsApi
+}
+
+export interface PaginatedWarehouseMigrationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WarehouseMigrationApi[]
+}
+
+export interface WarehouseMigrationCreateApi {
+    /** The ETL vendor to import from.
+     *
+     * * `fivetran` - Fivetran */
+    provider: WarehouseMigrationProviderEnumApi
+    /** Read-only API key for the vendor account. */
+    api_key: string
+    /** Secret that belongs to the API key. */
+    api_secret: string
+}
+
+/**
+ * * `as_is` - Moves as is
+ * * `caveats` - Moves with caveats
+ * * `unsupported` - Not supported
+ */
+export type WarehouseMigrationItemVerdictEnumApi =
+    (typeof WarehouseMigrationItemVerdictEnumApi)[keyof typeof WarehouseMigrationItemVerdictEnumApi]
+
+export const WarehouseMigrationItemVerdictEnumApi = {
+    AsIs: 'as_is',
+    Caveats: 'caveats',
+    Unsupported: 'unsupported',
+} as const
+
+export interface ProposedRowFilterApi {
+    /** One of `>`, `>=`, `<`, `<=`, `=`, `!=`, `IN`, `NOT IN`. */
+    operator: string
+    /** Column the filter applies to. */
+    column: string
+    /** One value, or several for `IN` and `NOT IN`. */
+    values: string[]
+}
+
+export interface ProposedSchemaApi {
+    /** PostHog table name. */
+    name: string
+    /** Whether the table syncs. */
+    should_sync: boolean
+    /**
+     * Planned sync type. Null means PostHog picks its default for the table.
+     * @nullable
+     */
+    sync_type: string | null
+    /** Columns Fivetran skipped, which PostHog skips too. */
+    disabled_columns: string[]
+    /** Row filters copied from Fivetran. */
+    row_filters: ProposedRowFilterApi[]
+    /** Names to try, in order, when the source does not discover a table called `name`. */
+    alternative_names: string[]
+    /**
+     * The Fivetran table this plan comes from. Apply's `table_overrides` refer to it.
+     * @nullable
+     */
+    vendor_table?: string | null
+}
+
+/**
+ * Non-secret destination settings copied from Fivetran.
+ */
+export type ProposedDestinationApiConfig = { [key: string]: unknown }
+
+export interface ProposedDestinationApi {
+    /** Destination type, for example `Snowflake` or `BigQuery`. */
+    type: string
+    /** Non-secret destination settings copied from Fivetran. */
+    config: ProposedDestinationApiConfig
+    /** The schemas Fivetran writes this connection into. Use another schema in the PostHog destination. */
+    vendor_schemas: string[]
+}
+
+export interface TablePairApi {
+    /** The Fivetran table. */
+    vendor_table: string
+    /** The PostHog table it was paired with. */
+    posthog_table: string
+}
+
+/**
+ * Non-secret connection settings copied from Fivetran, shaped like the source payload.
+ */
+export type ItemProposalApiPrefill = { [key: string]: unknown }
+
+export interface ItemProposalApi {
+    /** The PostHog source type this connection becomes. */
+    source_type: string
+    /** Table name prefix for the new source, taken from the Fivetran connection name. */
+    prefix: string
+    /** Non-secret connection settings copied from Fivetran, shaped like the source payload. */
+    prefill: ItemProposalApiPrefill
+    /**
+     * Tables to sync, with their planned sync settings. Null means PostHog uses its default tables.
+     * @nullable
+     */
+    schemas: ProposedSchemaApi[] | null
+    /** Planned sync frequency, matched to the Fivetran schedule. */
+    sync_frequency: string
+    /**
+     * UTC time of day for daily syncs, in HH:MM:SS format.
+     * @nullable
+     */
+    sync_time_of_day: string | null
+    /** Suggested non-PostHog destination, matched to the Fivetran destination. */
+    destination: ProposedDestinationApi | null
+    /** Whether every table starts with syncing off, because the connection is paused in Fivetran. */
+    start_paused: boolean
+    /** Tables that a naming rule paired. Ask the user to confirm each pair before applying. */
+    inferred_tables?: TablePairApi[]
+    /** Fivetran tables with no PostHog table. Compare them with the source's PostHog tables and propose one, or leave them out. */
+    unmatched_tables?: string[]
+    /** The source's PostHog tables that no Fivetran table maps to. Choose from these for the unmatched tables. Empty when every table matched. */
+    unused_posthog_tables?: string[]
+}
+
+/**
+ * * `pending` - Pending
+ * * `applying` - Applying
+ * * `applied` - Applied
+ * * `skipped` - Skipped
+ * * `failed` - Failed
+ */
+export type WarehouseMigrationItemStatusEnumApi =
+    (typeof WarehouseMigrationItemStatusEnumApi)[keyof typeof WarehouseMigrationItemStatusEnumApi]
+
+export const WarehouseMigrationItemStatusEnumApi = {
+    Pending: 'pending',
+    Applying: 'applying',
+    Applied: 'applied',
+    Skipped: 'skipped',
+    Failed: 'failed',
+} as const
+
+export interface WarehouseMigrationItemApi {
+    /** Item ID. Pass it to the apply and skip actions. */
+    id: string
+    /** The connection ID in the vendor account. */
+    vendor_connection_id: string
+    /** The vendor's connector type, for example `postgres` or `hubspot`. */
+    vendor_service: string
+    /** The connection name in the vendor account. */
+    name: string
+    /** Whether the connection moves as it is, moves with caveats, or is not supported.
+     *
+     * * `as_is` - Moves as is
+     * * `caveats` - Moves with caveats
+     * * `unsupported` - Not supported */
+    verdict: WarehouseMigrationItemVerdictEnumApi
+    /** Differences between Fivetran and PostHog for this connection. */
+    caveats: string[]
+    /** What PostHog creates for this connection. Null when the connection is not supported. */
+    proposal: ItemProposalApi | null
+    /** `pending` until the source is created (`applied`) or the user skips it.
+     *
+     * * `pending` - Pending
+     * * `applying` - Applying
+     * * `applied` - Applied
+     * * `skipped` - Skipped
+     * * `failed` - Failed */
+    status: WarehouseMigrationItemStatusEnumApi
+    /**
+     * The PostHog source created for this connection, if any.
+     * @nullable
+     */
+    external_data_source_id: string | null
+    /** Why the last apply attempt failed, if it did. */
+    error: string
+}
+
+export interface PaginatedWarehouseMigrationItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WarehouseMigrationItemApi[]
+}
+
+export interface WarehouseMigrationSkipItemsApi {
+    /**
+     * Items to skip. Pass this or `keep_item_ids`, not both.
+     * @minItems 1
+     */
+    item_ids?: string[]
+    /** Items to keep. Every other item is skipped, for example to migrate only one connection. */
+    keep_item_ids?: string[]
+}
+
+export interface WarehouseMigrationSkipItemsResponseApi {
+    /** Items that are now skipped, including ones skipped before. */
+    skipped_item_ids: string[]
+    /** Items that stay as they are because they are being created or are already PostHog sources. */
+    not_skipped_item_ids: string[]
+}
+
+export interface WarehouseMigrationConnectLinkApi {
+    /** The ETL vendor.
+     *
+     * * `fivetran` - Fivetran */
+    provider: WarehouseMigrationProviderEnumApi
+    /** Link the user opens to enter their vendor API key in PostHog. */
+    connect_url: string
+    /** What the agent should tell the user and do next. */
+    instructions: string
+}
+
 export type ExternalDataDestinationsListParams = {
     /**
      * Number of results to return per page.
@@ -2335,6 +2704,14 @@ export type ExternalDataSchemasCancelCreate200 = {
 }
 
 export type ExternalDataSchemasCancelCreate400 = {
+    detail?: string
+}
+
+export type ExternalDataSchemasHistoryTableDestroy400 = {
+    detail?: string
+}
+
+export type ExternalDataSchemasHistoryTableDestroy503 = {
     detail?: string
 }
 
@@ -2480,3 +2857,44 @@ export type WarehouseColumnStatisticsListParams = {
      */
     table_id?: string
 }
+
+export type WarehouseMigrationsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WarehouseMigrationsItemsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WarehouseMigrationsConnectLinkRetrieveParams = {
+    /**
+     * The ETL vendor to import from.
+     *
+     * * `fivetran` - Fivetran
+     * @minLength 1
+     */
+    provider: WarehouseMigrationsConnectLinkRetrieveProvider
+}
+
+export type WarehouseMigrationsConnectLinkRetrieveProvider =
+    (typeof WarehouseMigrationsConnectLinkRetrieveProvider)[keyof typeof WarehouseMigrationsConnectLinkRetrieveProvider]
+
+export const WarehouseMigrationsConnectLinkRetrieveProvider = {
+    Fivetran: 'fivetran',
+} as const

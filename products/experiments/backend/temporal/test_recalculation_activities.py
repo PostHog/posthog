@@ -100,10 +100,21 @@ def _calculate(
     is_final_attempt: bool = True,
     attempt: int = 1,
     precomputation_mode: PrecomputationMode | None = None,
+    calculation_key_version: int = 1,
+    task_queue: str = "",
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
         return _calculate_experiment_metric_for_recalculation_sync(
-            experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt, precomputation_mode
+            experiment_id,
+            metric_uuid,
+            recalculation_id,
+            query_to,
+            role,
+            is_final_attempt,
+            attempt,
+            precomputation_mode,
+            calculation_key_version,
+            task_queue,
         )
 
 
@@ -1205,12 +1216,15 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
-            ("flag_on", {"return_value": True}, ClickHouseUser.EXPERIMENTS),
-            ("flag_off", {"return_value": False}, ClickHouseUser.CACHE_WARMUP),
-            ("flag_error", {"side_effect": RuntimeError("flags unavailable")}, ClickHouseUser.CACHE_WARMUP),
+            ("activity_queue", "activity-q", "activity-q", ClickHouseUser.EXPERIMENTS),
+            ("precompute_queue", "activity-q", "precompute-q", ClickHouseUser.EXPERIMENTS),
+            ("main_queue", "activity-q", "main-q", ClickHouseUser.CACHE_WARMUP),
+            ("collapsed_queues", "main-q", "main-q", ClickHouseUser.CACHE_WARMUP),
         ]
     )
-    def test_queries_run_as_the_flagged_clickhouse_user(self, name: str, flag: dict, expected_user: ClickHouseUser):
+    def test_queries_run_as_the_clickhouse_user_of_their_task_queue(
+        self, name: str, activity_task_queue: str, task_queue: str, expected_user: ClickHouseUser
+    ):
         exp = self._experiment(flag_key=f"calc-ch-user-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
@@ -1222,13 +1236,17 @@ class TestCalculateActivity(BaseTest):
             return MagicMock(model_dump=MagicMock(return_value={}))
 
         with (
-            patch("products.experiments.backend.recalculation.feature_enabled_or_false", **flag),
+            override_settings(
+                EXPERIMENTS_RECALCULATION_TASK_QUEUE="main-q",
+                EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE=activity_task_queue,
+                EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE="precompute-q",
+            ),
             patch("posthog.clickhouse.client.execute.get_client_from_pool") as client_from_pool,
             _patched_runner() as mock_runner,
         ):
             client_from_pool.return_value.__enter__.return_value.execute.return_value = []
             mock_runner.return_value.run.side_effect = run_metric_and_precompute_queries
-            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, task_queue=task_queue)
 
         assert [call.args[3] for call in client_from_pool.call_args_list] == [expected_user, expected_user]
 
@@ -1332,6 +1350,45 @@ class TestCalculateActivity(BaseTest):
             _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
         mock_runner.assert_called_once()
+
+    @parameterized.expand([("key_version_1", 1), ("key_version_2", 2)])
+    def test_a_settings_change_before_the_runner_reads_them_is_not_stored_under_the_earlier_key(
+        self, _name: str, key_version: int
+    ) -> None:
+        metric = _mean_metric("m1")
+        exp = self._experiment(flag_key="calc-settings-race", metrics=[metric])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        team_config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        runners: list[ExperimentQueryRunner] = []
+
+        def change_settings_then_build_runner(*args, **kwargs) -> ExperimentQueryRunner:
+            # Version 1 hashes the stats method, and version 2 also hashes the CUPED team default.
+            Experiment.objects.filter(id=exp.id).update(stats_config={"method": "frequentist"})
+            team_config.default_cuped_enabled = not team_config.default_cuped_enabled
+            team_config.save()
+            runner = ExperimentQueryRunner(*args, **kwargs)
+            runners.append(runner)
+            return runner
+
+        computed = MagicMock()
+        computed.model_dump.return_value = {"variant_results": []}
+        with (
+            patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner",
+                side_effect=change_settings_then_build_runner,
+            ),
+            patch.object(ExperimentQueryRunner, "run", return_value=computed),
+        ):
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, calculation_key_version=key_version)
+
+        [runner] = runners
+        executed_key = runner.calculation_config.settings.build_metric_config(
+            metric_id="m1", role="primary", definition=metric
+        ).key_for_version(key_version)
+        stored = ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1").values_list(
+            "fingerprint", flat=True
+        )
+        assert list(stored) == [_recalc_fingerprint(executed_key)]
 
     @parameterized.expand(
         [
@@ -1737,6 +1794,16 @@ class TestCalculateActivityCancellation:
 
         assert result.success is True
         assert asyncio.all_tasks() - tasks_before == set()
+
+    async def test_body_gets_the_task_queue_the_worker_polls(self) -> None:
+        body = AsyncMock(return_value=MetricRecalculationResult(metric_uuid="m1", success=True))
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, task_queue="activity-q")
+
+        with self._patched_boundaries(body, AsyncMock()):
+            await _start_activity(env)
+
+        assert body.call_args.args[-1] == "activity-q"
 
 
 @contextmanager

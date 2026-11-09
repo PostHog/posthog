@@ -368,8 +368,8 @@ class TestSearch(APIBaseTest):
             )
 
         assert len(ctx_with) - len(ctx_without) >= 13
-        # One query for the unioned entities, one for the workflows merged in through the facade.
-        assert len(ctx_without) == 2
+        # One query for the unioned entities, and one each for the actions and workflows merged in through their facades.
+        assert len(ctx_without) == 3
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):

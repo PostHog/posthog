@@ -182,10 +182,10 @@ async def alerts_platform_emit_transitions_activity(request: AlertDeliveryReques
 
 @activity.defn
 async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest) -> None:
-    """Sends what one evaluation decided, once destinations are live for the team.
+    """Sends what one evaluation decided, for an alert the platform owns.
 
-    Until then it records what it would have sent and contacts nobody, which is the same shape
-    the activity has had since the PoC.
+    For an alert its source still owns it records a preview and contacts nobody, because the
+    source sends its own message.
 
     The delivery package is synchronous: it reads the history, resolves destinations through
     the ORM and posts over a blocking client. Django refuses an ORM call from a thread with a
