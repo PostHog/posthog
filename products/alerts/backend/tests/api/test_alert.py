@@ -36,6 +36,7 @@ from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPL
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert import AlertSerializer
 from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade.api import list_configurations
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
@@ -884,6 +885,57 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand([("soft_delete",), ("bulk_delete",), ("query_that_cannot_alert",)])
+    def test_an_alert_with_no_insight_row_goes_with_its_insight(self, path: str) -> None:
+        insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
+        with team_scope(self.team.id):
+            native, kept = (
+                platform_testing.create_configuration(
+                    team_id=self.team.id,
+                    name="native",
+                    source_kind="insight",
+                    source_config={"insight_id": insight_id},
+                    check_interval_minutes=60,
+                    owner="platform",
+                    legacy_configuration_id=None,
+                )
+                for insight_id in (insight["id"], self.insight["id"])
+            )
+        destination = HogFunction.objects.create(
+            team=self.team,
+            type="internal_destination",
+            name="Slack",
+            hog="return event",
+            enabled=True,
+            filters={
+                "source": "internal-events",
+                "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": str(native.id), "operator": "exact", "type": "event"}],
+            },
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            if path == "soft_delete":
+                self.client.patch(f"/api/projects/{self.team.id}/insights/{insight['id']}", {"deleted": True})
+            elif path == "bulk_delete":
+                self.client.post(
+                    f"/api/environments/{self.team.id}/insights/bulk_delete/", {"ids": [insight["id"]]}, format="json"
+                )
+            else:
+                unalertable = {**deepcopy(self.default_insight_data), "query": {"kind": "EventsQuery", "select": ["*"]}}
+                self.client.patch(f"/api/projects/{self.team.id}/insights/{insight['id']}", data=unalertable)
+
+        with team_scope(self.team.id):
+            remaining = list_configurations(
+                team_id=self.team.id,
+                source_kinds=["insight"],
+                limit=10,
+                offset=0,
+                configuration_ids=[native.id, kept.id],
+            )
+        destination.refresh_from_db()
+        assert ({view.id for view in remaining.configurations}, destination.deleted) == ({kept.id}, True)
 
     def test_hogql_alert_survives_insight_update_and_is_listed_on_insight(self) -> None:
         hogql_insight_data: dict[str, Any] = {

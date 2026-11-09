@@ -12,13 +12,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.schema import AlertCondition, InsightThreshold
 
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
-from products.alerts.backend.platform_ownership import admit_platform_write, mirror_platform_edit
+from products.alerts.backend.platform_ownership import (
+    admit_platform_write,
+    mirror_platform_edit,
+    remove_native_destinations,
+)
 from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
     InvalidPlatformAlertEdit,
+    NativeAlertLifecycle,
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
 )
+from products.alerts_platform.backend.facade.scheduling import MINUTES_PER_DAY
 
 
 class InsightPlatformAlertCondition(BaseModel):
@@ -74,10 +80,20 @@ def validate_insight_edit(edit: PlatformAlertConfigurationEdit) -> None:
             raise InvalidPlatformAlertEdit(name, f"An insight alert keeps this at {stored}.")
 
 
+def creates_native_alert(team_id: int) -> bool:
+    """No insight alert is created without an insight row yet."""
+    return False
+
+
 INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     model=InsightPlatformAlertSourceConfig,
     validate=validate_insight_edit,
     admit=admit_platform_write,
     mirror=mirror_platform_edit,
+    # For an insight alert with no insight row: the platform deletes it, and its destinations stay
+    # HogFunctions. Creates stay off until `creates_native_alert` turns them on.
+    # The interval only sets a native create's cadence, and no create reaches it yet.
+    native=NativeAlertLifecycle(check_interval_minutes=MINUTES_PER_DAY, remove_destinations=remove_native_destinations),
+    native_create=creates_native_alert,
     incident_event_ids=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
 )

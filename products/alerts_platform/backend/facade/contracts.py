@@ -1213,7 +1213,9 @@ class SourceConfigSpec:
         """Whether a create for the team makes only the configuration, with no source row."""
         if self.native is None:
             return False
-        return self.create is None or (self.native_create is not None and self.native_create(team_id))
+        if self.native_create is not None:
+            return self.native_create(team_id)
+        return self.create is None
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]

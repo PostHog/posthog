@@ -248,7 +248,9 @@ def create_configuration(
                 now=django_timezone.now(),
             )
     else:
-        assert spec.create is not None
+        if spec.create is None:
+            # A native kind whose creates are switched off.
+            raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
         configuration = _create_through_source(team_id, source_kind, spec.create, validated, created_by_id)
 
     view = platform_reads.get_configuration(
