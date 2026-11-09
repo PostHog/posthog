@@ -19,6 +19,7 @@ from typing import Any, cast
 
 from django.db import models
 from django.db.models import Prefetch, Q, QuerySet
+from django.utils import timezone
 
 import structlog
 from opentelemetry import trace
@@ -49,9 +50,14 @@ tracer = trace.get_tracer(__name__)
 SEARCH_FLAG = "inbox-reports-search"
 DEFAULT_LIMIT = 10
 MAX_LIMIT = 25
-# Each side reads this many candidates before the caller's filters drop any, so a filtered search still
-# fills a page when enough reports match.
+# Each side ranks at most this many reports before fusion.
 CANDIDATES = 100
+# A report's vectors expire 3 months after it was created (the table TTL), so an older report cannot match
+# semantically. 93 days covers the longest 3-month span.
+VECTOR_LIFETIME = datetime.timedelta(days=93)
+# The newest eligible reports the vector read may consider. It bounds the id list sent to ClickHouse. A team
+# that creates more reports than this in one vector lifetime finds its oldest ones on keywords only.
+MAX_SEMANTIC_REPORTS = 10_000
 # Every term is one more pair of trigram lookups, so a pasted paragraph must not become dozens of them.
 MAX_TERMS = 8
 SNIPPET_RADIUS = 120
@@ -75,6 +81,7 @@ FROM (
       AND product = %(product)s
       AND document_type = %(document_type)s
       AND rendering = %(rendering)s
+      AND document_id IN %(report_ids)s
     GROUP BY document_id
 )
 WHERE NOT is_tombstone AND length(embedding) = %(dimensions)s
@@ -214,6 +221,16 @@ def _semantic_ranking(team: Team, query: str, reports: QuerySet[SignalReport]) -
     # Deferred: `posthog.api` loads the product routes, which import this module through the signals views.
     from posthog.api.embedding_worker import generate_embedding  # noqa: PLC0415
 
+    # The caller's filters apply before the vector read limits to the nearest reports. Filtering the nearest
+    # reports afterwards could drop every one of them while eligible reports with vectors exist further out.
+    eligible = [
+        str(report_id)
+        for report_id in reports.filter(created_at__gte=timezone.now() - VECTOR_LIFETIME)
+        .order_by("-created_at")
+        .values_list("id", flat=True)[:MAX_SEMANTIC_REPORTS]
+    ]
+    if not eligible:
+        return []
     embedding = generate_embedding(team, query, model=EMBEDDING_MODEL.value, timeout=EMBEDDING_TIMEOUT_S).embedding
     tag_queries(product=Product.SIGNALS, feature=Feature.ENRICHMENT, team_id=team.id, query_type="inbox_report_search")
     with tracer.start_as_current_span("signals.reports.search.vector_read") as span:
@@ -228,6 +245,7 @@ def _semantic_ranking(team: Team, query: str, reports: QuerySet[SignalReport]) -
                     "product": EMBEDDING_PRODUCT,
                     "document_type": EMBEDDING_DOCUMENT_TYPE,
                     "rendering": EMBEDDING_RENDERING_TITLE_SUMMARY,
+                    "report_ids": eligible,
                     "dimensions": EMBEDDING_DIMENSIONS,
                     "limit": CANDIDATES,
                 },
@@ -241,9 +259,8 @@ def _semantic_ranking(team: Team, query: str, reports: QuerySet[SignalReport]) -
         )
         span.set_attribute("signals.reports.search.vector_read.duration_ms", round((time.monotonic() - started) * 1000))
         span.set_attribute("signals.reports.search.vector_read.rows", len(rows))
-    nearest = [report_id for report_id in (_as_uuid(document_id) for document_id, _ in rows) if report_id is not None]
-    visible = set(reports.filter(id__in=nearest).values_list("id", flat=True))
-    return [report_id for report_id in nearest if report_id in visible]
+        span.set_attribute("signals.reports.search.vector_read.eligible", len(eligible))
+    return [report_id for report_id in (_as_uuid(document_id) for document_id, _ in rows) if report_id is not None]
 
 
 def _as_uuid(value: Any) -> uuid.UUID | None:

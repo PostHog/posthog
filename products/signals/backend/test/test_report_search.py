@@ -167,7 +167,9 @@ class TestReportSearchAPI(ClickhouseTestMixin, APIBaseTest):
         for report in ready:
             self._embed(report, _vector(0.2, 1.0))
 
-        filtered = self._search(query="purchases stall", status="ready", limit=2)
+        # The dismissed reports fill every candidate slot, so the filter must apply before the vector read limit.
+        with patch(f"{SEARCH}.CANDIDATES", 3):
+            filtered = self._search(query="purchases stall", status="ready", limit=2)
         unfiltered = self._search(query="purchases stall", limit=3)
 
         assert filtered.status_code == 200, filtered.json()
