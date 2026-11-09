@@ -27,7 +27,11 @@ from posthog.models.events_plan_deletion import (
     reschedule_plan_deletions,
     with_period,
 )
-from posthog.models.events_retention_config import TeamEventsRetention
+from posthog.models.events_retention_config import (
+    OrganizationEventsRetentionConfig,
+    TeamEventsRetention,
+    TeamEventsRetentionConfig,
+)
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -128,18 +132,22 @@ def _captured(scoped_capture: MagicMock) -> list[dict]:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "deleting,pass_months,notified",
+    "deleting,pass_months,setting_months,notified",
     [
-        pytest.param(True, 24, True, id="pass_at_the_next_cleanup"),
-        pytest.param(False, 24, False, id="deletion_turned_off"),
-        pytest.param(True, 36, False, id="period_shortened_after_pass"),
+        pytest.param(True, 24, None, True, id="pass_at_the_next_cleanup"),
+        pytest.param(False, 24, None, False, id="deletion_turned_off"),
+        pytest.param(True, 36, None, False, id="period_shortened_after_pass"),
+        pytest.param(True, 12, 12, False, id="set_period_already_deletes_monthly"),
+        pytest.param(True, 24, 36, True, id="set_period_past_the_plan"),
     ],
 )
 @override_settings(CLOUD_DEPLOYMENT="US")
 def test_report_upcoming_events_deletions_tells_admins_once_two_weeks_before_the_pass(
-    deleting: bool, pass_months: int, notified: bool
+    deleting: bool, pass_months: int, setting_months: int | None, notified: bool
 ):
     team = _team_with_pass(pass_months)
+    if setting_months is not None:
+        TeamEventsRetentionConfig.objects.create(team=team, events_retention_months=setting_months)
 
     with (
         override_settings(EVENTS_DATA_RETENTION_ENFORCED=deleting),
@@ -211,6 +219,43 @@ def test_a_downgrade_right_after_an_upgrade_pushes_the_pass():
     assert TeamEventsPlanDeletion.objects.get(team=team).state == PlanDeletionState(
         months=24, next_deletion_on=date(2027, 3, 3)
     )
+
+
+@pytest.mark.django_db
+@override_settings(CLOUD_DEPLOYMENT="US", EVENTS_DATA_RETENTION_ENFORCED=True)
+def test_a_downgrade_clears_periods_set_past_the_new_plan():
+    organization = _organization_with_admin("Downgraded")
+    Organization.objects.filter(id=organization.id).update(
+        available_product_features=[*_TWO_YEAR_PLAN, {"key": "product_analytics_standard_data_retention"}]
+    )
+    past_the_plan = Team.objects.create(organization=organization, name="Past the plan", event_retention_months=60)
+    within_the_plan = Team.objects.create(organization=organization, name="Within the plan", event_retention_months=60)
+    TeamEventsRetentionConfig.objects.create(team=past_the_plan, events_retention_months=36)
+    TeamEventsRetentionConfig.objects.create(team=within_the_plan, events_retention_months=12)
+    OrganizationEventsRetentionConfig.objects.create(
+        organization=organization, default_events_retention_months=36, max_events_retention_months=60
+    )
+
+    with (
+        time_machine.travel("2026-11-20T18:00:00Z", tick=False),
+        patch("posthog.models.events_plan_deletion.is_cloud", return_value=True),
+        patch("posthog.models.events_plan_deletion.ph_scoped_capture") as scoped_capture,
+    ):
+        apply_events_retention_change(organization, 60, True)
+
+    assert dict(
+        TeamEventsRetentionConfig.objects.filter(team__organization=organization).values_list(
+            "team__name", "events_retention_months"
+        )
+    ) == {"Within the plan": 12}
+    assert list(
+        OrganizationEventsRetentionConfig.objects.filter(organization=organization).values_list(
+            "default_events_retention_months", "max_events_retention_months"
+        )
+    ) == [(None, 60)]
+    assert [
+        (capture["event"], capture["properties"]["deletion_scheduled_on"]) for capture in _captured(scoped_capture)
+    ] == [("events retention period shortened", "2027-03-03")]
 
 
 @pytest.mark.django_db

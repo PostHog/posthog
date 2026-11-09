@@ -11,11 +11,17 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
-from posthog.models.events_retention_config import TeamEventsRetention, lock_organization_retention
+from posthog.models.events_retention_config import (
+    TeamEventsRetention,
+    clear_events_retention_above,
+    effective_events_retention,
+    lock_organization_retention,
+)
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.event_retention import (
     TeamPlan,
+    events_retention_periods,
     organization_events_retention_months,
     reconcile_organization_events_retention,
     retention_periods,
@@ -142,8 +148,9 @@ def _row(team_id: int, state: PlanDeletionState) -> TeamEventsPlanDeletion:
 def apply_events_retention_change(
     organization: Organization, previous_months: int | None, previous_standard_retention: bool
 ) -> None:
-    """Align the organization's teams and their passes with its plan period. When a downgrade shortens the period of
-    any team, push those teams' passes and tell the admins.
+    """Align the organization's teams and their passes with its plan period. A downgrade clears each period set above
+    the new plan period, so those teams use their default period. When a downgrade shortens the period of any team,
+    push those teams' passes and tell the admins.
 
     The first billing sync has no previous period. It moves teams off the 84-month fallback, which is no downgrade.
     """
@@ -154,10 +161,14 @@ def apply_events_retention_change(
         if not reconcile_organization_events_retention(organization) or previous_months is None:
             return
         teams = list(Team.objects.filter(organization_id=organization.id))
-        if organization_events_retention_months(organization) >= previous_months:
+        plan_months = organization_events_retention_months(organization)
+        if plan_months >= previous_months:
             reschedule_plan_deletions(deleting_plans(teams), cleanup_date())
             return
-        shortened = _shortened_teams(organization.id, teams, previous_months, previous_standard_retention)
+        before = _previous_periods(organization.id, teams, previous_months, previous_standard_retention)
+        clear_events_retention_above(organization.id, plan_months)
+        after = events_retention_periods(teams)
+        shortened = [team for team in teams if after[team.id] < before[team.id]]
         if not shortened:
             return
         states = reschedule_plan_deletions(deleting_plans(shortened), cleanup_date())
@@ -166,16 +177,13 @@ def apply_events_retention_change(
     report_events_retention_shortened.delay(str(organization.id), notice)
 
 
-def _shortened_teams(
+def _previous_periods(
     organization_id: UUID, teams: Sequence[Team], previous_months: int, previous_standard_retention: bool
-) -> list[Team]:
-    plans = [team_plan(team) for team in teams]
-    before = retention_periods(
-        [replace(plan, plan_months=previous_months) for plan in plans],
+) -> dict[int, int]:
+    return retention_periods(
+        [replace(team_plan(team), plan_months=previous_months) for team in teams],
         {organization_id} if previous_standard_retention else set(),
     )
-    after = retention_periods(plans)
-    return [team for team in teams if after[team.id] < before[team.id]]
 
 
 def report_retention_shortened(organization_id: UUID, notice: dict[str, object]) -> None:
@@ -185,7 +193,8 @@ def report_retention_shortened(organization_id: UUID, notice: dict[str, object])
 def report_upcoming_deletions() -> int:
     """Tell the admins of each organization with a pass at the next cleanup, exactly 14 days before it.
 
-    Only that one day sends, so each pass gets one event without a record of what was sent.
+    Only that one day sends, so each pass gets one event without a record of what was sent. A team whose set period is
+    at or below its pass's period is left out, because the monthly cleanup already deletes everything that pass would.
     """
     deletion_on = next_cleanup_on()
     if deletion_on - cleanup_date() != timedelta(days=DELETION_NOTICE_DAYS):
@@ -195,7 +204,16 @@ def report_upcoming_deletions() -> int:
     plans = deleting_plans(teams)
     with transaction.atomic():
         states = reschedule_plan_deletions(plans, cleanup_date())
-    organization_ids = {plan.organization_id for plan in plans if states[plan.team_id].next_deletion_on <= deletion_on}
+    deleted_monthly = {
+        setting.team_id
+        for setting in effective_events_retention(team_ids=[plan.team_id for plan in plans])
+        if setting.months <= states[setting.team_id].months
+    }
+    organization_ids = {
+        plan.organization_id
+        for plan in plans
+        if plan.team_id not in deleted_monthly and states[plan.team_id].next_deletion_on <= deletion_on
+    }
     for organization in Organization.objects.filter(id__in=organization_ids).only(
         "id", "name", "available_product_features"
     ):

@@ -148,6 +148,15 @@ def lock_organization_retention(organization_id: object) -> None:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"events-retention:{organization_id}"])
 
 
+def clear_events_retention_above(organization_id: UUID, months: int) -> None:
+    TeamEventsRetentionConfig.objects.filter(
+        team__organization_id=organization_id, events_retention_months__gt=months
+    ).delete()
+    OrganizationEventsRetentionConfig.objects.filter(
+        organization_id=organization_id, default_events_retention_months__gt=months
+    ).update(default_events_retention_months=None)
+
+
 def _within(months: int, low: int | None, high: int | None) -> bool:
     return (low is None or months >= low) and (high is None or months <= high)
 
