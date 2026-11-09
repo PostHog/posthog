@@ -580,11 +580,11 @@ class RedshiftCopyInputs:
     s3_bucket: str
     region_name: str
     s3_key_prefix: str
-    # Authorization for Redshift to COPY data from the bucket: an IAM role ARN,
-    # inline credentials, or the id of a team-scoped aws-s3 integration.
+    # Authorization for Redshift to COPY data from the bucket: an IAM role ARN or the id of a
+    # team-scoped aws-s3 integration. Inline credentials still parse, but the activity rejects them.
     authorization: IAMRole | AWSCredentials | IntegrationID
-    # Credentials used to stage files in the S3 bucket: inline credentials or
-    # the id of a team-scoped aws-s3 integration.
+    # Credentials used to stage files in the S3 bucket: the id of a team-scoped aws-s3
+    # integration. Inline credentials still parse, but the activity rejects them.
     bucket_credentials: AWSCredentials | IntegrationID
 
 

@@ -1607,6 +1607,12 @@ async def _assume_role_for_stage_bucket(
     )
 
 
+_INLINE_COPY_KEYS_ERROR = (
+    "Inline AWS keys in the Redshift COPY '{field_name}' are no longer supported. "
+    "Set it to an AWS S3 integration instead."
+)
+
+
 async def _get_s3_bucket_aws_credentials(
     inputs: RedshiftCopyActivityInputs,
 ) -> tuple[AWSCredentials, RefreshCoroutine | None]:
@@ -1621,6 +1627,9 @@ async def _get_s3_bucket_aws_credentials(
         raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
 
     credentials = inputs.copy.s3_bucket.credentials
+    if isinstance(credentials, AWSCredentials):
+        raise IntegrationError(_INLINE_COPY_KEYS_ERROR.format(field_name="bucket_credentials"))
+
     if isinstance(credentials, IntegrationID):
         credentials = await _resolve_aws_s3_integration(credentials, inputs.batch_export.team_id)
 
@@ -1664,6 +1673,9 @@ async def _resolve_copy_authorization(
         raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
 
     authorization = inputs.copy.authorization
+    if isinstance(authorization, AWSCredentials):
+        raise IntegrationError(_INLINE_COPY_KEYS_ERROR.format(field_name="authorization"))
+
     if not isinstance(authorization, IntegrationID):
         return authorization, None
 

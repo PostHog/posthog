@@ -412,9 +412,19 @@ def validate_destination(
             raise contracts.InvalidBatchExportDestinationError(str(e))
 
     if destination_type == BatchExportDestinationType.POSTGRES:
-        # A PATCH that omits `integration` keeps the linked one, so only an explicit null, or an
-        # export that never had one, is rejected.
-        if kept_integration is None:
+        # Sticky integration: an explicit `integration: null` would make the export fall back to
+        # any inline credentials still left in its config, and nothing records that switch.
+        # TODO: remove this guard once inline credentials are gone.
+        if instance is not None and instance.destination.integration is not None and kept_integration is None:
+            raise contracts.InvalidBatchExportDestinationError(
+                "Cannot remove the integration from a Postgres batch export that uses one. "
+                "Omit `integration` to keep it, or send a different one to swap."
+            )
+
+        # New Postgres exports must use an Integration for credentials. Exports created before
+        # integrations existed keep their inline credentials, so only require it on create
+        # (`instance is None`); existing inline-credential exports stay valid when edited.
+        if requested_integration is None and instance is None:
             raise contracts.InvalidBatchExportDestinationError("Integration is required for Postgres batch exports")
         if requested_integration is not None and requested_integration.kind != IntegrationKind.POSTGRESQL:
             raise contracts.InvalidBatchExportDestinationError("Integration is not a PostgreSQL integration.")

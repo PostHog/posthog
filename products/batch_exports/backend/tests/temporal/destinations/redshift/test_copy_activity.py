@@ -36,6 +36,7 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
+    make_aws_s3_integration,
     make_redshift_integration,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import has_valid_credentials
@@ -113,14 +114,15 @@ async def _run_activity(
         properties_data_type=properties_data_type,
     )
 
+    aws_s3_integration = await make_aws_s3_integration(team.pk, credentials)
     copy_parameters = CopyParameters(
         s3_bucket=S3StageBucketParameters(
             name=bucket_name,
             region_name=bucket_region,
-            credentials=credentials,
+            credentials=aws_s3_integration.id,
         ),
         s3_key_prefix=key_prefix,
-        authorization=credentials,
+        authorization=aws_s3_integration.id,
     )
 
     copy_inputs = RedshiftCopyActivityInputs(

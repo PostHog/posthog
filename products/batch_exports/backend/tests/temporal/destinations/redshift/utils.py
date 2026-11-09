@@ -1,5 +1,6 @@
 import os
 import json
+import uuid
 import datetime as dt
 import operator
 import collections.abc
@@ -11,6 +12,7 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.service import (
     AnyBatchExportModel,
+    AWSCredentials,
     BackfillDetails,
     BatchExportEventsCustomModel,
     BatchExportEventsModel,
@@ -50,6 +52,20 @@ async def make_redshift_integration(team_id: int, redshift_config: dict) -> Inte
         },
     )
     return integration
+
+
+async def make_aws_s3_integration(team_id: int, credentials: AWSCredentials) -> Integration:
+    """Create an AWS S3 integration that holds `credentials`, for COPY staging and authorization."""
+    return await Integration.objects.acreate(
+        team_id=team_id,
+        kind=Integration.IntegrationKind.AWS_S3,
+        integration_id=f"aws-s3-{uuid.uuid4()}",
+        config={"name": "redshift-copy-test"},
+        sensitive_config={
+            "aws_access_key_id": credentials.aws_access_key_id,
+            "aws_secret_access_key": credentials.aws_secret_access_key,
+        },
+    )
 
 
 TEST_MODELS: list[AnyBatchExportModel | None] = [

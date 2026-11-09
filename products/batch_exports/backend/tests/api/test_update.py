@@ -1191,17 +1191,52 @@ def test_can_update_batch_export_with_integration_to_none(
     assert "Integration is required for Databricks batch exports" in response.json()["detail"]
 
 
-@pytest.mark.parametrize(
-    "destination_type, config",
-    [
-        ("Postgres", {"database": "my-db", "schema": "public", "table_name": "my_events"}),
-        ("Redshift", {"database": "my-db", "host": "8.8.8.8", "schema": "public", "table_name": "my_events"}),
-    ],
-)
-def test_updating_batch_export_without_integration_is_rejected(
-    client: HttpClient, temporal, organization, team, user, destination_type, config
+def test_updating_legacy_postgres_batch_export_keeps_inline_credentials(
+    client: HttpClient, temporal, organization, team, user
 ):
-    destination = BatchExportDestination.objects.create(type=destination_type, config=config)
+    """Test that existing inline-credential Postgres exports are grandfathered when edited.
+
+    Exports created before integrations existed have no linked integration. Editing them must
+    not force migrating to an integration, so the integration requirement applies on create only.
+    """
+    destination = BatchExportDestination.objects.create(
+        type=BatchExportDestination.Destination.POSTGRES,
+        config={
+            "user": "user",
+            "password": "my-password",
+            "host": "8.8.8.8",
+            "port": 5432,
+            "database": "my-db",
+            "schema": "public",
+            "table_name": "my_events",
+        },
+    )
+    batch_export = BatchExport.objects.create(
+        name="legacy-postgres-export", team=team, destination=destination, interval="hour"
+    )
+    sync_batch_export(batch_export, created=True)
+
+    client.force_login(user)
+    new_batch_export_data = {
+        "destination": {
+            "type": "Postgres",
+            "config": {"table_name": "my_new_events"},
+        },
+    }
+    response = patch_batch_export(client, team.pk, batch_export.id, new_batch_export_data)
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    updated = get_batch_export_ok(client, team.pk, batch_export.id)
+    assert updated["destination"]["config"]["table_name"] == "my_new_events"
+
+
+def test_updating_redshift_batch_export_without_integration_is_rejected(
+    client: HttpClient, temporal, organization, team, user
+):
+    destination = BatchExportDestination.objects.create(
+        type=BatchExportDestination.Destination.REDSHIFT,
+        config={"database": "my-db", "host": "8.8.8.8", "schema": "public", "table_name": "my_events"},
+    )
     batch_export = BatchExport.objects.create(
         name="export-without-integration", team=team, destination=destination, interval="hour"
     )
@@ -1211,10 +1246,10 @@ def test_updating_batch_export_without_integration_is_rejected(
         client,
         team.pk,
         batch_export.id,
-        {"destination": {"type": destination_type, "config": {"table_name": "my_new_events"}}},
+        {"destination": {"type": "Redshift", "config": {"table_name": "my_new_events"}}},
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == f"Integration is required for {destination_type} batch exports"
+    assert response.json()["detail"] == "Integration is required for Redshift batch exports"
     destination.refresh_from_db()
     assert destination.config["table_name"] == "my_events"

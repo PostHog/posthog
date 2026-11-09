@@ -35,6 +35,7 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
+    make_aws_s3_integration,
     make_redshift_integration,
 )
 from products.batch_exports.backend.tests.temporal.utils.models import (
@@ -142,7 +143,9 @@ async def redshift_batch_export(ateam, table_name, redshift_config, interval, ex
     await adelete_batch_export(batch_export, temporal_client)
 
 
-def _build_copy_inputs(mode, aws_credentials, bucket_name, bucket_region, key_prefix) -> RedshiftCopyInputs | None:
+async def _build_copy_inputs(
+    mode, aws_credentials, bucket_name, bucket_region, key_prefix, team_id: int
+) -> RedshiftCopyInputs | None:
     """Build COPY inputs if mode is COPY and all required parameters are available."""
     if mode != "COPY":
         return None
@@ -153,12 +156,13 @@ def _build_copy_inputs(mode, aws_credentials, bucket_name, bucket_region, key_pr
     if not aws_credentials or not bucket_name or not bucket_region:
         pytest.skip("Testing COPY mode requires S3 variables to be configured")
 
+    aws_s3_integration = await make_aws_s3_integration(team_id, aws_credentials)
     return RedshiftCopyInputs(
         s3_bucket=bucket_name,
         region_name=bucket_region,
         s3_key_prefix=key_prefix,
-        authorization=aws_credentials,
-        bucket_credentials=aws_credentials,
+        authorization=aws_s3_integration.id,
+        bucket_credentials=aws_s3_integration.id,
     )
 
 
@@ -204,7 +208,7 @@ async def test_redshift_export_workflow(
     ):
         pytest.skip(f"Batch export model {model.name} cannot be tested in PostgreSQL")
 
-    copy_inputs = _build_copy_inputs(mode, aws_credentials, bucket_name, bucket_region, key_prefix)
+    copy_inputs = await _build_copy_inputs(mode, aws_credentials, bucket_name, bucket_region, key_prefix, ateam.pk)
 
     batch_export_model: AnyBatchExportModel | None = None
     if isinstance(model, AnyBatchExportModel):
@@ -366,7 +370,7 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
     if MISSING_REQUIRED_ENV_VARS:
         pytest.skip("MERGE is only available in Redshift")
 
-    copy_inputs = _build_copy_inputs(mode, aws_credentials, bucket_name, bucket_region, key_prefix)
+    copy_inputs = await _build_copy_inputs(mode, aws_credentials, bucket_name, bucket_region, key_prefix, ateam.pk)
 
     inputs = RedshiftBatchExportInputs(
         team_id=ateam.pk,

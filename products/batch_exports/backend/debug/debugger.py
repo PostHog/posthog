@@ -31,6 +31,7 @@ from products.batch_exports.backend.service import (
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
     bigquery_default_fields,
+    verify_impersonated_service_account_ownership,
 )
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksClient,
@@ -544,6 +545,10 @@ class BatchExportsDebugger:
                 google_cloud_integration = GoogleCloudServiceAccountIntegration(
                     self.batch_export.destination.integration
                 )
+                if not google_cloud_integration.has_key():
+                    await verify_impersonated_service_account_ownership(
+                        google_cloud_integration.service_account_email, self.batch_export.team_id
+                    )
                 async with BigQueryClient.from_service_account_integration(google_cloud_integration) as bigquery_client:
                     yield bigquery_client
             case t:
