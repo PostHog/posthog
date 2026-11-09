@@ -3,8 +3,10 @@ import { useValues } from 'kea'
 import { IconInfo, IconWarning } from '@posthog/icons'
 
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
+import { BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
 
 import { type Noun, groupsModel } from '~/models/groupsModel'
+import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import type { EvaluationRuntimeEnumApi, ExperimentHealthSetupApi } from '../generated/api.schemas'
 import { HEALTH_CHECK_STATUS_DISPLAY } from './healthCheckStatusDisplay'
@@ -18,6 +20,11 @@ const RUNTIME_LABELS: Record<EvaluationRuntimeEnumApi, string> = {
     all: 'Client and server SDKs',
     client: 'Client SDKs only',
     server: 'Server SDKs only',
+}
+
+const LIBRARY_LABELS: Record<string, string> = {
+    [BREAKDOWN_NULL_STRING_LABEL]: 'No SDK',
+    [BREAKDOWN_OTHER_STRING_LABEL]: 'Other',
 }
 
 const MAX_LISTED_CONDITIONS = 3
@@ -51,9 +58,28 @@ function releaseConditionsText(
         : sets.map((set, index) => `Set ${index + 1}: ${set}`).join(' · ')
 }
 
+function librarySharesText(exposedByLibrary: Record<string, number>): string | null {
+    // The server keeps the most common libraries and counts the rest under the other key, which reads last.
+    const sorted = Object.entries(exposedByLibrary).sort(
+        ([a, countA], [b, countB]) =>
+            Number(a === BREAKDOWN_OTHER_STRING_LABEL) - Number(b === BREAKDOWN_OTHER_STRING_LABEL) || countB - countA
+    )
+    const total = sorted.reduce((sum, [, count]) => sum + count, 0)
+    if (total === 0) {
+        return null
+    }
+    return sorted
+        .map(([library, count]) => {
+            const share = Math.round((count / total) * 100)
+            return `${LIBRARY_LABELS[library] ?? library} ${share === 0 ? '<1' : share}%`
+        })
+        .join(' · ')
+}
+
 function buildSetupReadings(
     setup: ExperimentHealthSetupApi,
-    aggregationLabel: (groupTypeIndex: number) => Noun
+    aggregationLabel: (groupTypeIndex: number) => Noun,
+    libraryShares: string | null
 ): HealthReading[] {
     const pluralOf = (groupTypeIndex: number | null): string =>
         groupTypeIndex !== null ? aggregationLabel(groupTypeIndex).plural : 'users'
@@ -86,6 +112,10 @@ function buildSetupReadings(
                   },
               ]
             : []),
+        // The exposure counts aggregate by the flag's own group type, not by a condition set's.
+        ...(libraryShares
+            ? [{ label: `Exposed ${pluralOf(setup.aggregation_group_type_index)} by SDK`, text: libraryShares }]
+            : []),
         {
             label: 'Persist flag across authentication steps',
             text: setup.ensure_experience_continuity ? 'On' : 'Off',
@@ -97,13 +127,16 @@ export function HealthOverviewDetail({
     checks,
     findings,
     setup,
+    exposures,
 }: {
     checks: HealthPanelCheck[]
     findings: HealthPanelFinding[]
     setup: ExperimentHealthSetupApi | null
+    exposures: ExperimentExposureQueryResponse | null
 }): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
-    const setupReadings = setup ? buildSetupReadings(setup, aggregationLabel) : []
+    const libraryShares = exposures?.exposed_by_library ? librarySharesText(exposures.exposed_by_library) : null
+    const setupReadings = setup ? buildSetupReadings(setup, aggregationLabel, libraryShares) : []
     const issues = healthIssues(findings)
     const issueIcon = (
         <IconWarning
