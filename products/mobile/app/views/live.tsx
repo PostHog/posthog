@@ -6,5 +6,5 @@ import { viewEntryParam } from '@/features/views/viewRoutes'
 
 export default function LiveRoute(): ReactElement {
     const { from } = useLocalSearchParams<{ from?: string }>()
-    return <LiveScreen from={viewEntryParam(from)} />
+    return <LiveScreen from={viewEntryParam(from)} chrome="stack" />
 }

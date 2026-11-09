@@ -11,9 +11,19 @@ export type PinDisplayMode = 'row' | 'number' | 'chart'
 
 /**
  * Where a view was opened from, for `mobile_view_opened`. `dashboard`: a tile on a dashboard screen. `widget`: the
- * Chart home screen widget.
+ * Chart home screen widget. `web_analytics`: the Live chip on the Web analytics screen. `tab`: the screen's own
+ * navigation tab, pinned or the start page.
  */
-export type ViewEntry = 'pinned' | 'recent' | 'browse' | 'search' | 'deep_link' | 'dashboard' | 'widget'
+export type ViewEntry =
+    | 'pinned'
+    | 'recent'
+    | 'browse'
+    | 'search'
+    | 'deep_link'
+    | 'dashboard'
+    | 'widget'
+    | 'web_analytics'
+    | 'tab'
 
 export interface ViewRef {
     kind: ViewKind

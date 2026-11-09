@@ -4,22 +4,25 @@ The Live screen mirrors the web's Web analytics → Live tab: users online, acti
 It reads the web's HogQL polling transport, not the event stream, so it needs no backend change.
 
 The route is `/views/live?from={entry}` (`app/views/live.tsx`), a pushed screen with the usual Back and More chrome.
-More has "Open on web", which opens `/web/live`.
-Deep link: `posthog://views/live`.
+More has "Pin to navigation" (or "Unpin from navigation") and "Open on web", which opens `/web/live`.
+Live opens from the Browse row (`views-browse-live`), from the Live chip on Web analytics (`from=web_analytics`), and as a pinned tab (`app/(tabs)/live/`, `/live`), which can also be the start page.
+`LiveScreen({ from, chrome })` draws both: on the tab (`chrome="tab"`) the tabs header draws the title alone, the content starts with one row (the dot, the status line, the Pause pill), and the tabs menu has Unpin and Open on web.
+Deep link: `posthog://views/live` opens the pushed screen.
 Live needs `query:read`, so it reuses the Views access check (`useFeatureAccess('views')`) and `ViewsReauthState`.
 
 ## Files
 
-| File                                  | Holds                                                                                               |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `src/api/live.ts`                     | The queries, the 30-minute window, the project read, and the live events `stats` read               |
-| `src/model/live.ts`                   | View models                                                                                         |
-| `src/model/adapters/live.ts`          | Pure adapters: minute buckets, ranked rows with rank changes, breakdowns, events, users online      |
-| `src/features/live/liveController.ts` | The polling controller: focus, app state, Pause, timers, failure streaks                            |
-| `src/features/live/liveRead.ts`       | One read: runs the jobs two at a time and merges them into the last snapshot                        |
-| `src/features/live/hooks.ts`          | `useLiveFeed`: the data source (demo or project), both pollers, users online fallback, error events |
-| `src/features/live/LiveScreen.tsx`    | `LiveScreen({ from })` and its body, title, status line and paused banner                           |
-| `src/demo/live.ts`                    | The seeded demo traffic                                                                             |
+| File                                  | Holds                                                                                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/api/live.ts`                     | The queries, the 30-minute window, the project read, and the live events `stats` read                                                            |
+| `src/model/live.ts`                   | View models                                                                                                                                      |
+| `src/model/adapters/live.ts`          | Pure adapters: minute buckets, ranked rows with rank changes, breakdowns, events, users online                                                   |
+| `src/features/live/liveController.ts` | The polling controller: focus, app state, Pause, timers, failure streaks                                                                         |
+| `src/features/live/liveRead.ts`       | One read: runs the jobs two at a time and merges them into the last snapshot                                                                     |
+| `src/features/live/hooks.ts`          | `useLiveFeed`: the data source (demo or project), both pollers, users online fallback, error events. `useLiveUsersOnline`: the Live chip's count |
+| `src/features/live/LiveScreen.tsx`    | `LiveScreen({ from, chrome })` and its body, title, status line and paused banner                                                                |
+| `src/ui/LiveDot.tsx`                  | The pulsing dot, shared with the Live chip                                                                                                       |
+| `src/demo/live.ts`                    | The seeded demo traffic                                                                                                                          |
 
 ## Requests
 
@@ -52,6 +55,8 @@ Two more reads, outside the query budget:
 
 Users online comes from the HogQL `usersOnline` job instead when the host is not Cloud, the project has no token, or two stats reads in a row fail. It then changes every 30 seconds.
 
+The Live chip on the Web analytics screen reads users online alone: the stats read every 30 seconds, or the `usersOnline` query alone every 30 seconds on the `live` budget when the stats read is off. It reads only while the Web analytics screen is focused and the app is in the foreground, and never runs the jobs above. If a read fails, the chip shows “Reconnecting…” until a fresh count is available. The chip and Live screen pause their pulses and clocks when their screens are hidden or the app leaves the foreground.
+
 ## Polling
 
 `LiveController` runs one poller for the 30-second read and one for the 10-second stats read.
@@ -82,24 +87,24 @@ Many pulls to refresh in a row can still empty the minute bucket. Reads then fai
 3. Stats (`live-stats`): Users online, Unique visitors and Pageviews, with the web's tooltips in a toast when a label is tapped. A changed number counts to its new value in 300 ms and flashes blue.
 4. Active users per minute (`live-activity`): 30 stacked bars, new visitors (green) under returning visitors (blue), as the web draws them. A visitor is new in the first minute of the window that shows them. The line under the chart names the scrubbed minute, or the current one: "21:14 · 18 visitors · 9 pageviews". The last bar is in progress.
 5. Top pages and Top referrers (`live-top-pages`, `live-top-referrers`): ten rows with views and their share of the window's pageviews. A row that changes rank slides to its place with a ↑ or ↓ badge that fades after 4 seconds. "Direct / None" is in italics.
-6. Breakdown (`live-breakdown`): Devices, Browsers or Countries, with the total and a share bar per row. Browsers and countries show their top six and an "Other" row. Countries show a flag and a name; codes the app does not name stay codes, because Hermes has no `Intl.DisplayNames`. Rows do not open anything, because the web's visitor drill-down is behind a flag.
+6. Breakdown (`live-breakdown`): Devices, Browsers or Countries, with the total and a share bar per row. Browsers and countries show their top six and an "Other" row. Countries show a flag and a name from the web analytics helper (`countryName`), which uses `Intl.DisplayNames` where the runtime has it and a short list otherwise; codes neither names stay codes. Rows do not open anything, because the web's visitor drill-down is behind a flag.
 7. Live events (`live-events`): the newest 50, newest first. Events that arrive after the first read slide in with a short highlight. A tap opens the event sheet (`live-event-sheet`): Person with Copy, URL or Screen, Session with "Watch recording", and "View person on web". Watch recording opens the app's session screen when the session replay flag is on, and the web player otherwise.
 
 Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the last 30 minutes", "No pageviews recorded in the last 30 minutes", "No referrer data in the last 30 minutes", "No device data", "No browser data", "No country data" or "Waiting for events…". A card whose job has not answered yet says "Couldn't load this yet. Live tries again every 30 seconds."
 
 ## Analytics
 
-| Event                            | Properties                                                     |
-| -------------------------------- | -------------------------------------------------------------- |
-| `mobile_live_opened`             | `from` (the `ViewEntry`)                                       |
-| `mobile_live_opened_in_web`      |                                                                |
-| `mobile_live_error_shown`        | `kind`: `load_failed` or `refresh_failed`, once per streak     |
-| `mobile_live_refreshed`          | `trigger`: `pull` or `resume`                                  |
-| `mobile_live_paused`             | `trigger`: `button` or `background`                            |
-| `mobile_live_resumed`            | `trigger`: `button` or `foreground`                            |
-| `mobile_live_breakdown_changed`  | `breakdown`: `devices`, `browsers` or `countries`              |
-| `mobile_live_event_sheet_opened` | `kind`: `pageview`, `screen` or `other`                        |
-| `mobile_live_event_action_taken` | `action`: `view_person`, `watch_recording`, `copy_distinct_id` |
+| Event                            | Properties                                                                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `mobile_live_opened`             | `from` (the `ViewEntry`; `web_analytics` for the chip, `tab` for the pinned tab), `chrome`: `tab` or `stack`. Each focus counts |
+| `mobile_live_opened_in_web`      |                                                                                                                                 |
+| `mobile_live_error_shown`        | `kind`: `load_failed` or `refresh_failed`, once per streak                                                                      |
+| `mobile_live_refreshed`          | `trigger`: `pull` or `resume`                                                                                                   |
+| `mobile_live_paused`             | `trigger`: `button` or `background`                                                                                             |
+| `mobile_live_resumed`            | `trigger`: `button` or `foreground`                                                                                             |
+| `mobile_live_breakdown_changed`  | `breakdown`: `devices`, `browsers` or `countries`                                                                               |
+| `mobile_live_event_sheet_opened` | `kind`: `pageview`, `screen` or `other`                                                                                         |
+| `mobile_live_event_action_taken` | `action`: `view_person`, `watch_recording`, `copy_distinct_id`                                                                  |
 
 The chart also sends the shared `mobile_chart_*` events with the `view` context.
 

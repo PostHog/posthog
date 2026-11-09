@@ -234,11 +234,14 @@ by the mobile footer change:
   filters or its URL, and the web's domain, device type and conversion goal filters have no phone control.
 - **Region and city filters match the name or code only,** as on the web, so a filter on "CA" or "Portland" can also
   match a region or city of that name in another country.
-- **Country and language names need `Intl.DisplayNames`.** Hermes does not have it, so the phone names the 50 most
+- **Country and language names need `Intl.DisplayNames`.** Hermes does not have it, so the phone names the 54 most
   common countries and 27 languages from its own list and shows other codes as written.
+  Live uses the same list.
 - **No sorting, path cleaning or host in the path.** Tables use the server's order, most visitors first.
 - **Every card counts as visible.** One screen open, and one filter or range change, sends up to 8 queries, also for
   the cards below the fold. The cards report no row visibility to the refresh rules yet.
 - **Active hours shows unique visitors only.** The web's "Total pageviews" tab is not on the phone.
 - **Retention shows five weekly cohorts,** the web's small-screen layout.
 - **A filtered overview is cached on the device,** like the unfiltered one, so its cache key holds the filter values.
+- **A pinned tab keeps its trend canvas while another tab is focused.** The Views tab gives its canvases back through
+  `ChartCanvasBudget`; the Web analytics and Live charts take no canvas slot, so each keeps one Skia canvas mounted.

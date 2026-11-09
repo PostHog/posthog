@@ -96,7 +96,8 @@ The "SQL views" dashboard (`demo-dash-sql`) has a SQL table, a SQL line chart, a
 
 ## The Views tab
 
-The third slot of the bottom bar opens the Views tab (`app/(tabs)/views.tsx`, `src/features/views/list/ViewsScreen.tsx`).
+The third slot of the bottom bar opens the Views tab (`app/(tabs)/views/index.tsx`, `src/features/views/list/ViewsScreen.tsx`).
+The slot after it holds one pinned list from Browse: Errors, Sessions, Web analytics or Live (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
 It replaced the Products slot, which opened the web app's product library. `mobile_products_opened` went with it; the bar now sends `mobile_views_opened` when the tab is selected, with the pin count from the cached pin list.
 
 The screen is one `SectionList`: a search field, Pinned, Recent and Browse.
@@ -152,7 +153,7 @@ Pin and unpin stay with the session and project that started them; changing eith
 ### Search and Browse
 
 Search shows local matches first (pins as their cards, Recent rows), then dashboards and insights from the server, without the views already shown.
-Browse has Dashboards, Insights, Web analytics, Sessions and Errors. Sessions and Errors open the app's own lists, as a pushed screen or, when pinned, as a slot in the nav pill. A long press on either row offers "Pin to navigation" or "Unpin from navigation" (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
+Browse has Dashboards, Insights, Web analytics, Live, Sessions and Errors. Web analytics, Live, Sessions and Errors open as a pushed screen or, when pinned, as a slot in the nav pill. A long press on any of these four rows offers "Pin to navigation" or "Unpin from navigation" (see [DECISIONS.md](DECISIONS.md#navigation-pins)). In the demo, Sessions and Errors are dimmed; Web analytics and Live have demo data.
 The Dashboards and Insights lists (`app/views/browse/*.tsx`, `src/features/views/browse/BrowseListScreen.tsx`) load 30 rows at a time and search on the server with `useBrowseSearch`.
 Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `insights`; `from`: `browse` or `search`). Each next page that loads sends `mobile_browse_list_paged` (`section`, `pages_loaded`), and a failed first page sends `mobile_views_error_shown` (`screen: browse`).
 `mobile_views_searched` (`section`: `views`, `dashboards` or `insights`; `query_length`, `result_count`) goes once per settled query, from the Views list and from each Browse list.
@@ -165,14 +166,19 @@ Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `
 | Insight            | `/views/insight/{short_id}?from={entry}[&mode={display mode}]`                                        |
 | Web analytics      | `/views/web-analytics?from={entry}`                                                                   |
 | Web analytics list | `/views/web-analytics/list?tile={pages, sources, devices or locations}&breakdown={WebStatsBreakdown}` |
+| Live               | `/views/live?from={entry}`                                                                            |
+| Pinned tabs        | `/web-analytics`, `/live` (`app/(tabs)/web-analytics/`, `app/(tabs)/live/`)                           |
 | Full-screen chart  | `/views/chart/{short_id}[?key={cache key}]`                                                           |
 | Browse lists       | `/views/browse/dashboards`, `/views/browse/insights`                                                  |
 
-`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search`, `dashboard` or `widget`) for `mobile_view_opened`; `mode` is the pin's display mode.
+`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search`, `dashboard`, `widget`, or `web_analytics` for the Live chip) for `mobile_view_opened`; `mode` is the pin's display mode.
+A pinned tab opens with `from: tab`, which never travels in a route.
+`mobile_view_opened` also sends `chrome`: `tab` for the pinned Web analytics tab, `stack` for every pushed view.
+The tab routes are reached only through the bar, the start page and `openNavTarget`; deep links open the pushed screens.
 A home screen widget opens a dashboard or insight with `from=widget&family=<small|medium|large>`, which also sends `mobile_widget_opened` (`kind`, `family`).
-Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `webAnalyticsListHref`, `chartHref`), never by hand.
+Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `webAnalyticsListHref`, `liveHref`, `chartHref`), never by hand.
 An insight opened from a tile also carries `fromDashboard` and `insightId`: it reads with `from_dashboard` and shares the dashboard's session range.
-Deep links work: `posthog://views/dashboard/demo-dash-kpis`, `posthog://views/insight/demo-ins-dau`, `posthog://views/web-analytics`.
+Deep links work: `posthog://views/dashboard/demo-dash-kpis`, `posthog://views/insight/demo-ins-dau`, `posthog://views/web-analytics`, `posthog://views/live`.
 
 ## View screens
 
@@ -216,6 +222,8 @@ The queries port the web's tiles in `webAnalyticsLogic.tsx` (`src/api/webAnalyti
 - **Refresh.** Each card is one `RefreshItem` in screen order, overview first. Every card counts as visible, so one screen open reads up to 8 queries through the shared queue. A range or filter change is a new open path (`rangeKey`), like a range change on other screens; a metric or tab change drops any queued reads for the replaced card and reads the newly selected one. The full list is its own screen with one item.
 - **States.** The whole screen shows the skeleton until the overview arrives, and the error state when the overview fails. Each card then has its own skeleton, "No data for this range." and "Couldn't load this data. Pull down to try again.", and dims its values when its last read failed.
 - **Demo.** `src/demo/webAnalytics.ts` answers every query with invented hedgebox.net data that follows the range and the filters: a filter scales the counts by the share of the row it came from, so the overview with "Path: /pricing" shows the visitors of the /pricing row.
+- **Two chromes.** `WebAnalyticsScreen({ from, chrome })` is pushed (`stack`: Back chip, the 26pt title, More) or a pinned tab (`tab`: the tabs header draws the title and the status line, and the range button is the first row of the content). The More sheet of the pushed screen has "Pin to navigation" (`view-nav-pin`, or `view-nav-unpin`) above "Open on web"; on the tab, the tabs menu has "Unpin from navigation" and "Open on web".
+- **Live chip.** A pill with a green dot and the users online count (`web-analytics-live-chip`) sits right of the title, or right of the range button on the tab. It reads "Live" until a count arrives. A tap pushes Live with `from=web_analytics`. The count comes from `useLiveUsersOnline` (`src/features/live/hooks.ts`): the live events stats read on Cloud, else the HogQL count on the `live` budget, every 30 seconds, only while the screen is focused and the app is in the foreground. It never runs Live's full read.
 
 Events: `mobile_web_analytics_metric_selected` (`metric`), `mobile_web_analytics_breakdown_changed` (`tile`, `breakdown`, `from`: `card` or `list`, `source`: `user` for a picked tab or `drill_down` for the tab a new row filter moves the tile to), `mobile_web_analytics_filter_added` (`property`, `source`: `card`, `list` or `undo`), `mobile_web_analytics_filter_removed` (`property`, `source`: `chip`, `clear_all`, `undo` or `row`), `mobile_web_analytics_list_opened` (`tile`, `breakdown`) and `mobile_web_analytics_web_tile_opened` (`tile`). Filter events name the property, never the value.
 

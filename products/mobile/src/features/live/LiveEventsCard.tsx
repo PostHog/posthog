@@ -20,12 +20,13 @@ const SLIDE_PX = 10
 
 interface LiveEventsCardProps {
     events: LiveEventRow[] | null
+    screenActive: boolean
     onOpen: (event: LiveEventRow) => void
 }
 
 /** The newest 50 events, newest first. Events that arrive after the first read slide in with a short highlight. */
-export function LiveEventsCard({ events, onOpen }: LiveEventsCardProps): ReactElement {
-    const now = useNow(10_000).getTime()
+export function LiveEventsCard({ events, onOpen, screenActive }: LiveEventsCardProps): ReactElement {
+    const now = useNow(screenActive ? 10_000 : null).getTime()
     const seen = useRef<Set<string> | null>(null)
     const previous = seen.current
     useEffect(() => {
