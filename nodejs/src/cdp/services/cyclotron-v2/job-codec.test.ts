@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { CyclotronJobInvocation } from '../../types'
-import { JobRow, encodeJob, v2JobToInvocation } from './job-codec'
+import { JobRow, encodeJob, v2JobToInvocation, withReschedule } from './job-codec'
 
 // The golden `state` strings are what the Postgres-v2 adapter wrote before the codec existed. Workers of both
 // versions read the same rows during a deploy, so the bytes must not change.
@@ -112,5 +114,19 @@ describe('job codec', () => {
             queueDueAt: dequeuedAt,
             queueSource: 'postgres-v2',
         })
+    })
+
+    it.each([
+        ['no earlier reschedule', undefined, '2026-11-09T10:00:00.000Z'],
+        ['an earlier one in the past', '2026-11-09T09:59:59.000Z', '2026-11-09T10:00:00.000Z'],
+        ['an earlier one in the same millisecond', '2026-11-09T10:00:00.000Z', '2026-11-09T10:00:00.001Z'],
+        ['an earlier one ahead of this clock', '2026-11-09T10:00:05.000Z', '2026-11-09T10:00:05.001Z'],
+    ])('times a reschedule after %s', (_desc, previous, expected) => {
+        const stored = Buffer.from(JSON.stringify({ state: { scheduledAt: 'old', rescheduledAt: previous, x: 1 } }))
+
+        const { state, rescheduledAt } = withReschedule(stored, 'new', new Date('2026-11-09T10:00:00.000Z'))
+
+        expect(rescheduledAt.toISOString()).toEqual(expected)
+        expect(parseJSON(state.toString())).toEqual({ state: { scheduledAt: 'new', rescheduledAt: expected, x: 1 } })
     })
 })

@@ -1242,10 +1242,27 @@ describe('Cyclotron V2', () => {
                 expect(new Date(row.scheduled)).toEqual(IN_TWO_DAYS)
                 expect(parseJSON(row.state!.toString())).toEqual({
                     ...storedState,
-                    state: { ...storedState.state, scheduledAt: IN_TWO_DAYS.toISOString() },
+                    state: {
+                        ...storedState.state,
+                        scheduledAt: IN_TWO_DAYS.toISOString(),
+                        rescheduledAt: (result as { rescheduledAt: Date }).rescheduledAt.toISOString(),
+                    },
                 })
                 expect(row).toMatchObject({ status: 'available', transition_count: 0 })
                 expect(row.dequeue_seq).toEqual(before.dequeue_seq)
+            })
+
+            it('times a reschedule after the time stored by the previous one, even when that is ahead', async () => {
+                const id = await seedScheduledEmail()
+                const ahead = new Date(Date.now() + 60_000)
+                await assertPool.query(`UPDATE cyclotron_jobs SET state = $2 WHERE id = $1`, [
+                    id,
+                    Buffer.from(JSON.stringify({ state: { rescheduledAt: ahead.toISOString() } })),
+                ])
+
+                const result = await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
+
+                expect(result).toMatchObject({ outcome: 'rescheduled', rescheduledAt: new Date(ahead.getTime() + 1) })
             })
 
             it('times a reschedule that waited on the row lock after the commit it waited for', async () => {

@@ -9,7 +9,7 @@ import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
-import { JobRow, withScheduledAt } from './job-codec'
+import { JobRow, withReschedule } from './job-codec'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
@@ -818,19 +818,20 @@ export class CyclotronV2Manager {
             if (!row) {
                 await client.query('ROLLBACK')
             } else {
-                const state = withScheduledAt(row.state, scheduled.toISOString())
                 // Read after the row lock, so two reschedules of one job get their times in commit order.
-                const updated = await client.query<{ rescheduled_at: string }>(
-                    `UPDATE cyclotron_jobs SET scheduled = $2, state = $3 WHERE id = $1
-                     RETURNING clock_timestamp() AS rescheduled_at`,
-                    [id, scheduled, state]
+                const clock = await client.query<{ now: string }>('SELECT clock_timestamp() AS now')
+                const { state, rescheduledAt } = withReschedule(
+                    row.state,
+                    scheduled.toISOString(),
+                    new Date(clock.rows[0].now)
                 )
+                await client.query(`UPDATE cyclotron_jobs SET scheduled = $2, state = $3 WHERE id = $1`, [
+                    id,
+                    scheduled,
+                    state,
+                ])
                 await client.query('COMMIT')
-                return {
-                    outcome: 'rescheduled',
-                    job: unclaimedJob({ ...row, scheduled, state }),
-                    rescheduledAt: new Date(updated.rows[0].rescheduled_at),
-                }
+                return { outcome: 'rescheduled', job: unclaimedJob({ ...row, scheduled, state }), rescheduledAt }
             }
         } catch (err) {
             await client.query('ROLLBACK').catch(() => undefined)
