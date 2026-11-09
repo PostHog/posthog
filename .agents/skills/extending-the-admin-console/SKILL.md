@@ -12,6 +12,11 @@ Read [`posthog/admin/console/AGENTS.md`](../../../posthog/admin/console/AGENTS.m
 ## 1. Decide where it goes
 
 - **Plain create, read, update or delete on one model** stays in Django admin. The console is not a second CRUD layer.
+  A changelist action (`actions = (...)`) stays too when it does only what staff could do in the change form of the selected rows.
+  It writes fields of those rows, shows no page of its own, and starts nothing itself: no send, job, outside call, or write to another model.
+  It calls `self.log_change(request, obj, ...)` for each row, because an action leaves no admin history.
+  Any other action is a console operation: classify it with section 4.
+  Before you move an action for a reason or a gate, make its field read-only in Django admin too, or the move protects nothing.
 - **Facts and actions about one team or one organization** go in a panel on that record's page. One panel per product concern, owned by the team that owns the data.
 - **A report across many teams, or an action that is not about one record** (a backfill, a re-save across teams) is a tool. An action on one team from a tool row links to that team's page instead of becoming a tool operation.
 - **A staff page your product already has in the app** (a DRF staff endpoint and scene) is legacy. Do not extend it and do not bridge to it. Ask the user whether to move it into the console as its own change.
