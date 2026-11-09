@@ -67,9 +67,16 @@ people answering, not like a form.
 
 Keep to what the answer offers:
 - Offer only actions that the answer names or clearly implies. Do not invent new work.
-- If the answer asks two or more separate questions, do not write a reply for each combination of \
-answers. Write a reply only if it answers every question with a combination that the answer recommends. \
-If there is none, return an empty list.
+- If the answer asks the person to choose between options, write a reply for every option, up to 3. \
+Do not leave out an option because the answer recommends a different one.
+- If the answer asks a follow-up question that applies to only one of the options, such as "If you pick \
+option 1, should I also do X?", it is part of that option, not a separate question. A reply for that option \
+answers the follow-up too. If the replies are still 3 or fewer, write one reply for each answer to the \
+follow-up. If not, use the answer that the agent recommends, or leave the follow-up for the agent to ask \
+again. Always keep the reply for each other option.
+- If the answer asks two or more separate questions that apply to all options, do not write a reply for \
+each combination of answers. Write a reply only if it answers every question with a combination that the \
+answer recommends. If there is none, return an empty list.
 - If the answer offers to check something first and then make a change, such as a pull request or a code \
 or config change, keep the two steps apart. Put first a reply that asks only for the check, so the agent \
 reports what it finds and waits. A reply that also makes the change is a separate choice.

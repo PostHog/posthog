@@ -94,6 +94,7 @@ Each reply has a short button label and the full text the button sends. Every re
 - have a label that names the choice in words, not only by its number or letter, such as "Option 2"
 - read like a short message a person typed, and not every label starts with the same word, such as "Use" or "Yes"
 - if the answer asks more than one question, answer every question, and not offer near-copies that change one part of a combination
+- together, if the answer asks the person to choose between options, include a reply for every option, up to 3 replies. A follow-up question that applies to only one option is part of that option and does not let the replies leave out another option
 - be written by the person, to the agent, as their next message in the thread
 - make sense on its own, without the person typing more
 - ask only for actions the answer names or clearly implies
