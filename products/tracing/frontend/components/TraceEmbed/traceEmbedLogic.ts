@@ -1,4 +1,5 @@
 import {
+    LogicWrapper,
     MakeLogicType,
     actions,
     afterMount,
@@ -14,7 +15,7 @@ import {
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import type { TraceLinkParams } from 'lib/components/ViewTraceButton/traceUrl'
+import { type TraceLinkParams, inApiCase } from 'lib/components/ViewTraceButton/traceUrl'
 
 import { type TraceSpanPages, loadTraceSpanPages } from 'products/tracing/frontend/traceSpanPages'
 
@@ -84,7 +85,7 @@ export type traceEmbedLogicType = MakeLogicType<
     traceEmbedLogicMeta
 >
 
-export const traceEmbedLogic = kea<traceEmbedLogicType>([
+export const traceEmbedLogic: LogicWrapper<traceEmbedLogicType> = kea<traceEmbedLogicType>([
     props({} as TraceEmbedLogicProps),
     key((props) => props.viewId),
     path((key) => ['products', 'tracing', 'frontend', 'components', 'TraceEmbed', 'traceEmbedLogic', key]),
@@ -100,7 +101,7 @@ export const traceEmbedLogic = kea<traceEmbedLogicType>([
             null as TraceSpanPages | null,
             {
                 loadTraceSpans: async (_: void, breakpoint): Promise<TraceSpanPages | null> =>
-                    loadTraceSpanPages(props.trace, breakpoint, () => true),
+                    loadTraceSpanPages(props.trace, breakpoint),
             },
         ],
     })),
@@ -151,9 +152,7 @@ export const traceEmbedLogic = kea<traceEmbedLogicType>([
     })),
     afterMount(({ actions, props, cache }) => {
         cache.mountedAtMs = Date.now()
-        // The trace API returns span ids in uppercase and events carry them in lowercase, and the view
-        // matches the linked span exactly.
-        actions.showTrace(props.trace.spanId?.toUpperCase() ?? null, null)
+        actions.showTrace(props.trace.spanId ? inApiCase(props.trace.spanId) : null, null)
         actions.loadTraceSpans()
     }),
     beforeUnmount(({ props, cache }) => {

@@ -843,3 +843,67 @@ export const ExceptionCardLogsWithSessionOnly = logsStory('issue-session-only', 
 })
 
 export const ExceptionCardLogsWithoutSession = logsStory('issue-no-session', { sessionId: null })
+
+//////////////////// Trace tab
+
+function storyTraceSpan(
+    index: number,
+    parent: number | null,
+    name: string,
+    service: string,
+    startMs: number,
+    endMs: number,
+    statusCode = 0
+): Record<string, unknown> {
+    const at = (ms: number): string => new Date(Date.parse('2024-07-09T12:00:04.000Z') + ms).toISOString()
+    return {
+        uuid: `story-span-${index}`,
+        trace_id: LOGS_STORY_TRACE_ID.toUpperCase(),
+        span_id: storySpanId(index).toUpperCase(),
+        parent_span_id: parent === null ? '' : storySpanId(parent).toUpperCase(),
+        name,
+        kind: 2,
+        service_name: service,
+        status_code: statusCode,
+        timestamp: at(startMs),
+        end_time: at(endMs),
+        duration_nano: (endMs - startMs) * 1_000_000,
+        is_root_span: parent === null,
+        matched_filter: true,
+        attributes: {},
+        resource_attributes: {},
+    }
+}
+
+export function ExceptionCardTrace(): JSX.Element {
+    const event = buildSessionTimelineEvent(undefined, { sessionId: null })
+    event.properties = { ...event.properties, $trace_id: LOGS_STORY_TRACE_ID, $span_id: LOGS_STORY_SPAN_ID }
+
+    return (
+        <div className="w-[1000px] h-[500px]">
+            <OpenTab tab="trace" issueId="issue-trace">
+                <ExceptionCard issueId="issue-trace" issueName="Test Issue" loading={false} event={event} />
+            </OpenTab>
+        </div>
+    )
+}
+ExceptionCardTrace.parameters = {
+    featureFlags: [FEATURE_FLAGS.LOGS_IN_ERROR_TRACKING],
+    testOptions: { snapshotBrowsers: [] },
+    msw: {
+        mocks: {
+            post: {
+                '/api/projects/:team_id/tracing/spans/trace/:trace_id/': {
+                    results: [
+                        storyTraceSpan(0, null, 'GET /api/projects/7/config', 'posthog-web', 0, 920, 2),
+                        storyTraceSpan(1, 0, 'auth.verify_session', 'posthog-web', 10, 60),
+                        storyTraceSpan(2, 0, 'SELECT team_config', 'posthog-web', 70, 180),
+                        storyTraceSpan(4, 0, 'GET config-service /v1/config', 'config-service', 200, 900, 2),
+                    ],
+                    hasMore: false,
+                    nextOffset: null,
+                },
+            },
+        },
+    },
+}

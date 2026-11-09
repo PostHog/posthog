@@ -16,7 +16,7 @@ export interface TraceSpanPages {
 export async function loadTraceSpanPages(
     trace: TraceLinkParams,
     breakpoint: () => void,
-    keepPaging: () => boolean
+    keepPaging: () => boolean = () => true
 ): Promise<TraceSpanPages> {
     const dateRange = resolveTraceLookupRange(trace.ts)
     const seen = new Set<string>()

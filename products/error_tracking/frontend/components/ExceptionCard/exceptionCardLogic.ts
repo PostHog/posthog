@@ -25,6 +25,7 @@ export interface exceptionCardLogicValues {
     expandedFrameRawIds: Set<string>
     issueId: string
     loading: boolean
+    logsEnabled: boolean
     logsScope: ExceptionLogsScope
     onShowOnlyWithRecording: (() => void) | null
     propertyNameFilter: string
@@ -60,7 +61,8 @@ export interface exceptionCardLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         issueId: (issueId: string) => string
-        traceTabEnabled: (featureFlags: any) => boolean
+        logsEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        traceTabEnabled: (logsEnabled: any) => boolean
         loading: (loading: boolean) => boolean
         onShowOnlyWithRecording: (arg: any) => (() => void) | null
     }
@@ -136,11 +138,15 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
 
     selectors({
         issueId: [(_, p) => [p.issueId], (issueId: string) => issueId],
-        // Hidden without Tracing access, as ViewTraceButton is.
-        traceTabEnabled: [
+        logsEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.LOGS_IN_ERROR_TRACKING] &&
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.LOGS_IN_ERROR_TRACKING],
+        ],
+        // Ships with the Logs tab under its flag, and hides without Tracing access as ViewTraceButton does.
+        traceTabEnabled: [
+            (s) => [s.logsEnabled],
+            (logsEnabled: boolean): boolean =>
+                logsEnabled &&
                 !getAccessControlDisabledReason(AccessControlResourceType.Tracing, AccessControlLevel.Viewer),
         ],
         loading: [(_, p) => [p.loading], (loading: boolean) => loading],
@@ -151,6 +157,7 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
     }),
 
     listeners(({ props }) => ({
+        // Pinned: analytics event name and `tab` values. Renaming one breaks the dashboards built on it.
         setCurrentTab: ({ tab }) => {
             posthog.capture('error_tracking_exception_tab_changed', { issue_id: props.issueId, tab })
         },
