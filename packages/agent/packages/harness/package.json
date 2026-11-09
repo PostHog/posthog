@@ -129,7 +129,7 @@
     "@earendil-works/pi-ai": "catalog:",
     "@earendil-works/pi-coding-agent": "catalog:",
     "@earendil-works/pi-tui": "catalog:",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@posthog/enricher": "workspace:*",
     "@posthog/git": "workspace:*",
     "@posthog/agent-contracts": "workspace:*",

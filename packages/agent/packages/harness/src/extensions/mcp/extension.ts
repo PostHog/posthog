@@ -111,6 +111,11 @@ function isAuthRequiredError(message: string): boolean {
  * the message already carries one (our own UnauthorizedError messages do).
  */
 function authHint(serverName: string, message: string): string {
+  // The MCP SDK raises this when stored credentials belong to a different
+  // authorization server than the one the MCP server now advertises.
+  if (/is bound to authorization server/.test(message)) {
+    return ` — run /mcp:auth ${serverName} reset`;
+  }
   return isAuthRequiredError(message) && !message.includes("/mcp:auth")
     ? ` — run /mcp:auth ${serverName}`
     : "";

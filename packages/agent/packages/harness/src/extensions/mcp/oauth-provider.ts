@@ -21,7 +21,7 @@ import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
   OAuthClientInformation,
-  OAuthClientInformationFull,
+  OAuthClientInformationMixed,
   OAuthClientMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
@@ -45,6 +45,15 @@ const DEFAULT_CLIENT_URI = "https://posthog.com";
 const BACKGROUND_REDIRECT_PLACEHOLDER = "http://127.0.0.1/mcp-auth-required";
 
 export class McpOAuthProvider implements OAuthClientProvider {
+  /**
+   * Present only when this provider may register a client: an interactive
+   * flow without a configured clientId. Without it, the SDK refuses a stored
+   * client bound to another authorization server instead of registering one.
+   */
+  readonly saveClientInformation?: (
+    info: OAuthClientInformationMixed,
+  ) => Promise<void>;
+
   constructor(
     private readonly serverName: string,
     private readonly serverUrl: string,
@@ -60,7 +69,11 @@ export class McpOAuthProvider implements OAuthClientProvider {
      * the configured static redirectUrl.
      */
     private readonly flowRedirectUrl?: string,
-  ) {}
+  ) {
+    if (onRedirect && !config.clientId) {
+      this.saveClientInformation = (info) => this.storeClientInformation(info);
+    }
+  }
 
   get redirectUrl(): string {
     return (
@@ -98,21 +111,25 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async clientInformation(): Promise<OAuthClientInformation | undefined> {
-    // Pre-registered client from config wins.
-    if (this.config.clientId) {
-      return {
-        client_id: this.config.clientId,
-        ...(this.config.clientSecret !== undefined
-          ? { client_secret: this.config.clientSecret }
-          : {}),
-      };
-    }
-
     const entry = await this.storage.readForUrl(
       this.serverName,
       this.serverUrl,
     );
     const info = entry?.clientInfo;
+
+    // Pre-registered client from config wins.
+    if (this.config.clientId) {
+      const issuer =
+        info?.clientId === this.config.clientId ? info.issuer : undefined;
+      return {
+        client_id: this.config.clientId,
+        ...(this.config.clientSecret !== undefined
+          ? { client_secret: this.config.clientSecret }
+          : {}),
+        ...(issuer !== undefined ? { issuer } : {}),
+      };
+    }
+
     if (!info) {
       // Returning undefined makes the SDK run dynamic client registration.
       // A background provider must never do that: registering with the
@@ -144,10 +161,21 @@ export class McpOAuthProvider implements OAuthClientProvider {
       ...(info.clientSecret !== undefined
         ? { client_secret: info.clientSecret }
         : {}),
+      ...(info.clientIdIssuedAt !== undefined
+        ? { client_id_issued_at: info.clientIdIssuedAt }
+        : {}),
+      ...(info.clientSecretExpiresAt !== undefined
+        ? { client_secret_expires_at: info.clientSecretExpiresAt }
+        : {}),
+      ...(info.issuer !== undefined ? { issuer: info.issuer } : {}),
     };
   }
 
-  async saveClientInformation(info: OAuthClientInformationFull): Promise<void> {
+  private async storeClientInformation(
+    info: OAuthClientInformationMixed,
+  ): Promise<void> {
+    const redirectUris =
+      "redirect_uris" in info ? info.redirect_uris : undefined;
     const clientInfo: StoredClientInfo = {
       clientId: info.client_id,
       ...(info.client_secret !== undefined
@@ -159,9 +187,10 @@ export class McpOAuthProvider implements OAuthClientProvider {
       ...(info.client_secret_expires_at !== undefined
         ? { clientSecretExpiresAt: info.client_secret_expires_at }
         : {}),
-      ...(info.redirect_uris !== undefined
-        ? { redirectUris: info.redirect_uris.map(String) }
+      ...(redirectUris !== undefined
+        ? { redirectUris: redirectUris.map(String) }
         : {}),
+      ...(info.issuer !== undefined ? { issuer: info.issuer } : {}),
     };
     await this.storage.update(this.serverName, this.serverUrl, (entry) => {
       entry.clientInfo = clientInfo;
@@ -190,6 +219,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
           }
         : {}),
       ...(stored.scope !== undefined ? { scope: stored.scope } : {}),
+      ...(stored.issuer !== undefined ? { issuer: stored.issuer } : {}),
     };
   }
 
@@ -204,7 +234,21 @@ export class McpOAuthProvider implements OAuthClientProvider {
           ? { expiresAt: Date.now() / 1000 + tokens.expires_in }
           : {}),
         ...(tokens.scope !== undefined ? { scope: tokens.scope } : {}),
+        ...(tokens.issuer !== undefined ? { issuer: tokens.issuer } : {}),
       };
+      // The SDK saves tokens only from an authorization server that accepted
+      // the client. This binds a client stored before issuers were recorded,
+      // which providers without saveClientInformation cannot do otherwise.
+      const clientId = this.config.clientId ?? entry.clientInfo?.clientId;
+      if (tokens.issuer !== undefined && clientId !== undefined) {
+        entry.clientInfo =
+          entry.clientInfo?.clientId === clientId
+            ? {
+                ...entry.clientInfo,
+                issuer: entry.clientInfo.issuer ?? tokens.issuer,
+              }
+            : { clientId, issuer: tokens.issuer };
+      }
       entry.savedAt = Date.now();
     });
   }

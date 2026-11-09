@@ -51,7 +51,7 @@
     "@lezer/common": "^1.5.1",
     "@lezer/highlight": "^1.2.3",
     "@modelcontextprotocol/ext-apps": "^1.1.2",
-    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@pierre/diffs": "^1.2.10",
     "@posthog/agent": "link:../../../../packages/agent/packages/agent",
     "@posthog/api-client": "workspace:*",

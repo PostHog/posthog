@@ -19,6 +19,12 @@ export interface StoredTokens {
   /** Unix timestamp in seconds. */
   expiresAt?: number;
   scope?: string;
+  /**
+   * Authorization server that issued the tokens. The MCP SDK does not send a
+   * refresh token to any other server, so dropping this field lets a
+   * malicious MCP server redirect the refresh token to its own server.
+   */
+  issuer?: string;
 }
 
 /** OAuth client information from dynamic (or static) registration. */
@@ -28,6 +34,7 @@ export interface StoredClientInfo {
   clientIdIssuedAt?: number;
   clientSecretExpiresAt?: number;
   redirectUris?: string[];
+  issuer?: string;
 }
 
 /** Complete auth entry for one server. */
