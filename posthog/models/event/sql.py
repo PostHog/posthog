@@ -1,7 +1,6 @@
 from django.conf import settings
 
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
-from posthog.hogql.printer.events_json_document import event_document_sql, person_document_sql
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -511,20 +510,9 @@ def _cast_temporary_properties(field: str) -> str:
     )
 
 
-def EVENTS_JSON_TABLE_MV_SQL(
-    mv_name="events_json_table_mv",
-    kafka_table=KAFKA_EVENTS_NATIVE_JSON_TABLE,
-    target_table=None,
-    on_cluster=True,
-):
-    if target_table is None:
-        target_table = WRITABLE_EVENTS_JSON_TABLE
-
-    return """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
-TO {database}.{target_table}
-AS
-SELECT
+def _events_json_rows_sql(kafka_table: str) -> str:
+    # The rows events_json stores, read from its Kafka table. Shared with events_json_recent_mv.
+    return """SELECT
 *,
 accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
 FROM
@@ -581,14 +569,9 @@ arrayMap(
 FROM {database}.{kafka_table}
 ) AS source
 )
-SETTINGS {insert_settings}
 """.format(
-        mv_name=mv_name,
         kafka_table=kafka_table,
-        target_table=target_table,
-        on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
-        insert_settings=EVENTS_JSON_INSERT_SETTINGS,
         cleaner=EVENTS_JSON_CLEANER,
         cleaned=EVENTS_JSON_CLEANED_ALIAS,
         temporary_properties_expr=_cast_temporary_properties("temporary_properties"),
@@ -597,6 +580,23 @@ SETTINGS {insert_settings}
             "person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE()
         ),
     )
+
+
+def EVENTS_JSON_TABLE_MV_SQL(
+    mv_name="events_json_table_mv",
+    kafka_table=KAFKA_EVENTS_NATIVE_JSON_TABLE,
+    target_table=None,
+    on_cluster=True,
+):
+    if target_table is None:
+        target_table = WRITABLE_EVENTS_JSON_TABLE
+    on_cluster_clause = f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
+TO {settings.CLICKHOUSE_DATABASE}.{target_table}
+AS
+{_events_json_rows_sql(kafka_table)}SETTINGS {EVENTS_JSON_INSERT_SETTINGS}
+"""
 
 
 # WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
@@ -772,103 +772,74 @@ FROM {database}.{source_table}
     )
 
 
-# Events JSON recent tables: events_recent's shape and retention, with the properties events_json exports
+# Events JSON recent tables: events_json's columns with String in place of JSON, and events_recent's retention
 
 
-def SHARDED_EVENTS_JSON_RECENT_TABLE_SQL():
+def _events_json_recent_table_sql(table_name: str, engine: str) -> str:
+    return EVENTS_JSON_TABLE_BASE_SQL.format(
+        table_name=table_name,
+        on_cluster_clause="",
+        engine=engine,
+        properties_json_type="String",
+        person_properties_json_type="String",
+        temporary_properties_json_type="String",
+        temporary_properties_storage="",
+        gcd_codec="",
+        t64_codec="",
+        elements_columns="",
+        compatibility_columns="",
+        indexes="",
+    )
+
+
+def SHARDED_EVENTS_JSON_RECENT_TABLE_SQL() -> str:
+    engine = ReplacingMergeTree(
+        SHARDED_EVENTS_JSON_RECENT_TABLE, ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
+    )
     return (
-        EVENTS_TABLE_BASE_SQL
-        + """PARTITION BY toStartOfDay(inserted_at)
+        _events_json_recent_table_sql(SHARDED_EVENTS_JSON_RECENT_TABLE, engine)
+        + f"""PARTITION BY toStartOfDay(inserted_at)
 ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
 TTL toDate(inserted_at) + INTERVAL 9 DAY
-{storage_policy}
+{STORAGE_POLICY()}
 SETTINGS ttl_only_drop_parts = 1
 """
-    ).format(
-        table_name=SHARDED_EVENTS_JSON_RECENT_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
-        engine=ReplacingMergeTree(
-            SHARDED_EVENTS_JSON_RECENT_TABLE, ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
+    )
+
+
+def WRITABLE_EVENTS_JSON_RECENT_TABLE_SQL() -> str:
+    return _events_json_recent_table_sql(
+        WRITABLE_EVENTS_JSON_RECENT_TABLE,
+        Distributed(data_table=SHARDED_EVENTS_JSON_RECENT_TABLE, sharding_key="sipHash64(distinct_id)"),
+    )
+
+
+def EVENTS_JSON_RECENT_TABLE_SQL() -> str:
+    return _events_json_recent_table_sql(
+        EVENTS_JSON_RECENT_TABLE,
+        Distributed(
+            data_table=SHARDED_EVENTS_JSON_RECENT_TABLE,
+            sharding_key="sipHash64(distinct_id)",
+            cluster=settings.CLICKHOUSE_PRIMARY_REPLICA_CLUSTER,
         ),
-        extra_fields=KAFKA_COLUMNS + INSERTED_AT_NOT_NULLABLE_COLUMN,
-        dynamically_materialized_columns="",
-        materialized_columns="",
-        indexes="",
-        storage_policy=STORAGE_POLICY(),
     )
 
 
-def _events_json_recent_distributed_sql(table_name: str, cluster: str) -> str:
-    return EVENTS_TABLE_BASE_SQL.format(
-        table_name=table_name,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
-        engine=Distributed(
-            data_table=SHARDED_EVENTS_JSON_RECENT_TABLE, sharding_key="sipHash64(distinct_id)", cluster=cluster
-        ),
-        extra_fields=KAFKA_COLUMNS + INSERTED_AT_NOT_NULLABLE_COLUMN,
-        dynamically_materialized_columns="",
-        materialized_columns="",
-        indexes="",
-    )
-
-
-def WRITABLE_EVENTS_JSON_RECENT_TABLE_SQL():
-    return _events_json_recent_distributed_sql(WRITABLE_EVENTS_JSON_RECENT_TABLE, settings.CLICKHOUSE_WRITABLE_CLUSTER)
-
-
-def EVENTS_JSON_RECENT_TABLE_SQL():
-    return _events_json_recent_distributed_sql(EVENTS_JSON_RECENT_TABLE, settings.CLICKHOUSE_PRIMARY_REPLICA_CLUSTER)
-
-
-def EVENTS_JSON_RECENT_MV_SQL(source_table: str = EVENTS_JSON_DATA_TABLE) -> str:
-    # The documents are built with the same SQL and settings as the native batch export source, so a row here
-    # holds the text an export of the same events_json row writes.
-    properties_document = event_document_sql(
-        "json_properties",
-        "properties_null_keys",
-        "temporary_properties",
-        "temporary_properties_null_keys",
-        "json_properties.`$feature_flags`",
-    )
-    person_properties_document = person_document_sql("json_person_properties", "person_properties_null_keys")
+def EVENTS_JSON_RECENT_MV_SQL(kafka_table: str = KAFKA_EVENTS_NATIVE_JSON_TABLE) -> str:
+    # Casting to the events_json types and printing the result back keeps the stored text the same as
+    # toJSONString on an events_json row.
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {EVENTS_JSON_RECENT_MV}
 TO {settings.CLICKHOUSE_DATABASE}.{WRITABLE_EVENTS_JSON_RECENT_TABLE}
-AS SELECT
-uuid,
-event,
-{properties_document} AS properties,
-timestamp,
-team_id,
-distinct_id,
-elements_chain,
-created_at,
-person_id,
-person_created_at,
-{person_properties_document} AS person_properties,
-group0_properties,
-group1_properties,
-group2_properties,
-group3_properties,
-group4_properties,
-group0_created_at,
-group1_created_at,
-group2_created_at,
-group3_created_at,
-group4_created_at,
-person_mode,
-historical_migration,
-_timestamp,
-_offset,
-inserted_at
-FROM (
-SELECT
-*,
-properties AS json_properties,
-person_properties AS json_person_properties
-FROM {settings.CLICKHOUSE_DATABASE}.{source_table}
+AS
+SELECT * REPLACE (
+    toJSONString(properties) AS properties,
+    toJSONString(temporary_properties) AS temporary_properties,
+    toJSONString(person_properties) AS person_properties
 )
-SETTINGS json_type_escape_dots_in_keys = 1, output_format_json_escape_forward_slashes = 0
+FROM (
+{_events_json_rows_sql(kafka_table)})
+SETTINGS {EVENTS_JSON_INSERT_SETTINGS}, output_format_json_escape_forward_slashes = 0
 """
 
 
