@@ -75,6 +75,8 @@ class TestRefusalNotices(BaseTest):
 
         assert self._recipients() == [[self.user.id]] * 3
         event = stored_notifications_for_team(self.team.id)[0]
+        # The inbox groups by resource, so each alert keeps its own group.
+        assert event.resource_id == str(self.configuration.id)
         assert (event.notification_type, event.body, event.source_url) == (
             "alert_destination_refused",
             "The webhook destination refused the message with status 400. "
