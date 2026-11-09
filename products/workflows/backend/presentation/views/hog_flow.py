@@ -74,6 +74,7 @@ from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     is_service_auth,
+    posthog_feature_flag_enabled,
 )
 from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import (
@@ -410,13 +411,8 @@ WORKFLOWS_PROJECT_FILES_FLAG = "workflows-project-files"
 
 
 def _rolled_out_to(flag: str, user: User, team: Team) -> bool:
-    organization_id = str(team.organization_id)
-    return feature_enabled_or_false(
-        flag,
-        str(user.distinct_id),
-        groups={"organization": organization_id, "project": str(team.uuid)},
-        group_properties={"organization": {"id": organization_id}, "project": {"id": str(team.uuid)}},
-        send_feature_flag_events=False,
+    return posthog_feature_flag_enabled(
+        flag, str(user.distinct_id), organization_id=team.organization_id, team_id=team.id
     )
 
 
