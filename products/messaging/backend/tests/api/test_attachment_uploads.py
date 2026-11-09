@@ -21,10 +21,14 @@ from posthog.models.utils import generate_random_token_secret
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.presentation.views.attachment_uploads import (
+    AttachmentUploadBurstThrottle,
     AttachmentUploadsRequestSerializer,
     AttachmentUploadTeamBurstThrottle,
 )
-from products.messaging.backend.presentation.views.message_templates import TransactionalEmailTeamBurstThrottle
+from products.messaging.backend.presentation.views.message_templates import (
+    TransactionalEmailBurstThrottle,
+    TransactionalEmailTeamBurstThrottle,
+)
 
 INVOICE = "a" * 64
 LOGO = "b" * 64
@@ -219,16 +223,20 @@ class TestAttachmentUploads(APIBaseTest):
             for properties in self._reported(capture)
         ] == [("rejected", code, file_count, requested_bytes)]
 
-    @patch("posthog.rate_limit.is_rate_limit_enabled", new=lambda _ttl: True)
-    @patch.object(TransactionalEmailTeamBurstThrottle, "rate", "0/minute")
-    @patch.object(AttachmentUploadTeamBurstThrottle, "rate", "1/minute")
-    def test_limits_uploads_apart_from_sends(self, mock_post, _flag, _capture):
+    @parameterized.expand([("project_secret_api_key",), ("session",)])
+    def test_limits_uploads_apart_from_sends(self, mock_post, _flag, _capture, auth):
         cache.clear()
         mock_post.configure_mock(**_cdp_answers(200, {"files": [UPLOAD_INVOICE, PRESENT_LOGO]}))
+        client = self._psak_client(["transactional_email:write"]) if auth == "project_secret_api_key" else self.client
 
-        client = self._psak_client(["transactional_email:write"])
-
-        statuses = [client.post(self.url, TWO_FILES, format="json").status_code for _ in range(2)]
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", new=lambda _ttl: True),
+            patch.object(TransactionalEmailBurstThrottle, "rate", "0/minute"),
+            patch.object(TransactionalEmailTeamBurstThrottle, "rate", "0/minute"),
+            patch.object(AttachmentUploadBurstThrottle, "rate", "1/minute"),
+            patch.object(AttachmentUploadTeamBurstThrottle, "rate", "1/minute"),
+        ):
+            statuses = [client.post(self.url, TWO_FILES, format="json").status_code for _ in range(2)]
 
         assert statuses == [status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
 

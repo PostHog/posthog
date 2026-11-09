@@ -204,12 +204,17 @@ def _upload_body_too_large() -> ExplainedRefusal:
     )
 
 
-class AttachmentUploadBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+class KeyOrMemberRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    def allow_request(self, request: Any, view: Any) -> bool:
+        return self._allow_request_internal(request, view, personal_api_key_only=False)
+
+
+class AttachmentUploadBurstThrottle(KeyOrMemberRateThrottle):
     scope = "transactional_email_attachment_upload_burst"
     rate = "600/minute"
 
 
-class AttachmentUploadSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+class AttachmentUploadSustainedThrottle(KeyOrMemberRateThrottle):
     scope = "transactional_email_attachment_upload_sustained"
     rate = "20000/hour"
 
