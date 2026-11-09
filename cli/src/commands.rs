@@ -456,6 +456,7 @@ impl Cli {
                         pairs,
                         release.as_ref(),
                         file_selection,
+                        false,
                     )?;
                 }
             },
