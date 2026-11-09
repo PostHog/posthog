@@ -52,7 +52,6 @@ describe('credential auth', () => {
         expect(outcome.ok).toBe(false)
     })
 
-    // A template whose connection kind the worker does not know fails every send, so this catches it before release.
     it('knows the placement of every connection kind a template applies as a credential', () => {
         const declared = HOG_FUNCTION_TEMPLATES.flatMap((template) =>
             (template.inputs_schema ?? [])
