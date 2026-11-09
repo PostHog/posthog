@@ -141,7 +141,9 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
 
 @xframe_options_exempt
 def canvas_sandbox_document(request: HttpRequest, content_hash: str) -> HttpResponse:
-    result = render_canvas_sandbox_document(host=request.get_host(), content_hash=content_hash)
+    result = render_canvas_sandbox_document(
+        host=request.get_host(), content_hash=content_hash, framed=request.GET.get("framed") == "1"
+    )
     if result is None:
         raise Http404
     response = HttpResponse(result.body, status=result.status_code)

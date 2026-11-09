@@ -43,6 +43,21 @@ The header permits the fixed compiler and module CDNs, but blocks external image
 Use a built canvas with declared network origins for external images.
 Changes to this server policy and its tests require security review.
 
+With the `canvas-frame-wrapper` flag on, the web app renders built and draft canvases inside a small wrapper document on the artifact origin.
+The wrapper is served at `/canvas-artifacts/frame/<content hash>/index.html`, and each content hash is immutable.
+The canvas view response carries its URL as `frame_document_url`.
+The app puts the canvas URL and the first-paint theme in the wrapper's fragment, which never reaches the server.
+The wrapper accepts only a decoded path under `/canvas-artifacts/` on its own origin, and it refuses another wrapper.
+For any other fragment it renders nothing and posts a `wrapper-error` message to the app, which shows the runtime error state.
+Its `frame-src` limits the documents the canvas frame may load to the artifact origin's canvas paths.
+The wrapper hands the app's `MessagePort` to the first canvas document only, and posts `navigated` to the app when the frame loads another document.
+When the flag is on and the view response has no `frame_document_url`, the app shows an error state and does not render the canvas outside the wrapper.
+The wrapper's script is pinned by hash in its CSP, so a change to the wrapper script changes its URL.
+A draft canvas loads the sandbox document with `?framed=1` inside the wrapper.
+That variant omits `frame-ancestors`, because the sandboxed wrapper has an opaque origin that no source expression matches.
+The sandbox document without the query keeps `frame-ancestors`.
+The source editor preview does not use the wrapper yet.
+
 Task HTML previews use the same artifact origin.
 The task API checks read access before issuing a short-lived URL for one artifact version.
 For a living artifact version, the API also checks analytics access for every run of the task, because any run of the task can write a version.

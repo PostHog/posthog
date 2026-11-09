@@ -8,7 +8,7 @@ import { CanvasRenderSource, canvasSceneLogic } from './canvasSceneLogic'
 
 /** Renders a build when there is one, else the source in the draft sandbox. */
 export function CanvasRenderer({ source }: { source: CanvasRenderSource }): JSX.Element | null {
-    const { canvas, sandboxDocumentUrl, frameDocumentUrl } = useValues(canvasSceneLogic)
+    const { canvas, sandboxDocumentUrl, frameDocumentUrl, frameWrapperRequired } = useValues(canvasSceneLogic)
     if (!canvas) {
         return null
     }
@@ -27,6 +27,7 @@ export function CanvasRenderer({ source }: { source: CanvasRenderSource }): JSX.
                 draftSource={source.draftSource}
                 sandboxDocumentUrl={sandboxDocumentUrl}
                 frameDocumentUrl={frameDocumentUrl}
+                frameWrapperRequired={frameWrapperRequired}
             />
             <CanvasHostPromptDialog />
         </BindLogic>

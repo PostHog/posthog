@@ -3,6 +3,12 @@ import { CanvasDocumentBridge } from './canvasDocumentBridge'
 describe('CanvasDocumentBridge', () => {
     const ports: { postMessage: jest.Mock; close: jest.Mock; onmessage: unknown }[] = []
 
+    const originalMessageChannel = globalThis.MessageChannel
+
+    afterEach(() => {
+        globalThis.MessageChannel = originalMessageChannel
+    })
+
     beforeEach(() => {
         ports.length = 0
         ;(globalThis as any).MessageChannel = jest.fn(() => {
@@ -30,6 +36,24 @@ describe('CanvasDocumentBridge', () => {
         bridge.post({ channel: 'posthog-canvas', type: 'set-theme', theme: 'dark' })
 
         expect(ports[0].postMessage).toHaveBeenCalledTimes(stillConnected ? 1 : 0)
+        bridge.close()
+        iframe.remove()
+    })
+
+    test('a wrapper error from the framed wrapper is reported', () => {
+        const iframe = document.createElement('iframe')
+        document.body.append(iframe)
+        const onWrapperError = jest.fn()
+        const bridge = new CanvasDocumentBridge(iframe, jest.fn(), jest.fn(), onWrapperError)
+
+        window.dispatchEvent(
+            new MessageEvent('message', {
+                data: { channel: 'posthog-canvas', type: 'wrapper-error' },
+                source: iframe.contentWindow,
+            })
+        )
+
+        expect(onWrapperError).toHaveBeenCalledTimes(1)
         bridge.close()
         iframe.remove()
     })

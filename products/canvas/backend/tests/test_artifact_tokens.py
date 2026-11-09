@@ -274,8 +274,16 @@ class TestCanvasSandboxDocument(SimpleTestCase):
 
         self.assertEqual(response.status_code, expected_status)
 
-    @parameterized.expand([("generated", False), ("widened_meta_policy", True)])
-    def test_serves_the_document_under_its_own_sandboxing_policy(self, _name: str, widen_meta: bool) -> None:
+    @parameterized.expand(
+        [
+            ("generated", False, False),
+            ("widened_meta_policy", True, False),
+            ("framed_by_the_wrapper", False, True),
+        ]
+    )
+    def test_serves_the_document_under_its_own_sandboxing_policy(
+        self, _name: str, widen_meta: bool, framed: bool
+    ) -> None:
         content = SANDBOX_DOCUMENT_PATH.read_bytes()
         if widen_meta:
             content = content.replace(
@@ -286,7 +294,7 @@ class TestCanvasSandboxDocument(SimpleTestCase):
         with patch(
             "products.canvas.backend.artifacts._sandbox_document", return_value=_parse_sandbox_document(content)
         ):
-            response = self.client.get(self._path(), HTTP_HOST="usercontent.example")
+            response = self.client.get(self._path() + ("?framed=1" if framed else ""), HTTP_HOST="usercontent.example")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, content)
@@ -308,7 +316,11 @@ class TestCanvasSandboxDocument(SimpleTestCase):
             "object-src": "object-src 'none'",
         }.items():
             self.assertEqual([part for part in csp if part.split()[0] == name], [directive])
-        self.assertFalse(any(part.startswith("frame-ancestors") for part in csp))
+        ancestors = [part for part in csp if part.startswith("frame-ancestors")]
+        self.assertEqual(
+            ancestors,
+            [] if framed else ["frame-ancestors https://app.example https://posthog.com https://preview.posthog.com"],
+        )
 
     def test_unknown_content_hash_404s(self) -> None:
         response = self.client.get(f"/canvas-artifacts/sandbox/{'0' * 64}/index.html", HTTP_HOST="usercontent.example")

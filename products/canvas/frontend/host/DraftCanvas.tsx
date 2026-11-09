@@ -30,6 +30,14 @@ export interface DraftCanvasProps extends CanvasHostCallbacks {
     clearTextSelectionKey: number
 }
 
+/** The variant of the sandbox document that the wrapper loads. Its policy omits frame-ancestors. */
+function framedSandboxUrl(documentUrl: string): string {
+    const url = new URL(documentUrl)
+    url.searchParams.set('framed', '1')
+    url.hash = 'bridge=port'
+    return url.href
+}
+
 /**
  * Renders unbuilt source in the sandbox document, which transpiles it in the browser.
  * The document loads by URL, directly or inside the wrapper document, not as srcdoc,
@@ -56,7 +64,7 @@ export function DraftCanvas({
     // Only the wrapper's fragment carries the theme, so a later theme change must not change the src.
     const initialTheme = useRef(theme).current
     const src = frameDocumentUrl
-        ? wrappedCanvasUrl(frameDocumentUrl, `${documentUrl}#bridge=port`, initialTheme)
+        ? wrappedCanvasUrl(frameDocumentUrl, framedSandboxUrl(documentUrl), initialTheme)
         : `${documentUrl}#bridge=port`
     const latest = useRef({
         capabilities,
@@ -133,7 +141,8 @@ export function DraftCanvas({
                     void route(parsed.data)
                 }
             },
-            () => {}
+            () => {},
+            (message) => latest.current.callbacks.onError?.(message)
         )
         bridgeRef.current = bridge
         return () => {

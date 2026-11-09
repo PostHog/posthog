@@ -1,5 +1,7 @@
 import { CANVAS_CHANNEL, CanvasTheme } from './canvasProtocol'
 
+const WRAPPER_ERROR_MESSAGE = 'The canvas frame could not load this canvas'
+
 /**
  * The wrapper document URL that frames `documentUrl`. The wrapper reads the canvas URL and the
  * first-paint theme from its fragment, which never reaches the server.
@@ -18,7 +20,8 @@ export class CanvasDocumentBridge {
     constructor(
         private readonly iframe: HTMLIFrameElement,
         private readonly onMessage: (data: unknown) => void,
-        private readonly onConnect: () => void
+        private readonly onConnect: () => void,
+        private readonly onWrapperError?: (message: string) => void
     ) {
         iframe.addEventListener('load', this.onLoad)
         window.addEventListener('message', this.onWindowMessage)
@@ -52,13 +55,14 @@ export class CanvasDocumentBridge {
     // The wrapper document loads once, so the iframe's load event cannot show that the canvas frame
     // inside it navigated. The wrapper reports that with a "navigated" message instead.
     private onWindowMessage = (event: MessageEvent): void => {
-        if (
-            event.source === this.iframe.contentWindow &&
-            event.data?.channel === CANVAS_CHANNEL &&
-            event.data?.type === 'navigated'
-        ) {
+        if (event.source !== this.iframe.contentWindow || event.data?.channel !== CANVAS_CHANNEL) {
+            return
+        }
+        if (event.data.type === 'navigated') {
             this.port?.close()
             this.port = null
+        } else if (event.data.type === 'wrapper-error') {
+            this.onWrapperError?.(WRAPPER_ERROR_MESSAGE)
         }
     }
 

@@ -185,6 +185,7 @@ export interface canvasSceneLogicValues {
     runtimeError: string | null
     sandboxDocumentUrl: string | null
     frameDocumentUrl: string | null
+    frameWrapperRequired: boolean
     shouldPoll: boolean
     sidePanelAvailable: boolean
     sidePanelContext: SidePanelSceneContext
@@ -385,7 +386,8 @@ export interface canvasSceneLogicMeta {
         visibility: (canvas: CanvasApi | null, space: CanvasSpace | null) => CanvasVisibility | null
         isCreator: (canvas: CanvasApi | null, user: UserType | null) => boolean
         sandboxDocumentUrl: (view: CanvasViewResponseApi | null) => string | null
-        frameDocumentUrl: (view: CanvasViewResponseApi | null, featureFlags: FeatureFlagsSet) => string | null
+        frameDocumentUrl: (view: CanvasViewResponseApi | null, frameWrapperRequired: boolean) => string | null
+        frameWrapperRequired: (featureFlags: FeatureFlagsSet) => boolean
         liveBuild: (view: CanvasViewResponseApi | null) => CanvasBuildApi | null
         draftCode: (view: CanvasViewResponseApi | null) => string | null
         liveRenderSource: (liveBuild: CanvasBuildApi | null, view: CanvasViewResponseApi | null) => CanvasRenderSource
@@ -675,10 +677,14 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             (s) => [s.view],
             (view: CanvasViewResponseApi | null): string | null => view?.sandbox_document_url ?? null,
         ],
+        frameWrapperRequired: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.CANVAS_FRAME_WRAPPER],
+        ],
         frameDocumentUrl: [
-            (s) => [s.view, featureFlagLogic.selectors.featureFlags],
-            (view: CanvasViewResponseApi | null, featureFlags: FeatureFlagsSet): string | null =>
-                featureFlags[FEATURE_FLAGS.CANVAS_FRAME_WRAPPER] ? (view?.frame_document_url ?? null) : null,
+            (s) => [s.view, s.frameWrapperRequired],
+            (view: CanvasViewResponseApi | null, frameWrapperRequired: boolean): string | null =>
+                frameWrapperRequired ? (view?.frame_document_url ?? null) : null,
         ],
         liveBuild: [
             (s) => [s.view],

@@ -1,9 +1,8 @@
 <!doctype html>
 <!--
-  The web app frames this document, and this document frames the canvas. The browser checks every
-  navigation of the canvas frame against the frame-src of this document, not of the app, so the
-  canvas can only load documents on the artifact origin. The script hands the app's MessagePort to
-  the canvas document that loads first, and to no later one.
+  The web app frames this document, and this document frames the canvas. The frame-src of this
+  document limits the documents the canvas frame may load to the artifact origin's canvas paths.
+  The script hands the app's MessagePort to the canvas document that loads first, and to no later one.
 -->
 <html lang="en">
     <head>
@@ -14,18 +13,26 @@
         <script>
             ;(() => {
                 const channel = 'posthog-canvas'
+                const reject = () => {
+                    parent.postMessage({ channel, type: 'wrapper-error' }, '*')
+                }
                 const params = new URLSearchParams(location.hash.slice(1))
                 let src
+                let path
                 try {
                     src = new URL(params.get('src') ?? '', location.href)
+                    // The server decodes the path before it routes, so the check reads the decoded path.
+                    path = decodeURIComponent(src.pathname)
                 } catch {
+                    reject()
                     return
                 }
                 if (
                     src.origin !== location.origin ||
-                    !src.pathname.startsWith('/canvas-artifacts/') ||
-                    src.pathname.startsWith('/canvas-artifacts/frame/')
+                    !path.startsWith('/canvas-artifacts/') ||
+                    path.startsWith('/canvas-artifacts/frame/')
                 ) {
+                    reject()
                     return
                 }
                 const frame = document.createElement('iframe')

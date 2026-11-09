@@ -90,8 +90,8 @@ export function BuiltCanvas({
             hasUserActivation: () => latest.current.hasUserActivation(),
             openExternal: (url) => latest.current.onOpenExternal(url),
         })
-        // The bridge connects only the first document that loads in the frame. A later load means
-        // the artifact navigated away from itself, and whatever loaded then gets no bridge.
+        // The bridge connects only the first document that loads in the frame. A later document
+        // gets no bridge.
         const bridge = new CanvasDocumentBridge(
             iframe,
             (data) => {
@@ -107,7 +107,8 @@ export function BuiltCanvas({
                     type: 'set-comment-highlights',
                     highlights: latest.current.commentHighlights,
                 })
-            }
+            },
+            (message) => latest.current.callbacks.onError?.(message)
         )
         bridgeRef.current = bridge
         return () => {
@@ -139,6 +140,8 @@ export function BuiltCanvas({
 
     return (
         <iframe
+            // A new src must reload the frame, because a fragment-only change to the wrapper URL does not.
+            key={src}
             ref={iframeRef}
             title="Canvas"
             // allow-scripts without allow-same-origin keeps the artifact in an opaque origin.

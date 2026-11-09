@@ -187,7 +187,9 @@ def _stored_document(prefix: str, content_hash: str) -> bytes:
     return content
 
 
-def _canvas_sandbox_document_csp() -> str:
+def _canvas_sandbox_document_csp(*, framed: bool) -> str:
+    site = urlsplit(settings.SITE_URL)
+    ancestors = dict.fromkeys([f"{site.scheme}://{site.netloc}", *app_frame_ancestor_sources()])
     return "; ".join(
         [
             # A stored document's meta policy must not widen the web preview's network access.
@@ -204,10 +206,7 @@ def _canvas_sandbox_document_csp() -> str:
             # The document runs in an opaque origin even when it opens top-level or in a frame
             # without the sandbox attribute.
             "sandbox allow-scripts",
-            # No frame-ancestors: the app frames this document inside the frame wrapper document,
-            # whose sandbox gives it an opaque origin, and no source expression matches an opaque
-            # ancestor. The document holds no credentials and runs only the code its parent sends,
-            # so another site that frames it gains nothing it cannot do in its own page.
+            *([] if framed else [f"frame-ancestors {' '.join(ancestors)}"]),
         ]
     )
 
@@ -219,11 +218,9 @@ def _canvas_frame_document_csp(document: _FrameDocument) -> str:
         [
             "default-src 'none'",
             f"script-src 'sha256-{document.script_hash}'",
-            # The browser checks each navigation of the canvas frame against this directive before
-            # it sends the request, including a navigation the canvas starts itself. The app's own
-            # frame-src admits any https: origin for heatmaps, so the canvas frame sits in this
-            # document to be judged by this list instead. The origin is named rather than 'self',
-            # because the sandbox directive gives this document an opaque origin.
+            # frame-src limits the documents the canvas frame may load to the artifact origin's
+            # canvas paths. The origin is named rather than 'self', because the sandbox directive
+            # gives this document an opaque origin.
             f"frame-src {artifact_delivery_origin()}/canvas-artifacts/",
             "form-action 'none'",
             "base-uri 'none'",
@@ -290,7 +287,9 @@ def canvas_sandbox_document(request: HttpRequest, content_hash: str) -> HttpResp
     if content_hash != document.content_hash:
         document = _parse_sandbox_document(_stored_document("canvas_sandbox", content_hash))
     response = _immutable_document_response(document.content, document.content_hash)
-    response["Content-Security-Policy"] = _canvas_sandbox_document_csp()
+    # The wrapper's sandbox gives it an opaque origin, which no frame-ancestors source matches.
+    # The wrapped variant of the URL therefore omits the directive, and the plain URL keeps it.
+    response["Content-Security-Policy"] = _canvas_sandbox_document_csp(framed=request.GET.get("framed") == "1")
     return response
 
 

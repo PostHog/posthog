@@ -117,10 +117,15 @@ def render_canvas_artifact(*, host: str, token: str, artifact_path: str, if_none
     )
 
 
-def render_canvas_sandbox_document(*, host: str, content_hash: str) -> CanvasArtifact | None:
-    """The sandbox bootstrap document for `content_hash`, or None when this host or hash serves none."""
+def render_canvas_sandbox_document(*, host: str, content_hash: str, framed: bool = False) -> CanvasArtifact | None:
+    """The sandbox bootstrap document for `content_hash`, or None when this host or hash serves none.
+
+    `framed` selects the variant that the canvas frame wrapper loads.
+    """
     request = HttpRequest()
     request.META["HTTP_HOST"] = host
+    if framed:
+        request.GET["framed"] = "1"
     try:
         response = _canvas_sandbox_document(request, content_hash)
     except Http404:
