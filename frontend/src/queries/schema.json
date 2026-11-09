@@ -9846,6 +9846,13 @@
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "exposed_by_library": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "description": "Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library.",
+                    "type": "object"
+                },
                 "health_checks": {
                     "description": "The result of each check behind `health_findings`, so that a check that did not run is not read as passed.",
                     "items": {
@@ -13375,6 +13382,13 @@
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
+                },
+                "dataGaps": {
+                    "description": "Data the rules needed but could not read, so some figures use a fallback.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRecommendationsDataGap"
+                    },
+                    "type": "array"
                 },
                 "disclaimer": {
                     "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
@@ -26994,7 +27008,8 @@
                 "srm",
                 "bias_risk_multiple_excluded",
                 "multiple_variants_share",
-                "test_account_filter_removes_exposures"
+                "test_account_filter_removes_exposures",
+                "unserved_variant_exposures"
             ],
             "type": "string"
         },
@@ -27118,7 +27133,8 @@
                 "srm",
                 "bias_risk_multiple_excluded",
                 "multiple_variants_share",
-                "test_account_filter_removes_exposures"
+                "test_account_filter_removes_exposures",
+                "unserved_variant_exposures"
             ],
             "type": "string"
         },
@@ -27161,7 +27177,9 @@
                 "p_value",
                 "since_launch_hours",
                 "exposed_without_test_account_filter_count",
-                "kept_by_test_account_filter_percentage"
+                "kept_by_test_account_filter_percentage",
+                "unserved_exposed_count",
+                "unserved_exposed_percentage"
             ],
             "type": "string"
         },
@@ -27238,6 +27256,13 @@
                 },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "exposed_by_library": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "description": "Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library.",
+                    "type": "object"
                 },
                 "health_checks": {
                     "description": "The result of each check behind `health_findings`, so that a check that did not run is not read as passed.",
@@ -37346,6 +37371,17 @@
                     "description": "The campaign a search term recommendation applies to, when it applies to one.",
                     "type": ["string", "null"]
                 },
+                "cpa": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationCpa"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "CPA figures in the account currency."
+                },
                 "currency": {
                     "type": ["string", "null"]
                 },
@@ -37382,6 +37418,45 @@
             },
             "required": ["rule", "level", "subject", "action", "reason", "impactDirection", "impactType"],
             "type": "object"
+        },
+        "MarketingAnalyticsRecommendationCpa": {
+            "additionalProperties": false,
+            "properties": {
+                "benchmark": {
+                    "description": "CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for context. Null when the account has no non-brand conversions.",
+                    "type": ["number", "null"]
+                },
+                "benchmarkSource": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationCpaBenchmarkSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Where the benchmark comes from. Null when there is no benchmark."
+                },
+                "bestCampaign": {
+                    "description": "Lowest non-brand CPA of a non-brand Search campaign in the same ad account.",
+                    "type": ["number", "null"]
+                },
+                "value": {
+                    "description": "Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no conversions or is not bought yet.",
+                    "type": ["number", "null"]
+                },
+                "worstCampaign": {
+                    "description": "Highest non-brand CPA of a non-brand Search campaign in the same ad account.",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["value", "benchmark", "benchmarkSource", "bestCampaign", "worstCampaign"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationCpaBenchmarkSource": {
+            "description": "The benchmark a recommendation compares a CPA with, in this order of preference:\n- `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.\n- `campaign`: the campaign's own non-brand CPA, when it has enough conversions to be stable. Only search terms use   it, since a campaign is never compared with itself.\n- `account`: the non-brand CPA of the ad account. Brand searches convert cheaply, so they stay out of it.",
+            "enum": ["target_cpa", "campaign", "account"],
+            "type": "string"
         },
         "MarketingAnalyticsRecommendationImpactDirection": {
             "enum": ["save", "gain", "invest", "keep"],
@@ -37432,9 +37507,37 @@
             "required": ["text"],
             "type": "object"
         },
+        "MarketingAnalyticsRecommendationsDataGap": {
+            "additionalProperties": false,
+            "properties": {
+                "campaignTable": {
+                    "description": "Google Ads campaign table of the ad account the gap applies to.",
+                    "type": ["string", "null"]
+                },
+                "kind": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsDataGapKind"
+                },
+                "message": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "message"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationsDataGapKind": {
+            "enum": ["conversion_action_tables_not_synced", "performance_max_search_terms_count_primary_conversions"],
+            "type": "string"
+        },
         "MarketingAnalyticsRecommendationsQuery": {
             "additionalProperties": false,
             "properties": {
+                "conversionActions": {
+                    "description": "Resource names of the Google Ads conversion actions that count as conversions, such as `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an account with none of them counts its primary actions. Selected actions count every conversion, including secondary actions and conversions outside campaign goals. Omit to count the primary actions only.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -37470,6 +37573,13 @@
         "MarketingAnalyticsRecommendationsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "dataGaps": {
+                    "description": "Data the rules needed but could not read, so some figures use a fallback.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRecommendationsDataGap"
+                    },
+                    "type": "array"
+                },
                 "disclaimer": {
                     "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
                     "type": "string"
@@ -37542,6 +37652,10 @@
         "MarketingAnalyticsRecommendationsSource": {
             "additionalProperties": false,
             "properties": {
+                "campaignConversionActionTable": {
+                    "description": "Google Ads daily campaign conversions split by conversion action.",
+                    "type": "string"
+                },
                 "campaignImpressionShareTable": {
                     "description": "Google Ads daily campaign impression share table.",
                     "type": "string"
@@ -37568,6 +37682,10 @@
                 },
                 "queryTable": {
                     "description": "Google Search Console table with one row per query, or per query and page.",
+                    "type": "string"
+                },
+                "searchTermConversionActionTable": {
+                    "description": "Google Ads daily search term conversions split by conversion action.",
                     "type": "string"
                 },
                 "searchTermKeywordTable": {
@@ -45271,6 +45389,13 @@
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
                         },
+                        "exposed_by_library": {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/integer"
+                            },
+                            "description": "Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library.",
+                            "type": "object"
+                        },
                         "health_checks": {
                             "description": "The result of each check behind `health_findings`, so that a check that did not run is not read as passed.",
                             "items": {
@@ -46876,6 +47001,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "dataGaps": {
+                            "description": "Data the rules needed but could not read, so some figures use a fallback.",
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsRecommendationsDataGap"
+                            },
+                            "type": "array"
+                        },
                         "disclaimer": {
                             "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
                             "type": "string"

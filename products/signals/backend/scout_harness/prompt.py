@@ -1587,7 +1587,7 @@ _TRIGGERED_BY_MEANINGS: dict[str, str] = {
     TRIGGERED_BY_WORKFLOW: "a workflow started this run",
     TRIGGERED_BY_CHECK: "the coordinator started this run to answer a report check",
     TRIGGERED_BY_MONITORING: "an authored report check finished its Monitoring soak",
-    TRIGGERED_BY_ONBOARDING: "Self-Driving onboarding started this one-time run",
+    TRIGGERED_BY_ONBOARDING: "Self-driving onboarding started this one-time run",
     "experiment": "a private trial started this run to compare scout prompts or models",
 }
 
