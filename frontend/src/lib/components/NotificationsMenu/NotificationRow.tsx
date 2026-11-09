@@ -90,8 +90,8 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         description: 'When your first Self-driving investigation finishes, including when it has no report.',
     },
     report_claim_taken_over: {
-        label: 'Self-Driving report takeovers',
-        description: 'When someone takes over a Self-Driving report you were working on',
+        label: 'Self-driving report takeovers',
+        description: 'When someone takes over a Self-driving report you were working on',
     },
     feature_flag_failure: {
         label: 'Feature flag failures',
