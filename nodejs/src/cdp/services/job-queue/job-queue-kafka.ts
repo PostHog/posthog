@@ -6,7 +6,7 @@
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/common/kafka/consumer'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -60,8 +60,21 @@ export class CyclotronJobQueueKafka implements JobQueue {
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
         await this.kafkaConsumer.connect(async (messages) => {
-            const { backgroundTask } = await this.consumeKafkaBatch(messages)
-            return { backgroundTask }
+            // A batch error crashes the worker, and the consumer's shutdown path can throw again and replace
+            // the original error. Log the batch here so that the crash log names the partitions, offsets and
+            // functions that a restart will replay.
+            try {
+                const { backgroundTask } = await this.consumeKafkaBatch(messages)
+                return {
+                    backgroundTask: backgroundTask.catch((error) => {
+                        logFailedKafkaBatch('background_task', messages, error)
+                        throw error
+                    }),
+                }
+            } catch (error) {
+                logFailedKafkaBatch('batch', messages, error)
+                throw error
+            }
         })
     }
 
@@ -246,5 +259,54 @@ export function serializeInvocation(invocation: CyclotronJobInvocation): Cyclotr
         queueScheduledAt: invocation.queueScheduledAt,
         queueMetadata: invocation.queueMetadata,
         queueSource: invocation.queueSource,
+    }
+}
+
+export type KafkaBatchSummary = {
+    partitions: { partition: number; firstOffset: number; lastOffset: number; messages: number }[]
+    // `teamId:functionId` pairs read from the message headers, so the summary needs no payload parsing.
+    functions: string[]
+}
+
+export function summarizeKafkaBatch(messages: Message[]): KafkaBatchSummary {
+    const partitions = new Map<number, KafkaBatchSummary['partitions'][number]>()
+    const functions = new Set<string>()
+
+    for (const message of messages) {
+        const range = partitions.get(message.partition)
+        if (range) {
+            range.firstOffset = Math.min(range.firstOffset, message.offset)
+            range.lastOffset = Math.max(range.lastOffset, message.offset)
+            range.messages += 1
+        } else {
+            partitions.set(message.partition, {
+                partition: message.partition,
+                firstOffset: message.offset,
+                lastOffset: message.offset,
+                messages: 1,
+            })
+        }
+
+        const headers = parseKafkaHeaders(message.headers)
+        functions.add(`${headers.teamId ?? 'unknown'}:${headers.functionId ?? 'unknown'}`)
+    }
+
+    return {
+        partitions: [...partitions.values()].sort((a, b) => a.partition - b.partition),
+        functions: [...functions].sort(),
+    }
+}
+
+function logFailedKafkaBatch(stage: 'batch' | 'background_task', messages: Message[], error: unknown): void {
+    try {
+        logger.error('🔄', 'cdp_cyclotron_kafka_batch_failed', {
+            stage,
+            error: String(error),
+            topic: messages[0]?.topic,
+            ...summarizeKafkaBatch(messages),
+        })
+    } catch (logError) {
+        // The original error must still reach the consumer, so a failure to log it is only reported.
+        logger.error('🔄', 'cdp_cyclotron_kafka_batch_failed_log_error', { error: String(logError) })
     }
 }

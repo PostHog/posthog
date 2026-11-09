@@ -1,6 +1,67 @@
-import { migrateKafkaCyclotronInvocation } from './job-queue-kafka'
+import { Message } from 'node-rdkafka'
+
+import { createKafkaConsumer } from '~/common/kafka/consumer'
+import { EachBatch } from '~/common/kafka/consumer/consumer-v2'
+import { logger } from '~/common/utils/logger'
+
+import { CyclotronJobQueueKafka, migrateKafkaCyclotronInvocation } from './job-queue-kafka'
+
+jest.mock('~/common/kafka/consumer', () => ({
+    ...jest.requireActual('~/common/kafka/consumer'),
+    createKafkaConsumer: jest.fn(),
+}))
 
 describe('CyclotronJobQueueKafka', () => {
+    describe('when a batch fails', () => {
+        const message = (partition: number, offset: number, teamId: string, functionId: string): Message => ({
+            topic: 'cdp_cyclotron_hog',
+            partition,
+            offset,
+            // An empty value makes the batch throw before any invocation runs.
+            value: null,
+            size: 0,
+            headers: [{ teamId: Buffer.from(teamId) }, { functionId: Buffer.from(functionId) }],
+        })
+
+        it('logs the partitions, offsets and functions of the batch and rethrows the error', async () => {
+            let eachBatch: EachBatch | undefined
+            jest.mocked(createKafkaConsumer).mockReturnValue({
+                connect: (callback: EachBatch) => {
+                    eachBatch = callback
+                    return Promise.resolve()
+                },
+            } as any)
+            const loggerError = jest.spyOn(logger, 'error')
+
+            const queue = new CyclotronJobQueueKafka(
+                undefined,
+                { CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: false, CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' },
+                500
+            )
+            await queue.startAsConsumer('hog', () => Promise.resolve({ backgroundTask: Promise.resolve() }))
+
+            await expect(
+                eachBatch!([
+                    message(7, 120, '2', 'fn-b'),
+                    message(3, 41, '1', 'fn-a'),
+                    message(7, 118, '2', 'fn-b'),
+                    message(7, 119, '1', 'fn-a'),
+                ])
+            ).rejects.toThrow('Bad message')
+
+            expect(loggerError).toHaveBeenCalledWith('🔄', 'cdp_cyclotron_kafka_batch_failed', {
+                stage: 'batch',
+                error: expect.stringContaining('Bad message'),
+                topic: 'cdp_cyclotron_hog',
+                partitions: [
+                    { partition: 3, firstOffset: 41, lastOffset: 41, messages: 1 },
+                    { partition: 7, firstOffset: 118, lastOffset: 120, messages: 3 },
+                ],
+                functions: ['1:fn-a', '2:fn-b'],
+            })
+        })
+    })
+
     describe('migrateKafkaCyclotronInvocation', () => {
         // Pulled from a real job in kafka
         const legacyFormat = {
