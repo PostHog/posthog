@@ -25,7 +25,7 @@ import {
     SecretReentrySource,
     hogFunctionSecretReentryLogic,
 } from './hogFunctionSecretReentryLogic'
-import { SecretReentryRefusal, parseSecretReentryRefusal } from './secretReentryRefusal'
+import { InputRefusal, parseConnectionRefusal, parseSecretReentryRefusal } from './inputRefusal'
 
 export type HogFunctionDraftAction = 'publish' | 'discard'
 
@@ -57,15 +57,18 @@ export interface hogFunctionDraftLogicActions {
         hogFunction: HogFunctionType | null
         payload?: any
     } // hogFunctionConfigurationLogic
+    showConnectionRefusal: (refusal: InputRefusal) => {
+        refusal: InputRefusal
+    } // hogFunctionConfigurationLogic
     requireSecretReentry: (
-        refusal: SecretReentryRefusal,
+        refusal: InputRefusal,
         source: SecretReentrySource,
         onContinue: (entered: EnteredSecretInputs) => void,
         configuration?: SecretReentryConfiguration | null | undefined
     ) => {
         configuration: SecretReentryConfiguration | null | undefined
         onContinue: (entered: EnteredSecretInputs) => void
-        refusal: SecretReentryRefusal
+        refusal: InputRefusal
         source: SecretReentrySource
     } // hogFunctionSecretReentryLogic
     confirmDiscardDraft: () => {
@@ -126,7 +129,7 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
         ],
         actions: [
             hogFunctionConfigurationLogic(props),
-            ['loadHogFunction', 'loadHogFunctionSuccess', 'loadHogFunctionFailure'],
+            ['loadHogFunction', 'loadHogFunctionSuccess', 'loadHogFunctionFailure', 'showConnectionRefusal'],
             hogFunctionSecretReentryLogic(props),
             ['requireSecretReentry'],
         ],
@@ -258,6 +261,13 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
                         (entered) => actions.confirmPublishDraft(confirmToken, { ...inputs, ...entered }),
                         values.hogFunction?.draft
                     )
+                    return
+                }
+                const connectionRefusal = parseConnectionRefusal(error)
+                if (connectionRefusal) {
+                    // No reload, because the reload resets the form and would clear the error it marks.
+                    actions.setDraftActionPending(null)
+                    actions.showConnectionRefusal(connectionRefusal)
                     return
                 }
                 lemonToast.error(

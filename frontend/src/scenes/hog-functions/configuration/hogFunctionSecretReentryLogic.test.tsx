@@ -15,7 +15,7 @@ import { hogFunctionsPublishCreate } from 'products/cdp/frontend/generated/api'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { hogFunctionDraftLogic } from './hogFunctionDraftLogic'
 import { hogFunctionSecretReentryLogic } from './hogFunctionSecretReentryLogic'
-import { parseSecretReentryRefusal } from './secretReentryRefusal'
+import { parseSecretReentryRefusal } from './inputRefusal'
 
 jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
@@ -52,12 +52,14 @@ const SECRET_SENDER: HogFunctionType = {
         { key: 'api_key', type: 'string', label: 'API key', secret: true, required: false },
         { key: 'secret_headers', type: 'dictionary', label: 'Secret headers', secret: true, required: false },
         { key: 'signing_cert', type: 'json', label: 'Signing certificate', secret: true, required: false },
+        { key: 'slack', type: 'integration', integration: 'slack', label: 'Slack', secret: false, required: false },
     ],
     inputs: {
         url: { value: 'https://hooks.example.com' },
         api_key: { value: undefined, secret: true },
         secret_headers: { secret: true, value: { Authorization: '********' } },
         signing_cert: { value: undefined, secret: true },
+        slack: { value: 1 },
     },
 }
 
@@ -71,6 +73,16 @@ const refusal = (key: string): ApiError =>
         attr: `inputs__${key}`,
         detail: refusalDetail(key),
     })
+
+const CONNECTION_DETAIL =
+    'Slack connections can only send credentials to slack.com. Remove the change that sends them anywhere else.'
+
+const connectionRefusal = new ApiError('Bad request', 400, undefined, {
+    type: 'validation_error',
+    code: 'integration_origin_refused',
+    attr: 'inputs__slack',
+    detail: CONNECTION_DETAIL,
+})
 
 describe('hogFunctionSecretReentryLogic', () => {
     let configLogic: ReturnType<typeof hogFunctionConfigurationLogic.build>
@@ -263,22 +275,49 @@ describe('hogFunctionSecretReentryLogic', () => {
     // A form that shows an error does not submit, so the other field's error arrives while the request is in flight.
     const OTHER_FIELD_ERRORS = { name: 'Name taken', inputs: { url: 'Enter a valid URL' } }
 
-    const refuseSave = async (key: string): Promise<void> => {
+    const refuseSave = async (error: ApiError): Promise<void> => {
         mockApi.update.mockImplementationOnce(async () => {
             configLogic.actions.setConfigurationManualErrors(OTHER_FIELD_ERRORS)
-            throw refusal(key)
+            throw error
         })
         configLogic.actions.submitConfiguration()
     }
 
-    const refuseTestRun = async (key: string): Promise<void> => {
+    const refuseTestRun = async (error: ApiError): Promise<void> => {
         const testLogic = await mountTestLogic()
         mockApi.createTestInvocation.mockImplementationOnce(async () => {
             configLogic.actions.setConfigurationManualErrors(OTHER_FIELD_ERRORS)
-            throw refusal(key)
+            throw error
         })
         testLogic.actions.submitTestInvocation()
     }
+
+    const refusePublish = async (error: ApiError): Promise<void> => {
+        configLogic.actions.loadHogFunctionSuccess({ ...SECRET_SENDER, draft: { hog: SECRET_SENDER.hog } })
+        const draftLogic = hogFunctionDraftLogic({ id: SECRET_SENDER.id })
+        draftLogic.mount()
+        mockPublish.mockImplementationOnce(async () => {
+            configLogic.actions.setConfigurationManualErrors(OTHER_FIELD_ERRORS)
+            throw error
+        })
+        draftLogic.actions.confirmPublishDraft('preview-token')
+    }
+
+    it.each([
+        ['a save', refuseSave],
+        ['a test run', refuseTestRun],
+        ['a publish', refusePublish],
+    ])('marks the connection input when %s refuses it, with no toast and no dialog', async (_source, refuse) => {
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
+
+        await refuse(connectionRefusal)
+        // A save sets its field error 1ms after the failure, so wait past that.
+        await expectLogic(configLogic).delay(10)
+
+        expect(configLogic.values.configurationManualErrors.inputs).toMatchObject({ slack: CONNECTION_DETAIL })
+        expect(toastSpy).not.toHaveBeenCalled()
+        expect(logic.values.isOpen).toBe(false)
+    })
 
     it.each([
         ['a save', 'not_in_schema', refuseSave, 'Enter not_in_schema again in the form.', false],
@@ -289,7 +328,7 @@ describe('hogFunctionSecretReentryLogic', () => {
         async (_source, key, refuse, toastStart, marksField) => {
             const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
 
-            await expectLogic(logic, () => refuse(key)).toDispatchActions(['requireSecretReentry'])
+            await expectLogic(logic, () => refuse(refusal(key))).toDispatchActions(['requireSecretReentry'])
 
             expect(logic.values.isOpen).toBe(false)
             expect(toastSpy).toHaveBeenCalledTimes(1)
