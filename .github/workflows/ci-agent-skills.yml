@@ -313,44 +313,36 @@ jobs:
                   if-no-files-found: error
                   retention-days: 7
 
-    current-master:
-        name: Check current master
+    release-skills:
+        name: Release agent skills
         runs-on: ubuntu-24.04
-        timeout-minutes: 5
-        needs: check-skills
+        timeout-minutes: 10
+        needs: [lint-skills, check-skills]
         if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master'
-        outputs:
-            is-current: ${{ steps.current-master.outputs.is_current }}
+        # One release at a time, so the staleness check below cannot pass for an older
+        # SHA while a newer run uploads, and then overwrite the newer zip.
+        concurrency:
+            group: ${{ github.workflow }}-release
+            cancel-in-progress: false
         permissions:
-            contents: read
+            contents: write
 
         steps:
             - name: Check current master
               id: current-master
               env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
                   GIT_SHA: ${{ github.sha }}
-                  REPOSITORY: ${{ github.repository }}
               run: |
-                  REMOTE_MASTER=$(git ls-remote "https://github.com/${REPOSITORY}.git" refs/heads/master || true)
-                  CURRENT_MASTER=$(printf '%s\n' "$REMOTE_MASTER" | awk '{print $1}')
-                  if [ "$CURRENT_MASTER" = "$GIT_SHA" ]; then
+                  if [ "$(gh api "repos/$GH_REPO/commits/master" --jq .sha)" = "$GIT_SHA" ]; then
                       echo "is_current=true" >> "$GITHUB_OUTPUT"
                   else
-                      echo "is_current=false" >> "$GITHUB_OUTPUT"
                       echo "Skipping agent skills release for stale master SHA $GIT_SHA"
                   fi
 
-    release-skills:
-        name: Release agent skills
-        runs-on: ubuntu-24.04
-        timeout-minutes: 10
-        needs: [lint-skills, check-skills, current-master]
-        if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master' && needs.current-master.outputs.is-current == 'true'
-        permissions:
-            contents: write
-
-        steps:
             - name: Download skills ZIP built by check-skills
+              if: steps.current-master.outputs.is_current == 'true'
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: agent-skills-zip
@@ -358,26 +350,18 @@ jobs:
 
             # Every consumer downloads agent-skills-latest. Do not add a release per push:
             # each one leaves a tag that every clone of this repo fetches on every pull.
+            # No workflow triggers off this release, so the job's own GITHUB_TOKEN suffices.
             - name: Update latest release
-              # The job's own contents:write GITHUB_TOKEN, like build-phrocs.yml and
-              # build-livestream-tui.yml. No workflow triggers off this release, so an
-              # app token buys nothing and only adds a permission that can drift away.
+              if: steps.current-master.outputs.is_current == 'true'
               env:
                   GH_TOKEN: ${{ github.token }}
                   GH_REPO: ${{ github.repository }}
                   GIT_SHA: ${{ github.sha }}
               run: |
-                  if gh release view agent-skills-latest &>/dev/null; then
-                      gh release upload agent-skills-latest \
-                          products/posthog_ai/dist/skills.zip --clobber
-                      gh release edit agent-skills-latest \
-                          --title "Agent skills (Latest)" \
-                          --notes "Build from $GIT_SHA"
-                  else
+                  gh release view agent-skills-latest >/dev/null 2>&1 ||
                       gh release create agent-skills-latest \
-                          products/posthog_ai/dist/skills.zip \
                           --title "Agent skills (Latest)" \
-                          --notes "Build from $GIT_SHA" \
                           --target "$GIT_SHA" \
                           --latest=false
-                  fi
+                  gh release upload agent-skills-latest products/posthog_ai/dist/skills.zip --clobber
+                  gh release edit agent-skills-latest --notes "Build from $GIT_SHA"
