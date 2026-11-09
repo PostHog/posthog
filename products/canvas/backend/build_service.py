@@ -49,7 +49,7 @@ from products.canvas.backend import error_reports
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
 from products.canvas.backend.facade.contracts import CanvasBuildCapacityExceeded, CanvasVersionConflict
-from products.canvas.backend.layout import default_layout, pinned_component_versions
+from products.canvas.backend.layout import PinnedComponentVersion, default_layout, pinned_component_versions
 from products.canvas.backend.logic.capability_policy import assert_may_set_capabilities
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import (
@@ -822,13 +822,11 @@ def _assert_pinned_components_not_wider(
         return
     versions = (
         CanvasSourceVersion.objects.for_team(team_id)
-        .filter(id__in={version_id for _, version_id in new_pins}, draft=False)
+        .filter(id__in={pin.version_id for pin in new_pins}, draft=False)
         .select_related("canvas", "canvas__current_source_version")
     )
     for version in versions:
-        # Only the (component, version) pair a placement names is compared, so a version
-        # id under some other component reports nothing about that version.
-        if (str(version.canvas_id), str(version.id)) not in new_pins:
+        if PinnedComponentVersion(component_id=str(version.canvas_id), version_id=str(version.id)) not in new_pins:
             continue
         head = version.canvas.current_source_version
         assert_may_set_capabilities(
@@ -922,7 +920,6 @@ def revert_to_version(
                 read_source_project(version),
                 _grid_layout_at(canvas, expected_current_version_id),
             )
-            # A layout declares no capabilities of its own.
             target_capabilities: dict | None = {}
         else:
             target_capabilities = _resolved_capabilities(version)

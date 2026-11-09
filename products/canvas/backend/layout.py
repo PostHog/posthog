@@ -300,10 +300,16 @@ def _validate_placements(placements: list[Any], columns: int) -> list[dict[str, 
     return diagnostics
 
 
-def pinned_component_versions(layout: dict[str, Any]) -> set[tuple[str, str]]:
-    """The (component id, version id) pairs the layout's placements pin to a specific version."""
+@frozen
+class PinnedComponentVersion:
+    component_id: str
+    version_id: str
+
+
+def pinned_component_versions(layout: dict[str, Any]) -> set[PinnedComponentVersion]:
+    """The component versions the layout's placements pin to a specific version."""
     return {
-        (str(placement["component"]), str(placement["version"]))
+        PinnedComponentVersion(component_id=str(placement["component"]), version_id=str(placement["version"]))
         for placement in layout.get("placements", [])
         if isinstance(placement, dict) and _is_uuid(placement.get("component")) and _is_uuid(placement.get("version"))
     }
