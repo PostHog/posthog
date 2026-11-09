@@ -334,6 +334,7 @@ __all__ = [
     "owner_origin_task_ids_with_state_entry",
     "create_completed_sandbox_snapshot",
     "create_run",
+    "set_task_project_github_integration",
     "create_sandbox_connection_token",
     "build_sandbox_custom_image",
     "create_sandbox_custom_image",
@@ -1586,6 +1587,12 @@ def get_signal_report_implementation_runs(
         .select_related("task", "task__created_by")
         .order_by("-created_at", "-id")
     ]
+
+
+def set_task_project_github_integration(task_id: str | UUID, team_id: int, integration_id: int) -> None:
+    Task.objects.filter(id=task_id, team_id=team_id, deleted=False).update(
+        github_integration_id=integration_id, github_user_integration_id=None
+    )
 
 
 def _pull_request_state(output: Mapping[str, object]) -> str:
@@ -3129,6 +3136,8 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "github_blocked_reason",
+        "github_recovery_deadline",
         "sandbox_environment_id",
         # Worker-interpreted trial markers must never be caller-writable.
         "scout_trial",
@@ -3215,6 +3224,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "snapshot_mount_path",
         *SERVER_OWNED_RESUME_STATE_KEYS,
         "workflow_id",
+        "github_recovery_repository",
+        "github_recovery_user_id",
         "pending_dispatch",
         "cancel_requested_at",
         "cancel_requested_by_user_id",

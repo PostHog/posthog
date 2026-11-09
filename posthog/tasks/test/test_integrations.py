@@ -37,10 +37,14 @@ class TestIntegrationsTasks(APIBaseTest):
         UserIntegration.objects.create(user=self.user, kind="github", integration_id="123")
         with (
             patch("products.signals.backend.github_readiness_tasks.resume_github_blocked_reports.delay") as reports,
+            patch(
+                "products.signals.backend.implementation_github_recovery_tasks.retry_github_blocked_implementations.delay"
+            ) as runs,
             patch.object(GitHubIntegration, "refresh_access_token") as refresh,
         ):
             recover_github_access("123", self.team.id if reconnect else None)
         self.assertEqual([args.args[0] for args in reports.call_args_list], [self.team.id, child.id])
+        self.assertEqual(runs.call_args_list, reports.call_args_list)
         self.assertNotIn(personal.id, [args.args[0] for args in reports.call_args_list])
         self.assertEqual(refresh.call_count, 0 if reconnect else 1)
 

@@ -185,6 +185,9 @@ class TestTaskRunArtefacts(BaseTest):
         self, _name, has_creator, automation_branch, expected_kind
     ):
         report = self._report()
+        report.run_count = 3
+        report.content_revision_count = 2
+        report.save(update_fields=["run_count", "content_revision_count"])
         task = self._task(created_by=self.user if has_creator else None)
         record_implementation_task(
             team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), automation_branch=automation_branch
@@ -211,6 +214,15 @@ class TestTaskRunArtefacts(BaseTest):
             team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), automation_branch=automation_branch
         )
         assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
+        link = SignalReportTask.objects.get(report=report, task=task)
+        assert (link.report_run_count, link.report_content_revision_count) == (3, 2)
+        report.run_count = 4
+        report.save(update_fields=["run_count"])
+        record_implementation_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), automation_branch=automation_branch
+        )
+        link.refresh_from_db()
+        assert link.report_run_count == 3
 
         # A rerun after the run released its claim claims the report again for the same actor.
         release_claim(assignment, ArtefactAttribution.system())

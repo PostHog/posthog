@@ -37,6 +37,7 @@ GITHUB_BRANCH_REFRESH_RETRY_SECONDS = 5 * 60
 def recover_github_access(installation_id: str, team_id: int | None = None, after_team_id: int = 0) -> None:
     from products.signals.backend.facade.tasks import (  # noqa: PLC0415 - keep product tasks off the integration model import path
         resume_github_blocked_reports,
+        retry_github_blocked_implementations,
     )
 
     connected_projects = IntegrationManager.github.oauth.list_by_external_id(
@@ -59,6 +60,7 @@ def recover_github_access(installation_id: str, team_id: int | None = None, afte
                 ).refresh_access_token()
     for affected_team_id in team_ids:
         resume_github_blocked_reports.delay(affected_team_id)
+        retry_github_blocked_implementations.delay(affected_team_id)
     if len(team_ids) == 100:
         recover_github_access.delay(installation_id, team_id, team_ids[-1])
 
