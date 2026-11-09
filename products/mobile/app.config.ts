@@ -59,8 +59,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         slug: 'posthog',
         owner: 'posthog',
         scheme,
-        version: '1.4.0',
-        orientation: 'portrait',
+        version: '1.11.0',
+        orientation: 'default',
         userInterfaceStyle: 'automatic',
         icon: icons.png,
         ios: {
@@ -126,7 +126,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         },
         plugins: [
             'expo-router',
-            'expo-secure-store',
+            ['expo-secure-store', { configureAndroidBackup: false }],
+            './plugins/withAndroidChartWidgetBackup',
             'expo-notifications',
             'expo-web-browser',
             [
@@ -155,7 +156,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
             ],
             ['./plugins/withAndroidLoopbackNetworking', { allowLoopback: variant !== 'production' }],
             './plugins/withAndroidAdaptiveIconInsets',
-            './plugins/withIosSceneLifecycle',
+            './plugins/withAndroidNotificationIntents',
             '@bacons/apple-targets',
         ],
         updates: {

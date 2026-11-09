@@ -2,10 +2,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { FileSystemIconColor, ProductManifest } from '~/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Product tours',
+    activityDescribers: {
+        [ActivityScope.PRODUCT_TOUR]: () =>
+            import('scenes/product-tours/activityDescriptions').then((module) => module.productTourActivityDescriber),
+    },
     urls: {
         productTours: (): string => '/product_tours',
         productTour: (id: string): string => `/product_tours/${id}`,
@@ -18,6 +22,10 @@ export const manifest: ProductManifest = {
             listHref: () => urls.productTours(),
             iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
             filterKey: 'product_tour',
+            // Gate the type on the same flag as the ProductTours scene, which renders a 404 without it.
+            // Without this, Library object-type rows and tree type filters offer "Product tours" to
+            // everyone and link into that 404.
+            flag: FEATURE_FLAGS.PRODUCT_TOURS,
         },
     },
     treeItemsNew: [

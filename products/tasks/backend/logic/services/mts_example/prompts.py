@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from products.signals.backend.report_generation.research import (
+from products.signals.backend.facade.research import (
     ActionabilityAssessment,
     PriorityAssessment,
     ReportPresentationOutput,

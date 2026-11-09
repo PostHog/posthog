@@ -321,8 +321,8 @@ describe('dashboardVisualizationOptions', () => {
             )
             const view = render(displayOptionsElement(result.current))
 
-            expect(await screen.findByText('Right Y-axis')).toBeInTheDocument()
-            expect(screen.getByText('Goals')).toBeInTheDocument()
+            expect(await screen.findByText('X-axis')).toBeInTheDocument()
+            expect(screen.getByText('Goal lines')).toBeInTheDocument()
 
             rerender({
                 ...baseProps,
@@ -334,8 +334,8 @@ describe('dashboardVisualizationOptions', () => {
             view.rerender(displayOptionsElement(result.current))
 
             expect(await screen.findByText('Show on slices')).toBeInTheDocument()
-            expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
-            expect(screen.queryByText('Goals')).not.toBeInTheDocument()
+            expect(screen.queryByText('X-axis')).not.toBeInTheDocument()
+            expect(screen.queryByText('Goal lines')).not.toBeInTheDocument()
         })
 
         it('routes display setting changes through SQL-safe persistence', async () => {
@@ -417,7 +417,10 @@ describe('dashboardVisualizationOptions', () => {
             ).toBe(displayLabel && 'label' in displayLabel ? displayLabel.label : null)
             view.rerender(displayOptionsElement(result.current))
             expect(screen.getByLabelText('Show legend')).toBeChecked()
-            await userEvent.click(screen.getByLabelText('Show annotations'))
+            await userEvent.click(
+                view.container.querySelector('[data-attr="data-visualization-show-annotations"]') as HTMLElement
+            )
+            await userEvent.click(await screen.findByText('All'))
 
             expect(persistSqlDisplayOptions).toHaveBeenLastCalledWith(
                 expect.objectContaining({

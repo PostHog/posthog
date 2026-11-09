@@ -30,12 +30,13 @@ import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { unsavedSqlInsightQuery } from 'scenes/insights/utils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -51,14 +52,10 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { tagsModel } from '~/models/tagsModel'
+import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from '~/queries/nodes/InsightViz/insightImageCapture'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
-import {
-    isDataTableNode,
-    isDataVisualizationNode,
-    isEventsQuery,
-    isHogQLQuery,
-    isInsightVizNode,
-} from '~/queries/utils'
+import { isEventsQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -72,10 +69,6 @@ import {
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
-import {
-    INSIGHT_GRAPH_SELECTOR,
-    INSIGHT_SCREENSHOT_KEY,
-} from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { insightModalsLogic } from '../insightModalsLogic'
@@ -146,6 +139,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     )
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
+    const unsavedSqlQuery = unsavedSqlInsightQuery(query, isSavedInsight)
     const canExport = exportContext != null && insight.short_id != null
     // Only an InsightViz renders the results card the browser-side capture targets. Anything else
     // still goes through the server-side PNG render.
@@ -405,9 +399,16 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                         <IconCopy />
                         Duplicate
                     </SceneMenuBarItem>
-                    {canEditInSqlEditor && (
+                    {(canEditInSqlEditor || unsavedSqlQuery) && (
                         <SceneMenuBarItem
-                            onClick={() => push(urls.sqlEditor({ query: hogQL ?? undefined }))}
+                            onClick={() =>
+                                push(
+                                    urls.sqlEditor({
+                                        query: unsavedSqlQuery ?? hogQL ?? undefined,
+                                        dashboard: unsavedSqlQuery ? (dashboardId ?? undefined) : undefined,
+                                    })
+                                )
+                            }
                             data-attr={`${RESOURCE_TYPE}-menubar-edit-sql`}
                         >
                             <IconPencil />

@@ -9,7 +9,9 @@ Nothing is written until every report of the call is scored, so a failure part o
 a call writes nothing.
 
 A model that reads its team's project vectors gets the team's row of the day the manifest names,
-repeated for each report, through the same `project_inputs` the training dag builds them with.
+repeated for each report, through the same `project_inputs` the training dag builds them with. Each
+model gets its own kinds in its own order. A model that reads a kind the day has no rows for is
+skipped, so it never scores on all-zero vectors.
 
 A model whose set declares the `priority` state column gets each report's latest priority judgment,
 read once per call and only when a model needs it. The sweep rescores a report when its vector or
@@ -57,6 +59,7 @@ logger = structlog.get_logger(__name__)
 
 NO_VECTOR = "no_vector"
 NO_PROJECT_VECTORS = "no_project_vectors"
+PROJECT_VECTOR_KINDS_MISSING = "project_vector_kinds_missing"
 
 # The rendering each embedding side input is the vector of. The dataset dag snapshots the same
 # renderings under the same keys, so a model reads the text it was fit on.
@@ -159,7 +162,8 @@ def _score_model(
     report_ids: Sequence[str],
     rows: pd.DataFrame,
     vectors_by_extra: Mapping[str, Mapping[str, ReportVector]],
-    team_project: ProjectInputs | None,
+    team_id: int,
+    project_vectors: ProjectVectors | None,
 ) -> _ModelScores:
     """`rows` holds the report-state columns of the pass, one row per id of `report_ids`."""
     extra = _served_extra(model.feature_set)
@@ -174,8 +178,13 @@ def _score_model(
             by_report={},
             skip_reason=f"state columns {unread} of {model.feature_set.name} are not served yet",
         )
-    if model.reads_project_vectors and team_project is None:
-        return _ModelScores(model=model, by_report={}, skip_reason=NO_PROJECT_VECTORS)
+    team_project = None
+    if model.reads_project_vectors:
+        if project_vectors is None or not project_vectors.available:
+            return _ModelScores(model=model, by_report={}, skip_reason=NO_PROJECT_VECTORS)
+        if project_vectors.missing_kinds(model.project_vector_kinds):
+            return _ModelScores(model=model, by_report={}, skip_reason=PROJECT_VECTOR_KINDS_MISSING)
+        team_project = project_vectors.for_team(team_id, model.project_vector_kinds)
     extras = {extra: _extras_frame(report_ids, vectors_by_extra[extra])}
     # `as_of=None`: serving scores the latest vector, where training reads the one of its moment.
     buildable = model.feature_set.buildable(rows, extras, as_of=None).to_numpy()
@@ -183,7 +192,7 @@ def _score_model(
         return _ModelScores(model=model, by_report={}, skip_reason=None)
     matrix = model.feature_set.build_matrix(rows, extras, as_of=None).loc[buildable]
     project = None
-    if model.reads_project_vectors and team_project is not None:
+    if team_project is not None:
         project = ProjectInputs(
             vectors=np.repeat(team_project.vectors, len(matrix), axis=0),
             has_history=np.repeat(team_project.has_history, len(matrix), axis=0),
@@ -250,7 +259,8 @@ def score_reports(
     A caller that scores many teams passes the `serving` set it loaded, one `capture`, and the
     `project_vectors` of every team it scores, so each team does not read the manifest or the
     project vectors from object storage again or flush its own events. A served model that reads
-    project vectors when the pass has none raises, because no report could get a served score.
+    project vectors when the pass has none, or reads a kind the pass has no rows for, raises,
+    because no report could get a served score.
     """
     if serving is None:
         serving = load_serving_set()
@@ -266,16 +276,21 @@ def score_reports(
     models = [served, *serving.others]
     if project_vectors is None:
         project_vectors = pass_project_vectors(serving, [team_id])
-    team_project = project_vectors.for_team(team_id) if project_vectors is not None else None
-    if served.reads_project_vectors and team_project is None:
-        raise ScoringError(f"served model {served.entry.key} reads project vectors and the pass has none")
+    if served.reads_project_vectors:
+        if project_vectors is None or not project_vectors.available:
+            raise ScoringError(f"served model {served.entry.key} reads project vectors and the pass has none")
+        missing = project_vectors.missing_kinds(served.project_vector_kinds)
+        if missing:
+            raise ScoringError(
+                f"served model {served.entry.key} reads project vector kinds {missing} the pass has no rows for"
+            )
     needed_extras = {extra for model in models if (extra := _served_extra(model.feature_set)) is not None}
     vectors_by_extra = {
         extra: latest_report_vectors(team_id, ids, rendering=RENDERING_BY_EXTRA[extra]) for extra in needed_extras
     }
     rows = _state_rows(team_id, ids, {column for model in models for column in model.feature_set.state_columns})
     scored_models = {
-        model.entry.key: _score_model(model, ids, rows, vectors_by_extra, team_project) for model in models
+        model.entry.key: _score_model(model, ids, rows, vectors_by_extra, team_id, project_vectors) for model in models
     }
     served_key = serving.manifest.served.key
     served_vectors = vectors_by_extra[served_extra]

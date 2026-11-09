@@ -134,6 +134,16 @@ def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs) 
         hog_function.save()
 
 
+@receiver(pre_delete, sender=AlertConfiguration)
+def delete_platform_shadow_copy(sender, instance: AlertConfiguration, **kwargs) -> None:
+    # A copy the platform owns is left to `delete_moved_alert_copy`, which ends its firings first.
+    if instance.platform_owned:
+        return
+    from products.alerts.backend.platform_ownership import delete_shadow_alert_copy
+
+    delete_shadow_alert_copy(team_id=instance.team_id, alert_id=instance.id)
+
+
 @receiver(pre_delete, sender=AlertSubscription)
 def handle_alert_subscription_delete(sender, instance, **kwargs) -> None:
     from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated

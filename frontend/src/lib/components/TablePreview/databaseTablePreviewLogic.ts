@@ -2,8 +2,9 @@ import { MakeLogicType, afterMount, kea, key, path, props, propsChanged } from '
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { hogql } from 'lib/utils/hogql'
+
 import { hogqlQuery } from '~/queries/query'
-import { hogql } from '~/queries/utils'
 
 import type { TablePreviewExpressionColumn } from './types'
 

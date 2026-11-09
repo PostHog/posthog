@@ -69,6 +69,7 @@ pub async fn process_batch(
     context: &mut Context,
     batch: Batch,
 ) -> Result<BatchResponse, Error> {
+    context.legacy_property_splice = state.capture_v1_legacy_property_splice;
     let (batch, duplicates_dropped) = drop_duplicate_uuids(batch);
     if !duplicates_dropped.is_empty() {
         observe_duplicate_drops(state, context, &duplicates_dropped);
@@ -745,11 +746,11 @@ fn normalize_timestamp(
     disable_skew_correction: bool,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
-    if disable_skew_correction {
-        return raw_event_ts;
-    }
-
-    let adjusted = raw_event_ts - context.clock_skew();
+    let adjusted = if disable_skew_correction {
+        raw_event_ts
+    } else {
+        raw_event_ts - context.clock_skew()
+    };
     let now = context.server_received_at;
     if adjusted.signed_duration_since(now).num_milliseconds() > FUTURE_EVENT_HOURS_CUTOFF_MS {
         metrics::counter!(CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, "reason" => "future_timestamp_clamp")
@@ -1519,14 +1520,32 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn event_malformed_properties() {
-        let mut event = valid_event();
-        event.properties = raw_obj("[1,2,3]");
-        assert!(matches!(
-            validate_event(&event),
-            Err(Error::MalformedEventProperties)
-        ));
+    #[rstest]
+    #[case::empty_object("{}", true)]
+    #[case::padded_object(" \n\t{\"a\":1} \r\n", true)]
+    #[case::null("null", false)]
+    #[case::array("[1,2,3]", false)]
+    #[case::string(r#""{}""#, false)]
+    #[case::number("0", false)]
+    #[case::bool("true", false)]
+    fn event_properties_must_decode_to_an_object(#[case] properties: &str, #[case] ok: bool) {
+        let body = format!(
+            r#"{{"created_at":"c","batch":[{{"event":"$pageview","uuid":"{}","distinct_id":"d","timestamp":"2026-03-19T14:29:58.123Z","properties":{properties}}}]}}"#,
+            Uuid::new_v4()
+        );
+        let event = crate::v1::analytics::lenient::parse_batch(body.as_bytes())
+            .unwrap()
+            .batch
+            .remove(0);
+        let result = validate_event(&event);
+        if ok {
+            assert!(result.is_ok(), "{properties:?}: {result:?}");
+        } else {
+            assert!(
+                matches!(result, Err(Error::MalformedEventProperties)),
+                "{properties:?}: {result:?}"
+            );
+        }
     }
 
     #[test]
@@ -1973,6 +1992,7 @@ mod tests {
             capture_internal: false,
             historical_migration: false,
             gateway_signature: None,
+            legacy_property_splice: true,
         }
     }
 
@@ -2003,31 +2023,61 @@ mod tests {
         assert_eq!(result, dt("2026-03-19T11:00:10Z"));
     }
 
-    #[test]
-    fn normalize_clamps_far_future() {
+    #[rstest]
+    #[case::clamps_far_future(false, Duration::zero(), Duration::days(2), Duration::zero())]
+    #[case::allows_near_future(false, Duration::zero(), Duration::hours(22), Duration::hours(22))]
+    #[case::clamps_skew_adjusted_value(
+        false,
+        Duration::hours(-1),
+        Duration::minutes(22 * 60 + 30),
+        Duration::zero()
+    )]
+    #[case::disabled_skips_skew_for_past(
+        true,
+        Duration::seconds(10),
+        Duration::hours(-1),
+        Duration::hours(-1)
+    )]
+    #[case::disabled_skips_skew_for_near_future(
+        true,
+        Duration::seconds(10),
+        Duration::hours(22),
+        Duration::hours(22)
+    )]
+    #[case::disabled_compares_raw_value_to_cutoff(
+        true,
+        Duration::hours(-1),
+        Duration::minutes(22 * 60 + 30),
+        Duration::minutes(22 * 60 + 30)
+    )]
+    #[case::disabled_clamps_far_future(
+        true,
+        Duration::zero(),
+        Duration::days(30),
+        Duration::zero()
+    )]
+    #[case::disabled_allows_exact_cutoff(
+        true,
+        Duration::zero(),
+        Duration::hours(23),
+        Duration::hours(23)
+    )]
+    #[case::disabled_clamps_just_past_cutoff(
+        true,
+        Duration::zero(),
+        Duration::hours(23) + Duration::milliseconds(1),
+        Duration::zero()
+    )]
+    fn normalize_future_clamp(
+        #[case] disable_skew_correction: bool,
+        #[case] skew: Duration,
+        #[case] event_offset: Duration,
+        #[case] expected_offset: Duration,
+    ) {
         let now = dt("2026-03-19T12:00:00Z");
-        let ctx = ctx_with_skew(now, Duration::zero());
-        let event_ts = dt("2026-03-21T12:00:00Z");
-        let result = normalize_timestamp(&ctx, false, event_ts);
-        assert_eq!(result, now);
-    }
-
-    #[test]
-    fn normalize_allows_near_future() {
-        let now = dt("2026-03-19T12:00:00Z");
-        let ctx = ctx_with_skew(now, Duration::zero());
-        let event_ts = dt("2026-03-20T10:00:00Z");
-        let result = normalize_timestamp(&ctx, false, event_ts);
-        assert_eq!(result, event_ts);
-    }
-
-    #[test]
-    fn normalize_disable_skew_correction_skips_adjustment() {
-        let now = dt("2026-03-19T12:00:00Z");
-        let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(&ctx, true, event_ts);
-        assert_eq!(result, event_ts);
+        let ctx = ctx_with_skew(now, skew);
+        let result = normalize_timestamp(&ctx, disable_skew_correction, now + event_offset);
+        assert_eq!(result, now + expected_offset);
     }
 
     #[test]
@@ -3943,6 +3993,72 @@ mod tests {
             "forged marker must be stripped before publish"
         );
         assert!(payload.contains("$ai_model"));
+    }
+
+    #[tokio::test]
+    async fn process_batch_applies_legacy_property_splice_switch() {
+        for splice in [true, false] {
+            let ts = TestStateBuilder::new()
+                .with_legacy_property_splice(splice)
+                .build();
+            let mut ctx = test_utils::test_analytics_context();
+            let mut events: Vec<Event> = (0..8)
+                .map(|_| Event {
+                    session_id: Some("sess-1".to_string()),
+                    properties: test_utils::raw_obj(r#"{"custom":1}"#),
+                    ..valid_event()
+                })
+                .collect();
+            let non_objects: Vec<Event> = ["null", "[1]", r#""s""#, "0", "true"]
+                .into_iter()
+                .map(|p| Event {
+                    properties: test_utils::raw_obj(p),
+                    ..valid_event()
+                })
+                .collect();
+            let non_object_uuids: HashSet<Uuid> = non_objects
+                .iter()
+                .map(|e| Uuid::parse_str(&e.uuid).unwrap())
+                .collect();
+            events.extend(non_objects);
+
+            let resp = process_batch(&ts.state, &mut ctx, valid_batch(events))
+                .await
+                .unwrap();
+
+            let dropped: Vec<_> = resp
+                .entries()
+                .iter()
+                .filter(|(uuid, _)| non_object_uuids.contains(uuid))
+                .collect();
+            assert_eq!(dropped.len(), non_object_uuids.len(), "splice={splice}");
+            for (_, entry) in dropped {
+                assert_eq!(entry.result, EventResult::Drop, "splice={splice}");
+                assert_eq!(
+                    entry.details,
+                    Some("malformed_event_properties"),
+                    "splice={splice}"
+                );
+            }
+            let records = ts.mock_producer.get_records();
+            assert_eq!(records.len(), 8, "splice={splice}");
+            for record in records {
+                let captured: common_types::CapturedEvent =
+                    serde_json::from_slice(&record.payload).unwrap();
+                let data: serde_json::Value = serde_json::from_str(&captured.data).unwrap();
+                assert_eq!(
+                    data["properties"].get("$session_id").is_some(),
+                    splice,
+                    "splice={splice}"
+                );
+                assert_eq!(captured.options.unwrap()["session_id"], "sess-1");
+                assert_eq!(
+                    record.headers.legacy_property_splice,
+                    splice.then_some(true),
+                    "splice={splice}"
+                );
+            }
+        }
     }
 
     /// process_batch wiring: an AI event lands on the AI topic.

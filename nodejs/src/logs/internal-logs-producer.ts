@@ -12,10 +12,6 @@ import type { ValueMatcher } from '~/types'
 import type { LogsIngestionConsumerConfig } from './config'
 import { INTERNAL_LOGS_HTTP_HEADER, INTERNAL_SOURCE_POLICIES, signInternalLogs } from './internal-logs'
 
-const SERVICE_NAMES: Readonly<Record<string, string>> = {
-    hog_flow: 'posthog-internal-workflows',
-}
-
 const SEVERITY_NUMBERS: Readonly<Record<string, number>> = { debug: 5, info: 9, warn: 13, error: 17 }
 
 // Half of capture-logs' default 2 MiB body limit, which leaves room for the envelope.
@@ -49,6 +45,8 @@ type Request = Batch & { bytes: number }
 
 type AttemptResult = { outcome: 'sent' | 'rejected' | 'unknown_team' | 'retry'; detail: string }
 
+// The librdkafka default request.timeout.ms, and above the time capture-logs waits for its own Kafka write.
+const ATTEMPT_TIMEOUT_MS = 30_000
 const RETRY_BASE_DELAY_MS = 100
 const RETRY_MAX_DELAY_MS = 5_000
 const DRAIN_POLL_MS = 50
@@ -100,12 +98,21 @@ export class InternalLogsProducer {
         this.isTeamEnabled = buildIntegerMatcher(config.LOGS_INTERNAL_PRODUCER_TEAMS, true)
     }
 
+    /** False when `enqueue` would drop every record of this team, so a caller can skip building them. */
+    accepts(teamId: number): boolean {
+        return this.enabled && this.isTeamEnabled(teamId)
+    }
+
+    /** Counts the records `enqueue` would send, as `loop_guard`, so logs kept out of a loop show on the dashboard. */
+    skipLooping(source: string, entries: InternalLogEntry[]): void {
+        if (!this.enabled || !Object.hasOwn(INTERNAL_SOURCE_POLICIES, source)) {
+            return
+        }
+        countRecords(source, 'loop_guard', entries.filter((entry) => this.isTeamEnabled(entry.team_id)).length)
+    }
+
     enqueue(source: string, entries: InternalLogEntry[]): void {
-        if (
-            !this.enabled ||
-            !Object.hasOwn(INTERNAL_SOURCE_POLICIES, source) ||
-            !Object.hasOwn(SERVICE_NAMES, source)
-        ) {
+        if (!this.enabled || !Object.hasOwn(INTERNAL_SOURCE_POLICIES, source)) {
             return
         }
         let invalid = 0
@@ -266,6 +273,7 @@ export class InternalLogsProducer {
                     ),
                 },
                 body,
+                timeoutMs: Math.max(1, Math.min(ATTEMPT_TIMEOUT_MS, deadline - Date.now())),
             })
             await response.dump()
             const { status } = response
@@ -316,7 +324,7 @@ function takeRequest(batch: Batch): Request {
 
 function toOtlpBody(source: string, records: string[]): string {
     const resource = JSON.stringify({
-        attributes: [{ key: 'service.name', value: { stringValue: SERVICE_NAMES[source] } }],
+        attributes: [{ key: 'service.name', value: { stringValue: INTERNAL_SOURCE_POLICIES[source].serviceName } }],
     })
     return `{"resourceLogs":[{"resource":${resource},"scopeLogs":[{"scope":${JSON.stringify({ name: source })},"logRecords":[${records.join(',')}]}]}]}`
 }

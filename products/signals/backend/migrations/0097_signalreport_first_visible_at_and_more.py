@@ -7,7 +7,6 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1296_backfill_cimd_verification_token_url"),
-        ("posthog_ai", "0004_conversation_agent_runtime_conversation_task_and_more"),
         ("signals", "0096_signal_report_canvas_generation"),
     ]
 

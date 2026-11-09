@@ -260,7 +260,7 @@ class PostgresDestinationWriter:
 
     # --- connection -------------------------------------------------------------------
 
-    def _client_from_integration(self, integration: IntegrationRecord) -> PostgreSQLClient:
+    async def _client_from_integration(self, integration: IntegrationRecord) -> PostgreSQLClient:
         # `from_inputs` accepts anything exposing credentials/authority/tls, which the
         # integration wrapper does, so the batch export path and this one resolve credentials
         # identically.
@@ -284,7 +284,7 @@ class PostgresDestinationWriter:
             integration = await self._load_integration(self._ctx.integration_id)
         except PostgreSQLIntegrationNotFoundError as err:
             raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL) from err
-        return self._client_from_integration(integration)
+        return await self._client_from_integration(integration)
 
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[PostgreSQLClient]:

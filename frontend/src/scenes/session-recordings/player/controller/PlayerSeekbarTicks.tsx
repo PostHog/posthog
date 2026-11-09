@@ -6,10 +6,9 @@ import useResizeObserver from 'use-resize-observer'
 
 import { IconComment } from '@posthog/icons'
 
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { LazyRichContentPreview, LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { RichContentPreview } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
@@ -147,9 +146,9 @@ function PlayerSeekbarTick({
                     ) : (
                         <div className="flex flex-col px-4 py-2 gap-y-2">
                             {item.data.rich_content ? (
-                                <RichContentPreview content={item.data.rich_content} className="rounded-none" />
+                                <LazyRichContentPreview content={item.data.rich_content} className="rounded-none" />
                             ) : (
-                                <TextContent
+                                <LazyTextContent
                                     text={item.data.content ?? ''}
                                     data-attr="PlayerSeekbarTicks--text-content"
                                 />

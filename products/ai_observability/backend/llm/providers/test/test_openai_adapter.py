@@ -12,15 +12,18 @@ from posthoganalytics.ai.openai import (
 )
 from pydantic import BaseModel, ValidationError, model_validator
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.errors import (
     ContentFilteredError,
     ContextWindowExceededError,
     OutputTokenLimitError,
     QuotaExceededError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
 )
-from products.ai_observability.backend.llm.images import ImagePart
+from products.ai_observability.backend.llm.providers.azure_openai import AzureOpenAIAdapter
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
+from products.ai_observability.backend.llm.providers.openrouter import OpenRouterAdapter
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 
 
@@ -178,23 +181,40 @@ class TestOpenAIStreamOutputSchema:
         assert "response_format" not in self._stream_kwargs(None)
 
 
-class TestOpenAIImageParts:
+class TestOpenAIAttachmentParts:
     @pytest.mark.parametrize(
-        ("image", "expected_url"),
+        ("part", "expected_block"),
         [
             pytest.param(
-                ImagePart(mime_type="image/png", url="https://example.com/a.png"),
-                "https://example.com/a.png",
+                AttachmentPart(mime_type="image/png", url="https://example.com/a.png"),
+                {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
                 id="link",
             ),
-            pytest.param(ImagePart(mime_type="image/png", data=b"hi"), "data:image/png;base64,aGk=", id="inline"),
+            pytest.param(
+                AttachmentPart(mime_type="image/png", data=b"hi"),
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}},
+                id="inline",
+            ),
+            pytest.param(
+                AttachmentPart(mime_type="application/pdf", data=b"hi"),
+                {
+                    "type": "file",
+                    "file": {"filename": "attachment.pdf", "file_data": "data:application/pdf;base64,aGk="},
+                },
+                id="pdf",
+            ),
+            pytest.param(
+                AttachmentPart(mime_type="audio/mpeg", data=b"hi"),
+                {"type": "input_audio", "input_audio": {"data": "aGk=", "format": "mp3"}},
+                id="audio",
+            ),
         ],
     )
     @pytest.mark.parametrize("json_fallback", [False, True], ids=["plain", "json_fallback"])
-    def test_image_parts_are_sent_as_image_url_blocks(self, image: ImagePart, expected_url: str, json_fallback: bool):
+    def test_attachment_parts_are_sent_as_blocks(self, part: AttachmentPart, expected_block: dict, json_fallback: bool):
         request = CompletionRequest(
             model="gpt-4.1",
-            messages=[{"role": "user", "content": [image, {"type": "text", "text": "hi"}]}],
+            messages=[{"role": "user", "content": [part, {"type": "text", "text": "hi"}]}],
             provider="openai",
             response_format=_Verdict if json_fallback else None,
         )
@@ -209,8 +229,24 @@ class TestOpenAIImageParts:
 
         sent = mock_client.chat.completions.create.call_args.kwargs["messages"]
         assert next(message for message in sent if message["role"] == "user")["content"] == [
-            {"type": "image_url", "image_url": {"url": expected_url}},
+            expected_block,
             {"type": "text", "text": "hi"},
+        ]
+
+    def test_openrouter_sends_video_as_a_video_url_block(self):
+        request = CompletionRequest(
+            model="google/gemini-2.5-flash",
+            messages=[{"role": "user", "content": [AttachmentPart(mime_type="video/mp4", data=b"hi")]}],
+            provider="openrouter",
+        )
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.usage = None
+        mock_client.chat.completions.create.return_value.choices[0].message.content = "ok"
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            OpenRouterAdapter().complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+        assert mock_client.chat.completions.create.call_args.kwargs["messages"][0]["content"] == [
+            {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,aGk="}}
         ]
 
 
@@ -269,6 +305,37 @@ class TestOpenAIAdapterErrorMapping:
                 adapter.complete(
                     request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
                 )
+
+    @parameterized.expand(
+        [
+            ("openai", OpenAIAdapter(), "products.ai_observability.backend.llm.providers.openai.openai.OpenAI"),
+            (
+                "azure_openai",
+                AzureOpenAIAdapter(azure_endpoint="https://example-resource.openai.azure.com/"),
+                "products.ai_observability.backend.llm.providers.azure_openai.openai.AzureOpenAI",
+            ),
+        ]
+    )
+    def test_429_is_retryable_after_the_providers_delay(self, provider: str, adapter: OpenAIAdapter, client_path: str):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = openai.RateLimitError(
+            "Too many requests",
+            response=httpx.Response(
+                status_code=429,
+                request=httpx.Request("POST", "https://example.invalid/v1/chat/completions"),
+                headers={"Retry-After": "20"},
+            ),
+            body={"error": {"message": "Too many requests", "code": "rate_limit_exceeded"}},
+        )
+        request = CompletionRequest(
+            model="gpt-4.1", system="s", messages=[{"role": "user", "content": "hi"}], provider=provider
+        )
+
+        with patch(client_path, return_value=mock_client):
+            with pytest.raises(RetryableRateLimitError) as error:
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+        assert error.value.retry_after == 20
 
     @parameterized.expand([("server_error", 500), ("precondition_failed", 412)])
     def test_non_quota_status_error_is_not_swallowed(self, _name: str, status_code: int):

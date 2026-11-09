@@ -98,6 +98,8 @@ ExtractErrors = {
     "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
     # A HEAD request has no response body, so S3's denial reaches ClickHouse without "Access Denied".
     "Failed to get object info: No response body.. HTTP response code: 403": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
+    # Same HEAD-request shape as the 403 above, but for a key that isn't there at all.
+    "Failed to get object info: No response body.. HTTP response code: 404": "The provided file doesn't exist in the bucket. Check the files URL pattern, then try again.",
     # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
     # tables) use a different vocabulary than ClickHouse's native S3 errors above.
     "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
@@ -871,7 +873,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     )
                     break
                 except Exception as err:
-                    if i >= attempts - 1:
+                    # A query-performance-limit error (timeout, memory, size) is a property of this
+                    # query against this file, not a cluster blip - it fails the same way on every
+                    # retry, so retrying only ties the request up for `attempts` rounds of the same
+                    # multi-minute query instead of surfacing the failure.
+                    is_terminal = classify_query_error(err) == QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+                    if is_terminal or i >= attempts - 1:
                         if not is_expected_warehouse_read_error(err):
                             capture_exception(err)
                         if safe_expose_ch_error:

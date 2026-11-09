@@ -8,12 +8,14 @@ through `resync_installation_tools` when a caller names a tool that has no row.
 
 import json
 from typing import Any
+from urllib.parse import urlparse
 
 from django.utils import timezone
 
 import httpx
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.redis import get_client
 from posthog.security.pinned_httpx import pinned_client
 from posthog.security.pinned_requests import SSRFBlockedError
@@ -22,6 +24,7 @@ from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 from .oauth_credentials import oauth_credentials_source_is_allowed
 from .policy import SYNC_DEFAULT_APPROVAL_STATE
+from .protocol_versions import SUPPORTED_PROTOCOL_VERSIONS
 from .proxy import build_upstream_auth_headers, validated_same_origin_redirect_url
 from .url_policy import resolve_mcp_url_policy, trust_environment_proxy
 
@@ -33,10 +36,6 @@ _INITIALIZE_ID = 1
 _TOOLS_LIST_ID = 2
 _TOOLS_CALL_ID = 3
 
-# MCP protocol version we claim to speak. Kept in sync with what the PostHog
-# MCP reference client sends; bump when the spec changes in a backwards-
-# incompatible way.
-_PROTOCOL_VERSION = "2024-11-05"
 _CLIENT_INFO: dict[str, Any] = {"name": "posthog-mcp-store", "version": "1.0"}
 
 # Each handshake step should return in well under a second.
@@ -68,6 +67,32 @@ class ToolsFetchError(Exception):
     pass
 
 
+class _OfferRejected(ToolsFetchError):
+    """The server refused ``initialize`` outright, so an older protocol version may still work."""
+
+
+@frozen
+class _UpstreamSession:
+    session_id: str | None
+    url: str
+    # None when the server answered with a version outside SUPPORTED_PROTOCOL_VERSIONS.
+    protocol_version: str | None
+
+    def headers(self, base_headers: dict[str, str]) -> dict[str, str]:
+        headers = dict(base_headers)
+        if self.session_id:
+            headers["Mcp-Session-Id"] = self.session_id
+        if self.protocol_version:
+            headers["MCP-Protocol-Version"] = self.protocol_version
+        return headers
+
+
+@frozen
+class UpstreamToolList:
+    tools: list[dict[str, Any]]
+    protocol_version: str | None = None
+
+
 class ToolCallError(Exception):
     """An upstream ``tools/call`` failed. Distinct from ToolsFetchError so
     callers can tell "we couldn't discover tools" from "the call itself
@@ -90,7 +115,7 @@ def _ensure_valid_token_for_fetch(installation: MCPServerInstallation) -> None:
         raise ToolsFetchError(f"Token refresh failed: {exc}") from exc
 
 
-def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, Any]]:
+def fetch_upstream_tools(installation: MCPServerInstallation) -> UpstreamToolList:
     """Send a JSON-RPC ``tools/list`` to the upstream MCP server and return its tool array.
 
     Follows the MCP streamable HTTP handshake: ``initialize`` → ``notifications/initialized``
@@ -125,19 +150,20 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
             max_response_bytes=MAX_RESPONSE_BYTES,
             trust_env=trust_environment_proxy(installation.url, installation.team_id),
         ) as client:
-            session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
-            session_headers = dict(base_headers)
-            if session_id:
-                session_headers["Mcp-Session-Id"] = session_id
+            session = _mcp_initialize(client, installation.url, base_headers)
+            session_headers = session.headers(base_headers)
 
-            _mcp_send_initialized(client, upstream_url, session_headers)
+            _mcp_send_initialized(client, session.url, session_headers)
             try:
-                return _mcp_list_tools(client, upstream_url, session_headers)
+                return UpstreamToolList(
+                    tools=_mcp_list_tools(client, session.url, session_headers),
+                    protocol_version=session.protocol_version,
+                )
             finally:
                 # Best-effort cleanup so we don't leak sessions upstream. Failures
                 # here are purely janitorial and must not mask real errors above.
-                if session_id:
-                    _mcp_terminate_session(client, upstream_url, session_headers)
+                if session.session_id:
+                    _mcp_terminate_session(client, session.url, session_headers)
     except (SSRFBlockedError, httpx.ProxyError) as exc:
         raise ToolsFetchError(
             "Upstream MCP connection blocked. Ask an administrator to check the outbound proxy configuration."
@@ -192,17 +218,15 @@ def call_upstream_tool(
             max_response_bytes=MAX_RESPONSE_BYTES,
             trust_env=trust_environment_proxy(installation.url, installation.team_id),
         ) as client:
-            session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
-            session_headers = dict(base_headers)
-            if session_id:
-                session_headers["Mcp-Session-Id"] = session_id
+            session = _mcp_initialize(client, installation.url, base_headers)
+            session_headers = session.headers(base_headers)
 
-            _mcp_send_initialized(client, upstream_url, session_headers)
+            _mcp_send_initialized(client, session.url, session_headers)
             try:
-                return _mcp_call_tool(client, upstream_url, session_headers, tool_name, arguments)
+                return _mcp_call_tool(client, session.url, session_headers, tool_name, arguments)
             finally:
-                if session_id:
-                    _mcp_terminate_session(client, upstream_url, session_headers)
+                if session.session_id:
+                    _mcp_terminate_session(client, session.url, session_headers)
     except (SSRFBlockedError, httpx.ProxyError) as exc:
         raise ToolCallError(
             "Upstream MCP connection blocked. Ask an administrator to check the outbound proxy configuration."
@@ -231,14 +255,31 @@ def _post_with_same_origin_redirect(
     return client.post(redirect_url, content=content, headers=headers), redirect_url
 
 
-def _mcp_initialize(client: httpx.Client, url: str, headers: dict[str, str]) -> tuple[str | None, str]:
+def _mcp_initialize(client: httpx.Client, url: str, headers: dict[str, str]) -> _UpstreamSession:
+    """Open a session, offering the newest protocol version first.
+
+    Some servers reject a version they don't support instead of answering with
+    one they do, so a rejection moves on to the next older version.
+    """
+    *newer_versions, oldest_version = SUPPORTED_PROTOCOL_VERSIONS
+    for offered_version in newer_versions:
+        try:
+            return _mcp_initialize_with_version(client, url, headers, offered_version)
+        except _OfferRejected:
+            continue
+    return _mcp_initialize_with_version(client, url, headers, oldest_version)
+
+
+def _mcp_initialize_with_version(
+    client: httpx.Client, url: str, headers: dict[str, str], offered_version: str
+) -> _UpstreamSession:
     body = json.dumps(
         {
             "jsonrpc": "2.0",
             "id": _INITIALIZE_ID,
             "method": "initialize",
             "params": {
-                "protocolVersion": _PROTOCOL_VERSION,
+                "protocolVersion": offered_version,
                 "capabilities": {},
                 "clientInfo": _CLIENT_INFO,
             },
@@ -251,19 +292,37 @@ def _mcp_initialize(client: httpx.Client, url: str, headers: dict[str, str]) -> 
             "initialize request returned error",
             url=upstream_url,
             status_code=response.status_code,
+            offered_protocol_version=offered_version,
             body=response.text[:500],
         )
-        raise ToolsFetchError(f"Upstream initialize returned status {response.status_code}")
+        error_class = _OfferRejected if response.status_code == 400 else ToolsFetchError
+        raise error_class(f"Upstream initialize returned status {response.status_code}")
 
     payload = _parse_jsonrpc_response(
         response.text, response.headers.get("content-type", ""), _INITIALIZE_ID, request_name="initialize"
     )
     if isinstance(payload, dict) and payload.get("error"):
-        raise ToolsFetchError(f"Upstream initialize returned error: {payload['error']}")
+        raise _OfferRejected(f"Upstream initialize returned error: {payload['error']}")
+
+    result = payload.get("result") if isinstance(payload, dict) else None
+    answered_version = result.get("protocolVersion") if isinstance(result, dict) else None
+    if answered_version not in SUPPORTED_PROTOCOL_VERSIONS:
+        # A server that answers with an unknown version can still work, so the sync continues without the header.
+        logger.warning(
+            "initialize answered with an unsupported protocol version",
+            host=urlparse(upstream_url).hostname,
+            offered_protocol_version=offered_version,
+            answered_protocol_version=str(answered_version)[:50],
+        )
+        answered_version = None
 
     # Session id is optional per the spec — servers that don't need one still
     # work with tools/list, so treat a missing header as "no session needed".
-    return response.headers.get("mcp-session-id"), upstream_url
+    return _UpstreamSession(
+        session_id=response.headers.get("mcp-session-id"),
+        url=upstream_url,
+        protocol_version=answered_version,
+    )
 
 
 def _mcp_send_initialized(client: httpx.Client, url: str, headers: dict[str, str]) -> None:
@@ -414,21 +473,23 @@ def _parse_jsonrpc_response(
         ) from exc
 
 
-def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServerInstallationTool]:
+def sync_installation_tools(installation: MCPServerInstallation) -> UpstreamToolList:
     """Upsert tool rows for an installation against the latest upstream ``tools/list``.
 
     - New tools are inserted with ``approval_state="needs_approval"`` (explicit opt-in).
     - Existing tools keep their approval state; name/description/schema/annotations/last_seen_at are updated.
     - Tools that disappear upstream get ``removed_at`` set (approval state preserved for later).
     - Tools that reappear get ``removed_at`` cleared.
+
+    Returns the upstream listing it applied.
     """
-    upstream_tools = fetch_upstream_tools(installation)
+    upstream = fetch_upstream_tools(installation)
     now = timezone.now()
 
     existing_by_name = {t.tool_name: t for t in installation.tools.all()}
     seen_names: set[str] = set()
 
-    for tool in upstream_tools:
+    for tool in upstream.tools:
         tool_name = tool["name"]
         seen_names.add(tool_name)
         display_name = tool.get("title") or tool.get("displayName") or ""
@@ -488,7 +549,7 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
         row.removed_at = now
         row.save(update_fields=["removed_at", "updated_at"])
 
-    return list(installation.tools.all())
+    return upstream
 
 
 def resync_installation_tools(installation: MCPServerInstallation) -> bool:

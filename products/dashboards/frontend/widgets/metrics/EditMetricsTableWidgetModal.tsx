@@ -19,6 +19,7 @@ import {
     type MetricsTableInterval,
     type MetricsTableOrderDirection,
     editMetricsTableWidgetModalLogic,
+    metricsTableAggregationDisabledReason,
 } from './editMetricsTableWidgetModalLogic'
 import {
     METRICS_TABLE_DATE_RANGE_OPTIONS,
@@ -29,7 +30,7 @@ import {
 type MetricsTableFilter = NonNullable<MetricsTableColumn['filters']>[number]
 type MetricsTableFilterOp = NonNullable<MetricsTableFilter['op']>
 
-const AGGREGATION_OPTIONS: LemonSelectOptions<MetricsTableAggregation> = [
+const AGGREGATION_OPTIONS: { value: MetricsTableAggregation; label: string }[] = [
     { value: 'rate', label: 'Rate per second (counter)' },
     { value: 'increase', label: 'Total increase (counter)' },
     { value: 'histogram_quantile', label: 'Percentile (histogram)' },
@@ -68,9 +69,13 @@ function withFirstFilter(column: MetricsTableColumn, patch: Partial<MetricsTable
 }
 
 function ColumnEditor({ column, index }: { column: MetricsTableColumn; index: number }): JSX.Element {
-    const { saving, columns } = useValues(editMetricsTableWidgetModalLogic)
-    const { updateColumn, removeColumn } = useActions(editMetricsTableWidgetModalLogic)
+    const { saving, columns, columnMetricTypes } = useValues(editMetricsTableWidgetModalLogic)
+    const { updateColumn, removeColumn, selectColumnMetric } = useActions(editMetricsTableWidgetModalLogic)
     const filter = column.filters?.[0]
+    const aggregationOptions: LemonSelectOptions<MetricsTableAggregation> = AGGREGATION_OPTIONS.map((option) => ({
+        ...option,
+        disabledReason: metricsTableAggregationDisabledReason(columnMetricTypes[index], option.value),
+    }))
 
     return (
         <div className="flex flex-col gap-2 rounded border p-3" data-attr="metrics-table-widget-column">
@@ -87,7 +92,7 @@ function ColumnEditor({ column, index }: { column: MetricsTableColumn; index: nu
                         value={column.metricName}
                         allowCustomName
                         disabled={saving}
-                        onChange={(metricName) => updateColumn(index, { metricName })}
+                        onChange={(metricName, metricType) => selectColumnMetric(index, metricName, metricType)}
                     />
                 </LemonField.Pure>
                 <LemonButton
@@ -103,7 +108,7 @@ function ColumnEditor({ column, index }: { column: MetricsTableColumn; index: nu
                 <LemonField.Pure label="Calculation" className="w-56">
                     <LemonSelect
                         value={column.aggregation}
-                        options={AGGREGATION_OPTIONS}
+                        options={aggregationOptions}
                         disabled={saving}
                         onChange={(aggregation) => aggregation && updateColumn(index, { aggregation })}
                         fullWidth

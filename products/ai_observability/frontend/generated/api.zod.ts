@@ -311,6 +311,18 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
 })
 
 /**
+ * Starts writing the trace and every node, inputs and outputs included, to a JSON file. Poll the export until it completes, then download it.
+ */
+export const AiObservabilityTracesExportsCreateBody = /* @__PURE__ */ zod.object({
+    timestamp_hint: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.'
+        ),
+})
+
+/**
  * Request an AI summary of the trace. A ready summary is returned as is unless `regenerate` is set; otherwise a job starts writing one, or the request joins the job already writing it.
  */
 export const aiObservabilityTracesSummaryCreateBodyRegenerateDefault = false
@@ -320,6 +332,18 @@ export const AiObservabilityTracesSummaryCreateBody = /* @__PURE__ */ zod.object
         .boolean()
         .default(aiObservabilityTracesSummaryCreateBodyRegenerateDefault)
         .describe('Replace a ready summary with a new one. A pending summary is never replaced.'),
+})
+
+export const aiObservabilityTracesAvailabilityCreateBodyTraceIdsItemMax = 255
+
+export const aiObservabilityTracesAvailabilityCreateBodyTraceIdsMax = 2
+
+export const AiObservabilityTracesAvailabilityCreateBody = /* @__PURE__ */ zod.object({
+    trace_ids: zod
+        .array(zod.string().max(aiObservabilityTracesAvailabilityCreateBodyTraceIdsItemMax))
+        .min(1)
+        .max(aiObservabilityTracesAvailabilityCreateBodyTraceIdsMax)
+        .describe('Application and evaluator trace IDs to check without loading trace contents.'),
 })
 
 /**
@@ -517,6 +541,18 @@ export const DatasetsExportsCreateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe('Dataset revision to export. Defaults to the latest revision when the export is created.'),
+})
+
+/**
+ * Refresh retention for a dataset and optionally one revision, with the same access required to read them.
+ */
+
+export const DatasetsExtendRetentionCreateBody = /* @__PURE__ */ zod.object({
+    revision: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Revision to extend along with its dataset. Omit to extend only the dataset.'),
 })
 
 export const evaluationDirectoriesCreateBodyNameMax = 400

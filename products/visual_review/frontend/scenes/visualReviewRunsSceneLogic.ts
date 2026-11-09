@@ -13,7 +13,7 @@ import type {
     VisualReviewReposRunsListReviewState,
 } from '../generated/api.schemas'
 import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
-import { resolveRepoId } from '../lib/repoIds'
+import { resolveRepoIdOrNull } from '../lib/repoIds'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 
 export type ReviewState = VisualReviewReposRunsListReviewState
@@ -159,7 +159,10 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
                     // Tag each request; a slower, superseded one must not overwrite a newer one's results.
                     const requestId = (cache.loadRunsSeq = (cache.loadRunsSeq ?? 0) + 1)
                     const projectId = String(values.currentProjectId)
-                    const repoId = await resolveRepoId(projectId, props.repoFullName)
+                    const repoId = await resolveRepoIdOrNull(projectId, props.repoFullName)
+                    if (!repoId) {
+                        return values.runsResponse
+                    }
                     const response = await visualReviewReposRunsList(projectId, repoId, {
                         review_state: values.activeTab,
                         limit: RUNS_PAGE_SIZE,
@@ -178,7 +181,10 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
             {
                 loadCounts: async () => {
                     const projectId = String(values.currentProjectId)
-                    const repoId = await resolveRepoId(projectId, props.repoFullName)
+                    const repoId = await resolveRepoIdOrNull(projectId, props.repoFullName)
+                    if (!repoId) {
+                        return values.counts
+                    }
                     return await visualReviewReposRunsCountsRetrieve(projectId, repoId)
                 },
             },

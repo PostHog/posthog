@@ -5,6 +5,7 @@ from urllib.parse import urlparse, urlunparse
 
 from django.core.exceptions import ImproperlyConfigured
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db import transaction
 from django.db.models import Model, Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
@@ -42,6 +43,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
 from posthog.hogql_queries.refresh_policy import ComputeSurface
+from posthog.ip_restrictions import ip_restrictions_exempt
 from posthog.models import SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
@@ -535,43 +537,53 @@ class SharingConfigurationViewSet(
 
         check_can_access_sharing_configuration(self, request, instance)
 
-        # Now that the caller is authorized to edit, collapse any duplicate active rows.
-        instance = self._get_sharing_configuration(context, dedupe=True)
-
         if request.data.get("password_required", False):
             if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
                 return response.Response(
                     {"error": "Sharing with password requires the Access Control feature"}, status=403
                 )
 
-        if context.get("recording"):
-            recording = cast(SessionRecording, context.get("recording"))
-            # Special case where we need to save the instance for recordings so that the actual record gets created
-            recording.save()
-
         # Publishing is the access decision for shared links (queries on the public page execute
         # without warehouse access control), so gate the enable transition: the publisher must have
         # access to everything the artifact queries, or sharing becomes an escalation channel.
+        denied_resources: list[str] = []
         if (
             request.data.get("enabled")
-            and not instance.enabled
             and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
-            # org admins have full access, so skip the gate for a faster enable
             and not self.user_access_control.is_organization_admin
         ):
             denied_resources = denied_resources_in_share(cast(User, request.user), self.team, instance)
-            if denied_resources:
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            if context.get("recording"):
+                recording = cast(SessionRecording, context.get("recording"))
+                # Recordings may not have a persisted row until they are shared.
+                recording.save()
+
+            instance.lock_resource()
+            instance = self._get_sharing_configuration(context, dedupe=True)
+            if denied_resources and not instance.enabled:
                 denied_names = ", ".join(f"`{name}`" for name in denied_resources)
                 raise ValidationError(
                     f"Can't enable sharing: you don't have access to {denied_names}, "
                     "which the shared queries use. Ask an admin for access, or remove those queries first."
                 )
+            serializer.instance = instance
+            was_enabled = instance.enabled
+            serializer.save(**({"shared_by": request.user} if serializer.validated_data.get("enabled") else {}))
 
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+            if serializer.validated_data.get("enabled") is False:
+                SharingConfiguration.objects.filter(
+                    team_id=self.team_id,
+                    dashboard_id=instance.dashboard_id,
+                    insight_id=instance.insight_id,
+                    notebook_id=instance.notebook_id,
+                    recording_id=instance.recording_id,
+                ).update(enabled=False)
 
-        if context.get("insight"):
+        if context.get("insight") and "enabled" in serializer.validated_data:
             name = instance.insight.name or instance.insight.derived_name
             log_activity(
                 organization_id=None,
@@ -588,6 +600,7 @@ class SharingConfigurationViewSet(
                             type="Insight",
                             action="changed",
                             field="sharing",
+                            before=was_enabled,
                             after=serializer.data.get("enabled"),
                         )
                     ],
@@ -611,13 +624,14 @@ class SharingConfigurationViewSet(
                             type="Dashboard",
                             action="changed",
                             field="sharing",
+                            before=was_enabled,
                             after=serializer.data.get("enabled"),
                         )
                     ],
                 ),
             )
 
-        if context.get("notebook"):
+        if context.get("notebook") and "enabled" in serializer.validated_data:
             log_activity(
                 organization_id=None,
                 team_id=self.team_id,
@@ -633,6 +647,7 @@ class SharingConfigurationViewSet(
                             type="Notebook",
                             action="changed",
                             field="sharing",
+                            before=was_enabled,
                             after=serializer.data.get("enabled"),
                         )
                     ],
@@ -991,6 +1006,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         return True
 
     @xframe_options_exempt
+    @ip_restrictions_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         try:
             resource = self.get_object()

@@ -14,6 +14,7 @@ import {
     createCdpCoreServices,
 } from '../cdp-services'
 import type { CdpConfig } from '../config'
+import { HogFlow } from '../schema/hogflow'
 import { HogExecutorAsyncService } from '../services/hog-executor-async.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
@@ -31,10 +32,13 @@ import { RecipientPreferencesService } from '../services/messaging/recipient-pre
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from '../services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 import { CdpUsageReporterService } from '../services/usage/cdp-usage-reporter.service'
-import { HogFunctionTypeType } from '../types'
+import { HogFunctionType, HogFunctionTypeType } from '../types'
+
+export type TeamWork = { team: Team; hogFunctions: HogFunctionType[]; hogFlows: HogFlow[] }
 
 export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
@@ -73,6 +77,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
 
     emailService: EmailService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    workflowsActivationReporter: WorkflowsActivationReporter
     cdpUsageReporter: CdpUsageReporterService
     invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
@@ -105,6 +110,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.hogFlowExecutor = services.hogFlowExecutor
         this.emailService = services.emailService
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+        this.workflowsActivationReporter = services.workflowsActivationReporter
         this.cdpUsageReporter = services.cdpUsageReporter
         this.invocationResultsService = services.invocationResultsService
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
@@ -130,12 +136,16 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         teamId: TeamId,
         hogTypes: HogFunctionTypeType[]
     ): Promise<Team | null> {
-        const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
+        return (await this.loadTeamWork(teamId, hogTypes))?.team ?? null
+    }
+
+    protected async loadTeamWork(teamId: TeamId, hogTypes: HogFunctionTypeType[]): Promise<TeamWork | null> {
+        const [hogFunctions, hogFlows, team] = await Promise.all([
             this.hogFunctionManager.getHogFunctionsForTeam(teamId, hogTypes),
             this.hogFlowManager.getHogFlowsForTeam(teamId),
             this.deps.teamManager.getTeam(teamId),
         ])
-        return teamHogFunctions.length || teamHogFlows.length ? team : null
+        return team && (hogFunctions.length || hogFlows.length) ? { team, hogFunctions, hogFlows } : null
     }
 
     public async start(): Promise<void> {

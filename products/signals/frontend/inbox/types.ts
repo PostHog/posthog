@@ -1,5 +1,6 @@
 import type { UserBasicType } from '~/types'
 
+import type { SignalActorKindEnumApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     type SignalReportApi,
     type PatchedSignalSourceConfigApi,
@@ -12,6 +13,7 @@ import {
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
+    type SignalReportListApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
     type SignalReportSuppressionSourceEnumApi,
@@ -167,8 +169,12 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     refund_ineligibility_reason?: string | null
     /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
-    /** Coarse sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
+    /** Sort key from the list response's ranker, for the Recommended and Personalized sorts only. Lower keys rank first. */
     inbox_merge_key?: number | null
+    /** For the Personalized sort: the tier the user's personal ranking gave the report. Null when it did not rank the report. */
+    personal_tier?: SignalReportListApi['personal_tier']
+    /** For the Personalized sort: why the personal ranking put the report where it is. Null when it did not rank the report. */
+    personal_reason?: SignalReportListApi['personal_reason']
 }
 
 export enum SignalReportStatus {
@@ -197,6 +203,8 @@ export interface SignalReportArtefact {
     created_by?: UserBasicType | null
     /** Set when an agent task produced the artefact (attribution reads "by agent"). */
     task_id?: string | null
+    /** Who produced the artefact: a person, an internal task, an external agent, or the pipeline. */
+    actor_kind?: SignalActorKindEnumApi
 }
 
 export interface SignalReportArtefactResponse {
@@ -240,11 +248,45 @@ export const SOURCE_DEFAULT_NOT_ACTIONABLE_KEY = 'default_not_actionable'
 export const SOURCE_STEERING_MAX_LENGTH = 2000
 /** Linear source only: the Linear team ids it reads issues from. Absent or empty means every team. */
 export const SOURCE_LINEAR_TEAM_IDS_KEY = 'linear_team_ids'
+/** Error tracking source only: the issue filter, compiled by the server, saved on every error tracking row. */
+export const SOURCE_ISSUE_FILTERS_KEY = 'issue_filters'
 
 // Anything that is not a list of ids reads as "every team", matching the backend's fallback.
 export function linearTeamIdsFromConfig(config: Record<string, any> | null | undefined): string[] {
     const raw = config?.[SOURCE_LINEAR_TEAM_IDS_KEY]
     return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
+}
+
+/** Product analytics source only: which firing insight alerts become signals. */
+export const SOURCE_ALERT_SCOPE_KEY = 'alert_scope'
+
+export enum SignalAlertScope {
+    InvestigatedOnly = 'investigated_only',
+    AllFiringAlerts = 'all_firing_alerts',
+    Off = 'off',
+}
+
+// Anything unknown reads as investigated only, matching the backend's fallback.
+export function alertScopeFromConfig(config: Record<string, any> | null | undefined): SignalAlertScope {
+    const scope = config?.[SOURCE_ALERT_SCOPE_KEY]
+    return scope === SignalAlertScope.AllFiringAlerts || scope === SignalAlertScope.Off
+        ? scope
+        : SignalAlertScope.InvestigatedOnly
+}
+
+/** Product analytics source only: regex patterns matched against a firing alert's name and its insight's name. */
+export const SOURCE_ALERT_ALLOW_PATTERNS_KEY = 'alert_allow_patterns'
+export const SOURCE_ALERT_BLOCK_PATTERNS_KEY = 'alert_block_patterns'
+export const SOURCE_ALERT_PATTERNS_MAX_COUNT = 20
+export const SOURCE_ALERT_PATTERN_MAX_LENGTH = 200
+
+// Anything that is not a list of strings reads as no patterns. The API rejects such a value, so only a raw write can store one.
+export function alertPatternsFromConfig(
+    config: Record<string, any> | null | undefined,
+    key: typeof SOURCE_ALERT_ALLOW_PATTERNS_KEY | typeof SOURCE_ALERT_BLOCK_PATTERNS_KEY
+): string[] {
+    const raw = config?.[key]
+    return Array.isArray(raw) ? raw.filter((pattern): pattern is string => typeof pattern === 'string') : []
 }
 
 // ── Inbox IA: page tabs, report sections, scope ──────────────────────────────
@@ -306,7 +348,9 @@ export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
 export const INBOX_REPORT_SECTION_KEYS = [
     'monitoring',
     'needs-decision',
+    'outcome-monitoring',
     'resolved',
+    'closed',
     'dismissed',
     'held-back',
     'not-actionable',
@@ -322,7 +366,9 @@ export const INBOX_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'needs-de
 export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> = {
     monitoring: 'Review and merge',
     'needs-decision': 'Needs decision',
+    'outcome-monitoring': 'Monitoring',
     resolved: 'Resolved',
+    closed: 'Closed',
     dismissed: 'Dismissed',
     'held-back': 'Held back',
     'not-actionable': 'Not actionable',
@@ -332,7 +378,9 @@ export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> =
 export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, string> = {
     monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
     'needs-decision': 'Reports an agent can act on that have no pull request yet.',
+    'outcome-monitoring': 'Reports being monitored to verify their outcome.',
     resolved: 'Reports fixed by a merged pull request, or marked resolved.',
+    closed: 'Reports marked closed, including reports whose verification checks failed.',
     dismissed:
         'Reports a person or agent dismissed, and reports whose pull request was closed without merging. Most can be restored to your inbox.',
     'held-back':
@@ -442,6 +490,7 @@ export type SignalRunKind = 'scout' | 'signal'
  * standalone Tasks scene (`/tasks/{task_id}`).
  */
 export interface SignalRun {
+    total_spend?: number | null
     task_id: string
     kind: SignalRunKind
     /** Scout: the `signals-scout-*` skill code name (shown verbatim). Signal: the report title. */

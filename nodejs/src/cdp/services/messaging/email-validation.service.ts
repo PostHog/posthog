@@ -5,7 +5,7 @@ import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { RedisV2 } from '~/common/redis/redis-v2'
-import { noteOobDomain } from '~/common/utils/oob-domains'
+import { checkOobDomain } from '~/common/utils/oob-domains'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
 
@@ -132,7 +132,13 @@ export class EmailValidationService {
         const domain = domainToASCII(rawDomain) || rawDomain.toLowerCase()
         // Above resolveDeliverability on purpose: one verdict is cached and shared across teams for
         // up to a day, so a check inside the lookup would miss every send that hits the cache.
-        noteOobDomain(domain, 'node_email_validation', { teamId })
+        if (checkOobDomain(domain, 'node_email_validation', { teamId }) !== null) {
+            return this.skip(
+                teamId,
+                'blocked_domain',
+                `Skipping send: PostHog doesn't deliver to the domain "${domain}".`
+            )
+        }
 
         const deliverable = await this.resolveDeliverability(domain)
         if (!deliverable) {
@@ -145,7 +151,11 @@ export class EmailValidationService {
         return null
     }
 
-    private skip(teamId: number, reason: 'invalid_syntax' | 'invalid_domain', message: string): string {
+    private skip(
+        teamId: number,
+        reason: 'invalid_syntax' | 'invalid_domain' | 'blocked_domain',
+        message: string
+    ): string {
         cdpEmailMxSkippedTotal.inc({ team_id: String(teamId), reason })
         return message
     }
@@ -259,10 +269,11 @@ export class EmailValidationService {
         if (!this.valkey) {
             return null
         }
-        // failOpen: a Valkey outage returns null (treated as a cache miss), never throws.
-        const value = await this.valkey.useClient({ name: 'email-mx-read', failOpen: true }, (client) =>
-            client.get(VALKEY_KEY_PREFIX + domain)
-        )
+        // failOpen covers a failed command, but useClient still rethrows when the pool cannot hand out a client
+        // in time. The cache is optional, so both failures count as a cache miss and the lookup goes to DNS.
+        const value = await this.valkey
+            .useClient({ name: 'email-mx-read', failOpen: true }, (client) => client.get(VALKEY_KEY_PREFIX + domain))
+            .catch(() => null)
         if (value === '1') {
             return true
         }
@@ -277,8 +288,10 @@ export class EmailValidationService {
             return
         }
         const ttlSeconds = Math.floor((deliverable ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS) / 1000)
-        await this.valkey.useClient({ name: 'email-mx-write', failOpen: true }, (client) =>
-            client.set(VALKEY_KEY_PREFIX + domain, deliverable ? '1' : '0', 'EX', ttlSeconds)
-        )
+        await this.valkey
+            .useClient({ name: 'email-mx-write', failOpen: true }, (client) =>
+                client.set(VALKEY_KEY_PREFIX + domain, deliverable ? '1' : '0', 'EX', ttlSeconds)
+            )
+            .catch(() => undefined)
     }
 }

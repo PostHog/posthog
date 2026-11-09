@@ -11,8 +11,8 @@ import { PathCleaningToggle } from 'scenes/web-analytics/PathCleaningToggle'
 import { WebConversionGoal } from 'scenes/web-analytics/WebConversionGoal'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
+import { isWebStatsTableQuery } from '~/queries/schema/node-guards'
 import { WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery } from '~/queries/schema/schema-general'
-import { isWebStatsTableQuery } from '~/queries/utils'
 
 export interface WebAnalyticsEditorFiltersProps {
     query: WebStatsTableQuery | WebOverviewQuery
@@ -27,7 +27,7 @@ export function WebAnalyticsEditorFilters({ query, embedded }: WebAnalyticsEdito
     // Dashboard tiles render a readOnly snapshot. The Query component ignores
     // updateQuerySource changes here (see Query.tsx — `query = readOnly ? propsQuery : localQuery`),
     // so the toggle/filters never reflect the new state and clicks have no useful effect.
-    if (insightProps.dashboardId != null) {
+    if (insightProps.dashboardId != null || insightProps.presentationOnly) {
         return null
     }
 

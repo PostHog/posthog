@@ -1,14 +1,9 @@
-import { useActions, useAsyncActions, useValues } from 'kea'
-
-import { IconRewind } from '@posthog/icons'
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { isUUIDLike } from 'lib/utils/guards'
 import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -17,9 +12,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
+import { SceneMenuBar, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { Query } from '~/queries/Query/Query'
 import { ActorsQuery, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab, CustomerProfileScope, OnboardingStepKey } from '~/types'
@@ -29,6 +23,7 @@ import { PersonDisplayNameNudgeBanner } from 'products/customer_analytics/fronte
 import { customerProfileConfigLogic } from 'products/customer_analytics/frontend/customerProfileConfigLogic'
 
 import { personsSceneLogic } from '../logics/personsSceneLogic'
+import { SAMPLE_PERSONS_SOURCE } from '../samplePersonRows'
 
 export const scene: SceneExport = {
     component: PersonsScene,
@@ -39,11 +34,11 @@ export const scene: SceneExport = {
 export function PersonsScene(): JSX.Element {
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
-    const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam, baseCurrency } = useValues(teamLogic)
     const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
     const queryUniqueKey = 'persons-query'
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // A UUID-shaped search that returns nothing is often a session ID typed into the wrong field.
     // Session IDs aren't part of the persons query, so point the user to where they are searchable.
@@ -55,45 +50,21 @@ export function PersonsScene(): JSX.Element {
         loadConfigs()
     })
 
-    const onResetDeletedPerson = (): void => {
-        LemonDialog.openForm({
-            width: '30rem',
-            title: 'Reset deleted person',
-            description: `Use this if a deleted person's distinct ID gets new events, but no person shows up for it.
-                Resetting the distinct ID makes that person show up again.`,
-            initialValues: { distinct_id: '' },
-            content: (
-                <LemonField name="distinct_id" label="Distinct ID to reset">
-                    <LemonInput type="text" autoFocus />
-                </LemonField>
-            ),
-            errors: {
-                distinct_id: (distinct_id) => (!distinct_id ? 'This is required' : undefined),
-            },
-            onSubmit: async ({ distinct_id }) => await resetDeletedDistinctId(distinct_id),
-        })
-    }
-
     return (
         <SceneContent>
             <ActivitySceneTabs activeKey="persons" />
 
-            {sceneMenuBarEnabled && (
-                <SceneMenuBar>
-                    <SceneMenuBarMenu label="File" dataAttr="persons-menubar-file">
-                        <SceneMenuBarFileItems dataAttrKey="persons" />
-                        <SceneMenuBarItem
-                            variant="destructive"
-                            opensFloatingUi
-                            onClick={onResetDeletedPerson}
-                            data-attr="persons-menubar-reset-deleted"
-                        >
-                            <IconRewind />
-                            Reset a deleted person
-                        </SceneMenuBarItem>
-                    </SceneMenuBarMenu>
-                </SceneMenuBar>
-            )}
+            {sceneMenuBarEnabled &&
+                (todayRailNav ? (
+                    // This page has no project tree entry, so it has no File menu. The bar adds Help under the Today layout.
+                    <SceneMenuBar />
+                ) : (
+                    <SceneMenuBar>
+                        <SceneMenuBarMenu label="File" dataAttr="persons-menubar-file">
+                            <SceneMenuBarFileItems dataAttrKey="persons" />
+                        </SceneMenuBarMenu>
+                    </SceneMenuBar>
+                ))}
 
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Persons].name}
@@ -104,39 +75,6 @@ export function PersonsScene(): JSX.Element {
                 actions={
                     <>
                         <FeedbackButton id="customer-analytics-people-list-feedback-button" />
-                        <ScenePanel>
-                            <ScenePanelActionsSection>
-                                <ButtonPrimitive
-                                    menuItem
-                                    variant="danger"
-                                    onClick={() => {
-                                        LemonDialog.openForm({
-                                            width: '30rem',
-                                            title: 'Reset deleted person',
-                                            description: `Use this if a deleted person's distinct ID gets new events, but no person shows up for it.
-                                                Resetting the distinct ID makes that person show up again.`,
-                                            initialValues: {
-                                                distinct_id: '',
-                                            },
-                                            content: (
-                                                <LemonField name="distinct_id" label="Distinct ID to reset">
-                                                    <LemonInput type="text" autoFocus />
-                                                </LemonField>
-                                            ),
-                                            errors: {
-                                                distinct_id: (distinct_id) =>
-                                                    !distinct_id ? 'This is required' : undefined,
-                                            },
-                                            onSubmit: async ({ distinct_id }) =>
-                                                await resetDeletedDistinctId(distinct_id),
-                                        })
-                                    }}
-                                >
-                                    <IconRewind />
-                                    Reset a deleted person...
-                                </ButtonPrimitive>
-                            </ScenePanelActionsSection>
-                        </ScenePanel>
                     </>
                 }
             />
@@ -149,6 +87,7 @@ export function PersonsScene(): JSX.Element {
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',
+                    dataTableSampleRows: SAMPLE_PERSONS_SOURCE,
                     emptyStateHeading:
                         currentTeam?.ingested_event && searchLooksLikeSessionId
                             ? 'Looking for a session?'

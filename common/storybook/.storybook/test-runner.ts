@@ -84,6 +84,19 @@ export default {
     // making the marker visible from the very first module evaluation.
     async prepare({ page, browserContext, testRunnerConfig }) {
         await page.addInitScript(() => {
+            // Seeded (mulberry32) and restarted per story in preVisit, so random placeholders render the same every run.
+            const RANDOM_SEED = 1
+            let randomState = RANDOM_SEED
+            Math.random = (): number => {
+                randomState = (randomState + 0x6d2b79f5) | 0
+                let value = Math.imul(randomState ^ (randomState >>> 15), 1 | randomState)
+                value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value
+                return ((value ^ (value >>> 14)) >>> 0) / 4294967296
+            }
+            ;(window as unknown as { __testRunnerRestartRandom: () => void }).__testRunnerRestartRandom = (): void => {
+                randomState = RANDOM_SEED
+            }
+
             const patchedUserAgent = `${navigator.userAgent} StorybookTestRunner`
             Object.defineProperty(navigator, 'userAgent', {
                 get: () => patchedUserAgent,
@@ -126,7 +139,11 @@ export default {
     async preVisit(page, context) {
         // Resets the scheme `takeSnapshotWithTheme` emulates, which is page-level and outlasts the story.
         // Not `null`: that stops emulation, so WebKit follows a dark host.
-        await page.emulateMedia({ colorScheme: 'light' })
+        // Reduced motion also stops requestAnimationFrame motion (React Flow, d3) that the CSS override cannot reach.
+        await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+        await page.evaluate(() =>
+            (window as unknown as { __testRunnerRestartRandom?: () => void }).__testRunnerRestartRandom?.()
+        )
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
@@ -477,7 +494,7 @@ async function takeSnapshotWithTheme(
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
     // `isDarkModeOn` does not list that attribute as a selector input, so only a scheme change recomputes it.
-    await page.emulateMedia({ colorScheme: theme })
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
@@ -540,6 +557,7 @@ async function takeSnapshotWithTheme(
                         const iframes = Array.from(document.querySelectorAll('iframe'))
                         return iframes.every((iframe) => iframe.getAttribute('data-load-tracked') === 'loaded')
                     },
+                    undefined,
                     { timeout: 8000 }
                 )
                 .catch(() => {
@@ -550,22 +568,15 @@ async function takeSnapshotWithTheme(
         }
     }
 
-    // reset scroll positions to ensure consistent snapshots
+    // Inner containers keep their scroll position. Components scroll them on a timer (the settings
+    // nav scrolls to the selected item), so resetting them races that timer and flips the snapshot.
     await page.evaluate(() => {
-        // scroll main viewport to top
         window.scrollTo(0, 0)
-        // scroll the app's main content viewport (Navigation.tsx uses <main id="main-content"> as the scroll container)
+        // Navigation.tsx uses <main id="main-content"> as the scroll container
         const mainContent = document.querySelector('#main-content')
         if (mainContent instanceof HTMLElement) {
             mainContent.scrollTop = 0
         }
-        // scroll all overflow containers to top
-        document.querySelectorAll('.overflow-auto, .overflow-y-auto, .overflow-x-auto').forEach((el) => {
-            if (el instanceof HTMLElement) {
-                el.scrollTop = 0
-                el.scrollLeft = 0
-            }
-        })
     })
 
     // wait for content to stabilize - detects when DOM stops changing
@@ -599,6 +610,7 @@ async function takeSnapshotWithTheme(
                     checkStability()
                 })
             },
+            undefined,
             { timeout: 3000 }
         )
         .catch(() => {
@@ -610,8 +622,30 @@ async function takeSnapshotWithTheme(
 
     await waitForChartCanvasesPainted(page)
 
+    await finishAnimations(page)
+
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
+}
+
+/** Headless Chromium sometimes paints the first keyframe of the 0 ms animations base.scss forces; this commits the last. */
+async function finishAnimations(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        // document.getAnimations() leaves out shadow trees, and the toolbar renders in one.
+        const roots: (Document | ShadowRoot)[] = [document]
+        document.querySelectorAll('*').forEach((element) => {
+            if (element.shadowRoot) {
+                roots.push(element.shadowRoot)
+            }
+        })
+        for (const animation of roots.flatMap((root) => root.getAnimations())) {
+            try {
+                animation.finish()
+            } catch {
+                continue
+            }
+        }
+    })
 }
 
 async function doTakeSnapshotWithTheme(
@@ -868,6 +902,7 @@ async function resizeViewportAndWait(page: Page, viewport: { width: number; heig
                     checkStability()
                 })
             },
+            undefined,
             { timeout: VIEWPORT_SETTLE_TIMEOUT_MS }
         )
         .catch(() => {
