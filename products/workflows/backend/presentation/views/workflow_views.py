@@ -14,6 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.api.file_system.file_system import MAX_PATH_LENGTH
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -53,13 +54,21 @@ class WorkflowViewColumn(TextChoices):
     HEALTH = "health"
 
 
+FACET_VALUE_MAX_LENGTH = 256
+
+
 class WorkflowViewFilterSerializer(serializers.Serializer):
     facet = serializers.ChoiceField(
         choices=WorkflowViewFacet.choices,
         help_text="Supported workflow list facet. The in facet takes a folder path and must be negated.",
     )
     value = serializers.CharField(
-        max_length=256, trim_whitespace=False, help_text="Facet value; createdBy accepts me for the current viewer."
+        max_length=MAX_PATH_LENGTH,
+        trim_whitespace=False,
+        help_text=(
+            f"Facet value, up to {FACET_VALUE_MAX_LENGTH} characters; createdBy accepts me for the current viewer. "
+            f"An in value is a folder path and can be up to {MAX_PATH_LENGTH} characters, like any folder path."
+        ),
     )
     negated = serializers.BooleanField(default=False, help_text="Exclude workflows matching this facet value.")
 
@@ -67,6 +76,10 @@ class WorkflowViewFilterSerializer(serializers.Serializer):
         # An open folder is navigation, so a view keeps only the folders it hides.
         if attrs["facet"] == WorkflowViewFacet.IN and not attrs.get("negated", False):
             raise serializers.ValidationError("A view can hide a folder with -in:, but it can't open one.")
+        if attrs["facet"] != WorkflowViewFacet.IN and len(attrs["value"]) > FACET_VALUE_MAX_LENGTH:
+            raise serializers.ValidationError(
+                {"value": f"Ensure this field has no more than {FACET_VALUE_MAX_LENGTH} characters."}
+            )
         return attrs
 
 

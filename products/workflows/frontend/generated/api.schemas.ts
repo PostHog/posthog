@@ -3308,8 +3308,8 @@ export interface WorkflowViewFilterApi {
      * * `in` - In */
     facet: WorkflowViewFacetEnumApi
     /**
-     * Facet value; createdBy accepts me for the current viewer.
-     * @maxLength 256
+     * Facet value, up to 256 characters; createdBy accepts me for the current viewer. An in value is a folder path and can be up to 4000 characters, like any folder path.
+     * @maxLength 4000
      */
     value: string
     /** Exclude workflows matching this facet value. */

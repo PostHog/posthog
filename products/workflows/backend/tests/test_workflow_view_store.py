@@ -18,22 +18,22 @@ class TestWorkflowViewStoreConcurrency(TransactionTestCase):
         self.store = WorkflowViewStore(self.team.id)
         self.view = self.store.create(name="Shared", state={"filters": [], "text": "", "columns": []})
 
-    def _edit_while_holding_the_view(self, locked: Event) -> None:
+    def _edit_while_holding_the_view(self, locked: Event, writer_pid: int, writer_blocked: Event) -> None:
         # Django shares its test connection across threads, so the other writer needs its own database session.
         other = connection.get_new_connection(connection.get_connection_params())
         try:
             with other.cursor() as cursor:
                 cursor.execute("BEGIN")
+                cursor.execute("SELECT pg_backend_pid()")
+                holder_pid = cursor.fetchone()[0]
                 cursor.execute("SELECT id FROM workflows_workflowview WHERE id = %s FOR UPDATE", [self.view.id])
                 locked.set()
                 deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
-                    cursor.execute(
-                        "SELECT count(*) FROM pg_stat_activity"
-                        " WHERE datname = current_database() AND wait_event_type = 'Lock'"
-                    )
+                    cursor.execute("SELECT %s = ANY(pg_blocking_pids(%s))", [holder_pid, writer_pid])
                     row = cursor.fetchone()
                     if row and row[0]:
+                        writer_blocked.set()
                         break
                     time.sleep(0.01)
                 cursor.execute(
@@ -45,13 +45,18 @@ class TestWorkflowViewStoreConcurrency(TransactionTestCase):
 
     def test_a_write_that_waits_on_a_locked_view_is_refused_once_a_newer_version_commits(self) -> None:
         locked = Event()
-        first = Thread(target=self._edit_while_holding_the_view, args=(locked,))
+        writer_blocked = Event()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_backend_pid()")
+            writer_pid = cursor.fetchone()[0]
+        first = Thread(target=self._edit_while_holding_the_view, args=(locked, writer_pid, writer_blocked))
         first.start()
         self.assertTrue(locked.wait(timeout=10))
 
         with self.assertRaises(WorkflowViewConflict):
             self.store.update(self.view.id, 1, name="Second", state=None)
         first.join(timeout=10)
+        self.assertTrue(writer_blocked.is_set())
 
         saved = WorkflowView.objects.for_team(self.team.id).get(pk=self.view.id)
         self.assertEqual((saved.name, saved.version), ("First", 2))

@@ -3242,7 +3242,7 @@ export const WorkflowSendingRulesPartialUpdateBody = /* @__PURE__ */ zod.object(
 
 export const workflowViewsCreateBodyNameMax = 128
 
-export const workflowViewsCreateBodyStateOneFiltersItemValueMax = 256
+export const workflowViewsCreateBodyStateOneFiltersItemValueMax = 4000
 
 export const workflowViewsCreateBodyStateOneFiltersItemNegatedDefault = false
 export const workflowViewsCreateBodyStateOneFiltersMax = 100
@@ -3269,7 +3269,9 @@ export const WorkflowViewsCreateBody = /* @__PURE__ */ zod.object({
                         value: zod
                             .string()
                             .max(workflowViewsCreateBodyStateOneFiltersItemValueMax)
-                            .describe('Facet value; createdBy accepts me for the current viewer.'),
+                            .describe(
+                                'Facet value, up to 256 characters; createdBy accepts me for the current viewer. An in value is a folder path and can be up to 4000 characters, like any folder path.'
+                            ),
                         negated: zod
                             .boolean()
                             .default(workflowViewsCreateBodyStateOneFiltersItemNegatedDefault)
@@ -3298,7 +3300,7 @@ export const WorkflowViewsCreateBody = /* @__PURE__ */ zod.object({
 
 export const workflowViewsPartialUpdateBodyNameMax = 128
 
-export const workflowViewsPartialUpdateBodyStateOneFiltersItemValueMax = 256
+export const workflowViewsPartialUpdateBodyStateOneFiltersItemValueMax = 4000
 
 export const workflowViewsPartialUpdateBodyStateOneFiltersItemNegatedDefault = false
 export const workflowViewsPartialUpdateBodyStateOneFiltersMax = 100
@@ -3330,7 +3332,9 @@ export const WorkflowViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         value: zod
                             .string()
                             .max(workflowViewsPartialUpdateBodyStateOneFiltersItemValueMax)
-                            .describe('Facet value; createdBy accepts me for the current viewer.'),
+                            .describe(
+                                'Facet value, up to 256 characters; createdBy accepts me for the current viewer. An in value is a folder path and can be up to 4000 characters, like any folder path.'
+                            ),
                         negated: zod
                             .boolean()
                             .default(workflowViewsPartialUpdateBodyStateOneFiltersItemNegatedDefault)
