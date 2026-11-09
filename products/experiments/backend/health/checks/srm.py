@@ -258,7 +258,7 @@ def _after_split_change(
                 _changed_while_exposed(split_changes, unit),
                 *retest,
                 *(cause.sentences if cause is not None else ()),
-                *_next_step(ctx, split_changes),
+                *_next_step(ctx, split_changes, unit),
             ]
         ),
         evidence=evidence,
@@ -279,10 +279,16 @@ def _changed_while_exposed(split_changes: "_SplitChanges", unit: str) -> str:
     )
 
 
-def _next_step(ctx: HealthContext, split_changes: "_SplitChanges") -> list[str]:
+def _next_step(ctx: HealthContext, split_changes: "_SplitChanges", unit: str) -> list[str]:
     if split_changes.warning_title is None:
         start_at = suggested_start(split_changes.changes[-1].changed_at, split_changes.team_timezone)
-        return [f"Move the start date to {start_at}, or reset the experiment."]
+        # A reset also clears the end date and the conclusion, which would undo an ended experiment's decision.
+        if ctx.has_ended:
+            return [f"Move the start date to {start_at}."]
+        return [
+            f"Move the start date to {start_at}, or reset the experiment. A reset returns it to draft, and once you "
+            f"launch it again, the results count only {unit}s exposed from then on."
+        ]
     # The split check doesn't run after the end, so its finding isn't there to follow.
     return [] if ctx.has_ended else [f'Follow the steps in "{split_changes.warning_title}" to fix the results.']
 
@@ -359,8 +365,7 @@ def _split_changes(ctx: HealthContext) -> _SplitChanges | None:
         )
     if not isinstance(history, FlagHistoryNotChecked):
         return None
-    # The split check couldn't date the changes against the exposures, so the exposure days do. A change on the first
-    # day of exposures may predate all of them, and counts, as a change does when the split check's query fails.
+    # A change on the first day of exposures may predate them all. It counts, as when the split check's query fails.
     first_day = min(
         (day for daily in ctx.exposures.daily_exposures.values() for day, count in daily.items() if count > 0),
         default=None,

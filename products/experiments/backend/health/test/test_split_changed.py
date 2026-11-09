@@ -790,7 +790,8 @@ class TestSrmAfterSplitChange(TestCase):
                 "not_checked",
                 RUNNING,
                 None,
-                f" Move the start date to {FIRST_CHANGE}, or reset the experiment.",
+                f" Move the start date to {FIRST_CHANGE}, or reset the experiment. A reset returns it to draft, and "
+                "once you launch it again, the results count only users exposed from then on.",
                 FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
                 NOT_CHECKED_CAUSE,
             ),
@@ -798,7 +799,7 @@ class TestSrmAfterSplitChange(TestCase):
                 "not_checked_ended_after_the_change",
                 ENDED,
                 FIRST_CHANGE_AT + timedelta(days=3),
-                f" Move the start date to {FIRST_CHANGE}, or reset the experiment.",
+                f" Move the start date to {FIRST_CHANGE}.",
                 FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
                 NOT_CHECKED_CAUSE,
             ),
