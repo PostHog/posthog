@@ -82,6 +82,8 @@ or config change, keep the two steps apart. Put first a reply that asks only for
 reports what it finds and waits. A reply that also makes the change is a separate choice.
 - If the answer asks for information that only the person knows, such as a name, a value or a repository, \
 do not guess it. Offer only the replies that are complete without it, or return an empty list.
+- If the answer asks the person to confirm a plan or a change before it starts, also offer a reply that \
+asks for a change first.
 - Do not write replies that only say thanks or close the conversation.
 - If the answer offers to fix a bug or an error, the reply that accepts the fix has the label \
 "Fix it, make no mistakes". Its reply starts with "Fix it, make no mistakes." and can add the step that the \
