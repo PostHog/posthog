@@ -694,5 +694,26 @@ describe('EmailSuppressionService', () => {
                 }
             }
         )
+
+        it('reads the global list again on the retry after a failed read', async () => {
+            const email = `recovers-${team.id}@example.com`
+            const svc = new EmailSuppressionService(hub.postgres, {
+                ...emailSuppressionConfigFromEnv(),
+                globalHardBounceEnforce: true,
+            })
+            await svc.recordGlobalHardBounces([email])
+            const query = hub.postgres.query.bind(hub.postgres)
+            let failGlobalRead = true
+            jest.spyOn(hub.postgres, 'query').mockImplementation((...args: Parameters<typeof query>) => {
+                if (args[3] === 'loadGlobalHardBounces' && failGlobalRead) {
+                    failGlobalRead = false
+                    return Promise.reject(new Error('connection lost'))
+                }
+                return query(...args)
+            })
+
+            await expect(svc.lookupSuppression(team.id, email, { transactional: true })).rejects.toThrow()
+            expect(await svc.lookupSuppression(team.id, email, { transactional: true })).toBe(true)
+        })
     })
 })
