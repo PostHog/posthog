@@ -103,6 +103,19 @@ class _UnwrapHiddenAliases(CloningVisitor):
         return super().visit_alias(node)
 
 
+@frozen
+class _DefaultLimitRouter:
+    inner: ResultRouter
+    limits: dict[str, int] = field(hash=False)
+
+    def split(self, result: BatchQueryResult) -> dict[str, BatchQueryResult]:
+        split = self.inner.split(result)
+        return {
+            query_id: replace(rows, rows=rows.rows[: self.limits[query_id]]) if query_id in self.limits else rows
+            for query_id, rows in split.items()
+        }
+
+
 def _with_default_limit(query: SharingQuery) -> ast.SelectQuery | ast.SelectSetQuery:
     if query.default_limit is None or not isinstance(query.query, ast.SelectQuery) or query.query.limit is not None:
         return query.query
@@ -153,6 +166,13 @@ class MultiQueryPlanner:
                         or not set(group.query_ids) <= remaining.keys()
                     ):
                         raise ValueError(f"Invalid or overlapping proposal from {rule.name}")
+                    limits: dict[str, int] = {}
+                    for query_id in group.query_ids:
+                        default_limit = remaining[query_id].default_limit
+                        if default_limit is not None:
+                            limits[query_id] = default_limit
+                    if limits:
+                        group = replace(group, router=_DefaultLimitRouter(inner=group.router, limits=limits))
                     groups.append(group)
                     for query_id in group.query_ids:
                         del remaining[query_id]

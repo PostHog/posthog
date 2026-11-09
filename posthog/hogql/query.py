@@ -78,6 +78,7 @@ from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.resolver import Resolver, ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
@@ -1170,6 +1171,7 @@ class HogQLQueryExecutor:
                 id(self.context.user_access_control),
                 self.context.bypass_warehouse_access_control,
                 self.context.apply_events_retention_floor,
+                _restriction_key(prepared.context.restricted_properties),
                 self.query_modifiers,
                 self.clickhouse_settings,
                 self.workload,
@@ -1316,6 +1318,12 @@ class HogQLQueryExecutor:
 hogql_execution_override: ContextVar[Callable[[HogQLQueryExecutor], HogQLQueryResponse] | None] = ContextVar(
     "hogql_execution_override", default=None
 )
+
+
+def _restriction_key(restricted: set[RestrictedProperty] | None) -> tuple[str, ...] | None:
+    return tuple(sorted(repr(prop) for prop in restricted)) if restricted is not None else None
+
+
 _MISSING_COLUMN_MESSAGES = (UNRESOLVED_FIELD_MESSAGE, FIELD_NOT_FOUND_MESSAGE)
 
 

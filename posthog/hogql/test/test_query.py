@@ -45,6 +45,7 @@ from posthog.hogql.multi_query import MultiQueryPlanner
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.query_stats import query_stats_scope, record
 from posthog.hogql.sharing_rules import CountFusionRule, SameAggregationTopNRule
@@ -80,7 +81,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         [
             ("direct", "events"),
             ("projection", "(SELECT event, distinct_id FROM events) AS source"),
-            ("property", "(SELECT properties.tool AS event, distinct_id FROM events) AS source"),
             ("empty", "events"),
             (
                 "nullable",
@@ -155,6 +155,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 placeholders={"excluded": ast.Constant(value=excluded)},
                 context=HogQLContext(team_id=self.team.pk, apply_events_retention_floor=False),
+            ),
+            HogQLQueryExecutor(
+                query=queries[1],
+                team=self.team,
+                placeholders={"excluded": ast.Constant(value=excluded)},
+                context=HogQLContext(
+                    team_id=self.team.pk, restricted_properties={RestrictedProperty(name="tool", property_type=1)}
+                ),
             ),
         ):
             incompatible = incompatible_executor.prepare_for_sharing(query_id="incompatible", scope_key="test-refresh")

@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.hogql.batch import BatchQueryResult
 from posthog.hogql.multi_query import (
     QUERY_SHARING_FLAG,
+    ExecutionGroup,
     MultiQueryPlanner,
     RuleProposals,
     SharingQuery,
@@ -122,6 +123,14 @@ class TestMultiQueryPlanner(SimpleTestCase):
                 "SELECT who, count() AS calls FROM (SELECT properties.$session_id AS who FROM events) GROUP BY who ORDER BY calls LIMIT 2",
             ),
             (
+                "timestamp_group",
+                "SELECT timestamp AS t, count() AS calls FROM events GROUP BY t ORDER BY calls LIMIT 2",
+            ),
+            (
+                "aliased_property_group",
+                "SELECT event, count() AS calls FROM (SELECT properties.tool AS event FROM events) GROUP BY event ORDER BY calls LIMIT 2",
+            ),
+            (
                 "window",
                 "SELECT event, count() AS calls, row_number() OVER () AS r FROM events GROUP BY event ORDER BY calls LIMIT 2",
             ),
@@ -140,6 +149,51 @@ class TestMultiQueryPlanner(SimpleTestCase):
         ]
         if _name != "filter":
             self.assertEqual(len(MultiQueryPlanner([SameAggregationTopNRule()]).plan(identical).groups), 2)
+
+    @parameterized.expand(
+        [
+            ("day_bucket", "SELECT toDate(timestamp) AS day, count() AS calls FROM events GROUP BY day"),
+            (
+                "derived_from_event",
+                "SELECT label, count() AS calls FROM (SELECT if(event = 'a', NULL, event) AS label FROM events) GROUP BY label",
+            ),
+        ]
+    )
+    def test_bounded_groupings_share(self, _name: str, base: str) -> None:
+        queries = [
+            SharingQuery(
+                query_id=str(i),
+                query=parse_select(f"{base} ORDER BY {order} LIMIT 2"),
+                context_key="same-request",
+                sharing_enabled=True,
+            )
+            for i, order in enumerate(("calls DESC", "calls"))
+        ]
+        self.assertEqual(len(MultiQueryPlanner([SameAggregationTopNRule()]).plan(queries).groups), 1)
+
+    def test_grouped_consumers_keep_their_default_limit(self) -> None:
+        class PairRule:
+            name = "pair"
+
+            def propose(self, queries: Sequence[SharingQuery]) -> RuleProposals:
+                ids = tuple(q.query_id for q in queries)
+                return RuleProposals(
+                    groups=(ExecutionGroup(query_ids=ids, query=queries[0].query, rule=self.name, router=BothRouter()),)
+                )
+
+        class BothRouter:
+            def split(self, result: BatchQueryResult) -> dict[str, BatchQueryResult]:
+                return {"limited": result, "explicit": result}
+
+        inputs = [
+            replace(query, query_id=query_id, default_limit=limit)
+            for query, query_id, limit in zip(self.inputs(), ("limited", "explicit"), (2, None))
+        ]
+        group = MultiQueryPlanner([PairRule()]).plan(inputs).groups[0]
+        rows = tuple((f"day-{i}", i) for i in range(5))
+        split = group.split(BatchQueryResult(columns=("day", "n"), types=("Date", "UInt64"), rows=rows))
+        self.assertEqual(split["limited"].rows, rows[:2])
+        self.assertEqual(split["explicit"].rows, rows)
 
     def test_context_isolation_and_rule_composition(self) -> None:
         planner = MultiQueryPlanner([SameAggregationTopNRule(), CountFusionRule()])
