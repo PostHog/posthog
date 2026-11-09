@@ -115,6 +115,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.ui_customization",
     "products.account_audits",
     "products.alerts_platform",
     "products.ai_training",
@@ -2023,4 +2024,23 @@ expose = [
 ]
 from = [
     "products.knowledge_writer",
+]
+
+[[modules]]
+path = "products.ui_customization"
+depends_on = [
+    "posthog",
+    "products.dashboards",
+    "products.notebooks",
+    "products.product_analytics",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ui_customization",
 ]

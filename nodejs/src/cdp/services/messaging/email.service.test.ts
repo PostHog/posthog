@@ -35,6 +35,7 @@ import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
     EmailService,
+    EmailServiceConfig,
     formatMailbox,
     parseAddressList,
     parseTierCaps,
@@ -182,12 +183,8 @@ describe('EmailService', () => {
     let hub: Hub
     let team: Team
     let workflowsActivationReporter: { report: jest.Mock }
-    beforeEach(async () => {
-        hub = await createHub({})
-        team = (await createTestTeamFixture(hub.postgres)).team
-        integrationIdBase = team.id
-        workflowsActivationReporter = { report: jest.fn() }
-        service = new EmailService(
+    const createService = (config: Partial<EmailServiceConfig> = {}): EmailService =>
+        new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
@@ -195,6 +192,7 @@ describe('EmailService', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                ...config,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
@@ -206,6 +204,12 @@ describe('EmailService', () => {
             null,
             workflowsActivationReporter
         )
+    beforeEach(async () => {
+        hub = await createHub({})
+        team = (await createTestTeamFixture(hub.postgres)).team
+        integrationIdBase = team.id
+        workflowsActivationReporter = { report: jest.fn() }
+        service = createService()
         mockFetch.mockClear()
     })
     afterEach(async () => {
@@ -2089,13 +2093,25 @@ describe('EmailService', () => {
                 name: 'a workflow send',
                 fromHogFlow: true,
                 parentRunId: null,
-                expectedSource: { app_source_id: 'function-1', instance_id: 'action-email' },
+                expectedSource: {
+                    app_source_id: 'function-1',
+                    instance_id: 'action-email',
+                    workflow_id: 'function-1',
+                    invocation_id: 'invocation-1',
+                    workflow_version: 4,
+                },
             },
             {
                 name: 'a broadcast send',
                 fromHogFlow: true,
                 parentRunId: 'batch-run-1',
-                expectedSource: { app_source_id: 'batch-run-1', instance_id: 'action-email' },
+                expectedSource: {
+                    app_source_id: 'batch-run-1',
+                    instance_id: 'action-email',
+                    workflow_id: 'function-1',
+                    invocation_id: 'invocation-1',
+                    workflow_version: 4,
+                },
             },
         ])(
             'includes unsubscribe headers for $name, attributed to the email it came from',
@@ -2105,6 +2121,7 @@ describe('EmailService', () => {
                 if (fromHogFlow) {
                     Object.assign(invocation, { hogFlow: { id: 'function-1', version: 1 }, parentRunId })
                     invocation.state.actionId = 'action-email'
+                    invocation.state.renderedWorkflowVersion = 4
                 }
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -2130,6 +2147,43 @@ describe('EmailService', () => {
                 })
             }
         )
+
+        it('drops the run claims when they would push List-Unsubscribe past the SES header limit', async () => {
+            const flowId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
+            const actionId = 'action_email_0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c'
+            const longAddress = `${'a'.repeat(64)}@${'b'.repeat(63)}.${'c'.repeat(63)}.example.com`
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.hogFunction.metadata = { message_category_type: 'marketing' }
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                to: { email: longAddress, name: 'Test User' },
+            })
+            Object.assign(invocation, {
+                id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d',
+                functionId: flowId,
+                hogFlow: { id: flowId, version: 1 },
+                parentRunId: null,
+            })
+            invocation.state.actionId = actionId
+            invocation.state.renderedWorkflowVersion = 17
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const headers = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Headers
+            const unsubscribeValue = headers.find((h: { Name: string }) => h.Name === 'List-Unsubscribe').Value
+            expect(unsubscribeValue.length).toBeLessThanOrEqual(870)
+            const token = unsubscribeValue.match(/messaging-preferences\/([^/]+)\//)[1]
+            expect(
+                new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL).validatePreferencesToken(token)
+            ).toEqual({
+                valid: true,
+                team_id: team.id,
+                identifier: longAddress,
+                app_source_id: flowId,
+                instance_id: actionId,
+            })
+        })
 
         it('should not include unsubscribe headers for transactional emails (but tracking-code header is still set)', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
@@ -2275,6 +2329,70 @@ describe('EmailService', () => {
                 )
             })
 
+            it.each([
+                {
+                    case: 'tags the links of a tracked send',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    tagged: true,
+                },
+                {
+                    case: 'leaves the links of a team off the allowlist',
+                    trackingEnabled: true,
+                    allowlisted: false,
+                    isTest: false,
+                    sensitive: false,
+                    tagged: false,
+                },
+                {
+                    case: 'leaves the links of an untracked send',
+                    trackingEnabled: false,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    tagged: false,
+                },
+                {
+                    case: 'leaves the links of a test send',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: true,
+                    sensitive: false,
+                    tagged: false,
+                },
+                {
+                    case: 'leaves the links of a sensitive email',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: true,
+                    tagged: false,
+                },
+            ])(
+                '$case with the workflow run id',
+                async ({ trackingEnabled, allowlisted, isTest, sensitive, tagged }) => {
+                    const taggingService = createService({
+                        workflowRunLinkTagTeams: allowlisted ? String(team.id) : '',
+                    })
+                    const send = jest.spyOn(taggingService.sesV2Client!, 'send') as jest.SpyInstance
+                    send.mockResolvedValue({ MessageId: 'test-message-id' })
+                    invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled, sensitive }
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId: 1 },
+                        html: '<a href="https://app.posthog-test.com/">a</a><a href="https://example.com/">b</a>',
+                    })
+                    const result = await taggingService.executeSendEmail(invocation, isTest)
+                    expect(result.error).toBeUndefined()
+                    const sentHtml: string = (send.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html
+                        .Data
+                    expect(sentHtml.match(/ph_workflow_run=[^"&]*/g) ?? []).toEqual(
+                        tagged ? ['ph_workflow_run=invocation-1'] : []
+                    )
+                }
+            )
+
             it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -2284,10 +2402,15 @@ describe('EmailService', () => {
             })
 
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
+                invocation.state.renderedWorkflowVersion = 3
                 const normal = await service.executeSendEmail(invocation)
                 expect(normal.metrics.map((m) => m.metric_name)).toEqual(
                     expect.arrayContaining(['email_sent', 'email_untracked'])
                 )
+                expect(normal.metrics.find((m) => m.metric_name === 'email_untracked')?.app_source_version).toEqual({
+                    id: invocation.functionId,
+                    version: 3,
+                })
 
                 const testSend = await service.executeSendEmail(invocation, true)
                 expect(testSend.metrics).toEqual([])
@@ -2445,17 +2568,19 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, 'Test Subject'],
-            ['a sensitive template', { sensitive: true }, undefined],
+            ['an ordinary template', {}, 'Test Subject', undefined],
+            ['a sensitive template', { sensitive: true }, undefined, undefined],
+            ['a workflow step', {}, 'Test Subject', 3],
         ])(
-            'should capture a $workflows_email_sent PostHog event on success, for %s',
-            async (_name, extraMetadata, subject) => {
+            'should capture a $workflows_email_sent PostHog event and version the email_sent metric on success, for %s',
+            async (_name, extraMetadata, subject, workflowVersion) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
                     (service as any).teamWorkflowsConfigService,
                     'shouldCaptureEngagementEvents'
                 ).mockResolvedValue(true)
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
+                invocation.state.renderedWorkflowVersion = workflowVersion
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -2467,11 +2592,19 @@ describe('EmailService', () => {
                     properties: {
                         $workflow_id: invocation.functionId,
                         $workflow_action_id: invocation.state.actionId,
+                        $workflow_invocation_id: 'invocation-1',
+                        $email_message_id: 'test-message-id',
                         $email_to: 'test@example.com',
                         $email_tracking_enabled: true,
                     },
                 })
                 expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
+                expect(result.capturedPostHogEvents[0].properties.$workflow_version).toEqual(workflowVersion)
+                expect(
+                    result.metrics.find((metric) => metric.metric_name === 'email_sent')?.app_source_version
+                ).toEqual(
+                    workflowVersion === undefined ? undefined : { id: invocation.functionId, version: workflowVersion }
+                )
             }
         )
 
