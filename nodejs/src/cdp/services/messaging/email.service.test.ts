@@ -669,6 +669,17 @@ describe('EmailService', () => {
                 })
             })
 
+            it("leaves a send that names another team's sandbox sender billable", async () => {
+                service = createSandboxService(true)
+                invocation.teamId = team.id + 1
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.error).toContain('Email integration not found')
+                expect(result.usedSandboxSender).toBeUndefined()
+            })
+
             it.each([
                 ['a display name', (address: string) => `Example colleague <${address}>`, false, false],
                 ['a quoted comma', (address: string) => `"Example, colleague" <${address}>`, false, false],
