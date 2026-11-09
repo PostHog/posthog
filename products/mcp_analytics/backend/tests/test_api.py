@@ -447,22 +447,24 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert order("password") == [new_id, big_id, old_id]
         assert order("-DROP TABLE") == [new_id, big_id, old_id]
 
-    def test_has_next_signals_more_pages(self) -> None:
-        # Identical session_end across all three so only the session_id tiebreaker
+    # 100 is the endpoint's default page size, and HogQL's default row limit for a query without one.
+    @parameterized.expand([("small_page", 2), ("default_page", 100)])
+    def test_has_next_signals_more_pages(self, _name: str, limit: int) -> None:
+        # Identical session_end across all sessions so only the session_id tiebreaker
         # gives a stable order — the assertion below would flake without it.
         # IDs are pre-sorted so the tiebreaker resolves deterministically.
         ts = datetime.now(tz=UTC) - timedelta(minutes=5)
-        ids = _sorted_uuid7s(3)
+        ids = _sorted_uuid7s(limit + 1)
         for session_id in ids:
             self._seed_session(session_id, ["query_run"], session_start=ts, session_end=ts)
 
         # Over-fetch (limit+1) lets the first page know more exists without a count query.
-        first = api.list_mcp_sessions(self.team, limit=2, offset=0)
-        assert len(first.results) == 2
+        first = api.list_mcp_sessions(self.team, limit=limit, offset=0)
+        assert len(first.results) == limit
         assert first.has_next is True
 
         # Last page returns the remainder and reports no further pages.
-        second = api.list_mcp_sessions(self.team, limit=2, offset=2)
+        second = api.list_mcp_sessions(self.team, limit=limit, offset=limit)
         assert len(second.results) == 1
         assert second.has_next is False
 

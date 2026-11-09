@@ -142,7 +142,7 @@ ACTIVITY_OVERVIEW_REFRESH_COOLDOWN_SECONDS = 5
 
 # One row per $session_id, aggregated straight from events. The column shape
 # (min/max/count/groupUniqArray/argMax) maps 1:1 onto a future AggregatingMergeTree
-# if per-team volume ever warrants materialising it. __SEARCH__ / __ORDER__ are
+# if per-team volume ever warrants materialising it. The __UPPERCASE__ markers are
 # validated structural fragments injected before parsing; {placeholders} are HogQL
 # value placeholders.
 #
@@ -189,15 +189,7 @@ FROM (
         -- $session_id is a materialised String column — '' (not NULL) for sessionless
         -- events — so a bare `!= ''` drops them without a coalesce.
         AND $session_id != ''
-        AND $session_id IN (
-            SELECT $session_id
-            FROM events
-            WHERE event = {event}
-                AND timestamp >= {window_from}
-                AND timestamp <= {window_to}
-                AND $session_id != ''
-                AND {shared_filters}
-        )
+        AND $session_id IN (__SESSIONS__)
 )
 GROUP BY session_id
 -- Session-level inclusion: at least one *matching* event inside the requested window.
@@ -205,9 +197,59 @@ HAVING countIf(matches AND timestamp >= {window_from} AND timestamp <= {window_t
     __SEARCH__
     __HAS_ERRORS__
 ORDER BY __ORDER__
-LIMIT {limit}
-OFFSET {offset}
+__PAGE__
 """
+
+_SESSIONS_IN_WINDOW_SQL = """
+SELECT $session_id
+FROM events
+WHERE event = {event}
+    AND timestamp >= {window_from}
+    AND timestamp <= {window_to}
+    AND $session_id != ''
+    AND {shared_filters}
+"""
+
+# The page's sessions, picked from columns stored outside `properties`. Parsing `properties` for
+# every event in the scan is most of the cost of _MCP_SESSIONS_SQL, so the outer query parses it
+# only for these sessions. Sorts, searches and filters on tools, client or errors can't use it.
+_SESSIONS_PAGE_SQL = """
+SELECT session_id
+FROM (
+    SELECT
+        session_id,
+        min(timestamp) AS session_start,
+        max(timestamp) AS session_end,
+        dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
+        countIf(matches) AS tool_call_count,
+        argMaxIf(event_distinct_id, timestamp, matches) AS distinct_id
+    FROM (
+        SELECT
+            $session_id AS session_id,
+            timestamp,
+            distinct_id AS event_distinct_id,
+            {shared_filters} AS matches
+        FROM events
+        WHERE event = {event}
+            AND timestamp >= {scan_from}
+            AND timestamp <= {scan_to}
+            AND $session_id != ''
+            __CANDIDATES__
+    )
+    GROUP BY session_id
+    HAVING countIf(matches AND timestamp >= {window_from} AND timestamp <= {window_to}) > 0
+    ORDER BY __ORDER__
+    LIMIT {limit}
+    OFFSET {offset}
+)
+"""
+
+_PAGE_SQL = "LIMIT {limit} OFFSET {offset}"
+# The page query already skipped `offset` rows. The limit stays explicit because HogQL caps a
+# query without one at its default row limit, which is smaller than the largest page.
+_PAGED_SESSIONS_LIMIT_SQL = "LIMIT {limit}"
+
+_SORT_FIELDS_READING_PROPERTIES = frozenset({"mcp_client_name"})
 
 # Search is post-aggregation (folded into HAVING) so a match returns the whole session,
 # not just the matching events. tools_used / distinct_id / mcp_client_name are aggregates,
@@ -372,6 +414,7 @@ def _query_mcp_sessions(
     window_from = query_date_range.date_from()
     window_to = query_date_range.date_to()
 
+    shared_filters = shared_filters_expr(team, properties, filter_test_accounts)
     # Over-fetch one row to learn whether a next page exists, without a count query.
     placeholders: dict[str, ast.Expr] = {
         "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
@@ -381,7 +424,7 @@ def _query_mcp_sessions(
         "window_to": ast.Constant(value=window_to),
         "limit": ast.Constant(value=limit + 1),
         "offset": ast.Constant(value=offset),
-        "shared_filters": shared_filters_expr(team, properties, filter_test_accounts),
+        "shared_filters": shared_filters,
     }
 
     search_text = ""
@@ -391,8 +434,24 @@ def _query_mcp_sessions(
         placeholders["search"] = ast.Constant(value=f"%{term}%")
 
     has_errors_text = "" if has_errors is None else _SESSION_HAS_ERRORS_FILTER[has_errors]
+    pages_before_reading_properties = (
+        not search_text and not has_errors_text and column not in _SORT_FIELDS_READING_PROPERTIES
+    )
+    sessions_text, page_text = (
+        (_SESSIONS_PAGE_SQL, _PAGED_SESSIONS_LIMIT_SQL)
+        if pages_before_reading_properties
+        else (_SESSIONS_IN_WINDOW_SQL, _PAGE_SQL)
+    )
+    # A filter can read properties, and the page query would read them across the whole scan. Narrowing
+    # to sessions that match inside the window first costs less. Without filters, the narrowing costs more.
+    candidates_text = (
+        "" if isinstance(shared_filters, ast.Constant) else f"AND $session_id IN ({_SESSIONS_IN_WINDOW_SQL})"
+    )
     sql = (
-        _MCP_SESSIONS_SQL.replace("__SEARCH__", search_text)
+        _MCP_SESSIONS_SQL.replace("__SESSIONS__", sessions_text)
+        .replace("__CANDIDATES__", candidates_text)
+        .replace("__PAGE__", page_text)
+        .replace("__SEARCH__", search_text)
         .replace("__HAS_ERRORS__", has_errors_text)
         .replace("__ORDER__", order_text)
     )
