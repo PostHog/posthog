@@ -757,6 +757,28 @@ describe('EmailService', () => {
                 expect(result.metrics ?? []).toEqual([])
             })
 
+            it('fails a send that lists files at once, without claiming a token or waiting for one', async () => {
+                claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs: 5000, reserved: true })
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    attachments: [
+                        {
+                            filename: 'report.pdf',
+                            contentType: 'application/pdf',
+                            sizeBytes: 7,
+                            sha256: 'a'.repeat(64),
+                        },
+                    ],
+                })
+
+                const result = await limitedService.executeSendEmail(invocation)
+
+                expect(claimOrReserve).not.toHaveBeenCalled()
+                expect(limitedSendSpy).not.toHaveBeenCalled()
+                expect(result).toMatchObject({ finished: true, error: expect.stringMatching(/^attachments_missing: /) })
+                expect(result.invocation.queueScheduledAt).toBeFalsy()
+            })
+
             it('parks consecutive denials on their exact reserved slots', async () => {
                 // At 30/minute the limiter hands out slots 2s apart. Each send has to wake at
                 // its own slot, exactly. If one wake moves even a little earlier, its token is
