@@ -1,1 +1,1 @@
-1428_oauth_device_grant_required_scope
+1431_squash_2026_11_02_schema_addons

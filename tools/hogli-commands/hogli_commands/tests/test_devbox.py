@@ -1078,6 +1078,30 @@ class TestWorktreeAutoProvision:
         )
 
     @pytest.mark.parametrize(
+        "saved_cleanup, on_clean, expected_cleanup",
+        [
+            pytest.param(None, "delete", "delete", id="saves-the-action"),
+            pytest.param("delete", "keep", None, id="keep-clears-the-action"),
+        ],
+    )
+    def test_auto_also_saves_on_clean(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        saved_cleanup: str | None,
+        on_clean: str,
+        expected_cleanup: str | None,
+    ) -> None:
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        if saved_cleanup is not None:
+            devbox_config.save_worktree_box_cleanup(saved_cleanup)
+
+        result = runner.invoke(cli, ["devbox:worktree", "--auto", "off", "--on-clean", on_clean])
+
+        assert result.exit_code == 0, result.output
+        assert devbox_config.saved_worktree_box_cleanup() == expected_cleanup
+
+    @pytest.mark.parametrize(
         "existing_settings, expected_settings",
         [
             pytest.param(None, devbox_worktree._CONDUCTOR_SCRIPTS, id="writes-the-local-settings"),
@@ -1161,6 +1185,56 @@ class TestWorktreeAutoProvision:
             assert result.exit_code == (1 if first_spawn_fails and attempt == 0 else 0), result.output
 
         assert len(starts) == expected_starts
+
+    @pytest.mark.parametrize(
+        "saved_cleanup, expected_prunes",
+        [
+            pytest.param("delete", 1, id="saved-action-prunes"),
+            pytest.param(None, 0, id="no-saved-action-leaves-boxes-alone"),
+        ],
+    )
+    def test_auto_prunes_boxes_of_removed_worktrees_only_with_a_saved_action(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        saved_cleanup: str | None,
+        expected_prunes: int,
+    ) -> None:
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path)
+        if saved_cleanup is not None:
+            devbox_config.save_worktree_box_cleanup(saved_cleanup)
+        devbox_config.record_worktree_box(
+            tmp_path / "removed",
+            devbox_config.WorktreeBoxRecord(workspace="devbox-test-user-removed", git_dir=str(tmp_path / "admin")),
+        )
+        spawned: list[list[str]] = []
+        monkeypatch.setattr(
+            devbox_worktree.subprocess, "Popen", lambda command, **kwargs: spawned.append(command) or MagicMock()
+        )
+
+        result = runner.invoke(cli, ["devbox:worktree:auto"])
+
+        assert result.exit_code == 0, result.output
+        assert len([command for command in spawned if "devbox:worktree:prune" in command]) == expected_prunes
+
+    def test_prune_does_nothing_while_another_prune_holds_the_lock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path)
+        pruned: list[str] = []
+        monkeypatch.setattr(
+            devbox_worktree, "prune_boxes_of_removed_worktrees", lambda *args: pruned.append("pruned") or []
+        )
+
+        with devbox_config.worktree_prune_lock() as first_holds_lock:
+            result = runner.invoke(cli, ["devbox:worktree:prune"])
+
+        assert first_holds_lock
+        assert result.exit_code == 0, result.output
+        assert pruned == []
 
 
 class TestDevboxWorktreeCommand:
@@ -3117,6 +3191,8 @@ class TestDevboxConfigCommands:
         assert "PostHog Engineer <engineer@example.com>" in result.output
         assert "https://github.com/user/dotfiles" in result.output
         assert "Git signing" in result.output
+        auto_line = next(line for line in result.output.splitlines() if "Automatic worktree boxes" in line)
+        assert auto_line.split()[-1] == "off"
 
     def test_rm_dotfiles_clears_config(
         self,
@@ -4272,6 +4348,32 @@ class TestSshReplace:
         coder.ssh_replace("devbox-foo")
 
         assert captured == [("ssh", ["ssh", coder._ssh_host_alias("devbox-foo")])]
+
+
+class TestDevboxExec:
+    @pytest.mark.parametrize(
+        "flags, remote_command",
+        [
+            ([], "pnpm exec jest 'a b.test.ts'"),
+            (
+                ["--flox"],
+                f"cd {coder.REMOTE_REPO_PATH} && exec flox activate -- pnpm exec jest 'a b.test.ts'",
+            ),
+        ],
+    )
+    def test_runs_command_on_the_box(
+        self, monkeypatch: pytest.MonkeyPatch, flags: list[str], remote_command: str
+    ) -> None:
+        captured: list[list[str]] = []
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
+        monkeypatch.setattr(devbox_cli, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(coder.os, "execvp", lambda file, args: captured.append(args))
+
+        result = runner.invoke(cli, ["devbox:exec", *flags, "--", "pnpm", "exec", "jest", "a b.test.ts"])
+
+        assert result.exit_code == 0, result.output
+        assert captured == [["ssh", "coder.devbox-foo", remote_command]]
 
 
 class TestSetupGitSigning:

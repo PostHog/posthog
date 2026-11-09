@@ -47,12 +47,14 @@ from posthog.views import login_required
 from products.slack_app.backend.analytics import alias_slack_user, capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_link_search_scopes_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
+from products.slack_app.backend.logic.onboarding.work_focus import start_work_focus
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
     InviteToken,
     SlackUserOAuthError,
     build_authorize_url,
     exchange_code,
+    granted_user_scopes,
 )
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
@@ -279,6 +281,8 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         thread_ts=state.thread_ts,
     )
     request_onboarding(workspace_integration, identity.slack_user_id, may_start=False)
+    if state.search_scopes and "search:read.public" in granted_user_scopes(identity.user_scopes):
+        start_work_focus(workspace_integration, identity.slack_user_id)
 
     return _settings_redirect()
 
