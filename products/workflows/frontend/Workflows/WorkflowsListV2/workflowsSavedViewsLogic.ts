@@ -76,6 +76,7 @@ export interface workflowsSavedViewsLogicValues {
     activeViewConflicted: boolean
     activeViewId: string
     addedFilters: FacetFilter[]
+    addedText: string | null
     available: boolean
     canUpdateActiveView: boolean
     conflictedViewId: string | null
@@ -130,11 +131,7 @@ export interface workflowsSavedViewsLogicActions {
     toggleColumn: (column: 'created_by' | 'health' | 'last_7_days' | 'owner' | 'trigger' | 'type') => {
         column: 'created_by' | 'health' | 'last_7_days' | 'owner' | 'trigger' | 'type'
     } // workflowsListV2Logic
-    applyView: (
-        view: WorkflowSavedView,
-        text?: string
-    ) => {
-        text: string | undefined
+    applyView: (view: WorkflowSavedView) => {
         view: WorkflowSavedView
     }
     clearSavedViews: () => {
@@ -189,14 +186,14 @@ export interface workflowsSavedViewsLogicActions {
         name: string
         onFailure: ((failure: unknown) => void) | undefined
     }
-    selectView: (view: WorkflowSavedView) => {
-        view: WorkflowSavedView
-    }
     setActiveViewId: (id: string) => {
         id: string
     }
     setAddedFilters: (filters: FacetFilter[]) => {
         filters: FacetFilter[]
+    }
+    setAddedText: (text: string | null) => {
+        text: string | null
     }
     setConflictedViewId: (id: string | null) => {
         id: string | null
@@ -297,11 +294,11 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
     })),
     actions({
         setAddedFilters: (filters: FacetFilter[]) => ({ filters }),
+        setAddedText: (text: string | null) => ({ text }),
         setSavedViewsLoadFailed: (failed: boolean) => ({ failed }),
         loadSavedViews: true,
         setActiveViewId: (id: string) => ({ id }),
-        applyView: (view: WorkflowSavedView, text?: string) => ({ view, text }),
-        selectView: (view: WorkflowSavedView) => ({ view }),
+        applyView: (view: WorkflowSavedView) => ({ view }),
         resetView: (keepAddedFilters: boolean = false) => ({ keepAddedFilters }),
         // `onFailure` lets a dialog stay open on a failure the toast already explained.
         saveViewAs: (name: string, onFailure?: (failure: unknown) => void) => ({ name, onFailure }),
@@ -387,6 +384,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             [] as FacetFilter[],
             { setAddedFilters: (_, { filters }) => withoutFolderScope(filters), clearSavedViews: () => [] },
         ],
+        // The search text the user typed on top of the views, which carries across views like an added pill.
+        addedText: [null as string | null, { setAddedText: (_, { text }) => text, clearSavedViews: () => null }],
         savedViewsLoadFailed: [
             false,
             {
@@ -539,9 +538,11 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
             cache.writingUrl = false
         }
+        const userText = (text: string): string | null => (text.trim() ? text : null)
         const clearAddedFiltersUnless = (keepAddedFilters: boolean): void => {
             if (!keepAddedFilters) {
                 actions.setAddedFilters([])
+                actions.setAddedText(null)
             }
         }
         const ignoreMissingView = (error: unknown): void => {
@@ -574,6 +575,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     values.value.filters
                 )
             )
+            actions.setAddedText(
+                values.value.text.trim() !== saved.state.text.trim() ? userText(values.value.text) : null
+            )
         }
         const removeDeletedView = (id: string): void => {
             actions.removeSavedView(id)
@@ -588,6 +592,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             }
             if (values.activeViewId === id) {
                 actions.setAddedFilters(values.value.filters)
+                actions.setAddedText(userText(values.value.text))
                 actions.setActiveViewId(BUILT_IN_WORKFLOW_VIEWS[0].id)
             }
         }
@@ -702,11 +707,14 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             setValue: ({ value, fromUrl }, _, __, previousState) => {
                 if (!fromUrl) {
                     if (values.available && !cache.applyingView && !cache.syncingUrl) {
-                        const previousFilters = workflowsListV2Logic.selectors.value(previousState).filters
+                        const previous = workflowsListV2Logic.selectors.value(previousState)
                         actions.setAddedFilters(
-                            addedFiltersAfterEdit(previousFilters, values.addedFilters, value.filters)
+                            addedFiltersAfterEdit(previous.filters, values.addedFilters, value.filters)
                         )
-                        rememberAddedFilters(previousFilters, value.filters)
+                        rememberAddedFilters(previous.filters, value.filters)
+                        if (value.text !== previous.text) {
+                            actions.setAddedText(userText(value.text))
+                        }
                     }
                     writeUrl()
                 }
@@ -714,19 +722,13 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             setActiveViewId: writeUrl,
             clearFilters: () => {
                 actions.setAddedFilters([])
+                actions.setAddedText(null)
                 writeUrl()
             },
             setVisibleColumns: writeUrl,
             toggleColumn: writeUrl,
             resetColumns: writeUrl,
-            selectView: ({ view }) => {
-                // Text typed on top of the current view is the user's own search, so it carries to the picked view
-                // like an added pill. Text that the current view saved stays with that view.
-                const text = values.value.text.trim()
-                const typed = text && text !== values.activeView.state.text.trim() ? values.value.text : undefined
-                actions.applyView(view, typed)
-            },
-            applyView: ({ view, text }) => {
+            applyView: ({ view }) => {
                 if (!values.available) {
                     return
                 }
@@ -734,7 +736,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 const viewValue = workflowViewValue(view.state)
                 actions.setValue({
                     filters: mergeAddedFilters(viewValue.filters, values.addedFilters, values.facets),
-                    text: text ?? viewValue.text,
+                    text: values.addedText ?? viewValue.text,
                 })
                 actions.setVisibleColumns(normalizeViewColumns(view.state.columns))
                 cache.applyingView = false
@@ -824,6 +826,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     actions.setAddedFilters(
                         edited.filters.filter((filter) => !baselineKeys.has(facetFilterKey(filter)))
                     )
+                    actions.setAddedText(null)
                     actions.applyView(view)
                     if (edited.text !== viewOnlyLink.baseline.text) {
                         actions.setValue({ ...values.value, text: edited.text })
@@ -832,6 +835,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 }
                 if (view && !explicit) {
                     actions.setAddedFilters([])
+                    actions.setAddedText(null)
                     actions.applyView(view)
                     return
                 }
@@ -847,6 +851,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         text: raw.has('text') ? (raw.get('text') ?? '') : (view?.state.text ?? ''),
                     }
                     actions.setValue(value)
+                    // The URL keeps the text but not who typed it, so text that differs from the view counts as typed.
+                    actions.setAddedText(
+                        value.text.trim() !== (view?.state.text ?? '').trim() ? userText(value.text) : null
+                    )
                     const effectiveKeys = new Set(value.filters.map((filter) => facetFilterKey(filter)))
                     actions.setAddedFilters(
                         raw.has('added')
@@ -871,6 +879,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 if (!view && id !== 'all') {
                     if (!explicit) {
                         actions.setAddedFilters([])
+                        actions.setAddedText(null)
                         actions.applyView(BUILT_IN_WORKFLOW_VIEWS[0])
                     } else {
                         writeUrl()

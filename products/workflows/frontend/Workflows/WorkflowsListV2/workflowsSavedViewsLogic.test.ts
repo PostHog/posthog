@@ -101,8 +101,6 @@ describe('workflowsSavedViewsLogic', () => {
     const notMe: FacetFilter = { facet: 'createdBy', value: MOCK_DEFAULT_USER.uuid, negated: true }
     const applyViewById = (id: string): void =>
         logic.actions.applyView(logic.values.views.find((view) => view.id === id)!)
-    const selectViewById = (id: string): void =>
-        logic.actions.selectView(logic.values.views.find((view) => view.id === id)!)
 
     it.each([
         [
@@ -219,11 +217,15 @@ describe('workflowsSavedViewsLogic', () => {
         workflowsListV2Logic.actions.setValue({ filters: [status('active'), eventTrigger], text: '' })
         await logic.asyncActions.updateActiveView()
         applyViewById('all')
+        workflowsListV2Logic.actions.setValue({ filters: [eventTrigger], text: 'renewal' })
 
         await expectLogic(logic, () => applyViewById(VIEW_ID)).toFinishAllListeners()
 
         expect(logic.values.conflictedViewId).toBeNull()
-        expect(workflowsListV2Logic.values.value.filters).toEqual([status('active'), eventTrigger])
+        expect(workflowsListV2Logic.values.value).toEqual({
+            filters: [status('active'), eventTrigger],
+            text: 'renewal',
+        })
     })
 
     it.each([
@@ -272,6 +274,7 @@ describe('workflowsSavedViewsLogic', () => {
     })
 
     it('carries additions and typed text across views and shared links until reset', async () => {
+        storedViews = [{ ...savedView, state: { ...savedView.state, text: 'renewal' } }]
         router.actions.push(urls.workflows(), { view: 'drafts' })
         logic = workflowsSavedViewsLogic()
         logic.mount()
@@ -279,7 +282,8 @@ describe('workflowsSavedViewsLogic', () => {
         workflowsListV2Logic.actions.setValue({ filters: [status('draft'), eventTrigger], text: 'renewal' })
         expect(logic.values.addedFilters).toEqual([eventTrigger])
 
-        selectViewById('needs-attention')
+        applyViewById(VIEW_ID)
+        applyViewById('needs-attention')
         const sharedUrl = router.values.location.search
         logic.unmount()
         logic = workflowsSavedViewsLogic()
@@ -297,7 +301,7 @@ describe('workflowsSavedViewsLogic', () => {
         expect(logic.values.activeViewChanges).toEqual(['filters', 'search'])
         logic.actions.resetView()
         expect(workflowsListV2Logic.values.value.text).toEqual('')
-        selectViewById('all')
+        applyViewById('all')
         expect(workflowsListV2Logic.values.value).toEqual({ filters: [], text: '' })
     })
 
@@ -447,10 +451,10 @@ describe('workflowsSavedViewsLogic', () => {
         expect(workflowsListV2Logic.values.value.text).toEqual('renewal')
         expect(workflowsListV2Logic.values.shownColumns).toEqual(['trigger', 'owner'])
 
-        selectViewById(VIEW_ID)
+        applyViewById(VIEW_ID)
         expect(workflowsListV2Logic.values.shownColumns).toEqual(['health'])
         expect(workflowsListV2Logic.values.value.text).toEqual('')
-        selectViewById(createdId)
+        applyViewById(createdId)
         expect(workflowsListV2Logic.values.shownColumns).toEqual(['trigger', 'owner'])
         expect(workflowsListV2Logic.values.value.text).toEqual('renewal')
     })
