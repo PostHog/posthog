@@ -260,10 +260,10 @@ export interface llmProviderKeysLogicValues {
     activeProviderKey: LLMProviderKey | null | undefined
     dependentConfigs: ProviderKeyDependentConfigsApi | null
     dependentConfigsLoading: boolean
-    keyFieldError: ProviderKeyFieldError | null
     editingKey: LLMProviderKey | null
     evaluationConfig: EvaluationConfig | null
     evaluationConfigLoading: boolean
+    keyFieldError: ProviderKeyFieldError | null
     keyToDelete: LLMProviderKey | null
     newKeyModalOpen: boolean
     preValidationResult: KeyValidationResult | null
@@ -448,11 +448,11 @@ export interface llmProviderKeysLogicActions {
             base_url?: string
         }
     }
-    setKeyFieldError: (fieldError: ProviderKeyFieldError | null) => {
-        fieldError: ProviderKeyFieldError | null
-    }
     setEditingKey: (key: LLMProviderKey | null) => {
         key: LLMProviderKey | null
+    }
+    setKeyFieldError: (fieldError: ProviderKeyFieldError | null) => {
+        fieldError: ProviderKeyFieldError | null
     }
     setKeyToDelete: (key: LLMProviderKey | null) => {
         key: LLMProviderKey | null
