@@ -4,17 +4,11 @@ import { forwardRef } from 'react'
 import { IconX } from '@posthog/icons'
 import { Button, ButtonGroup, Popover, PopoverContent, PopoverTrigger, SelectTriggerIcon, cn } from '@posthog/quill'
 
-import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import type { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { quillButtonVariant } from 'lib/lemon-ui/LemonButton/quillButtonVariant'
+import { isInsideOpenPopover } from 'lib/lemon-ui/Popover/Popover'
 import { resolveTooltipTitle } from 'lib/lemon-ui/Tooltip/resolveTooltipTitle'
 import type { TooltipTitle } from 'lib/lemon-ui/Tooltip/Tooltip'
-
-// The filter's own Lemon popovers (event definitions, the category menu) render in a portal outside this popover,
-// so a click or focus move into one would otherwise close the picker as an outside press or a focus-out.
-function isInsideLemonPopover(target: EventTarget | null): boolean {
-    return target instanceof Element && !!target.closest(`.Popover, .${CLICK_OUTSIDE_BLOCK_CLASS}`)
-}
 
 export interface QuillTaxonomicPopoverProps {
     buttonProps: Omit<LemonButtonProps, 'sideAction'>
@@ -66,13 +60,14 @@ export const QuillTaxonomicPopover = forwardRef<HTMLButtonElement, QuillTaxonomi
             <Popover
                 open={open}
                 onOpenChange={(next, details) => {
+                    // The filter's Lemon popovers (event definitions, the category menu) portal outside this one.
                     const landedOn =
                         details.reason === 'focus-out'
                             ? (details.event as FocusEvent).relatedTarget
                             : details.reason === 'outside-press'
                               ? details.event.target
                               : null
-                    if (!next && isInsideLemonPopover(landedOn)) {
+                    if (!next && isInsideOpenPopover(landedOn)) {
                         details.cancel()
                         return
                     }
