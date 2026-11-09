@@ -40,6 +40,7 @@ from redis.exceptions import RedisError
 from rest_framework import serializers, status
 from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -2284,6 +2285,8 @@ class OAuthTokenView(TokenView):
         no client authentication: the OIDC token, checked against a trust policy, is the only credential."""
         grant_type = workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE
         try:
+            # The IP throttles read only `request.META`, which a Django request has too.
+            workload_token_exchange.check_exchange_attempts(cast(Request, request), self)
             issued = workload_token_exchange.exchange_workload_token(
                 subject_token=request.POST.get("subject_token") or "",
                 subject_token_type=request.POST.get("subject_token_type") or "",
@@ -2292,7 +2295,8 @@ class OAuthTokenView(TokenView):
         except workload_token_exchange.WorkloadExchangeError as e:
             logger.info("workload_token_exchange_rejected", error_code=e.code.value)
             self._capture_token_rejected(grant_type, "", e.code.value)
-            return JsonResponse(e.body(), status=e.http_status)
+            headers = {"Retry-After": str(e.retry_after)} if e.retry_after is not None else None
+            return JsonResponse(e.body(), status=e.http_status, headers=headers)
         except (OperationalError, RedisError) as e:
             logger.warning("workload_token_exchange_unavailable", error=str(e))
             return _temporarily_unavailable_response()

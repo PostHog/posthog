@@ -572,6 +572,31 @@ class TestSrmAfterSplitChange(TestCase):
                 ),
             ),
             (
+                "retest_fails_on_a_page_of_the_variant_short_after_the_change",
+                _context(EVEN, UNEVEN, exposed_units=5),
+                replace(
+                    _totals({"control": 1800, "test": 200}),
+                    segments=(
+                        ExposureSegment(
+                            dimension=ExposureSegmentDimension.LIBRARY,
+                            value="web",
+                            exposed_by_variant={"control": 1800, "test": 200},
+                        ),
+                        ExposureSegment(
+                            dimension=ExposureSegmentDimension.PAGE,
+                            value="/plans",
+                            exposed_by_variant={"control": 1790, "test": 20},
+                        ),
+                        ExposureSegment(
+                            dimension=ExposureSegmentDimension.PAGE,
+                            value="/plans-redesign",
+                            exposed_by_variant={"control": 10, "test": 180},
+                        ),
+                    ),
+                ),
+                ("split_changed", 'Users first exposed on the page "/plans-redesign" are almost all in "test"'),
+            ),
+            (
                 "too_few_for_a_retest",
                 _context(EVEN, UNEVEN, exposed_units=5),
                 _totals({"control": 40, "test": 10}),
