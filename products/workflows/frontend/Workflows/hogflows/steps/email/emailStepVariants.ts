@@ -37,15 +37,13 @@ export function hasOwnSender(integrations: IntegrationType[] | null | undefined)
 }
 
 /** The step's own To can be a literal address, so changing only the test person's email would still send to it. */
-export function withSandboxRecipient(workflow: HogFlow, actionId: string, email: string): HogFlow {
-    return {
-        ...workflow,
-        actions: workflow.actions.map((action) =>
-            action.id === actionId && action.type === 'email_sandbox'
-                ? withSandboxEmail(action, { to: { ...action.config.inputs.email.value.to, email } })
-                : action
-        ),
+export function withSandboxRecipient(workflow: HogFlow, actionId: string | null, email: string | undefined): HogFlow {
+    const tested = workflow.actions?.find((action) => action.id === actionId)
+    if (!email || tested?.type !== 'email_sandbox') {
+        return workflow
     }
+    const withRecipient = withSandboxEmail(tested, { to: { ...tested.config.inputs.email.value.to, email } })
+    return { ...workflow, actions: workflow.actions.map((action) => (action === tested ? withRecipient : action)) }
 }
 
 export function toSandboxAction(action: OwnEmailAction): SandboxEmailAction {

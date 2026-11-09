@@ -2,7 +2,6 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -18,7 +17,7 @@ import { CyclotronJobInvocationGlobals, FilterLogicalOperator, PersonType, Prope
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { withSandboxRecipient } from '../../steps/email/emailStepVariants'
-import { sandboxTestOutcome } from '../../steps/email/sandboxTestResult'
+import { reportSandboxTest } from '../../steps/email/sandboxTestResult'
 import { HogflowTestResult } from '../../steps/types'
 import { createExampleEvent } from '../../testEventFactory'
 import type { HogFlow } from '../../types'
@@ -366,13 +365,13 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                         }
                     }
 
-                    const testedAction = values.workflow.actions?.find((action) => action.id === values.selectedNodeId)
                     // nosemgrep: prefer-codegen-api-namespaced-workflows -- The generated hogFlowsInvocationsCreate returns void, and this caller needs the test result.
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
-                        configuration:
-                            testedAction?.type === 'email_sandbox' && emailToUse
-                                ? withSandboxRecipient(values.workflowSanitized, testedAction.id, emailToUse)
-                                : values.workflowSanitized,
+                        configuration: withSandboxRecipient(
+                            values.workflowSanitized,
+                            values.selectedNodeId,
+                            emailToUse
+                        ),
                         globals: {
                             ...parsedGlobals,
                             variables: values.workflow.variables?.reduce(
@@ -398,17 +397,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                     }
 
                     actions.setTestResult(result)
-                    const sandboxOutcome =
-                        testedAction?.type === 'email_sandbox' && !testInvocation.mock_async_functions
-                            ? sandboxTestOutcome(result)
-                            : null
-                    if (sandboxOutcome) {
-                        // pinned: analytics event name and properties, renaming breaks dashboards
-                        posthog.capture('workflows sandbox test sent', {
-                            status: sandboxOutcome.status,
-                            reason: sandboxOutcome.reason ?? null,
-                        })
-                    }
+                    reportSandboxTest(values.workflow, values.selectedNodeId, result)
                     actions.setNextActionId(
                         result.nextActionId && result.nextActionId !== values.selectedNodeId
                             ? result.nextActionId

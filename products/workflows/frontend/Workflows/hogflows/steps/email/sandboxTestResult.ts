@@ -1,5 +1,8 @@
+import posthog from 'posthog-js'
+
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 
+import type { HogFlow } from '../../types'
 import type { HogflowTestResult } from '../types'
 
 export type SandboxTestStatus = 'accepted' | 'skipped' | 'failed' | 'pending'
@@ -46,6 +49,16 @@ export function sandboxTestOutcome(result: HogflowTestResult | null): SandboxTes
         status: execResult.status as SandboxTestStatus,
         ...(typeof execResult.reason === 'string' ? { reason: execResult.reason } : {}),
         ...(result?.mocked ? { mocked: true } : {}),
+    }
+}
+
+/** Records a real test send of a sandbox email step; a mocked test sends nothing. */
+export function reportSandboxTest(workflow: HogFlow, actionId: string | null, result: HogflowTestResult): void {
+    const action = workflow.actions?.find((candidate) => candidate.id === actionId)
+    const outcome = action?.type === 'email_sandbox' && !result.mocked ? sandboxTestOutcome(result) : null
+    if (outcome) {
+        // pinned: analytics event name and properties, renaming breaks dashboards
+        posthog.capture('workflows sandbox test sent', { status: outcome.status, reason: outcome.reason ?? null })
     }
 }
 
