@@ -2280,6 +2280,7 @@ class TestResolveWorkspaceName:
     def test_default_target_is_the_box_of_the_current_worktree(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
         tmp_path: Path,
         worktree_with_box: Path,
         cwd: str,
@@ -2296,8 +2297,13 @@ class TestResolveWorkspaceName:
         if expected is None:
             with pytest.raises(SystemExit):
                 devbox_cli.resolve_workspace_name(workspace)
-        else:
-            assert devbox_cli.resolve_workspace_name(workspace)[0] == expected
+            return
+        assert devbox_cli.resolve_workspace_name(workspace)[0] == expected
+        captured = capsys.readouterr()
+        picked_by_worktree = workspace is None and expected == "devbox-test-user-feat"
+        notice = "Using this worktree's devbox 'devbox-test-user-feat'. Pass `-n @test-user` for your default box."
+        assert (notice in captured.err) is picked_by_worktree
+        assert "Using this worktree's devbox" not in captured.out
 
     def test_own_username_never_selects_a_labeled_box(
         self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path

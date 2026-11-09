@@ -206,6 +206,10 @@ def resolve_workspace_name(
             f"This worktree's devbox '{record.workspace}' was replaced by another box with the same name. "
             "Pass `-n <label>` to choose a box."
         )
+    click.echo(
+        f"Using this worktree's devbox '{record.workspace}'. Pass `-n @{get_username()}` for your default box.",
+        err=True,
+    )
     return record.workspace, workspaces
 
 
