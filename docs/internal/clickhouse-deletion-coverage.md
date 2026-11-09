@@ -360,6 +360,8 @@ Pass dates are dates in that local time zone, so the date shown in settings is t
 
 A billing sync that lengthens the plan period writes the organization's rows straight away, so a downgrade soon after still sees the longer period.
 A billing sync that shortens the plan period checks each team's period under the previous and the new plan, each with its own standard retention feature.
+In between, it clears each set period above the new plan period, both team values and the organization's default, and logs each one in the activity log.
+Those teams then use their default period, so their shorter period waits for a pass at least 3 months out, like a team that never set one.
 It does nothing more when no team's period gets shorter, for example when every team has a set period within the new plan.
 Otherwise it writes the rows of those teams straight away, the same way a settings save does.
 The sync then queues the Celery task `report_events_retention_shortened`, which sends an `events retention period shortened` event to each organization admin, with the previous and new plan periods and the first pass past the shorter period.
@@ -370,6 +372,8 @@ The Celery beat task `report_upcoming_events_deletions` runs daily at 15:00 UTC.
 On the day the next cleanup is exactly 14 days away, it reschedules the rows due at that cleanup, the same way a settings save does, so a period that got shorter since the pass was set moves the pass instead of announcing it.
 It then sends an `events retention deletion upcoming` event to the admins of each organization with a team still due, one organization at a time, whether the team downgraded or not.
 Every pass gets this event, every 3 months, and only teams behind the deletion flag have rows, so a team that joins the flag after a downgrade hears before its first pass.
+A team whose set period is at or below its pass's period is left out, because the monthly cleanup already deletes everything that pass would.
+A set period above the pass's period still sends.
 Only that one day sends, so nothing records what was sent.
 A failed send fails the task, which retries the same way as the shortened task, and a retry sends again to the organizations already sent.
 Workflows turn both events into emails.
