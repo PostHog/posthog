@@ -80,7 +80,8 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
 - **Conversations fetcher** (`fetchers/conversations.py`) — queries Django ORM for Postgres tickets + comments.
   Empty tickets are marked processed at fetch time. Actual outputs use the pipeline's `record_processed_outputs`
   path, so admission refusal leaves them eligible for a later run. Snapshot keys include the last-message time;
-  retries reuse the receipt and a later conversation update can emit again.
+  retries reuse the receipt and a later conversation update can emit again. The coordinator preserves the
+  pre-fetch timestamp for the ledger, so messages arriving during processing remain eligible for a later snapshot.
 
 ### Data import sources (Zendesk, GitHub, Linear)
 

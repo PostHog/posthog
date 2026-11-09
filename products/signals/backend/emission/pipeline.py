@@ -54,7 +54,7 @@ LLM_MODEL = os.getenv("SIGNAL_EMISSION_LLM_MODEL", "claude-sonnet-5")
 EMISSION_AI_PRODUCT = "signals_emission"
 # Concurrent LLM calls limit for actionability/summarization checks
 LLM_CONCURRENCY_LIMIT = 20
-# Concurrent workflow spawns for signal emission
+# Concurrent admission checks and workflow spawns for signal emission
 EMIT_CONCURRENCY_LIMIT = 50
 # Temporal gRPC payload size limit (2 MB)
 TEMPORAL_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
@@ -559,7 +559,9 @@ def _estimate_output_payload_bytes(output: SignalEmitterOutput) -> int:
     )
 
 
-async def _record_processed_outputs(team: Team, outputs: list[SignalEmitterOutput]) -> None:
+async def _record_processed_outputs(
+    team: Team, outputs: list[SignalEmitterOutput], snapshot_at: datetime | None = None
+) -> None:
     await SignalEmissionRecord.objects.abulk_create(
         [
             SignalEmissionRecord(
@@ -567,7 +569,7 @@ async def _record_processed_outputs(team: Team, outputs: list[SignalEmitterOutpu
                 source_product=output.source_product,
                 source_type=output.source_type,
                 source_id=output.source_id,
-                emitted_at=timezone.now(),
+                emitted_at=snapshot_at or timezone.now(),
             )
             for output in outputs
         ],
@@ -584,6 +586,7 @@ async def _emit_signals(
     extra: dict[str, Any],
     record_processed_outputs: bool = False,
     sync_with_source: bool = False,
+    snapshot_at: datetime | None = None,
 ) -> int:
     semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
     _safe_heartbeat()
@@ -633,7 +636,7 @@ async def _emit_signals(
                     source_match_report_id=output.source_match_report_id,
                 )
                 if record_processed_outputs:
-                    await _record_processed_outputs(team, [output])
+                    await _record_processed_outputs(team, [output], snapshot_at)
                 return True
             except Exception as e:
                 # Sources that record at fetch time cannot retry a record lost here.
@@ -679,19 +682,28 @@ def _reports_closed_to_source_state(team_id: int, report_ids: set[str]) -> set[s
 async def filter_admitted(
     team: Team, organization: Organization, outputs: list[SignalEmitterOutput]
 ) -> list[SignalEmitterOutput]:
-    admitted_outputs = []
-    for output in outputs:
-        assert output.signal_id is not None
-        try:
-            await database_sync_to_async_pool(admit_signal)(
-                team=team, signal_id=output.signal_id, billing_exempt=system_source_exempt(output.source_product)
-            )
-        except (QuotaLimitExceeded, TrialRefused) as error:
-            reason = error.reason if isinstance(error, TrialRefused) else "quota_limited"
-            capture_pipeline_stage("signal_data_source_filtered", team, organization, output, {"filter_reason": reason})
-        else:
-            admitted_outputs.append(output)
-    return admitted_outputs
+    semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
+
+    async def _bounded_admit(output: SignalEmitterOutput) -> bool:
+        async with semaphore:
+            assert output.signal_id is not None
+            try:
+                await database_sync_to_async_pool(admit_signal)(
+                    team=team, signal_id=output.signal_id, billing_exempt=system_source_exempt(output.source_product)
+                )
+            except (QuotaLimitExceeded, TrialRefused) as error:
+                reason = error.reason if isinstance(error, TrialRefused) else "quota_limited"
+                capture_pipeline_stage(
+                    "signal_data_source_filtered", team, organization, output, {"filter_reason": reason}
+                )
+                return False
+            finally:
+                _safe_heartbeat()
+            return True
+
+    async with asyncio.TaskGroup() as tg:
+        tasks = [tg.create_task(_bounded_admit(output)) for output in outputs]
+    return [output for output, task in zip(outputs, tasks) if task.result()]
 
 
 async def run_signal_pipeline(
@@ -700,6 +712,7 @@ async def run_signal_pipeline(
     records: list[dict[str, Any]],
     extra: dict[str, Any],
     source_config: dict[str, Any] | None = None,
+    snapshot_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Run records through the shared emission pipeline (emit, summarize, gate, emit signals).
 
@@ -754,7 +767,9 @@ async def run_signal_pipeline(
     )
     if config.record_processed_outputs and finished:
         # Dispatch may have succeeded before the emission ledger write failed.
-        await _record_processed_outputs(team, [output for output in outputs if output.signal_id in finished])
+        await _record_processed_outputs(
+            team, [output for output in outputs if output.signal_id in finished], snapshot_at
+        )
     outputs = [output for output in outputs if output.signal_id not in finished]
 
     organization = await database_sync_to_async(lambda: team.organization)()
@@ -859,7 +874,9 @@ async def run_signal_pipeline(
         ]
         if config.record_processed_outputs:
             await _record_processed_outputs(
-                team, [output for source_id, output in pre_filter_by_id.items() if source_id not in post_filter_ids]
+                team,
+                [output for source_id, output in pre_filter_by_id.items() if source_id not in post_filter_ids],
+                snapshot_at,
             )
         for source_id, output in pre_filter_by_id.items():
             if source_id not in post_filter_ids:
@@ -884,6 +901,7 @@ async def run_signal_pipeline(
         extra=extra,
         record_processed_outputs=config.record_processed_outputs,
         sync_with_source=config.sync_with_source,
+        snapshot_at=snapshot_at,
     )
     logger.info(f"Emitted {signals_emitted} signals for {source_label}", **extra)
     return {"status": "success", "signals_emitted": signals_emitted}

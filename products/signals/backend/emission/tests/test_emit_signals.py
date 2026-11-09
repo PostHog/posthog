@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import connection
@@ -30,6 +31,10 @@ from products.conversations.backend.models import Ticket
 from products.ml_inference.backend.facade.contracts import DecisionResult, NoulAnswer
 from products.signals.backend.artefact_schemas import Dismissal, ReportLink
 from products.signals.backend.emission._prompts import ISSUE_ACTIONABILITY_PROMPT
+from products.signals.backend.emission.conversations_coordinator import (
+    EmitConversationsSignalsInputs,
+    emit_conversations_signals_activity,
+)
 from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
 from products.signals.backend.emission.emit_signals import (
     EmitDataImportSignalsWorkflow,
@@ -47,6 +52,7 @@ from products.signals.backend.emission.pipeline import (
     build_emitter_outputs,
     check_actionability,
     filter_actionable,
+    filter_admitted,
     run_signal_pipeline,
     summarize_long_descriptions,
 )
@@ -407,8 +413,111 @@ class TestRunSignalPipelineEmitterFailures:
         assert result == {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
 
 
+@pytest.mark.asyncio
+async def test_batch_admission_overlaps_checks_with_bounded_concurrency() -> None:
+    outputs = [replace(_make_output(source_id=str(i)), signal_id=str(i)) for i in range(4)]
+    release = asyncio.Event()
+    two_started = asyncio.Event()
+    started: list[str] = []
+    active = 0
+    peak_active = 0
+
+    async def admit(*, team: Team, signal_id: str, billing_exempt: bool) -> None:
+        nonlocal active, peak_active
+        started.append(signal_id)
+        active += 1
+        peak_active = max(peak_active, active)
+        if len(started) == 2:
+            two_started.set()
+        try:
+            await release.wait()
+            if signal_id == "1":
+                raise TrialRefused("daily_limit_reached")
+        finally:
+            active -= 1
+
+    with (
+        patch(f"{PIPELINE_MODULE_PATH}.EMIT_CONCURRENCY_LIMIT", 2),
+        patch(f"{PIPELINE_MODULE_PATH}.database_sync_to_async_pool", return_value=admit),
+        patch(f"{PIPELINE_MODULE_PATH}.capture_pipeline_stage") as capture,
+    ):
+        pending = asyncio.create_task(filter_admitted(MagicMock(), MagicMock(), outputs))
+        try:
+            await asyncio.wait_for(two_started.wait(), timeout=1)
+            await asyncio.sleep(0)  # Let the remaining checks attempt admission while both slots are occupied.
+            assert started == ["0", "1"]
+        finally:
+            release.set()
+            result = await pending
+
+    assert peak_active == 2
+    assert result == [outputs[0], outputs[2], outputs[3]]
+    capture.assert_called_once()
+
+
 @pytest.mark.django_db(transaction=True)
 class TestEmissionRetryIdentity:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("actionable", [True, False])
+    async def test_conversations_does_not_hide_messages_arriving_after_fetch(
+        self, team: Team, actionable: bool
+    ) -> None:
+        module = "products.signals.backend.emission.conversations_coordinator"
+        snapshot_at = datetime(2026, 1, 10, 12, tzinfo=UTC)
+        with (
+            time_machine.travel(snapshot_at, tick=False) as clock,
+            patch("products.conversations.backend.events.capture_internal"),
+        ):
+            ticket = await database_sync_to_async(Ticket.objects.create_with_number)(
+                team=team, widget_session_id="snapshot-test", distinct_id="test-user", channel_source="widget"
+            )
+            await Comment.objects.acreate(
+                team=team, scope="conversations_ticket", item_id=str(ticket.id), content="Export does not finish"
+            )
+            await Ticket.objects.filter(id=ticket.id).aupdate(
+                created_at=snapshot_at - timedelta(days=2), last_message_at=snapshot_at - timedelta(hours=2)
+            )
+            config = CONVERSATIONS_TICKETS_CONFIG
+
+            def fetch_then_receive_message(team, config, context):
+                records = CONVERSATIONS_TICKETS_CONFIG.record_fetcher(team, config, context)
+                # A message can arrive even before the fetcher returns control to the pipeline.
+                clock.shift(timedelta(seconds=30))
+                Comment.objects.create(
+                    team=team, scope="conversations_ticket", item_id=str(ticket.id), content="A new detail"
+                )
+                Ticket.objects.filter(id=ticket.id).update(last_message_at=timezone.now())
+                clock.shift(timedelta(seconds=30))
+                return records
+
+            async def decide(**kwargs):
+                clock.shift(timedelta(minutes=5))
+                return kwargs["outputs"] if actionable else []
+
+            with (
+                patch(f"{module}.Heartbeater"),
+                patch(
+                    f"{module}.get_signal_config",
+                    return_value=config.model_copy(update={"record_fetcher": fetch_then_receive_message}),
+                ),
+                patch(f"{module}.afetch_source_config", AsyncMock(return_value={})),
+                patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=False),
+                patch("posthoganalytics.feature_enabled", return_value=False),
+                patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
+                patch(f"{PIPELINE_MODULE_PATH}.filter_actionable", side_effect=decide),
+                patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+            ):
+                result = await emit_conversations_signals_activity(EmitConversationsSignalsInputs(team_id=team.id))
+            assert result["signals_emitted"] == int(actionable)
+            processed = await SignalEmissionRecord.objects.aget(team=team, source_id=str(ticket.id))
+            assert processed.emitted_at == snapshot_at
+            fetch = database_sync_to_async(config.record_fetcher)
+            assert await fetch(team, config, {}) == []  # The existing 24-hour resnapshot floor still applies.
+            clock.move_to(snapshot_at + timedelta(hours=24, minutes=1))
+            records = await fetch(team, config, {})
+            assert [record["id"] for record in records] == [ticket.id]
+            assert ("customer", "A new detail") in records[0]["messages"]
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize("limit", ["billing", "daily"])
     async def test_conversations_defer_refused_tickets_and_allow_later_snapshots(self, team: Team, limit: str) -> None:
