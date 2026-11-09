@@ -76,7 +76,11 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
-from products.product_analytics.backend.presentation.insight import InsightSerializer, chart_display_filter
+from products.product_analytics.backend.presentation.insight import (
+    InsightSerializer,
+    InsightViewSet,
+    chart_display_filter,
+)
 from products.subscriptions.backend.facade.testing import (
     create_subscription,
     create_subscription_delivery,
@@ -1168,7 +1172,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [11, 11, 11, 11, 11],
+            [9, 9, 9, 9, 9],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
@@ -1886,6 +1890,80 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 }
             ],
         )
+
+    def test_patch_does_not_restore_a_field_changed_since_the_read(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight name", "description": "old description"})
+        original_get_object = InsightViewSet.get_object
+
+        def get_object_then_land_a_concurrent_write(viewset):
+            insight = original_get_object(viewset)
+            Insight.objects.filter(pk=insight.pk).update(description="written by another request")
+            return insight
+
+        with (
+            patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_write),
+            capture_db_queries() as queries,
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "renamed"}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        insight = Insight.objects.get(pk=insight_id)
+        assert insight.name == "renamed"
+        assert insight.description == "written by another request"
+        # The assertions above also pass without the lock, which truly concurrent requests need.
+        assert any('FOR NO KEY UPDATE OF "posthog_dashboarditem"' in query["sql"] for query in queries.captured_queries)
+
+    def test_patch_restoring_a_query_changed_since_the_read_regenerates_its_metadata(self) -> None:
+        def events_query(event: str) -> dict:
+            return {"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"], "event": event}}
+
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight name", "query": events_query("event_a")})
+        original_get_object = InsightViewSet.get_object
+
+        def get_object_then_land_a_concurrent_query_change(viewset):
+            insight = original_get_object(viewset)
+            concurrent = Insight.objects.get(pk=insight.pk)
+            concurrent.query = events_query("event_b")
+            concurrent.save()
+            return insight
+
+        with patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_query_change):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}",
+                {"query": events_query("event_a")},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        query_metadata = Insight.objects.get(pk=insight_id).query_metadata
+        assert query_metadata is not None
+        assert query_metadata["events"] == ["event_a"]
+
+    @parameterized.expand([("soft_delete", True), ("hard_delete", False)])
+    def test_patch_after_a_concurrent_delete_returns_404_without_adding_a_tile(self, _name: str, soft: bool) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight name"})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        original_get_object = InsightViewSet.get_object
+
+        def get_object_then_land_a_concurrent_delete(viewset):
+            insight = original_get_object(viewset)
+            concurrent = Insight.objects_including_soft_deleted.filter(pk=insight.pk)
+            if soft:
+                concurrent.update(deleted=True)
+            else:
+                concurrent.delete()
+            return insight
+
+        with patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_delete):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_id]}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert not DashboardTile.objects_including_soft_deleted.filter(insight_id=insight_id).exists()
+        assert not Insight.objects.filter(pk=insight_id).exists()
 
     def test_update_insight(self) -> None:
         with time_machine.travel("2012-01-14T03:21:34.000Z", tick=False) as frozen_time:

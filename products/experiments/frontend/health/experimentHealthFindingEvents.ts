@@ -28,6 +28,7 @@ export type ExperimentHealthFindingCode =
     | 'srm'
     | 'zero_exposures'
     | 'test_account_filter_removes_exposures'
+    | 'unserved_variant_exposures'
     | 'no_metric'
     | 'metric_event_not_ingested'
     | 'metric_cannot_compile'
