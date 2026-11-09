@@ -133,9 +133,11 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
             "https://app.dataforseo.com, then resync."
         )
         return {
-            # Match on the stable host, not the per-request path.
-            "401 Client Error: Unauthorized for url: https://api.dataforseo.com": invalid_credentials_message,
-            "402 Client Error: Payment Required for url: https://api.dataforseo.com": insufficient_funds_message,
+            # DataForSEO doesn't reliably send the standard reason phrase ("Unauthorized",
+            # "Payment Required") on every response (observed: "402 Client Error: Unknown for
+            # url: ..."), so match on the status alone rather than the host-scoped phrase.
+            "401 Client Error": invalid_credentials_message,
+            "402 Client Error": insufficient_funds_message,
             "DataForSEO API error [40100]": invalid_credentials_message,
             "DataForSEO API error [40200]": insufficient_funds_message,
             "DataForSEO API error [40210]": insufficient_funds_message,

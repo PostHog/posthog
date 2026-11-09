@@ -54,9 +54,18 @@ impl RedisClient {
     /// attempt just waits for the next caller -- the client keeps failing
     /// open in the meantime, exactly as it would without healing.
     pub async fn heal_connection(&self) {
+        self.reconnect_inner(false).await;
+    }
+
+    /// Replace the connection after a shadow timeout, even during the normal heal cooldown.
+    pub async fn reconnect(&self) -> bool {
+        self.reconnect_inner(true).await
+    }
+
+    async fn reconnect_inner(&self, force: bool) -> bool {
         let mut last_attempt = self.heal_state.lock().await;
-        if last_attempt.elapsed() < HEAL_COOLDOWN {
-            return;
+        if !force && last_attempt.elapsed() < HEAL_COOLDOWN {
+            return false;
         }
         *last_attempt = Instant::now();
 
@@ -75,10 +84,12 @@ impl RedisClient {
         {
             Ok(connection) => {
                 self.connection.store(Arc::new(connection));
-                info!("Redis connection healed after unrecoverable error");
+                info!("Redis connection replaced");
+                true
             }
             Err(e) => {
-                warn!(error = %e, "Redis heal attempt failed; will retry after cooldown");
+                warn!(error = %e, "Redis reconnect attempt failed");
+                false
             }
         }
     }
@@ -336,10 +347,19 @@ pub trait ScriptRunner: Send + Sync {
     /// Rebuild the underlying connection after a connection-class failure; see
     /// [`Client::heal`]. The default no-op keeps test fakes trivial.
     async fn heal(&self) {}
+
+    /// Return whether a fresh connection replaced the old one. Test runners do not reconnect.
+    async fn reconnect(&self) -> bool {
+        false
+    }
 }
 
 #[async_trait]
 impl ScriptRunner for RedisClient {
+    async fn reconnect(&self) -> bool {
+        RedisClient::reconnect(self).await
+    }
+
     async fn eval_int_vec(
         &self,
         script: &str,
@@ -358,6 +378,10 @@ impl ScriptRunner for RedisClient {
 impl Client for RedisClient {
     async fn heal(&self) {
         self.heal_connection().await;
+    }
+
+    async fn reconnect(&self) -> bool {
+        RedisClient::reconnect(self).await
     }
 
     async fn zrangebyscore(

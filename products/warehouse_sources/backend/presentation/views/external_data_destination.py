@@ -17,6 +17,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.integrations import IntegrationKind, IntegrationRecord
 from posthog.integrations.fields import IntegrationReferenceField
+from posthog.models.integration import (
+    AWSRedshiftRoleBasedIntegration,
+    IntegrationError,
+    RedshiftIntegration,
+    RedshiftServerlessWorkgroup,
+    parse_redshift_host,
+    redshift_integration_from_record,
+)
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
@@ -390,6 +398,12 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             "latest_error_at",
         ]
 
+    # A JSONField takes any JSON value, and every check and `update()` read config as an object.
+    def validate_config(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValidationError('Config must be an object of settings, such as {"database": "analytics"}.')
+        return value
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         destination_type = attrs.get("type", getattr(self.instance, "type", None))
 
@@ -419,8 +433,13 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
 
         if self.instance is not None:
             self._reject_retargeting(attrs)
+            if destination_type == ExternalDataDestination.Type.REDSHIFT and "config" in attrs:
+                # `update()` merges the PATCH onto the saved config, so check the port the next sync uses.
+                self._check_redshift_port({**(self.instance.config or {}), **attrs["config"]})
         elif destination_type == ExternalDataDestination.Type.POSTGRES:
             self._check_postgres_connection(integration, attrs.get("config"))
+        elif destination_type == ExternalDataDestination.Type.REDSHIFT:
+            self._check_redshift_target(integration, attrs.get("config"))
         else:
             self._run_connection_test(destination_type, integration, attrs.get("config"))
 
@@ -434,6 +453,62 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         except DestinationConnectionCheckError as error:
             field = "config" if error.failure in CONFIG_FAILURES else "integration"
             raise ValidationError({field: str(error)})
+
+    # A username and password connection stores its own host. An IAM role or access key
+    # connection stores only the AWS identity, so the destination has to name the cluster.
+    def _check_redshift_target(self, integration: IntegrationRecord, config: dict[str, Any] | None) -> None:
+        try:
+            redshift = redshift_integration_from_record(integration)
+        except IntegrationError as error:
+            raise ValidationError({"integration": str(error)})
+        if isinstance(redshift, RedshiftIntegration):
+            self._require_complete_password_connection(integration)
+            return
+
+        config = config or {}
+        host = config.get("host")
+        if not isinstance(host, str) or not host:
+            raise ValidationError(
+                {"config": "Add the cluster endpoint as host. This connection uses AWS credentials, so it has no host."}
+            )
+        try:
+            server = parse_redshift_host(host)
+            if isinstance(redshift, AWSRedshiftRoleBasedIntegration) and isinstance(
+                server, RedshiftServerlessWorkgroup
+            ):
+                redshift.workgroup_arn_for(server)
+        except IntegrationError as error:
+            raise ValidationError({"config": str(error)})
+
+        self._check_redshift_port(config)
+
+    def _check_redshift_port(self, config: dict[str, Any]) -> None:
+        port = config.get("port")
+        if port is not None and (isinstance(port, bool) or not isinstance(port, int) or not 0 < port <= 65535):
+            raise ValidationError({"config": "Port must be a number from 1 to 65535."})
+
+    # A connection with no AWS identity signs in with a password, and the writer reads all of these
+    # fields on the first sync. Without this, a broken connection saves and only fails then.
+    REDSHIFT_PASSWORD_FIELDS: tuple[tuple[str, str, bool], ...] = (
+        ("host", "host", False),
+        ("port", "port", False),
+        ("user", "username", False),
+        ("password", "password", True),
+    )
+
+    def _require_complete_password_connection(self, integration: IntegrationRecord) -> None:
+        config = integration.config or {}
+        sensitive_config = integration.sensitive_config or {}
+        missing = [
+            label
+            for key, label, sensitive in self.REDSHIFT_PASSWORD_FIELDS
+            if not str((sensitive_config if sensitive else config).get(key) or "").strip()
+        ]
+        if missing:
+            listed = missing[0] if len(missing) == 1 else f"{', '.join(missing[:-1])} or {missing[-1]}"
+            raise ValidationError(
+                {"integration": f"This Redshift connection has no {listed}. Reconnect Redshift, then try again."}
+            )
 
     def _run_connection_test(self, destination_type: str, integration: IntegrationRecord, config: Any) -> None:
         run = run_connection_test(destination_type, integration, config)
@@ -453,7 +528,7 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
     # spelling would let the other through.
     RETARGETING_FIELDS_BY_TYPE: dict[str, tuple[str, ...]] = {
         str(ExternalDataDestination.Type.POSTGRES): ("database", "schema"),
-        str(ExternalDataDestination.Type.REDSHIFT): ("database", "schema"),
+        str(ExternalDataDestination.Type.REDSHIFT): ("host", "database", "schema"),
         str(ExternalDataDestination.Type.SNOWFLAKE): ("database", "schema"),
         str(ExternalDataDestination.Type.DATABRICKS): ("catalog", "schema"),
         str(ExternalDataDestination.Type.BIGQUERY): ("dataset", "dataset_id", "project", "project_id"),
@@ -465,6 +540,7 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
     # often has a stray space at one end, and the store then rejects the name on every run. A
     # prefix is not here: a prefix with a space is a valid key, and rows may already sit under it.
     TRIMMED_FIELDS_BY_TYPE: dict[str, tuple[str, ...]] = {
+        str(ExternalDataDestination.Type.REDSHIFT): ("host",),
         str(ExternalDataDestination.Type.S3): ("bucket", "bucket_name", "region"),
         str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container"),
     }

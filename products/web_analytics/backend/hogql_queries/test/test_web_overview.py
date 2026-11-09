@@ -48,7 +48,8 @@ from posthog.models import Element, Team
 from posthog.models.utils import uuid7
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.test.first_pageview_attribution_test_base import (
@@ -185,7 +186,7 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
             "bounce rate",
         ]
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Visited Foo",
             steps_json=[
@@ -214,7 +215,7 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 
         action = None
         if with_conversion_goal:
-            action = Action.objects.create(
+            action = create_action(
                 team=self.team,
                 name="Visited Foo",
                 steps_json=[{"event": "$pageview"}],
@@ -514,7 +515,7 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
             ]
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Visited Foo",
             steps_json=[
@@ -548,7 +549,7 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
             ]
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Visited Foo",
             steps_json=[
@@ -593,9 +594,7 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
         properties = [EventPropertyFilter(key="plan", value="paid", operator=PropertyOperator.EXACT)]
         goal: ActionConversionGoal | CustomEventConversionGoal
         if use_action:
-            action = Action.objects.create(
-                team=self.team, name="Customer created", steps_json=[{"event": "customer_created"}]
-            )
+            action = create_action(team=self.team, name="Customer created", steps_json=[{"event": "customer_created"}])
             goal = ActionConversionGoal(actionId=action.id, properties=properties)
         else:
             goal = CustomEventConversionGoal(customEventName="customer_created", properties=properties)
@@ -661,7 +660,7 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
         self._create_events([("p1", [("2023-12-01", s1, "https://www.example.com/foo")])])
         self._create_events([("p1", [("2023-12-01", s1)])], event="custom_event")
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Did Custom Event",
             steps_json=[
@@ -695,7 +694,7 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
             event="$autocapture",
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Paid $10",
             steps_json=[
@@ -746,7 +745,7 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
             ]
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Visited Foo",
             steps_json=[
@@ -805,7 +804,7 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
             ]
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Visited Foo",
             steps_json=[

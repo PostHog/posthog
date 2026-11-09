@@ -20,6 +20,7 @@ serde_json = { workspace = true }
 pin-project = "1.1"
 sqlx = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
 thiserror = { workspace = true }

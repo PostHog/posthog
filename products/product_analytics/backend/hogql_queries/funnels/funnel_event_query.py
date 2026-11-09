@@ -37,7 +37,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.property.property import PropertyName
 from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.product_analytics.backend.hogql_queries.funnels.funnel_aggregation_operations import (
     FirstTimeForUserAggregationQuery,
 )
@@ -360,8 +361,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         if isinstance(step_entity, ActionsNode) or isinstance(step_entity, FunnelExclusionActionsNode):
             # action
             try:
-                action = Action.objects.get(pk=int(step_entity.id), team__project_id=self.context.team.project_id)
-            except Action.DoesNotExist:
+                action = get_action(action_id=int(step_entity.id), project_id=self.context.team.project_id)
+            except ActionNotFound:
                 raise ValidationError(f"Action ID {step_entity.id} does not exist!")
             event_expr = action_to_expr(action)
         elif isinstance(step_entity, FunnelsDataWarehouseNode):
@@ -685,9 +686,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 events.add(node.event)
             elif isinstance(node, ActionsNode) or isinstance(node, FunnelExclusionActionsNode):
                 try:
-                    action = Action.objects.get(pk=int(node.id), team__project_id=self.context.team.project_id)
+                    action = get_action(action_id=int(node.id), project_id=self.context.team.project_id)
                     events.update(action.get_step_events())
-                except Action.DoesNotExist:
+                except ActionNotFound:
                     raise ValidationError(f"Action ID {node.id} does not exist!")
             elif isinstance(node, FunnelsDataWarehouseNode):
                 continue  # Data warehouse nodes aren't based on events
@@ -697,9 +698,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                         events.add(child.event)
                     elif isinstance(child, ActionsNode):
                         try:
-                            action = Action.objects.get(pk=int(child.id), team__project_id=self.context.team.project_id)
+                            action = get_action(action_id=int(child.id), project_id=self.context.team.project_id)
                             events.update(action.get_step_events())
-                        except Action.DoesNotExist:
+                        except ActionNotFound:
                             raise ValidationError(f"Action ID {child.id} does not exist!")
                     else:
                         continue

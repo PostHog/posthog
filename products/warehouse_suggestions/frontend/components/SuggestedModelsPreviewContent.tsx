@@ -18,7 +18,7 @@ export interface SuggestedModelsPreviewContentProps {
 export function SuggestedModelsPreviewContent({
     emptyFocusRef,
 }: SuggestedModelsPreviewContentProps): JSX.Element | null {
-    const { stripState, rankedSuggestions, savingsSummary } = useValues(warehouseSuggestionsLogic)
+    const { stripState, rankedSuggestions, savingsSummary, unusedViewCount } = useValues(warehouseSuggestionsLogic)
     const { openReview } = useActions(warehouseSuggestionsLogic)
     const containerRef = useRef<HTMLElement>(null)
     const focusHost = useCallback(() => emptyFocusRef.current?.focus(), [emptyFocusRef])
@@ -45,7 +45,7 @@ export function SuggestedModelsPreviewContent({
                                 </span>
                             </Heading>
                             <Text size="xs" variant="muted">
-                                <SavingsBannerMessage summary={savingsSummary} />
+                                <SavingsBannerMessage summary={savingsSummary} unusedViews={unusedViewCount} />
                             </Text>
                         </div>
                         <Button

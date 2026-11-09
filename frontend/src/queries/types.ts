@@ -93,6 +93,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     compactDataTableToolbar?: boolean
     dataTableToolbarClassName?: string
     dataTableExportIconOnly?: boolean
+    dataTableHideLoadNextWhenComplete?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>

@@ -8,6 +8,7 @@ from products.tasks.backend.constants import (
     vm_sandbox_default_base_origin_products,
     vm_sandbox_origin_rollout_percentages,
 )
+from products.tasks.backend.facade.profiles import TaskRunOptions
 from products.tasks.backend.logic.services.image_spec import (
     SANDBOX_IMAGE_SPEC_PATH,
     SandboxImageSpec,
@@ -15,6 +16,7 @@ from products.tasks.backend.logic.services.image_spec import (
     parse_image_spec_yaml,
 )
 from products.tasks.backend.models import SandboxCustomImage, Task, TaskRun
+from products.tasks.backend.task_profiles import IMAGE_BUILDER
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,7 @@ IMAGE_BUILDER_PROMPT = """You are an expert at building sandbox base images for 
 The user wants to create a custom base image named "{image_name}" for their cloud task sandboxes. Your job is to converse with them, figure out what they need installed or configured, and maintain a declarative image spec that captures it.
 
 CONTEXT:
-- You are running inside the exact VM sandbox base that custom images layer on top of (Ubuntu 24.04, Node 24, uv, gh CLI, Docker-in-Docker via `start-dockerd`). Anything you can do here, the built image can bake in.
+- You are running inside the exact VM sandbox base that custom images layer on top of (Ubuntu 24.04, Node 26, uv, gh CLI, Docker-in-Docker via `start-dockerd`). Anything you can do here, the built image can bake in.
 - The custom image is built by replaying your spec on top of this base image, then published. It never replaces the base — agent tooling and git remain present.
 - The spec lives at {spec_path}. Keep it up to date at all times: after every change the user agrees to, write the full spec file.
 
@@ -127,15 +129,15 @@ def ensure_image_builder_task(image: SandboxCustomImage, user_id: int) -> Task:
         team=image.team,
         title=f"Custom image: {image.name}",
         description=f"Image-builder session for custom sandbox image '{image.name}'",
-        origin_product=Task.OriginProduct.IMAGE_BUILDER,
+        profile=IMAGE_BUILDER,
         user_id=user_id,
         repository=image.repository or None,
+        options=TaskRunOptions(
+            adapter="claude", model=IMAGE_BUILDER_MODEL, reasoning_effort=IMAGE_BUILDER_REASONING_EFFORT
+        ),
         create_pr=False,
         mode="interactive",
         interaction_origin="desktop",
-        runtime_adapter="claude",
-        model=IMAGE_BUILDER_MODEL,
-        reasoning_effort=IMAGE_BUILDER_REASONING_EFFORT,
         pending_user_message=build_image_builder_prompt(image),
         custom_image_builder_id=str(image.id),
     )

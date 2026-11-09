@@ -37,7 +37,19 @@ python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 
 # 3. Real run (also runs daily via celery beat for allowlisted+flagged teams):
 python manage.py run_aeo_citation_checks --team-id <id>
+
 ```
+
+### Add and edit in the app
+
+The AI visibility page in Web analytics (`/web/content-autopilot`) has an Overview tab for the prompt-set summary and a Prompts tab to add prompts (one per line, with an optional topic), edit a prompt's text or topic, turn prompts on or off, and archive them.
+Its Opportunities and Drafts tabs are content autopilot, which drafts pages for prompts where the engines did not cite the site.
+
+### Suggested prompts
+
+`POST /api/projects/<id>/aeo_prompts/suggest/` takes a `domain` (plus optional `brand`, `description`, `competitors`, `topics` and `count`) and returns a pending job. A Celery task asks Claude, through the AI gateway with web search, for prompts a buyer would ask, each labeled with a topic, a circle (differentiation, battleground, vulnerability, table stakes or branded), a funnel stage and a branded flag. Poll `GET aeo_prompts/suggest/<job id>/` for the result; jobs live in the cache for an hour after their last update, and a job still pending after 8 minutes reads as failed. Imported suggestions record `via: suggestion` in their evidence.
+Nothing is saved as a prompt: a person imports the ones they keep. Suggestions need the organization's AI data processing approval, and prompts the project already tracks are left out.
+The MCP tools for it (`aeo-prompts-suggest`, `aeo-prompts-suggestion-get`) ship disabled until the route is deployed.
 
 ### Import over the API
 
@@ -50,7 +62,7 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 ```
 
 - A request takes up to 2,000 prompts. Send larger sets in batches of a few hundred.
-- A re-import matches prompts by the normalized text of their current version. It updates the topic and the evidence, and keeps each prompt's on/off state. A new text creates a prompt with version 1.
+- A re-import matches prompts by the normalized text of their current version. It updates the topic, merges the new evidence into the stored evidence (an omitted `external_visibility` keeps its value), and keeps each prompt's on/off state. A new text creates a prompt with version 1.
 - A re-import of an archived prompt's text leaves it archived and counts it as `skipped`.
 - The same operations are PostHog MCP tools (`products/aeo/mcp/tools.yaml`), gated by the same flag: `aeo-prompts-list`, `aeo-prompts-get`, `aeo-prompts-update`, `aeo-prompts-archive`, `aeo-prompts-versions-list`, `aeo-prompts-import`, `aeo-prompts-topics-list`, `aeo-prompts-checks-list`, `aeo-prompts-stats-get` and `aeo-prompts-overview-get`.
 - `external_visibility` (0-100) is the share of answers that mention the brand, as reported by the tool the set came from. It is kept in the prompt's evidence to benchmark against our own rates.
@@ -110,6 +122,13 @@ SELECT count() FROM sessions
 WHERE $channel_type = 'AI' AND $entry_pathname = '/docs/session-replay'
   AND $start_timestamp >= now() - INTERVAL 30 DAY
 ```
+
+## Brand catalog
+
+`posthog_aeo_brand` holds one row per registrable domain the engines cite: the project itself (`own`, from `AEO_TARGET_DOMAINS`), competitors, publishers such as review and community sites, and domains nobody has labeled yet (`unknown`, status `suggested`).
+After each daily run, `sync_brands_from_run` in `catalog.py` adds every domain the run's answers cited that the catalog does not have yet. It makes no external calls.
+It only inserts, so a rename, a new label or an ignored brand survives every run. How often a brand is cited is computed from the checks when it is read, not stored on the brand.
+People review the catalog over the API (`/api/projects/<id>/aeo_brands/`) or the `aeo-brands-*` MCP tools.
 
 ## Content autopilot
 

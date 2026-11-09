@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -25,6 +26,7 @@ import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from './gen
 import { intervalForSeconds } from './refreshIntervals'
 import { ROW_LEAVE_MS, StripState, SuggestionSurface, warehouseSuggestionsLogic } from './warehouseSuggestionsLogic'
 
+jest.mock('lib/utils/accessControlUtils', () => ({ userHasAccess: jest.fn(() => true) }))
 jest.mock('./generated/api', () => ({
     warehouseSuggestionsAcceptCreate: jest.fn(),
     warehouseSuggestionsAssignCreate: jest.fn(),
@@ -157,6 +159,8 @@ function certification(id: string, kind: 'certify' | 'deprecate'): WarehouseSugg
     return { ...MATERIALIZE, id, kind, subject_kind: 'table', payload: { subject_name: id } }
 }
 
+const MODELS_SURFACE = { surface: 'models' }
+
 function page(results: WarehouseSuggestionApi[]): Awaited<ReturnType<typeof warehouseSuggestionsList>> {
     return { count: results.length, results } as Awaited<ReturnType<typeof warehouseSuggestionsList>>
 }
@@ -167,6 +171,7 @@ describe('warehouseSuggestionsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
+        jest.mocked(userHasAccess).mockReturnValue(true)
         mockSavedQuery.mockReset()
         mockCheck.mockReset()
         jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
@@ -360,7 +365,7 @@ describe('warehouseSuggestionsLogic', () => {
         logic.actions.confirmMaterialize()
 
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
-        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), INCREMENTAL.id, expectedBody)
+        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), INCREMENTAL.id, expectedBody, MODELS_SURFACE)
     })
 
     it('materializes with a full refresh when the view can no longer refresh incrementally', async () => {
@@ -384,10 +389,12 @@ describe('warehouseSuggestionsLogic', () => {
         logic.actions.confirmMaterialize()
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
 
-        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), INCREMENTAL.id, {
-            refresh_interval_seconds: 86400,
-            refresh_mode: 'full',
-        })
+        expect(mockAccept).toHaveBeenCalledWith(
+            expect.any(String),
+            INCREMENTAL.id,
+            { refresh_interval_seconds: 86400, refresh_mode: 'full' },
+            MODELS_SURFACE
+        )
     })
 
     it('switching a full proposal to incremental sends the mode and the keys', async () => {
@@ -400,13 +407,18 @@ describe('warehouseSuggestionsLogic', () => {
         logic.actions.confirmMaterialize()
 
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
-        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), MATERIALIZE.id, {
-            refresh_interval_seconds: 86400,
-            refresh_mode: 'incremental',
-            incremental_key: 'day',
-            unique_key: ['day'],
-            lookback_seconds: 0,
-        })
+        expect(mockAccept).toHaveBeenCalledWith(
+            expect.any(String),
+            MATERIALIZE.id,
+            {
+                refresh_interval_seconds: 86400,
+                refresh_mode: 'incremental',
+                incremental_key: 'day',
+                unique_key: ['day'],
+                lookback_seconds: 0,
+            },
+            MODELS_SURFACE
+        )
     })
 
     it.each<[string, Parameters<typeof logic.actions.setRefreshDraft>[0]]>([
@@ -524,6 +536,11 @@ describe('warehouseSuggestionsLogic', () => {
                 materialize('time-big', 2400),
             ],
             ['time-big', 'time-small', 'bytes-big', 'unread-mid'],
+        ],
+        [
+            'models',
+            [DEPRECATE, certification('old-table', 'deprecate'), unmaterialize('scan-led', 0, 0)],
+            ['scan-led', DEPRECATE.id],
         ],
         ['catalog', [certification('old', 'deprecate'), certification('used', 'certify')], ['used', 'old']],
     ])('orders %s suggestions by kind, then by what they are worth', async (surface, results, expectedOrder) => {
@@ -792,9 +809,22 @@ describe('warehouseSuggestionsLogic', () => {
         logic.actions.confirmAccept()
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
 
-        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), DEPRECATE.id, body)
+        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), DEPRECATE.id, body, { surface: 'catalog' })
         expect((lemonToast.success as jest.Mock).mock.calls[0][0]).toEqual(toast)
         expect(logic.values.acceptConfirmSuggestion).toBeNull()
+    })
+
+    it.each([
+        ['marks it deprecated for a data catalog editor', true, false],
+        ['deletes it for someone who cannot edit the data catalog', false, true],
+    ])('a view deprecation opens on the choice that %s', async (_name, canEditCatalog, expectedDeleteView) => {
+        jest.mocked(userHasAccess).mockReturnValue(canEditCatalog)
+        mockList.mockResolvedValue(page([DEPRECATE]))
+        await mountLogic()
+
+        logic.actions.openAcceptConfirm(DEPRECATE.id)
+
+        expect(logic.values.deleteView).toBe(expectedDeleteView)
     })
 
     it('reloads the list when an accept finds the view or table deleted', async () => {
