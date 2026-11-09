@@ -1,6 +1,7 @@
 import io
 import sys
 import json
+import subprocess
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -397,6 +398,53 @@ def test_cli_reuses_ownership_and_preserves_per_path_results(
         assert [result["path"] for result in output["results"]] == [TARGET, "src/player"]
         assert all(result["recommended_assignee"] == ("owner" if owned else None) for result in output["results"])
         assert [error["path"] for error in output["errors"]] == ["missing.py", "../outside.py"]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        subprocess.TimeoutExpired(["git", "log"], 60),
+        subprocess.CalledProcessError(128, ["git", "log"]),
+        OSError("git unavailable"),
+    ],
+)
+def test_cli_caches_failed_history_scopes_and_continues_other_scopes(
+    repository: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], failure: Exception
+) -> None:
+    roster = repository / "roster.json"
+    roster.write_text(
+        json.dumps(
+            {
+                "generated_at": NOW.isoformat(),
+                "members": [{"login": "other", "emails": ["other@example.com"], "teams": ["example-org/other-team"]}],
+            }
+        )
+    )
+    paths = [TARGET, "src/player/play.py", "src/other/api.py"]
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["score-assignees", "--repo", str(repository), "--roster", str(roster), "--now", NOW.isoformat(), *paths],
+    )
+    loads: Counter[str] = Counter()
+
+    def history_for_scope(repo: Path, scope: str, now: datetime) -> History:
+        loads[scope] += 1
+        if scope == "src/player":
+            raise failure
+        return History(commits=(commit("other", 1, "src/other/api.py"),), complete=True)
+
+    with (
+        patch("products.signals.scripts.score_assignees.git", return_value=str(repository)),
+        patch("products.signals.scripts.score_assignees.load_history", side_effect=history_for_scope),
+    ):
+        main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert [result["path"] for result in output["results"]] == ["src/other/api.py"]
+    assert output["results"][0]["candidates"][0]["login"] == "other"
+    assert output["errors"] == [{"path": path, "error": str(failure)} for path in paths[:2]]
+    assert loads == {"src/player": 1, "src": 1}
 
 
 @pytest.mark.parametrize("manifest", [None, "product.yaml", "component.yaml"])

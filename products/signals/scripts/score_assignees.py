@@ -292,6 +292,18 @@ def load_history(repo: Path, scope: str, now: datetime) -> History:
     return History(commits=tuple(commits[:MAX_COMMITS]), complete=complete)
 
 
+def cached_history(repo: Path, scope: str, now: datetime, histories: dict[str, History | Exception]) -> History:
+    if scope not in histories:
+        try:
+            histories[scope] = load_history(repo, scope, now)
+        except (ValueError, OSError, subprocess.SubprocessError) as error:
+            histories[scope] = error
+    history = histories[scope]
+    if isinstance(history, Exception):
+        raise history
+    return history
+
+
 def path_in_scope(path: str, scope: str) -> bool:
     return path == scope or path.startswith(f"{scope}/")
 
@@ -621,7 +633,7 @@ def main() -> None:
         parser.error(str(error))
     results = []
     errors = []
-    histories: dict[str, History] = {}
+    histories: dict[str, History | Exception] = {}
     batch = len(paths) > 1 or args.paths_file is not None
     for requested in paths:
         try:
@@ -631,9 +643,8 @@ def main() -> None:
                 raise ValueError("Path must exist below the repository root")
             owners = set(resolver.ownership_for(f"{path}/__assignee_scope__" if target.is_dir() else path).owners)
             scope = traversal_scopes(path, owners, resolver)[-1]
-            if scope not in histories:
-                histories[scope] = load_history(repo, scope, now)
-            results.append(asdict(rank_assignees(repo, path, roster, histories[scope], now, resolver=resolver)))
+            history = cached_history(repo, scope, now, histories)
+            results.append(asdict(rank_assignees(repo, path, roster, history, now, resolver=resolver)))
         except (ValueError, OSError, subprocess.SubprocessError) as error:
             if not batch:
                 parser.error(str(error))
