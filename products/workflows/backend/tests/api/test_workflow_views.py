@@ -58,6 +58,7 @@ class TestWorkflowViewAPI(APIBaseTest):
                 {"facet": "kind", "value": "messaging", "negated": True},
                 {"facet": "tag", "value": "growth", "negated": False},
                 {"facet": "in", "value": "Billing/Cards", "negated": True},
+                {"facet": "in", "value": f"Billing/{'c' * 1000}", "negated": True},
             ],
             "text": "welcome",
             "columns": ["created_by", "health", "owner"],
@@ -341,6 +342,8 @@ class TestWorkflowViewAPI(APIBaseTest):
             ("duplicate_column", {"columns": ["owner", "owner"]}),
             ("open_folder", {"filters": [{"facet": "in", "value": "Billing", "negated": False}]}),
             ("text_limit", {"text": "x" * 1001}),
+            ("value_limit", {"filters": [{"facet": "tag", "value": "x" * 257, "negated": False}]}),
+            ("folder_path_limit", {"filters": [{"facet": "in", "value": "x" * 4001, "negated": True}]}),
         ]
     )
     def test_invalid_saved_state_is_rejected_without_replacing_the_shared_view(
