@@ -65,10 +65,25 @@ describe('workflowBroadcastMoveLogic', () => {
                 { actions: [trigger, emailFrom({ integrationId: 7, integrationIds: ['9'] }), exit] },
                 false,
             ],
+            [
+                'a workflow whose sender is a template',
+                { actions: [trigger, emailFrom({ integrationId: '{{ 7 }}' }), exit] },
+                false,
+            ],
+            [
+                'a workflow whose rotation is a template',
+                { actions: [trigger, emailFrom({ integrationId: 7, integrationIds: '{[9]}' }), exit] },
+                false,
+            ],
         ])('%s', (_name, overrides, expected) => {
             expect(canMoveToBroadcasts({ ...oneEmailFlow, ...overrides } as HogFlow, [ownSender, sandboxSender])).toBe(
                 expected
             )
+        })
+
+        it('offers a templated sender while the project has no sandbox sender', () => {
+            const templated = { ...oneEmailFlow, actions: [trigger, emailFrom({ integrationId: '{{ 7 }}' }), exit] }
+            expect(canMoveToBroadcasts(templated as HogFlow, [ownSender])).toBe(true)
         })
 
         it('hides the move until the integrations load', () => {

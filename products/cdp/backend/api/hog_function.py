@@ -421,11 +421,9 @@ def _keeps_stored_sender(mapping: dict, key: str, stored: dict) -> bool:
     raw_inputs = mapping.get("inputs")
     entry = raw_inputs.get(key) if isinstance(raw_inputs, dict) else None
     value = entry.get("value") if isinstance(entry, dict) else None
-    return (
-        isinstance(value, dict)
-        and value.get("from") == stored.get("from")
-        and (value.get("replyTo") or "") == (stored.get("replyTo") or "")
-    )
+    # Only the sender decides the claim. validate_sandbox_email_sender compares the Reply-To with the stored
+    # value itself, and a stored templated sender may clear its Reply-To there.
+    return isinstance(value, dict) and value.get("from") == stored.get("from")
 
 
 def _stored_email_values_by_mapping(instance: Optional[HogFunction], mappings: Any) -> list[dict[str, dict]]:
