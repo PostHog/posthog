@@ -502,9 +502,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             group_type_index=group_type_index,
             group_key_contains=group_key,
             search=group_search,
-            search_excluded_property_keys=self._restricted_group_property_names(request, group_type_index)
-            if group_search
-            else frozenset(),
             restricted_properties=self._restricted_properties_for_group_type(request, group_type_index),
             cursor_created_at_us=cursor_created_at_us,
             cursor_group_key=cursor_group_key,
