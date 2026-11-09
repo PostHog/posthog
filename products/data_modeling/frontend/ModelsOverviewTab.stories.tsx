@@ -1,5 +1,5 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
-import { fireEvent, waitFor, within } from '@testing-library/dom'
+import { fireEvent, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
@@ -12,6 +12,7 @@ import { ModelsOverviewTab } from './ModelsOverviewTab'
 
 const NODES_URL = '/api/environments/:team_id/data_modeling_nodes/'
 const CHECKS_URL = '/api/projects/:team_id/data_quality_checks/'
+const HEALTH_URL = '/api/projects/:team_id/data_quality_checks/health/'
 const SUGGESTIONS_URL = '/api/projects/:team_id/warehouse_suggestions/'
 const SUGGESTIONS_STATUS_URL = '/api/projects/:team_id/warehouse_suggestions/status/'
 
@@ -124,6 +125,18 @@ const passingChecks = [
 ]
 const neverRunChecks = passingChecks.map((check) => ({ ...check, last_status: '' }))
 
+function rollupFor(health: string): Record<string, unknown>[] {
+    return [
+        {
+            subject_type: 'view',
+            subject_uuid: 'query-healthy-1',
+            health,
+            checks_total: 1,
+            checks_failing: 0,
+        },
+    ]
+}
+
 const suggestionStatus = {
     enabled: true,
     eligible: true,
@@ -189,13 +202,18 @@ const suggestions = [
     suggestion('4', 'product_usage_rollup', 'materialize', 600),
 ]
 
-function healthyMocks(checkRows: Record<string, any>[], extra: Mocks['get'] = {}): { mocks: Mocks } {
+function healthyMocks(
+    checkRows: Record<string, any>[],
+    rollup: Record<string, unknown>[],
+    extra: Mocks['get'] = {}
+): { mocks: Mocks } {
     return {
         mocks: {
             get: {
                 [NODES_URL]: { results: healthyNodes, count: healthyNodes.length },
                 ...savedQueryMocks(healthyNodes),
                 [CHECKS_URL]: { results: checkRows, count: checkRows.length },
+                [HEALTH_URL]: rollup,
                 ...extra,
             },
         },
@@ -240,7 +258,7 @@ const meta: Meta<typeof ModelsOverviewTab> = {
                     '/api/environments/:team_id/data_modeling_edges/': { results: edges, count: edges.length },
                     ...savedQueryMocks(nodes),
                     [CHECKS_URL]: { results: checks, count: checks.length },
-                    '/api/projects/:team_id/data_quality_checks/health/': [],
+                    [HEALTH_URL]: [],
                     '/api/projects/:team_id/data_quality_checks/schedules/': [],
                 },
             },
@@ -256,59 +274,32 @@ export const Narrow: Story = {
     decorators: [inMainContent('w-128')],
 }
 
-export const PartialLastPage: Story = {
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await canvas.findByText('1–10 of 25')
-        const table = canvasElement.querySelector<HTMLElement>('[data-attr="models-overview-attention"]')!
-        const initialHeight = table.offsetHeight
-        while (!within(table).queryByText('21–25 of 25')) {
-            fireEvent.click(within(table).getByRole('button', { name: 'Go to next page' }))
-            await waitFor(() => within(table).getByRole('button', { name: 'Go to next page' }))
-        }
-        await waitFor(() => {
-            if (table.offsetHeight !== initialHeight) {
-                throw new Error('Paging must preserve the table height')
-            }
-        })
-    },
-}
-export const NarrowPartialLastPage: Story = {
-    ...Narrow,
-    play: PartialLastPage.play,
-}
-
 export const Healthy: Story = {
-    parameters: { msw: healthyMocks(passingChecks) },
+    parameters: { msw: healthyMocks(passingChecks, rollupFor('healthy')) },
 }
 
 export const HealthyWithoutChecks: Story = {
-    parameters: { msw: healthyMocks([]) },
+    parameters: { msw: healthyMocks([], []) },
 }
 
 export const HealthyWithChecksNotRun: Story = {
-    parameters: { msw: healthyMocks(neverRunChecks) },
+    parameters: { msw: healthyMocks(neverRunChecks, rollupFor('unknown')) },
 }
 
 export const HealthyWithDataQualityDisabled: Story = {
-    parameters: { featureFlags: [], msw: healthyMocks(passingChecks) },
+    parameters: { featureFlags: [], msw: healthyMocks(passingChecks, rollupFor('healthy')) },
 }
 
 export const HealthyNarrow: Story = {
     decorators: [inMainContent('w-128')],
-    parameters: { msw: healthyMocks(passingChecks) },
+    parameters: { msw: healthyMocks(passingChecks, rollupFor('healthy')) },
 }
 
 export const WithSuggestions: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS],
-        msw: {
-            mocks: {
-                ...healthyMocks(passingChecks, suggestionMocks).mocks,
-                post: { '/api/projects/:team_id/warehouse_suggestions/:id/dismiss/': { status: 'dismissed' } },
-            },
-        },
-        testOptions: { waitForSelector: '[data-attr="models-overview-suggestions-review-all"]' },
+        msw: healthyMocks(passingChecks, rollupFor('healthy'), suggestionMocks),
+        testOptions: { waitForSelector: '[data-attr="warehouse-suggestions-review"]' },
     },
 }
 
@@ -318,11 +309,15 @@ export const WithSuggestionsNarrow: Story = {
 }
 
 export const ChecksFailedToLoad: Story = {
-    parameters: { msw: healthyMocks([], { [CHECKS_URL]: () => [500, { detail: 'Server error' }] }) },
+    parameters: { msw: healthyMocks([], [], { [CHECKS_URL]: () => [500, { detail: 'Server error' }] }) },
 }
 
 export const ModelsFailedToLoad: Story = {
-    parameters: { msw: healthyMocks(passingChecks, { [NODES_URL]: () => [500, { detail: 'Server error' }] }) },
+    parameters: {
+        msw: healthyMocks(passingChecks, rollupFor('healthy'), {
+            [NODES_URL]: () => [500, { detail: 'Server error' }],
+        }),
+    },
 }
 
 export const NoModelsWithFailingCheck: Story = {
@@ -361,10 +356,10 @@ export const FirstViewNarrow: Story = {
     decorators: [inMainContent('w-128')],
 }
 
-export const FilteredToStale: Story = {
+export const FilteredToBehindSchedule: Story = {
     play: async ({ canvasElement }) => {
         const filter = await within(canvasElement).findByRole('group', { name: 'Show problems' })
-        fireEvent.click(within(filter).getByText('Stale'))
+        fireEvent.click(within(filter).getByText('Behind schedule'))
         await within(canvasElement).findByText('1–10 of 12')
     },
 }

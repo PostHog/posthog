@@ -6,6 +6,7 @@ from django.conf import settings
 from posthog.models import Team, User
 
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
+from products.tasks.backend.facade.profiles import TaskProfile
 from products.tasks.backend.metrics import observe_compute_quota_check
 from products.tasks.backend.models import Task, TaskClientProvenance
 
@@ -30,12 +31,18 @@ def task_creator_is_staff(task: Task) -> bool:
 
 
 def is_task_billable_compute(task: Task) -> bool:
-    return is_billable_compute(origin_product=task.origin_product, client_provenance=task.client_provenance)
+    return is_billable_compute(
+        origin_product=task.origin_product, client_provenance=task.client_provenance, profile=task.stored_profile
+    )
 
 
-def is_billable_compute(*, origin_product: str | None, client_provenance: str | None) -> bool:
+def is_billable_compute(
+    *, origin_product: str | None, client_provenance: str | None, profile: TaskProfile | None = None
+) -> bool:
     if client_provenance not in POSTHOG_CODE_CLIENT_PROVENANCES:
         return False
+    if profile is not None:
+        return profile.bills_compute
     return origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SPACE_SETUP)
 
 

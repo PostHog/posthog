@@ -16,10 +16,8 @@ import { workflowsReputationLogic } from './workflowsReputationLogic'
 const allowance: EmailSendingAllowanceApi = {
     tier: 2,
     max_tier: 4,
-    emails_per_hour: 5000,
     emails_per_day: 50000,
     max_batch_audience: 25000,
-    emails_sent_last_hour: 1200,
     emails_sent_last_day: 18400,
     enforced: true,
 }

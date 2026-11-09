@@ -170,8 +170,6 @@ import {
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
     ProductTour,
-    ProductTourAIGenerationResponse,
-    ProductTourStep,
     ProjectSecretAPIKeyRequest,
     ProjectType,
     PropertyDefinition,
@@ -340,6 +338,13 @@ export class RecordingDeletedError extends Error {
     ) {
         super('Recording has been permanently deleted')
         this.name = 'RecordingDeletedError'
+    }
+}
+
+export class NotAReplayBlockError extends Error {
+    constructor() {
+        super('Block fetch returned something other than a block')
+        this.name = 'NotAReplayBlockError'
     }
 }
 
@@ -4460,7 +4465,7 @@ const api = {
                         }
                         // Without a route to recording-api the app shell answers with HTML, which is not a block.
                         if (!response.headers.get('Content-Type')?.startsWith('application/octet-stream')) {
-                            throw new Error('Block fetch returned something other than a block')
+                            throw new NotAReplayBlockError()
                         }
                         return new Uint8Array(await response.arrayBuffer())
                     } catch (e) {
@@ -4976,6 +4981,8 @@ const api = {
             include_source_metadata?: 'true' | 'false'
             /** ISO 8601 datetime. Keeps reports created at or after it. */
             created_after?: string
+            /** For `sort=personal`: the `ranking_id` of the first page, so later pages keep its order. */
+            ranking_id?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -5403,15 +5410,6 @@ const api = {
         async delete(tourId: ProductTour['id']): Promise<void> {
             await new ApiRequest().productTour(tourId).delete()
         },
-        async generateContent(
-            tourId: ProductTour['id'],
-            title: ProductTour['name'],
-            steps: ProductTourStep[],
-            goal: string
-        ): Promise<ProductTourAIGenerationResponse> {
-            const apiRequest = new ApiRequest().productTour(tourId).withAction('generate')
-            return await apiRequest.create({ data: { title, steps, goal } })
-        },
         async saveDraft(tourId: ProductTour['id'], data: Partial<ProductTour>): Promise<ProductTour> {
             return await new ApiRequest().productTour(tourId).withAction('draft').update({ data })
         },
@@ -5440,9 +5438,6 @@ const api = {
         },
         async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).get()
-        },
-        async create(data: Partial<DataWarehouseTable>): Promise<DataWarehouseTable> {
-            return await new ApiRequest().dataWarehouseTables().create({ data })
         },
         async delete(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).delete()

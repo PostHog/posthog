@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { MouseEvent, useRef } from 'react'
+import { MouseEvent } from 'react'
 
-import { IconCheckCircle, IconChevronRight } from '@posthog/icons'
+import { IconCheckCircle } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -11,7 +11,6 @@ import {
     EmptyDescription,
     EmptyHeader,
     EmptyTitle,
-    Spinner,
     Table,
     TableBody,
     TableCell,
@@ -26,78 +25,42 @@ import {
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { ModelsOverviewProblemBadges } from 'products/data_modeling/frontend/ModelsOverviewProblemBadges'
-import { useHoldTallestHeight } from 'products/data_modeling/frontend/useHoldTallestHeight'
-import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { CatalogTableRow, passingChecks, rowIsExpandable } from '../catalogTableRows'
+import { CatalogTableRow, dataQualityUrl, passingChecks } from '../catalogTableRows'
 import { TABLES_PAGE_SIZE, catalogTablesLogic } from '../catalogTablesLogic'
+import { CatalogChecksSummary } from '../components/CatalogChecksSummary'
 import { PageSelectionCheckbox } from '../components/PageSelectionCheckbox'
-import { CatalogTableRefresh } from './CatalogTableRefresh'
+import { CatalogTableFreshness } from './CatalogTableFreshness'
 import { CatalogTableRowMenu } from './CatalogTableRowMenu'
 import { CatalogTablesPagination } from './CatalogTablesPagination'
 import { CatalogTablesSortableHead } from './CatalogTablesSortableHead'
 import { CatalogTableTrust } from './CatalogTableTrust'
 import { MutedCellText } from './MutedCellText'
-import { TableChecksPanel } from './TableChecksPanel'
 
 const WIDE_ONLY_CELL = 'hidden @min-[40rem]/main-content:table-cell'
 const NARROW_ONLY = '@min-[40rem]/main-content:hidden'
-const COLUMN_COUNT = 7
 const INTERACTIVE_SELECTOR = 'a, button, input, label, [role="checkbox"]'
 
-function checksPanelId(row: CatalogTableRow): string {
-    return `data-catalog-tables-checks-${row.key}`
-}
-
-function ChecksLabel({ row }: { row: CatalogTableRow }): JSX.Element | null {
-    const { runningSubjectKey } = useValues(dataQualityOverviewLogic)
-    const counts = passingChecks(row)
-    if (row.checkGroup && runningSubjectKey === row.checkGroup.subjectKey) {
-        return (
-            <span className="flex items-center gap-1 whitespace-nowrap">
-                <Spinner />
-                Running
-            </span>
-        )
-    }
-    if (!counts) {
-        return null
-    }
-    return (
-        <span className="whitespace-nowrap tabular-nums">{`${counts.total - counts.failing}/${counts.total} passing`}</span>
-    )
-}
-
-function ChecksToggle({ row, expanded }: { row: CatalogTableRow; expanded: boolean }): JSX.Element {
-    const { toggleRowExpanded } = useActions(catalogTablesLogic)
+function ChecksCell({ row }: { row: CatalogTableRow }): JSX.Element {
     if (!passingChecks(row)) {
         return <MutedCellText>No checks</MutedCellText>
     }
-    if (!rowIsExpandable(row)) {
-        return <ChecksLabel row={row} />
-    }
     return (
         <Button
-            size="xs"
-            aria-expanded={expanded}
-            aria-controls={checksPanelId(row)}
-            aria-label={`${expanded ? 'Hide' : 'Show'} checks for ${row.name}`}
-            className="-ml-1.5 gap-1"
-            onClick={() => toggleRowExpanded(row)}
-            data-attr="data-catalog-tables-expand"
+            variant="link-foreground"
+            size="inline"
+            className="self-start"
+            render={<LinkPrimitive to={dataQualityUrl(row.name)} />}
+            data-attr="data-catalog-tables-checks-link"
         >
-            <ChecksLabel row={row} />
-            <IconChevronRight
-                aria-hidden
-                className={cn('size-3 transition-transform motion-reduce:transition-none', expanded && 'rotate-90')}
-            />
+            <CatalogChecksSummary row={row} />
         </Button>
     )
 }
 
 function StatusBadges({ row }: { row: CatalogTableRow }): JSX.Element {
     if (row.problems.length > 0) {
-        return <ModelsOverviewProblemBadges subject={row.health} />
+        return <ModelsOverviewProblemBadges statuses={row.attention.statuses} />
     }
     return (
         <Badge variant="success">
@@ -107,7 +70,7 @@ function StatusBadges({ row }: { row: CatalogTableRow }): JSX.Element {
     )
 }
 
-function NameCell({ row, expanded }: { row: CatalogTableRow; expanded: boolean }): JSX.Element {
+function NameCell({ row }: { row: CatalogTableRow }): JSX.Element {
     return (
         <div className="flex min-w-0 flex-col gap-1">
             <div className="flex min-w-0 flex-col">
@@ -131,7 +94,7 @@ function NameCell({ row, expanded }: { row: CatalogTableRow; expanded: boolean }
             <div className={cn(NARROW_ONLY, 'flex flex-col items-start gap-1')}>
                 <div className="flex flex-wrap items-center gap-2">
                     <StatusBadges row={row} />
-                    <ChecksToggle row={row} expanded={expanded} />
+                    <ChecksCell row={row} />
                 </div>
                 <CatalogTableTrust row={row} />
             </div>
@@ -144,65 +107,47 @@ function isPlainRowClick(event: MouseEvent<HTMLTableRowElement>): boolean {
     return target instanceof Element && event.currentTarget.contains(target) && !target.closest(INTERACTIVE_SELECTOR)
 }
 
-function TableRows({
-    row,
-    expanded,
-    selected,
-}: {
-    row: CatalogTableRow
-    expanded: boolean
-    selected: boolean
-}): JSX.Element {
-    const { toggleRowExpanded, toggleRowSelected } = useActions(catalogTablesLogic)
-    const expandable = rowIsExpandable(row)
-    const toggleUnlessInteractive = (event: MouseEvent<HTMLTableRowElement>): void => {
-        if (expandable && isPlainRowClick(event)) {
-            toggleRowExpanded(row)
+function CatalogTablesTableRow({ row, selected }: { row: CatalogTableRow; selected: boolean }): JSX.Element {
+    const { openRow, toggleRowSelected } = useActions(catalogTablesLogic)
+    const openUnlessInteractive = (event: MouseEvent<HTMLTableRowElement>): void => {
+        if (isPlainRowClick(event)) {
+            openRow(row)
         }
     }
     return (
-        <>
-            <TableRow
-                className={cn(expandable && 'cursor-pointer')}
-                data-state={selected ? 'selected' : undefined}
-                onClick={toggleUnlessInteractive}
-                data-attr="data-catalog-tables-row"
-            >
-                <TableCell valign="top" className="w-0 pr-0">
-                    <Checkbox
-                        aria-label={`Select ${row.name}`}
-                        checked={selected}
-                        onCheckedChange={() => toggleRowSelected(row.key)}
-                        data-attr="data-catalog-tables-select"
-                    />
-                </TableCell>
-                <TableCell expand valign="top">
-                    <NameCell row={row} expanded={expanded} />
-                </TableCell>
-                <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    <StatusBadges row={row} />
-                </TableCell>
-                <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    <ChecksToggle row={row} expanded={expanded} />
-                </TableCell>
-                <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    {row.certification ? <CatalogTableTrust row={row} /> : <MutedCellText>Not certified</MutedCellText>}
-                </TableCell>
-                <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    <CatalogTableRefresh row={row} />
-                </TableCell>
-                <TableCell valign="top" align="right" className="w-0">
-                    <CatalogTableRowMenu row={row} />
-                </TableCell>
-            </TableRow>
-            {expanded && (
-                <TableRow id={checksPanelId(row)}>
-                    <TableCell colSpan={COLUMN_COUNT}>
-                        <TableChecksPanel row={row} />
-                    </TableCell>
-                </TableRow>
-            )}
-        </>
+        <TableRow
+            className={cn(row.detailUrl && 'cursor-pointer')}
+            data-state={selected ? 'selected' : undefined}
+            onClick={openUnlessInteractive}
+            data-attr="data-catalog-tables-row"
+        >
+            <TableCell valign="top" className="w-0 pr-0">
+                <Checkbox
+                    aria-label={`Select ${row.name}`}
+                    checked={selected}
+                    onCheckedChange={() => toggleRowSelected(row.key)}
+                    data-attr="data-catalog-tables-select"
+                />
+            </TableCell>
+            <TableCell expand valign="top">
+                <NameCell row={row} />
+            </TableCell>
+            <TableCell valign="top" className={WIDE_ONLY_CELL}>
+                <StatusBadges row={row} />
+            </TableCell>
+            <TableCell valign="top" className={WIDE_ONLY_CELL}>
+                <ChecksCell row={row} />
+            </TableCell>
+            <TableCell valign="top" className={WIDE_ONLY_CELL}>
+                {row.certification ? <CatalogTableTrust row={row} /> : <MutedCellText>Not certified</MutedCellText>}
+            </TableCell>
+            <TableCell valign="top" className={WIDE_ONLY_CELL}>
+                <CatalogTableFreshness row={row} />
+            </TableCell>
+            <TableCell valign="top" align="right" className="w-0">
+                <CatalogTableRowMenu row={row} />
+            </TableCell>
+        </TableRow>
     )
 }
 
@@ -233,69 +178,56 @@ function NoMatches(): JSX.Element {
 }
 
 export function CatalogTablesTable(): JSX.Element {
-    const { visibleRows, filteredRows, currentPage, pageCount, expandedRowKeys, selectedRowKeys } =
-        useValues(catalogTablesLogic)
+    const { visibleRows, filteredRows, currentPage, pageCount, selectedRowKeys } = useValues(catalogTablesLogic)
     const { setPage, setRowsSelected } = useActions(catalogTablesLogic)
-    const containerRef = useRef<HTMLDivElement>(null)
-    const contentRef = useRef<HTMLDivElement>(null)
-    const anyExpanded = visibleRows.some((row) => expandedRowKeys.includes(row.key))
-    useHoldTallestHeight(containerRef, contentRef, pageCount > 1 && !anyExpanded)
-
     return (
-        <div ref={containerRef} data-attr="data-catalog-tables-table">
-            <div ref={contentRef}>
-                <Table fullWidth size="sm">
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead className="w-0 pr-0">
-                                <PageSelectionCheckbox
-                                    label="Select all tables on this page"
-                                    pageIds={visibleRows.map((row) => row.key)}
-                                    selectedIds={selectedRowKeys}
-                                    onChange={setRowsSelected}
-                                />
-                            </TableHead>
-                            <CatalogTablesSortableHead column="name" label="Name" expand />
-                            <CatalogTablesSortableHead column="status" label="Status" className={WIDE_ONLY_CELL} />
-                            <CatalogTablesSortableHead column="checks" label="Checks" className={WIDE_ONLY_CELL} />
-                            <CatalogTablesSortableHead column="trust" label="Trust" className={WIDE_ONLY_CELL} />
-                            <CatalogTablesSortableHead
-                                column="refresh"
-                                label="Last refresh"
-                                className={WIDE_ONLY_CELL}
+        <div data-attr="data-catalog-tables-table">
+            <Table fullWidth size="sm">
+                <TableHeader>
+                    <TableRow>
+                        <TableHead className="w-0 pr-0">
+                            <PageSelectionCheckbox
+                                label="Select all tables on this page"
+                                pageIds={visibleRows.map((row) => row.key)}
+                                selectedIds={selectedRowKeys}
+                                onChange={setRowsSelected}
                             />
-                            <TableHead className="w-0">
-                                <span className="sr-only">Actions</span>
-                            </TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    {visibleRows.length === 0 ? (
-                        <TableEmpty>
-                            <NoMatches />
-                        </TableEmpty>
-                    ) : (
-                        <TableBody>
-                            {visibleRows.map((row) => (
-                                <TableRows
-                                    key={row.key}
-                                    row={row}
-                                    expanded={expandedRowKeys.includes(row.key)}
-                                    selected={selectedRowKeys.includes(row.key)}
-                                />
-                            ))}
-                        </TableBody>
-                    )}
-                </Table>
-                {pageCount > 1 && (
-                    <CatalogTablesPagination
-                        currentPage={currentPage}
-                        pageCount={pageCount}
-                        pageSize={TABLES_PAGE_SIZE}
-                        total={filteredRows.length}
-                        onPageChange={setPage}
-                    />
+                        </TableHead>
+                        <CatalogTablesSortableHead column="name" label="Name" expand />
+                        <CatalogTablesSortableHead column="status" label="Status" className={WIDE_ONLY_CELL} />
+                        <CatalogTablesSortableHead column="checks" label="Checks" className={WIDE_ONLY_CELL} />
+                        <CatalogTablesSortableHead column="trust" label="Trust" className={WIDE_ONLY_CELL} />
+                        <CatalogTablesSortableHead column="freshness" label="Freshness" className={WIDE_ONLY_CELL} />
+                        <TableHead className="w-0">
+                            <span className="sr-only">Actions</span>
+                        </TableHead>
+                    </TableRow>
+                </TableHeader>
+                {visibleRows.length === 0 ? (
+                    <TableEmpty>
+                        <NoMatches />
+                    </TableEmpty>
+                ) : (
+                    <TableBody>
+                        {visibleRows.map((row) => (
+                            <CatalogTablesTableRow
+                                key={row.key}
+                                row={row}
+                                selected={selectedRowKeys.includes(row.key)}
+                            />
+                        ))}
+                    </TableBody>
                 )}
-            </div>
+            </Table>
+            {pageCount > 1 && (
+                <CatalogTablesPagination
+                    currentPage={currentPage}
+                    pageCount={pageCount}
+                    pageSize={TABLES_PAGE_SIZE}
+                    total={filteredRows.length}
+                    onPageChange={setPage}
+                />
+            )}
         </div>
     )
 }

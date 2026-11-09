@@ -5,7 +5,6 @@ import { useBootGate } from '@/auth/bootGate'
 import { track } from '@/lib/analytics'
 import { useNow } from '@/lib/useNow'
 import type { InboxItem } from '@/model/types'
-import { INBOX_PANE_WIDTH } from '@/ui/adaptiveLayout'
 import { FilterIcon } from '@/ui/icons/FilterIcon'
 import { InboxIcon } from '@/ui/icons/InboxIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
@@ -13,10 +12,12 @@ import { LoadingView, StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout } from '@/ui/tokens'
 import { useAppLayout } from '@/ui/useAppLayout'
-import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { apiErrorKind } from '../report/reportAnalytics'
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
 import { useTabHeader } from '../tabs/tabHeaderStore'
+import { useFeatureAccess } from '../views/useViewsAccess'
+import { ViewsReauthState } from '../views/ViewsReauthState'
 import type { RowAnchor } from './contextMenuPlacement'
 import { isDefaultInboxFilters } from './filters'
 import { useInboxItems, useSetReportRead } from './hooks'
@@ -34,10 +35,11 @@ function keyFor(item: InboxItem): string {
 
 export function InboxScreen(): ReactElement {
     const styles = useStyles()
-    const { paired } = useAppLayout()
+    const { paired, inboxExtent, paneAxis, paneGap } = useAppLayout()
     const colors = useColors()
     const router = useRouter()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     const now = useNow()
     const [focused, setFocused] = useState(false)
     useFocusEffect(
@@ -47,8 +49,9 @@ export function InboxScreen(): ReactElement {
         }, [])
     )
     const filters = useInboxFilters()
+    const access = useFeatureAccess('inbox')
     const query = useInboxItems({ refreshWhileVisible: focused, filters })
-    const prefetch = usePrefetchReports(query.data, focused)
+    const prefetch = usePrefetchReports(query.data, focused && access.state === 'ok')
     const [rowMenu, setRowMenu] = useState<RowMenuTarget | null>(null)
     const [filtersOpen, setFiltersOpen] = useState(false)
     const listRef = useRef<FlatList<InboxItem>>(null)
@@ -146,50 +149,53 @@ export function InboxScreen(): ReactElement {
         [paired, now, openReport, openRowMenu, setRead]
     )
 
-    const empty = query.isLoading ? (
-        <LoadingView label="Loading your inbox" />
-    ) : query.isError ? (
-        <StateView
-            icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
-            title="Couldn't load your inbox"
-            message={query.error?.message ?? 'Check your connection and try again.'}
-            actionLabel="Try again"
-            onAction={() => refresh('retry')}
-            testID="inbox-error"
-        />
-    ) : isFilteredEmpty ? (
-        <StateView
-            icon={<FilterIcon size={iconSizes.empty} color={colors.tertiary} />}
-            title="No reports match these filters"
-            actionLabel="Clear filters"
-            onAction={clearFilters}
-            testID="inbox-filtered-empty"
-        />
-    ) : query.totalCount > 0 ? null : (
-        <StateView
-            icon={<InboxIcon size={iconSizes.empty} color={colors.tertiary} />}
-            title="Nothing needs you right now"
-            message="New reports show up here when PostHog finds something worth a look."
-            testID="inbox-empty"
-        />
-    )
+    const empty =
+        access.state !== 'ok' ? (
+            <ViewsReauthState access={access} feature="inbox" />
+        ) : query.isLoading ? (
+            <LoadingView label="Loading your inbox" />
+        ) : query.isError ? (
+            <StateView
+                icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
+                title="Couldn't load your inbox"
+                message={query.error?.message ?? 'Check your connection and try again.'}
+                actionLabel="Try again"
+                onAction={() => refresh('retry')}
+                testID="inbox-error"
+            />
+        ) : isFilteredEmpty ? (
+            <StateView
+                icon={<FilterIcon size={iconSizes.empty} color={colors.tertiary} />}
+                title="No reports match these filters"
+                actionLabel="Clear filters"
+                onAction={clearFilters}
+                testID="inbox-filtered-empty"
+            />
+        ) : query.totalCount > 0 ? null : (
+            <StateView
+                icon={<InboxIcon size={iconSizes.empty} color={colors.tertiary} />}
+                title="Nothing needs you right now"
+                message="New reports show up here when PostHog finds something worth a look."
+                testID="inbox-empty"
+            />
+        )
 
     return (
-        <View style={[styles.screen, { flexDirection: 'row' }]} testID="inbox-screen">
+        <View style={[styles.screen, { flexDirection: paneAxis, gap: paired ? paneGap : 0 }]} testID="inbox-screen">
             <View
                 style={{
                     flexGrow: paired ? 0 : 1,
                     flexShrink: paired ? 0 : 1,
-                    width: paired ? INBOX_PANE_WIDTH : undefined,
+                    ...(paired ? (paneAxis === 'row' ? { width: inboxExtent } : { height: inboxExtent }) : {}),
                     minWidth: 0,
                 }}
             >
                 <FlatList
                     ref={listRef}
-                    data={query.data ?? []}
+                    data={access.state === 'ok' ? (query.data ?? []) : []}
                     keyExtractor={keyFor}
                     renderItem={renderItem}
-                    ListEmptyComponent={empty}
+                    ListEmptyComponent={empty ?? undefined}
                     ListFooterComponent={
                         <InboxListFooter
                             isLoadingMore={query.isLoadingMore}
@@ -201,10 +207,7 @@ export function InboxScreen(): ReactElement {
                     onEndReachedThreshold={0.5}
                     onViewableItemsChanged={prefetch.onViewableItemsChanged}
                     viewabilityConfig={prefetch.viewabilityConfig}
-                    contentContainerStyle={[
-                        styles.content,
-                        { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 120) },
-                    ]}
+                    contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: tabBottom }]}
                     refreshControl={
                         <RefreshControl
                             refreshing={query.isRefetching}

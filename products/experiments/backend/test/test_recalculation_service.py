@@ -1,16 +1,19 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -56,6 +59,27 @@ def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
     calculation_config = get_metric_calculation_config(experiment, metric_uuid)
     assert calculation_config is not None
     return calculation_config.calculation_key()
+
+
+_RECALCULATION_MODULE = "products.experiments.backend.recalculation"
+
+
+def _workflow_running() -> SimpleNamespace:
+    return SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
+
+
+def _workflow_closed() -> SimpleNamespace:
+    return SimpleNamespace(status=WorkflowExecutionStatus.COMPLETED)
+
+
+def _workflow_not_found() -> RPCError:
+    return RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+
+
+def _describe(outcome: SimpleNamespace | Exception) -> AsyncMock:
+    if isinstance(outcome, Exception):
+        return AsyncMock(side_effect=outcome)
+    return AsyncMock(return_value=outcome)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -284,6 +308,7 @@ class TestRecalculationService(BaseTest):
         with (
             patch("products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag),
             patch("products.experiments.backend.recalculation.posthoganalytics.capture") as mock_capture,
+            patch(f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_not_found())),
             patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -335,16 +360,30 @@ class TestRecalculationService(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, status, stale_field) — both lifecycle anchors must release the experiment when their
-            # respective timestamp is past the staleness threshold. Without this, a Temporal-connect failure
-            # that also lost its rollback UPDATE permanently locks the experiment out of recalculations.
-            ("pending_stale_by_created_at", "pending", "created_at"),
-            ("in_progress_stale_by_started_at", "in_progress", "started_at"),
+            # (name, status, stale_field, age in minutes, workflow describe outcome, row kept). Both lifecycle
+            # anchors must release the experiment when their timestamp is past the staleness threshold and the
+            # workflow is gone, or a Temporal-connect failure that also lost its rollback UPDATE locks the
+            # experiment out of recalculations. A run whose workflow still runs, or whose state is unknown, keeps
+            # its row until the ceiling, because its calcs can wait in a queue with no time budget.
+            ("pending_stale_by_created_at", "pending", "created_at", 45, _workflow_not_found(), False),
+            ("in_progress_stale_by_started_at", "in_progress", "started_at", 45, _workflow_closed(), False),
+            ("pending_workflow_running", "pending", "created_at", 45, _workflow_running(), True),
+            ("in_progress_workflow_running", "in_progress", "started_at", 45, _workflow_running(), True),
+            ("in_progress_describe_error", "in_progress", "started_at", 45, TimeoutError(), True),
+            ("in_progress_past_ceiling", "in_progress", "started_at", 75, _workflow_running(), False),
         ]
     )
-    def test_request_recalculation_recovers_from_stale_active_row(self, name: str, status: str, stale_field: str):
+    def test_request_recalculation_recovers_from_stale_active_row(
+        self,
+        name: str,
+        status: str,
+        stale_field: str,
+        age_minutes: int,
+        describe_outcome: SimpleNamespace | Exception,
+        row_kept: bool,
+    ):
         exp = self._launched_experiment(flag_key=f"stale-{name}")
-        long_ago = timezone.now() - timedelta(hours=2)
+        long_ago = timezone.now() - timedelta(minutes=age_minutes)
         stale_kwargs: dict = {"team": self.team, "experiment": exp, "status": status}
         if stale_field == "created_at":
             # created_at uses auto_now_add so we have to update after create.
@@ -354,18 +393,32 @@ class TestRecalculationService(BaseTest):
             stale_row = ExperimentMetricsRecalculation.objects.create(**stale_kwargs, started_at=long_ago)
 
         with (
+            patch(
+                f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(describe_outcome)
+            ) as mock_describe,
+            patch(f"{_RECALCULATION_MODULE}.capture_exception") as mock_capture_exception,
             patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request_recalculation(exp, self.user, "manual")
 
+        stale_row.refresh_from_db()
+        if row_kept:
+            assert result["is_existing"] is True
+            assert result["id"] == str(stale_row.id)
+            assert stale_row.status == status
+            mock_cancel.assert_not_called()
+            assert mock_capture_exception.called is isinstance(describe_outcome, TimeoutError)
+            return
+
         # A fresh row was created (NOT the stale one), the stale row was marked FAILED, and its workflow
         # was cancelled so it can't keep executing alongside the replacement run.
         assert result["is_existing"] is False
         assert result["id"] != str(stale_row.id)
-        stale_row.refresh_from_db()
         assert stale_row.status == "failed"
         mock_cancel.assert_called_once_with([str(stale_row.id)])
+        # Past the ceiling the row is stale whatever Temporal says, so Temporal is not asked.
+        assert mock_describe.await_count == (0 if age_minutes > 60 else 1)
 
     def test_request_recalculation_does_not_recover_recent_active_row(self):
         # Defensive: a row created N minutes ago (well under the threshold) must still block, no matter the
@@ -436,6 +489,8 @@ class TestRecalculationService(BaseTest):
             ("fresh_in_progress", {"status": "in_progress", "started_at": "now"}, False, True, False),
             ("stale_pending", {"status": "pending"}, True, False, False),
             ("stale_in_progress", {"status": "in_progress", "started_at": "old"}, False, False, False),
+            # Past the staleness threshold but inside the ceiling, with a running workflow: still the active run.
+            ("queued_in_progress", {"status": "in_progress", "started_at": "queued"}, False, True, False),
             ("completed", {"status": "completed"}, False, False, True),
             (
                 "failed_finalized_with_errors",
@@ -463,6 +518,8 @@ class TestRecalculationService(BaseTest):
                 kwargs["started_at"] = timezone.now()
             elif kwargs.get("started_at") == "old":
                 kwargs["started_at"] = timezone.now() - timedelta(hours=2)
+            elif kwargs.get("started_at") == "queued":
+                kwargs["started_at"] = timezone.now() - timedelta(minutes=45)
             if kwargs.get("completed_at") == "now":
                 kwargs["completed_at"] = timezone.now()
             row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, **kwargs)
@@ -472,7 +529,8 @@ class TestRecalculationService(BaseTest):
                     created_at=timezone.now() - timedelta(hours=2)
                 )
 
-        active = get_active_recalculation(exp)
+        with patch(f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_running())):
+            active = get_active_recalculation(exp)
         latest = get_latest_recalculation(exp)
         assert (active.id if active else None) == (row.id if row and expect_active else None)
         assert (latest.id if latest else None) == (row.id if row and expect_latest else None)

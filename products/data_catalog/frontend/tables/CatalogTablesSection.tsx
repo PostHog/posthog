@@ -1,26 +1,17 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { Skeleton, Text } from '@posthog/quill'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
-import { AccessControlResourceType } from '~/types'
-
 import { ModelsOverviewErrorCallout } from 'products/data_modeling/frontend/ModelsOverviewErrorCallout'
 import { modelsOverviewLogic } from 'products/data_modeling/frontend/modelsOverviewLogic'
-import { viewsTabLogic } from 'products/data_modeling/frontend/viewsTabLogic'
-import { dataQualityCheckEditorLogic } from 'products/data_quality/frontend/dataQualityCheckEditorLogic'
 import {
     CHECKS_LIMIT,
     dataQualityOverviewLogic,
 } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
-import { overviewCheckEditorProps } from 'products/data_quality/frontend/overview/overviewCheckEditorProps'
-import { QuillRunAllBanners } from 'products/data_quality/frontend/overview/QuillRunAllBanners'
-import { QuillCheckEditorDialog } from 'products/data_quality/frontend/QuillCheckEditorDialog'
 
 import { catalogTablesLogic } from '../catalogTablesLogic'
-import { NewCertificationModal } from '../components/NewCertificationModal'
 import { CatalogTablesBulkBar } from './CatalogTablesBulkBar'
 import { CatalogTablesTable } from './CatalogTablesTable'
 import { CatalogTablesToolbar } from './CatalogTablesToolbar'
@@ -34,24 +25,6 @@ function LoadingRows(): JSX.Element {
                 <Skeleton key={index} className="h-10 w-full" />
             ))}
         </div>
-    )
-}
-
-function ViewsAccessControlModal(): JSX.Element | null {
-    const { editingAccessControlView, accessControlModalOpen } = useValues(viewsTabLogic)
-    const { closeAccessControlModal } = useActions(viewsTabLogic)
-    if (!editingAccessControlView) {
-        return null
-    }
-    return (
-        <AccessControlObjectModal
-            isOpen={accessControlModalOpen}
-            onClose={closeAccessControlModal}
-            resource={AccessControlResourceType.WarehouseView}
-            resource_id={editingAccessControlView.id}
-            title={editingAccessControlView.name}
-            description="Control who can query this view. Users without access won't see it and queries referencing it will fail for them."
-        />
     )
 }
 
@@ -111,7 +84,6 @@ function TablesContent(): JSX.Element {
     return (
         <>
             <LoadErrors />
-            <QuillRunAllBanners />
             <CatalogTablesTable />
             {selectedRows.length > 0 && <CatalogTablesBulkBar />}
         </>
@@ -119,19 +91,10 @@ function TablesContent(): JSX.Element {
 }
 
 export function CatalogTablesSection(): JSX.Element {
-    const { lastActionCheckId } = useValues(dataQualityOverviewLogic)
-    const { loadOverview, runChecks } = useActions(dataQualityOverviewLogic)
-    const editorProps = overviewCheckEditorProps({ lastActionCheckId, loadOverview, runChecks })
-
     return (
-        <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
-            <section aria-label="Tables and views" className="flex flex-col gap-3" data-attr="data-catalog-tables">
-                <CatalogTablesToolbar />
-                <TablesContent />
-            </section>
-            <QuillCheckEditorDialog />
-            <NewCertificationModal />
-            <ViewsAccessControlModal />
-        </BindLogic>
+        <section aria-label="Tables and views" className="flex flex-col gap-3" data-attr="data-catalog-tables">
+            <CatalogTablesToolbar />
+            <TablesContent />
+        </section>
     )
 }

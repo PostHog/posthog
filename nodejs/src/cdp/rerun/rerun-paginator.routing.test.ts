@@ -158,7 +158,7 @@ describe('RerunPaginatorService queue routing', () => {
             parent_run_id: '',
             attempts: 0,
             last_scheduled_at: '2026-01-01 00:00:00',
-            first_scheduled_at: '2026-01-01 00:00:00',
+            run_first_scheduled_at: '2026-01-01 00:00:00',
             // Well-formed globals so the rerunnable-type cases pass rehydration's
             // schema validation — the type gate is what these tests exercise.
             invocation_globals: JSON.stringify({
