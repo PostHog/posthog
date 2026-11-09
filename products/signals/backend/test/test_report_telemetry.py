@@ -168,10 +168,11 @@ async def test_started_and_ready_fire_expected_captures(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_failed_fires_completed_with_failure_reason(ateam):
+@pytest.mark.parametrize("initial_status", [SignalReport.Status.IN_PROGRESS, SignalReport.Status.CANDIDATE])
+async def test_failed_fires_completed_with_failure_reason(ateam, initial_status):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.IN_PROGRESS,
+        status=initial_status,
         signal_count=3,
         total_weight=2.0,
     )
@@ -198,6 +199,9 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
     assert kwargs["properties"]["failure_reason"] == "safety_judge_rejected"
     assert kwargs["properties"]["signal_count"] == 3
     assert kwargs["properties"]["source_products"] == ["zendesk"]
+    await report.arefresh_from_db()
+    assert report.status == SignalReport.Status.FAILED
+    assert report.error == "Failed safety review: contains PII"
 
 
 @pytest.mark.asyncio
@@ -353,7 +357,7 @@ async def test_research_completion_preserves_user_status(
                         charts=[CHART_PAYLOAD],
                     )
                 )
-                assert has_new_signals is False
+                assert has_new_signals is None
             case "pending_input":
                 await mark_report_pending_input_activity(
                     MarkReportPendingInput(

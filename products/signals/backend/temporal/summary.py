@@ -787,7 +787,7 @@ class SignalReportSummaryWorkflow:
                 # No loop, human input is required
                 return False
             # 6. Mark ready and check if new signals arrived during the run
-            has_new_signals: bool = await workflow.execute_activity(
+            has_new_signals: bool | None = await workflow.execute_activity(
                 mark_report_ready_activity,
                 MarkReportReadyInput(
                     team_id=inputs.team_id,
@@ -814,6 +814,8 @@ class SignalReportSummaryWorkflow:
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            if has_new_signals is None:
+                return False
             # 7. If new signals arrived during the run - loop back to the start
             if has_new_signals:
                 log.info("Report has new signals since run started, looping")
@@ -1330,7 +1332,7 @@ def _write_stack_layers(report: SignalReport, input: MarkReportReadyInput) -> No
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
-async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
+async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool | None:
     """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
 
@@ -1413,7 +1415,7 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
         raise
 
     if transition is None:
-        return False
+        return None
 
     if transition.was_duplicate:
         logger.info(
@@ -1590,7 +1592,7 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.FAILED:
                 return report.run_count, True
-            if report.status != SignalReport.Status.IN_PROGRESS:
+            if report.status not in (SignalReport.Status.IN_PROGRESS, SignalReport.Status.CANDIDATE):
                 logger.info(
                     "Report is no longer in progress, skipping failed transition",
                     report_id=input.report_id,
