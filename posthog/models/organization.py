@@ -530,7 +530,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
     def billing_package_label(self) -> Literal["paid", "none", "unknown"]:
         """The `organization_package` person property: "paid" on a Teams, Boost, Scale or Enterprise package.
 
-        Billing sync stores it in `usage`. "unknown" until a billing status names the plan.
+        Billing sync stores it in `usage`. "unknown" until a billing status names the plan and billing has sent a
+        usage summary.
         """
         package = (self.usage or {}).get(BILLING_PACKAGE_USAGE_KEY)
         return package if package in ("paid", "none") else "unknown"
