@@ -90,6 +90,7 @@ class ConsoleRegistry:
         import posthog.admin.console.organization_deletion  # noqa: F401, PLC0415 — registers the core Organization deletion panel
         import posthog.admin.console.distinct_id_usage_tool  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.deletion_request_panels  # noqa: F401, PLC0415 — registers the core deletion request panels
+        import posthog.admin.console.conversation_checkpoints_tool  # noqa: F401, PLC0415 — registers a core tool
 
         autodiscover_modules("console")
         # Set only after the imports succeed, so a failed import raises again on the next request instead of

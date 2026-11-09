@@ -38,8 +38,10 @@ from posthog.personhog_client.fake_client import get_active_fake
 from posthog.test.persons import create_group_type_mapping, update_group_type_mapping
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
+from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.billing.quota_limiting import QuotaResource
+from ee.hogai.django_checkpoint.compaction import CompactionResult
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
 CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
@@ -597,6 +599,48 @@ class TestAdminConsoleViews(BaseTest):
             assert text in content
         organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/").content.decode()
         assert tool_url in organization_page
+
+    @parameterized.expand(
+        [
+            ("compacted", True, CompactionResult(compacted=True, checkpoints_deleted=3, blobs_deleted=5), 302),
+            ("nothing_to_compact", True, CompactionResult(compacted=False), 302),
+            ("unknown_conversation", False, None, 404),
+        ]
+    )
+    @patch("posthog.admin.console.conversation_checkpoints_tool.compact_conversation")
+    def test_compacting_a_conversation_runs_only_for_a_conversation_that_exists(
+        self,
+        _name: str,
+        exists: bool,
+        result: CompactionResult | None,
+        expected_status: int,
+        compact: MagicMock,
+    ) -> None:
+        compact.return_value = result
+        conversation_id = (
+            Conversation.objects.create(team=self.team, user=self.user).id
+            if exists
+            else "01920000-0000-0000-0000-000000000000"
+        )
+
+        response = self.client.post(
+            "/admin/console/tools/ai-conversation-checkpoints/compact/",
+            {"conversation": str(conversation_id), "reason": "Thread too large to load"},
+        )
+
+        assert response.status_code == expected_status
+        assert compact.called == exists
+        if exists:
+            compact.assert_called_once_with(str(conversation_id))
+
+    def test_the_old_compact_url_opens_the_console_form_for_the_conversation(self) -> None:
+        conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+        response = self.client.post(f"/admin/posthog_ai/conversation/{conversation.id}/compact/", follow=True)
+
+        tool_url = f"/admin/console/tools/ai-conversation-checkpoints/compact/?conversation={conversation.id}"
+        assert response.redirect_chain == [(tool_url, 302)]
+        assert str(conversation.id) in response.content.decode()
 
     @parameterized.expand([("billing_staff", True, 302), ("other_staff", False, 403)])
     @patch("posthog.admin.console.usage_reports_tool.call_command")

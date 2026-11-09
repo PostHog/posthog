@@ -129,6 +129,12 @@ urlpatterns = [
         MovedToConsole.page_redirect("AI observability dataset retention", "/admin/console/tools/ai-observability/"),
     ),
     path(
+        "admin/posthog_ai/conversation/<uuid:pk>/compact/",
+        MovedToConsole.page_redirect(
+            "Compacting a conversation", "/admin/console/tools/ai-conversation-checkpoints/compact/?conversation={pk}"
+        ),
+    ),
+    path(
         "admin/posthog/organization/send-usage-report/",
         MovedToConsole.page_redirect("Sending usage reports", "/admin/console/tools/usage-reports/"),
     ),
