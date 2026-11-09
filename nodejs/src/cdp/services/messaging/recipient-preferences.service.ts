@@ -168,18 +168,12 @@ export class RecipientPreferencesService {
 
         // Skip only when `to` is suppressed and no cc address can take its place. EmailService
         // removes the other suppressed addresses at send time, and the email still goes to the rest.
-        try {
-            const result = await removeSuppressedRecipients(emailRecipients(invocation), (email) =>
-                this.emailSuppressionService.isSuppressed(invocation.teamId, email, {
-                    transactional: action.config.message_category_type === 'transactional',
-                })
-            )
-            return result.skip
-        } catch (error) {
-            // Fail open — never block a send on a suppression-lookup error.
-            logger.error(`Failed to check suppression list for team ${invocation.teamId}:`, error)
-            return false
-        }
+        const result = await removeSuppressedRecipients(emailRecipients(invocation), (email) =>
+            this.emailSuppressionService.isKnownSuppressed(invocation.teamId, email, {
+                transactional: action.config.message_category_type === 'transactional',
+            })
+        )
+        return result.skip
     }
 
     // A generic function step saved through the API can run the push template, and it then sends like a push step.

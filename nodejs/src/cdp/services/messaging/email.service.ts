@@ -28,7 +28,7 @@ import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from './email-status.service'
-import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
+import { EmailSuppressionService, SuppressionCheckOptions, SuppressionLookupError } from './email-suppression.service'
 import {
     addTrackingToEmail,
     resolveEmailSendingAppSourceVersion,
@@ -240,6 +240,12 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
 // expiring back to full capacity), and a parked job only notices when it wakes.
 const CAP_RETRY_MIN_MS = 1_000
 const CAP_RETRY_MAX_MS = 60 * 60 * 1_000
+
+const SUPPRESSION_RETRY_MS = 30_000
+
+function suppressionRetryDelayMs(attempt: number): number {
+    return Math.min(Math.floor(SUPPRESSION_RETRY_MS * 2 ** (attempt - 1) * (1 + Math.random())), CAP_RETRY_MAX_MS)
+}
 
 // How far denied sends park. Everything at or below the top bucket is a real slot.
 // Above the top bucket is overflow: the backlog is deeper than one hour of refill.
@@ -633,7 +639,7 @@ export class EmailService {
                 return result
             }
 
-            // Runs before every recipient lookup. Postgres text cannot hold a null character, and one in a batched lookup fails it for every email in the batch.
+            // Runs before every recipient lookup, so an address that addressparser would rewrite never reaches the suppression list or SES.
             const fieldsToFix = fieldsWithControlCharacters(params)
             if (fieldsToFix.length > 0) {
                 failureReason = 'recipient_unreachable'
@@ -854,6 +860,19 @@ export class EmailService {
                 result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
+            } else if (error instanceof SuppressionLookupError && !isTest) {
+                // A test send runs in process and cannot wait for a retry, so it fails in the branch below.
+                const attempt = (invocation.queueMetadata?.suppressionLookupAttempts ?? 0) + 1
+                const retryAfterMs = suppressionRetryDelayMs(attempt)
+                rescheduled = true
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = { ...invocation.queueMetadata, suppressionLookupAttempts: attempt }
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryAfterMs })
+                addLog(
+                    'warn',
+                    `Could not check the suppression list, so this email is waiting. Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
+                )
             } else {
                 addLog('error', error.message)
                 result.error = error.message
