@@ -1,25 +1,15 @@
 from datetime import UTC
 
-from django import forms
 from django.conf import settings
-from django.contrib import admin, messages
-from django.core.exceptions import PermissionDenied
-from django.core.management import call_command
-from django.core.management.base import CommandError
-from django.http import HttpRequest, HttpResponse
-from django.shortcuts import redirect, render
+from django.contrib import admin
 from django.template.loader import render_to_string
-from django.template.response import TemplateResponse
-from django.urls import path, reverse
+from django.urls import reverse
 from django.utils import timezone
-from django.utils.decorators import method_decorator
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
-from django.views.decorators.http import require_http_methods
 
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.console.moved import MovedToConsole
-from posthog.admin.console.usage_reports_tool import ReportDateForm
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
@@ -30,18 +20,6 @@ from posthog.admin.inlines.proxy_record_inline import ProxyRecordInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
-from posthog.tasks.ai_observability_usage_report import internal_reporting_team_id
-
-from products.ai_observability.backend.facade.admin import dataset_retention_enabled, set_dataset_retention_enabled
-
-
-class DatasetRetentionForm(forms.Form):
-    enabled = forms.TypedChoiceField(
-        label="Dataset cleanup",
-        choices=[("enabled", "Enabled"), ("disabled", "Disabled")],
-        coerce=lambda value: value == "enabled",
-        widget=forms.RadioSelect,
-    )
 
 
 @admin.register(Organization)
@@ -273,77 +251,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         if not organization.pk:
             return "-"
         return MovedToConsole.action("organization", organization, "deletion", "Trigger deletion")
-
-    def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path(
-                "send-ai-observability-usage-report/",
-                self.admin_site.admin_view(self.send_ai_observability_usage_report_view),
-                name="send-ai-observability-usage-report",
-            ),
-            path(
-                "ai-observability-dataset-retention/",
-                self.admin_site.admin_view(self.dataset_retention_view),
-                name="ai-observability-dataset-retention",
-            ),
-        ]
-        return custom_urls + urls
-
-    def send_ai_observability_usage_report_view(self, request):
-        # Staff-only on purpose, unlike the sibling billing view: nothing here is customer-facing, and
-        # the task now skips organizations that already have a report for the period.
-        if request.method == "POST":
-            form = ReportDateForm(request.POST)
-            if form.is_valid():
-                report_date = form.cleaned_data["report_date"]
-                try:
-                    call_command(
-                        "send_ai_observability_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async"
-                    )
-                except CommandError as e:
-                    # Surfacing this matters: a swallowed refusal would report success for a run that
-                    # never started, so the operator would stop looking for the missing reports.
-                    messages.error(request, str(e))
-                else:
-                    messages.success(request, f"AI observability usage report for date {report_date} was queued.")
-                return redirect(reverse("admin:posthog_organization_changelist"))
-        else:
-            form = ReportDateForm()
-
-        return render(
-            request,
-            "admin/posthog/organization/send_ai_observability_usage_report.html",
-            {"form": form, "can_skip_existing_reports": internal_reporting_team_id() is not None},
-        )
-
-    @method_decorator(require_http_methods(["GET", "POST"]))
-    def dataset_retention_view(self, request: HttpRequest) -> HttpResponse:
-        user_id = request.user.pk
-        if user_id is None or not request.user.has_perm("posthog.change_instancesetting"):
-            raise PermissionDenied
-        enabled = dataset_retention_enabled()
-        form = DatasetRetentionForm(
-            request.POST if request.method == "POST" else None,
-            initial={"enabled": "enabled" if enabled else "disabled"},
-        )
-        if request.method == "POST" and form.is_valid():
-            new_enabled = form.cleaned_data["enabled"]
-            set_dataset_retention_enabled(enabled=new_enabled, user_id=user_id)
-            messages.success(
-                request, f"Dataset cleanup is now {'enabled' if new_enabled else 'disabled'} in this region."
-            )
-            return redirect(reverse("admin:ai-observability-dataset-retention"))
-        return TemplateResponse(
-            request,
-            "admin/posthog/organization/ai_observability_dataset_retention.html",
-            {
-                **self.admin_site.each_context(request),
-                "title": "AI observability dataset retention",
-                "form": form,
-                "enabled": enabled,
-            },
-        )
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}

@@ -110,6 +110,16 @@ urlpatterns = [
         MovedToConsole.page_redirect("Bulk deactivation", "/admin/console/tools/bulk-deactivate-organizations/"),
     ),
     path(
+        "admin/posthog/organization/send-ai-observability-usage-report/",
+        MovedToConsole.page_redirect(
+            "Sending AI observability usage reports", "/admin/console/tools/ai-observability/"
+        ),
+    ),
+    path(
+        "admin/posthog/organization/ai-observability-dataset-retention/",
+        MovedToConsole.page_redirect("AI observability dataset retention", "/admin/console/tools/ai-observability/"),
+    ),
+    path(
         "admin/posthog/organization/send-usage-report/",
         MovedToConsole.page_redirect("Sending usage reports", "/admin/console/tools/usage-reports/"),
     ),
