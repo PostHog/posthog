@@ -8,9 +8,7 @@ import {
     healthCheckShowsDecidingValue,
     healthExposureSplit,
     healthRuleReadings,
-    healthSummaryReadings,
 } from './healthCheckValues'
-import type { HealthPanelCheck } from './healthPanelChecks'
 
 const SRM_RULE: HealthCheckRule = {
     value: 'p_value',
@@ -27,13 +25,6 @@ const MULTIPLE_RULE: HealthCheckRule = {
     test: null,
     minimum: { value: 'multiple_variant_count', threshold: 5 },
 }
-
-const check = (
-    key: HealthPanelCheck['key'],
-    status: HealthPanelCheck['status'],
-    values: HealthPanelCheck['values'],
-    rule: HealthCheckRule | null = null
-): HealthPanelCheck => ({ key, name: key, description: '', status, reason: null, values, rule }) as HealthPanelCheck
 
 const exposures = (
     totalExposures: Record<string, number>,
@@ -69,6 +60,11 @@ describe('healthCheckValues', () => {
                 { label: 'In more than one variant', text: '403 · 4.2%' },
                 { label: 'Multiple variant handling', text: 'Exclude from analysis' },
             ],
+        },
+        {
+            name: "the new users in variants the flag doesn't serve go with their share",
+            values: { unserved_exposed_count: 2960, unserved_exposed_percentage: 100 },
+            expected: [{ label: "New users in variants the flag doesn't serve", text: '2,960 · 100%' }],
         },
         {
             name: 'a metric count reads as n of m',
@@ -136,6 +132,24 @@ describe('healthCheckValues', () => {
         ])
     })
 
+    it('healthRuleReadings: the unserved check names the users it counts', () => {
+        const rule: HealthCheckRule = {
+            value: 'unserved_exposed_percentage',
+            threshold: 1,
+            warns: 'above',
+            test: null,
+            minimum: { value: 'unserved_exposed_count', threshold: 5 },
+        }
+
+        expect(healthRuleReadings({ status: 'passed', values: {} }, rule, 'users')).toEqual([
+            {
+                label: 'Warns when',
+                text: "More than 1% of the users first exposed after the flag's last save are in variants that it doesn't serve",
+            },
+            { label: 'Warns from', text: "5 users in variants that the flag doesn't serve" },
+        ])
+    })
+
     it.each<{ name: string; values: HealthCheckValues; expected: boolean }>([
         {
             name: 'a share from enough users',
@@ -186,28 +200,5 @@ describe('healthCheckValues', () => {
         { name: 'nothing without exposures', answer: exposures({ control: 0, test: 0 }), expected: null },
     ])('healthExposureSplit: $name', ({ answer, expected }) => {
         expect(healthExposureSplit(answer)).toEqual(expected)
-    })
-
-    it('healthSummaryReadings: picks each line from the check that read it', () => {
-        const checks = [
-            check('zero_exposures', 'passed', { exposed_count: 9602, since_launch_hours: 300 }),
-            check(
-                'srm',
-                'not_applicable',
-                { p_value: 0.0001, compared_count: 9199, multiple_variant_count: 403 },
-                SRM_RULE
-            ),
-            check('multiple_variants_share', 'passed', {
-                multiple_variant_count: 403,
-                multiple_variant_percentage: 4.2,
-            }),
-            check('metric_calculation_failed', 'passed', { metric_count: 3, completed_metric_count: 3 }),
-        ]
-
-        expect(healthSummaryReadings(checks, 'users')).toEqual([
-            { label: 'Exposed users', text: '9,602' },
-            { label: 'In more than one variant', text: '403 · 4.2%' },
-            { label: 'Metrics calculated', text: '3 of 3' },
-        ])
     })
 })

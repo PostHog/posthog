@@ -31,16 +31,15 @@ import { SignalReportPriority } from './types'
 import { prettifyScoutSkillName } from './utils/scoutRunsWindow'
 
 /**
- * Single source of truth for per-priority color. P0–P4 each get a DISTINCT hue so
- * users can tell them apart at a glance (red → orange → amber → blue → gray).
- * Consumed by the priority badge, the priority monogram, and the filter dots.
+ * Per-priority LemonTag type, for surfaces that render a LemonTag. Keep in step with
+ * `PRIORITY_ACCENT`, which holds the same colors as raw CSS vars.
  */
 export const PRIORITY_TAG_TYPE: Record<SignalReportPriority, LemonTagType> = {
-    P0: 'danger', // red
-    P1: 'warning', // orange
-    P2: 'caution', // amber
-    P3: 'highlight', // blue
-    P4: 'muted', // gray
+    P0: 'danger',
+    P1: 'warning',
+    P2: 'caution',
+    P3: 'highlight',
+    P4: 'muted',
 }
 
 /**
@@ -59,13 +58,17 @@ export const PRIORITY_MEANING: Record<SignalReportPriority, { label: string; des
     P4: { label: 'Minimal', description: 'Cosmetic or negligible impact, or an optional investigation.' },
 }
 
-/** Matching CSS accent per priority, for non-LemonTag surfaces (filter dots, monograms). */
+/**
+ * Single source of truth for per-priority color, as raw CSS vars mirroring `PRIORITY_TAG_TYPE`'s
+ * LemonTag colors. Theme-aware, so contrast holds in both modes. Shared by the priority badge and
+ * the filter dots so the two always match.
+ */
 export const PRIORITY_ACCENT: Record<SignalReportPriority, string> = {
-    P0: 'var(--red-9, #e5484d)',
-    P1: 'var(--orange-9, #f76b15)',
-    P2: 'var(--amber-9, #ffc53d)',
-    P3: 'var(--blue-9, #3b9eff)',
-    P4: 'var(--muted, #8f8f8f)',
+    P0: 'var(--danger)',
+    P1: 'var(--warning)',
+    P2: 'var(--danger-lighter)',
+    P3: 'var(--color-accent)',
+    P4: 'var(--color-text-secondary)',
 }
 
 // Port of desktop `@posthog/ui/features/inbox/filterOptions`. Drives the Source /
@@ -151,6 +154,27 @@ export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = INBOX_RANKING_SCORES.
     icon: <IconBrain />,
     description: score.description,
 }))
+
+/** Orders the list by the user's stored personal ranking, behind the personalized sort flag. */
+export const INBOX_PERSONAL_SORT_OPTION: InboxSortOption = {
+    label: 'Personalized',
+    field: 'personal',
+    direction: 'asc',
+    icon: <IconPerson />,
+    description: 'Your reports first, in the order that fits your recent work.',
+}
+
+/** The `personal_tier` values the personal ranking writes, keyed by value. */
+export const INBOX_PERSONAL_TIERS: Record<string, { label: string }> = {
+    top: { label: 'Top' },
+    worth_a_look: { label: 'Worth a look' },
+    later: { label: 'Later' },
+}
+
+/** The sorts the server orders with a ranker, whose rows carry `inbox_merge_key`. */
+export function isMergeKeySortField(field: InboxSortField): field is 'recommended' | 'personal' {
+    return field === 'recommended' || field === 'personal'
+}
 
 const RANKING_SCORE_BY_FIELD = Object.fromEntries(INBOX_RANKING_SCORES.map((score) => [score.field, score])) as Record<
     InboxRankingSortField,

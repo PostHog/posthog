@@ -59,6 +59,7 @@ from products.signals.backend.artefact_schemas import (
     ReportLink,
     ReviewerState,
     SafetyJudgment,
+    SourceIssue,
     SuggestedReviewerEntry,
     SuggestedReviewers,
     SummaryChange,
@@ -86,8 +87,10 @@ from products.signals.backend.report_tags import set_report_tags
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
+from products.signals.backend.source_issues import append_source_issues
 from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
+from products.signals.backend.trial.funding import direct_report_funding_snapshot
 
 if TYPE_CHECKING:
     from products.signals.backend.supersession import ImplementationResearchContext
@@ -193,6 +196,7 @@ def create_scout_report(
     metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     links: Sequence[ReportLink] = (),
+    source_issues: Sequence[SourceIssue] = (),
     tags: Sequence[str] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
@@ -200,6 +204,7 @@ def create_scout_report(
     created_by_id: int | None = None,
     proposed_reviewer_count: int | None = None,
     reviewer_outcome: str | None = None,
+    funded_report_id: uuid.UUID | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
 
@@ -242,6 +247,10 @@ def create_scout_report(
     fires autostart. A link that `add_log` rejects rolls back the whole report and raises
     `InvalidScoutReportError`.
 
+    `source_issues`, when supplied, become the report's `source_issue` rows in the same transaction.
+    A report born READY then comments a link on each issue after commit, when the team opted into
+    the GitHub writeback (`source_issues.append_source_issues`).
+
     `idempotency_key`, when supplied, is stored on the report under a per-team unique index, so one
     key can only ever author one report. A call whose key a report already holds raises
     `ScoutReportAlreadyEmittedError` carrying that report, and writes nothing — the emit path turns
@@ -274,13 +283,14 @@ def create_scout_report(
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
 
-    report_id = str(uuid.uuid4())
+    report_id = str(funded_report_id or uuid.uuid4())
     assignment = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     try:
         with transaction.atomic():
             report = SignalReport.objects.create(
                 id=report_id,
                 team_id=team_id,
+                self_driving_funding=direct_report_funding_snapshot(team_id),
                 status=status,
                 title=title,
                 summary=summary,
@@ -356,6 +366,7 @@ def create_scout_report(
                     )
                 except ArtefactContentValidationError as err:
                     raise InvalidScoutReportError(str(err))
+            append_source_issues(team_id=team_id, report_id=report_id, issues=source_issues, attribution=attribution)
             reviewers_written = (
                 suggested_reviewers is not None and bool(suggested_reviewers.root)
             ) or assignment.enabled
@@ -795,6 +806,30 @@ def append_report_links(
         extra={"team_id": team_id, "report_id": report_id, "link_count": len(links)},
     )
     return len(links)
+
+
+def append_report_source_issues(
+    *,
+    team_id: int,
+    report_id: str,
+    source_issues: Sequence[SourceIssue],
+    attribution: ArtefactAttribution,
+) -> int:
+    """Record the source issues an existing report does not hold yet, returning how many landed.
+
+    Additive like `append_report_links`: an issue the report already names is skipped, so a retried
+    edit writes nothing and comments on nothing. Only the new issues get a writeback comment.
+    """
+    _validate_report_id(report_id)
+    if not source_issues:
+        return 0
+    with transaction.atomic():
+        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        written = append_source_issues(
+            team_id=team_id, report_id=report_id, issues=source_issues, attribution=attribution
+        )
+    return len(written)
 
 
 def record_content_revision(*, team_id: int, report_id: str) -> int:

@@ -7,7 +7,6 @@ from products.batch_exports.backend.service import (
     BatchExportSchema,
 )
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils import (
-    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_AZURE_BLOB_MODELS,
     assert_clickhouse_records_in_azure_blob,
     list_blobs,
@@ -16,17 +15,20 @@ from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
+# The activity tests cover every codec. Here each model runs through the workflow once, alternating
+# file formats, so the workflow is checked to pass the model, format and codec through.
+WORKFLOW_FILE_FORMAT_COMPRESSIONS: list[tuple[str, str | None]] = [("Parquet", "zstd"), ("JSONLines", "gzip")]
+
 
 @pytest.mark.parametrize(
     ("model", "file_format", "compression", "interval"),
     [
-        (model, file_format, compression, "hour")
-        for model in TEST_AZURE_BLOB_MODELS
-        for file_format, compression in SUPPORTED_FILE_FORMAT_COMPRESSIONS
+        (model, *WORKFLOW_FILE_FORMAT_COMPRESSIONS[index % len(WORKFLOW_FILE_FORMAT_COMPRESSIONS)], "hour")
+        for index, model in enumerate(TEST_AZURE_BLOB_MODELS)
     ]
     + [
-        (TEST_AZURE_BLOB_MODELS[index % len(TEST_AZURE_BLOB_MODELS)], file_format, compression, "day")
-        for index, (file_format, compression) in enumerate(SUPPORTED_FILE_FORMAT_COMPRESSIONS)
+        (BatchExportEventsModel(), file_format, compression, "day")
+        for file_format, compression in WORKFLOW_FILE_FORMAT_COMPRESSIONS
     ],
     indirect=["file_format", "compression", "interval"],
 )

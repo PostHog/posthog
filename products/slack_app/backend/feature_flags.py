@@ -49,8 +49,9 @@ logger = structlog.get_logger(__name__)
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
-SLACK_APP_FOOTER_COST_FLAG = "slack-app-footer-cost"
 SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
+SLACK_APP_LINK_SEARCH_SCOPES_FLAG = "slack-app-link-search-scopes"
+SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -156,16 +157,6 @@ def is_slack_app_byos_enabled(
     )
 
 
-def is_slack_app_footer_cost_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
-    """Gate for the thread cost in the footer under an answer, keyed on the run's PostHog user."""
-    return _workspace_flag_enabled(
-        SLACK_APP_FOOTER_COST_FLAG,
-        integration,
-        failure_log_key="slack_app_footer_cost_feature_flag_check_failed",
-        distinct_id=distinct_id,
-    )
-
-
 def is_slack_app_assistant_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the DM assistant: the install must hold the scopes the DM surface
     calls — ``im:history`` in particular, without which the assistant would answer
@@ -192,6 +183,24 @@ def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
         SLACK_APP_FORKING_FLAG,
         integration,
         failure_log_key="slack_app_forking_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_link_search_scopes_enabled(integration: IntegrationRecord) -> bool:
+    """The account link asks for the search scopes only once the Slack app manifest declares them. Slack refuses an
+    authorize request for an undeclared scope, so this flag guards every account link, not only the onboarding."""
+    return _workspace_flag_enabled(
+        SLACK_APP_LINK_SEARCH_SCOPES_FLAG,
+        integration,
+        failure_log_key="slack_app_link_search_scopes_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_connect_tool_from_chat_enabled(integration: IntegrationRecord) -> bool:
+    return _workspace_flag_enabled(
+        SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG,
+        integration,
+        failure_log_key="slack_app_connect_tool_from_chat_feature_flag_check_failed",
     )
 
 

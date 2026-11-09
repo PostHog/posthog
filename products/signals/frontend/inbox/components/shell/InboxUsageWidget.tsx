@@ -8,10 +8,14 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { currencyFormatter } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { BillingProductV2Type } from '~/types'
 
 import { InboxUsageStatus, inboxUsageLogic } from '../../logics/inboxUsageLogic'
+import { selfDrivingTrialLogic } from '../../logics/selfDrivingTrialLogic'
+import { SelfDrivingTrialUsage } from './SelfDrivingTrialUsage'
 
 // Usage-bar fill colour by status. Main-app semantic Tailwind classes (not quill `--*` tokens —
 // those only resolve inside `[data-quill]` subtrees).
@@ -139,8 +143,12 @@ function EditLimitModal(): JSX.Element {
  * autonomy throttles in SelfDrivingSection, so a self-imposed cap never reads as a plan limit.
  */
 export function InboxUsageWidget(): JSX.Element | null {
+    const { currentTeamId } = useValues(teamLogic)
+    const { trial, trialEnabled } = useValues(selfDrivingTrialLogic({ teamId: currentTeamId! }))
     const {
         product,
+        spendProduct,
+        spendAmountUsd,
         isLoading,
         isSubscribed,
         canAccessBilling,
@@ -157,12 +165,44 @@ export function InboxUsageWidget(): JSX.Element | null {
     } = useValues(inboxUsageLogic)
     const { openModal } = useActions(inboxUsageLogic)
 
+    const paidContinuation = trial?.grant_status === 'exhausted' && !!spendProduct?.subscribed
+    if (trialEnabled && trial?.enabled && trial.grant_status !== 'not_claimed' && !paidContinuation) {
+        return <SelfDrivingTrialUsage />
+    }
+
     // The server-truth pause (quotaLimited) can lead the widget's own usage math (billing data
     // lags), so the raise-the-limit affordances escalate on either signal.
     const atLimit = status === 'limit' || quotaLimited
 
     if (isLoading) {
         return <UsageCardSkeleton />
+    }
+    if (spendProduct) {
+        return (
+            <>
+                {trialEnabled && trial?.enabled && paidContinuation && <SelfDrivingTrialUsage />}
+                <div className="flex flex-col gap-2">
+                    <span className="text-[13px] font-semibold">Inbox spend</span>
+                    {spendAmountUsd != null && (
+                        <span className="text-xs tabular-nums">{currencyFormatter(spendAmountUsd)}</span>
+                    )}
+                    {quotaLimited && (
+                        <>
+                            <LemonTag type="warning">Spending limit reached</LemonTag>
+                            <span className="text-xs text-secondary">
+                                New work is paused. Work already underway will finish.
+                                {!canAccessBilling && ' Ask an organization admin to change the limit.'}
+                            </span>
+                        </>
+                    )}
+                    {canAccessBilling && (
+                        <LemonButton size="small" type="secondary" to={urls.organizationBilling()}>
+                            View usage and limits
+                        </LemonButton>
+                    )}
+                </div>
+            </>
+        )
     }
     if (!product) {
         return null
@@ -221,8 +261,7 @@ export function InboxUsageWidget(): JSX.Element | null {
                 )}
                 {quotaLimited && (
                     <span className="text-xs font-medium text-danger">
-                        Agents are paused. They won't write new reports or open pull requests until the limit is raised
-                        or usage resets.
+                        New work is paused until the limit is raised or usage resets. Work already underway will finish.
                     </span>
                 )}
                 {canAccessBilling ? (

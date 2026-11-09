@@ -51,6 +51,22 @@ class TraceQuerySerializer(serializers.Serializer):
         return value
 
 
+class TraceAvailabilityRequestSerializer(serializers.Serializer):
+    trace_ids = serializers.ListField(
+        child=serializers.CharField(max_length=255, trim_whitespace=False),
+        min_length=1,
+        max_length=2,
+        help_text="Application and evaluator trace IDs to check without loading trace contents.",
+    )
+
+
+class TraceAvailabilitySerializer(serializers.Serializer):
+    available_trace_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Requested trace IDs readable from AI events or the shared events table.",
+    )
+
+
 class TraceClustersQuerySerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(
         help_text="When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read."
@@ -130,6 +146,7 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_analytics"
     scope_object_read_actions = [
         "retrieve",
+        "availability",
         "node",
         "evaluations",
         "clusters",
@@ -154,6 +171,19 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         user = request.user if isinstance(request.user, User) else None
         with query_concurrency_slots(self.team):
             return read(user, request.validated_query_data.get("timestamp_hint"))
+
+    @validated_request(
+        request_serializer=TraceAvailabilityRequestSerializer,
+        responses={200: TraceAvailabilitySerializer, 429: THROTTLED_RESPONSE},
+        operation_id="ai_observability_traces_availability_create",
+    )
+    @action(detail=False, methods=["POST"])
+    def availability(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        trace_ids = self._read(
+            request,
+            lambda user, _hint: api.get_available_trace_ids(self.team, user, request.validated_data["trace_ids"]),
+        )
+        return Response(TraceAvailabilitySerializer(instance={"available_trace_ids": trace_ids}).data)
 
     @validated_request(
         query_serializer=TraceQuerySerializer,

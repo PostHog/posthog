@@ -111,18 +111,6 @@ const EXPOSURES_WITH_SRM = {
     health_checks: withStatus(EXPOSURE_CHECKS, 'srm', 'finding'),
 }
 
-const METRIC_NOTE = {
-    code: 'metrics_not_matured',
-    subcode: null,
-    reason: null,
-    severity: 'info',
-    title: 'Some users are still inside the conversion window',
-    detail: 'The primary metric counts conversions up to 7 days after exposure. Users exposed in the last 7 days can still convert, so the results can still change.',
-    evidence: {},
-    actions: [],
-    diagnostic_ref: null,
-}
-
 const RECALCULATION = recalculationMocks(
     EXPERIMENT_WITH_MEAN_METRIC,
     resultsByMetricType(EXPERIMENT_WITH_MEAN_METRIC, { mean: MEAN_METRIC_RESULT })
@@ -167,14 +155,7 @@ export default meta
 type Story = StoryObj<{}>
 
 export const AllChecksPassed: Story = {
-    decorators: [
-        mswDecorator(
-            healthMocks(
-                { findings: [METRIC_NOTE], checks: withStatus(EXPERIMENT_CHECKS, 'metrics_not_matured', 'finding') },
-                HEALTHY_EXPOSURES
-            )
-        ),
-    ],
+    decorators: [mswDecorator(healthMocks({ findings: [], checks: EXPERIMENT_CHECKS }, HEALTHY_EXPOSURES))],
     play: async () => {
         await makeDelay(1500)()
     },

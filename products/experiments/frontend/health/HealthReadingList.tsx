@@ -6,7 +6,7 @@ import type { HealthReading } from './healthCheckValues'
 
 export function HealthReadingList({ readings }: { readings: HealthReading[] }): JSX.Element {
     return (
-        <dl className="m-0 grid max-w-xl grid-cols-2 gap-x-4 gap-y-1">
+        <dl className="m-0 grid max-w-xl grid-cols-2 gap-x-4 gap-y-1.5">
             {readings.map((reading) => (
                 <Fragment key={reading.label}>
                     <dt className="text-secondary">{reading.label}</dt>

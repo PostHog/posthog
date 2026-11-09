@@ -84,11 +84,12 @@ import {
     type ExperimentHealthUi,
     captureExperimentHealthChecked,
     captureExperimentHealthCheckExpanded,
-    captureExperimentHealthSummaryOpened,
+    captureExperimentHealthOverviewOpened,
     captureExperimentHealthChecksOpened,
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
     captureExperimentHealthFindingShown,
+    captureExperimentHealthRechecked,
     experimentHealthUi,
     experimentWarningFromHealth,
     exposureHealthEventProperties,
@@ -105,11 +106,15 @@ import {
     getShippedVariantKey,
     isSingleVariantShipped,
 } from 'products/experiments/frontend/scenes/experimentsLogic'
+import {
+    alignMetricsWithExposure,
+    getWarehouseNativeExposure,
+} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { ExperimentHoldoutType, ExperimentIdType } from '../../types'
 import { experimentMetricsLogic } from './experimentMetricsLogic'
-import { featureFlagVariantProperty, resolvedExposureEvent } from './exposureContract'
+import { featureFlagVariantProperty, getExposureSource, resolvedExposureEvent } from './exposureContract'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
     addExposureToMetric,
@@ -233,6 +238,13 @@ const HEALTH_CHECK_INPUTS = [
 
 function healthCheckInputs(experiment: Experiment): Partial<Experiment> {
     return Object.fromEntries(HEALTH_CHECK_INPUTS.map((field) => [field, experiment[field]]))
+}
+
+function changedHealthCheckInputs(
+    before: Partial<Experiment> | undefined,
+    after: Partial<Experiment>
+): string[] | null {
+    return before ? HEALTH_CHECK_INPUTS.filter((field) => !objectsEqual(before[field], after[field])) : null
 }
 
 type ExperimentHealthLoadTrigger = 'experiment_load' | 'experiment_update'
@@ -784,7 +796,7 @@ export interface experimentLogicActions {
     reportHealthFindingShown: (finding: ExperimentHealthFinding) => {
         finding: ExperimentHealthFinding
     }
-    reportHealthSummaryOpened: () => {
+    reportHealthOverviewOpened: () => {
         value: true
     }
     resetRunningExperiment: () => {
@@ -1098,7 +1110,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ) => ({ finding, actionKind }),
         reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => ({ openedFrom }),
         reportHealthCheckExpanded: (check: HealthPanelCheck) => ({ check }),
-        reportHealthSummaryOpened: true,
+        reportHealthOverviewOpened: true,
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1587,8 +1599,8 @@ export const experimentLogic = kea<experimentLogicType>([
         reportHealthCheckExpanded: ({ check }) => {
             captureExperimentHealthCheckExpanded(values.experiment, check, values.healthUi)
         },
-        reportHealthSummaryOpened: () => {
-            captureExperimentHealthSummaryOpened(
+        reportHealthOverviewOpened: () => {
+            captureExperimentHealthOverviewOpened(
                 values.experiment,
                 values.healthChecks ?? [],
                 values.healthFindings?.length ?? 0,
@@ -1939,10 +1951,22 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.refreshExperimentResults(outcome === 'saved', 'metric_config_change')
         },
         updateExposureCriteria: async () => {
+            const exposureCriteria = values.experiment.exposure_criteria
+            const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
+            const metrics = values.experiment.metrics ?? []
+            const secondaryMetrics = values.experiment.metrics_secondary ?? []
+            const alignedMetrics = warehouseExposure ? alignMetricsWithExposure(metrics, warehouseExposure) : metrics
+            const alignedSecondaryMetrics = warehouseExposure
+                ? alignMetricsWithExposure(secondaryMetrics, warehouseExposure)
+                : secondaryMetrics
             actions.updateExperiment({
                 exposure_criteria: {
-                    ...values.experiment.exposure_criteria,
+                    ...exposureCriteria,
                 },
+                ...(alignedMetrics.some((metric, index) => metric !== metrics[index]) && { metrics: alignedMetrics }),
+                ...(alignedSecondaryMetrics.some((metric, index) => metric !== secondaryMetrics[index]) && {
+                    metrics_secondary: alignedSecondaryMetrics,
+                }),
                 update_feature_flag_params: false,
             })
             const outcome = await inflightUpdateOutcome(cache)
@@ -1952,6 +1976,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
                 return
             }
+            // pinned: analytics event name and property values. A rename breaks dashboards.
+            posthog.capture('experiment exposure criteria updated', {
+                experiment_id: values.experimentId,
+                exposure_source: getExposureSource(exposureCriteria),
+            })
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         updateExperimentSettings: async ({ update, fromModal }) => {
@@ -2557,7 +2586,12 @@ export const experimentLogic = kea<experimentLogicType>([
                         // as metrics do because the server recomputes their fingerprints.
                         await breakpoint(300)
                     }
-                    cache.healthCheckInputs = healthCheckInputs(values.experiment)
+                    const inputs = healthCheckInputs(values.experiment)
+                    cache.healthCheckInputs = inputs
+                    // The loader keeps the previous answer until this request succeeds, so this is the health
+                    // before the edit, and `cache.answeredHealthCheckInputs` holds the inputs it answered.
+                    const healthBefore = values.experimentHealth
+                    const inputsBefore = cache.answeredHealthCheckInputs
                     // Timed here rather than in the success listener, which would have to read a start time off
                     // `cache` that a superseded request can overwrite.
                     const startedAt = performance.now()
@@ -2569,6 +2603,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                     // Kept outside the `try`: a superseded request throws here and is not a failure.
                     breakpoint()
+                    cache.answeredHealthCheckInputs = inputs
                     // One comparison per experiment load. A reload after a write would compare unsaved edits in the
                     // page with the saved experiment on the server.
                     if (trigger === 'experiment_load') {
@@ -2579,6 +2614,14 @@ export const experimentLogic = kea<experimentLogicType>([
                             values.browserExperimentWarning,
                             values.browserNoMetricsWarning,
                             Math.round(performance.now() - startedAt)
+                        )
+                    } else {
+                        captureExperimentHealthRechecked(
+                            values.experiment,
+                            healthBefore,
+                            health,
+                            values.healthUi,
+                            changedHealthCheckInputs(inputsBefore, inputs)
                         )
                     }
                     return health
