@@ -1,7 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # ``daily_window`` sends one request per UTC day (``from``/``to``) and stamps that day onto each row.
 # The Metrics API breakdowns aggregate over the whole requested window, so this turns them into a
@@ -9,7 +9,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 PaginationStyle = Literal["cursor", "none", "daily_window"]
 
 
-@dataclass
+@frozen
 class SparkPostEndpointConfig:
     name: str
     path: str

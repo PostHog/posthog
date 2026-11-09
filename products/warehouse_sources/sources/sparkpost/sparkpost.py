@@ -1,6 +1,5 @@
 import base64
 import secrets
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -24,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
     WebhookDeletionResult,
     WebhookSourceManager,
     WebhookSyncResult,
+    frozen,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -54,7 +54,7 @@ SPARKPOST_HOSTS = {
 DEFAULT_REGION = "us"
 
 
-@dataclasses.dataclass
+@frozen
 class SparkPostResumeConfig:
     next_url: Optional[str] = None
     # The next UTC day (``YYYY-MM-DD``) a daily-window metrics endpoint requests.
