@@ -3293,25 +3293,25 @@ snapshots:
     errortracking-exceptioncard--exception-card-header-widths--light:
         hash: v1.k794b7964.96ab37bc32797721d97410925e8c89bf739322a340ff8ee62dbd014a139a7f59.HCV39CI_4XqbwUW8QD8DDxSw_CeL5cui9smBv0MDeY0
     errortracking-exceptioncard--exception-card-header-widths-with-action--dark:
-        hash: v1.k794b7964.d60b6c30df11ea8db911048b683c95a94da56ba29ad36666c989f736b1f7fe6a.RKiAmA3gA8sexgf7JhLUULw5pA__0jaA_wVyK7tGxog
+        hash: v1.k794b7964.4ae735021dce0a7d9900ba841ac6ba401d54abed2009c83684844e36ec66610e.zClLfmtrc5g53KMgwNpwOtJFSg8lZDNrGX6NSCMvdmo
     errortracking-exceptioncard--exception-card-header-widths-with-action--light:
-        hash: v1.k794b7964.9650843b412303bbff2ef7d25286a94c807e66da1a4ffcda88ffac8b652cd93c.3DKcz_9YM_m7DtCsMq3mRc0j0cHvVz-peRZfQccDH3E
+        hash: v1.k794b7964.d0cae00969f63aff47af0259ebc758ac82866efa70fcb48bdfb1748a8bc619a4.2OQu5P-WnNPx82sUZEqVjMNAbTy57AuVN9edOu5Qy3E
     errortracking-exceptioncard--exception-card-logs--dark:
-        hash: v1.k794b7964.9596d891ecde70954b0f85f1c026c58e481a74a6cfcb60b8be94e0dd01f4668c.otNvVYs8nJqXLqJdsYqhJPhduawyKMyUJpdGxxxBkGU
+        hash: v1.k794b7964.cf733690a30ab0b706561ae3e2832d0f0ad4a9b09bdd9abbb4ba5652abc7b094.kfjkdG5jY7LWYc7Lll1dsuwkStcKAdwb3YTvUSXSXJc
     errortracking-exceptioncard--exception-card-logs--light:
-        hash: v1.k794b7964.0561f438c2b43b76c9d3861e3d920695c81f331d46f22280b25211cf1d6aa323.hLwbGoWJ7ZSv8fGvOkWo8PX251N7XG-uDrHlWsw076E
+        hash: v1.k794b7964.684397df6fc31f70b0e5997f6195ad958648856df92df202d27e352a32328eda.Pmd-TeO55VnxG2ZkHgk_G9ntUwbrBzVZCaU8UrTsL78
     errortracking-exceptioncard--exception-card-logs-with-session-only--dark:
-        hash: v1.k794b7964.5bd0ad8b67ae58b27062a16c1a1ebb0680acbd1b5c80f2a55db66c040561c090.sfXIy31iHEXoyLQzR6UugSfwFTceEDkzDhKJa9FTTF0
+        hash: v1.k794b7964.4bc26ce89e7958ff18cf7d91966f07d3a117f3d522b6f6383df70db927600eab.84w9TcK-D6HHmkl9-75idEJfp_-8O3sKW6yJBt_YQFI
     errortracking-exceptioncard--exception-card-logs-with-session-only--light:
-        hash: v1.k794b7964.35ec7d6a2911530552a6e2943bff6398f5a228aefcfe80b92b8533ad9ca37393.X9IqNWtb6dRuoz_Qt0KuN72wJH4_V38-sX_tC96o66U
+        hash: v1.k794b7964.39e87eb0f66a5e6ac619dc32f9871aa999fbdb278863e2d9fecc75759f079307.IYKV7hWdXRDGMjncngPyaAGqzX66GoBfn9DFY0O9nbI
     errortracking-exceptioncard--exception-card-logs-with-trace-only--dark:
-        hash: v1.k794b7964.a6175cdf02a385b48a39e93883c6f399051d0a47754145322f85ff546f4c68b9.dFOA4sl5dE--49Gdw_bZ7qIa8q64tCMm1iqbk2yfN9I
+        hash: v1.k794b7964.cf733690a30ab0b706561ae3e2832d0f0ad4a9b09bdd9abbb4ba5652abc7b094.BtLgAsz9A-r4KSXHoz7rxfZeBMuHryUvFndUWweGdts
     errortracking-exceptioncard--exception-card-logs-with-trace-only--light:
-        hash: v1.k794b7964.59092739b11c0f25d7d3358f393659aa44b1b2ff575dea689be61f7812893951.bRcmx48NZLYMzT1L9Q5ePERt8aVXPyXIC9c0ZlWpLzE
+        hash: v1.k794b7964.684397df6fc31f70b0e5997f6195ad958648856df92df202d27e352a32328eda.31JS6l-2FOzym_8pr_VJIKNreWilARNXDmrs1IlcQ6w
     errortracking-exceptioncard--exception-card-logs-without-session--dark:
-        hash: v1.k794b7964.c29d713699bbbdaaad8a3f5d7697c5ef8d453f18a63c9a661894370b4521a658.9WjMf2zGXEiWpaxY3IYj28PMe5FOoYFsFqBkzjBWhjs
+        hash: v1.k794b7964.6a1a02afa8a5e68bf498b6a92f9718017be7090dcfa7265de75db8608bd1f982.buvEsY7pIiy6IcgpjRleZEgNsyJEAaKwtQFYLW08m2o
     errortracking-exceptioncard--exception-card-logs-without-session--light:
-        hash: v1.k794b7964.db9c6dd8488496b40869a0adbdbefff3336b5df0343890dab9db54bb28203c9c.zn8RRPSRyjZ_9WTb5yJu8qb9ATtgDul7gsjITHEbSEQ
+        hash: v1.k794b7964.7831cbfea288f03b2fc0c51062aac10e4950e02b6830ee943421586f8e7fac8e.Gd8G09l8rJEfHLyp3bCUW6VZRkHuU1xbiP6c8lWHjsw
     errortracking-exceptioncard--exception-card-no-in-app--dark:
         hash: v1.k794b7964.0202a7987400a0f205709db94774e344cc90886efcc2e12d09f425567839d332.CXArdJgM3wO67eOHuvDr_4AFqGTOpB566tgl0bYYkFo
     errortracking-exceptioncard--exception-card-no-in-app--light:
@@ -8385,17 +8385,17 @@ snapshots:
     products-web-analytics-content-autopilot-workspace--onboarding--light:
         hash: v1.k794b7964.43db8fae97d0c1d904bbc77258a41cbf9ce99992a214721db5869aca949828bd.2dCjwtWR3d2g3FGZx9hQhvz4NCBI2AmaSEAUEJHAj-I
     products-web-analytics-content-autopilot-workspace--prompts-tab--dark:
-        hash: v1.k794b7964.e9f2aeae0fac687c709d73ca884854ef59beba38fd3c6a8f38df28b7651d435b._SGqY4TrfBGE2d1iELr9tFx_0UsyKGG7VmK_xa6zZaM
+        hash: v1.k794b7964.3ecd7d61105bb9c3a8d8a095858b79439a2d1928ec9a69c7f60c825bd2e92ab9.gIu_9L7szGUCAqH7uizGT_DTWEgVMWFtFgAcoiFBEWY
     products-web-analytics-content-autopilot-workspace--prompts-tab--light:
-        hash: v1.k794b7964.f0ce9a7f6541bfff8882d8ae8a6c71acb0d2359ae789951979584d5d6edf77c9.8xTwKDr--t7chmYN7ZVlqxn-5ToQE-vts6RkJP4hPJM
+        hash: v1.k794b7964.eb074ce7b94f3d35b342ad5a7218de093dd5808e4d9a9ad365744f0f69166939.d2ALpMn_1LK652OogRfGeIwB4QSq-atBZCOqfqKaVQw
     products-web-analytics-content-autopilot-workspace--proposal-preview--dark:
-        hash: v1.k794b7964.c928168c1452d8a43aaa3e9240ae324f1f29f7b91fa4142b0aa66a7bd5cfe0fd.9YwkHNyeUS8QgwiwQ9VxjkMHgcCDRVrSJ5dM_0YILe4
+        hash: v1.k794b7964.027845aa6aabf35b46b401274dbe1accc110240ecc777400917458ce6d5912a5.KxqJoLZ0-VTVCNNWD7njKCFTDPiGvPNB2JHtS0IIZE8
     products-web-analytics-content-autopilot-workspace--proposal-preview--light:
-        hash: v1.k794b7964.cb7877684b2e9a610a3cdc6b362c5594463f89358a8a47279e49439758b5f1e7.YdkdlXGGOtLtA54dC5JX-sksS3ZCXo1IS7q0UUnB5kI
+        hash: v1.k794b7964.0ec1b5b16b7e7db5b647dfd111a1b36ee4d653758424367148a5082899ef4ab4.ii4C9d2tR60GT8QqkdFu8tMZZD6OcY2ohieOxNrBTSU
     products-web-analytics-content-autopilot-workspace--proposal-review--dark:
-        hash: v1.k794b7964.e74a9039684dc3796da8a3eed951eee0dc151de8d6e6d1c4f9409b9ac42193d9.ZCIrvgb9x-v_eDocBzveGfZTsEAfWgDx7bPg83FahRo
+        hash: v1.k794b7964.2504b571d03c275d8277c2c8804ebf3cf3b49b32758f590c4962f6923ab7f4b1.vGhvlpX3CPC7x1yhsW_G1cRoJbDb2MHHsctguQ2OTak
     products-web-analytics-content-autopilot-workspace--proposal-review--light:
-        hash: v1.k794b7964.c7967014145bfab94b09d9702bc5b61af9286f842f698fca441a7f855f4c53bf.OCdyFkYjoz7nUGbCyraIe4BehQLJ_Nty12rrwGK_X-I
+        hash: v1.k794b7964.f5eb2c6152d30ad971ca35b10e0df0d4105774a713476e4942ae60b07763c3b9.LvF2_mIZNM3SQn31AwtsoqCCCWOWxCA8SylqOycQl9Y
     products-web-analytics-content-autopilot-workspace--ready-for-review--dark:
         hash: v1.k794b7964.4b79b307f132212f6607a1345ee71937dbd8ba4834eaf78e0c48281ecc2b820d.5zKWH-jRsTj0eNTd88UBcbfEmSh_R6LplXdHt-oMbsw
     products-web-analytics-content-autopilot-workspace--ready-for-review--light:
