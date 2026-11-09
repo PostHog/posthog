@@ -143,11 +143,11 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             "Integration not found": "The linked Bing Ads integration no longer exists. Please reconnect your Bing Ads integration.",
             # Non-numeric Account ID — the user entered their alphanumeric Account Number instead
             # of the numeric Account ID. Retrying can't fix a bad config value, so flag it and surface
-            # actionable guidance. The matched phrase is stable and precedes the volatile id in the
-            # raised message (see bing_ads_source.get_rows), keeping false positives at zero.
+            # actionable guidance. The matched phrase is the stable prefix of the message raised in
+            # bing_ads_source, keeping false positives at zero.
             "Bing Ads Account ID must be numeric": (
                 "Bing Ads Account ID must be numeric. You may have entered your alphanumeric Account Number "
-                "instead. Update the Account ID in the source settings and try again."
+                "instead. Use the aid= value from your Microsoft Advertising web app URL."
             ),
             # Deterministic credential/config errors raised in source_for_pipeline.
             "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
@@ -240,10 +240,11 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         if not config.account_id or not config.bing_ads_integration_id:
             return False, "Account ID and Bing Ads integration are required"
 
-        if not config.account_id.isdigit():
+        if not config.account_id.strip().isdigit():
             return (
                 False,
-                f"Invalid Account ID '{config.account_id}'. Bing Ads Account IDs are numeric. You can find your Account ID in the Bing Ads dashboard under Settings > Account.",
+                "This looks like your Account Number, not your Account ID. "
+                "Use the numeric Account ID, which is the aid= value in your Microsoft Advertising web app URL.",
             )
 
         try:

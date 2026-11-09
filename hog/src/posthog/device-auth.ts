@@ -16,8 +16,7 @@ const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 
 // What a new login asks for. hog sends this list explicitly, because a request without `scope`
 // gets every scope hog's client may hold.
-// TODO: add `ci_trust_policy_request:write` once PostHog has that scope, so `hog ci setup` works
-// without a step-up.
+// `workload_trust_policy_request` grants nothing until an admin approves a request in the browser.
 const LOGIN_WRITE_SCOPES = [
     'action',
     'alert',
@@ -50,6 +49,7 @@ const LOGIN_WRITE_SCOPES = [
     'survey',
     'task',
     'warehouse_view',
+    'workload_trust_policy_request',
 ]
 const LOGIN_READ_SCOPES = [
     'activity_log',
@@ -109,7 +109,7 @@ function unauthorizedClient(host: Host, body: OAuthError | undefined): HogError 
     return new HogError(
         'login_unavailable',
         `${host} won't log hog in: ${escapeControls(body.error_description)}`,
-        'Set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID instead.'
+        'Set HOG_PERSONAL_API_KEY instead, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.'
     )
 }
 
@@ -182,7 +182,7 @@ export async function startDeviceLogin(
         throw new HogError(
             'login_unavailable',
             `${host} didn't start a login: it answered with HTTP ${response.status}.`,
-            'Check the host. A self-hosted PostHog must be able to reach posthog.com to log hog in. Otherwise set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID.'
+            'Check the host. A self-hosted PostHog must be able to reach posthog.com to log hog in. Otherwise set HOG_PERSONAL_API_KEY, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.'
         )
     }
     return {

@@ -89,6 +89,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
+from products.alerts.backend.facade.api import list_enabled_alerts
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.agent_instructions import STEERING_FIELDS
 from products.signals.backend.artefact_schemas import (
@@ -132,9 +133,11 @@ from products.signals.backend.billing import (
     report_pr_is_merged,
 )
 from products.signals.backend.briefing_reports import reports_for_person
+from products.signals.backend.contracts import alert_patterns_problem
 from products.signals.backend.dismissal_notes import forward_dismissal_note, principal_may_steer_scouts
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind, ReviewerRemovalReason
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.facade.source_configs import AlertNamePatterns, evaluate_alert_filter
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
@@ -268,6 +271,9 @@ from products.signals.backend.scout_harness.trial_access import trial_state_erro
 from products.signals.backend.scout_harness.views import emit_report_from_validated_data, emit_report_response_data
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
+    AlertPatternPreviewOutcome,
+    AlertPatternPreviewRequestSerializer,
+    AlertPatternPreviewResponseSerializer,
     CommitDiffResponseSerializer,
     GitHubRepositoryInaccessibleErrorSerializer,
     PersonalRankingQuerySerializer,
@@ -361,6 +367,7 @@ from products.signals.backend.throttles import (
     UserReportCreateBurstThrottle,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
+from products.signals.backend.trial.service import TrialService
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
@@ -566,6 +573,13 @@ class InternalSignalViewSet(viewsets.ViewSet):
         return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
 
 
+ALERT_PATTERN_PREVIEW_LIMIT = 100
+
+
+def _sentence_case(problem: str | None) -> str | None:
+    return problem[:1].upper() + problem[1:] if problem else problem
+
+
 class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = SignalSourceConfigSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
@@ -579,6 +593,53 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # endpoint accounts for. The serializer resolves every row's `status` from one warehouse
         # query per team, and reports no status rather than failing the list if that query fails.
         return super().list(request, *args, **kwargs)
+
+    @validated_request(
+        request_serializer=AlertPatternPreviewRequestSerializer,
+        responses={200: OpenApiResponse(response=AlertPatternPreviewResponseSerializer)},
+        summary="Preview product analytics alert patterns",
+        description=(
+            "Check allow and block patterns for the product analytics source before saving them. Returns why "
+            "each list would be rejected, and what the patterns do to the project's enabled alerts: which ones "
+            "they let through and which ones they drop. Saves nothing."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="alert_pattern_preview", required_scopes=["inbox:read"])
+    def alert_pattern_preview(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        allow: list[str] = request.validated_data["alert_allow_patterns"]
+        block: list[str] = request.validated_data["alert_block_patterns"]
+        allow_error = _sentence_case(alert_patterns_problem(allow))
+        block_error = _sentence_case(alert_patterns_problem(block))
+        alerts: list[dict[str, Any]] = []
+        has_more = False
+        if allow_error is None and block_error is None:
+            patterns = AlertNamePatterns(allow=tuple(allow), block=tuple(block))
+            enabled_alerts = list_enabled_alerts(
+                self.team, cast(User, request.user), limit=ALERT_PATTERN_PREVIEW_LIMIT + 1
+            )
+            has_more = len(enabled_alerts) > ALERT_PATTERN_PREVIEW_LIMIT
+            for alert in enabled_alerts[:ALERT_PATTERN_PREVIEW_LIMIT]:
+                outcome = evaluate_alert_filter(patterns, alert_name=alert.name, insight_name=alert.insight_name)
+                alerts.append(
+                    {
+                        "id": alert.id,
+                        "name": alert.name,
+                        "insight_name": alert.insight_name,
+                        "insight_short_id": alert.insight_short_id,
+                        # Both lists compiled above, so the filter cannot return `invalid` here.
+                        "outcome": AlertPatternPreviewOutcome(outcome.value),
+                    }
+                )
+        return Response(
+            AlertPatternPreviewResponseSerializer(
+                {
+                    "alert_allow_patterns_error": allow_error,
+                    "alert_block_patterns_error": block_error,
+                    "alerts": alerts,
+                    "has_more": has_more,
+                }
+            ).data
+        )
 
     def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
         return (
@@ -623,7 +684,13 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             serializer.validated_data.get("source_product"), serializer.validated_data.get("source_type")
         )
         try:
-            instance = serializer.save(team_id=team_id, created_by=self.request.user)
+            with TrialService(self.team).enroll_on_activation(
+                user=cast(User, self.request.user),
+                enabled=serializer.validated_data.get("enabled", True),
+                parent_access_allowed=self._can_reach_canonical_team(),
+                api_scopes=get_authenticator_scopes(self.request.successful_authenticator),
+            ):
+                instance = serializer.save(team_id=team_id, created_by=self.request.user)
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
@@ -681,7 +748,13 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise serializers.ValidationError({field: f"{field} cannot be changed after creation."})
 
         try:
-            instance = serializer.save()
+            with TrialService(self.team).enroll_on_activation(
+                user=cast(User, self.request.user),
+                enabled=serializer.validated_data.get("enabled", False),
+                parent_access_allowed=self._can_reach_canonical_team(),
+                api_scopes=get_authenticator_scopes(self.request.successful_authenticator),
+            ):
+                instance = serializer.save()
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
