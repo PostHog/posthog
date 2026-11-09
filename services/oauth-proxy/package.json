@@ -28,6 +28,6 @@
         "typescript": "catalog:",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^4.1.0",
-        "wrangler": "^4.98.0"
+        "wrangler": "^4.149.0"
     }
 }

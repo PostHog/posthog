@@ -5,13 +5,17 @@ import pytest
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.session.backend import SessionStore
 
 from products.access_control.backend.models.access_control import AccessControl
 
@@ -37,6 +41,7 @@ class TestAccessibleTeams(BaseTest):
     def _request(
         self,
         *,
+        ip: str = "127.0.0.1",
         credential_team_ids: list[int] | None = None,
         credential_organization_ids: list[str] | None = None,
     ) -> Request:
@@ -51,7 +56,9 @@ class TestAccessibleTeams(BaseTest):
                 scoped_teams=credential_team_ids or [],
                 scoped_organizations=credential_organization_ids or [],
             )
-        return cast(Request, SimpleNamespace(user=self.user, successful_authenticator=authenticator))
+        raw = APIRequestFactory().post("/api/oauth/device/approve/", REMOTE_ADDR=ip)
+        raw.session = SessionStore()
+        return cast(Request, SimpleNamespace(user=self.user, successful_authenticator=authenticator, _request=raw))
 
     @parameterized.expand(
         [
@@ -83,6 +90,29 @@ class TestAccessibleTeams(BaseTest):
         else:
             with pytest.raises(CredentialScopeDenied):
                 AccessibleTeams.for_request(request, requested_team_ids)
+
+    @parameterized.expand(
+        [
+            (confined, ip, allowed)
+            for confined in (False, True)
+            for ip, allowed in (("203.0.113.7", True), ("198.51.100.7", False))
+        ]
+    )
+    def test_for_request_applies_the_requested_teams_ip_policy(self, confined: bool, ip: str, allowed: bool) -> None:
+        other, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_organization = other
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        with self.captureOnCommitCallbacks(execute=True):
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization, ip_restrictions=["203.0.113.0/24"]
+            )
+        request = self._request(ip=ip, credential_team_ids=[self.open_team.id] if confined else None)
+        if allowed:
+            self.assertEqual(AccessibleTeams.for_request(request, [self.open_team.id]).team_ids, (self.open_team.id,))
+        else:
+            with pytest.raises(PermissionDenied, match="IP address"):
+                AccessibleTeams.for_request(request, [self.open_team.id])
 
     def test_for_request_denies_team_outside_credential_scoped_organizations(self) -> None:
         other_organization = Organization.objects.create(name="Other")

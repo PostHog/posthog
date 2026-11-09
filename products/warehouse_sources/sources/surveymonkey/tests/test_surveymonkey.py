@@ -5,7 +5,13 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 from products.warehouse_sources.sources.surveymonkey._config import SurveyMonkeySourceConfig
 from products.warehouse_sources.sources.surveymonkey.source import SurveyMonkeySource
 from products.warehouse_sources.sources.surveymonkey.surveymonkey import (
@@ -143,6 +149,108 @@ class TestQuestions:
         assert all(r["survey_id"] == "10" for r in rows)
         assert [r["page_id"] for r in rows] == ["pg1", "pg1", "pg2"]
         assert result.paths[-1] == "/v3/surveys/10/details"
+
+
+class TestTrends:
+    def test_fans_out_with_daily_buckets_and_no_page_size(self) -> None:
+        result = _driver().run(
+            "survey_trends",
+            [
+                _page([{"id": "10"}]),  # /surveys list
+                _page([{"id": "q1", "trends": [{"start_date": "2026-01-01T00:00:00"}]}]),  # survey 10 trends
+            ],
+        )
+
+        assert result.rows == [{"id": "q1", "trends": [{"start_date": "2026-01-01T00:00:00"}], "survey_id": "10"}]
+        child = result.requests[-1]
+        assert child.path == "/v3/surveys/10/trends"
+        assert child.param("trend_by") == "day"
+        # The trends endpoint does not document `per_page`, so none is sent.
+        assert child.param("per_page") is None
+
+
+def _collectors_page() -> ScriptedResponse:
+    return _page(
+        [
+            {"id": "c-email", "type": "email"},
+            {"id": "c-web", "type": "weblink"},
+            {"id": "c-sms", "type": "sms"},
+        ]
+    )
+
+
+class TestCollectorFanOut:
+    @pytest.mark.parametrize(
+        "endpoint, child_suffix",
+        [
+            ("collector_messages", "/messages"),
+            ("collector_recipients", "/recipients"),
+        ],
+    )
+    def test_fans_out_over_messaging_collectors_only(self, endpoint: str, child_suffix: str) -> None:
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    "/v3/surveys": [_page([{"id": "10"}])],
+                    "/v3/surveys/10/collectors": [_collectors_page()],
+                    f"/v3/collectors/c-email{child_suffix}": [
+                        _page([{"id": "1"}], next_url=f"{BASE_URL}/collectors/c-email{child_suffix}?page=2"),
+                        _page([{"id": "2"}]),
+                    ],
+                    f"/v3/collectors/c-sms{child_suffix}": [_page([{"id": "3"}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "1", "collector_id": "c-email", "survey_id": "10"},
+            {"id": "2", "collector_id": "c-email", "survey_id": "10"},
+            {"id": "3", "collector_id": "c-sms", "survey_id": "10"},
+        ]
+        # The weblink collector has no messages or recipients, so it costs no request.
+        assert not any("c-web" in path for path in result.paths)
+        collectors_request = next(r for r in result.requests if r.path == "/v3/surveys/10/collectors")
+        assert collectors_request.param("include") == "type"
+        # A chained fan-out keeps no resume state.
+        assert result.saved_states == []
+
+    def test_recipients_request_status_fields_without_links(self) -> None:
+        result = _driver().run(
+            "collector_recipients",
+            route(
+                {
+                    "/v3/surveys": [_page([{"id": "10"}])],
+                    "/v3/surveys/10/collectors": [_page([{"id": "c-email", "type": "email"}])],
+                    "/v3/collectors/c-email/recipients": [_page([])],
+                }
+            ),
+        )
+
+        include = result.requests[-1].param("include") or ""
+        assert "survey_response_status" in include and "mail_status" in include
+        assert "link" not in include
+
+    def test_message_stats_one_row_per_message(self) -> None:
+        stats = {"recipients": 4, "mail_status": {"sent": 4, "opened": 2}, "survey_response_status": {}}
+        result = _driver().run(
+            "collector_message_stats",
+            route(
+                {
+                    "/v3/surveys": [_page([{"id": "10"}])],
+                    "/v3/surveys/10/collectors": [_collectors_page()],
+                    "/v3/collectors/c-email/messages": [_page([{"id": "m1"}, {"id": "m2"}])],
+                    "/v3/collectors/c-sms/messages": [_page([])],
+                    "/v3/collectors/c-email/messages/m1/stats": [_raw(stats)],
+                    # A message deleted between the listing and the stats fetch is skipped.
+                    "/v3/collectors/c-email/messages/m2/stats": [_raw({"error": {}}, status_code=404)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{**stats, "message_id": "m1", "collector_id": "c-email", "survey_id": "10"}]
 
 
 class TestRetry:

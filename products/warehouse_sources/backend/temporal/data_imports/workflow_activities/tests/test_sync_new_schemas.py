@@ -21,8 +21,14 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 def _patch_common(source_mock, schemas_created=None, source_api_version=None, merge_error=None):
     """Patch DB + registry so the activity runs without a database or real source."""
     existing_source = mock.MagicMock(
-        source_type="GoogleAds", job_inputs={"k": "v"}, deleted=False, api_version=source_api_version
+        source_type="GoogleAds",
+        job_inputs={"k": "v"},
+        credentials_integration_id=None,
+        deleted=False,
+        api_version=source_api_version,
     )
+    # The store asks the source class where its OAuth pointer is. A MagicMock answer is not an integration id.
+    source_mock.in_use_oauth_slot.return_value = None
     existing_source.merge_connection_metadata.side_effect = merge_error
     objects = mock.MagicMock()
     objects.filter.return_value.exclude.return_value.exists.return_value = True
@@ -48,7 +54,7 @@ def _patch_db(source_type, *, source_exists=True):
     objects = mock.MagicMock()
     objects.filter.return_value.exclude.return_value.exists.return_value = source_exists
     objects.get.return_value = mock.MagicMock(
-        source_type=source_type, job_inputs={"k": "v"}, deleted=False, api_version=None
+        source_type=source_type, job_inputs={"k": "v"}, credentials_integration_id=None, deleted=False, api_version=None
     )
     return objects
 
