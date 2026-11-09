@@ -170,6 +170,9 @@ class _CandidateCollector:
     def has(self, owner: str) -> bool:
         return owner in self._files
 
+    def has_any(self) -> bool:
+        return bool(self._files)
+
     def candidates(self) -> list[OwnerCandidate]:
         return [
             OwnerCandidate(
@@ -183,16 +186,13 @@ class _CandidateCollector:
         ]
 
 
-def _collect_owned(collector: _CandidateCollector, file: ChangedFile, resolution: Resolution | None) -> None:
-    """A team owns a test so that the test's failures and flakes reach it, not so that it reviews every
-    change to the test. A test file therefore adds to the part of an owner that a non-test file already
-    made a candidate, and makes no owner a candidate by itself. The owners of a sensitive path and of an
-    `additions` declaration are still pinned."""
+def _collect_owned(
+    collector: _CandidateCollector, file: ChangedFile, resolution: Resolution | None, *, join_only: bool
+) -> None:
     if resolution is None or is_excluded(file.path) or _is_generated_or_vendored(file.path, resolution):
         return
-    is_test = runner_for_path(file.path) is not None
     for owner in resolution.owners or []:
-        if not is_test or collector.has(owner):
+        if not join_only or collector.has(owner):
             collector.add(owner, file, source=resolution.source)
 
 
@@ -227,11 +227,21 @@ def find_candidates(files: Sequence[ChangedFile], resolutions: Mapping[str, Reso
     """The candidates, largest part first. Owners with equal lines keep the owners.yaml order.
 
     `resolutions` maps each path from `paths_to_resolve` to its resolution against the base tree.
+
+    A team owns a test so that the test's failures and flakes reach it, not so that it reviews every
+    change to the test. A test file therefore only adds to the part of an owner that a non-test file
+    already made a candidate. When no non-test file made any owner a candidate, as in a change of only
+    tests, the tests' owners become candidates so the change still reaches a reviewer. The owners of a
+    sensitive path and of an `additions` declaration are pinned either way.
     """
     collector = _CandidateCollector()
-    # Non-test files first, so that `_collect_owned` knows every owner a test file can join.
-    for file in sorted(files, key=lambda file: runner_for_path(file.path) is not None):
-        _collect_owned(collector, file, resolutions.get(file.path))
+    tests = [file for file in files if runner_for_path(file.path) is not None]
+    for file in files:
+        if runner_for_path(file.path) is None:
+            _collect_owned(collector, file, resolutions.get(file.path), join_only=False)
+    tests_join_only = collector.has_any()
+    for file in tests:
+        _collect_owned(collector, file, resolutions.get(file.path), join_only=tests_join_only)
     for file in files:
         resolution = resolutions.get(file.path)
         _collect_additions(collector, file, resolution)

@@ -176,7 +176,8 @@ Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 
 Reviewer routing requests reviews from the owners of the changed code (`backend/logic/routing/`, queued by its own webhook consumer).
 Owners come from `owners.yaml` at the default branch, read with stamphog's installation token, so a PR cannot name its own reviewers.
-A test file makes no owner a candidate by itself. It adds to the part of an owner that a non-test file in the PR already made a candidate, because a team owns a test so that its failures reach the team, not so that the team reviews it.
+A test file adds to the part of an owner that a non-test file in the PR already made a candidate, because a team owns a test so that its failures reach the team, not so that the team reviews it.
+When no non-test file made any owner a candidate, as in a PR that changes only tests, the tests' owners become candidates, so the PR still gets a reviewer.
 When more than one owner is a candidate, one Claude Haiku call through the ai-gateway may cut owners whose part is trivial, with its own short-lived token capped far below the reviewer's.
 Pinned owners (sensitive paths and owners of additions) are never cut, forks never reach the model, and any model failure requests everyone.
 A comment names the cut owners and why.

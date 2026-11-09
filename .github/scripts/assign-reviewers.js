@@ -203,7 +203,7 @@ function isGeneratedOrVendored(filename, resolution) {
     )
 }
 
-// A test file only joins an owner a non-test file brought in: `_collect_owned` in stamphog's candidates.py says why.
+// Test files follow the rule in `find_candidates` in products/stamphog/backend/logic/routing/candidates.py.
 // Keep in step with runner_for_path in packages/owners-yaml/owners_yaml/census.py.
 const TEST_FILE = /(^|\/)test_[^/]*\.py$|_test\.py$|\.(test|spec)\.[jt]sx?$/
 
@@ -220,8 +220,13 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
     const relevantFiles = changedFiles.filter((file) => !isExcludedFile(file.filename, config.excludedPatterns))
     const sourceFilesFirst = relevantFiles.toSorted((a, b) => isTestFile(a.filename) - isTestFile(b.filename))
     const footprints = new Map()
+    let testsJoinOnly = null
 
     for (const file of sourceFilesFirst) {
+        const isTest = isTestFile(file.filename)
+        if (isTest && testsJoinOnly === null) {
+            testsJoinOnly = footprints.size > 0
+        }
         const resolution = resolutionByPath[file.filename]
         if (isGeneratedOrVendored(file.filename, resolution)) {
             continue
@@ -243,7 +248,7 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
 
             let footprint = footprints.get(resolved.owner)
             if (!footprint) {
-                if (isTestFile(file.filename)) {
+                if (isTest && testsJoinOnly) {
                     continue
                 }
                 footprint = {
