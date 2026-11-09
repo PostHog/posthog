@@ -11,9 +11,8 @@ from products.warehouse_sources.backend.management.commands._credentials_report 
 class Command(BaseCommand):
     help = (
         "Back up the job_inputs of each warehouse source, then keep only its sync settings and runtime state. "
-        "A source is stripped only when the read flag is on for its team and its credentials row exists, is "
-        "readable and matches job_inputs. Previews by default; pass --execute to write. Safe to repeat. "
-        "Never prints field values."
+        "A source is stripped only when its credentials row exists, is readable and matches job_inputs. "
+        "Previews by default; pass --execute to write. Safe to repeat. Never prints field values."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:

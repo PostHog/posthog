@@ -1,6 +1,7 @@
 import uuid
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.apps import apps
 from django.test import SimpleTestCase, override_settings
@@ -388,26 +389,35 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("person_id", "UUID"),
-            ("event_issue_id", "UUID"),
-            ("issue_id", "UUID"),
-            ("issue_id_v2", "UUID"),
-            ("issue_first_seen", "DateTime"),
-            ("$virt_is_bot", "Boolean"),
+            ("events", "person_id", "expression", "UUID"),
+            ("events", "event_issue_id", "expression", "UUID"),
+            ("events", "issue_id", "expression", "UUID"),
+            ("events", "issue_id_v2", "expression", "UUID"),
+            ("events", "issue_first_seen", "expression", "DateTime"),
+            ("events", "$virt_is_bot", "expression", "Boolean"),
+            ("system.data_modeling_endpoints", "description", "field_traverser", "String"),
+            ("system.data_modeling_endpoints", "query", "field_traverser", "JSON"),
+            ("system.data_modeling_endpoints", "columns", "field_traverser", "JSON"),
+            ("system.data_modeling_endpoints", "data_freshness_seconds", "field_traverser", "Integer"),
+            ("events", "person", None, None),
         ]
     )
-    def test_expression_columns_resolve_to_their_value_type(self, column_name: str, expected_type: str):
+    def test_computed_columns_resolve_to_their_value_type(
+        self, table_name: str, column_name: str, expected_kind: str | None, expected_type: str | None
+    ):
         # Expression columns must report the type they evaluate to (like hogql autocomplete), not the
         # generic "Expression" — otherwise the catalog is useless for picking a cast/comparison.
         response = execute_hogql_query(
             f"SELECT data_type, field_kind FROM system.information_schema.columns "
-            f"WHERE table_name = 'events' AND column_name = '{column_name}'",
+            f"WHERE table_name = '{table_name}' AND column_name = '{column_name}'",
             team=self.team,
+            user=self.user,
         )
         results = response.results or []
-        assert len(results) == 1
-        assert results[0][1] == "expression"
-        assert results[0][0] == expected_type
+        if expected_kind is None:
+            assert results == []
+            return
+        assert results == [(expected_type, expected_kind)]
 
     @parameterized.expand(
         [
@@ -543,6 +553,26 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             or []
         )
         assert columns[0][0] == "Stripe charge identifier (ch_...)."
+
+    @parameterized.expand([("flag_on", True, "email"), ("flag_off", False, None)])
+    def test_warehouse_column_sensitivity_follows_the_flag(self, _name, enabled, expected):
+        self._create_warehouse_table(name="customers", column="email")
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: enabled and flag == "warehouse-column-sensitivity",
+        ):
+            columns = (
+                execute_hogql_query(
+                    """
+                SELECT column_name, sensitivity FROM system.information_schema.columns
+                WHERE table_name = 'customers'
+                """,
+                    team=self.team,
+                ).results
+                or []
+            )
+        assert [tuple(row) for row in columns] == [("email", expected)]
 
     def test_warehouse_source_native_table_description_appears(self):
         table = self._create_warehouse_table()
