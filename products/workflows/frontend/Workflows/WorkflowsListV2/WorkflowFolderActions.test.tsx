@@ -46,16 +46,21 @@ describe('WorkflowFolderActions', () => {
 
     const submitButton = (): HTMLElement => screen.getByText('Submit').closest('button') as HTMLElement
 
-    it("opens a rename once other products' files load, and checks names against them", async () => {
-        await waitFor(() => expect(workflowFoldersLogic.values.browserReady).toBe(true))
+    const clickRename = async (): Promise<void> => {
         render(<WorkflowFolderActions path="Billing" count={0} />)
         fireEvent.click(screen.getByLabelText('Actions for folder Billing'))
         fireEvent.click(await screen.findByText('Rename…'))
+    }
+
+    it("opens a rename once other products' files load, and checks names against them", async () => {
+        await waitFor(() => expect(workflowFoldersLogic.values.browserReady).toBe(true))
+        await clickRename()
         expect(screen.queryByText('Rename Billing')).toBeNull()
+        cleanup()
 
         releaseOtherFiles()
         await waitFor(() => expect(workflowFoldersLogic.values.takenFolderPaths).not.toBeNull())
-        fireEvent.click(screen.getByText('Rename…'))
+        await clickRename()
         const input = await screen.findByDisplayValue('Billing')
         fireEvent.change(input, { target: { value: 'reports' } })
         await waitFor(() => expect(submitButton()).toHaveAttribute('aria-disabled', 'true'))
