@@ -154,7 +154,7 @@ Unit = Annotated[str, AfterValidator(lambda value: sanitize_user_text(value, 30)
 
 
 class _Reply(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
 
 class _Series(_Reply):
