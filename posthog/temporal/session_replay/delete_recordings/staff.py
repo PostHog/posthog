@@ -3,6 +3,7 @@
 import io
 import csv
 import json
+import uuid
 import asyncio
 import dataclasses
 from datetime import datetime, timedelta
@@ -154,8 +155,13 @@ class RecordingDeletions:
     """Starts the delete-recordings Temporal workflows for one team and reads their runs and certificates."""
 
     @staticmethod
-    def workflow_id(team_id: int, run_key: str) -> str:
-        # The certificate shows the part after the team ID as its reference, so run_key must be a UUID.
+    def workflow_id(team_id: int, form_nonce: uuid.UUID, kind: str, dry_run: bool, scope: str) -> str:
+        """One workflow ID per form and input, so a double submit starts one run, and a real run after a dry
+        run from the same form starts its own.
+
+        The certificate shows the part after the team ID as its reference, so the run key is a UUID.
+        """
+        run_key = uuid.uuid5(form_nonce, json.dumps([team_id, kind, dry_run, scope]))
         return f"delete-recordings-{team_id}-{run_key}"
 
     @staticmethod
@@ -235,7 +241,10 @@ class RecordingDeletions:
     @classmethod
     def start_for_session_ids(cls, request: DeletionRequest, session_ids: list[str], source_filename: str) -> None:
         # Temporal refuses payloads above about 2 MB, so the session IDs go to object storage in chunks.
-        s3_prefix, total_chunks = store_session_id_chunks(request.workflow_id, session_ids, SESSION_ID_CHUNK_SIZE)
+        # Each attempt writes under its own prefix, so a resubmit that Temporal rejects cannot overwrite the
+        # chunks a running workflow with the same ID still reads.
+        attempt = f"{request.workflow_id}/{uuid.uuid4()}"
+        s3_prefix, total_chunks = store_session_id_chunks(attempt, session_ids, SESSION_ID_CHUNK_SIZE)
         workflow_input = RecordingsWithSessionIdsInput(
             team_id=request.team.pk,
             s3_prefix=s3_prefix,
@@ -277,6 +286,15 @@ class RecordingDeletions:
                 id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
             )
         )
+        # The run has started. A failure to log it must not tell staff that it did not.
+        try:
+            RecordingDeletions._log_start(request, kind, **log_fields)
+        except Exception:
+            logger.exception("recording_deletion_start_not_logged", workflow_id=request.workflow_id)
+
+    @staticmethod
+    def _log_start(request: DeletionRequest, kind: str, **log_fields: object) -> None:
+        team = request.team
         logger.info(
             f"delete_recordings_with_{kind}_triggered",
             team_id=team.pk,

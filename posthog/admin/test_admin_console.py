@@ -2,6 +2,7 @@ import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -10,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management.base import CommandError
 from django.db.models import Model
@@ -1069,10 +1071,54 @@ class TestAdminConsoleViews(BaseTest):
         assert workflow_input.team_id == self.team.pk
         assert workflow_input.config.reason == "GDPR request"
         assert workflow_input.config.deleted_by == self.user.email
+        assert workflow_input.config.dry_run == ("dry_run" in data)
         for field, value in (expected_input or {}).items():
             assert getattr(workflow_input, field) == value
         if upload is not None:
             assert store_chunks.call_args.args[1] == ["session-a", "session-b"]
+
+    @patch("posthog.temporal.session_replay.delete_recordings.staff.sync_connect")
+    def test_a_real_run_after_a_dry_run_from_the_same_form_is_its_own_workflow(self, sync_connect: MagicMock) -> None:
+        start_workflow = sync_connect.return_value.start_workflow = AsyncMock()
+        url = f"/admin/console/teams/{self.team.pk}/recordings/delete-by-person/"
+        nonce = "0b6c3c5e-6f5a-4a4e-9a51-3c3b2f1c9d10"
+
+        def run(data: dict[str, str]) -> Any:
+            form = {"distinct_ids": "user-1", "reason": "GDPR request", "form_nonce": nonce, **data}
+            preview = self.client.post(url, form)
+            return self.client.post(url, {"confirm_token": preview.context["confirm_token"], "form_nonce": nonce})
+
+        run({"dry_run": "on"})
+        run({})
+        start_workflow.side_effect = WorkflowAlreadyStartedError("delete-recordings", "delete-recordings-with-person")
+        repeated = run({})
+
+        dry_run_id, real_id = (call.kwargs["id"] for call in start_workflow.call_args_list[:2])
+        assert dry_run_id != real_id
+        assert [call.args[1].config.dry_run for call in start_workflow.call_args_list[:2]] == [True, False]
+        assert repeated.status_code == 302
+        assert "started=" not in repeated["Location"]
+        assert "No new deletion started" in " ".join(str(m) for m in get_messages(repeated.wsgi_request))
+
+    @patch("posthog.temporal.session_replay.delete_recordings.staff.sync_connect")
+    def test_a_confirm_whose_cached_upload_expired_starts_nothing(self, sync_connect: MagicMock) -> None:
+        sync_connect.return_value.start_workflow = AsyncMock()
+        url = f"/admin/console/teams/{self.team.pk}/recordings/delete-by-session-ids/"
+        preview = self.client.post(
+            url,
+            {
+                "dry_run": "on",
+                "reason": "GDPR request",
+                "csv_file": SimpleUploadedFile("sessions.csv", b"session-a\n", "text/csv"),
+            },
+        )
+        cache.clear()
+
+        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302
+        assert "expired" in " ".join(str(m) for m in get_messages(confirmed.wsgi_request))
+        assert not sync_connect.return_value.start_workflow.called
 
     @patch.object(RecordingDeletions, "recent")
     @patch.object(RecordingDeletions, "certificate")

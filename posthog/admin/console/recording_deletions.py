@@ -36,6 +36,9 @@ PANEL_KEY = "recordings"
 REFRESH_SECONDS_WHILE_RUNNING = 5
 REFRESH_SECONDS_WHILE_TEMPORAL_IS_AWAY = 30
 PREVIEW_SAMPLE_SIZE = 10
+# A session ID takes about 37 bytes per CSV line, so the byte cap also bounds what the cache holds.
+MAX_CSV_SESSION_IDS = 500_000
+MAX_CSV_BYTES = 25_000_000
 UNDO_HINT = "Deleted recordings cannot be restored. A dry run deletes nothing."
 STATUS_TONES = {
     "RUNNING": Tone.INFO,
@@ -128,6 +131,11 @@ class SessionIdsDeletionForm(DeletionForm):
         upload = self.cleaned_data["csv_file"]
         if not (upload.name or "").endswith(".csv"):
             raise forms.ValidationError("Upload a .csv file.")
+        # The preview keeps the file in the cache until staff confirm, so the size is checked before that.
+        if upload.size > MAX_CSV_BYTES:
+            raise forms.ValidationError(
+                f"The file is larger than {MAX_CSV_BYTES // 1_000_000} MB. Split it and upload each part on its own."
+            )
         try:
             content = upload.read().decode("utf-8")
         except UnicodeDecodeError:
@@ -135,29 +143,33 @@ class SessionIdsDeletionForm(DeletionForm):
         session_ids = session_ids_from_csv(content)
         if not session_ids:
             raise forms.ValidationError("The file holds no session IDs.")
+        if len(session_ids) > MAX_CSV_SESSION_IDS:
+            raise forms.ValidationError(
+                f"The file holds {len(session_ids):,} session IDs. Upload at most {MAX_CSV_SESSION_IDS:,} at a time."
+            )
         self.cleaned_data["source_filename"] = upload.name
         return session_ids
 
 
-def _run_key(request: HttpRequest) -> str:
-    # The form nonce names the run, so a double submit of one form starts one deletion. The browser sends the
-    # nonce, so anything that is not a UUID gets a fresh one.
+def _form_nonce(request: HttpRequest) -> uuid.UUID:
+    # The browser sends the nonce, so anything that is not a UUID gets a fresh one.
     try:
-        return str(uuid.UUID(request.POST.get("form_nonce", "")))
+        return uuid.UUID(request.POST.get("form_nonce", ""))
     except ValueError:
-        return str(uuid.uuid4())
+        return uuid.uuid4()
 
 
 def recording_deletions_url(team: Team, **params: str) -> str:
     return f"{TOOL_URL}?{urlencode({'team': team.pk, **params})}"
 
 
-def _deletion_request(request: HttpRequest, team: Team, form: forms.Form) -> DeletionRequest:
+def _deletion_request(request: HttpRequest, team: Team, form: forms.Form, kind: str, scope: str) -> DeletionRequest:
+    dry_run = form.cleaned_data["dry_run"]
     return DeletionRequest(
         team=team,
-        workflow_id=RecordingDeletions.workflow_id(team.pk, _run_key(request)),
+        workflow_id=RecordingDeletions.workflow_id(team.pk, _form_nonce(request), kind, dry_run, scope),
         reason=form.cleaned_data["reason"],
-        dry_run=form.cleaned_data["dry_run"],
+        dry_run=dry_run,
         requested_by=cast(User, request.user),
     )
 
@@ -177,21 +189,28 @@ class StartDeletion:
         if "confirm_team_id" in form.fields and not _typed_team_id_matches(obj, form):
             messages.error(request, f"Type {obj.pk}, the ID of this team, to delete its recordings.")
             return HttpResponse(status=400)
-        deletion = _deletion_request(request, obj, form)
         try:
             if self.kind == "person":
-                RecordingDeletions.start_for_person(deletion, form.cleaned_data["distinct_ids"])
+                distinct_ids = form.cleaned_data["distinct_ids"]
+                deletion = _deletion_request(request, obj, form, self.kind, "\n".join(distinct_ids))
+                RecordingDeletions.start_for_person(deletion, distinct_ids)
             elif self.kind == "team":
+                deletion = _deletion_request(request, obj, form, self.kind, "")
                 RecordingDeletions.start_for_team(deletion)
             elif self.kind == "filters":
                 assert isinstance(form, FilterDeletionForm)
-                RecordingDeletions.start_for_filters(deletion, form.filters())
+                filters = form.filters()
+                deletion = _deletion_request(request, obj, form, self.kind, filters.query())
+                RecordingDeletions.start_for_filters(deletion, filters)
             else:
-                RecordingDeletions.start_for_session_ids(
-                    deletion, form.cleaned_data["csv_file"], form.cleaned_data["source_filename"]
-                )
+                session_ids = form.cleaned_data["csv_file"]
+                deletion = _deletion_request(request, obj, form, self.kind, "\n".join(session_ids))
+                RecordingDeletions.start_for_session_ids(deletion, session_ids, form.cleaned_data["source_filename"])
         except WorkflowAlreadyStartedError:
-            messages.info(request, "This form already started a deletion. It shows in the list below.")
+            messages.warning(
+                request,
+                "No new deletion started. This form already started this exact deletion, which shows in the list below.",
+            )
             return HttpResponseRedirect(recording_deletions_url(obj))
         except Exception:
             logger.exception("admin_console_recording_deletion_failed", team_id=obj.pk, kind=self.kind)
