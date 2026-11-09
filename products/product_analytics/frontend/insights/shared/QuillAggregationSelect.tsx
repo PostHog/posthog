@@ -19,6 +19,7 @@ import {
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import type { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
+import { isInsideOpenPopover } from 'lib/lemon-ui/Popover/Popover'
 import { resolveTooltipTitle } from 'lib/lemon-ui/Tooltip/resolveTooltipTitle'
 
 export interface QuillAggregationSelectProps {
@@ -98,7 +99,22 @@ export function QuillAggregationSelect({
                 </DropdownMenuContent>
             </DropdownMenu>
             {hogQL && (
-                <Popover open={hogQLOpen} onOpenChange={setHogQLOpen}>
+                <Popover
+                    open={hogQLOpen}
+                    onOpenChange={(next, details) => {
+                        const landedOn =
+                            details.reason === 'focus-out'
+                                ? (details.event as FocusEvent).relatedTarget
+                                : details.reason === 'outside-press'
+                                  ? details.event.target
+                                  : null
+                        if (!next && isInsideOpenPopover(landedOn)) {
+                            details.cancel()
+                            return
+                        }
+                        setHogQLOpen(next)
+                    }}
+                >
                     <PopoverContent anchor={triggerRef} align="start" className="w-auto p-0">
                         {/* eslint-disable-next-line react/forbid-dom-props */}
                         <div data-not-quill className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
