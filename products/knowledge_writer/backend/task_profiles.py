@@ -17,6 +17,7 @@ WRITER_ALLOWED_DOMAINS = (
     "raw.githubusercontent.com",
     "objects.githubusercontent.com",
     "codeload.github.com",
+    "registry.npmjs.org",
     "posthog.com",
     "*.posthog.com",
 )
