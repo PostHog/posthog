@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.contrib import admin
 from django.test import RequestFactory, SimpleTestCase
@@ -107,8 +108,15 @@ class TestTopHogRestrictionWrites(BaseTest):
             restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
             distinct_ids=["existing"],
         )
-        changed = extend_restriction(restriction, {"distinct_id": "new-id", "session_id": "s1"})
+        with (
+            patch("posthog.models.tophog.restrictions.regenerate_redis_for_restriction_type") as regenerate,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            changed = extend_restriction(restriction, {"distinct_id": "new-id", "session_id": "s1"})
+            # The cache rebuild waits for the commit, so it reads every committed extension.
+            regenerate.assert_not_called()
         self.assertEqual(changed, ["distinct_ids"])
+        regenerate.assert_called_once_with(RestrictionType.DROP_EVENT_FROM_INGESTION)
         restriction.refresh_from_db()
         self.assertEqual(restriction.distinct_ids, ["existing", "new-id"])
         self.assertEqual(restriction.session_ids, [])

@@ -1,6 +1,9 @@
 from django.db import transaction
 
-from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.event_ingestion_restriction_config import (
+    EventIngestionRestrictionConfig,
+    regenerate_redis_for_restriction_type,
+)
 from posthog.models.team.team import Team
 
 # Maps tophog key fields to EventIngestionRestrictionConfig filter fields, used both for
@@ -101,9 +104,16 @@ def extend_restriction(restriction: EventIngestionRestrictionConfig, key: dict[s
     with transaction.atomic():
         locked = EventIngestionRestrictionConfig.objects.select_for_update().get(pk=restriction.pk)
         changed = extendable_fields(locked, key)
-        for key_field, config_field in RESTRICTION_FILTER_FIELDS.items():
-            if config_field in changed:
-                setattr(locked, config_field, [*getattr(locked, config_field), key[key_field]])
-        if changed:
-            locked.save()
+        if not changed:
+            return []
+        values = {
+            config_field: [*getattr(locked, config_field), key[key_field]]
+            for key_field, config_field in RESTRICTION_FILTER_FIELDS.items()
+            if config_field in changed
+        }
+        # update() skips the post_save rebuild, which would publish a snapshot before this commit and could
+        # drop a concurrent change to another restriction of the same type.
+        EventIngestionRestrictionConfig.objects.filter(pk=locked.pk).update(**values)
+        restriction_type = locked.restriction_type
+        transaction.on_commit(lambda: regenerate_redis_for_restriction_type(restriction_type))
     return changed
