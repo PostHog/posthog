@@ -101,8 +101,7 @@ TOO_EXPENSIVE_COOLDOWNS = (
 )
 # The count outlives the longest step, so the visit after it still knows the count.
 _TOO_EXPENSIVE_COUNT_TTL = TOO_EXPENSIVE_COOLDOWNS[-1] + datetime.timedelta(days=7)
-# Each consecutive train pick that returns no series takes the next step, and the last step repeats. Such an
-# insight has no model to save, so the next plan asks for a train step again. Only a cooldown limits the repeats.
+# An empty insight saves no model and stays due for a train step, so only this cooldown limits its retries.
 EMPTY_TRAIN_COOLDOWNS = (
     SKIP_COOLDOWN,
     datetime.timedelta(days=3),

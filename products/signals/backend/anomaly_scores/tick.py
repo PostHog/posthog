@@ -385,7 +385,6 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     # A score step can return nothing because no bucket is new, so only a train step shows an empty insight.
     if result.status == STATUS_UP_TO_DATE and not result.series and result.run == ScoringRun.TRAIN:
         empty_train, empty_cooldown = mark_empty_train(pick.insight_id, pick.empty_train, pick.interval, now)
-        # After `record_scored`, which set the row due again after the attempt cooldown.
         record_failed(pick.team_id, pick.insight_id, now, empty_cooldown)
     elif empty_train and result.series:
         reset_empty_train(pick.insight_id)

@@ -124,8 +124,7 @@ def refresh_team(config: AnomalyScoringConfig, team: Team, now: datetime.datetim
             insight.insight_id, insight.interval, max(watermarks.values(), default=None), team.timezone_info
         )
         if row is not None and row.interval == insight.interval.value:
-            # A failed or empty pick moved the row past its cooldown. A never-scored row has no computed time, so it
-            # keeps its own time, and `oldest_due_seconds` shows the full wait.
+            # Keep a pushed-out time. A never-scored row keeps its own, so `oldest_due_seconds` shows the full wait.
             next_due_at = row.next_due_at if computed_due is None else max(computed_due, row.next_due_at)
         else:
             next_due_at = computed_due or now
