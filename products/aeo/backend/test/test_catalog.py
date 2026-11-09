@@ -117,14 +117,18 @@ class TestSyncBrandsFromRun(BaseTest):
             team=self.team, name="Example", domain="example.com", kind=kind, status=status, source=BrandSource.MANUAL
         )
         cited_urls = ["https://rival.example.org/a", "https://docs.example.com/b", "https://example.com/c"]
-        cited = {"cited": True, "target_urls": cited_urls[1:], "target_best_position": 2}
+        cited: dict[str, Any] = {"cited": True, "target_urls": cited_urls[1:], "target_best_position": 2}
         not_cited: dict[str, Any] = {"cited": False, "target_urls": [], "target_best_position": None}
-        sentiment = {"brand_sentiment": "positive", "brand_sentiment_score": 0.9}
+        sentiment: dict[str, Any] = {"brand_sentiment": "positive", "brand_sentiment_score": 0.9}
         run_id = str(uuid.uuid4())
         mine = self._check(run_id, cited_urls, **(cited if stored_cited else not_cited), **sentiment)
         failed = self._check(run_id, cited_urls, failed=True, **not_cited)
         other_team = Team.objects.create(organization=self.organization, name="Other")
-        stale = {"cited": True, "target_urls": ["https://stale.example.net/"], "target_best_position": 9}
+        stale: dict[str, Any] = {
+            "cited": True,
+            "target_urls": ["https://stale.example.net/"],
+            "target_best_position": 9,
+        }
         other = self._check(run_id, cited_urls, team=other_team, **stale, **sentiment)
 
         changed = recompute_own_citations(self.team.id)
