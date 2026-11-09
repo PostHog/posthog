@@ -1944,14 +1944,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert query_metadata is not None
         assert query_metadata["events"] == ["event_a"]
 
-    def test_patch_after_a_concurrent_delete_returns_404_without_adding_a_tile(self) -> None:
+    @parameterized.expand([("soft_delete", True), ("hard_delete", False)])
+    def test_patch_after_a_concurrent_delete_returns_404_without_adding_a_tile(self, _name: str, soft: bool) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "insight name"})
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         original_get_object = InsightViewSet.get_object
 
         def get_object_then_land_a_concurrent_delete(viewset):
             insight = original_get_object(viewset)
-            Insight.objects_including_soft_deleted.filter(pk=insight.pk).update(deleted=True)
+            concurrent = Insight.objects_including_soft_deleted.filter(pk=insight.pk)
+            if soft:
+                concurrent.update(deleted=True)
+            else:
+                concurrent.delete()
             return insight
 
         with patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_delete):
@@ -1961,7 +1966,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
         assert not DashboardTile.objects_including_soft_deleted.filter(insight_id=insight_id).exists()
-        assert Insight.objects_including_soft_deleted.get(pk=insight_id).deleted
+        assert not Insight.objects.filter(pk=insight_id).exists()
 
     def test_update_insight(self) -> None:
         with time_machine.travel("2012-01-14T03:21:34.000Z", tick=False) as frozen_time:
