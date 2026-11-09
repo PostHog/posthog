@@ -8,32 +8,28 @@ import { SignalReportStatus, SignalScoutRunStatus } from '../../types'
 
 export type RunVariant = 'queued' | 'live' | 'completed' | 'failed'
 
+const RUN_VARIANTS: Record<`${SignalScoutRunStatus | SignalReportStatus | TaskRunStatus}`, RunVariant> = {
+    potential: resolveReportRunVariant('potential'),
+    candidate: resolveReportRunVariant('candidate'),
+    in_progress: resolveReportRunVariant('in_progress'),
+    pending_input: resolveReportRunVariant('pending_input'),
+    ready: resolveReportRunVariant('ready'),
+    monitoring: resolveReportRunVariant('monitoring'),
+    closed: resolveReportRunVariant('closed'),
+    resolved: resolveReportRunVariant('resolved'),
+    deleted: resolveReportRunVariant('deleted'),
+    suppressed: resolveReportRunVariant('suppressed'),
+    failed: resolveReportRunVariant('failed'),
+    completed: 'completed',
+    cancelled: 'failed',
+    not_started: 'queued',
+    queued: 'queued',
+}
+
 export function resolveRunVariant(
     status: `${SignalScoutRunStatus | SignalReportStatus | TaskRunStatus}` | null | undefined
 ): RunVariant {
-    switch (status) {
-        case 'potential':
-        case 'candidate':
-        case 'in_progress':
-        case 'pending_input':
-        case 'ready':
-        case 'monitoring':
-        case 'closed':
-        case 'resolved':
-        case 'deleted':
-        case 'suppressed':
-        case 'failed':
-            return resolveReportRunVariant(status)
-        case 'completed':
-            return 'completed'
-        case 'cancelled':
-            return 'failed'
-        case 'not_started':
-        case 'queued':
-        case null:
-        case undefined:
-            return 'queued'
-    }
+    return status == null ? 'queued' : RUN_VARIANTS[status]
 }
 
 export function isRunLive(status: SignalScoutRunStatus | null): boolean {
