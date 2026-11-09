@@ -27,6 +27,7 @@ from products.ai_observability.backend.models.evaluation_configs import (
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import Operation
+from common.hogvm.python.stl.print import print_hog_string_output
 from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededException, HogVMRuntimeExceededException
 
 logger = structlog.get_logger(__name__)
@@ -156,6 +157,24 @@ def build_hog_event_global(
     return event_global
 
 
+# The VM keeps printed lines outside its memory accounting, so a print in a loop could fill a worker's memory
+# within the time limit. Output past this many characters is dropped.
+MAX_HOG_OUTPUT_CHARS = 64_000
+
+
+class _BoundedOutput:
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+        self.chars = 0
+
+    def print(self, *args: Any) -> None:
+        if self.chars >= MAX_HOG_OUTPUT_CHARS:
+            return
+        line = " ".join(map(print_hog_string_output, args))[: MAX_HOG_OUTPUT_CHARS - self.chars]
+        self.lines.append(line)
+        self.chars += len(line)
+
+
 def execute_hog_eval_bytecode(
     bytecode: list,
     globals_dict: dict[str, Any],
@@ -173,10 +192,12 @@ def execute_hog_eval_bytecode(
     code rather than in the user's Hog source or its input.
     Numeric success replaces `verdict` with a validated `score`.
     """
+    output = _BoundedOutput()
     try:
         response = execute_bytecode(
             bytecode,
             globals=globals_dict,
+            functions={"print": output.print},
             timeout=timedelta(seconds=10),
             team=None,
         )
@@ -204,7 +225,7 @@ def execute_hog_eval_bytecode(
             "unexpected": True,
         }
 
-    reasoning = "\n".join(response.stdout) if response.stdout else ""
+    reasoning = "\n".join(output.lines)
 
     if response.result is None and allows_na:
         return {"verdict": None, "applicable": False, "reasoning": reasoning, "error": None}

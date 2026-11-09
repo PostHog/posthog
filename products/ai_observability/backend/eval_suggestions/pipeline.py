@@ -110,7 +110,7 @@ def paid_draft(team: Team, run: EvalSuggestionRun, brief: str, budget: float) ->
 def dedupe(
     proposals: Sequence[Proposal],
     coverage: Coverage,
-    jeeves_matches: dict[str, tuple[coverage_stage.ExistingEval, float]],
+    jeeves_matches: dict[str, list[tuple[coverage_stage.ExistingEval, float]]],
     sources: dict[str, str],
 ) -> list[Proposal]:
     """Drop proposals the team dismissed or an evaluation already covers, and label near misses.
@@ -132,12 +132,14 @@ def dedupe(
                 source=sources.get(proposal.template_key),
                 prompt=proposal.draft.get("evaluation_config", {}).get("prompt"),
             )
-            match = jeeves_matches.get(proposal.dedupe_key)
-            if match is not None and match[1] >= screening.DEDUPE_CONFIDENCE:
-                implementations.append(match[0])
+            # Every confident match counts, since a less confident one may be the evaluation that covers this scope.
+            matches = jeeves_matches.get(proposal.dedupe_key, [])
+            implementations += [
+                existing for existing, confidence in matches if confidence >= screening.DEDUPE_CONFIDENCE
+            ]
             if any(coverage_stage.covers(existing, target, proposal.filters) for existing in implementations):
                 continue
-            similar = implementations[0] if implementations else (match[0] if match else None)
+            similar = implementations[0] if implementations else (matches[0][0] if matches else None)
             if similar is not None:
                 proposal = replace(
                     proposal, similar_evaluation_id=similar.id, score=proposal.score * ranking.SIMILAR_FACTOR
@@ -292,7 +294,7 @@ def run_pipeline(
     ]
 
     screened: list[ranking.ScreeningResult] = []
-    jeeves_matches: dict[str, tuple[coverage_stage.ExistingEval, float]] = {}
+    jeeves_matches: dict[str, list[tuple[coverage_stage.ExistingEval, float]]] = {}
     candidate_options = (
         {ranking.check_dedupe_key(m.check.key): m.check.description for m in measurements}
         | {ranking.judge_dedupe_key(key): catalog.template(key).description for key in applicability.screened_judges}
@@ -310,7 +312,7 @@ def run_pipeline(
                 key=lambda e: e.updated_at,
                 reverse=True,
             )[:MAX_DEDUPED_EVALS]
-            jeeves_matches = screening.dedupe(client, unmapped, candidate_options) if unmapped else {}
+            jeeves_matches = screening.dedupe(client, unmapped, candidate_options, deadline) if unmapped else {}
             screened = screening.screen(client, applicability.screened_judges, sample.main, deadline)
             stages.set(
                 "screening",

@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
@@ -293,3 +294,11 @@ class TestFinalizeHogEvalResult:
                 allows_na=False,
                 unit_label=unit_label,
             )
+
+
+def test_printed_output_stops_growing_at_its_cap() -> None:
+    source = "for (let i := 0; i < 2000; i := i + 1) { print('line', i) }\nreturn true"
+    with patch("posthog.temporal.ai_observability.evaluation_hog.MAX_HOG_OUTPUT_CHARS", 20):
+        raw = execute_hog_eval_bytecode(compile_ai_observability_hog(source, "destination"), {}, False)
+
+    assert (raw["verdict"], raw["reasoning"]) == (True, "line 0\nline 1\nline 2\nli")

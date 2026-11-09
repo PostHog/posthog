@@ -93,4 +93,10 @@ def test_a_failed_dedupe_call_loses_only_its_evaluation() -> None:
 
     matches = dedupe(_DedupeClient(), evals, {"check:refusals": "Flags refusals"})  # type: ignore[arg-type]
 
-    assert matches["check:refusals"][0] is evals[1]  # type: ignore[comparison-overlap]
+    assert [existing for existing, _ in matches["check:refusals"]] == [evals[1]]
+
+
+def test_dedupe_stops_at_the_run_deadline() -> None:
+    client = _DedupeClient()
+
+    assert dedupe(client, [SimpleNamespace(definition_text="Fails refusals")], {}, deadline=0.0) == {}  # type: ignore[arg-type, list-item]

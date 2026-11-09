@@ -494,6 +494,14 @@ def test_dedupe_drops_a_candidate_only_where_an_evaluation_already_runs(
     )
 
 
+def test_a_less_confident_match_that_covers_the_scope_still_drops_the_candidate() -> None:
+    narrow = _existing(id="narrow", conditions=[{**ALL_TRAFFIC[0], "properties": [SECURITY_LENS]}])
+    wide = _existing(id="wide", conditions=ALL_TRAFFIC)
+    coverage = Coverage(evals=[narrow, wide], fixes=[], dismissed_dedupe_keys=frozenset())
+
+    assert dedupe([AUTH_GAP], coverage, {AUTH_GAP.dedupe_key: [(narrow, 0.95), (wide, 0.7)]}, {}) == []
+
+
 @parameterized.expand([("judge_draft", "llm_judge"), ("hog_draft", "hog")])
 def test_a_draft_replaces_the_templated_card_for_its_gap(
     _name: str, evaluation_type: Literal["hog", "llm_judge"]

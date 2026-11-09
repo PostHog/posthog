@@ -35,6 +35,8 @@ FAILING_PROBABILITY = 0.9
 DEDUPE_CONFIDENCE = 0.6
 MAX_SCREENED_TRACES = 128
 SCREENING_BUDGET_SECONDS = 300
+# Dedupe runs before screening and shares the run's time, so it gets a smaller budget of its own.
+DEDUPE_BUDGET_SECONDS = 120
 MAX_CONSECUTIVE_FAILURES = 3
 MAX_STATE_CHARS = 3000
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -141,16 +143,17 @@ def screen(
 
 
 def dedupe(
-    client: SystemOneClient, evals: Sequence[ExistingEval], options: Mapping[str, str]
-) -> dict[str, tuple[ExistingEval, float]]:
-    """For each candidate key, the existing evaluation the model says implements it, and its confidence."""
+    client: SystemOneClient, evals: Sequence[ExistingEval], options: Mapping[str, str], deadline: float | None = None
+) -> dict[str, list[tuple[ExistingEval, float]]]:
+    """For each candidate key, every existing evaluation the model says implements it, most confident first."""
     choices = dict(list(options.items())[:15]) | {_NONE_OPTION: "Something more specific than any standard check"}
     question = ChoiceQuestion(instructions=_DEDUPE_INSTRUCTIONS, criteria=choices)
-    matches: dict[str, tuple[ExistingEval, float]] = {}
+    matches: dict[str, list[tuple[ExistingEval, float]]] = {}
+    stop_at = min(time.monotonic() + DEDUPE_BUDGET_SECONDS, float("inf") if deadline is None else deadline)
     failures = 0
     # One definition per call, for the same reason as screen(). A failed call loses one match, never the screening.
     for existing in evals:
-        if failures >= MAX_CONSECUTIVE_FAILURES:
+        if time.monotonic() >= stop_at or failures >= MAX_CONSECUTIVE_FAILURES:
             break
         try:
             answer = client.decide(
@@ -162,6 +165,5 @@ def dedupe(
         failures = 0
         if not isinstance(answer, ChoiceAnswer) or answer.choice == _NONE_OPTION:
             continue
-        if answer.choice not in matches or answer.confidence > matches[answer.choice][1]:
-            matches[answer.choice] = (existing, answer.confidence)
-    return matches
+        matches.setdefault(answer.choice, []).append((existing, answer.confidence))
+    return {key: sorted(found, key=lambda match: -match[1]) for key, found in matches.items()}
