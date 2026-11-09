@@ -523,8 +523,8 @@ importers:
         specifier: ^3.0.5
         version: 3.0.5
       posthog-js-lite:
-        specifier: 4.13.1
-        version: 4.13.1
+        specifier: 4.13.3
+        version: 4.13.3
       sass:
         specifier: ^1.26.2
         version: 1.56.0
@@ -1817,8 +1817,8 @@ importers:
         specifier: ^8.6.0
         version: 8.11.0
       posthog-node:
-        specifier: 5.61.2
-        version: 5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+        specifier: 5.63.2
+        version: 5.63.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
       pretty-bytes:
         specifier: ^5.6.0
         version: 5.6.0
@@ -6178,8 +6178,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
-        specifier: npm:@posthog/mcp@0.25.0
-        version: '@posthog/mcp@0.25.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1))'
+        specifier: npm:@posthog/mcp@1.0.0
+        version: '@posthog/mcp@1.0.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.63.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -6214,11 +6214,11 @@ importers:
         specifier: ^0.577.0
         version: 0.577.0(react@18.3.1)
       posthog-js-lite:
-        specifier: 4.13.1
-        version: 4.13.1
+        specifier: 4.13.3
+        version: 4.13.3
       posthog-node:
-        specifier: ^5.61.2
-        version: 5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+        specifier: ^5.63.2
+        version: 5.63.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
       prom-client:
         specifier: ^14.2.0
         version: 14.2.0
@@ -11446,17 +11446,11 @@ packages:
   '@posthog/browser-common@0.10.7':
     resolution: {integrity: sha512-1V2SBu7gxVbroZk49YsCM++K9qy3qcrOaylemjkkTPvACgAGwm0Y/AkJN2eRZO1YME0FnagF6QKBaXmq3o0e8g==}
 
-  '@posthog/core@1.59.4':
-    resolution: {integrity: sha512-2e44KMrhboQyK7OrQFnWwNopa8ZLK6hQoni8Bxm258+lLERoRAUKOFC4jt+zp0RxVsYQAb9SqPMdH+jguVqdKQ==}
-
-  '@posthog/core@1.61.1':
-    resolution: {integrity: sha512-qyMTxPfjeJkHIhpcukOgBN3BWXbCyFRPz8/Voy5qZtVh9NZqj3EhC6LLeYZuJhL3WpqhQTgn2FMIwAo/ag6fmw==}
-
-  '@posthog/core@1.62.0':
-    resolution: {integrity: sha512-KjNwGC7s0141wnWWHubNMdg1lOhZjqKRw2OTNstuzdVvNDfvv2RbFJQSSvvABmbCmTXwlMpdnbb/M/aAigDnNQ==}
-
   '@posthog/core@1.64.0':
     resolution: {integrity: sha512-D284VHRgqw2AilzNOmpI4a2rmKrC+4b1xB1Z+p3edwlA1gGKpHxM0PwfB3Jz+TBxXP1uU3ceJ4dwYinzOkqscg==}
+
+  '@posthog/core@1.64.1':
+    resolution: {integrity: sha512-2ziryOLWTxftHrTLhGYQzLHDpPughaRRi/+L1vhg4cQFHJfgTevMzAz21R1zR7MKFDkyJ9lCJD/K2jxIkGbnfg==}
 
   '@posthog/hedgehog-mode@0.0.63':
     resolution: {integrity: sha512-e323bc717Xk0IA8w2IFv5+q/xki7Z2rcNA0SAEAXp/uXBnYv8kq0s7f6JvTIvTDdoZRHzH5Z18Ao9WYT0ZE4Dg==}
@@ -11483,8 +11477,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/mcp@0.25.0':
-    resolution: {integrity: sha512-YV4J09e4eEyibDcS6D7BCCaDMfojkPiMWoZLoXCg3LECgAyyN3esOX4ROT4vquBiFJGz/Tugf3o0jBKZJf6pgA==}
+  '@posthog/mcp@1.0.0':
+    resolution: {integrity: sha512-cX/h/oRdpN6yPB8Zod6C/UEMUA5yMK5HdeBI2QIExU4pzCQMh72LJ7LJAHZamnO7G2KmLbldkaSH1KZGJPjDvw==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.29.0
@@ -11508,15 +11502,6 @@ packages:
 
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
-
-  '@posthog/types@1.416.0':
-    resolution: {integrity: sha512-0/9+02s/0uDyrH4G/qUg1yyl6gXUg8Uuxw/PlDad3KLzo9FFS9zS/kAQaEshx/saVGupj1aAy/4EUBxWisBogw==}
-
-  '@posthog/types@1.417.0':
-    resolution: {integrity: sha512-r/+gvmiE6egR6kkuMhEjOOE3Sm1pR00iFPQNoZZ0YvnZSsqGk7hK2IvQzcqjSRufG5Jf0EwhDMr5YOGtmf2/8g==}
-
-  '@posthog/types@1.418.0':
-    resolution: {integrity: sha512-WqDXUWH1R8OilBp2PfDpQIRZSCs3QyOnw7H3YK7lvZLCMIsOqSZAKJrrqYWt4f7FvnVCACRuNGCC0HKh3J/HWw==}
 
   '@posthog/types@1.420.0':
     resolution: {integrity: sha512-WrfsR3hynbNOkQor6TrQJrI+7UzStZs2rjFzQ+xK9mRCUH6TLMLfBSR+ibGoKreatb76Uh30b6lSZLWbOgdTsg==}
@@ -21039,8 +21024,8 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  posthog-js-lite@4.13.1:
-    resolution: {integrity: sha512-vmINpFL0lSHPX49Esa7P1DKue6lnrXx+RPL5DCi22UuaTO5sbNE+mUH5W3E8Irkx3FHZlXbm4Hau+FWOJ2byqQ==}
+  posthog-js-lite@4.13.3:
+    resolution: {integrity: sha512-OlHDEIxJdnlkjlWyaoT6Yt84YKLrpP0PqTqeWGOZ/2y7jwMUMfG6iLecjr4fetiOR4zsWJETHGDal9iX+MDm1w==}
 
   posthog-js@1.447.1:
     resolution: {integrity: sha512-GRxRdwB/d2aq9l2ocF9HuMosV3JXIvv19YGIQhDbjfkG9Uw2JJ6vOOrFSng93k3qg8VvSnqNVw0aJDzow52vTw==}
@@ -21053,8 +21038,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.61.2:
-    resolution: {integrity: sha512-6pMhzR+APW+CBreUlHce3qrxwU7l90gYp1A5eN0kf/o3rVf++Zz2KPtZQC63ct+hWkzCwi3Arm+GT8EjUBrUag==}
+  posthog-node@5.63.2:
+    resolution: {integrity: sha512-6BsKi6t1EX7vo8T2KL4MYlTT6pOHeuDD0/7zhLay2cBHOLsow7MEAbCqzhMbMen0PgYR6+X0yRKbvZKEk9NBoQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@opentelemetry/api': ^1.2.0
@@ -30927,19 +30912,11 @@ snapshots:
       dompurify: 3.4.13
       preact: 10.29.3
 
-  '@posthog/core@1.59.4':
-    dependencies:
-      '@posthog/types': 1.416.0
-
-  '@posthog/core@1.61.1':
-    dependencies:
-      '@posthog/types': 1.417.0
-
-  '@posthog/core@1.62.0':
-    dependencies:
-      '@posthog/types': 1.418.0
-
   '@posthog/core@1.64.0':
+    dependencies:
+      '@posthog/types': 1.421.0
+
+  '@posthog/core@1.64.1':
     dependencies:
       '@posthog/types': 1.421.0
 
@@ -30970,10 +30947,10 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.25.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1))':
+  '@posthog/mcp@1.0.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.63.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1))':
     dependencies:
-      '@posthog/core': 1.61.1
-      posthog-node: 5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+      '@posthog/core': 1.64.1
+      posthog-node: 5.63.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6)
 
@@ -30985,12 +30962,6 @@ snapshots:
       '@types/react': 18.3.27
 
   '@posthog/siphash@1.1.1': {}
-
-  '@posthog/types@1.416.0': {}
-
-  '@posthog/types@1.417.0': {}
-
-  '@posthog/types@1.418.0': {}
 
   '@posthog/types@1.420.0': {}
 
@@ -43023,9 +42994,9 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  posthog-js-lite@4.13.1:
+  posthog-js-lite@4.13.3:
     dependencies:
-      '@posthog/core': 1.59.4
+      '@posthog/core': 1.64.1
 
   posthog-js@1.447.1(@types/react@18.3.27)(react@18.3.1):
     dependencies:
@@ -43043,9 +43014,9 @@ snapshots:
       '@types/react': 18.3.27
       react: 18.3.1
 
-  posthog-node@5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1):
+  posthog-node@5.63.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1):
     dependencies:
-      '@posthog/core': 1.62.0
+      '@posthog/core': 1.64.1
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       rxjs: 7.8.1

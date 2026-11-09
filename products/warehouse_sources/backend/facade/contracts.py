@@ -63,7 +63,8 @@ class UnusableCredentialsReferenceError(ValueError):
 class SharedCredentialsEdit(StrEnum):
     """What a write of a source's inputs does when other sources or products also use its credentials row."""
 
-    # Keep the shared row as it is. Internal writes use this, so they never change credentials of other users.
+    # The default of internal writes. The row is the only storage of the credentials, so a change to a shared row
+    # raises `SharedCredentialsError` as with REFUSE. A skipped write would lose the change.
     SKIP = "skip"
     # Raise `SharedCredentialsError`, so the API can ask the person for a confirmation.
     REFUSE = "refuse"
@@ -73,6 +74,19 @@ class SharedCredentialsEdit(StrEnum):
 
 class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
+
+
+HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE = (
+    "You need to be able to manage access to this table and its history table to copy its access rules."
+)
+
+
+class HistoryAccessRulesNotAllowedError(Exception):
+    """The user may not set the access rules of a table or of its history table."""
+
+
+class NoHistoryTableError(Exception):
+    """The table has no registered history table."""
 
 
 class HistoryTableDropRefusedError(Exception):
@@ -98,8 +112,8 @@ SOURCE_CREDENTIALS_MISSING_ERROR = "The credentials of this source are missing o
 
 
 class SourceCredentialsMissingError(UnreadableSourceInputsError):
-    """The connection fields of a stripped source are not in its credentials row. `job_inputs` holds no copy,
-    so nothing can replace them: the user must enter the credentials again."""
+    """The credentials row or the reference column that a source needs is missing or unreadable. `job_inputs` is
+    never a copy of the credentials, so the user must enter the credentials again or reconnect the account."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -124,6 +138,16 @@ class ConfigValueError(ValueError):
     opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
     We name the field but never its value, so nothing a user typed reaches logs or error tracking.
     """
+
+
+@dataclass(frozen=True)
+class HistoryTableRef:
+    """A table's history table, as the table's access dialog shows it."""
+
+    id: UUID
+    # The name the history table is queried by in HogQL.
+    name: str
+    user_can_manage_access: bool
 
 
 @dataclass(frozen=True)
