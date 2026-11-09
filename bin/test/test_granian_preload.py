@@ -12,6 +12,8 @@ from tempfile import TemporaryDirectory
 
 import unittest
 
+from parameterized import parameterized
+
 LAUNCHER = Path(__file__).resolve().parents[1] / "granian_preload.py"
 
 APP = """
@@ -20,9 +22,23 @@ import os
 IMPORTED_BY = os.getpid()
 
 
-def app(environ, start_response):
+def body():
+    return f"{IMPORTED_BY} {os.getpid()}".encode()
+
+
+def wsgi_app(environ, start_response):
     start_response("200 OK", [("Content-Type", "text/plain")])
-    return [f"{IMPORTED_BY} {os.getpid()}".encode()]
+    return [body()]
+
+
+async def asgi_app(scope, receive, send):
+    if scope["type"] == "lifespan":
+        while (await receive())["type"] != "lifespan.shutdown":
+            await send({"type": "lifespan.startup.complete"})
+        await send({"type": "lifespan.shutdown.complete"})
+        return
+    await send({"type": "http.response.start", "status": 200, "headers": [(b"content-type", b"text/plain")]})
+    await send({"type": "http.response.body", "body": body()})
 """
 
 
@@ -45,13 +61,14 @@ def get(port: int) -> str | None:
 
 @unittest.skipUnless(sys.platform == "linux", "hobby runs granian on Linux")
 class TestGranianPreload(unittest.TestCase):
-    def test_workers_run_the_app_the_parent_imported(self) -> None:
+    @parameterized.expand([("asgi", True), ("wsgi", False)])
+    def test_workers_share_the_parent_import_only_under_asgi(self, interface: str, shared: bool) -> None:
         with TemporaryDirectory() as tmp:
             Path(tmp, "app.py").write_text(APP)
             port = free_port()
             env = {key: value for key, value in os.environ.items() if not key.startswith("GRANIAN_")}
             env.update(
-                GRANIAN_INTERFACE="wsgi",
+                GRANIAN_INTERFACE=interface,
                 GRANIAN_HOST="127.0.0.1",
                 GRANIAN_PORT=str(port),
                 GRANIAN_WORKERS="2",
@@ -59,7 +76,7 @@ class TestGranianPreload(unittest.TestCase):
                 GRANIAN_LOG_LEVEL="error",
             )
             server = subprocess.Popen(
-                [sys.executable, str(LAUNCHER), "app:app"], cwd=tmp, env=env, start_new_session=True
+                [sys.executable, str(LAUNCHER), f"app:{interface}_app"], cwd=tmp, env=env, start_new_session=True
             )
             try:
                 deadline = time.monotonic() + 30
@@ -68,8 +85,8 @@ class TestGranianPreload(unittest.TestCase):
                         self.fail("granian did not start")
                     time.sleep(0.2)
                 imported_by, served_by = (int(pid) for pid in body.split())
-                self.assertEqual(imported_by, server.pid)
                 self.assertNotEqual(served_by, server.pid)
+                self.assertEqual(imported_by == server.pid, shared)
             finally:
                 server.terminate()
                 try:

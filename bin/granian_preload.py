@@ -6,13 +6,19 @@ On Python 3.14 granian starts each worker with multiprocessing "spawn", so every
 imports Django on its own and shares no memory with the others. This launcher imports the
 app module in the parent and switches multiprocessing to "fork". The workers then start
 with the app already loaded, and they share its memory pages with the parent until they
-write to them. posthog/asgi.py and posthog/wsgi.py call gc.freeze() at the end of the
-import, so the workers' garbage collection does not write to those pages.
+write to them. posthog/asgi.py calls gc.freeze() at the end of the import, so the workers'
+garbage collection does not write to those pages.
+
+Only the ASGI interface without reload is preloaded. posthog/wsgi.py starts the OTel and
+profiler threads during the import, and a forked worker gets those threads in a dead state.
+In reload mode granian replaces the workers when a file changes, and a forked worker would
+keep the code that the parent imported at start. In both cases the launcher runs granian
+as `granian` would, and each worker imports the app itself.
 
 bin/docker-server runs this instead of `granian` when POSTHOG_GRANIAN_PRELOAD=true.
 Every GRANIAN_* setting still applies. bin/test/test_granian_preload.py checks on Linux
-that the workers run the app the parent imported, so a granian upgrade that breaks this
-fails CI.
+that ASGI workers run the app the parent imported and that WSGI workers import their own,
+so a granian upgrade that breaks this fails CI.
 """
 
 import os
@@ -22,8 +28,21 @@ import multiprocessing
 
 import granian.cli
 
+# The values that granian's click options read as true.
+TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
+
+
+def can_preload() -> bool:
+    reload = os.environ.get("GRANIAN_RELOAD", "").lower() in TRUE_VALUES
+    return os.environ.get("GRANIAN_INTERFACE") == "asgi" and not reload
+
 
 def main() -> None:
+    if not can_preload():
+        sys.stderr.write("granian_preload: needs GRANIAN_INTERFACE=asgi without reload, so not preloading\n")
+        granian.cli.entrypoint()
+        return
+
     target = sys.argv[-1]
     # The granian CLI puts the working directory on sys.path itself. This import runs first.
     sys.path.insert(0, os.getcwd())
