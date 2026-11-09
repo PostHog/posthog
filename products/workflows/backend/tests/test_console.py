@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.workflows.backend.facade.api import suspend_email_sending
+from products.workflows.backend.facade.api import get_email_sending_state, suspend_email_sending
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
@@ -134,3 +134,39 @@ class TestEmailSendingConsolePanel(BaseTest):
         assert unsuspended.user == self.user
         assert send_unsuspended.delay.call_args.kwargs["team_id"] == self.team.id
         create_notification.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("suspend_without_reason", "suspend", {"reason": "   "}, False, 400, False),
+            (
+                "notification_fails_after_the_suspension",
+                "suspend",
+                {"reason": "Bounce rate above 10%"},
+                True,
+                302,
+                True,
+            ),
+            ("operation_not_offered_in_this_state", "unsuspend", {}, False, 404, False),
+        ]
+    )
+    @patch(f"{_SUSPENSION}.create_notification")
+    @patch(f"{_SUSPENSION}.send_email_sending_suspended")
+    def test_suspension_operations_refuse_or_keep_the_suspension(
+        self,
+        _name: str,
+        operation_key: str,
+        data: dict[str, str],
+        notification_fails: bool,
+        expected_status: int,
+        expect_suspended: bool,
+        send_email: MagicMock,
+        _create_notification: MagicMock,
+    ) -> None:
+        if notification_fails:
+            send_email.delay.side_effect = RuntimeError("broker down")
+
+        response = self.client.post(self._operation_url(operation_key), data)
+
+        assert response.status_code == expected_status
+        state = get_email_sending_state(self.team.pk)
+        assert (state is not None and state.suspended_at is not None) == expect_suspended
