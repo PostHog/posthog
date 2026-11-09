@@ -21,9 +21,8 @@ from products.alerts.backend.temporal.platform_late_chart import (
     LATE_CHART_MESSAGE_PENDING,
     AddLateChartInputs,
     InsightAlertPlatformLateChartWorkflow,
-    add_late_platform_insight_chart_activity,
 )
-from products.alerts_platform.backend.facade.contracts import AlertDeliveryRequest, LateImageResult, SourceKind
+from products.alerts_platform.backend.facade.contracts import AlertDeliveryRequest, SourceKind
 
 QUEUE = "test-platform-insight-late-chart"
 CHART = RenderedChart(asset_id=7, render_user_id=3)
@@ -101,21 +100,37 @@ async def test_a_late_chart_renders_again_and_reaches_the_firing_message(
             )
 
     assert edited == expected_edited
-    assert all(inputs == AddLateChartInputs(deliveries=(DELIVERY,), chart=CHART) for inputs in edited_with)
+    assert all(inputs == AddLateChartInputs(delivery=DELIVERY, chart=CHART) for inputs in edited_with)
     assert (len(edited_with) > 1) is (edits == "pending")
     assert counted == expected_outcomes
 
 
-def test_a_late_chart_reaches_every_part_of_a_split_delivery() -> None:
-    edited: list[int] = []
+async def test_a_late_chart_edits_each_part_of_a_split_delivery_in_its_own_activity(
+    environment: WorkflowEnvironment,
+) -> None:
+    edited_parts: list[int] = []
 
-    def add(request: AlertDeliveryRequest, _detail: dict[str, object]) -> LateImageResult:
-        edited.append(request.part)
-        return LateImageResult(edited=1, waiting=0)
+    @activity.defn(name="render_platform_insight_chart_activity")
+    async def render(inputs: InsightChartInputs) -> RenderedChart:
+        return CHART
 
-    with patch("products.alerts_platform.backend.facade.delivery.add_late_image", side_effect=add):
-        result = add_late_platform_insight_chart_activity(
-            AddLateChartInputs(deliveries=(replace(DELIVERY, parts=3),), chart=CHART)
+    @activity.defn(name="add_late_platform_insight_chart_activity")
+    async def add(inputs: AddLateChartInputs) -> int:
+        edited_parts.append(inputs.delivery.part)
+        return 1
+
+    async with Worker(
+        environment.client,
+        task_queue=QUEUE,
+        workflows=[InsightAlertPlatformLateChartWorkflow],
+        activities=[render, add],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        edited = await environment.client.execute_workflow(
+            InsightAlertPlatformLateChartWorkflow.run,
+            LateChartInputs(team_id=1, alert_id="legacy-alert", deliveries=(replace(DELIVERY, parts=3),)),
+            id=f"test-{uuid.uuid4()}",
+            task_queue=QUEUE,
         )
 
-    assert (result, edited) == (3, [0, 1, 2])
+    assert (edited, sorted(edited_parts)) == (3, [0, 1, 2])

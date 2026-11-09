@@ -6,6 +6,7 @@ message the firing opened. Only Slack: the other providers carry no chart, and t
 sends its event once, so a late chart there would be a second message.
 """
 
+import asyncio
 import datetime as dt
 from dataclasses import replace
 
@@ -33,7 +34,7 @@ with workflow.unsafe.imports_passed_through():
         late_chart_edit_window,
         render_platform_insight_chart_activity,
     )
-    from products.alerts_platform.backend.facade.contracts import NO_LATE_IMAGE, AlertDeliveryRequest, SourceKind
+    from products.alerts_platform.backend.facade.contracts import AlertDeliveryRequest, SourceKind
     from products.alerts_platform.backend.facade.platform_metrics import (
         ChartRenderOutcome,
         increment_chart_renders,
@@ -52,7 +53,8 @@ LATE_CHART_MESSAGE_PENDING = "LateChartMessagePending"
 
 @frozen
 class AddLateChartInputs:
-    deliveries: tuple[AlertDeliveryRequest, ...]
+    # One part of one delivery, so each activity stays bounded however many parts a firing splits into.
+    delivery: AlertDeliveryRequest
     chart: RenderedChart
 
 
@@ -62,9 +64,7 @@ def add_late_platform_insight_chart_activity(inputs: AddLateChartInputs) -> int:
     """Adds the chart to the Slack messages the firing opened, and returns how many it edited."""
     from products.alerts_platform.backend.facade.delivery import add_late_image  # noqa: PLC0415
 
-    # The evaluation's request names every part, and the delivery workflow sends each part on its own.
-    parts = [replace(request, part=part) for request in inputs.deliveries for part in range(max(request.parts, 1))]
-    result = sum((add_late_image(part, chart_detail(inputs.chart)) for part in parts), NO_LATE_IMAGE)
+    result = add_late_image(inputs.delivery, chart_detail(inputs.chart))
     # An edit already made is a no-op on retry, so every message still waiting gets another attempt.
     if result.waiting:
         raise ApplicationError(f"{result.waiting} Slack message(s) not edited yet", type=LATE_CHART_MESSAGE_PENDING)
@@ -90,18 +90,27 @@ class InsightAlertPlatformLateChartWorkflow(PostHogWorkflow):
             return 0
         if chart is None:
             return 0
-        try:
-            edited = await workflow.execute_activity(
-                add_late_platform_insight_chart_activity,
-                AddLateChartInputs(deliveries=inputs.deliveries, chart=chart),
-                start_to_close_timeout=ADD_LATE_CHART_START_TO_CLOSE,
-                schedule_to_close_timeout=late_chart_edit_window(inputs),
-                retry_policy=ADD_LATE_CHART_RETRY_POLICY,
-            )
-        except ActivityError:
-            _count("late_unsent")
-            return 0
-        _count("added_late" if edited else "late_unsent")
+        # The evaluation's request names every part, and the delivery workflow sends each part on its own.
+        parts = [replace(request, part=part) for request in inputs.deliveries for part in range(max(request.parts, 1))]
+        results = await asyncio.gather(
+            *(
+                workflow.execute_activity(
+                    add_late_platform_insight_chart_activity,
+                    AddLateChartInputs(delivery=part, chart=chart),
+                    start_to_close_timeout=ADD_LATE_CHART_START_TO_CLOSE,
+                    schedule_to_close_timeout=late_chart_edit_window(inputs),
+                    retry_policy=ADD_LATE_CHART_RETRY_POLICY,
+                )
+                for part in parts
+            ),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(result, ActivityError):
+                raise result
+        edited = sum(result for result in results if isinstance(result, int))
+        unsent = any(isinstance(result, ActivityError) for result in results)
+        _count("late_unsent" if unsent or not edited else "added_late")
         return edited
 
 
