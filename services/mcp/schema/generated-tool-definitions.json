@@ -9357,8 +9357,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-email-domain-agent-setup"
+        }
     },
     "integrations-email-status-retrieve": {
         "description": "Get the setup progress of an email sender's domain by integration ID. Returns the overall status, the three setup steps, and every DNS record to publish with its current status (pending, found, verified). Poll it after adding DNS records until status is verified, waiting at least 10 seconds between calls. Pass refresh=true right after changing DNS to skip the 10 second cache. It does not change DNS or SES, and it does not mark the sender verified: once status is verified, call integrations-email-verify-create.",
@@ -9373,8 +9372,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-email-domain-agent-setup"
+        }
     },
     "integrations-email-verify-create": {
         "description": "Record that an email sender's domain is verified, by integration ID, so its senders can send. Call it once integrations-email-status-retrieve reports status verified. It asks SES to check the domain again and returns status success when SES has verified it. Needs a project admin.",
@@ -9389,8 +9387,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-email-domain-agent-setup"
+        }
     },
     "integrations-github-repos-retrieve": {
         "description": "List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default 100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo), a has_more flag, a total count, and next_offset. When has_more is true, call again with `offset` set to next_offset to get the next page. Set `compact` to false only when you need the extra repository details. Use this to validate that a repository is accessible to the integration before referencing it (e.g. when creating a GitHub data warehouse source).",
@@ -18667,8 +18664,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-mcp-onboarding"
+        }
     },
     "workflows-sending-rules-update": {
         "description": "Change the project-wide sending rules. Only the fields you send change. When a project has no frequency cap yet, recommend 1 marketing message every 2 days (max_messages 1, window_days 2) and turning on engagement events; leave tracking consent as it is unless the user asks. Confirm the values with the user before calling. Needs a project admin. Set both cap fields together, or both to null to turn the cap off.",
@@ -18683,8 +18679,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-mcp-onboarding"
+        }
     },
     "workflows-setup-status": {
         "description": "Which messaging setup steps the project has done: email channel, verified sending domain, opt-out categories, frequency cap, email template and first workflow. Call it first when a user asks to set up workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet. For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it is. Automations that only post to Slack or call webhooks need none of these steps. Offer workflows-data-suggestions-list once setup is done.",
@@ -18699,8 +18694,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-mcp-onboarding"
+        }
     },
     "workflows-show-email-template": {
         "description": "Render an email template as an inline preview for the user. Call after creating or updating a template, and whenever the user asks to see one. The response carries the final rendered html — read it before describing the result. For fetching a template to edit it, use workflows-get-email-template.",
