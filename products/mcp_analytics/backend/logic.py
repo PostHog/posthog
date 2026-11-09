@@ -234,6 +234,7 @@ FROM (
             AND timestamp >= {scan_from}
             AND timestamp <= {scan_to}
             AND $session_id != ''
+            __CANDIDATES__
     )
     GROUP BY session_id
     HAVING countIf(matches AND timestamp >= {window_from} AND timestamp <= {window_to}) > 0
@@ -413,6 +414,7 @@ def _query_mcp_sessions(
     window_from = query_date_range.date_from()
     window_to = query_date_range.date_to()
 
+    shared_filters = shared_filters_expr(team, properties, filter_test_accounts)
     # Over-fetch one row to learn whether a next page exists, without a count query.
     placeholders: dict[str, ast.Expr] = {
         "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
@@ -422,7 +424,7 @@ def _query_mcp_sessions(
         "window_to": ast.Constant(value=window_to),
         "limit": ast.Constant(value=limit + 1),
         "offset": ast.Constant(value=offset),
-        "shared_filters": shared_filters_expr(team, properties, filter_test_accounts),
+        "shared_filters": shared_filters,
     }
 
     search_text = ""
@@ -440,8 +442,14 @@ def _query_mcp_sessions(
         if pages_before_reading_properties
         else (_SESSIONS_IN_WINDOW_SQL, _PAGE_SQL)
     )
+    # A filter can read properties, and the page query would read them across the whole scan. Narrowing
+    # to sessions that match inside the window first costs less. Without filters, the narrowing costs more.
+    candidates_text = (
+        "" if isinstance(shared_filters, ast.Constant) else f"AND $session_id IN ({_SESSIONS_IN_WINDOW_SQL})"
+    )
     sql = (
         _MCP_SESSIONS_SQL.replace("__SESSIONS__", sessions_text)
+        .replace("__CANDIDATES__", candidates_text)
         .replace("__PAGE__", page_text)
         .replace("__SEARCH__", search_text)
         .replace("__HAS_ERRORS__", has_errors_text)
