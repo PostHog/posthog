@@ -66,6 +66,14 @@ describe('S3AttachmentStore', () => {
 
     const expiringIn = (minutes: number): Date => new Date(Date.now() + minutes * 60 * 1000)
 
+    const untilTheBucketClockPasses = (secondStoredAs: Date): Promise<void> =>
+        new Promise((resolve) => setTimeout(resolve, Math.max(0, secondStoredAs.getTime() + 1001 - Date.now())))
+
+    const expiryAnsweredFor = async (sha256: string, size: number): Promise<Date> => {
+        const [slot] = await store.prepareUploads(1, [{ sha256, size }])
+        return (slot as Extract<UploadSlot, { status: 'present' }>).expiresAt
+    }
+
     const selfCopiesOf = (send: jest.SpyInstance, teamId: number, sha256: string): number =>
         send.mock.calls.filter(
             ([command]) => command instanceof CopyObjectCommand && command.input.Key === keyOf(teamId, sha256)
@@ -157,8 +165,7 @@ describe('S3AttachmentStore', () => {
         })
 
         it('signs with credentials that outlive the URL, keeping the ones a forced refresh returned', async () => {
-            // Like the default provider chain: a forced refresh is answered but never cached.
-            const defaultChain = jest.fn(({ forceRefresh }: { forceRefresh?: boolean } = {}) =>
+            const chainThatForgetsRefreshes = jest.fn(({ forceRefresh }: { forceRefresh?: boolean } = {}) =>
                 Promise.resolve(
                     forceRefresh
                         ? { accessKeyId: 'fresh', secretAccessKey: 'secret', expiration: expiringIn(60) }
@@ -166,7 +173,7 @@ describe('S3AttachmentStore', () => {
                 )
             )
 
-            const slots = await storeAt(new Date(), signerWith(defaultChain)).prepareUploads(1, [
+            const slots = await storeAt(new Date(), signerWith(chainThatForgetsRefreshes)).prepareUploads(1, [
                 { sha256: file().sha256, size: 10 },
                 { sha256: file().sha256, size: 10 },
             ])
@@ -263,10 +270,22 @@ describe('S3AttachmentStore', () => {
                 at.extend(1, [sha256], needsUntil),
         ],
     ])('expiry through %s', (_, use) => {
-        it.each([
-            ['copies a file onto itself when a use needs it past its expiry', 37 * DAY_MS + 1000, 1],
-            ['leaves a file alone when it outlives the use', 37 * DAY_MS, 0],
-        ])('%s', async (_, needsAfterCreationMs, copies) => {
+        it('keeps a file through the latest time a use can need it, past its expiry at upload', async () => {
+            const f = file()
+            await upload(1, f)
+            await untilTheBucketClockPasses(await lastModified(1, f.sha256))
+            const now = new Date()
+            const needsUntil = new Date(now.getTime() + 37 * DAY_MS - 1000)
+            expect((await expiryAnsweredFor(f.sha256, f.bytes.length)).getTime()).toBeLessThan(needsUntil.getTime())
+
+            await use(storeAt(now), f.sha256, needsUntil)
+
+            expect((await expiryAnsweredFor(f.sha256, f.bytes.length)).getTime()).toBeGreaterThanOrEqual(
+                needsUntil.getTime()
+            )
+        })
+
+        it('leaves a file alone when it outlives the use', async () => {
             const f = file()
             await upload(1, f)
             const createdAt = await lastModified(1, f.sha256)
@@ -275,10 +294,10 @@ describe('S3AttachmentStore', () => {
             await use(
                 storeAt(new Date(createdAt.getTime() + DAY_MS)),
                 f.sha256,
-                new Date(createdAt.getTime() + needsAfterCreationMs)
+                new Date(createdAt.getTime() + 37 * DAY_MS)
             )
 
-            expect(selfCopiesOf(send, 1, f.sha256)).toBe(copies)
+            expect(selfCopiesOf(send, 1, f.sha256)).toBe(0)
         })
 
         it('throws unavailable when the copy a use needs does not settle in time', async () => {

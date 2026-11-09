@@ -222,6 +222,7 @@ export type CyclotronV2WorkerConfig = {
     batchMaxSize?: number
     pollDelayMs?: number
     heartbeatTimeoutMs?: number
+    releaseWriteHeartbeatLimitMs?: number
     includeEmptyBatches?: boolean
 }
 

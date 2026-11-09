@@ -30,7 +30,7 @@ import {
     AttachmentStore,
     AttachmentStoreUnavailableError,
     LoadedAttachment,
-    settleBefore,
+    settleBeforeAbortEvenWhileCredentialsStall,
 } from './attachment-store'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
@@ -47,7 +47,7 @@ import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, addWorkflowRunTagToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
-import { declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
+import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import {
     PreferencesTokenSource,
@@ -174,7 +174,7 @@ const DEFAULT_ATTACHMENT_SEND_DEADLINE_MS = 20_000
 
 class EmailSendDeadlineError extends Error {
     constructor(cause: unknown) {
-        super('The SES request could not be sent before the send deadline', { cause })
+        super('SES did not take the email before the send deadline', { cause })
         this.name = 'EmailSendDeadlineError'
     }
 }
@@ -188,16 +188,20 @@ class MessageTooLargeError extends Error {
 
 const FIRST_STEP_AFTER_SIGNING = 'deserialize'
 
-function trackRequestSent(command: SendEmailCommand): () => boolean {
-    let sent = false
+const BENEATH_THE_DESERIALIZER = 'low'
+
+function trackUnansweredAttempts(command: SendEmailCommand): () => boolean {
+    let unansweredAttempts = 0
     command.middlewareStack.add(
-        (next) => (args) => {
-            sent = true
-            return next(args)
+        (next) => async (args) => {
+            unansweredAttempts++
+            const httpAnswer = await next(args)
+            unansweredAttempts--
+            return httpAnswer
         },
-        { step: FIRST_STEP_AFTER_SIGNING, name: 'markSesRequestSent' }
+        { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackUnansweredSesAttempts' }
     )
-    return () => sent
+    return () => unansweredAttempts > 0
 }
 
 const isAttachmentLoadFailure = (error: unknown): boolean =>
@@ -1339,7 +1343,16 @@ export class EmailService {
         if (!this.attachmentStore) {
             throw new AttachmentStoreUnavailableError(new Error('No attachment store is configured on this pod'))
         }
-        return await this.attachmentStore.load(teamId, files, deadline)
+        await callsSettledBefore(deadline).catch((reason) => {
+            throw new AttachmentStoreUnavailableError(reason)
+        })
+        const loadFailed = new AbortController()
+        try {
+            return await this.attachmentStore.load(teamId, files, AbortSignal.any([deadline, loadFailed.signal]))
+        } catch (error) {
+            loadFailed.abort(error)
+            throw error
+        }
     }
 
     // Send email to local maildev instance for testing (DEBUG=1 only)
@@ -1539,11 +1552,14 @@ export class EmailService {
         }
 
         const command = new SendEmailCommand(sendEmailParams)
-        const requestSent = trackRequestSent(command)
+        const anAttemptIsUnanswered = trackUnansweredAttempts(command)
         const sendStartedAt = performance.now()
         try {
             const response = deadline
-                ? await settleBefore(deadline, this.sesV2Client.send(command, { abortSignal: deadline }))
+                ? await settleBeforeAbortEvenWhileCredentialsStall(
+                      deadline,
+                      this.sesV2Client.send(command, { abortSignal: deadline })
+                  )
                 : await this.sesV2Client.send(command)
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
@@ -1555,7 +1571,7 @@ export class EmailService {
             sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
             if (deadline?.aborted) {
-                if (!requestSent()) {
+                if (!anAttemptIsUnanswered()) {
                     throw new EmailSendDeadlineError(error)
                 }
                 throw new Error(

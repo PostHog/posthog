@@ -16,7 +16,7 @@ import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2'
 import { v2JobToInvocation } from '../services/job-queue/job-queue-postgres-v2'
-import { settleBefore } from '../services/messaging/attachment-store'
+import { settleBeforeAbortEvenWhileCredentialsStall } from '../services/messaging/attachment-store'
 import {
     InFlightLimits,
     InFlightRegistry,
@@ -310,7 +310,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                 jest.spyOn(worker, 'processInvocations').mockImplementation(async (invocations) => {
                     const deadline = new AbortController()
                     deadline.abort(new Error('deadline'))
-                    await settleBefore(deadline.signal, call).catch(() => undefined)
+                    await settleBeforeAbortEvenWhileCredentialsStall(deadline.signal, call).catch(() => undefined)
                     return resultsOf(invocations)
                 })
 
@@ -341,7 +341,9 @@ describe('CdpCyclotronWorkerEmail', () => {
                     }
                     const deadline = new AbortController()
                     deadline.abort(new Error('deadline'))
-                    await settleBefore(deadline.signal, stalledCall).catch(() => undefined)
+                    await settleBeforeAbortEvenWhileCredentialsStall(deadline.signal, stalledCall).catch(
+                        () => undefined
+                    )
                     return resultsOf(invocations)
                 })
 
@@ -374,7 +376,6 @@ describe('CdpCyclotronWorkerEmail', () => {
             expect(queue.deferInvocations).not.toHaveBeenCalled()
         })
 
-        // Stored by the email queue before this worker admitted sends with files.
         const PREVIOUS_VERSION_JOB_STATE =
             '{"state":{"event":{"uuid":"uuid","event":"$pageview","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$lib_version":"1.2.3"},"timestamp":"2026-11-09T14:31:48.377Z"},"actionStepCount":0,"send":{"tracking":{"captureEngagement":false}}}}'
 
