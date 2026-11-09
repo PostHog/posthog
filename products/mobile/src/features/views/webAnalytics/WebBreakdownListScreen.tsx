@@ -53,7 +53,11 @@ export function WebBreakdownListScreen({ tile, breakdown }: WebBreakdownListScre
                 />
             }
         >
-            {allowed ? <ListBody list={list} scrollTitle={scrollTitle} /> : <ViewsReauthState access={list.access} />}
+            {allowed ? (
+                <ListBody list={list} fallback={breakdown} scrollTitle={scrollTitle} />
+            ) : (
+                <ViewsReauthState access={list.access} />
+            )}
             <ViewMoreSheet
                 visible={moreOpen}
                 onClose={() => setMoreOpen(false)}
@@ -66,9 +70,11 @@ export function WebBreakdownListScreen({ tile, breakdown }: WebBreakdownListScre
 
 function ListBody({
     list,
+    fallback,
     scrollTitle,
 }: {
     list: ReturnType<typeof useWebBreakdownList>
+    fallback: WebBreakdown | null
     scrollTitle: ReturnType<typeof useScrollTitle>
 }): ReactElement {
     const colors = useColors()
@@ -76,7 +82,7 @@ function ListBody({
     const insets = useScreenInsets()
     const motion = useChartListMotion()
     const toasts = useToasts()
-    const actions = useWebAnalyticsActions(toasts)
+    const actions = useWebAnalyticsActions(toasts, fallback)
     const item = useWebItemData<WebBreakdownSnapshot>(list.data)
     const { refresh } = list
     const snapshot = item.snapshot

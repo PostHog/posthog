@@ -353,7 +353,7 @@ export type WebTileId = 'pages' | 'sources' | 'devices' | 'locations'
 export interface WebPropertyFilter {
     key: string
     type: 'event' | 'session'
-    operator: 'exact' | 'is_not_set'
+    operator: 'exact' | 'is_not_set' | 'regex'
     /** Left out for `is_not_set`. */
     value?: string | number
 }

@@ -114,21 +114,30 @@ function WebAnalyticsBody({
         />
     )
 
+    const filterChips = (
+        <FilterChips filters={screen.filters} onRemove={actions.removeFilter} onClear={actions.clearFilters} />
+    )
+    const toast = <ViewsToast key="toast" toast={toasts.toast} onHide={toasts.hide} bottom={TOAST_BOTTOM} />
+
     if (!overview) {
         return (
-            <ScrollView contentContainerStyle={[contentStyle, styles.grow]}>
-                {screen.overview.isError && screen.error ? (
-                    <ViewErrorState
-                        kind={screen.error}
-                        noun="view"
-                        match={{ kind: 'web_analytics', ref: null }}
-                        onRetry={() => screen.overview.refetch()}
-                        onBack={onBack}
-                    />
-                ) : (
-                    <ViewSkeleton cards={3} />
-                )}
-            </ScrollView>
+            <>
+                <ScrollView contentContainerStyle={[contentStyle, styles.grow]}>
+                    {filterChips}
+                    {screen.overview.isError && screen.error ? (
+                        <ViewErrorState
+                            kind={screen.error}
+                            noun="view"
+                            match={{ kind: 'web_analytics', ref: null }}
+                            onRetry={() => screen.overview.refetch()}
+                            onBack={onBack}
+                        />
+                    ) : (
+                        <ViewSkeleton cards={3} />
+                    )}
+                </ScrollView>
+                {toast}
+            </>
         )
     }
 
@@ -155,7 +164,7 @@ function WebAnalyticsBody({
             >
                 {title}
                 <RefreshFailedBanner status={refresh.status} />
-                <FilterChips filters={screen.filters} onRemove={actions.removeFilter} onClear={actions.clearFilters} />
+                {filterChips}
                 {overview.metrics.length === 0 ? (
                     <Text style={styles.empty}>No web analytics data for this range.</Text>
                 ) : (
@@ -207,7 +216,7 @@ function WebAnalyticsBody({
                 }}
                 onClose={() => setTabsFor(null)}
             />
-            <ViewsToast toast={toasts.toast} onHide={toasts.hide} bottom={TOAST_BOTTOM} />
+            {toast}
         </>
     )
 }

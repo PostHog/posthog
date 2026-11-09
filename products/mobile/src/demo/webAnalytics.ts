@@ -223,8 +223,7 @@ const TABLES: Record<WebBreakdown, DemoRow[]> = {
         [9, 0.02, 3.2],
     ],
     Language: [
-        ['en-US', 0.47, 3.6],
-        ['en-GB', 0.1, 3.4],
+        ['en-US', 0.57, 3.6],
         ['de-DE', 0.09, 3.8],
         ['fr-FR', 0.05, 3.6],
         ['es-ES', 0.04, 3.4],
@@ -252,7 +251,7 @@ function propertiesOf(value: unknown): WebPropertyFilter[] {
             {
                 key,
                 type,
-                operator: operator === 'is_not_set' ? 'is_not_set' : 'exact',
+                operator: operator === 'is_not_set' || operator === 'regex' ? operator : 'exact',
                 ...(typeof filterValue === 'string' || typeof filterValue === 'number' ? { value: filterValue } : {}),
             },
         ]

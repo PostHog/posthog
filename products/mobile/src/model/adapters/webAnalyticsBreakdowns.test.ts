@@ -47,6 +47,19 @@ describe('web analytics breakdowns', () => {
             ['GB', 'London'],
             [{ key: '$geoip_city_name', type: 'event', operator: 'exact', value: 'London' }],
         ],
+        [
+            'a language without a region',
+            'Language',
+            'nl-',
+            [{ key: '$browser_language', type: 'event', operator: 'regex', value: '^nl(-|$)' }],
+        ],
+        [
+            'a language grouped across regions',
+            'Language',
+            'en-US',
+            [{ key: '$browser_language', type: 'event', operator: 'regex', value: '^en(-|$)' }],
+        ],
+        ['a missing language', 'Language', '-', [{ key: '$browser_language', type: 'event', operator: 'is_not_set' }]],
         ['a region without a subdivision', 'Region', ['NL', null, null], null],
         ['an outbound link', 'ExitClick', 'https://example.com/', null],
     ])('a row tap on %s filters like the web', (_name, breakdown, raw, properties) => {

@@ -122,7 +122,7 @@ export function HeatGrid({
                     >
                         {cells.map((row, rowIndex) => (
                             // biome-ignore lint/suspicious/noArrayIndexKey: rows are fixed positions, such as weekdays.
-                            <View key={rowIndex} style={styles.cellRow}>
+                            <View key={rowIndex} style={styles.cellRow} pointerEvents="none">
                                 {row.map((value, column) => (
                                     <View
                                         // biome-ignore lint/suspicious/noArrayIndexKey: columns are fixed positions.

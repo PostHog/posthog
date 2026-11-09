@@ -96,9 +96,16 @@ function itemRef(scope: ProjectScope | null, query: Record<string, unknown>, ide
     return { queryKey, itemKey: freshnessKey(queryKey), identity }
 }
 
-export function tileBreakdown(def: WebTileDef, choices: WebAnalyticsChoices): WebBreakdown {
+export function tileBreakdown(
+    def: WebTileDef,
+    choices: WebAnalyticsChoices,
+    fallback: WebBreakdown | null = null
+): WebBreakdown {
     const chosen = choices.tabs[def.id]
-    return chosen && def.tabs.includes(chosen) ? chosen : (def.tabs[0] as WebBreakdown)
+    if (chosen && def.tabs.includes(chosen)) {
+        return chosen
+    }
+    return fallback && def.tabs.includes(fallback) ? fallback : (def.tabs[0] as WebBreakdown)
 }
 
 interface SharedWindow {
@@ -257,13 +264,7 @@ export function useWebBreakdownList(tileId: WebTileId, fallback: WebBreakdown | 
     const shared = useSharedWindow(context.dataScope)
     const { choices, window, windowKey } = shared
     const tile = webTileDef(tileId)
-    const chosen = choices.tabs[tile.id]
-    const breakdown =
-        chosen && tile.tabs.includes(chosen)
-            ? chosen
-            : fallback && tile.tabs.includes(fallback)
-              ? fallback
-              : (tile.tabs[0] as WebBreakdown)
+    const breakdown = tileBreakdown(tile, choices, fallback)
     // biome-ignore lint/correctness/useExhaustiveDependencies: `windowKey` stands for `window`.
     const plan = useMemo(() => {
         const query = webBreakdownQuery({ ...window, breakdown, limit: LIST_LIMIT })
@@ -304,7 +305,7 @@ export interface WebAnalyticsActions {
     clearFilters: () => void
 }
 
-export function useWebAnalyticsActions(toasts: Toasts): WebAnalyticsActions {
+export function useWebAnalyticsActions(toasts: Toasts, fallback: WebBreakdown | null = null): WebAnalyticsActions {
     const { dataScope } = useViewsContext()
     const update = useWebAnalyticsStore((state) => state.update)
     const { show } = toasts
@@ -334,13 +335,13 @@ export function useWebAnalyticsActions(toasts: Toasts): WebAnalyticsActions {
 
     const setTab = useCallback(
         (tile: WebTileId, breakdown: WebBreakdown, from: WebAnalyticsSurface) => {
-            if (tileBreakdown(webTileDef(tile), current()) === breakdown) {
+            if (tileBreakdown(webTileDef(tile), current(), fallback) === breakdown) {
                 return
             }
             trackWebBreakdownChanged({ tile, breakdown, from, source: 'user' })
             update(dataScope, (choices) => ({ tabs: { ...choices.tabs, [tile]: breakdown } }))
         },
-        [current, update, dataScope]
+        [current, update, dataScope, fallback]
     )
 
     const tapRow = useCallback(

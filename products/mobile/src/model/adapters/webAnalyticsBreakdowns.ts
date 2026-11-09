@@ -2,7 +2,7 @@ import type { WebBreakdown, WebFilter, WebPropertyFilter, WebTileId } from '../v
 
 // The web analytics breakdown tiles and how a row becomes a filter. Ported from the web's
 // `frontend/src/scenes/web-analytics/common.ts` (`webStatsBreakdownToPropertyName`, the drill-down maps) and the row
-// click handler in `tiles/WebAnalyticsTile.tsx`, so a tap on the phone filters exactly like a click on the web.
+// click handler in `tiles/WebAnalyticsTile.tsx`.
 
 export interface WebTileDef {
     id: WebTileId
@@ -292,7 +292,10 @@ export function breakdownValueLabel(breakdown: WebBreakdown, raw: unknown): Brea
             if (typeof raw !== 'string' || !raw) {
                 return missing
             }
-            const [language = raw, country] = raw.split('-')
+            const [language, country] = raw.split('-')
+            if (!language) {
+                return missing
+            }
             const countryCode = country?.match(/[A-Z]{2}/)?.[0] ?? ''
             return plain(withFlag(countryCode, languageName(language)))
         }
@@ -352,7 +355,8 @@ export function breakdownFilter(breakdown: WebBreakdown, raw: unknown): WebFilte
             if (!property) {
                 return null
             }
-            if (raw === null || raw === undefined || raw === '') {
+            const language = breakdown === 'Language' && typeof raw === 'string' ? raw.split('-', 1)[0] : undefined
+            if (raw === null || raw === undefined || raw === '' || language === '') {
                 return {
                     id: property.key,
                     label,
@@ -363,7 +367,15 @@ export function breakdownFilter(breakdown: WebBreakdown, raw: unknown): WebFilte
             if (typeof raw !== 'string' && typeof raw !== 'number') {
                 return null
             }
-            return { id: property.key, label, value, properties: [exact(property.key, property.type, raw)] }
+            // The stats query groups by the base language and appends the most common region for display.
+            const filter = language
+                ? {
+                      ...property,
+                      operator: 'regex' as const,
+                      value: `^${language.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(-|$)`,
+                  }
+                : exact(property.key, property.type, raw)
+            return { id: property.key, label, value, properties: [filter] }
         }
     }
 }
