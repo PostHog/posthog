@@ -398,7 +398,6 @@ export function reportResultWriteFailure(queue: string, error: unknown): void {
     logger.warn('CyclotronV2 failed to write batch results', { queue, error: String(error) })
 }
 
-// A deferral moves the job's scheduled time, so a deferred job is late from when it first became due.
 function dueTimeOf(
     job: CyclotronV2DequeuedJob,
     invocation: CyclotronJobInvocation
