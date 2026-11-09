@@ -416,6 +416,11 @@ class WarehouseSourcesTool(ConsoleTool):
         if schema is None:
             return []
         partitioning = schema.partitioning
+        # Danger confirms name the whole target, because schema names repeat across sources and teams.
+        target = (
+            f"schema {schema.name} ({schema.id}) of the {schema.source_type} source {schema.source_id}, "
+            f"team {schema.team_name} ({schema.team_id})"
+        )
         columns_note = (
             f" Columns: {', '.join(schema.available_columns)}."
             if schema.available_columns
@@ -436,7 +441,7 @@ class WarehouseSourcesTool(ConsoleTool):
                     "partition_size": partitioning.size,
                 },
                 description=(
-                    f"Stages the partition settings for {schema.name} and starts a non-billable run. An incremental "
+                    f"Stages the partition settings for {target} and starts a non-billable run. An incremental "
                     "or append-only table is rewritten in storage into the new layout, with no reset and no rows "
                     "pulled again from the source. On a large table that takes hours. A full refresh table, or one "
                     "with a reset pending, is reloaded from the source. The schedule pauses for the run and "
@@ -451,7 +456,7 @@ class WarehouseSourcesTool(ConsoleTool):
                 danger=True,
                 form_class=TriggerSyncForm,
                 description=(
-                    f"Starts one run of {schema.name} outside its schedule, for example to retry a failed sync. "
+                    f"Starts one run of {target} outside its schedule, for example to retry a failed sync. "
                     "Repartition already starts its own run. A billable run counts toward the customer's bill, and "
                     "a reset syncs the table again from scratch."
                 ),
@@ -463,7 +468,7 @@ class WarehouseSourcesTool(ConsoleTool):
                 handler=pause_schedule,
                 danger=True,
                 form_class=ReasonForm,
-                description=f"Stops the scheduled syncs of {schema.name} until the schedule is unpaused.",
+                description=f"Stops the scheduled syncs of {target} until the schedule is unpaused.",
                 undo_hint="To undo, use Unpause schedule. Remember to unpause when your work is done.",
             ),
             ToolOperation(
