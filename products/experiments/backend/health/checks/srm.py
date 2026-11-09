@@ -35,6 +35,7 @@ from products.experiments.backend.health.context import (
     FlagState,
     HealthContext,
     ReachableCondition,
+    split_changed_after_the_end,
 )
 from products.experiments.backend.health.pinned_share import pinned_variant_keys
 from products.experiments.backend.health.skips import (
@@ -356,10 +357,9 @@ def _skew_predates_the_change(ctx: HealthContext, exposures: ExposureTotals, his
 
 def _split_changed_after_the_end(ctx: HealthContext) -> bool:
     history = ctx.flag_history
-    if ctx.ended_at is None or not isinstance(history, FlagHistory | FlagHistoryNotChecked):
-        return False
-    ended_at = ctx.ended_at
-    return any(change.changed_at > ended_at for change in history.of_kind(SplitChange))
+    return isinstance(history, FlagHistory | FlagHistoryNotChecked) and split_changed_after_the_end(
+        history.changes, ctx.ended_at
+    )
 
 
 def _during_the_run(ctx: HealthContext) -> HealthContext:

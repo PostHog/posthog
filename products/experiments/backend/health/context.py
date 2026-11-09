@@ -78,6 +78,13 @@ def changes_of_kind[C: FlagChange](changes: tuple[FlagChange, ...], kind: type[C
     return tuple(change for change in changes if isinstance(change, kind))
 
 
+def split_changed_after_the_end(changes: tuple[FlagChange, ...], ended_at: datetime | None) -> bool:
+    """Whether the flag's split is no longer the one that the run's users got."""
+    return ended_at is not None and any(
+        change.changed_at > ended_at for change in changes_of_kind(changes, SplitChange)
+    )
+
+
 @frozen
 class ChangeWindow:
     start: datetime
