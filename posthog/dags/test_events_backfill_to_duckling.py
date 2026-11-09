@@ -1096,31 +1096,53 @@ class TestDailyBackfillSensor:
         ]
 
 
-class TestPersonsSensorRetryBackoff:
-    NOW = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
+_PERSONS_SENSOR_NOW = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
 
+
+class TestPersonsSensorRetryBackoff:
     @parameterized.expand(
         [
-            (f"{sensor_name}_{case}", sensor, partition_key, interval, failures, age_intervals, expected)
-            for sensor_name, sensor, partition_key, interval in [
-                ("daily", duckling_persons_daily_backfill_sensor, "7_2026-06-30", 3600),
-                ("full", duckling_persons_full_backfill_sensor, "7", 600),
-            ]
-            for case, failures, age_intervals, expected in [
-                ("first_failure_waits_one_interval", 1, 0.9, False),
-                ("first_failure_retries_after_one_interval", 1, 1.1, True),
-                ("wait_doubles_with_each_failure", 6, 31.9, False),
-            ]
+            *(
+                (
+                    f"{sensor_name}_{case}",
+                    sensor,
+                    partition_key,
+                    interval,
+                    failures,
+                    age_intervals,
+                    _PERSONS_SENSOR_NOW,
+                    expected,
+                )
+                for sensor_name, sensor, partition_key, interval in [
+                    ("daily", duckling_persons_daily_backfill_sensor, "7_2026-06-30", 3600),
+                    ("full", duckling_persons_full_backfill_sensor, "7", 600),
+                ]
+                for case, failures, age_intervals, expected in [
+                    ("first_failure_waits_one_interval", 1, 0.9, False),
+                    ("first_failure_retries_after_one_interval", 1, 1.1, True),
+                    ("wait_doubles_with_each_failure", 6, 31.9, False),
+                ]
+            ),
+            (
+                "daily_last_tick_of_the_day_retries_during_the_backoff",
+                duckling_persons_daily_backfill_sensor,
+                "7_2026-06-30",
+                3600,
+                4,
+                5.3,
+                datetime(2026, 7, 1, 23, 30, 0, tzinfo=UTC),
+                True,
+            ),
         ]
     )
     def test_failed_run_retries_after_a_backoff(
-        self, _name, sensor, partition_key, interval, failures, age_intervals, expected
+        self, _name, sensor, partition_key, interval, failures, age_intervals, now, expected
     ):
         from dagster import DagsterInstance, DagsterRun, SensorResult, build_sensor_context
 
         with DagsterInstance.ephemeral() as instance:
             instance.add_dynamic_partitions("duckling_persons_backfill", [partition_key])
-            with time_machine.travel(self.NOW - timedelta(seconds=interval * age_intervals), tick=False):
+            with time_machine.travel(now - timedelta(seconds=interval * age_intervals), tick=False):
                 for i in range(failures):
                     run = instance.add_run(
                         DagsterRun(
@@ -1131,7 +1153,7 @@ class TestPersonsSensorRetryBackoff:
                     )
                     instance.report_run_failed(run)
             with (
-                time_machine.travel(self.NOW, tick=False),
+                time_machine.travel(now, tick=False),
                 patch(
                     "posthog.dags.events_backfill_to_duckling.list_enabled_backfill_team_memberships",
                     return_value=[MagicMock(team_id=7)],

@@ -163,6 +163,7 @@ Example: `12345_2024-01-15` for team 12345's data on January 15, 2024.
 The persons daily and full sensors wait before they retry a failed run.
 The first retry waits one sensor interval after the failed run ended: one hour for the daily sensor, 10 minutes for the full sensor.
 Each further consecutive failure doubles the wait, up to 32 intervals.
+The daily sensor only looks at yesterday's partition, so its last tick of the day retries a failed run without waiting for the backoff.
 
 ## Managing Backfills
 

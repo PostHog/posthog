@@ -3880,6 +3880,9 @@ def duckling_persons_daily_backfill_sensor(
     """
     now = timezone.now()
     yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    # The sensor only looks at yesterday's partition. The last tick of a day retries a failed run during its backoff,
+    # because no later tick looks at that partition again.
+    last_tick_of_day = (now + timedelta(seconds=PERSONS_DAILY_SENSOR_INTERVAL_SECONDS)).date() != now.date()
 
     existing = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
 
@@ -3910,7 +3913,9 @@ def duckling_persons_daily_backfill_sensor(
                 latest_run = history[0].dagster_run
                 # Only retry if failed - skip if in progress or succeeded
                 if latest_run.status == DagsterRunStatus.FAILURE:
-                    if not _failed_run_retry_due(history, now=now, base_seconds=PERSONS_DAILY_SENSOR_INTERVAL_SECONDS):
+                    if not last_tick_of_day and not _failed_run_retry_due(
+                        history, now=now, base_seconds=PERSONS_DAILY_SENSOR_INTERVAL_SECONDS
+                    ):
                         continue
                     run_requests.append(
                         RunRequest(
