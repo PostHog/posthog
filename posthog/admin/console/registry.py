@@ -82,6 +82,7 @@ class ConsoleRegistry:
         import posthog.admin.console.team_panels  # noqa: F401, PLC0415 — registers the core Team panels
         import posthog.admin.console.health_checks_tool  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.organization_tools  # noqa: F401, PLC0415 — registers a core tool
+        import posthog.admin.console.remote_config_tool  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.usage_reports_tool  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.organization_panels  # noqa: F401, PLC0415 — registers the core Organization panels
         import posthog.admin.console.events_retention_tool  # noqa: F401, PLC0415 — registers a core tool

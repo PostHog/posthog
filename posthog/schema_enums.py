@@ -1474,6 +1474,7 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
+    UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1496,6 +1497,7 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
+    UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):
@@ -1519,6 +1521,8 @@ class ExperimentExposureHealthValueKey(StrEnum):
     SINCE_LAUNCH_HOURS = "since_launch_hours"
     EXPOSED_WITHOUT_TEST_ACCOUNT_FILTER_COUNT = "exposed_without_test_account_filter_count"
     KEPT_BY_TEST_ACCOUNT_FILTER_PERCENTAGE = "kept_by_test_account_filter_percentage"
+    UNSERVED_EXPOSED_COUNT = "unserved_exposed_count"
+    UNSERVED_EXPOSED_PERCENTAGE = "unserved_exposed_percentage"
 
 
 class ExperimentMetricGoal(StrEnum):
