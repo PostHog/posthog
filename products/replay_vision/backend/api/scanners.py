@@ -2283,6 +2283,15 @@ class RefineScannerDraftRequestSerializer(DraftScannerRequestSerializer):
     The spend fields describe the current draft's budget, which sizes the dials when the change needs a re-solve.
     """
 
+    monthly_credit_budget = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=INTEGER_FIELD_MAX,
+        help_text=(
+            "The current draft's monthly credit budget, which sizes the dials when the change needs a re-solve. "
+            "Takes any value `credit_limit` takes. Required unless `free_only` is true, and not allowed with it."
+        ),
+    )
     instruction = serializers.CharField(
         max_length=MAX_REFINE_INSTRUCTION_LENGTH,
         help_text="One change to apply to the draft, in the person's own words, e.g. 'make it a 1-5 score'.",
@@ -3621,16 +3630,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # (session-only), so any scoped token loses it; the goal-based entity grounding (surveys,
         # actions, experiments) is gated per resource against these scopes inside the drafter.
         allowed_scopes = get_authenticator_scopes(request.successful_authenticator)
-        experiment_id = validated.get("experiment_id")
+        if (experiment_id := validated.get("experiment_id")) is not None:
+            self._check_draft_experiment(experiment_id, allowed_scopes)
+        if (scope := validated.get("chosen_scope")) is not None:
+            self._check_query_references(scope.query, allowed_scopes)
+        return allowed_scopes
+
+    def _check_draft_experiment(self, experiment_id: int, allowed_scopes: list[str] | None) -> None:
         # Denied, out-of-scope and nonexistent ids read the same, so the error never confirms an experiment exists.
-        if experiment_id is not None and not (
+        if not (
             scopes_allow_read(allowed_scopes, "experiment")
             and is_experiment_accessible(self.user_access_control, self.team_id, experiment_id)
         ):
             raise ValidationError({"experiment_id": "Experiment not found in this project."})
-        if (scope := validated.get("chosen_scope")) is not None:
-            self._check_query_references(scope.query, allowed_scopes)
-        return allowed_scopes
 
     @extend_schema(
         request=RefineScannerDraftRequestSerializer,
@@ -3668,6 +3680,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         allowed_scopes = self._draft_allowed_scopes(request, validated)
         scope = validated.get("chosen_scope")
         current = validated["current"]
+        # The current draft's experiment reaches the model briefing too, so it gets the same check.
+        if (current_scope := config_experiment_scope(current["scanner_config"])) is not None:
+            self._check_draft_experiment(current_scope["experiment_id"], allowed_scopes)
         if current["query"] is not None:
             self._check_query_references(current["query"], allowed_scopes)
         refinement_index = validated["refinement_index"]

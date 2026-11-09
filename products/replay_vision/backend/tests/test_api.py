@@ -2016,6 +2016,30 @@ class TestScannerDraftRefineEndpoint(_VisionAPITestCase):
         assert resp.json()["attr"].startswith(attr)
         refine.assert_not_called()
 
+    def test_draft_refine_refuses_a_current_experiment_the_caller_cannot_read(self) -> None:
+        body = self._body()
+        body["current"] = {
+            **body["current"],
+            "scanner_type": "experiment",
+            "scanner_config": {"prompt": "Did the user get stuck?", "experiment_id": 12345},
+        }
+
+        with patch("products.replay_vision.backend.api.scanners.is_experiment_accessible", return_value=False):
+            resp, refine, _ = self._post(body)
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
+        assert resp.json()["detail"] == "Experiment not found in this project."
+        refine.assert_not_called()
+
+    def test_draft_refine_takes_a_budget_above_the_draft_endpoint_range(self) -> None:
+        body = self._body(monthly_credit_budget=150_000_000)
+        body["current"] = {**body["current"], "credit_limit": 150_000_000}
+
+        resp, refine, _ = self._post(body)
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert refine.call_args.kwargs["monthly_credit_budget"] == 150_000_000
+
     def test_draft_refine_reports_a_model_failure(self) -> None:
         resp, _, report = self._post(error=DraftError("model_call_failed"))
 

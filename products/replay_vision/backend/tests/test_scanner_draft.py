@@ -2263,6 +2263,31 @@ class TestRefineScannerDraft(_VisionAPITestCase):
         user_content = generate.call_args.kwargs["user_content"]
         assert "<current-draft>" in user_content and "make it a 1-5 score" in user_content
 
+    def test_a_refine_keeps_config_settings_the_model_cannot_express(self):
+        current = self._current(
+            scanner_type="classifier",
+            scanner_config={
+                "prompt": "Which billing step did the user give up on?",
+                "tags": ["plan_picker", "payment_form"],
+                "multi_label": False,
+                "allow_freeform_tags": True,
+            },
+        )
+
+        refinement, _, _ = self._refine(
+            _draft(
+                scanner_type="classifier",
+                prompt="Which billing step did the user give up on?",
+                tags=["plan_picker", "payment_form"],
+                sampling_mode="balanced",
+            ),
+            current=current,
+            instruction="rename it",
+        )
+
+        assert refinement.draft.scanner_config["allow_freeform_tags"] is True
+        assert "type_config" not in refinement.changed_fields
+
     def test_a_change_that_leaves_the_recordings_alone_cannot_add_an_experiment(self):
         _launched_experiment(self.team, self.user, "Billing upgrade prompt")
 

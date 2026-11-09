@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import * as researchPng from '@posthog/brand/hoggies/png/research'
@@ -24,11 +24,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook } from 'lib/utils/dom'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { getExperimentVariants } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { AnyPropertyFilter, Experiment, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
@@ -346,21 +345,8 @@ export interface DraftRefineChip {
 const MAX_REFINE_CHIPS = 3
 
 /** Suggested changes for this draft, each one the refine can apply. */
-export function draftRefineChips(scanner: ReplayScanner, experiment: Experiment | null): DraftRefineChip[] {
+export function draftRefineChips(scanner: ReplayScanner): DraftRefineChip[] {
     const chips: DraftRefineChip[] = []
-    const scope = scannerExperimentScope(scanner)
-    const testVariant = experiment
-        ? getExperimentVariants(experiment)
-              .map((variant) => variant.key)
-              .find((key) => key !== 'control')
-        : undefined
-    if (scope && !scope.variants?.length && testVariant) {
-        chips.push({
-            key: 'only_test_variant',
-            label: `Only the ${testVariant} variant`,
-            instruction: `Only watch people in the ${testVariant} variant`,
-        })
-    }
     if (scanner.free_only) {
         chips.push({
             key: 'add_monthly_cap',
@@ -368,7 +354,8 @@ export function draftRefineChips(scanner: ReplayScanner, experiment: Experiment 
             instruction: `Add a monthly cap of ${DEFAULT_GOAL_BUDGET.toLocaleString()} credits`,
         })
     }
-    if (scanner.scanner_type !== 'monitor') {
+    // An experiment draft keeps its experiment type through a refine, so it cannot become a yes/no check.
+    if (scanner.scanner_type !== 'monitor' && scanner.scanner_type !== 'experiment') {
         chips.push({ key: 'yes_no_check', label: 'Make it a yes/no check', instruction: 'Make it a yes/no check' })
     }
     if (scanner.model !== 'gemini-3.5-flash-lite') {
@@ -394,18 +381,31 @@ function DraftRefineBox({
 }: {
     scannerId: string
     fieldLabels: Record<string, string>
-}): JSX.Element {
+}): JSX.Element | null {
     const logic = replayScannerLogic({ id: scannerId })
-    const { scanner, goalRefinementLoading, lastRefinement, experimentContext } = useValues(logic)
+    const { scanner, goalRefinementLoading, lastRefinement } = useValues(logic)
     const { refineScannerDraft } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const [instruction, setInstruction] = useState('')
-    const chips = draftRefineChips(scanner, experimentContext?.experiment ?? null)
+    // The typed instruction stays in the box until its refine lands, so a failed one can be retried.
+    const submittedInstruction = useRef<string | null>(null)
+    useEffect(() => {
+        if (submittedInstruction.current !== null) {
+            setInstruction((current) => (current === submittedInstruction.current ? '' : current))
+            submittedInstruction.current = null
+        }
+    }, [lastRefinement])
+    // Legacy experiment targeting sits outside the draft the refine reads, so it would be dropped.
+    if (!featureFlags[FEATURE_FLAGS.VISION_DRAFT_REFINE] || scanner.experiment_targeting) {
+        return null
+    }
+    const chips = draftRefineChips(scanner)
     const submit = (text: string, chip?: string): void => {
         if (!text.trim() || goalRefinementLoading) {
             return
         }
+        submittedInstruction.current = chip ? null : text
         refineScannerDraft({ instruction: text, chip })
-        setInstruction('')
     }
 
     return (
@@ -460,6 +460,10 @@ function DraftRefineBox({
 
 const REFINE_HIGHLIGHT_MS = 4000
 
+function anyRefined(refined: Set<string>, ...fields: string[]): boolean {
+    return fields.some((field) => refined.has(field))
+}
+
 /** The fields of the last refine, for a few seconds after it lands. */
 function useRecentlyRefinedFields(refinement: DraftRefinementSummary | null): Set<string> {
     const [fields, setFields] = useState<Set<string>>(new Set())
@@ -488,7 +492,6 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         experimentContext,
         lastRefinement,
     } = useValues(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const refined = useRecentlyRefinedFields(lastRefinement)
     const { freeCreditsAllowance } = useValues(visionQuotaLogic)
     const { recordingsFirst, stepLabels } = useValues(scannerEditorSceneLogic)
@@ -558,7 +561,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
             label={sectionLabels.configure}
             editStep="configure"
             scannerId={scannerId}
-            highlighted={['prompt', 'scanner_type', 'type_config', 'model'].some((field) => refined.has(field))}
+            highlighted={anyRefined(refined, 'prompt', 'scanner_type', 'type_config', 'model')}
         >
             <div className="space-y-3">
                 <LemonTag type={SCANNER_TYPE_TAG_TYPE[scanner.scanner_type]}>
@@ -601,7 +604,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 label="Name"
                 editStep="details"
                 scannerId={scannerId}
-                highlighted={refined.has('name') || refined.has('description')}
+                highlighted={anyRefined(refined, 'name', 'description')}
             >
                 <div className="text-sm font-medium">{scanner.name}</div>
                 {scanner.description ? <div className="text-sm text-muted">{scanner.description}</div> : null}
@@ -669,7 +672,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 info="Estimated from your last 7 days of recordings, projected to a month. Your real volume follows your future traffic, so treat this as a guide."
                 editStep="budget"
                 scannerId={scannerId}
-                highlighted={refined.has('sampling') || refined.has('budget')}
+                highlighted={anyRefined(refined, 'sampling', 'budget')}
             >
                 <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm">
                     <StatRow label="Recordings">
@@ -740,23 +743,20 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 ) : null}
             </OverviewSection>
 
-            {/* Legacy experiment targeting sits outside the draft the refine reads, so it would be dropped. */}
-            {featureFlags[FEATURE_FLAGS.VISION_DRAFT_REFINE] && !scanner.experiment_targeting ? (
-                <DraftRefineBox
-                    scannerId={scannerId}
-                    fieldLabels={{
-                        name: 'Name',
-                        description: 'Description',
-                        prompt: 'Prompt',
-                        scanner_type: 'Scanner type',
-                        type_config: 'Type settings',
-                        query: sectionLabels.triggers,
-                        sampling: 'Sampling',
-                        model: 'Model',
-                        budget: sectionLabels.budget,
-                    }}
-                />
-            ) : null}
+            <DraftRefineBox
+                scannerId={scannerId}
+                fieldLabels={{
+                    name: 'Name',
+                    description: 'Description',
+                    prompt: 'Prompt',
+                    scanner_type: 'Scanner type',
+                    type_config: 'Type settings',
+                    query: sectionLabels.triggers,
+                    sampling: 'Sampling',
+                    model: 'Model',
+                    budget: sectionLabels.budget,
+                }}
+            />
 
             <div className="flex items-center justify-end gap-2">
                 <LemonButton

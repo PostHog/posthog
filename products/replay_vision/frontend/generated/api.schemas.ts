@@ -2988,9 +2988,9 @@ export interface RefineScannerDraftRequestApi {
      */
     goal: string
     /**
-     * Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.
+     * The current draft's monthly credit budget, which sizes the dials when the change needs a re-solve. Takes any value `credit_limit` takes. Required unless `free_only` is true, and not allowed with it.
      * @minimum 1
-     * @maximum 100000000
+     * @maximum 2147483647
      */
     monthly_credit_budget?: number
     /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */

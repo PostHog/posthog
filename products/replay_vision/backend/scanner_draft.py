@@ -2183,15 +2183,8 @@ def refine_scanner_draft(
         pinned_experiment=experiment_pin,
         pinned_variants=variant_pin,
     )
-    if revised.scanner_type == "experiment" and current.scanner_type == "experiment":
-        # The draft always balances variants; a person who turned that off on review keeps their choice.
-        revised = replace(
-            revised,
-            scanner_config={
-                **revised.scanner_config,
-                "balance_variants": current.scanner_config.get("balance_variants", True),
-            },
-        )
+    if revised.scanner_type == current.scanner_type:
+        revised = replace(revised, scanner_config={**revised.scanner_config, **_undrafted_settings(current)})
     budget_named = parsed.monthly_credit_budget is not None and parsed.monthly_credit_budget > 0
     budget = min(parsed.monthly_credit_budget or 0, _MAX_REFINE_BUDGET) if budget_named else monthly_credit_budget
     revised = replace(
@@ -2230,6 +2223,22 @@ def refine_scanner_draft(
         )
     could_not = [line.strip()[:_MAX_COULD_NOT_LENGTH] for line in parsed.could_not if line.strip()][:_MAX_COULD_NOT]
     return ScannerDraftRefinement(draft=revised, changed_fields=_changed_fields(current, revised), could_not=could_not)
+
+
+# The config keys the model output sets. Any other key, such as a classifier's `allow_freeform_tags`, comes from
+# the manual editor and survives a refine that keeps the scanner type.
+_DRAFTED_CONFIG_KEYS = frozenset(
+    {"prompt", "allow_inconclusive", "tags", "multi_label", "scale", "length", "experiment_id", "variants"}
+)
+
+
+def _undrafted_settings(current: CurrentDraft) -> dict[str, Any]:
+    """The current config settings the model output cannot express, to keep when the type stays the same."""
+    kept = {key: value for key, value in current.scanner_config.items() if key not in _DRAFTED_CONFIG_KEYS}
+    if current.scanner_type == "experiment":
+        # The draft always balances variants; a person who turned that off on review keeps their choice.
+        kept["balance_variants"] = current.scanner_config.get("balance_variants", True)
+    return kept
 
 
 def _current_draft_briefing(current: CurrentDraft) -> dict[str, Any]:
