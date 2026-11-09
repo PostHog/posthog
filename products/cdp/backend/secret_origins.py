@@ -42,6 +42,9 @@ _DEFAULT_PORTS = {"http": "80", "https": "443"}
 _UNSAFE_AUTHORITY = re.compile(r"[@\\%\s\x00-\x1f\x7f]")
 _NUMERIC_LABEL = re.compile(r"^(\d+|0x[0-9a-f]*)$")
 _BY_NAME_OPTIONS = frozenset({"secret_headers_input", "standard_webhooks", "aws_sigv4"})
+# The worker copies a dict into a JS object key by key, so these keys can set its prototype, and option reads
+# such as `secret_headers_input` then find a value no key of the dict shows.
+_PROTOTYPE_KEYS = frozenset({"__proto__", "constructor", "prototype"})
 # Headers that route a request to a host other than the one in its URL, as on a CDN that serves many hosts.
 _HOST_HEADERS = frozenset({"host", ":authority"})
 _VALUE_CALLS = frozenset({"concat", "coalesce", "ifNull", "if"})
@@ -485,6 +488,8 @@ class _Analysis:
         except BaseHogQLError:
             return _UNKNOWN, mentioned
         nodes = list(_walk(expr))
+        if any(_is_unmodeled(node) for node in nodes):
+            raise _CannotAnalyze("unsupported_code")
         for key in {key for node in nodes if (key := _input_key(node)) is not None}:
             self._input(key, resolving)
         self.exits += [
@@ -595,8 +600,11 @@ class _Analysis:
             if depth == 0:
                 self.assignments.append((base, node.right))
             else:
+                keys = _assigned_keys(node.left)
+                if _PROTOTYPE_KEYS.intersection(key for key in keys if key is not None):
+                    raise _CannotAnalyze("unsupported_code")
                 self.member_assignments += [(base, depth, expr) for expr in (node.right, *_computed_keys(node.left))]
-                self.member_writes.append((base, _assigned_keys(node.left), node.right))
+                self.member_writes.append((base, keys, node.right))
         elif isinstance(node, ast.Function):
             if node.name in self.functions:
                 raise _CannotAnalyze("unsupported_code")
@@ -621,15 +629,13 @@ class _Analysis:
             self.fed_names += [(name, None) for name, _, _ in node.catches if name]
         elif isinstance(node, ast.ThrowStatement):
             self.exits.append(node.expr)
+        elif _is_unmodeled(node):
+            raise _CannotAnalyze("unsupported_code")
         elif isinstance(node, _COMPARISONS):
             self.comparisons.append(node)
         elif isinstance(node, ast.ExprCall):
             self.exits += node.args
         elif isinstance(node, ast.Call):
-            # In `f(a)(b)` the VM runs `f(a)` and then calls its result, so a second argument list is a call
-            # that this analysis does not model.
-            if node.params is not None:
-                raise _CannotAnalyze("unsupported_code")
             self.calls.append(node)
             if node.name == "fetch" and len(node.args) > 1:
                 options = node.args[1]
@@ -761,7 +767,7 @@ class _Analysis:
                 return None
             for name, header in value.items():
                 # The worker expands this key into more entries, which can include a Host header.
-                if not isinstance(name, str) or name == "$$_extend_object":
+                if not isinstance(name, str) or name == "$$_extend_object" or name in _PROTOTYPE_KEYS:
                     return None
                 if name.lower() not in _HOST_HEADERS:
                     continue
@@ -901,6 +907,16 @@ class _Analysis:
         if isinstance(node, ast.Call):
             taint |= self.taints.get(node.name, frozenset())
         return taint
+
+
+def _is_unmodeled(node: ast.AST) -> bool:
+    # In `f(a)(b)` the VM runs `f(a)` and then calls its result, so a second argument list is a call that
+    # this analysis does not model.
+    if isinstance(node, ast.Call):
+        return node.params is not None
+    return isinstance(node, ast.Dict) and any(
+        isinstance(key, ast.Constant) and key.value in _PROTOTYPE_KEYS for key, _ in node.items
+    )
 
 
 def _names_no_input(options: ast.Expr) -> bool:

