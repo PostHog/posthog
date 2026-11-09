@@ -4,13 +4,17 @@ import { FileSystemImport, ProductItemCategory } from '~/queries/schema/schema-g
 
 export type ReleaseStage = 'alpha' | 'beta' | 'internal'
 
-export type ReleaseStageProduct = Pick<FileSystemImport, 'category' | 'tags' | 'flag'>
+export type ReleaseStageProduct = Pick<FileSystemImport, 'category' | 'tags' | 'flag' | 'sceneKey'>
 
-export function releaseStage(product: ReleaseStageProduct): ReleaseStage | null {
+export function releaseStage(product: ReleaseStageProduct, selfDrivingUsageDisplay = false): ReleaseStage | null {
     if (product.category === ProductItemCategory.UNRELEASED) {
         return 'internal'
     }
-    return product.tags?.[0] ?? null
+    const stage = product.tags?.[0] ?? null
+    if (stage === 'beta' && product.sceneKey === 'Inbox' && selfDrivingUsageDisplay) {
+        return null
+    }
+    return stage
 }
 
 /**

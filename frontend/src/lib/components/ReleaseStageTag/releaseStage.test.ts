@@ -13,19 +13,21 @@ describe('releaseStage', () => {
         expect(releaseStage(product)).toEqual(expected)
     })
 
-    test.each<[string | null, string | null | undefined, ReleaseStage | null]>([
-        ['Pulse', 'Pulse', 'internal'],
-        ['Inbox', 'Self-driving inbox', 'beta'],
-        ['CustomerAnalytics', 'Customer analytics', 'beta'],
-        ['CustomerAnalyticsAccount', 'Acme Inc', null],
-        ['Dashboard', 'Dashboard', null],
-        ['AIObservability', 'AI observability', null],
-        ['AIObservabilityTags', 'Taggers', 'alpha'],
-        ['SQLEditor', 'SQL editor', null],
-        ['Pulse', undefined, null],
-        [null, 'Pulse', null],
-    ])('the %s scene titled %s shows %s', (sceneId, title, expected) => {
+    test.each<[string | null, string | null | undefined, ReleaseStage | null, boolean]>([
+        ['Pulse', 'Pulse', 'internal', false],
+        ['Inbox', 'Self-driving inbox', 'beta', false],
+        ['Inbox', 'Self-driving inbox', null, true],
+        ['CustomerAnalytics', 'Customer analytics', 'beta', false],
+        ['CustomerAnalytics', 'Customer analytics', 'beta', true],
+        ['CustomerAnalyticsAccount', 'Acme Inc', null, false],
+        ['Dashboard', 'Dashboard', null, false],
+        ['AIObservability', 'AI observability', null, false],
+        ['AIObservabilityTags', 'Taggers', 'alpha', false],
+        ['SQLEditor', 'SQL editor', null, false],
+        ['Pulse', undefined, null, false],
+        [null, 'Pulse', null, false],
+    ])('the %s scene titled %s shows %s with usage display %s', (sceneId, title, expected, selfDrivingUsageDisplay) => {
         const product = releaseStageProductForScene(sceneId, title)
-        expect(product ? releaseStage(product) : null).toEqual(expected)
+        expect(product ? releaseStage(product, selfDrivingUsageDisplay) : null).toEqual(expected)
     })
 })
