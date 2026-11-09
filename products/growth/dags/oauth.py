@@ -207,9 +207,16 @@ def clear_stale_oauth_applications(
 
     deleted = 0
     if not config.dry_run:
-        while ids := list(stale_oauth_applications(now).values_list("id", flat=True)[:batch_size]):
+        # Walk forward by primary key, so an app that is kept is checked once rather than again in
+        # every batch.
+        candidates = stale_oauth_applications(now).order_by("id")
+        last_id = None
+        while ids := list(
+            (candidates.filter(id__gt=last_id) if last_id else candidates).values_list("id", flat=True)[:batch_size]
+        ):
             # Re-check each batch, so an app that got a token after the count above is kept.
             deleted += OAuthApplication.objects.filter(id__in=ids).delete()[1].get(OAuthApplication._meta.label, 0)
+            last_id = ids[-1]
             context.log.debug(f"{deleted} stale OAuth applications deleted")
             time.sleep(batch_interval)
 

@@ -1,8 +1,9 @@
 from datetime import timedelta
 
 import time_machine
+from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 import dagster
@@ -16,6 +17,7 @@ from products.growth.dags.oauth import (
     ClearStaleOAuthApplicationsConfig,
     clear_stale_oauth_applications,
     oauth_clear_stale_oauth_applications_job,
+    stale_oauth_applications,
 )
 
 NOW = "2026-06-15 02:00:00"
@@ -81,6 +83,20 @@ class TestClearStaleOAuthApplications(TestCase):
         self._run()
 
         assert self._remaining(dcr, cimd, old_token_app, revoked_refresh_app) == set()
+
+    @override_settings(CLEAR_EXPIRED_TOKENS_BATCH_SIZE=1, CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL=0)
+    def test_every_stale_app_is_deleted_across_batches_with_kept_apps_between_them(self):
+        apps = [self._app() for _ in range(5)]
+        kept = apps[1::2]
+        for app in kept:
+            self._access_token(app, expires_days_ago=-1)
+
+        with patch("products.growth.dags.oauth.stale_oauth_applications", wraps=stale_oauth_applications) as select:
+            self._run()
+
+        assert self._remaining(*apps) == {a.pk for a in kept}
+        # One call for the count, then one for the batch walk, which pages forward by id.
+        assert select.call_count == 2
 
     def test_apps_with_a_token_valid_inside_the_grace_period_are_kept(self):
         live = self._app()
