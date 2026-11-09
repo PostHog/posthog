@@ -147,6 +147,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
     - POST /api/cli-auth/poll/         (no auth required)
     """
 
+    _ip_restrictions_use_view_scope = True
+
     def get_permissions(self):
         """Authorize endpoint requires auth, others don't"""
         if getattr(self, "action", None) == "authorize":
