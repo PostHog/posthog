@@ -903,8 +903,8 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     474: ErrorCodeMeta("INVALID_TEMPLATE_FORMAT"),
     475: ErrorCodeMeta(
         "INVALID_WITH_FILL_EXPRESSION",
-        user_safe="Invalid WITH FILL expression. Use constant FROM, TO, and STEP values with the same type as the "
-        "column you order by.",
+        user_safe="Invalid WITH FILL expression. FROM and TO must be constants of the same type as the column you "
+        "order by. STEP must be a number, or an interval such as INTERVAL 1 DAY for date and time columns.",
     ),
     476: ErrorCodeMeta("WITH_TIES_WITHOUT_ORDER_BY", user_safe=True),
     477: ErrorCodeMeta("INVALID_USAGE_OF_INPUT"),

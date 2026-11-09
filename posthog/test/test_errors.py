@@ -131,8 +131,8 @@ class TestWrapClickhouseQueryError:
             (
                 475,
                 "INVALID_WITH_FILL_EXPRESSION",
-                "Invalid WITH FILL expression. Use constant FROM, TO, and STEP values with the same type as the "
-                "column you order by.",
+                "Invalid WITH FILL expression. FROM and TO must be constants of the same type as the column you "
+                "order by. STEP must be a number, or an interval such as INTERVAL 1 DAY for date and time columns.",
             ),
             (
                 491,
