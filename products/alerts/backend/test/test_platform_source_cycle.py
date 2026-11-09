@@ -246,14 +246,20 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self.deliveries = evaluation.deliveries if evaluation is not None else ()
         return (evaluation.outcomes[0] if evaluation is not None else None), query
 
-    @parameterized.expand([("recorded_on_the_copy", True), ("not_yet_backfilled", False)])
-    def test_the_check_runs_as_the_creator_the_copy_records(self, _name: str, recorded: bool) -> None:
-        copy_creator = User.objects.create_and_join(self.organization, "copy-creator@example.com", None)
-        configuration = self._copy(self._alert(), created_by_id=copy_creator.id if recorded else None)
+    @parameterized.expand([("owner_taken_over_since_the_copy", True), ("not_yet_backfilled", False)])
+    def test_the_check_runs_as_the_alerts_current_owner_and_the_copy_follows(
+        self, _name: str, stale_creator: bool
+    ) -> None:
+        previous_owner = User.objects.create_and_join(self.organization, "previous-owner@example.com", None)
+        configuration = self._copy(self._alert(), created_by_id=previous_owner.id if stale_creator else None)
 
         _, query = self._evaluate(configuration, result=AlertEvaluationResult(value=1.0, breaches=[]))
 
-        assert query.call_args.args[0].created_by == (copy_creator if recorded else self.user)
+        with team_scope(self.team.id):
+            (copy,) = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], limit=10, offset=0
+            ).configurations
+        assert (query.call_args.args[0].created_by, copy.created_by_id) == (self.user, self.user.id)
 
     @parameterized.expand(
         [

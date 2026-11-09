@@ -213,7 +213,7 @@ _RECURRENCE: dict[str, tuple[int, str | None]] = {
 }
 
 # What an edit to an insight alert can change on its copy. The check refreshes these, and the due
-# time follows from them, so it is left to the next advance.
+# time follows from them, so it is left to the next advance. `take_ownership` changes the creator.
 SETTINGS_FIELDS: Final = (
     "name",
     "source_config",
@@ -221,6 +221,7 @@ SETTINGS_FIELDS: Final = (
     "check_interval_minutes",
     "recurrence_unit",
     "anchor_time",
+    "created_by_id",
 )
 
 

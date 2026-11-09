@@ -979,6 +979,7 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
         datapoints_to_alarm=upsert.datapoints_to_alarm,
         cooldown_minutes=upsert.cooldown_minutes,
         schedule_restriction=upsert.schedule_restriction,
+        created_by_id=upsert.created_by_id,
         # `update()` skips `auto_now`.
         updated_at=django_timezone.now(),
     )

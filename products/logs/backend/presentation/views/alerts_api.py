@@ -1514,8 +1514,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             row.id: row for row in rows.filter(id__in=[alert_id for _, alert_id, native in listed if not native])
         }
         native_ids = [alert_id for _, alert_id, native in listed if native]
-        for view in native_alert_views(self.team_id, native_ids):
-            loaded[view.id] = _listed_alert(view, team_id=self.team_id)
+        native_views = native_alert_views(self.team_id, native_ids)
+        # An alert built from a view has no queryset to prefetch its creator with.
+        creators = User.objects.in_bulk({view.created_by_id for view in native_views if view.created_by_id})
+        for view in native_views:
+            alert = _listed_alert(view, team_id=self.team_id)
+            alert.created_by = creators.get(view.created_by_id) if view.created_by_id else None
+            loaded[view.id] = alert
         # An alert deleted since its key was read drops out of the page rather than failing it.
         alerts = [loaded[alert_id] for _, alert_id, _ in listed if alert_id in loaded]
         data = self.get_serializer(alerts, many=True).data
