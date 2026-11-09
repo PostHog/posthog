@@ -14,64 +14,63 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.pagination import FacadeCursorPagination, StableCursorPagination
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.paging import CursorPageRequest, Page
 from posthog.queryset_paging import select_cursor_page
 
-from products.annotations.backend.models.annotation import Annotation
+
+class _MediaIdSerializer(serializers.Serializer):
+    id = serializers.CharField()
 
 
-class _AnnotationIdSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
+class _MediaView(GenericAPIView):
+    serializer_class = _MediaIdSerializer
 
 
-class _AnnotationView(GenericAPIView):
-    serializer_class = _AnnotationIdSerializer
-
-
-class _OrderableAnnotationView(_AnnotationView):
+class _OrderableMediaView(_MediaView):
     filter_backends = [OrderingFilter]
-    ordering_fields = ["date_marker", "created_at", "updated_at", "content", "id"]
+    ordering_fields = ["archived_at", "created_at", "file_name", "purpose", "id"]
 
 
-class _ByDateMarker(FacadeCursorPagination):
-    ordering = "-date_marker"
+class _ByArchivedAt(FacadeCursorPagination):
+    ordering = "-archived_at"
     page_size = 2
 
 
-class _ByDateMarkerQueryset(StableCursorPagination):
-    ordering = "-date_marker"
+class _ByArchivedAtQueryset(StableCursorPagination):
+    ordering = "-archived_at"
     page_size = 2
 
 
-class _ByDateMarkerOnDrf(CursorPagination):
-    ordering = ("-date_marker", "-id")
+class _ByArchivedAtOnDrf(CursorPagination):
+    ordering = ("-archived_at", "-id")
     page_size = 2
 
 
 class TestCursorPagination(BaseTest):
     def _page(self, mode: str, cursor: str | None) -> dict:
-        request = Request(APIRequestFactory().get("/annotations/", {"cursor": cursor} if cursor else {}))
-        view = _AnnotationView()
+        request = Request(APIRequestFactory().get("/media/", {"cursor": cursor} if cursor else {}))
+        view = _MediaView()
         view.request = request
         view.format_kwarg = None
-        queryset = Annotation.objects.filter(team=self.team)
+        queryset = UploadedMedia.objects.filter(team=self.team)
 
         if mode == "facade":
 
-            def fetch(page: CursorPageRequest) -> Page[Annotation]:
-                return select_cursor_page(queryset, page, ordering_fields={"date_marker"})
+            def fetch(page: CursorPageRequest) -> Page[UploadedMedia]:
+                return select_cursor_page(queryset, page, ordering_fields={"archived_at"})
 
-            return _ByDateMarker().get_paginated_facade_response(request, view, fetch).data
+            return _ByArchivedAt().get_paginated_facade_response(request, view, fetch).data
 
-        paginator = _ByDateMarkerQueryset()
+        paginator = _ByArchivedAtQueryset()
         rows = paginator.paginate_queryset(queryset, request, view)
-        return paginator.get_paginated_response(_AnnotationIdSerializer(rows, many=True).data).data
+        return paginator.get_paginated_response(_MediaIdSerializer(rows, many=True).data).data
 
-    def _drf_page_ids(self, cursor: str) -> list[int]:
-        request = Request(APIRequestFactory().get("/annotations/", {"cursor": cursor}))
-        rows = _ByDateMarkerOnDrf().paginate_queryset(Annotation.objects.filter(team=self.team), request)
+    def _drf_page_ids(self, cursor: str) -> list[str]:
+        request = Request(APIRequestFactory().get("/media/", {"cursor": cursor}))
+        rows = _ByArchivedAtOnDrf().paginate_queryset(UploadedMedia.objects.filter(team=self.team), request)
         assert rows is not None
-        return [row.id for row in rows]
+        return [str(row.id) for row in rows]
 
     def _cursor(self, link: str) -> str:
         return parse_qs(urlparse(link).query)["cursor"][0]
@@ -81,10 +80,10 @@ class TestCursorPagination(BaseTest):
         # A NULL sorts first in descending order, so the walk crosses from NULL rows into a tie group.
         shared_marker = datetime(2024, 1, 1, tzinfo=UTC)
         for marker in [None, None, shared_marker, shared_marker, shared_marker]:
-            Annotation.objects.create(team=self.team, content="note", date_marker=marker)
-        expected_ids = set(Annotation.objects.filter(team=self.team).values_list("id", flat=True))
+            UploadedMedia.objects.create(team=self.team, file_name="note", archived_at=marker)
+        expected_ids = {str(id) for id in UploadedMedia.objects.filter(team=self.team).values_list("id", flat=True)}
 
-        forward_pages: list[list[int]] = []
+        forward_pages: list[list[str]] = []
         page = self._page(mode, None)
         while True:
             assert page["count"] == 5
@@ -104,12 +103,15 @@ class TestCursorPagination(BaseTest):
 
     @parameterized.expand([("queryset",), ("facade",)])
     def test_reads_a_cursor_in_drfs_format(self, mode: str) -> None:
-        shared_marker = Annotation.objects.create(team=self.team, content="first").date_marker
-        for content in ["second", "third"]:
-            Annotation.objects.create(team=self.team, content=content, date_marker=shared_marker)
-        ids_newest_first = list(
-            Annotation.objects.filter(team=self.team).order_by("-date_marker", "-id").values_list("id", flat=True)
-        )
+        shared_marker = UploadedMedia.objects.create(team=self.team, file_name="first").archived_at
+        for file_name in ["second", "third"]:
+            UploadedMedia.objects.create(team=self.team, file_name=file_name, archived_at=shared_marker)
+        ids_newest_first = [
+            str(id)
+            for id in UploadedMedia.objects.filter(team=self.team)
+            .order_by("-archived_at", "-id")
+            .values_list("id", flat=True)
+        ]
 
         # DRF wrote "skip two rows from the start" as `o=2`; clients store such links.
         page = self._page(mode, b64encode(b"o=2").decode("ascii"))
@@ -121,7 +123,7 @@ class TestCursorPagination(BaseTest):
         newest = datetime(2024, 1, 3, tzinfo=UTC)
         shared = newest - timedelta(days=1)
         for marker in [newest, shared, shared, shared, shared, shared, shared - timedelta(days=1)]:
-            Annotation.objects.create(team=self.team, content="note", date_marker=marker)
+            UploadedMedia.objects.create(team=self.team, file_name="note", archived_at=marker)
 
         page = self._page(mode, None)
         cursors: list[str] = []
@@ -146,7 +148,7 @@ class TestCursorPagination(BaseTest):
             ),
             (
                 "id_the_field_cannot_hold",
-                b64encode(urlencode({"v": '["2024-01-01 00:00:00+00:00","not-an-integer"]'}).encode("ascii")).decode(
+                b64encode(urlencode({"v": '["2024-01-01 00:00:00+00:00","not-a-uuid"]'}).encode("ascii")).decode(
                     "ascii"
                 ),
             ),
@@ -158,9 +160,9 @@ class TestCursorPagination(BaseTest):
 
     def test_ordering_keeps_one_term_per_field_and_caps_the_field_count(self) -> None:
         def ordering_for(param: str) -> tuple[str, ...]:
-            request = Request(APIRequestFactory().get("/annotations/", {"ordering": param}))
-            return _ByDateMarkerQueryset().get_ordering(request, Annotation.objects.all(), _OrderableAnnotationView())
+            request = Request(APIRequestFactory().get("/media/", {"ordering": param}))
+            return _ByArchivedAtQueryset().get_ordering(request, UploadedMedia.objects.all(), _OrderableMediaView())
 
-        assert ordering_for("date_marker,-date_marker,date_marker") == ("date_marker", "id")
+        assert ordering_for("archived_at,-archived_at,archived_at") == ("archived_at", "id")
         with self.assertRaises(ValidationError):
-            ordering_for("date_marker,created_at,updated_at,content,-id")
+            ordering_for("archived_at,created_at,file_name,purpose,-id")
