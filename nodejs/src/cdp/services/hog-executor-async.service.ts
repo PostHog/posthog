@@ -6,8 +6,10 @@ import { logger } from '~/common/utils/logger'
 import { FetchOptions } from '~/common/utils/request'
 import { TeamManager } from '~/common/utils/team-manager'
 
+import type { CommonConfig } from '../../common/config'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
+import type { CdpConfig } from '../config'
 import type {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -27,6 +29,7 @@ import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
+import { SecretOriginGuard, countSecretOriginCheck } from '../utils/secret-origins'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
@@ -55,6 +58,33 @@ export interface HogExecutorAsyncConfig {
     fetchBackoffMaxMs: number
     siteUrl: string
     internalApiBaseUrl: string
+    secretOriginCheckObserveTeams: string
+    secretOriginCheckEnforceTeams: string
+}
+
+export function hogExecutorAsyncConfig(
+    config: Pick<
+        CdpConfig & CommonConfig,
+        | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
+        | 'CDP_FETCH_RETRIES'
+        | 'CDP_FETCH_BACKOFF_BASE_MS'
+        | 'CDP_FETCH_BACKOFF_MAX_MS'
+        | 'SITE_URL'
+        | 'INTERNAL_API_BASE_URL'
+        | 'CDP_SECRET_ORIGIN_CHECK_OBSERVE_TEAMS'
+        | 'CDP_SECRET_ORIGIN_CHECK_ENFORCE_TEAMS'
+    >
+): HogExecutorAsyncConfig {
+    return {
+        googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+        fetchRetries: config.CDP_FETCH_RETRIES,
+        fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
+        fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+        siteUrl: config.SITE_URL,
+        internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
+        secretOriginCheckObserveTeams: config.CDP_SECRET_ORIGIN_CHECK_OBSERVE_TEAMS,
+        secretOriginCheckEnforceTeams: config.CDP_SECRET_ORIGIN_CHECK_ENFORCE_TEAMS,
+    }
 }
 
 /**
@@ -96,7 +126,14 @@ export class HogExecutorAsyncService {
         public readonly hogExecutor: HogExecutorService,
         private config: HogExecutorAsyncConfig,
         private deps: HogExecutorAsyncDependencies
-    ) {}
+    ) {
+        this.secretOriginGuard = new SecretOriginGuard({
+            observeTeams: config.secretOriginCheckObserveTeams,
+            enforceTeams: config.secretOriginCheckEnforceTeams,
+        })
+    }
+
+    private readonly secretOriginGuard: SecretOriginGuard
 
     @instrumented('hog-executor.executeWithAsyncFunctions')
     async executeWithAsyncFunctions(
@@ -455,7 +492,7 @@ export class HogExecutorAsyncService {
         // regenerated here and never persisted back to queueParameters. Credential
         // resolution + missing-input handling live in `aws-sigv4.ts` — see
         // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
-        const failSigning = (error: string): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
+        const failFetch = (error: string): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
             addLog('error', error)
             result.error = new Error(error)
             result.finished = true
@@ -469,7 +506,7 @@ export class HogExecutorAsyncService {
         if (params.secret_headers_input) {
             const resolved = resolveSecretHeaders(params.secret_headers_input, invocation.hogFunction)
             if (!resolved.ok) {
-                return failSigning(resolved.error)
+                return failFetch(resolved.error)
             }
             signedHeaders = mergeSecretHeaders(signedHeaders, resolved.headers)
         }
@@ -477,7 +514,7 @@ export class HogExecutorAsyncService {
         if (params.aws_sigv4) {
             const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
             if (!resolved.ok) {
-                return failSigning(resolved.error)
+                return failFetch(resolved.error)
             }
             signedHeaders = signAwsRequest({
                 method,
@@ -497,7 +534,7 @@ export class HogExecutorAsyncService {
         if (params.standard_webhooks) {
             const resolved = resolveStandardWebhooksKey(params.standard_webhooks, invocation.hogFunction)
             if (!resolved.ok) {
-                return failSigning(resolved.error)
+                return failFetch(resolved.error)
             }
             signedHeaders = signStandardWebhooksRequest({
                 webhookId: params.standard_webhooks.webhook_id,
@@ -507,10 +544,26 @@ export class HogExecutorAsyncService {
             })
         }
 
+        const requestBody = !['GET', 'HEAD'].includes(method) && params.body ? params.body : undefined
         const fetchParams: FetchOptions = { method, headers: signedHeaders }
+        if (requestBody) {
+            fetchParams.body = requestBody
+        }
 
-        if (!['GET', 'HEAD'].includes(method) && params.body) {
-            fetchParams.body = params.body
+        const originCheck = this.secretOriginGuard.check(invocation.hogFunction, {
+            url: params.url,
+            headers: signedHeaders,
+            body: requestBody,
+            params,
+        })
+        if (!invocation.state.attempts) {
+            countSecretOriginCheck(originCheck)
+        }
+        const { refusal } = originCheck
+        if (refusal) {
+            return failFetch(
+                `Refused to send the request to ${refusal.origin} because it contains the secret input ${refusal.inputKey}, which can only be sent to the addresses saved with it. To send it to ${refusal.origin}, enter the secret again in this destination and save.`
+            )
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({

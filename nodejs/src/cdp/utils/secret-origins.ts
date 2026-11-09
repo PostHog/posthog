@@ -1,0 +1,334 @@
+import { LRUCache } from 'lru-cache'
+import { Counter } from 'prom-client'
+
+import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
+import { buildIntegerMatcher } from '~/common/config/matchers'
+import { logger } from '~/common/utils/logger'
+
+import { HogFunctionInputSchemaType, HogFunctionType } from '../types'
+
+type SecretOriginCheckMode = 'observe' | 'enforce'
+
+type SecretOriginOutcome = 'allowed' | 'unbound' | 'unbound_missing' | 'mismatch' | 'error'
+
+export type SecretOriginRequest = {
+    url: string
+    headers: Record<string, string>
+    body: string | undefined
+    params: Pick<
+        CyclotronInvocationQueueParametersFetchType,
+        'secret_headers_input' | 'standard_webhooks' | 'aws_sigv4'
+    >
+}
+
+export type SecretOriginRefusal = { inputKey: string; origin: string }
+
+export type SecretOriginCheck = {
+    mode: SecretOriginCheckMode
+    outcomes: SecretOriginOutcome[]
+    refusal: SecretOriginRefusal | null
+}
+
+type CarriedSecret = { inputKey: string; origin: string; outcome: SecretOriginOutcome }
+
+type CarriedSecrets = { carried: CarriedSecret[]; redact: (origin: string) => string }
+
+const NOTHING_CARRIED: CarriedSecrets = { carried: [], redact: (origin) => origin }
+
+type CheckedHogFunction = Pick<
+    HogFunctionType,
+    'id' | 'team_id' | 'template_id' | 'bytecode' | 'inputs' | 'inputs_schema' | 'mappings' | 'encrypted_inputs'
+>
+
+// A shorter value matches too much unrelated text in a URL, header or body, such as a JSON key or a path segment.
+const MIN_SCANNED_SECRET_LENGTH = 8
+
+const REDACTED = '***REDACTED***'
+
+export const secretOriginCheckCounter = new Counter({
+    name: 'cdp_secret_origin_check_total',
+    help: 'Stored secrets the first attempt of a fetch carries, by whether the request origin is one the secret was saved for. Functions whose secrets all predate stored origins are not counted.',
+    labelNames: ['outcome', 'mode'],
+})
+
+export function countSecretOriginCheck({ mode, outcomes }: SecretOriginCheck): void {
+    for (const outcome of outcomes) {
+        secretOriginCheckCounter.inc({ outcome, mode })
+    }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+// Must produce the origins that `url_origin` in products/cdp/backend/secret_origins.py stores.
+export function requestOrigin(url: string): string | null {
+    let parsed: URL
+    try {
+        parsed = new URL(url)
+    } catch {
+        return null
+    }
+    // A loop and not /\.+$/, because that regex backtracks in quadratic time on a long run of dots.
+    let end = parsed.hostname.length
+    while (end > 0 && parsed.hostname[end - 1] === '.') {
+        end--
+    }
+    const port = parsed.port ? `:${parsed.port}` : ''
+    return `${parsed.protocol}//${parsed.hostname.slice(0, end)}${port}`
+}
+
+function namedSecretInputs(params: SecretOriginRequest['params']): Set<string | undefined> {
+    return new Set([
+        params.secret_headers_input,
+        params.standard_webhooks?.secret_input,
+        params.aws_sigv4?.access_key_id_input,
+        params.aws_sigv4?.secret_access_key_input,
+        params.aws_sigv4?.session_token_input,
+    ])
+}
+
+function textLeaves(value: unknown, withKeys = false): string[] {
+    if (typeof value === 'string') {
+        return [value]
+    }
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? [String(value)] : []
+    }
+    if (Array.isArray(value)) {
+        return value.flatMap((item) => textLeaves(item, withKeys))
+    }
+    if (!isRecord(value)) {
+        return []
+    }
+    return Object.entries(value).flatMap(([key, item]) => [...(withKeys ? [key] : []), ...textLeaves(item, withKeys)])
+}
+
+// Mirrors `exposes_secret_dictionary_keys` in products/cdp/backend/validation.py. The editor shows only these keys, so
+// the keys of every other secret dictionary are secret text.
+function exposesSecretDictionaryKeys(inputKey: string, schema: HogFunctionInputSchemaType[]): boolean {
+    if (!inputKey.startsWith('secret_')) {
+        return false
+    }
+    const plainKey = inputKey.slice('secret_'.length)
+    return (
+        schema.some((field) => field.key === inputKey && field.type === 'dictionary') &&
+        schema.some((field) => field.key === plainKey && field.type === 'dictionary' && !field.secret)
+    )
+}
+
+function inputTexts(
+    inputs: Record<string, unknown> | null | undefined,
+    schema: HogFunctionInputSchemaType[] | undefined
+): string[] {
+    // A secret saved before inputs were encrypted still sits in plain `inputs`, so it is not a public value.
+    const secretKeys = new Set((schema ?? []).filter((field) => field.secret).map((field) => field.key))
+    return Object.entries(inputs ?? {})
+        .filter(([key]) => !secretKeys.has(key))
+        .flatMap(([, input]) => textLeaves(isRecord(input) ? input.value : null, true))
+}
+
+function publicTexts(hogFunction: CheckedHogFunction): Set<string> {
+    return new Set([
+        ...textLeaves(hogFunction.bytecode),
+        ...inputTexts(hogFunction.inputs, hogFunction.inputs_schema),
+        ...(hogFunction.mappings ?? []).flatMap((mapping) => inputTexts(mapping.inputs, mapping.inputs_schema)),
+    ])
+}
+
+function originOutcome(allowedOrigins: unknown, origin: string): SecretOriginOutcome {
+    if (allowedOrigins === '*') {
+        return 'unbound'
+    }
+    if (!Array.isArray(allowedOrigins)) {
+        return 'unbound_missing'
+    }
+    return allowedOrigins.includes(origin) ? 'allowed' : 'mismatch'
+}
+
+function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRequest): CarriedSecrets {
+    const encryptedInputs: unknown = hogFunction.encrypted_inputs
+    if (!isRecord(encryptedInputs)) {
+        return NOTHING_CARRIED
+    }
+    const hasStoredOrigins = Object.values(encryptedInputs).some(
+        (input) => isRecord(input) && input.allowed_origins !== undefined
+    )
+    const origins = hasStoredOrigins ? routedOrigins(request) : []
+    if (!origins.length) {
+        return NOTHING_CARRIED
+    }
+
+    const named = namedSecretInputs(request.params)
+    // Text the function also holds in hog code or a plain input, such as `Content-Type` in both the plain and the secret
+    // headers, leaks nothing. Without this, an enforced team could not send such text to a second origin at all.
+    const knownTexts = publicTexts(hogFunction)
+    const sentTexts = [
+        request.url,
+        ...Object.keys(request.headers),
+        ...Object.values(request.headers),
+        request.body ?? '',
+    ]
+    const isSent = (secret: string): boolean =>
+        secret.length >= MIN_SCANNED_SECRET_LENGTH &&
+        !knownTexts.has(secret) &&
+        sentTexts.some((text) => typeof text === 'string' && text.includes(secret))
+
+    const schema = hogFunction.inputs_schema ?? []
+    const secretTexts = (inputKey: string, input: unknown): string[] =>
+        isRecord(input) ? textLeaves(input.value, !exposesSecretDictionaryKeys(inputKey, schema)) : []
+    const carried: CarriedSecret[] = []
+    for (const [inputKey, input] of Object.entries(encryptedInputs)) {
+        if (!isRecord(input)) {
+            continue
+        }
+        if (named.has(inputKey) || secretTexts(inputKey, input).some(isSent)) {
+            const checked = origins.map((origin) => ({ origin, outcome: originOutcome(input.allowed_origins, origin) }))
+            const { origin, outcome } = checked.find(({ outcome }) => outcome === 'mismatch') ?? checked[0]
+            carried.push({ inputKey, origin, outcome })
+        }
+    }
+    let redactor: ((origin: string) => string) | undefined
+    const redact = (origin: string): string =>
+        (redactor ??= secretRedactor(
+            Object.entries(encryptedInputs).flatMap(([inputKey, input]) => secretTexts(inputKey, input))
+        ))(origin)
+    return { carried, redact }
+}
+
+// Headers the HTTP client reads as the request authority. Undici takes the TLS server name and the HTTP/2 `:authority`
+// from `host`, so a request can reach a host other than the one in its URL on a server that routes by either.
+const AUTHORITY_HEADERS = new Set(['host', ':authority'])
+
+function routedOrigins(request: SecretOriginRequest): string[] {
+    const urlOrigin = requestOrigin(request.url)
+    if (!urlOrigin) {
+        return []
+    }
+    const protocol = new URL(request.url).protocol
+    const overrides = Object.entries(request.headers)
+        .filter(([name, value]) => AUTHORITY_HEADERS.has(name.toLowerCase()) && typeof value === 'string')
+        .map(([, value]) => authorityOrigin(protocol, value))
+    return [urlOrigin, ...overrides]
+}
+
+function authorityOrigin(protocol: string, authority: string): string {
+    const value = authority.trim()
+    // The URL parser reads a host out of userinfo, a path or a fragment, but the server reads the whole value. Such a
+    // value keeps its raw form, which no stored origin can equal.
+    const parsed = /[/?#@\\\s]/.test(value) ? null : requestOrigin(`${protocol}//${value}`)
+    return parsed ?? `${protocol}//${value.toLowerCase()}`
+}
+
+// A longer origin is shown as REDACTED_ORIGIN unscanned, so redaction work stays bounded when the request controls the
+// host. A host name has at most 253 characters, so a real origin fits.
+const MAX_SCANNED_ORIGIN_LENGTH = 512
+
+const REDACTED_ORIGIN = '[redacted origin]'
+
+// A named input is checked at any length, so every secret is redacted. Plain string matching, because a regular
+// expression built from a long secret throws, and its message holds the secret.
+function secretRedactor(secrets: string[]): (origin: string) => string {
+    const lowered = [...new Set(secrets.map((secret) => secret.toLowerCase()))].filter(
+        (secret) => secret.length > 0 && secret.length <= MAX_SCANNED_ORIGIN_LENGTH
+    )
+    return (origin) => {
+        if (origin.length > MAX_SCANNED_ORIGIN_LENGTH) {
+            return REDACTED_ORIGIN
+        }
+        const text = origin.toLowerCase()
+        const longestAt = new Array<number>(text.length).fill(0)
+        for (const secret of lowered) {
+            for (let start = text.indexOf(secret); start !== -1; start = text.indexOf(secret, start + 1)) {
+                longestAt[start] = Math.max(longestAt[start], secret.length)
+            }
+        }
+        let shown = ''
+        for (let index = 0; index < text.length; index += longestAt[index] || 1) {
+            shown += longestAt[index] ? REDACTED : text[index]
+        }
+        return shown
+    }
+}
+
+type SecretInput = NonNullable<HogFunctionType['inputs']>[string]
+
+// Reads only own entries, because `inputs['__proto__']` on an object without that key returns `Object.prototype`.
+function ownEntry(inputs: unknown, key: string): SecretInput | undefined {
+    return isRecord(inputs) && Object.hasOwn(inputs, key) ? (inputs[key] as SecretInput) : undefined
+}
+
+// Picks secrets as `HogFunction.move_secret_inputs` does on save, so a test never sends a cached secret under a binding
+// Django did not check for the tested code.
+export function testedSecretInputs(
+    configuration: Pick<HogFunctionType, 'inputs' | 'inputs_schema' | 'encrypted_inputs'>
+): NonNullable<HogFunctionType['encrypted_inputs']> {
+    const tested: NonNullable<HogFunctionType['encrypted_inputs']> = {}
+    for (const { key, secret } of configuration.inputs_schema ?? []) {
+        const input = ownEntry(configuration.inputs, key) ?? ownEntry(configuration.encrypted_inputs, key)
+        if (secret && input) {
+            // An assignment to `__proto__` sets the prototype and adds no entry, so the guard would not see the secret.
+            Object.defineProperty(tested, key, { value: input, enumerable: true, writable: true, configurable: true })
+        }
+    }
+    return tested
+}
+
+// Fails open on an internal error, because a refused request is a lost delivery.
+export class SecretOriginGuard {
+    private readonly observedForTeam: (teamId: number) => boolean
+    private readonly enforcedForTeam: (teamId: number) => boolean
+    private readonly warned = new LRUCache<string, true>({ max: 10_000, ttl: 15 * 60 * 1000 })
+
+    constructor({ observeTeams, enforceTeams }: { observeTeams: string; enforceTeams: string }) {
+        this.observedForTeam = buildIntegerMatcher(observeTeams.trim(), true)
+        this.enforcedForTeam = buildIntegerMatcher(enforceTeams.trim(), true)
+    }
+
+    check(hogFunction: CheckedHogFunction, request: SecretOriginRequest): SecretOriginCheck {
+        const enforced = this.enforcedForTeam(hogFunction.team_id)
+        if (!enforced && !this.observedForTeam(hogFunction.team_id)) {
+            return { mode: 'observe', outcomes: [], refusal: null }
+        }
+        const mode = enforced ? 'enforce' : 'observe'
+        try {
+            const { carried, redact } = carriedSecrets(hogFunction, request)
+            const mismatches = carried
+                .filter(({ outcome }) => outcome === 'mismatch')
+                .map(({ inputKey, origin }) => ({ inputKey, origin: redact(origin) }))
+            for (const { inputKey, origin } of mismatches) {
+                this.warn(hogFunction, inputKey, origin, mode)
+            }
+            const [refused] = mismatches
+            return {
+                mode,
+                outcomes: carried.map(({ outcome }) => outcome),
+                refusal: mode === 'enforce' && refused ? { inputKey: refused.inputKey, origin: refused.origin } : null,
+            }
+        } catch (error) {
+            // Only the name, because a message can quote the secret text that caused it.
+            logger.warn('🦔', '[HogExecutor] Secret origin check skipped due to an internal error', {
+                error: error instanceof Error ? error.name : 'unknown',
+                teamId: hogFunction.team_id,
+                functionId: hogFunction.id,
+            })
+            return { mode, outcomes: ['error'], refusal: null }
+        }
+    }
+
+    private warn(hogFunction: CheckedHogFunction, inputKey: string, origin: string, mode: SecretOriginCheckMode): void {
+        const key = `${hogFunction.id}:${inputKey}:${origin}`
+        if (this.warned.has(key)) {
+            return
+        }
+        this.warned.set(key, true)
+        logger.warn('🦔', '[HogExecutor] Secret input sent to an origin it was not saved for', {
+            teamId: hogFunction.team_id,
+            functionId: hogFunction.id,
+            templateId: hogFunction.template_id,
+            inputKey,
+            origin,
+            mode,
+        })
+    }
+}

@@ -117,6 +117,7 @@ describe('CDP API', () => {
         })
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
         team = await getFirstTeam(hub.postgres)
+        hub.CDP_SECRET_ORIGIN_CHECK_ENFORCE_TEAMS = String(team.id)
 
         cdpDeps = createCdpConsumerDeps(hub)
         api = new CdpApi(
@@ -664,6 +665,90 @@ describe('CDP API', () => {
             workflow_id: 'flow-1',
             invocation_id: 'run-1',
             workflow_version: 3,
+        })
+    })
+
+    describe('a stored secret bound to an origin', () => {
+        const SECRET = 'sk_test_origin_0000000000'
+        const GOOD_URL = 'https://good.example/send'
+        const EVIL_URL = 'https://evil.example/send'
+        const HOG = `fetch(inputs.url, {'method': 'POST', 'body': {'key': inputs.api_key}})`
+        const SCHEMA = [
+            { key: 'url', type: 'string', label: 'URL', required: true },
+            { key: 'api_key', type: 'string', label: 'API key', secret: true, required: true },
+        ] as HogFunctionType['inputs_schema']
+
+        beforeEach(() => {
+            mockFetch.mockImplementation(() =>
+                Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                })
+            )
+        })
+
+        it.each<{
+            case: string
+            storedUrl: string
+            configuration?: Partial<HogFunctionType>
+            fetches: number
+            sendsStoredSecret: boolean
+        }>([
+            { case: 'is sent to its saved origin', storedUrl: GOOD_URL, fetches: 1, sendsStoredSecret: true },
+            { case: 'is refused for another origin', storedUrl: EVIL_URL, fetches: 0, sendsStoredSecret: false },
+            {
+                case: 'is not sent by a tested configuration that no longer marks it secret',
+                storedUrl: GOOD_URL,
+                configuration: {
+                    inputs_schema: SCHEMA!.map((field) => ({ ...field, secret: false })),
+                    inputs: { url: { value: EVIL_URL } },
+                },
+                fetches: 1,
+                sendsStoredSecret: false,
+            },
+            {
+                case: 'is not sent in place of the replacement a tested configuration binds to another origin',
+                storedUrl: GOOD_URL,
+                configuration: {
+                    inputs_schema: SCHEMA,
+                    inputs: {
+                        url: { value: EVIL_URL },
+                        api_key: { value: 'sk_replacement_000000', allowed_origins: ['https://evil.example'] },
+                    } as HogFunctionType['inputs'],
+                },
+                fetches: 1,
+                sendsStoredSecret: false,
+            },
+        ])('$case', async ({ storedUrl, configuration, fetches, sendsStoredSecret }) => {
+            const stored = await insertHogFunction({
+                name: 'bound secret',
+                type: 'destination',
+                hog: HOG,
+                bytecode: await compileHog(HOG),
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                inputs_schema: SCHEMA,
+                inputs: { url: { value: storedUrl } },
+                // Stored as Django saves it: one encrypted JSON object of the secret inputs and their bound origins.
+                encrypted_inputs: hub.encryptedFields.encrypt(
+                    JSON.stringify({ api_key: { value: SECRET, allowed_origins: ['https://good.example'] } })
+                ) as any,
+            })
+
+            const res = await supertest(app)
+                .post(`/api/projects/${stored.team_id}/hog_functions/${stored.id}/invocations`)
+                .send({ globals, mock_async_functions: false, configuration })
+
+            expect(res.status).toEqual(200)
+            expect(mockFetch).toHaveBeenCalledTimes(fetches)
+            expect(JSON.stringify(mockFetch.mock.calls).includes(SECRET)).toBe(sendsStoredSecret)
+            if (!fetches) {
+                expect(res.body.errors).toEqual([
+                    expect.stringContaining('only be sent to the addresses saved with it'),
+                ])
+            }
         })
     })
 

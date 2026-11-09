@@ -12,7 +12,7 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { logger } from '~/common/utils/logger'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
-import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
+import { HogExecutorAsyncConfig, HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
 import { RecipientsManagerService } from '../../../src/cdp/services/managers/recipients-manager.service'
@@ -39,6 +39,7 @@ import {
 } from '../_tests/fixtures'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
 import { EncryptedFields } from '../utils/encryption-utils'
+import { secretOriginCheckCounter } from '../utils/secret-origins'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
@@ -67,7 +68,10 @@ describe('Hog Executor', () => {
     let executor: HogExecutorAsyncService
     let hub: Hub
 
-    const createExecutor = (encryptedFields: EncryptedFields): HogExecutorAsyncService => {
+    const createExecutor = (
+        encryptedFields: EncryptedFields,
+        configOverrides: Partial<HogExecutorAsyncConfig> = {}
+    ): HogExecutorAsyncService => {
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
@@ -102,6 +106,9 @@ describe('Hog Executor', () => {
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
                 internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
+                secretOriginCheckObserveTeams: hub.CDP_SECRET_ORIGIN_CHECK_OBSERVE_TEAMS,
+                secretOriginCheckEnforceTeams: hub.CDP_SECRET_ORIGIN_CHECK_ENFORCE_TEAMS,
+                ...configOverrides,
             },
             {
                 teamManager: hub.teamManager,
@@ -1805,6 +1812,492 @@ describe('Hog Executor', () => {
                 expect(mockRequest).not.toHaveBeenCalled()
                 expect(result.error).toBeInstanceOf(Error)
                 expect(result.error.message).toContain('secret_headers')
+            })
+        })
+
+        describe('secret origin check', () => {
+            const SECRET = 'sk_test_origin_0000000000'
+            const HOST_SECRET = 'Sk_Test_Origin_0000000000'
+            // Shorter than the value scan matches, so only a named secret input carries it.
+            const SHORT_SECRET = 'Qz7x9k'
+            const NUMERIC_SECRET = 418302957716
+            // Longer than a regular expression built from it may be.
+            const LONG_SECRET = 'k'.repeat(40_000)
+
+            const readCount = async (outcome: string, mode: string): Promise<number> => {
+                const metric = await secretOriginCheckCounter.get()
+                return metric.values.find((v) => v.labels.outcome === outcome && v.labels.mode === mode)?.value ?? 0
+            }
+
+            const readTotal = async (): Promise<number> =>
+                (await secretOriginCheckCounter.get()).values.reduce((sum, v) => sum + v.value, 0)
+
+            type Carry =
+                | 'body'
+                | 'secret_headers'
+                | 'secret_header_value'
+                | 'header_name'
+                | 'aws_sigv4'
+                | 'standard_webhooks'
+                | 'body_beside_bound_secret'
+                | 'dictionary_entry'
+                | 'dictionary_key'
+                | 'numeric_value'
+                | 'numeric_leaf'
+                | 'paired_dictionary_key'
+                | 'plain_value_of_dictionary_entry'
+                | 'hardcoded_value_of_dictionary_entry'
+                | 'mapping_value_of_dictionary_entry'
+
+            const secretInvocation = async (
+                url: string,
+                allowedOrigins: unknown,
+                carry: Carry = 'body',
+                secret: string = SECRET
+            ): Promise<CyclotronJobInvocationHogFunction> => {
+                const bind = (value: unknown): Record<string, unknown> =>
+                    allowedOrigins === undefined ? { value } : { value, allowed_origins: allowedOrigins }
+                const byCarry: Record<
+                    Carry,
+                    {
+                        params: Partial<CyclotronInvocationQueueParametersFetchType>
+                        inputs: Record<string, unknown>
+                        boundInputs?: Record<string, unknown>
+                        hogFunction?: Partial<HogFunctionType>
+                    }
+                > = {
+                    body: { params: { body: JSON.stringify({ key: secret }) }, inputs: { api_key: secret } },
+                    body_beside_bound_secret: {
+                        params: { body: JSON.stringify({ key: secret }) },
+                        inputs: { api_key: secret },
+                        boundInputs: {
+                            other_key: { value: 'unsent_secret_value', allowed_origins: ['https://elsewhere.example'] },
+                        },
+                    },
+                    header_name: { params: { headers: { [secret]: '1' } }, inputs: { api_key: secret } },
+                    secret_header_value: {
+                        params: { secret_headers_input: 'api_key' },
+                        inputs: { api_key: { 'X-Api-Key': secret } },
+                    },
+                    secret_headers: {
+                        params: { secret_headers_input: 'api_key' },
+                        inputs: { api_key: { Authorization: `Bearer ${secret}` } },
+                    },
+                    aws_sigv4: {
+                        params: {
+                            aws_sigv4: {
+                                service: 'kinesis',
+                                region: 'us-east-1',
+                                access_key_id_input: 'aws_access_key_id',
+                                secret_access_key_input: 'aws_secret_access_key',
+                            },
+                        },
+                        inputs: {
+                            aws_access_key_id: 'AKIDEXAMPLE',
+                            aws_secret_access_key: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
+                        },
+                    },
+                    standard_webhooks: {
+                        params: { standard_webhooks: { secret_input: 'signing_secret', webhook_id: 'msg_1' } },
+                        inputs: { signing_secret: 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw' },
+                    },
+                    dictionary_entry: {
+                        params: { body: JSON.stringify({ token: secret }) },
+                        inputs: { api_key: { 'Content-Type': 'application/json', Authorization: secret } },
+                    },
+                    dictionary_key: {
+                        params: { body: JSON.stringify({ [secret]: true }) },
+                        inputs: { api_key: { [secret]: 'on' } },
+                    },
+                    numeric_value: {
+                        params: { body: JSON.stringify({ id: NUMERIC_SECRET }) },
+                        inputs: { api_key: NUMERIC_SECRET },
+                    },
+                    numeric_leaf: {
+                        params: { body: JSON.stringify({ id: NUMERIC_SECRET }) },
+                        inputs: { api_key: { account_number: NUMERIC_SECRET } },
+                    },
+                    // The editor lists the keys of a `secret_<key>` dictionary paired with a plain `<key>` dictionary.
+                    paired_dictionary_key: {
+                        params: { headers: { 'X-Partner-Token': 'public' } },
+                        inputs: { secret_headers: { 'X-Partner-Token': 'on' } },
+                        hogFunction: {
+                            inputs_schema: [
+                                { type: 'dictionary', key: 'headers' },
+                                { type: 'dictionary', key: 'secret_headers', secret: true },
+                            ],
+                        },
+                    },
+                    plain_value_of_dictionary_entry: {
+                        params: { headers: { 'Content-Type': 'application/json' } },
+                        inputs: { api_key: { 'Content-Type': 'application/json', Authorization: secret } },
+                        hogFunction: { inputs: { headers: { value: { 'Content-Type': 'application/json' } } } },
+                    },
+                    hardcoded_value_of_dictionary_entry: {
+                        params: { headers: { 'Content-Type': 'application/json' } },
+                        inputs: { api_key: { 'Content-Type': 'application/json', Authorization: secret } },
+                        hogFunction: {
+                            bytecode: await compileHog(`return {'headers': {'Content-Type': 'application/json'}}`),
+                        },
+                    },
+                    mapping_value_of_dictionary_entry: {
+                        params: { headers: { 'Content-Type': 'application/json' } },
+                        inputs: { api_key: { 'Content-Type': 'application/json', Authorization: secret } },
+                        hogFunction: {
+                            mappings: [{ inputs: { headers: { value: { 'Content-Type': 'application/json' } } } }],
+                        },
+                    },
+                }
+                const { params, inputs, boundInputs, hogFunction: overrides } = byCarry[carry]
+                const invocation = await createFetchInvocation({ url, method: 'POST', body: '{}', ...params })
+                Object.assign(invocation.hogFunction, overrides)
+                invocation.hogFunction.encrypted_inputs = {
+                    ...Object.fromEntries(Object.entries(inputs).map(([key, value]) => [key, bind(value)])),
+                    ...boundInputs,
+                } as any
+                return invocation
+            }
+
+            const enforcingExecutor = (): HogExecutorAsyncService =>
+                createExecutor(hub.encryptedFields, { secretOriginCheckEnforceTeams: '*' })
+
+            it.each([
+                { case: 'an allowed origin', allowed: 'own', carry: 'body', outcome: 'allowed' },
+                { case: 'another origin', allowed: ['https://elsewhere.example'], carry: 'body', outcome: 'mismatch' },
+                {
+                    case: 'another origin by secret header name',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'secret_headers',
+                    outcome: 'mismatch',
+                },
+                { case: 'an unbound secret', allowed: '*', carry: 'body', outcome: 'unbound' },
+                {
+                    case: 'a secret saved before binding beside a bound one',
+                    allowed: undefined,
+                    carry: 'body_beside_bound_secret',
+                    outcome: 'unbound_missing',
+                },
+            ] as const)('observe: sends and counts $case', async ({ allowed, carry, outcome }) => {
+                const invocation = await secretInvocation(
+                    `${baseUrl}/`,
+                    allowed === 'own' ? [new URL(baseUrl).origin] : allowed,
+                    carry
+                )
+                const before = await readCount(outcome, 'observe')
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(mockRequest).toHaveBeenCalledTimes(1)
+                expect(result.error).toBeUndefined()
+                expect(await readCount(outcome, 'observe')).toBe(before + 1)
+            })
+
+            it.each([
+                {
+                    case: 'the team is in neither list',
+                    config: { secretOriginCheckObserveTeams: '', secretOriginCheckEnforceTeams: '' },
+                    allowed: [],
+                    attempts: 0,
+                    warns: false,
+                },
+                { case: 'a retry', config: {}, allowed: [], attempts: 1, warns: true },
+                {
+                    case: 'secrets saved before binding',
+                    config: {},
+                    allowed: undefined,
+                    attempts: 0,
+                    warns: false,
+                },
+            ])('sends and counts nothing when $case', async ({ config, allowed, attempts, warns }) => {
+                const warn = jest.spyOn(logger, 'warn')
+                const invocation = await secretInvocation(`${baseUrl}/`, allowed)
+                invocation.state.attempts = attempts
+                const before = await readTotal()
+
+                const result = await createExecutor(hub.encryptedFields, config).executeFetch(invocation)
+
+                expect(mockRequest).toHaveBeenCalledTimes(1)
+                expect(result.error).toBeUndefined()
+                expect(await readTotal()).toBe(before)
+                expect(warn.mock.calls.some(([, , context]) => context?.inputKey === 'api_key')).toBe(warns)
+            })
+
+            it('sends and counts under observe for a team outside the enforce list', async () => {
+                const invocation = await secretInvocation(`${baseUrl}/`, ['https://elsewhere.example'])
+                const before = await readCount('mismatch', 'observe')
+
+                const result = await createExecutor(hub.encryptedFields, {
+                    secretOriginCheckEnforceTeams: '999999',
+                }).executeFetch(invocation)
+
+                expect(mockRequest).toHaveBeenCalledTimes(1)
+                expect(result.error).toBeUndefined()
+                expect(await readCount('mismatch', 'observe')).toBe(before + 1)
+            })
+
+            it('warns once for repeated fetches to the same mismatched origin', async () => {
+                const warn = jest.spyOn(logger, 'warn')
+                const observingExecutor = createExecutor(hub.encryptedFields)
+
+                for (let i = 0; i < 2; i++) {
+                    await observingExecutor.executeFetch(
+                        await secretInvocation(`${baseUrl}/`, ['https://elsewhere.example'])
+                    )
+                }
+
+                expect(warn.mock.calls.filter(([, , context]) => context?.inputKey === 'api_key')).toHaveLength(1)
+            })
+
+            it.each([
+                {
+                    case: 'a mismatched body secret',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'body',
+                    sent: false,
+                },
+                {
+                    case: 'a mismatched secret header',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'secret_headers',
+                    sent: false,
+                },
+                {
+                    case: 'a mismatched secret in a header name',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'header_name',
+                    sent: false,
+                },
+                {
+                    case: 'mismatched AWS credentials',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'aws_sigv4',
+                    sent: false,
+                },
+                {
+                    case: 'a mismatched webhook signing secret',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'standard_webhooks',
+                    sent: false,
+                },
+                {
+                    case: 'a mismatched dictionary entry no fetch option names',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'dictionary_entry',
+                    sent: false,
+                },
+                {
+                    case: 'a mismatched secret dictionary key',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'dictionary_key',
+                    sent: false,
+                },
+                {
+                    case: 'a mismatched numeric secret',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'numeric_value',
+                    sent: false,
+                },
+                {
+                    case: 'a mismatched numeric entry of a secret dictionary',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'numeric_leaf',
+                    sent: false,
+                },
+                {
+                    case: 'a key of a paired secret dictionary, which the editor shows',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'paired_dictionary_key',
+                    sent: true,
+                },
+                {
+                    case: 'a dictionary entry whose value the function also holds in plain inputs',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'plain_value_of_dictionary_entry',
+                    sent: true,
+                },
+                {
+                    case: 'a dictionary entry whose value the hog code also hardcodes',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'hardcoded_value_of_dictionary_entry',
+                    sent: true,
+                },
+                {
+                    case: "a dictionary entry whose value a mapping's plain inputs also hold",
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'mapping_value_of_dictionary_entry',
+                    sent: true,
+                },
+                { case: 'a secret saved before binding', allowed: undefined, carry: 'body', sent: true },
+                {
+                    case: 'a mismatched secret too short to scan for',
+                    allowed: [],
+                    carry: 'body',
+                    sent: true,
+                    secret: 'short',
+                },
+            ] as const)('enforce: $case is sent=$sent', async ({ allowed, carry, sent, ...row }) => {
+                const invocation = await secretInvocation(
+                    `${baseUrl}/`,
+                    allowed,
+                    carry,
+                    'secret' in row ? row.secret : SECRET
+                )
+
+                const result = await enforcingExecutor().executeFetch(invocation)
+
+                expect(mockRequest).toHaveBeenCalledTimes(sent ? 1 : 0)
+                if (sent) {
+                    expect(result.error).toBeUndefined()
+                } else {
+                    expect(result.finished).toBe(true)
+                    expect(result.logs.map((log) => log.message)).toEqual([
+                        expect.stringContaining('only be sent to the addresses saved with it'),
+                    ])
+                    expect(JSON.stringify(result.logs)).not.toContain(SECRET)
+                }
+            })
+            it.each([
+                { url: 'https://GOOD.example/path', sent: true },
+                { url: 'https://good.example./path', sent: true },
+                { url: 'https://good.example:443/path', sent: true },
+                { url: 'https://good.example@evil.example/path', sent: false },
+                { url: 'https://evil.example/?next=https://good.example', sent: false },
+                { url: 'http://good.example/path', sent: false },
+            ])('enforce: compares $url as the HTTP client resolves it', async ({ url, sent }) => {
+                const invocation = await secretInvocation(url, ['https://good.example'])
+                if (sent) {
+                    ;(fetch as jest.Mock).mockImplementationOnce(() =>
+                        Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
+                    )
+                }
+
+                const result = await enforcingExecutor().executeFetch(invocation)
+
+                expect(fetch).toHaveBeenCalledTimes(sent ? 1 : 0)
+                expect(result.error === undefined).toBe(sent)
+            })
+
+            it.each<{ headers: Record<string, string>; sent: boolean }>([
+                { headers: { Host: 'evil.example' }, sent: false },
+                { headers: { HOST: 'Evil.Example:443' }, sent: false },
+                { headers: { host: 'good.example@evil.example' }, sent: false },
+                { headers: { ':authority': 'evil.example' }, sent: false },
+                { headers: { host: 'GOOD.example' }, sent: true },
+                { headers: { Host: 'good.example:443' }, sent: true },
+            ])('enforce: checks the origin a $headers override routes to', async ({ headers, sent }) => {
+                const invocation = await secretInvocation('https://good.example/path', ['https://good.example'])
+                ;(invocation.queueParameters as CyclotronInvocationQueueParametersFetchType).headers = headers
+                if (sent) {
+                    ;(fetch as jest.Mock).mockImplementationOnce(() =>
+                        Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
+                    )
+                }
+
+                const result = await enforcingExecutor().executeFetch(invocation)
+
+                expect(fetch).toHaveBeenCalledTimes(sent ? 1 : 0)
+                expect(result.error === undefined).toBe(sent)
+            })
+
+            const SHOWN_HOST = 'https://***REDACTED***.evil.example'
+
+            it.each<{
+                carriedBy: string
+                url: string
+                headers: Record<string, string>
+                carry: Carry
+                secret: string
+                shown: string
+            }>([
+                {
+                    carriedBy: 'the URL',
+                    url: `https://${HOST_SECRET}.evil.example/`,
+                    headers: {},
+                    carry: 'body',
+                    secret: HOST_SECRET,
+                    shown: SHOWN_HOST,
+                },
+                {
+                    carriedBy: 'a Host header',
+                    url: 'https://good.example/',
+                    headers: { Host: `${HOST_SECRET}.evil.example` },
+                    carry: 'body',
+                    secret: HOST_SECRET,
+                    shown: SHOWN_HOST,
+                },
+                {
+                    carriedBy: 'the URL as a secret dictionary key',
+                    url: `https://${HOST_SECRET}.evil.example/`,
+                    headers: {},
+                    carry: 'dictionary_key',
+                    secret: HOST_SECRET,
+                    shown: SHOWN_HOST,
+                },
+                {
+                    carriedBy: 'the URL as a very long secret',
+                    url: `https://${LONG_SECRET}.evil.example/`,
+                    headers: {},
+                    carry: 'body',
+                    secret: LONG_SECRET,
+                    shown: '[redacted origin]',
+                },
+                {
+                    carriedBy: 'the body, to a long host of near matches',
+                    url: `https://${'a'.repeat(100_000)}.evil.example/`,
+                    headers: {},
+                    carry: 'body',
+                    secret: `${'a'.repeat(10_000)}b`,
+                    shown: '[redacted origin]',
+                },
+                {
+                    carriedBy: 'the URL as a short named secret header',
+                    url: `https://${SHORT_SECRET}.evil.example/`,
+                    headers: {},
+                    carry: 'secret_header_value',
+                    secret: SHORT_SECRET,
+                    shown: SHOWN_HOST,
+                },
+            ])(
+                'enforce: leaves a secret in a host from $carriedBy out of the refusal and the warning',
+                async ({ url, headers, carry, secret, shown }) => {
+                    const warn = jest.spyOn(logger, 'warn')
+                    const invocation = await secretInvocation(url, ['https://good.example'], carry, secret)
+                    ;(invocation.queueParameters as CyclotronInvocationQueueParametersFetchType).headers = headers
+
+                    const result = await enforcingExecutor().executeFetch(invocation)
+
+                    expect(result.logs.map((log) => log.message)).toEqual([expect.stringContaining(shown)])
+                    expect(warn.mock.calls.some(([, , context]) => context?.inputKey === 'api_key')).toBe(true)
+                    expect(JSON.stringify([result.logs, warn.mock.calls]).toLowerCase()).not.toContain(
+                        secret.toLowerCase()
+                    )
+                }
+            )
+
+            it.each([
+                ['an undecrypted blob', 'gAAAAAB-not-decrypted'],
+                ['a null entry', { api_key: null }],
+                ['a non-text value', { api_key: { value: 12345, allowed_origins: [] } }],
+                ['a non-list allowed_origins', { api_key: { value: SECRET, allowed_origins: { bad: true } } }],
+                [
+                    'an entry the check cannot read',
+                    {
+                        api_key: {
+                            allowed_origins: [],
+                            get value(): string {
+                                throw new Error('unreadable')
+                            },
+                        },
+                    },
+                ],
+            ])('enforce: sends when encrypted_inputs holds %s', async (_name, encryptedInputs) => {
+                const invocation = await secretInvocation(`${baseUrl}/`, undefined)
+                invocation.hogFunction.encrypted_inputs = encryptedInputs as any
+
+                const result = await enforcingExecutor().executeFetch(invocation)
+
+                expect(mockRequest).toHaveBeenCalledTimes(1)
+                expect(result.error).toBeUndefined()
             })
         })
 
