@@ -1,25 +1,25 @@
-import type { TraceNodeDetailApi } from '../../../generated/api.schemas'
-import { NodeLoad } from '../types'
-import { makeNodeDetail } from './testFixtures'
+import type { TraceNodeRawApi } from '../../../generated/api.schemas'
+import { RawLoad } from '../types'
+import { makeRawNode } from './testFixtures'
 import { toDatasetItemSource } from './toDatasetItemSource'
 
 const trace = { traceId: 'trace-1', createdAt: '2026-09-01T10:15:00Z' }
 
-function ready(node: TraceNodeDetailApi): NodeLoad {
-    return { status: 'ready', node }
+function ready(raw: TraceNodeRawApi): RawLoad {
+    return { status: 'ready', raw }
 }
 
-function withEventUuid(node: TraceNodeDetailApi, uuid: string): TraceNodeDetailApi {
-    return node.event ? { ...node, event: { ...node.event, uuid } } : node
+function withEventUuid(raw: TraceNodeRawApi, uuid: string): TraceNodeRawApi {
+    return raw.event ? { ...raw, event: { ...raw.event, uuid } } : raw
 }
 
 describe('toDatasetItemSource', () => {
-    test.each<[string, NodeLoad, ReturnType<typeof toDatasetItemSource>]>([
+    test.each<[string, RawLoad | undefined, ReturnType<typeof toDatasetItemSource>]>([
         [
             'a generation keys the item by its event uuid and keeps only custom properties as metadata',
             ready(
                 withEventUuid(
-                    makeNodeDetail({
+                    makeRawNode({
                         id: 'sdk-span-id',
                         properties: {
                             $ai_input: [{ role: 'user', content: 'hi' }],
@@ -44,7 +44,7 @@ describe('toDatasetItemSource', () => {
         [
             'the trace root is keyed by the trace id and carries its state without metadata',
             ready(
-                makeNodeDetail({
+                makeRawNode({
                     id: 'trace-1',
                     kind: 'trace',
                     properties: { $ai_input_state: { q: 'refund?' }, $ai_output_state: { a: 'yes' }, plan: 'pro' },
@@ -59,8 +59,21 @@ describe('toDatasetItemSource', () => {
                 output: { a: 'yes' },
             },
         ],
+        [
+            'a trace without an event of its own is keyed by the trace id with no input or output',
+            ready(makeRawNode({ id: 'trace-1', kind: 'trace', withEvent: false })),
+            {
+                traceId: 'trace-1',
+                timestamp: '2026-09-01T10:15:00Z',
+                sourceId: 'trace-1',
+                input: undefined,
+                output: undefined,
+            },
+        ],
         ['a step still loading has no source yet', { status: 'loading' }, null],
-    ])('%s', (_, load, expected) => {
-        expect(toDatasetItemSource({ ...trace, load })).toEqual(expected)
+        ['a step never read has no source yet', undefined, null],
+        ['a step whose read failed has no source', { status: 'error', failure: 'failed' }, null],
+    ])('%s', (_, raw, expected) => {
+        expect(toDatasetItemSource({ ...trace, raw })).toEqual(expected)
     })
 })

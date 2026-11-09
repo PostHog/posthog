@@ -8,14 +8,36 @@ const meta: Meta<typeof NodeRawTab> = {
 }
 export default meta
 
-export const Default: StoryObj<typeof NodeRawTab> = {
+type Story = StoryObj<typeof NodeRawTab>
+
+export const Default: Story = {
     args: {
         raw: {
-            event: '$ai_generation',
-            id: 'gen-answer',
-            properties: { $ai_model: 'gpt-4.1-mini', $ai_latency: 1.88, $ai_input_tokens: 1822 },
+            status: 'ready',
+            raw: {
+                id: 'gen-answer',
+                kind: 'generation',
+                event: {
+                    name: '$ai_generation',
+                    uuid: 'gen-answer',
+                    timestamp: '2026-09-01T10:15:02Z',
+                    properties: { $ai_model: 'gpt-4.1-mini', $ai_latency: 1.88, $ai_input_tokens: 1822 },
+                    ioKeys: { input: null, output: null, tools: null },
+                },
+            },
         },
     },
 }
 
-export const NoTraceEvent: StoryObj<typeof NodeRawTab> = { args: { raw: null } }
+export const Loading: Story = { args: { raw: { status: 'loading' } } }
+
+export const Failed: Story = { args: { raw: { status: 'error', failure: 'failed' } } }
+
+export const NoTraceEvent: Story = {
+    args: { raw: { status: 'ready', raw: { id: 'trace-1', kind: 'trace', event: null } } },
+}
+
+export const NotFound: Story = {
+    args: { raw: { status: 'error', failure: 'not_found' } },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}

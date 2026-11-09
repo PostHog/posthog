@@ -1,5 +1,5 @@
 import { ConversationState, ConversationTurn, NodeLoad } from '../types'
-import { makeNodeDetail } from './testFixtures'
+import { makeMessage, makeNodeDetail } from './testFixtures'
 import { toThread } from './toThread'
 
 function readyTurns(thread: ConversationState): ConversationTurn[] {
@@ -10,17 +10,16 @@ function readyTurns(thread: ConversationState): ConversationTurn[] {
 }
 
 describe('toThread', () => {
-    const base = { traceId: 'trace-1', createdAt: '2026-09-01T10:15:00Z', teamId: 7 }
+    const base = { traceId: 'trace-1', createdAt: '2026-09-01T10:15:00Z' }
     const answered = (error: string | null = null): NodeLoad => ({
         status: 'ready',
         node: makeNodeDetail({
             id: 'gen-1',
             error,
-            properties: {
-                $ai_input: [{ role: 'user', content: 'Why did my invoice go up?' }],
-                $ai_output_choices: [{ role: 'assistant', content: 'Two seats were added.' }],
+            content: {
+                input: { kind: 'messages', messages: [makeMessage({ id: 'ask', role: 'user' })] },
+                output: { kind: 'messages', messages: [makeMessage({ id: 'answer', role: 'assistant' })] },
             },
-            ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
         }),
     })
 
@@ -33,6 +32,21 @@ describe('toThread', () => {
             ['assistant', 'gen-1'],
         ])
         expect(turns[0].error).toBeNull()
+    })
+
+    it('reads messages from the content and skips a json side', () => {
+        const load: NodeLoad = {
+            status: 'ready',
+            node: makeNodeDetail({
+                id: 'span-1',
+                kind: 'span',
+                content: {
+                    input: { kind: 'json', value: { question: 'Why did my invoice go up?' } },
+                    output: { kind: 'messages', messages: [makeMessage({ id: 'answer', role: 'assistant' })] },
+                },
+            }),
+        }
+        expect(readyTurns(toThread({ ...base, load }))[0].messages.map((message) => message.id)).toEqual(['answer'])
     })
 
     it('carries the error of a failed generation on its turn', () => {

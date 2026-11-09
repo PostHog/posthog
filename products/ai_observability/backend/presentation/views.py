@@ -223,7 +223,7 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=True, methods=["GET"], url_path=r"nodes/(?P<node_id>[A-Za-z0-9_-]+)")
     def node(self, request: ValidatedRequest, pk: str, node_id: str, **kwargs: Any) -> Response:
-        """One node of a trace: its input and output ready to render, its event properties as ingested, the keys that hold its input, output and tools, its error and its metadata."""
+        """One node of a trace: its input and output ready to render, its event name, uuid and timestamp, its error and its metadata. The raw event properties are on the `raw` read."""
         return self._node_response(request, pk, node_id, api.load_trace_node_detail)
 
     @validated_request(

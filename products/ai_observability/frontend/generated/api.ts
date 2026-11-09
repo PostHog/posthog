@@ -899,7 +899,7 @@ export const getAiObservabilityTracesNodesRetrieveUrl = (
 }
 
 /**
- * One node of a trace: its input and output ready to render, its event properties as ingested, the keys that hold its input, output and tools, its error and its metadata.
+ * One node of a trace: its input and output ready to render, its event name, uuid and timestamp, its error and its metadata. The raw event properties are on the `raw` read.
  */
 export const aiObservabilityTracesNodesRetrieve = async (
     projectId: string,
