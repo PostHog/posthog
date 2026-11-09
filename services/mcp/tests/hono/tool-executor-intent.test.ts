@@ -390,7 +390,7 @@ describe('ToolExecutor analytics capture', () => {
         expect(properties).toHaveProperty('context')
         expect(properties).toHaveProperty('llm_model')
         expect(entry.inputSchema.required).toContain('context')
-        expect(entry.inputSchema.required).toContain('llm_model')
+        expect(entry.inputSchema.required).not.toContain('llm_model')
         expect(treatment.tools[0]!.inputSchema.properties?.context).toMatchObject({ description: prompt })
         expect(other.tools[0]!.inputSchema.properties?.context).toEqual(properties.context)
         expect(properties.context).not.toEqual(treatment.tools[0]!.inputSchema.properties?.context)

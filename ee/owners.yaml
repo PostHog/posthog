@@ -10,7 +10,7 @@ rules:
     - match: '/clickhouse/materialized_columns/'
       owners: team-analytics-platform
     - match: '/hogai/'
-      owners: team-self-driving
+      owners: team-surfaces
     - match: '/session_recordings/'
       owners: team-replay
     - match: '/surveys/'

@@ -86,6 +86,99 @@ class TestMarketingRecommendations(SimpleTestCase):
             assert rules[0].action == "Raise the daily budget from $100 to $300"
             assert rules[0].impact == 6000
 
+    @parameterized.expand(
+        [
+            ("cheap_campaign_losing_impressions", "Cheap", None, "scale_campaign", 50.0, 133.33, "account", "$133"),
+            ("expensive_campaign", "Expensive", None, "review_campaign", 600.0, 133.33, "account", "4.5x"),
+            ("bids_to_a_target_cpa", "Expensive", 150.0, "review_campaign", 600.0, 150.0, "target_cpa", "4.0x"),
+        ]
+    )
+    def test_campaign_cpa_fields_match_the_reason(
+        self,
+        _name: str,
+        subject: str,
+        target_cpa: float | None,
+        rule: str,
+        value: float,
+        benchmark: float,
+        source: str,
+        reason_benchmark: str,
+    ) -> None:
+        campaigns = (
+            _campaign(id="a", name="Cheap", cost=1000, conversions=20, lost_to_budget=0.3, lost_to_rank=0.2),
+            _campaign(id="b", name="Expensive", cost=3000, conversions=5, target_cpa=target_cpa),
+            _campaign(id="c", name="Average", cost=2000, conversions=20),
+        )
+
+        rec = next(rec for rec in recommend(_inputs(campaigns)) if rec.subject == subject)
+
+        assert rec.rule == rule
+        assert rec.cpa is not None
+        assert rec.cpa.model_dump(mode="json") == {
+            "value": value,
+            "benchmark": benchmark,
+            "benchmarkSource": source,
+            "bestCampaign": 50.0,
+            "worstCampaign": 600.0,
+        }
+        assert f"CPA is ${value:.0f}" in rec.reason
+        assert reason_benchmark in rec.reason
+
+    def test_conversions_without_cost_leave_no_benchmark(self) -> None:
+        campaigns = (
+            _campaign(id="c1", cost=0, conversions=20),
+            _campaign(id="c2", name="Other", cost=500, conversions=0, channel_type="PERFORMANCE_MAX"),
+        )
+        terms = (_term("free", "c1", cost=0, conversions=20), _term("waste", "c2", cost=500, conversions=0))
+
+        recs = recommend(_inputs(campaigns, terms))
+
+        assert all(rec.cpa is None or rec.cpa.benchmark is None for rec in recs)
+
+    @parameterized.expand(
+        [
+            ("few_conversions_use_the_account", 10, None, 100.0, "account", "3.0x the account's non-brand CPA"),
+            ("enough_conversions_use_the_campaign", 20, None, 50.0, "campaign", "6.0x the campaign's non-brand CPA"),
+            ("target_cpa_wins", 20, 120.0, 120.0, "target_cpa", "2.5x the campaign's target CPA"),
+            (
+                "performance_max_only_account",
+                10,
+                None,
+                100.0,
+                "account",
+                "3.0x the account's non-brand CPA",
+                "PERFORMANCE_MAX",
+            ),
+        ]
+    )
+    def test_search_terms_are_judged_against_their_campaigns_benchmark(
+        self,
+        _name: str,
+        conversions: float,
+        target_cpa: float | None,
+        benchmark: float,
+        source: str,
+        reason: str,
+        channel: str = "SEARCH",
+    ) -> None:
+        campaigns = (
+            _campaign(id="brand", name="Brand", cost=100, conversions=100),
+            _campaign(id="c1", cost=1000, conversions=conversions, target_cpa=target_cpa, channel_type=channel),
+            _campaign(id="c2", name="Other", cost=1000, conversions=20 - conversions, channel_type=channel),
+        )
+        terms = (
+            _term("example", "brand", cost=100, conversions=100),
+            _term("converter", "c1", cost=700, conversions=conversions),
+            _term("waste", "c1", cost=300, conversions=0),
+        )
+
+        waste = next(rec for rec in recommend(_inputs(campaigns, terms)) if rec.subject == "waste")
+
+        assert waste.rule == "spend_without_conversions"
+        assert waste.cpa is not None
+        assert (waste.cpa.benchmark, waste.cpa.benchmarkSource) == (benchmark, source)
+        assert reason in waste.reason
+
     def test_campaigns_sharing_a_budget_get_one_budget_recommendation(self) -> None:
         shared = {"status_reasons": ("BUDGET_CONSTRAINED",), "recommended_daily_budget": 300.0, "budget_id": "b1"}
         campaigns = (
@@ -222,15 +315,18 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("another_ad_often_shows_above", 0.6, "keep", "Keep the ad"),
             ("ad_owns_the_top_spot", 0.95, "save", "Test pausing"),
             ("top_spot_not_measured", None, "save", "Check whether other ads show above yours"),
+            ("account_without_conversions", 0.6, "keep", "Keep the ad", 0),
         ]
     )
     def test_brand_overlap_keeps_the_ad_when_another_ad_shows_above(
-        self, _name: str, absolute_top: float | None, direction: str, action_start: str
+        self, _name: str, absolute_top: float | None, direction: str, action_start: str, conversions: float = 5
     ) -> None:
         brand = _campaign(id="brand", name="Brand")
         terms = (
-            replace(_term("example", "brand", cost=1000, conversions=5), absolute_top_percentage=absolute_top),
-            _term("analytics", "brand", cost=100, conversions=5),
+            replace(
+                _term("example", "brand", cost=1000, conversions=conversions), absolute_top_percentage=absolute_top
+            ),
+            _term("analytics", "brand", cost=100, conversions=conversions),
         )
         organic = (OrganicQueryStats(query="example", clicks=500, impressions=1000, position=1.0),)
 
