@@ -253,7 +253,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "llma_translation": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"gpt-4.1-mini"}),
+        allowed_models=frozenset({"gpt-4.1-mini", "gpt-6-luna"}),
         allow_api_keys=True,
     ),
     "llma_summarization": ProductConfig(
@@ -325,7 +325,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"gpt-4.1-mini"}),
+        allowed_models=frozenset({"gpt-4.1-mini", "gpt-6-luna"}),
         allow_api_keys=True,
     ),
     "conversations": ProductConfig(

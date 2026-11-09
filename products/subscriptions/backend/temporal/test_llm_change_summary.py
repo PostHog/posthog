@@ -487,7 +487,10 @@ class TestGenerateChangeSummary:
         result = generate_change_summary([], [_make_state(1, "Traffic", "100 views")], slack_formatting=True)
 
         assert result == "• Traffic is stable."
-        assert [call.kwargs["max_tokens"] for call in client.chat.completions.create.call_args_list] == [1500, 4500]
+        assert [call.kwargs["max_completion_tokens"] for call in client.chat.completions.create.call_args_list] == [
+            4096,
+            8192,
+        ]
 
     @parameterized.expand([(False,), (True,)])
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
@@ -504,8 +507,9 @@ class TestGenerateChangeSummary:
         assert "Pageviews" in result
         mock_client.chat.completions.create.assert_called_once()
         call_kwargs = mock_client.chat.completions.create.call_args
-        assert call_kwargs.kwargs["temperature"] == 0.3
-        assert call_kwargs.kwargs["max_tokens"] == 1500
+        assert "temperature" not in call_kwargs.kwargs
+        assert "max_tokens" not in call_kwargs.kwargs
+        assert call_kwargs.kwargs["max_completion_tokens"] == 4096
         system_prompt = call_kwargs.kwargs["messages"][0]["content"]
         assert "Format this delivery for Slack" not in system_prompt
         assert "remove filler, stock phrases, inflated claims, and duplicate observations" in system_prompt

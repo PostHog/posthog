@@ -480,11 +480,11 @@ def generate_change_summary(
 
     prompt_tokens, completion_tokens = 0, 0
     with client:
-        for max_tokens in (1500, 4500):
+        for max_completion_tokens in (4096, 8192):
             result = client.chat.completions.create(
-                model="gpt-4.1-mini",
-                temperature=0.3,
-                max_tokens=max_tokens,
+                model="gpt-6-luna",
+                reasoning_effort="low",
+                max_completion_tokens=max_completion_tokens,
                 response_format={
                     "type": "json_schema",
                     "json_schema": {

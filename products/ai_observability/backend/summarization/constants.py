@@ -3,7 +3,7 @@
 from .models import OpenAIModel, SummarizationMode
 
 # Default configuration
-DEFAULT_MODEL_OPENAI = OpenAIModel.GPT_4_1_MINI
+DEFAULT_MODEL_OPENAI = OpenAIModel.GPT_5_MINI
 DEFAULT_MODE = SummarizationMode.MINIMAL
 
 # Timeout configuration (seconds)
