@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from dataclasses import asdict
 from typing import Any
 from uuid import UUID
@@ -22,7 +23,12 @@ from products.messaging.backend.facade.code_emails import (
 )
 from products.messaging.backend.facade.contracts import CodeManagedEmail, CodeManagedEmailNotFound
 from products.messaging.backend.presentation.views.message_templates import require_email_status_read
-from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound, get_viewable_workflow_ids
+from products.workflows.backend.facade.api import (
+    WorkflowAccessDenied,
+    WorkflowNotFound,
+    get_viewable_workflow_ids,
+    get_workflow_access_levels,
+)
 from products.workflows.backend.facade.workflows import get_workflow_ref
 
 # Each tag costs get_or_create round trips when it is saved, so cap the list.
@@ -47,6 +53,11 @@ class CodeEmailSerializer(serializers.Serializer):
         allow_null=True, help_text="A link to the file in your repository that sends this email. Null when unlinked."
     )
     created_at = serializers.DateTimeField(help_text="When your code first sent under this key.")
+    user_access_level = serializers.CharField(
+        allow_null=True,
+        help_text="Your access level to this email's workflow, such as `viewer` or `editor`. Editing the description, "
+        "the tags or the source file needs `editor`.",
+    )
 
 
 class CodeEmailUpdateSerializer(serializers.Serializer):
@@ -89,9 +100,19 @@ class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         super().initial(request, *args, **kwargs)
         require_email_status_read(self.team)
 
-    def _viewable_workflow_ids(self) -> set[str]:
+    def _viewable_workflow_ids(self, workflow_ids: Collection[str]) -> set[str]:
         # A code email inherits the access rules of its hidden workflow.
-        return get_viewable_workflow_ids(team_id=self.team_id, user_access_control=self.user_access_control)
+        return get_viewable_workflow_ids(
+            team_id=self.team_id, user_access_control=self.user_access_control, workflow_ids=workflow_ids
+        )
+
+    def _rows(self, emails: list[CodeManagedEmail]) -> list[dict[str, Any]]:
+        levels = get_workflow_access_levels(
+            team_id=self.team_id,
+            user_access_control=self.user_access_control,
+            workflow_ids=[str(email.hog_flow_id) for email in emails],
+        )
+        return [asdict(email) | {"user_access_level": levels.get(str(email.hog_flow_id))} for email in emails]
 
     def _code_email_id(self, pk: str | None) -> UUID:
         try:
@@ -105,8 +126,8 @@ class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         description="List the emails your code sends under a `template_key` that no template owns, newest first.",
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        emails = list_code_emails(self.team_id, viewable_workflow_ids=self._viewable_workflow_ids())
-        return Response(CodeEmailSerializer([asdict(email) for email in emails], many=True).data)
+        emails = list_code_emails(self.team_id, viewable_workflows=self._viewable_workflow_ids)
+        return Response(CodeEmailSerializer(self._rows(emails), many=True).data)
 
     @extend_schema(
         parameters=[CODE_EMAIL_ID_PARAMETER],
@@ -116,11 +137,11 @@ class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def retrieve(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
         try:
             email = get_code_email(
-                self.team_id, self._code_email_id(pk), viewable_workflow_ids=self._viewable_workflow_ids()
+                self.team_id, self._code_email_id(pk), viewable_workflows=self._viewable_workflow_ids
             )
         except CodeManagedEmailNotFound:
             raise exceptions.NotFound()
-        return Response(CodeEmailSerializer(asdict(email)).data)
+        return Response(CodeEmailSerializer(self._rows([email])[0]).data)
 
     @validated_request(
         request_serializer=CodeEmailUpdateSerializer,
@@ -136,15 +157,13 @@ class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
         code_email_id = self._code_email_id(pk)
-        viewable = self._viewable_workflow_ids()
+        viewable = self._viewable_workflow_ids
         try:
-            self._require_workflow_editor(get_code_email(self.team_id, code_email_id, viewable_workflow_ids=viewable))
-            email = update_code_email(
-                self.team_id, code_email_id, request.validated_data, viewable_workflow_ids=viewable
-            )
+            self._require_workflow_editor(get_code_email(self.team_id, code_email_id, viewable_workflows=viewable))
+            email = update_code_email(self.team_id, code_email_id, request.validated_data, viewable_workflows=viewable)
         except (CodeManagedEmailNotFound, WorkflowNotFound):
             raise exceptions.NotFound()
-        return Response(CodeEmailSerializer(asdict(email)).data)
+        return Response(CodeEmailSerializer(self._rows([email])[0]).data)
 
     def _require_workflow_editor(self, email: CodeManagedEmail) -> None:
         try:
