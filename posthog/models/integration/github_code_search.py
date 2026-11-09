@@ -6,6 +6,7 @@ candidates only: each one is read and kept when the literal appears exactly.
 """
 
 import re
+from urllib.parse import quote
 
 from posthog.dataclasses import frozen
 from posthog.models.github_integration_base import GitHubIntegrationError
@@ -63,8 +64,8 @@ class GitHubExactCodeSearch:
             repository = candidate["repository"]["full_name"]
             path = candidate["path"]
             try:
-                file = self.github.get_file_contents(repository, path)
-            except GitHubIntegrationError:
+                file = self.github.get_file_contents(repository, quote(path))
+            except (GitHubIntegrationError, UnicodeDecodeError):
                 file = None
             if file is None:
                 complete = False

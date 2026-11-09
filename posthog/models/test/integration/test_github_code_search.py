@@ -26,8 +26,8 @@ def _search_item(repository: str, path: str) -> dict[str, Any]:
     return {"path": path, "repository": {"full_name": repository}}
 
 
-def _contents(text: str, sha: str) -> MagicMock:
-    encoded = text.encode()
+def _contents(text: str | bytes, sha: str) -> MagicMock:
+    encoded = text if isinstance(text, bytes) else text.encode()
     payload = {"sha": sha, "size": len(encoded), "encoding": "base64", "content": base64.b64encode(encoded).decode()}
     return MagicMock(status_code=200, json=MagicMock(return_value=payload))
 
@@ -69,11 +69,11 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
             {
                 "total_count": 2,
                 "incomplete_results": False,
-                "items": [_search_item("acme/web", "src/send.ts"), _search_item("acme/web", "docs/notes.md")],
+                "items": [_search_item("acme/web", "src/send.ts"), _search_item("acme/web", "docs/q&a #1.md")],
             },
             {
                 "/repos/acme/web/contents/src/send.ts": _contents("\n".join(sender_lines), "sha-send"),
-                "/repos/acme/web/contents/docs/notes.md": _contents(near_misses, "sha-notes"),
+                "/repos/acme/web/contents/docs/q%26a%20%231.md": _contents(near_misses, "sha-notes"),
             },
         )
 
@@ -102,10 +102,13 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
             ("github_says_incomplete", {"total_count": 1, "incomplete_results": True}, 200),
             ("more_results_than_read", {"total_count": 5, "incomplete_results": False}, 200),
             ("candidate_gone", {"total_count": 1, "incomplete_results": False}, 404),
+            ("candidate_not_utf8", {"total_count": 1, "incomplete_results": False}, 200, b"caf\xe9"),
         ]
     )
-    def test_reports_an_incomplete_search(self, _name: str, search_body: dict[str, Any], file_status: int) -> None:
-        file_response = _contents("send('welcome')", "sha-1")
+    def test_reports_an_incomplete_search(
+        self, _name: str, search_body: dict[str, Any], file_status: int, raw: bytes = b"send('welcome')"
+    ) -> None:
+        file_response = _contents(raw, "sha-1")
         file_response.status_code = file_status
         result, _ = self._search(
             _github(),
