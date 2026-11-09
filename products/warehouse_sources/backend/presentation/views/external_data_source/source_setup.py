@@ -381,9 +381,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str | None:
-        latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
-
-        return latest_completed_run.created_at.isoformat() if latest_completed_run else None
+        latest_completed_run_at = getattr(instance, "latest_completed_run_at", None)
+        return latest_completed_run_at.isoformat() if latest_completed_run_at else None
 
     def get_created_by(self, instance: ExternalDataSource) -> str | None:
         return instance.created_by.email if instance.created_by else None

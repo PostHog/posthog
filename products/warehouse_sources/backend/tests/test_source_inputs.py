@@ -565,6 +565,7 @@ class TestSourceInputsStoreCredentials(BaseTest):
             ("typed_in_type_without_connection_fields", ExternalDataSourceType.POSTGRES, {"schema": "public"}),
             ("file_upload", ExternalDataSourceType.FILEUPLOAD, {"upload_id": "u1", "filename": "a.csv"}),
             ("custom", ExternalDataSourceType.CUSTOM, {"manifest": "{}"}),
+            ("unknown_type", "NotARealSource", {"host": "x", "password": "fake"}),
         ]
     )
     def test_read_of_a_source_without_a_row_returns_job_inputs(
