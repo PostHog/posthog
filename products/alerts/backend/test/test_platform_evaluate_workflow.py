@@ -29,7 +29,6 @@ from products.alerts.backend.platform_investigation_detail import (
 )
 from products.alerts.backend.platform_source_cycle import PLATFORM_LLM_CHECKS
 from products.alerts.backend.temporal.platform_evaluate import (
-    CHART_SCHEDULE_TO_CLOSE,
     CHART_START_TO_CLOSE,
     CHECK_HEARTBEAT_TIMEOUT,
     CHECK_RETRY_POLICY,
@@ -63,6 +62,7 @@ from products.alerts_platform.backend.facade.temporal import source_evaluation_t
 from products.exports.backend.facade.api import RENDER_TIMEOUT
 
 QUEUE = "test-platform-insight-evaluation"
+_CHART = RenderedChart(asset_id=7, render_user_id=3)
 ADMITTED = ("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")
 AI_CHECK = "00000000-0000-0000-0000-000000000003"
 
@@ -416,20 +416,20 @@ async def test_a_slow_check_does_not_hold_back_the_record_of_a_check_that_finish
 
 
 @pytest.mark.parametrize(
-    "failed_attempts, returns_chart, expected_detail, render_outcome",
+    "failed_attempts, chart, expected_detail, render_outcome",
     [
-        (0, True, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}, "rendered"),
+        (0, _CHART, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}, "rendered"),
         # The render pool was full at first, so the render waited for a slot.
-        (1, True, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}, "rendered"),
+        (1, _CHART, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}, "rendered"),
         # No slot freed within the firing's one-render budget, so the firing goes out without a chart.
-        (None, True, {"alert_id": "legacy-alert"}, "timed_out"),
-        (0, False, {"alert_id": "legacy-alert"}, "no_chart"),
+        (None, _CHART, {"alert_id": "legacy-alert"}, "timed_out"),
+        (0, None, {"alert_id": "legacy-alert"}, "no_chart"),
     ],
 )
 async def test_a_firing_records_the_chart_rendered_after_its_check(
     environment: WorkflowEnvironment,
     failed_attempts: int | None,
-    returns_chart: bool,
+    chart: RenderedChart | None,
     expected_detail: dict[str, object],
     render_outcome: str,
 ) -> None:
@@ -465,7 +465,7 @@ async def test_a_firing_records_the_chart_rendered_after_its_check(
         if failed_attempts is None or activity.info().attempt <= failed_attempts:
             raise ApplicationError("render pool full")
         events.append(f"render:{inputs.alert_id}")
-        return RenderedChart(asset_id=7, render_user_id=3) if returns_chart else None
+        return chart
 
     @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
     async def record(inputs: SourceOutcomeInputs) -> int:
@@ -507,9 +507,8 @@ def test_the_binding_holds_the_whole_batch() -> None:
 
 
 def test_a_firing_waits_for_one_render_at_most() -> None:
-    # The render gives up before its activity does, and a wait for a render slot adds nothing on top.
+    # The render gives up before its activity does.
     assert CHART_START_TO_CLOSE > RENDER_TIMEOUT
-    assert CHART_SCHEDULE_TO_CLOSE <= CHART_START_TO_CLOSE
 
 
 async def test_a_cancelled_platform_ai_check_keeps_its_place_in_the_cap_until_its_thread_ends() -> None:

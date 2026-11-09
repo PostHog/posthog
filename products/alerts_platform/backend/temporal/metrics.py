@@ -205,7 +205,10 @@ def increment_checks_unfinished(source: str, count: int) -> None:
     ).add(count)
 
 
-def increment_chart_renders(source: str, outcome: str) -> None:
+ChartRenderOutcome = Literal["rendered", "timed_out", "no_chart"]
+
+
+def increment_chart_renders(source: str, outcome: ChartRenderOutcome) -> None:
     """Firing charts by outcome. A firing whose render fails or runs out of time still goes out,
     without its chart, so nothing else shows the charts that were lost."""
     get_metric_meter({"source": source, "outcome": outcome}).create_counter(

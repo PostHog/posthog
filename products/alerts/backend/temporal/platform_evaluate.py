@@ -52,6 +52,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.alerts_platform.backend.facade.payload import outcome_chunks
     from products.alerts_platform.backend.facade.platform_metrics import (
+        ChartRenderOutcome,
         increment_chart_renders,
         increment_checks_unfinished,
         safe_record,
@@ -85,9 +86,6 @@ LLM_CHECK_RETRY_POLICY = CHECK_RETRY_POLICY
 # A firing's chart renders in its own activity, after the check has released its pool slot. It
 # outlasts the export render's own 90-second limit, so the render, not the activity, gives up first.
 CHART_START_TO_CLOSE = dt.timedelta(seconds=100)
-# The firing waits for one render at most, so a wait for a render slot comes out of the same budget.
-# Past it the firing goes out without its chart, as production sends one whose render timed out.
-CHART_SCHEDULE_TO_CLOSE = CHART_START_TO_CLOSE
 CHART_RETRY_POLICY = RetryPolicy(
     initial_interval=dt.timedelta(seconds=5),
     backoff_coefficient=2.0,
@@ -122,7 +120,7 @@ EVALUATION_BUDGET = (
     PLAN_SCHEDULE_TO_CLOSE
     + ADMISSION_RUN_BUDGET
     + max(CHECK_SCHEDULE_TO_CLOSE, REAL_TIME_CHECK_SCHEDULE_TO_CLOSE)
-    + max(CHART_SCHEDULE_TO_CLOSE, FAIL_SCHEDULE_TO_CLOSE)
+    + max(CHART_START_TO_CLOSE, FAIL_SCHEDULE_TO_CLOSE)
     + RECORD_SCHEDULE_TO_CLOSE
     + CLAIM_SCHEDULE_TO_CLOSE
     + METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE
@@ -501,7 +499,10 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     render_platform_insight_chart_activity,
                     InsightChartInputs(team_id=inputs.batch_key.team_id, alert_id=alert_id),
                     start_to_close_timeout=CHART_START_TO_CLOSE,
-                    schedule_to_close_timeout=CHART_SCHEDULE_TO_CLOSE,
+                    # The firing waits for one render at most, so a wait for a render slot comes out
+                    # of the same budget. Past it the firing goes out without its chart, as
+                    # production sends one whose render timed out.
+                    schedule_to_close_timeout=CHART_START_TO_CLOSE,
                     retry_policy=CHART_RETRY_POLICY,
                 )
                 for alert_id in pending
@@ -891,7 +892,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             pass
 
 
-def _render_outcome(chart: object) -> str:
+def _render_outcome(chart: object) -> "ChartRenderOutcome":
     # The firing goes out either way, so only this counter shows the charts it went without.
     if isinstance(chart, RenderedChart):
         return "rendered"
