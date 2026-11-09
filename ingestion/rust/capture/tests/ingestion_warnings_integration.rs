@@ -31,7 +31,7 @@ const TOKEN: &str = "phc_warnings_integration_token";
 
 /// The cross-language envelope pin. See the fixture's own `_comment`.
 const ENVELOPE_FIXTURE: &str =
-    include_str!("../../common/ingestion_warnings/capture_envelope.fixture.json");
+    include_str!("../../ingestion_warnings/capture_envelope.fixture.json");
 
 /// An event that fails validation with the `missing_event_name` tag.
 fn nameless(distinct_id: &str) -> Event {

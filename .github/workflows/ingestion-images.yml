@@ -7,7 +7,7 @@ name: Build and deploy ingestion container images
 # Image list: ingestion/ci/images.yml
 # PR images: .github/workflows/ingestion-smoke-test-build.yml (smoke_test labels)
 # Build steps: .github/workflows/_ingestion-build-images.yml
-# Affected-set computation: ingestion/rust/affected-services (Rust binary crate)
+# Affected-set computation: rust/affected-services with ingestion/ci/determinator-rules.toml
 
 on:
     workflow_dispatch:
@@ -24,7 +24,12 @@ on:
             - 'ingestion/pinned/**'
             - 'ingestion/proto/**'
             - 'ingestion/ci/images.yml'
+            - 'ingestion/ci/determinator-rules.toml'
             - 'ingestion/ci/actions/compute-affected/**'
+            - 'rust/common/**'
+            - 'rust/Cargo.toml'
+            - 'rust/Cargo.lock'
+            - 'rust/Dockerfile'
             - '.github/workflows/ingestion-images.yml'
             - '.github/workflows/_ingestion-build-images.yml'
         branches:
@@ -47,10 +52,13 @@ jobs:
         outputs:
             image-filter: ${{ steps.compute.outputs.images }}
         steps:
+            # The determinator builds from the rust/ workspace, which ingestion's crates belong to.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
-                  sparse-checkout: ingestion/
+                  sparse-checkout: |
+                      ingestion/
+                      rust/
                   sparse-checkout-cone-mode: false
                   clean: false
 

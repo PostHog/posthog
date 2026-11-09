@@ -1,15 +1,16 @@
 [package]
 name = "personhog-coordination"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
-assignment-coordination = { path = "../common/assignment-coordination" }
+assignment-coordination = { path = "../assignment-coordination" }
 async-trait = { workspace = true }
 etcd-client = "0.18"
 futures = { workspace = true }
-k8s-awareness = { path = "../common/k8s-awareness" }
+k8s-awareness = { path = "../../../rust/common/k8s-awareness" }
 metrics = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

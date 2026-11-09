@@ -718,11 +718,10 @@ jobs:
                   ref: ${{ needs.preflight.outputs.pr_head_sha }}
                   sparse-checkout: |
                       rust/
+                      ingestion/rust/
                       proto/
+                      ingestion/proto/
                   sparse-checkout-cone-mode: false
-
-            - name: Copy proto files into rust build context
-              run: cp -r proto rust/proto
 
             - name: Set up Depot CLI
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
@@ -768,7 +767,7 @@ jobs:
               uses: depot/build-push-action@v1.17.0
               with:
                   project: vglf58qgzw
-                  context: ./rust/
+                  context: .
                   file: ./rust/Dockerfile
                   push: true
                   # One push writes the same digest to both registries.

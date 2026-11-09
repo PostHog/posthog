@@ -1,5 +1,6 @@
 [package]
 name = "personhog-identity"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -8,14 +9,14 @@ publish = false
 personhog-common = { path = "../personhog-common" }
 personhog-coordination = { path = "../personhog-coordination" }
 personhog-proto = { path = "../personhog-proto" }
-assignment-coordination = { path = "../common/assignment-coordination" }
-common-database = { package = "ingestion-common-database", path = "../common/database" }
-common-ingestion-warnings = { path = "../common/ingestion_warnings" }
-common-alloc = { package = "ingestion-common-alloc", path = "../common/alloc" }
-common-kafka = { package = "ingestion-common-kafka", path = "../common/kafka" }
-common-metrics = { package = "ingestion-common-metrics", path = "../common/metrics" }
-common-sqlx-macros = { path = "../common/sqlx-macros" }
-lifecycle = { package = "ingestion-lifecycle", path = "../common/lifecycle" }
+assignment-coordination = { path = "../assignment-coordination" }
+common-database = { path = "../../../rust/common/database" }
+common-ingestion-warnings = { path = "../ingestion_warnings" }
+common-alloc = { path = "../../../rust/common/alloc" }
+common-kafka = { path = "../../../rust/common/kafka" }
+common-metrics = { path = "../../../rust/common/metrics" }
+common-sqlx-macros = { path = "../../../rust/common/sqlx-macros" }
+lifecycle = { path = "../../../rust/common/lifecycle" }
 
 async-trait = { workspace = true }
 axum = { workspace = true }

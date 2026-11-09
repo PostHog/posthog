@@ -9,6 +9,7 @@
 # rust-docker-build.yml must also be updated for production deploys.
 - image: sqlx-migrate
   dockerfile: ./rust/Dockerfile.sqlx-migrate
+  context: ./rust/
   project: jmsz6gms8g
 
 - image: cymbal

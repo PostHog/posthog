@@ -35,6 +35,10 @@ mark-changed = "all"
 globs = ["../proto/**"]
 mark-changed = ["cymbal-proto", "prometheus-rw-proto", "usage-ingestion-proto"]
 
+[[path-rule]]
+globs = ["../ingestion/proto/**"]
+mark-changed = ["personhog-proto", "kafka-assigner-proto", "ingestion-worker-proto"]
+
 # Hypercache contract: Python serializer changes may break Rust deserialization.
 # Must come BEFORE the catch-all rule below.
 [[path-rule]]
@@ -55,8 +59,8 @@ mark-changed = ["common-cohort-team-access"]
 # Must come BEFORE the catch-all rule below.
 [[path-rule]]
 globs = [
-    "../nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json",
-    "../nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json",
+    "../ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json",
+    "../ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json",
 ]
 mark-changed = ["replay-core-v4"]
 
@@ -91,6 +95,25 @@ mark-changed = "all"
 [[path-rule]]
 globs = ["../posthog/security/crosslang/**"]
 mark-changed = ["common-dns"]
+
+# Ingestion's migration directories and image inputs are not cargo crates; its
+# own pipeline handles them. Must come BEFORE the skip-rules entry below.
+[[path-rule]]
+globs = [
+    "../ingestion/rust/persons_migrations/**",
+    "../ingestion/rust/persons_migrations_hobby/**",
+    "../ingestion/rust/bin/**",
+    "../ingestion/rust/Dockerfile.persons-migrate",
+]
+mark-changed = []
+
+# Ingestion's crates are workspace members outside this directory. Match their
+# files to their packages instead of letting the catch-all below drop them.
+# Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = ["../ingestion/rust/**"]
+mark-changed = []
+post-rule = "skip-rules"
 
 # Catch-all for files outside the rust workspace (Python, frontend, CI, docs,
 # etc.) — these are not crate source and should not trigger rust rebuilds.

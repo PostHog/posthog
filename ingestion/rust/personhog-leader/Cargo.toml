@@ -1,5 +1,6 @@
 [package]
 name = "personhog-leader"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -8,23 +9,23 @@ publish = false
 personhog-proto = { path = "../personhog-proto" }
 personhog-common = { path = "../personhog-common" }
 personhog-coordination = { path = "../personhog-coordination" }
-assignment-coordination = { path = "../common/assignment-coordination" }
-common-kafka = { package = "ingestion-common-kafka", path = "../common/kafka" }
-common-ingestion-warnings = { path = "../common/ingestion_warnings" }
-common-metrics = { package = "ingestion-common-metrics", path = "../common/metrics" }
-common-alloc = { package = "ingestion-common-alloc", path = "../common/alloc" }
-k8s-awareness = { path = "../common/k8s-awareness" }
+assignment-coordination = { path = "../assignment-coordination" }
+common-kafka = { path = "../../../rust/common/kafka" }
+common-ingestion-warnings = { path = "../ingestion_warnings" }
+common-metrics = { path = "../../../rust/common/metrics" }
+common-alloc = { path = "../../../rust/common/alloc" }
+k8s-awareness = { path = "../../../rust/common/k8s-awareness" }
 kube = { version = "0.98", features = ["client"] }
 # Direct dep only to install a process-wide rustls CryptoProvider at startup (see
 # main.rs): kube's HTTPS client uses rustls 0.23, which can't auto-pick a provider
 # with both aws-lc-rs and ring in the tree. Matches personhog-router/cymbal.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-lifecycle = { package = "ingestion-lifecycle", path = "../common/lifecycle" }
+lifecycle = { path = "../../../rust/common/lifecycle" }
 
 async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
-common-database = { package = "ingestion-common-database", path = "../common/database" }
+common-database = { path = "../../../rust/common/database" }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
 foyer = "0.22.3"
@@ -51,7 +52,7 @@ test-support = []
 
 [dev-dependencies]
 personhog-coordination = { path = "../personhog-coordination", features = ["test-support"] }
-health = { package = "ingestion-health", path = "../common/health" }
+health = { path = "../../../rust/common/health" }
 personhog-leader = { path = ".", features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = "0.1"

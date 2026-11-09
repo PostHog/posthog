@@ -4,16 +4,27 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use guppy::graph::PackageGraph;
 
-pub const NON_CRATE_IMAGE_TRIGGERS: &[(&str, &[&str])] = &[(
-    "sqlx-migrate",
-    &[
-        "rust/behavioral_cohorts_migrations/",
-        "rust/cyclotron-node-migrations/",
-        "rust/flags_read_store_migrations/",
-        "rust/bin/migrate-",
-        "rust/Dockerfile.sqlx-migrate",
-    ],
-)];
+pub const NON_CRATE_IMAGE_TRIGGERS: &[(&str, &[&str])] = &[
+    (
+        "sqlx-migrate",
+        &[
+            "rust/behavioral_cohorts_migrations/",
+            "rust/cyclotron-node-migrations/",
+            "rust/flags_read_store_migrations/",
+            "rust/bin/migrate-",
+            "rust/Dockerfile.sqlx-migrate",
+        ],
+    ),
+    (
+        "persons-migrate",
+        &[
+            "ingestion/rust/persons_migrations/",
+            "ingestion/rust/bin/migrate-entry",
+            "ingestion/rust/Dockerfile.persons-migrate",
+        ],
+    ),
+    ("ingestion-node", &["ingestion/node/", "ingestion/pinned/"]),
+];
 
 #[derive(Debug, Default)]
 pub struct ImageConfig {

@@ -1,0 +1,73 @@
+# Path rules for ingestion's Rust CI, passed to affected-services with --rules.
+# ci-rust.yml uses the rules compiled into the binary; ours differ because the
+# ingestion jobs read none of Django's inputs. Paths are relative to the
+# workspace root, rust/: our tree is ../ingestion/, the rest of the repo ../.
+
+use-default-rules = true
+
+# Dockerfiles and the image list — cross-cutting build changes.
+[[path-rule]]
+globs = ["Dockerfile", "../ingestion/rust/Dockerfile.persons-migrate", "../ingestion/ci/images.yml"]
+mark-changed = "all"
+
+# sqlx offline query metadata — affects all sqlx-using crates.
+[[path-rule]]
+globs = [".sqlx/**"]
+mark-changed = "all"
+
+# Proto files trigger every build-script crate that reads them.
+[[path-rule]]
+globs = ["../ingestion/proto/**"]
+mark-changed = ["personhog-proto", "kafka-assigner-proto", "ingestion-worker-proto"]
+
+# capture mirrors the AI event limits, and a parity test fails when the pinned copy differs.
+[[path-rule]]
+globs = ["../ingestion/pinned/ai_event_limits.json"]
+mark-changed = ["capture"]
+
+# CI harness inputs the ingestion test and build jobs depend on.
+[[path-rule]]
+globs = [
+    "../ingestion/ci/**",
+    "../.github/workflows/ingestion-rust.yml",
+    "../.github/workflows/ingestion-images.yml",
+    "../.github/workflows/_ingestion-build-images.yml",
+]
+mark-changed = "all"
+
+# Migration directories are not cargo crates; the persons-migrate image
+# trigger is handled in code.
+[[path-rule]]
+globs = [
+    "../ingestion/rust/persons_migrations/**",
+    "../ingestion/rust/persons_migrations_hobby/**",
+    "../ingestion/rust/bin/**",
+]
+mark-changed = []
+
+# Ingestion's crates are workspace members outside rust/. Match their files to
+# their packages instead of letting the catch-all below drop them.
+[[path-rule]]
+globs = ["../ingestion/rust/**"]
+mark-changed = []
+post-rule = "skip-rules"
+
+# Anything else outside the workspace is not crate source.
+[[path-rule]]
+globs = ["../**"]
+mark-changed = []
+
+[[path-rule]]
+globs = ["AGENTS.md"]
+mark-changed = []
+
+# The other migration directories under rust/ are not cargo crates either.
+[[path-rule]]
+globs = [
+    "persons_migrations/**",
+    "behavioral_cohorts_migrations/**",
+    "cyclotron-node-migrations/**",
+    "flags_read_store_migrations/**",
+    "bin/migrate-*",
+]
+mark-changed = []

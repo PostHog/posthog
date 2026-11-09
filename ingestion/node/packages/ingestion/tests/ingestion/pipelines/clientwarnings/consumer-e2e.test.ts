@@ -64,7 +64,7 @@ function constComponent<T extends object>(value: T): Component<T> {
 // on this side that can drift from the producer without either test noticing.
 const CAPTURE_ENVELOPE_FIXTURE = parseJSON(
     readFileSync(
-        path.resolve(__dirname, '../../../../../rust/common/ingestion_warnings/capture_envelope.fixture.json'),
+        path.resolve(__dirname, '../../../../../../../rust/ingestion_warnings/capture_envelope.fixture.json'),
         'utf8'
     )
 ) as { event: string; properties: Record<string, unknown> }

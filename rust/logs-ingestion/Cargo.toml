@@ -22,7 +22,7 @@ hashbrown = { version = "0.15", default-features = false }
 hex = "0.4"
 hmac = { workspace = true }
 itoa = { workspace = true }
-ingestion-framework = { path = "../../ingestion/rust/ingestion-framework" }
+ingestion-framework = { path = "../ingestion-framework" }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 rand = { workspace = true }

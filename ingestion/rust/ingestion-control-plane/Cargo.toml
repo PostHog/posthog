@@ -1,5 +1,6 @@
 [package]
 name = "ingestion-control-plane"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -9,23 +10,23 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
-assignment-coordination = { path = "../common/assignment-coordination" }
+assignment-coordination = { path = "../assignment-coordination" }
 axum = { workspace = true }
 chrono = { workspace = true }
-common-alloc = { package = "ingestion-common-alloc", path = "../common/alloc" }
+common-alloc = { path = "../../../rust/common/alloc" }
 etcd-client = "0.18"
-common-database = { package = "ingestion-common-database", path = "../common/database" }
-common-metrics = { package = "ingestion-common-metrics", path = "../common/metrics" }
-common-types = { package = "ingestion-common-types", path = "../common/types" }
+common-database = { path = "../../../rust/common/database" }
+common-metrics = { path = "../../../rust/common/metrics" }
+common-types = { path = "../../../rust/common/types" }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
 hdrhistogram = { workspace = true }
-health = { package = "ingestion-health", path = "../common/health" }
-k8s-awareness = { path = "../common/k8s-awareness" }
+health = { path = "../../../rust/common/health" }
+k8s-awareness = { path = "../../../rust/common/k8s-awareness" }
 kube = { version = "0.98", features = ["client"] }
 personhog-coordination = { path = "../personhog-coordination" }
-common-kafka = { package = "ingestion-common-kafka", path = "../common/kafka" }
+common-kafka = { path = "../../../rust/common/kafka" }
 rdkafka = { workspace = true }
 reqwest = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

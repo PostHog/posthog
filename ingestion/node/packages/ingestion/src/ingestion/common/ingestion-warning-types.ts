@@ -2,7 +2,7 @@
  * Ingestion warning registry — the single source of truth for every warning type
  * this platform emits, shared across the Node.js pipeline and, via codegen, the
  * Rust producers (the whole registry is exported to
- * `rust/common/ingestion_warnings/warning_types.generated.json`, from which the
+ * `ingestion/rust/ingestion_warnings/warning_types.generated.json`, from which the
  * Rust `WarningType` enum is generated).
  *
  * This module is intentionally dependency-free (pure data + types): it can be
@@ -53,7 +53,7 @@ export const INGESTION_WARNING_TYPES = {
 
     // Event validation — malformed or rejected event data
     client_ingestion_warning: { category: 'event', severity: 'info' },
-    // Capture-side validation drops (Rust capture; see rust/common/ingestion_warnings/src/registry.rs).
+    // Capture-side validation drops (Rust capture; see ingestion/rust/ingestion_warnings/src/registry.rs).
     // `captureProduced: true` marks the types capture may set via the structured envelope property —
     // it derives the CAPTURE_PRODUCED_WARNING_TYPES trust allowlist below.
     missing_event_name: { category: 'event', severity: 'error', captureProduced: true },
@@ -146,7 +146,7 @@ export type IngestionWarningType = keyof typeof INGESTION_WARNING_TYPES
 
 /**
  * The subset of `INGESTION_WARNING_TYPES` that trusted Rust backend producers
- * (capture; see `rust/common/ingestion_warnings/src/registry.rs`) are allowed to
+ * (capture; see `ingestion/rust/ingestion_warnings/src/registry.rs`) are allowed to
  * set via the structured `$$client_ingestion_warning_type` property.
  * `$$client_ingestion_warning` events arrive over the public capture path, so
  * that property is attacker-controlled — promoting it to an arbitrary registered

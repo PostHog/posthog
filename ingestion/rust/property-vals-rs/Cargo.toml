@@ -1,5 +1,6 @@
 [package]
 name = "property-vals-rs"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -7,20 +8,20 @@ publish = false
 [dependencies]
 async-trait = { workspace = true }
 axum = { workspace = true }
-common-alloc = { package = "ingestion-common-alloc", path = "../common/alloc" }
-common-continuous-profiling = { package = "ingestion-common-continuous-profiling", path = "../common/continuous_profiling" }
-common-kafka = { package = "ingestion-common-kafka", path = "../common/kafka" }
-common-liveness = { package = "ingestion-common-liveness", path = "../common/liveness" }
+common-alloc = { path = "../../../rust/common/alloc" }
+common-continuous-profiling = { path = "../../../rust/common/continuous_profiling" }
+common-kafka = { path = "../../../rust/common/kafka" }
+common-liveness = { path = "../../../rust/common/liveness" }
 envconfig = { workspace = true }
 futures = { workspace = true }
-lifecycle = { package = "ingestion-lifecycle", path = "../common/lifecycle" }
+lifecycle = { path = "../../../rust/common/lifecycle" }
 metrics = { workspace = true }
 quick_cache = { workspace = true }
 rayon = "1.11.0"
 rdkafka = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serve-metrics = { package = "ingestion-serve-metrics", path = "../common/serve_metrics" }
+serve-metrics = { path = "../../../rust/common/serve_metrics" }
 siphasher = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

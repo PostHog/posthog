@@ -74,7 +74,9 @@ jobs:
                       rust:
                         # Avoid running rust tests for irrelevant changes
                         - 'rust/**'
+                        - 'ingestion/rust/**'
                         - 'proto/**'
+                        - 'ingestion/proto/**'
                         - '.github/workflows/ci-rust.yml'
                         - '.github/scripts/rust_test_shards.py'
                         - '.github/scripts/resolve-changed-files.sh'
@@ -102,8 +104,8 @@ jobs:
                         # common-cohort-team-access tests its query against the table these migrations build
                         - 'products/cohorts/backend/migrations/**'
                         # replay-core-v4's tests read the encryption vectors the Node writers pin
-                        - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json'
-                        - 'nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json'
+                        - 'ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json'
+                        - 'ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json'
                       all_crates:
                         - '.github/scripts/rust_test_shards.py'
                         # Pins the service images that every crate's tests run against.
@@ -138,7 +140,9 @@ jobs:
                   filter: blob:none
                   sparse-checkout: |
                       rust/
+                      ingestion/rust/
                       proto/
+                      ingestion/proto/
                       .github/rust-images.yml
                       .github/scripts/rust_test_shards.py
                       .github/scripts/resolve-changed-files.sh
@@ -207,7 +211,9 @@ jobs:
               with:
                   sparse-checkout: |
                       rust/
+                      ingestion/rust/
                       proto/
+                      ingestion/proto/
                       .github/actions/setup-protoc/
                       .github/actions/setup-rust/
                       .github/actions/setup-sccache/
@@ -574,12 +580,14 @@ jobs:
                   # clippy --all-targets compiles replay-core-v4's tests, which read the encryption vectors the Node writers pin.
                   sparse-checkout: |
                       rust/
+                      ingestion/rust/
                       proto/
+                      ingestion/proto/
                       .github/actions/setup-protoc/
                       .github/actions/setup-rust/
                       .github/actions/setup-sccache/
-                      nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json
-                      nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json
+                      ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json
+                      ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json
                   sparse-checkout-cone-mode: false
                   clean: false
 

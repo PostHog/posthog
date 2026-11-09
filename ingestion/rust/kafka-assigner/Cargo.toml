@@ -1,13 +1,14 @@
 [package]
 name = "kafka-assigner"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
-assignment-coordination = { path = "../common/assignment-coordination" }
+assignment-coordination = { path = "../assignment-coordination" }
 dashmap = { workspace = true }
-k8s-awareness = { path = "../common/k8s-awareness" }
+k8s-awareness = { path = "../../../rust/common/k8s-awareness" }
 kube = { version = "0.98", features = ["client"] }
 envconfig = { workspace = true }
 etcd-client = "0.18"

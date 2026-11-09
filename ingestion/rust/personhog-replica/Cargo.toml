@@ -1,6 +1,7 @@
 # no-op: trigger rebuild
 [package]
 name = "personhog-replica"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -8,11 +9,11 @@ publish = false
 [dependencies]
 personhog-common = { path = "../personhog-common" }
 personhog-proto = { path = "../personhog-proto" }
-common-database = { package = "ingestion-common-database", path = "../common/database" }
-common-alloc = { package = "ingestion-common-alloc", path = "../common/alloc" }
-common-metrics = { package = "ingestion-common-metrics", path = "../common/metrics" }
+common-database = { path = "../../../rust/common/database" }
+common-alloc = { path = "../../../rust/common/alloc" }
+common-metrics = { path = "../../../rust/common/metrics" }
 metrics-exporter-prometheus = { workspace = true }
-lifecycle = { package = "ingestion-lifecycle", path = "../common/lifecycle" }
+lifecycle = { path = "../../../rust/common/lifecycle" }
 
 async-trait = { workspace = true }
 futures = { workspace = true }

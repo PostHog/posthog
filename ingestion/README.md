@@ -1,32 +1,27 @@
 # Ingestion
 
-Everything the ingestion team owns and builds lives under this directory: the Rust services, the Node pipelines, their protos, their CI, and the pinned copies of the few outside files they read.
-
-The directory exists so that a change outside it can never affect ingestion's tests or its merge queue lane. That property rests on six rules.
+The ingestion team's services live under this directory: the Rust crates, the Node packages, their protos, their CI and images, and pinned copies of the few outside format files they read.
 
 ## Rules
 
-1. **One directory.** Ingestion's code, build files and CI live here. The only exception is the workflow files, which GitHub requires under `.github/workflows/`; ingestion's are named `ingestion-*.yml`, and the reusable ones `_ingestion-*.yml`.
-2. **Nothing crosses the boundary as source.** No file under `ingestion/` imports, extends, depends on or mounts a path outside it, and nothing outside depends on a path inside it.
-3. **What must cross is pinned to a version.** A library crosses as a published package. A format file, such as schema SQL or a proto, crosses as a copy under `pinned/` with a `SOURCE.json` that records its origin and checksums.
-4. **A bump is an ingestion PR.** Raising a package version or refreshing a pinned copy is a change under `ingestion/`, so it runs ingestion's tests and sits in ingestion's lane.
-5. **The checkout is the proof.** Every job in the ingestion workflows checks out only `ingestion/`. A job cannot be affected by a file it never downloads.
-6. **One lane rule.** Only paths under `ingestion/` and the `ingestion-*.yml` workflows map to the lane targets of the packages here. The every-lane set in the merge queue rules never includes them.
+1. **Location follows layer, ownership follows `owners.yaml`.** Generic infrastructure lives in common (`rust/common/*`, the shared Node packages); ingestion's product code lives here. Another team's product code does not live here even when ingestion runs it.
+2. **Direction.** Ingestion depends on common and on nothing else outside this tree. Other teams depend on ingestion only through its contract crates and packages, never on its pipelines or servers.
+3. **Path dependencies, one workspace per language.** The Rust crates are members of the `rust/` workspace and the Node packages of the root pnpm workspace. Nothing is copied. A pin, a published version or a copy under `pinned/` with a `SOURCE.json`, is used for another team's product that ingestion embeds at that team's cadence, and for format files from another tree. Every pin is listed in `pinned/` with its reason.
+4. **Lanes come from the dependency graph.** A change claims the merge queue lanes of the servers and crates that run it, computed from imports and from the cargo determinator, so a file outside this tree claims an ingestion lane only when ingestion actually runs it.
 
 ## Layout
 
 ```text
 ingestion/
-  rust/      the cargo workspace: services, shared crates, Dockerfile
-  node/      the pnpm workspace: packages/common (@posthog/node-common, published) and packages/ingestion (the services,
-             with the AI research pipelines inside)
+  rust/      ingestion's crates, members of the rust/ workspace (each declares workspace = "../../../rust")
+  node/      ingestion's Node packages
   proto/     the protos ingestion owns
   pinned/    copies of outside format files, each with a SOURCE.json
-  ci/        compose stack, service configs, scripts and composite actions the workflows use
+  ci/        compose stack, determinator rules, image list, scripts and composite actions the workflows use
 ```
 
 ## Working here
 
-- Run Rust tooling from `ingestion/rust` and Node tooling from `ingestion/node`. Each has its own lockfile.
-- A shared helper that ingestion needs is copied here and owned here. A library that other teams build on is published from here and consumed by version.
-- The AI research pipelines are owned by the AI research team. They depend on ingestion by workspace path and have a merge queue lane of their own.
+- Run cargo from `rust/`, the workspace root: `cargo test -p capture`. Cargo also resolves the workspace from inside a crate directory; `ingestion/rust/.cargo/config.toml` links to the workspace's build config so it applies there too.
+- `ingestion-rust.yml` decides what to build with `rust/affected-services --rules ingestion/ci/determinator-rules.toml`, so a change to `rust/common` runs exactly the ingestion crates that depend on it.
+- The images build from the repository root with `rust/Dockerfile`; `ingestion/ci/images.yml` lists them.

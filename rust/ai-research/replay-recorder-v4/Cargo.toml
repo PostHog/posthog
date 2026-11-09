@@ -11,12 +11,12 @@ workspace = true
 [dependencies]
 # The event ingestion restrictions capture and the replay lanes apply.
 capture = { path = "../../../ingestion/rust/capture" }
-common-alloc = { package = "ingestion-common-alloc", path = "../../../ingestion/rust/common/alloc" }
-common-database = { package = "ingestion-common-database", path = "../../../ingestion/rust/common/database" }
-common-kafka = { package = "ingestion-common-kafka", path = "../../../ingestion/rust/common/kafka" }
-common-metrics = { package = "ingestion-common-metrics", path = "../../../ingestion/rust/common/metrics" }
-common-redis = { package = "ingestion-common-redis", path = "../../../ingestion/rust/common/redis" }
-lifecycle = { package = "ingestion-lifecycle", path = "../../../ingestion/rust/common/lifecycle" }
+common-alloc = { path = "../../common/alloc" }
+common-database = { path = "../../common/database" }
+common-kafka = { path = "../../common/kafka" }
+common-metrics = { path = "../../common/metrics" }
+common-redis = { path = "../../common/redis" }
+lifecycle = { path = "../../common/lifecycle" }
 replay-core-v4 = { path = "../replay-core-v4" }
 
 arc-swap = { workspace = true }

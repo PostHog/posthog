@@ -6,7 +6,7 @@ use replay_core_v4::envelope::{
 use serde_json::Value;
 
 // The Node writer's pinned output. Both languages read this one file, so a drift on either side fails here.
-const VECTOR: &str = include_str!("../../../../nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json");
+const VECTOR: &str = include_str!("../../../../ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json");
 
 fn vector() -> Value {
     serde_json::from_str(VECTOR).unwrap()

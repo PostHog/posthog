@@ -1,6 +1,7 @@
 # no-op: trigger rebuild
 [package]
 name = "personhog-router"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -9,12 +10,12 @@ publish = false
 personhog-common = { path = "../personhog-common" }
 personhog-coordination = { path = "../personhog-coordination" }
 personhog-proto = { path = "../personhog-proto" }
-assignment-coordination = { path = "../common/assignment-coordination" }
-k8s-awareness = { path = "../common/k8s-awareness" }
-common-alloc = { package = "ingestion-common-alloc", path = "../common/alloc" }
-keyed-stash = { path = "../common/keyed-stash" }
+assignment-coordination = { path = "../assignment-coordination" }
+k8s-awareness = { path = "../../../rust/common/k8s-awareness" }
+common-alloc = { path = "../../../rust/common/alloc" }
+keyed-stash = { path = "../keyed-stash" }
 metrics-exporter-prometheus = { workspace = true }
-lifecycle = { package = "ingestion-lifecycle", path = "../common/lifecycle" }
+lifecycle = { path = "../../../rust/common/lifecycle" }
 kube = { version = "0.98", features = ["client", "runtime"] }
 
 async-trait = { workspace = true }
@@ -43,7 +44,7 @@ personhog-coordination = { path = "../personhog-coordination", features = ["test
 # this binary and every binary on the shared recorder, so the two bucket
 # ladders have to match or the series cannot be aggregated across jobs.
 # A dev-dependency binds them without pulling the crate into the build.
-common-metrics = { package = "ingestion-common-metrics", path = "../common/metrics" }
+common-metrics = { path = "../../../rust/common/metrics" }
 dashmap = { workspace = true }
 flate2 = { workspace = true }
 prost = { workspace = true }

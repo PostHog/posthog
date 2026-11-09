@@ -1,0 +1,31 @@
+[package]
+name = "common-ingestion-warnings"
+workspace = "../../../rust"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+# Parses capture_warning_types.generated.json (mirrored from the Node.js registry)
+# to codegen the WarningType enum. See build.rs.
+serde_json = { workspace = true }
+
+[dependencies]
+chrono = { workspace = true }
+common-kafka = { path = "../../../rust/common/kafka" }
+common-types = { path = "../../../rust/common/types" }
+governor = { workspace = true }
+lifecycle = { path = "../../../rust/common/lifecycle" }
+metrics = { workspace = true }
+rdkafka = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+common-liveness = { path = "../../../rust/common/liveness" }
+metrics-util = { workspace = true }
+rstest = "0.26"

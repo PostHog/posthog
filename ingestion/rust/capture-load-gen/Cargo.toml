@@ -1,5 +1,6 @@
 [package]
 name = "capture-load-gen"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -8,8 +9,8 @@ publish = false
 workspace = true
 
 [dependencies]
-common-metrics = { package = "ingestion-common-metrics", path = "../common/metrics" }
-common-types = { package = "ingestion-common-types", path = "../common/types" }
+common-metrics = { path = "../../../rust/common/metrics" }
+common-types = { path = "../../../rust/common/types" }
 anyhow = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true, features = ["env"] }

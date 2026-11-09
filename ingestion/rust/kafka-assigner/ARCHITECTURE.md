@@ -51,8 +51,8 @@ so consumers can connect to any instance.
 ## Crate structure
 
 ```text
-rust/
-├── common/assignment-coordination/     Reusable coordination primitives
+ingestion/rust/
+├── assignment-coordination/            Reusable coordination primitives
 │   ├── store.rs                         Generic EtcdStore (JSON helpers)
 │   ├── leader_election.rs               CAS-based leader election
 │   ├── strategy/

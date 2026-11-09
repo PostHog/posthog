@@ -1,98 +1,99 @@
-# Ingestion's container images. Each service image builds from ingestion/rust with
-# ingestion/rust/Dockerfile and the crate's binary as BIN. ingestion-images.yml builds
+# Ingestion's container images. Each service image builds from the repository root with
+# rust/Dockerfile and the crate's binary as BIN. ingestion-images.yml builds
 # and deploys them; the deploy matrix there lists the release each image feeds.
 
 - image: capture
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: kshskj225r
 
 # Dev/on-demand load generator for the capture /batch endpoint. Built and
 # pushed for use as a Kubernetes Job; not deployed as a standing service, so
 # it has no entry in the deploy matrix of ingestion-images.yml.
 - image: capture-load-gen
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: wrsq3rsc1b
 
 # Runs the persons database migrations. Not a crate: the image is sqlx-cli plus
 # the migration files, so affected-services triggers it by path.
 - image: persons-migrate
   dockerfile: ./ingestion/rust/Dockerfile.persons-migrate
+  context: ./ingestion/rust/
   project: jmsz6gms8g
 
 - image: property-defs-rs
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: vznmbshh6q
 
 - image: property-vals-rs
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: vznmbshh6q
 
 - image: ingestion-consumer
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: mtvzx98zjn
 
 # Internal web tool for the ingestion team (lag analysis, consumer debug
 # visualizer).
 - image: ingestion-control-plane
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: x5whcmg6rl
 
 # Postgres telemetry collector: scrapes pg_stat_* /
 # Aurora stats / logs from RDS clusters into a stats Postgres. See ingestion/rust/pgcollector.
 - image: pgcollector
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: wb2br45dsr # pg-monitoring
 
 # API + MCP server over the pgcollector stats database (Postgres telemetry).
 # Internal, edge-authenticated (Cognito ingress + Tailscale whois). See ingestion/rust/pgapi.
 - image: pgapi
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: wb2br45dsr # pg-monitoring
 
 - image: kafka-deduplicator
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: vznmbshh6q
 
 - image: personhog-identity
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: jfz76fgvqd
 
 # Second binary of the personhog-identity crate: drains the publish outbox
 # identity writes. Shares identity's Depot project.
 - image: personhog-publisher
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: jfz76fgvqd
 
 - image: personhog-leader
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: g0kjbvxgqx
 
 - image: personhog-replica
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: vq4lxdfdv2
 
 - image: personhog-router
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: wqvvpmzgbk
 
 - image: personhog-writer
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: hj9nd3cg9w
 
 - image: personhog-changelog-relay
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: lvsrh6c64c
 
 - image: personhog-test-harness
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: 6tl5lmb8l8
 
 - image: personhog-parity-monitor
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: jfz76fgvqd
 
 - image: kafka-assigner
-  dockerfile: ./ingestion/rust/Dockerfile
+  dockerfile: ./rust/Dockerfile
   project: 6kjc85bwm7
 
 # The Node services: event, session replay, error tracking, metrics and AI research modes.

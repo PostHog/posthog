@@ -1,5 +1,6 @@
 [package]
 name = "capture"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -23,17 +24,17 @@ envconfig = { workspace = true }
 flate2 = { workspace = true }
 hex = "0.4"
 http-body-util = { workspace = true }
-lifecycle = { package = "ingestion-lifecycle", path = "../common/lifecycle" }
+lifecycle = { path = "../../../rust/common/lifecycle" }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
-common-alloc = { package = "ingestion-common-alloc", path = "../common/alloc" }
-common-compression = { package = "ingestion-common-compression", path = "../common/compression" }
-common-continuous-profiling = { package = "ingestion-common-continuous-profiling", path = "../common/continuous_profiling" }
-common-ingestion-warnings = { path = "../common/ingestion_warnings" }
-common-kafka = { package = "ingestion-common-kafka", path = "../common/kafka" }
-common-redis = { package = "ingestion-common-redis", path = "../common/redis" }
-common-types = { package = "ingestion-common-types", path = "../common/types" }
-limiters = { package = "ingestion-limiters", path = "../common/limiters" }
+common-alloc = { path = "../../../rust/common/alloc" }
+common-compression = { path = "../../../rust/common/compression" }
+common-continuous-profiling = { path = "../../../rust/common/continuous_profiling" }
+common-ingestion-warnings = { path = "../ingestion_warnings" }
+common-kafka = { path = "../../../rust/common/kafka" }
+common-redis = { path = "../../../rust/common/redis" }
+common-types = { path = "../../../rust/common/types" }
+limiters = { path = "../../../rust/common/limiters" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 opentelemetry = { workspace = true }
@@ -74,7 +75,7 @@ tokio = { workspace = true, features = ["test-util"] }
 assert-json-diff = { workspace = true }
 brotli = "8"
 zstd = "0.13"
-common-continuous-profiling = { package = "ingestion-common-continuous-profiling", path = "../common/continuous_profiling" }
+common-continuous-profiling = { path = "../../../rust/common/continuous_profiling" }
 anyhow = { workspace = true }
 axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git", rev = "c09ada6f543a8cc06263548103c91a28a010944a" }
 futures = { workspace = true }

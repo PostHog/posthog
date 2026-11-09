@@ -1,5 +1,6 @@
 [package]
 name = "personhog-changelog-relay"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -7,11 +8,11 @@ publish = false
 [dependencies]
 personhog-proto = { path = "../personhog-proto" }
 personhog-coordination = { path = "../personhog-coordination" }
-assignment-coordination = { path = "../common/assignment-coordination" }
-common-alloc = { package = "ingestion-common-alloc", path = "../common/alloc" }
-common-kafka = { package = "ingestion-common-kafka", path = "../common/kafka" }
-common-metrics = { package = "ingestion-common-metrics", path = "../common/metrics" }
-lifecycle = { package = "ingestion-lifecycle", path = "../common/lifecycle" }
+assignment-coordination = { path = "../assignment-coordination" }
+common-alloc = { path = "../../../rust/common/alloc" }
+common-kafka = { path = "../../../rust/common/kafka" }
+common-metrics = { path = "../../../rust/common/metrics" }
+lifecycle = { path = "../../../rust/common/lifecycle" }
 
 axum = { workspace = true }
 chrono = { workspace = true }

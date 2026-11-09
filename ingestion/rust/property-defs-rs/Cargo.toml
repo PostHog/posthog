@@ -1,5 +1,6 @@
 [package]
 name = "property-defs-rs"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -13,16 +14,16 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 sqlx = { workspace = true }
 futures = { workspace = true }
-lifecycle = { package = "ingestion-lifecycle", path = "../common/lifecycle" }
+lifecycle = { path = "../../../rust/common/lifecycle" }
 axum = { workspace = true }
 metrics = { workspace = true }
 chrono = { workspace = true }
 quick_cache = { workspace = true }
-common-database = { package = "ingestion-common-database", path = "../common/database" }
-common-metrics = { package = "ingestion-common-metrics", path = "../common/metrics" }
-common-alloc = { package = "ingestion-common-alloc", path = "../common/alloc" }
-common-continuous-profiling = { package = "ingestion-common-continuous-profiling", path = "../common/continuous_profiling" }
-common-kafka = { package = "ingestion-common-kafka", path = "../common/kafka" }
+common-database = { path = "../../../rust/common/database" }
+common-metrics = { path = "../../../rust/common/metrics" }
+common-alloc = { path = "../../../rust/common/alloc" }
+common-continuous-profiling = { path = "../../../rust/common/continuous_profiling" }
+common-kafka = { path = "../../../rust/common/kafka" }
 ahash = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }

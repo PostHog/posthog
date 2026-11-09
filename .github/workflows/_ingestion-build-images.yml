@@ -113,23 +113,21 @@ jobs:
 
         defaults:
             run:
-                working-directory: ingestion/rust
+                working-directory: .
 
         steps:
             - name: Check Out Repo
-              # Non-cone sparse checkout of the ingestion tree alone: files in the
-              # project root are not included.
+              # The Rust images build from the repository root with rust/Dockerfile, which
+              # needs the whole workspace; non-cone mode keeps files in the project root
+              # out of the checkout.
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ inputs.checkout-ref || '' }}
-                  sparse-checkout: ingestion/
+                  sparse-checkout: |
+                      ingestion/
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
-
-            # The Dockerfile reads protos from ../proto relative to each crate, so the
-            # proto tree sits inside the build context at ingestion/rust/proto.
-            - name: Copy proto files into the build context
-              working-directory: .
-              run: cp -r ingestion/proto ingestion/rust/proto
 
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
@@ -191,7 +189,7 @@ jobs:
               env:
                   IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
               run: |
-                  echo "cache-key-prefix=cargo-${{ hashFiles('ingestion/rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+                  echo "cache-key-prefix=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
                   if [ "$IS_FORK_PR" = "true" ]; then
                       echo "Fork PR — skipping sccache credentials (build runs without remote cache)"
                       exit 0
@@ -201,7 +199,7 @@ jobs:
                   echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
 
             # Native debug symbols upload to PostHog error tracking from inside the
-            # image build (see ingestion/rust/Dockerfile). Only master builds on the
+            # image build (see rust/Dockerfile). Only master builds on the
             # canonical deploy repo get the token; everywhere else the Dockerfile skips
             # the upload, so unrebased branches and forks are unaffected.
             - name: Prepare symbol upload token
@@ -215,7 +213,7 @@ jobs:
                       echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
                       # Unique per run: secret mounts don't participate in the layer
                       # cache key, so this busts the cache to guarantee the upload
-                      # actually runs on token-bearing builds (see ingestion/rust/Dockerfile).
+                      # actually runs on token-bearing builds (see rust/Dockerfile).
                       echo "trigger=${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
                   else
                       echo "Native symbol upload disabled for this build"
@@ -226,7 +224,7 @@ jobs:
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   project: ${{ matrix.project }}
-                  context: ${{ matrix.context || './ingestion/rust/' }}
+                  context: ${{ matrix.context || '.' }}
                   file: ${{ matrix.dockerfile }}
                   target: ${{ matrix.target || '' }}
                   push: ${{ inputs.push }}

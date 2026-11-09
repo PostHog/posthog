@@ -1,7 +1,8 @@
 name: Compute affected ingestion services
 description: |
-    Builds ingestion's affected-services binary (cached) and runs it to determine
-    which crates and container images are affected by the current change.
+    Builds the workspace's affected-services binary (cached) and runs it with
+    ingestion's path rules and image list to determine which of ingestion's
+    crates and container images are affected by the current change.
 
 inputs:
     event-name:
@@ -58,13 +59,13 @@ runs:
           id: cache
           uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
           with:
-              path: ingestion/rust/target/release/affected-services
-              key: ingestion-affected-services-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ingestion/rust/affected-services/**', 'ingestion/rust/Cargo.lock') }}
+              path: rust/target/release/affected-services
+              key: affected-services-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/affected-services/**', 'rust/Cargo.lock') }}
 
         - name: Build on cache miss
           if: steps.cache.outputs.cache-hit != 'true'
           shell: bash
-          working-directory: ingestion/rust
+          working-directory: rust
           run: cargo build -p affected-services --release --locked
 
         - name: Save binary to cache
@@ -74,8 +75,8 @@ runs:
           if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
           uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
           with:
-              path: ingestion/rust/target/release/affected-services
-              key: ingestion-affected-services-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ingestion/rust/affected-services/**', 'ingestion/rust/Cargo.lock') }}
+              path: rust/target/release/affected-services
+              key: affected-services-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/affected-services/**', 'rust/Cargo.lock') }}
 
         - name: Compute affected services
           id: compute
@@ -89,11 +90,14 @@ runs:
               CHANGED_FILES: ${{ inputs.changed-files }}
               REPOSITORY: ${{ github.repository }}
               GH_TOKEN: ${{ inputs.token }}
-          working-directory: ingestion/rust
+          working-directory: rust
           run: |
+              AFFECTED="./target/release/affected-services --rules ../ingestion/ci/determinator-rules.toml --images-file ../ingestion/ci/images.yml"
+              # The binary answers for the whole workspace; only ingestion's crates run here.
+              ingestion_crates=$(cargo metadata --no-deps --format-version 1 | jq -c '[.packages[] | select(.manifest_path | contains("/ingestion/rust/")) | .name]')
               if [ "$FORCE_REBUILD" = "true" ]; then
                   echo "rebuild-all requested"
-                  result=$(./target/release/affected-services --files ingestion/rust/Cargo.lock)
+                  result=$($AFFECTED --files rust/Cargo.lock)
               else
                   if [ -n "$BASE_REF" ]; then
                       if [[ "$BASE_REF" =~ ^[0-9a-f]{40}$ ]]; then
@@ -131,21 +135,21 @@ runs:
 
                   if [ -z "$base_ref" ] || echo "$base_ref" | grep -qE '^0+$'; then
                       echo "No valid base ref — rebuilding all"
-                      result=$(./target/release/affected-services --files ingestion/rust/Cargo.lock)
+                      result=$($AFFECTED --files rust/Cargo.lock)
                   else
                       if ! git cat-file -e "$base_ref^{commit}" 2>/dev/null; then
                           git fetch --no-tags --depth=1 --filter=blob:none origin "$base_ref" || true
                       fi
                       if [ -n "$CHANGED_FILES" ]; then
-                          result=$(./target/release/affected-services --stdin --base-ref "$base_ref" < "$CHANGED_FILES")
+                          result=$($AFFECTED --stdin --base-ref "$base_ref" < "$CHANGED_FILES")
                       else
-                          result=$(./target/release/affected-services --base-ref "$base_ref")
+                          result=$($AFFECTED --base-ref "$base_ref")
                       fi
                   fi
               fi
 
               rebuild_all=$(echo "$result" | jq -r '.rebuild_all')
-              crates=$(echo "$result" | jq -c '.crates')
+              crates=$(echo "$result" | jq -c --argjson ours "$ingestion_crates" '[.crates[] | select(. as $c | $ours | index($c))]')
               images=$(echo "$result" | jq -r '.images | join(",")')
 
               echo "rebuild_all=$rebuild_all, crates=$crates, images=$images"

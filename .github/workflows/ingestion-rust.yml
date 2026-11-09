@@ -1,8 +1,9 @@
 name: Ingestion Rust CI
 
-# Every job here checks out ingestion/ and nothing else. That is what lets the merge queue
-# rules say that no change outside ingestion/ can affect these checks: a job cannot be broken
-# by a file it never downloads. Keep it that way when adding steps.
+# Ingestion's crates are members of the rust/ workspace, so every job checks out ingestion/
+# and rust/ and runs cargo from rust/. Which crates a change affects comes from
+# affected-services with ingestion/ci/determinator-rules.toml, so a change to rust/common
+# runs exactly the ingestion crates that depend on it and nothing in Django reaches here.
 
 on:
     workflow_dispatch:
@@ -51,6 +52,14 @@ jobs:
                         - 'ingestion/rust/**'
                         - 'ingestion/proto/**'
                         - 'ingestion/ci/**'
+                        - 'rust/common/**'
+                        - 'rust/affected-services/**'
+                        - 'rust/Cargo.toml'
+                        - 'rust/Cargo.lock'
+                        - 'rust/.cargo/**'
+                        - 'rust/.config/**'
+                        - 'rust/.sqlx/**'
+                        - 'rust/Dockerfile'
                         - '.github/workflows/ingestion-rust.yml'
 
     affected:
@@ -69,7 +78,9 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
-                  sparse-checkout: ingestion
+                  sparse-checkout: |
+                      ingestion
+                      rust
                   clean: false
             - uses: ./ingestion/ci/actions/setup-rust
               with:
@@ -100,18 +111,20 @@ jobs:
             contents: read
         defaults:
             run:
-                working-directory: ingestion/rust
+                working-directory: rust
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: ingestion
+                  sparse-checkout: |
+                      ingestion
+                      rust
                   clean: false
             - uses: ./ingestion/ci/actions/setup-protoc
             - uses: ./ingestion/ci/actions/setup-rust
               with:
                   toolchain: ${{ env.RUST_TOOLCHAIN }}
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('ingestion/rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
             - uses: ./ingestion/ci/actions/setup-sccache
             - name: Build
               run: |
@@ -134,11 +147,13 @@ jobs:
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         defaults:
             run:
-                working-directory: ingestion/rust
+                working-directory: rust
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: ingestion
+                  sparse-checkout: |
+                      ingestion
+                      rust
                   clean: false
             - name: Log in to Docker Hub
               continue-on-error: true
@@ -163,13 +178,13 @@ jobs:
               with:
                   toolchain: ${{ env.RUST_TOOLCHAIN }}
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('ingestion/rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
             - uses: ./ingestion/ci/actions/setup-sccache
             - uses: ./ingestion/ci/actions/setup-sqlx-cli
             - name: Run the persons migrations
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
-              run: sqlx migrate run --source persons_migrations/
+              run: sqlx migrate run --source ../ingestion/rust/persons_migrations/
             - name: Install cargo-binstall
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
             - name: Install cargo-nextest
@@ -222,7 +237,7 @@ jobs:
             - name: Quarantine gate
               uses: ./ingestion/ci/actions/trunk-quarantine-gate
               with:
-                  junit-paths: ingestion/rust/junit-nextest-*.xml
+                  junit-paths: rust/junit-nextest-*.xml
                   previous-step-outcome: ${{ steps.run-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
                   variant: ingestion-rust
@@ -252,12 +267,14 @@ jobs:
 
         defaults:
             run:
-                working-directory: ingestion/rust
+                working-directory: rust
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: ingestion
+                  sparse-checkout: |
+                      ingestion
+                      rust
                   clean: false
 
             - name: Log in to Docker Hub
@@ -285,7 +302,7 @@ jobs:
               with:
                   toolchain: ${{ env.RUST_TOOLCHAIN }}
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('ingestion/rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
             - uses: ./ingestion/ci/actions/setup-sccache
             - uses: ./ingestion/ci/actions/setup-sqlx-cli
 
@@ -492,7 +509,7 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: personhog-test-harness-logs
-                  path: ingestion/rust/target/debug/harness-logs/
+                  path: rust/target/debug/harness-logs/
                   if-no-files-found: ignore
 
             - name: Report sccache counters
@@ -514,24 +531,30 @@ jobs:
             contents: read
         defaults:
             run:
-                working-directory: ingestion/rust
+                working-directory: rust
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: ingestion
+                  sparse-checkout: |
+                      ingestion
+                      rust
                   clean: false
             - uses: ./ingestion/ci/actions/setup-protoc
             - uses: ./ingestion/ci/actions/setup-rust
               with:
                   toolchain: ${{ env.RUST_TOOLCHAIN }}
                   components: rustfmt, clippy
+            # Only ingestion's crates are linted here; ci-rust.yml covers the rest of the workspace.
+            - name: List ingestion crates
+              id: crates
+              run: echo "packages=$(cargo metadata --no-deps --format-version 1 | jq -r '[.packages[] | select(.manifest_path | contains("/ingestion/rust/")) | "-p \(.name)"] | join(" ")')" >> "$GITHUB_OUTPUT"
             - name: Check format
-              run: cargo fmt -- --check
+              run: cargo fmt ${{ steps.crates.outputs.packages }} -- --check
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('ingestion/rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
             - uses: ./ingestion/ci/actions/setup-sccache
             - name: Run clippy
-              run: cargo clippy --all-targets --all-features -- -D warnings
+              run: cargo clippy ${{ steps.crates.outputs.packages }} --all-targets --all-features -- -D warnings
             - name: Install cargo-binstall
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
             - name: Install cargo-shear

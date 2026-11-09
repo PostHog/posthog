@@ -53,7 +53,7 @@ Warnings are rate-limited per `team:type:key`. Set `key` to the entity you want 
 
 ## Rust
 
-Rust services emit warnings through the `common-ingestion-warnings` crate ([rust/common/ingestion_warnings](../../../rust/common/ingestion_warnings)).
+Rust services emit warnings through the `common-ingestion-warnings` crate ([ingestion/rust/ingestion_warnings](../../../ingestion/rust/ingestion_warnings)).
 Unlike nodejs (which has database access and writes the v2 row directly), Rust producers have no token→team resolution, so they don't write the row themselves.
 Instead they emit a synthetic `$$client_ingestion_warning` `CapturedEvent` onto the existing `client_ingestion_warning` topic; the nodejs `clientwarnings` consumer resolves the token to a `team_id`, reads the structured type/details/source, and writes the v2 row (see [handle-client-ingestion-warning-step.ts](../../../nodejs/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts)).
 
@@ -63,8 +63,8 @@ There is no hand-maintained Rust copy of the type list. A generator mirrors the 
 
 ```text
 INGESTION_WARNING_TYPES (all entries)                        # nodejs — source of truth
-  → pnpm --filter=@posthog/nodejs gen:ingestion-warning-types
-  → rust/common/ingestion_warnings/warning_types.generated.json   # committed
+  → pnpm --filter=@posthog/ingestion gen:ingestion-warning-types
+  → ingestion/rust/ingestion_warnings/warning_types.generated.json   # committed
   → build.rs → WarningType enum + ALL + as_str/category/severity/capture_produced
 ```
 
@@ -75,7 +75,7 @@ The artifact is committed _inside_ the Rust crate so the isolated Rust Docker/CI
 To add a **capture-produced** type:
 
 1. **Register it in nodejs** — add the type to `INGESTION_WARNING_TYPES` with `captureProduced: true` (see the nodejs steps above for `category`/`severity`, which the consumer owns). This also puts it on the `CAPTURE_PRODUCED_WARNING_TYPES` allowlist automatically.
-2. **Regenerate + commit the artifact** — run `pnpm --filter=@posthog/nodejs gen:ingestion-warning-types` and commit the updated `warning_types.generated.json`.
+2. **Regenerate + commit the artifact** — run `pnpm --filter=@posthog/ingestion gen:ingestion-warning-types` and commit the updated `warning_types.generated.json`.
 3. **Put it on exactly one Rust emit route** in `src/registry.rs`. The variant, `as_str`, and `ALL` are generated — never hand-write them. The weld test forces you to pick a route and fails if you pick both.
    - **`from_tag`** when a `v1::Error::tag()` (or per-event drop detail) already names the condition: add the arm mapping the tag to the variant. It stays hand-written because it maps capture's error taxonomy onto the registry and is the allowlist that makes unregistered tags emit nothing.
    - **`DIRECT_EMIT`** when no tag names it, which is the case for most non-v1 pipelines. Two shapes qualify: the condition isn't a failure (a rate-limited event is ingested, degraded), or the pipeline has no tag vocabulary at all. The AI endpoints, the OTLP endpoint, and replay are all the second kind — they reject through their own typed conditions or match `CaptureError` variants directly, so a tag for them would be a string no `Error` ever produces.
@@ -91,7 +91,7 @@ Warning::new(WarningType::MyNewType)
     .into_row(team_id, MY_SERVICE_WARNINGS)
 ```
 
-`into_row` takes a `WarningSource` (declare one const per emit site, as capture does in `src/lib.rs`) and injects `teamId` and the registry's `category`/`severity` over the caller's details (they cannot be spoofed or forgotten), and stamps the ClickHouse-format timestamp. A direct-row type needs **no** `captureProduced` flag and no `from_tag` arm — register it, regenerate the artifact, and emit. See the module doc in `rust/common/ingestion_warnings/src/serializer.rs` for the envelope-vs-row correspondence table and the trust rationale (the envelope lane is attacker-writable, so the consumer stamps classification; the row topic is ACL-guarded, so the producer does).
+`into_row` takes a `WarningSource` (declare one const per emit site, as capture does in `src/lib.rs`) and injects `teamId` and the registry's `category`/`severity` over the caller's details (they cannot be spoofed or forgotten), and stamps the ClickHouse-format timestamp. A direct-row type needs **no** `captureProduced` flag and no `from_tag` arm — register it, regenerate the artifact, and emit. See the module doc in `ingestion/rust/ingestion_warnings/src/serializer.rs` for the envelope-vs-row correspondence table and the trust rationale (the envelope lane is attacker-writable, so the consumer stamps classification; the row topic is ACL-guarded, so the producer does).
 
 The crate's `RowWarningEmitter` (`src/row.rs`) is the producer for this transport: `KafkaRowWarningEmitter` wraps a dedicated fire-and-forget `ThreadedProducer`, throttles per `(team_id, scope, type)` where `scope` is the caller's debounce entity (a distinct id, say), keys rows by team, and reports through the same `ingestion_warnings_total` outcomes as the envelope emitter. `test_support::CollectingRowEmitter` records rows for assertions. The emitter's throttle keeps the crate's default tracked-key cap unless the caller raises it, and a per-entity scope needs a cap sized for that cardinality. `install_row_emitter` (`src/row_install.rs`) builds the emitter from `RowWarningsSettings`: its own producer, a per-type budget per minute like capture's, a tracked-scope cap (`DEFAULT_MAX_TRACKED_SCOPES`), and the emitter-enabled gauge. Both personhog services call it from env-backed `INGESTION_WARNINGS_*` settings. personhog-identity is the reference caller (`rust/personhog-identity/src/warnings.rs`: a `WarningSource` per emit site and a pure verdict-to-warning mapping); personhog-leader (`rust/personhog-leader/src/warnings.rs`) emits admission size violations scoped per team.
 

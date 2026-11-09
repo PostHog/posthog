@@ -120,7 +120,11 @@ fn every_deployable_binary_has_an_image_entry() {
     ]
     .into();
 
-    let (graph, images) = load_test_fixtures();
+    let (graph, mut images) = load_test_fixtures();
+    let repo_root = find_repo_root().expect("must be in a git repo");
+    images.extend(
+        parse_images_yaml(&repo_root.join("ingestion/ci/images.yml")).expect("images YAML"),
+    );
     let bin_to_crate = build_binary_to_crate_map(&graph);
 
     let image_binaries: HashSet<&str> = images
@@ -140,7 +144,7 @@ fn every_deployable_binary_has_an_image_entry() {
     missing.sort();
     assert!(
         missing.is_empty(),
-        "workspace binaries missing from .github/rust-images.yml: {:?}\n\
+        "workspace binaries missing from .github/rust-images.yml and ingestion/ci/images.yml: {:?}\n\
          If these are not deployable services, add them to `non_deployable` in this test.",
         missing,
     );
@@ -164,7 +168,7 @@ fn proto_build_scripts_are_in_determinator_rules() {
             in_proto_rule = false;
             in_mark_changed = false;
         }
-        if trimmed.contains("../proto/**") {
+        if trimmed.contains("proto/**") {
             in_proto_rule = true;
         }
         if in_proto_rule && trimmed.starts_with("mark-changed") {

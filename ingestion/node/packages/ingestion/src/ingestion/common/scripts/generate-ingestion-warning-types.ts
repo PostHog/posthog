@@ -9,7 +9,7 @@ import { CAPTURE_PRODUCED_WARNING_TYPES, INGESTION_WARNING_TYPES } from '~/inges
  * `INGESTION_WARNING_TYPES` (nodejs/src/ingestion/common/ingestion-warning-types.ts) is the single
  * source of truth. This script mirrors the whole registry — every type with its category and
  * severity — into a JSON artifact committed inside the Rust crate, from which
- * `rust/common/ingestion_warnings/build.rs` generates the `WarningType` enum. Committing the artifact
+ * `ingestion/rust/ingestion_warnings/build.rs` generates the `WarningType` enum. Committing the artifact
  * (rather than reading the .ts from Rust) keeps the isolated Rust Docker/CI build context self-contained.
  *
  * Run: `pnpm --filter=@posthog/nodejs gen:ingestion-warning-types`
@@ -17,12 +17,12 @@ import { CAPTURE_PRODUCED_WARNING_TYPES, INGESTION_WARNING_TYPES } from '~/inges
  * artifact and this output diverge.
  */
 
-const REPO_ROOT = path.resolve(__dirname, '../../../../..')
+const INGESTION_ROOT = path.resolve(__dirname, '../../../../../../..')
 
 /** Absolute path of the committed artifact consumed by the Rust build. */
 export const RUST_GENERATED_JSON_PATH = path.join(
-    REPO_ROOT,
-    'rust/common/ingestion_warnings/warning_types.generated.json'
+    INGESTION_ROOT,
+    'rust/ingestion_warnings/warning_types.generated.json'
 )
 
 /**
@@ -45,9 +45,9 @@ export function buildWarningTypesJson(): string {
     const artifact = {
         _comment:
             'GENERATED from INGESTION_WARNING_TYPES in ' +
-            'nodejs/src/ingestion/common/ingestion-warning-types.ts via ' +
-            '`pnpm --filter=@posthog/nodejs gen:ingestion-warning-types`. Do not edit by hand; ' +
-            'rust/common/ingestion_warnings/build.rs codegens the WarningType enum from this file.',
+            'ingestion/node/packages/ingestion/src/ingestion/common/ingestion-warning-types.ts via ' +
+            '`pnpm --filter=@posthog/ingestion gen:ingestion-warning-types`. Do not edit by hand; ' +
+            'ingestion/rust/ingestion_warnings/build.rs codegens the WarningType enum from this file.',
         types,
     }
     // 2-space indent + trailing newline matches Prettier's JSON default, so the artifact stays

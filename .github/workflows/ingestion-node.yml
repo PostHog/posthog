@@ -51,6 +51,8 @@ jobs:
                         - 'ingestion/pinned/**'
                         - 'ingestion/ci/**'
                         - 'ingestion/rust/persons_migrations/**'
+                        # The clientwarnings e2e replays capture's envelope fixture and the no-drift test reads the generated table.
+                        - 'ingestion/rust/ingestion_warnings/*.json'
                         - '.github/workflows/ingestion-node.yml'
 
     check:

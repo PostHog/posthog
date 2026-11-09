@@ -1,14 +1,15 @@
 [package]
 name = "personhog-parity-monitor"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
 personhog-common = { path = "../personhog-common" }
-common-alloc = { package = "ingestion-common-alloc", path = "../common/alloc" }
-common-metrics = { package = "ingestion-common-metrics", path = "../common/metrics" }
-health = { package = "ingestion-health", path = "../common/health" }
+common-alloc = { path = "../../../rust/common/alloc" }
+common-metrics = { path = "../../../rust/common/metrics" }
+health = { path = "../../../rust/common/health" }
 
 anyhow = { workspace = true }
 axum = { workspace = true }

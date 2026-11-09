@@ -1,5 +1,6 @@
 [package]
 name = "personhog-test-harness"
+workspace = "../../../rust"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -7,9 +8,9 @@ publish = false
 [dependencies]
 personhog-common = { path = "../personhog-common" }
 personhog-proto = { path = "../personhog-proto" }
-common-metrics = { package = "ingestion-common-metrics", path = "../common/metrics" }
+common-metrics = { path = "../../../rust/common/metrics" }
 personhog-coordination = { path = "../personhog-coordination" }
-assignment-coordination = { path = "../common/assignment-coordination" }
+assignment-coordination = { path = "../assignment-coordination" }
 
 anyhow = { workspace = true }
 axum = { workspace = true }

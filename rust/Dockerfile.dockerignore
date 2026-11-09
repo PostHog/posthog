@@ -1,0 +1,7 @@
+*
+!rust
+!ingestion/rust
+!proto
+!ingestion/proto
+rust/target
+rust/.env
