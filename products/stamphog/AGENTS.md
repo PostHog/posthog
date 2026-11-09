@@ -193,12 +193,13 @@ A refusal writes nothing to GitHub and creates no run, so it cannot leave or rem
 The repo's `review_on_clean_external_review` switch must be on, and it takes the `manager` level like `routing_mode`.
 Like the manual trigger it bypasses `review_mode` and nothing else: the Celery task re-reads the config from the writer and refuses a closed PR, a draft, a bot author, an untrusted association, an author below write, a disabled repo, and a head that is no longer current.
 The head dedupe in `_queue_review_at_head` applies, so a head that already has a review gets no second one.
-The run is stamped `silent_review` provenance and the `reviewhog_clean` trigger, apart from manual and inbox provenance, so it never earns the self-driving carve-out or the ReviewHog refusal handoff.
+The run is stamped with the `reviewhog_clean` trigger and no provenance dict, apart from manual and inbox provenance, so it never earns the self-driving carve-out or the ReviewHog refusal handoff. `ReviewRun.is_silent` reads that stamp.
 
 The run is silent: only an approval reaches the PR, through the same attest, adopt and guard steps as any approval.
 Every other verdict, and a failure, writes nothing to GitHub, on retries too: no review, no label strip, no failure notice, no 👀, no WAIT re-review after an external review, and the pre-check skips its LLM refusal summary.
 What it keeps: `dismiss_stale_approvals` first, the conditional terminal save, and the terminal orphan-approval sweep.
 Do not return early before them, or a silent refusal leaves an older approval standing.
+Every path that writes to the PR asks `ReviewRun.may_publish`, so the approval exception is decided in one place.
 Publication is its own state: a withheld verdict keeps `verdict_posted_at` empty (`ReviewRun.verdict_withheld`), so the verdict a run computed is never read as one the PR saw.
 
 ## External review evidence

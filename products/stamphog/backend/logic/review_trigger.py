@@ -11,12 +11,13 @@ from typing import Any
 
 from ..facade.enums import ReviewMode, ReviewTrigger
 
-SILENT_REVIEW_OUTPUT_KEY = "silent_review"
-
 
 def is_silent_output(output: dict[str, Any] | None) -> bool:
-    """Whether a run with this output posts only an approval and keeps every other verdict off the PR."""
-    return bool((output or {}).get(SILENT_REVIEW_OUTPUT_KEY))
+    """Whether a run with this output posts only an approval and keeps every other verdict off the PR.
+
+    Read from the stamped trigger, which every silent run carries from its creation.
+    """
+    return (output or {}).get("review_trigger") == ReviewTrigger.REVIEWHOG_CLEAN
 
 
 def derive_review_trigger(
@@ -24,21 +25,17 @@ def derive_review_trigger(
     has_inbox_review: bool,
     review_mode: ReviewMode | str,
     has_manual_review: bool = False,
-    has_silent_review: bool = False,
 ) -> ReviewTrigger:
-    """Inbox provenance outranks a manual request, which outranks a silent review, and all outrank the repo mode.
+    """Inbox provenance outranks a manual request, and both outrank the repo mode.
 
     A self-driving run is dispatched from the inbox whether or not the repo also reviews every PR
     event, so a repo in ALL mode still reports SELF_DRIVING for those PRs. A manual request is an
-    explicit ask, so it reports MANUAL in either mode. A silent review is started by an external
-    reviewer's clean review, also outside the repo mode.
+    explicit ask, so it reports MANUAL in either mode.
     """
     if has_inbox_review:
         return ReviewTrigger.SELF_DRIVING
     if has_manual_review:
         return ReviewTrigger.MANUAL
-    if has_silent_review:
-        return ReviewTrigger.REVIEWHOG_CLEAN
     if review_mode == ReviewMode.LABEL:
         return ReviewTrigger.LABEL
     return ReviewTrigger.ALL
@@ -62,6 +59,5 @@ def trigger_for_run(*, output: dict[str, Any] | None, review_mode: ReviewMode | 
     return derive_review_trigger(
         has_inbox_review=bool((output or {}).get("inbox_review")),
         has_manual_review=bool((output or {}).get("manual_review")),
-        has_silent_review=is_silent_output(output),
         review_mode=review_mode,
     ).value

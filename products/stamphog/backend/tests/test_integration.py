@@ -751,7 +751,7 @@ def test_a_failed_run_says_so_on_the_pull_request(
         head_sha=head_sha,
         status=ReviewRunStatus.REVIEWING,
         output=({"inbox_review": True} if self_driving else {})
-        | ({"silent_review": {"source": "reviewhog_clean"}} if silent else {}),
+        | ({"review_trigger": "reviewhog_clean"} if silent else {}),
     )
 
     for _attempt in range(2 if silent else 1):
@@ -1476,8 +1476,7 @@ def test_non_approve_terminal_sweeps_supersession_orphan(
         pull_request=pull_request,
         head_sha=head_sha,
         status=ReviewRunStatus.REVIEWING,
-        output={"reviewer_raw": _refused_engine_output()}
-        | ({"silent_review": {"source": "reviewhog_clean"}} if silent else {}),
+        output={"reviewer_raw": _refused_engine_output()} | ({"review_trigger": "reviewhog_clean"} if silent else {}),
     )
     # The orphan: an active APPROVE by our bot at an older head, with no live ReviewRun pointing at it.
     github_reviews = [
@@ -2115,7 +2114,7 @@ def test_finished_external_review_reruns_only_a_waiting_verdict(
         head_sha="sha123b",
         status=ReviewRunStatus.COMPLETED,
         verdict=verdict,
-        output={"silent_review": {"source": "reviewhog_clean"}} if silent else {},
+        output={"review_trigger": "reviewhog_clean"} if silent else {},
     )
     existing_ids = [waiting.id]
     if earlier_wait:
@@ -2408,10 +2407,7 @@ def test_silent_review_is_refused_by_every_gate_but_the_review_mode(
     assert len(new_runs) == int(expect_new_run)
     assert start.called is expect_new_run
     if expect_new_run:
-        assert new_runs[0].output == {
-            "silent_review": {"source": "reviewhog_clean"},
-            "review_trigger": "reviewhog_clean",
-        }
+        assert new_runs[0].output == {"review_trigger": "reviewhog_clean"}
     assert recorder.github_writes == []
 
 

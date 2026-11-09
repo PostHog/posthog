@@ -766,19 +766,19 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             (
                 "manual_beats_silent",
                 ReviewMode.LABEL,
-                {"manual_review": {"acting_user_id": 1}, "silent_review": {"source": "reviewhog_clean"}},
+                {"manual_review": {"acting_user_id": 1}, "review_trigger": "reviewhog_clean"},
                 "manual",
             ),
             (
                 "silent_beats_label_mode",
                 ReviewMode.LABEL,
-                {"silent_review": {"source": "reviewhog_clean"}},
+                {"review_trigger": "reviewhog_clean"},
                 "reviewhog_clean",
             ),
             (
                 "silent_beats_all_mode",
                 ReviewMode.ALL,
-                {"silent_review": {"source": "reviewhog_clean"}},
+                {"review_trigger": "reviewhog_clean"},
                 "reviewhog_clean",
             ),
             ("label_mode", ReviewMode.LABEL, {}, "label"),

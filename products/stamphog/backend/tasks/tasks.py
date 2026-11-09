@@ -54,11 +54,7 @@ from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_fo
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
-from products.stamphog.backend.logic.review_trigger import (
-    SILENT_REVIEW_OUTPUT_KEY,
-    derive_review_trigger,
-    is_silent_output,
-)
+from products.stamphog.backend.logic.review_trigger import derive_review_trigger, is_silent_output
 from products.stamphog.backend.logic.routing.service import RoutingBusy
 from products.stamphog.backend.logic.routing.triggers import (
     ReviewPath,
@@ -1823,6 +1819,32 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     return QueuedReview(run=queued.run, created=queued.created)
 
 
+@frozen
+class _CurrentPr:
+    """The PR as GitHub reports it now, and why a review of it is refused, if it is."""
+
+    pr: dict[str, Any]
+    refusal: str | None
+
+
+def _check_current_pr(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> _CurrentPr:
+    """Fetch the PR and run the webhook gates that do not depend on the delivery: open, ``head_sha``
+    still the head, the payload pre-filters, and the author's write access. The review mode is the
+    caller's own decision."""
+    repo = repo_config.repository
+    pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo, pr_number)
+    if (pr.get("state") or "") != "open":
+        return _CurrentPr(pr=pr, refusal="not_open")
+    if ((pr.get("head") or {}).get("sha") or "") != head_sha:
+        return _CurrentPr(pr=pr, refusal="head_moved")
+    skip_reason = _review_skip_reason(pr)
+    if skip_reason is not None:
+        return _CurrentPr(pr=pr, refusal=skip_reason)
+    if _author_lacks_write_permission(repo_config, repo, pr):
+        return _CurrentPr(pr=pr, refusal="author_below_write")
+    return _CurrentPr(pr=pr, refusal=None)
+
+
 def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> None:
     """Queue a new review when this PR's latest verdict is a WAIT at ``head_sha`` that is still the PR head."""
     team_id = repo_config.team_id
@@ -1848,17 +1870,13 @@ def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_
         return
     if is_silent_output(previous_output):
         return
-    repo = repo_config.repository
-    pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo, pr_number)
-    if (pr.get("state") or "") != "open" or (pr.get("head") or {}).get("sha") != head_sha:
+    current = _check_current_pr(repo_config, pr_number, head_sha)
+    if current.refusal is not None:
         return
-    if _review_skip_reason(pr) is not None:
-        return
+    pr = current.pr
     is_manual = bool(previous_output.get("manual_review"))
     label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
     if repo_config.review_mode == ReviewMode.LABEL and not is_manual and repo_config.trigger_label not in label_names:
-        return
-    if _author_lacks_write_permission(repo_config, repo, pr):
         return
     output: dict[str, Any] = {"rereview_after_external_review": True}
     for key in ("manual_review", "review_trigger"):
@@ -1867,7 +1885,7 @@ def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_
     queued = _queue_review_at_head(repo_config, pr, head_sha, output=output, revisit_wait=True)
     logger.info(
         "stamphog_rereview_after_external_review",
-        repository=repo,
+        repository=repo_config.repository,
         pr_number=pr_number,
         review_run_id=str(queued.run.id) if queued.run is not None else None,
         created=queued.created,
@@ -1919,25 +1937,11 @@ def _queue_silent_review_at_head(repo_config: StamphogRepoConfig, pr_number: int
     """
     if not repo_config.review_on_clean_external_review:
         return "switch_off"
-    repo = repo_config.repository
-    pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo, pr_number)
-    if (pr.get("state") or "") != "open":
-        return "not_open"
-    if ((pr.get("head") or {}).get("sha") or "") != head_sha:
-        return "head_moved"
-    skip_reason = _review_skip_reason(pr)
-    if skip_reason is not None:
-        return skip_reason
-    if _author_lacks_write_permission(repo_config, repo, pr):
-        return "author_below_write"
+    current = _check_current_pr(repo_config, pr_number, head_sha)
+    if current.refusal is not None:
+        return current.refusal
     queued = _queue_review_at_head(
-        repo_config,
-        pr,
-        head_sha,
-        output={
-            SILENT_REVIEW_OUTPUT_KEY: {"source": ReviewTrigger.REVIEWHOG_CLEAN.value},
-            "review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value,
-        },
+        repo_config, current.pr, head_sha, output={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value}
     )
     if queued.run is None:
         return "stale_snapshot"

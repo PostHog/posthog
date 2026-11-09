@@ -302,6 +302,15 @@ class ReviewRun(ProductTeamModel):
         """Whether the run posts only an approval, from the provenance stamped when it was queued."""
         return is_silent_output(self.output)
 
+    def may_publish(self, verdict: str | None = None) -> bool:
+        """Whether this run may write ``verdict`` to the PR. Without a verdict: whether it may write
+        anything other than an approval, such as the 👀 cue, a refusal or a failure notice.
+
+        Every path that writes to the PR asks this, so a silent run's single exception, the
+        approval, is decided in one place.
+        """
+        return not self.is_silent or verdict == ReviewVerdict.APPROVED
+
     @property
     def verdict_withheld(self) -> bool:
         """A silent run that decided a verdict and kept it off the PR."""

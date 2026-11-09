@@ -651,8 +651,7 @@ def signal_review_started(input: StamphogReviewInput) -> dict:
     on ``run.output`` so the terminal activities (``post_verdict``, ``mark_review_failed``) can remove it.
     """
     run = _load_run(input)
-    # A silent run writes nothing to the PR unless it approves, and an in-flight cue is a write.
-    if run.status == ReviewRunStatus.SUPERSEDED or run.is_silent:
+    if run.status == ReviewRunStatus.SUPERSEDED or not run.may_publish():
         return {"reaction_id": None}
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
@@ -1014,8 +1013,8 @@ def _refuse_on_pre_gates(run: ReviewRun) -> dict:
         return {"refused": False}
 
     summary = None
-    # A silent refusal is never posted, so the LLM call for its wording would buy nothing.
-    if outcome.needs_summary and not run.is_silent:
+    # A refusal that is never posted needs no LLM call for its wording.
+    if outcome.needs_summary and run.may_publish():
         with timer.step("summary"):
             summary = _fast_refusal_summary(run, outcome)
     if summary:
@@ -1846,7 +1845,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Computed before the branch chain because two things must agree on it: the trigger label is only
     # stripped for a refusal, and only then may the review tell the author to re-add it.
     is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
-    strips_label = repo_config.review_mode == ReviewMode.LABEL and is_refusal and not run.is_silent
+    strips_label = repo_config.review_mode == ReviewMode.LABEL and is_refusal and run.may_publish(parsed.verdict)
 
     relabel_label = repo_config.trigger_label if strips_label else None
 
@@ -1893,12 +1892,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = parsed.verdict
 
-    # Saved below like any verdict, but verdict_posted_at stays empty, so it reads as not yet published.
-    withheld = run.is_silent and run.verdict != ReviewVerdict.APPROVED
+    # A verdict that may not be published is still saved below, with verdict_posted_at left empty.
+    published = run.may_publish(run.verdict)
 
     # One post for every non-approval, keyed off the verdict the run just stored, so the review text
     # and the recorded verdict cannot disagree. The approve branch above posted its own APPROVE.
-    if run.verdict != ReviewVerdict.APPROVED and not withheld:
+    if run.verdict != ReviewVerdict.APPROVED and published:
         _post_non_approval_review(client, repo, run, pull_request, _verdict_body(parsed, run.verdict, relabel_label))
 
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
@@ -1915,7 +1914,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
 
     run.completed_at = timezone.now()
-    run.verdict_posted_at = None if withheld else run.completed_at
+    run.verdict_posted_at = run.completed_at if published else None
     # Conditional terminal save: a delivery superseding this run between the guards above and here
     # must win — a plain save would write COMPLETED back over SUPERSEDED and resurrect a stale run.
     updated = (
@@ -1971,8 +1970,8 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     _capture_review_timings(run, str(parsed.verdict), int((time.monotonic() - post_started) * 1000))
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
-    # Nobody sees a silent WAIT, so the external review finishing has nothing to update.
-    waited = _waited_on_external_review(run) and not run.is_silent
+    # Nobody saw a WAIT that was not published, so the external review finishing has nothing to update.
+    waited = _waited_on_external_review(run) and run.verdict_posted_at is not None
     return {"verdict": str(parsed.verdict), "waited_on_external_review": waited}
 
 
@@ -2508,7 +2507,7 @@ def _post_failure_notice(client: StamphogGitHubClient, run: ReviewRun, team_id: 
 
     A silent run posts nothing, on the first attempt and on every retry.
     """
-    if run.is_silent:
+    if not run.may_publish():
         return
     replaced_at_same_head = (
         ReviewRun.objects.for_team(team_id)
