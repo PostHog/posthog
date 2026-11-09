@@ -101,7 +101,12 @@ class PropertyValueVisibility:
             return detail
         from products.access_control.backend.facade import api as access_control_api  # noqa: PLC0415
 
-        restricted = group_property_names_for_type(names_by_type, group_type_index_of(detail))
+        # Serializers drop detail.context, so read the group type from the stored entry.
+        stored = entry.detail if isinstance(entry.detail, Mapping) else {}
+        group_type_index = group_type_index_of(stored)
+        if group_type_index is None:
+            group_type_index = group_type_index_of(detail)
+        restricted = group_property_names_for_type(names_by_type, group_type_index)
         if not access_control_api.property_key_overlaps_restriction(name, restricted):
             return detail
         return {

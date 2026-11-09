@@ -63,6 +63,17 @@ class TestPropertyValueVisibility(SimpleTestCase):
         assert result["name"] == property_name
         assert result.get("context") == detail.get("context")
 
+    @parameterized.expand([("rule_on_other_type", "plan", 1, False), ("rule_on_same_type", "plan", 0, True)])
+    def test_apply_reads_group_type_from_stored_entry(
+        self, _name: str, property_name: str, group_type_index: int, hidden: bool
+    ) -> None:
+        entry = ActivityLog(scope="Group", team_id=TEAM_ID, detail=_detail(property_name, group_type_index))
+        serialized = _detail(property_name, None)
+
+        change = self._visibility().apply(entry, serialized)["changes"][0]
+
+        assert (change["before"] is None and change["after"] is None) is hidden
+
     def test_apply_leaves_other_scopes(self) -> None:
         detail = _detail("plan", 0)
 
