@@ -9,7 +9,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AlertReceiverApi,
+    AlertReceiverWriteApi,
+    AlertRouteApi,
     PaginatedPlatformAlertConfigurationListApi,
+    PatchedAlertReceiverWriteApi,
+    PatchedAlertRouteApi,
     PatchedPlatformAlertConfigurationEditApi,
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
@@ -21,6 +26,172 @@ import type {
     PlatformAlertGroupSnoozeApi,
     PlatformAlertsListParams,
 } from './api.schemas'
+
+// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
+
+type WritableKeys<T> = {
+    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
+}[keyof T]
+
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
+type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
+
+type Writable<T> = Pick<T, WritableKeys<T>>
+type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
+    ? {
+          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
+      }
+    : DistributeReadOnlyOverUnions<T>
+
+export const getPlatformAlertReceiversListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/platform_alert_receivers/`
+}
+
+/**
+ * List the project's alert receivers.
+ */
+export const platformAlertReceiversList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AlertReceiverApi[]> => {
+    return apiMutator<AlertReceiverApi[]>(getPlatformAlertReceiversListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPlatformAlertReceiversCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/platform_alert_receivers/`
+}
+
+/**
+ * Add a receiver that routes can send alerts to.
+ */
+export const platformAlertReceiversCreate = async (
+    projectId: string,
+    alertReceiverWriteApi: AlertReceiverWriteApi,
+    options?: RequestInit
+): Promise<AlertReceiverApi> => {
+    return apiMutator<AlertReceiverApi>(getPlatformAlertReceiversCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertReceiverWriteApi),
+    })
+}
+
+export const getPlatformAlertReceiversPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alert_receivers/${id}/`
+}
+
+/**
+ * Change a receiver. Destination fields replace the stored destination and need the type.
+ */
+export const platformAlertReceiversPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedAlertReceiverWriteApi?: PatchedAlertReceiverWriteApi,
+    options?: RequestInit
+): Promise<AlertReceiverApi> => {
+    return apiMutator<AlertReceiverApi>(getPlatformAlertReceiversPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAlertReceiverWriteApi),
+    })
+}
+
+export const getPlatformAlertReceiversDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alert_receivers/${id}/`
+}
+
+/**
+ * Delete a receiver and every route that sends to it.
+ */
+export const platformAlertReceiversDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getPlatformAlertReceiversDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getPlatformAlertRoutesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/platform_alert_routes/`
+}
+
+/**
+ * List the project's alert routes, in the order delivery reads them.
+ */
+export const platformAlertRoutesList = async (projectId: string, options?: RequestInit): Promise<AlertRouteApi[]> => {
+    return apiMutator<AlertRouteApi[]>(getPlatformAlertRoutesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPlatformAlertRoutesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/platform_alert_routes/`
+}
+
+/**
+ * Add a route. Every alert whose labels match it also sends to its receiver.
+ */
+export const platformAlertRoutesCreate = async (
+    projectId: string,
+    alertRouteApi: NonReadonly<AlertRouteApi>,
+    options?: RequestInit
+): Promise<AlertRouteApi> => {
+    return apiMutator<AlertRouteApi>(getPlatformAlertRoutesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertRouteApi),
+    })
+}
+
+export const getPlatformAlertRoutesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alert_routes/${id}/`
+}
+
+/**
+ * Change a route. Fields left out keep their stored value.
+ */
+export const platformAlertRoutesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedAlertRouteApi?: NonReadonly<PatchedAlertRouteApi>,
+    options?: RequestInit
+): Promise<AlertRouteApi> => {
+    return apiMutator<AlertRouteApi>(getPlatformAlertRoutesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAlertRouteApi),
+    })
+}
+
+export const getPlatformAlertRoutesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alert_routes/${id}/`
+}
+
+/**
+ * Delete a route.
+ */
+export const platformAlertRoutesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getPlatformAlertRoutesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
 
 export const getPlatformAlertsListUrl = (projectId: string, params?: PlatformAlertsListParams) => {
     const normalizedParams = new URLSearchParams()

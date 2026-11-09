@@ -1,0 +1,134 @@
+from typing import Any
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.models import Team
+from posthog.models.integration import Integration
+from posthog.models.scoping import team_scope
+
+from products.alerts_platform.backend.logic.alert_routes import routed_receivers
+from products.alerts_platform.backend.models import AlertReceiver
+
+_WEBHOOK = {"type": "webhook", "webhook_url": "https://example.com/hooks/secret-token"}
+
+
+class TestPlatformAlertRouting(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.flag_patch = self.enterContext(
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
+        )
+        self.receivers_url = f"/api/projects/{self.team.id}/platform_alert_receivers/"
+        self.routes_url = f"/api/projects/{self.team.id}/platform_alert_routes/"
+
+    def _receiver(self, **fields: Any) -> dict[str, Any]:
+        response = self.client.post(self.receivers_url, {"name": "Infra", **_WEBHOOK, **fields}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()
+
+    def test_routes_written_here_are_the_routes_delivery_matches(self) -> None:
+        receiver = self._receiver()
+        route = self.client.post(
+            self.routes_url,
+            {
+                "receiver_id": receiver["id"],
+                "matchers": [{"label": "team", "value": "apm"}],
+                "event_kinds": ["firing", "resolved"],
+            },
+            format="json",
+        )
+        assert route.status_code == status.HTTP_201_CREATED, route.json()
+
+        with team_scope(self.team.id):
+            matched = routed_receivers(team_id=self.team.id, labels={"team": "apm", "severity": "critical"})
+            unmatched = routed_receivers(team_id=self.team.id, labels={"team": "checkout"})
+        assert [(str(r.id), r.data["webhook_url"], [k.value for k in r.event_kinds]) for r in matched] == [
+            (receiver["id"], _WEBHOOK["webhook_url"], ["firing", "resolved"])
+        ]
+        assert unmatched == ()
+
+        listed = self.client.get(self.receivers_url).json()
+        assert [(r["name"], r["webhook_url"], r["route_count"]) for r in listed] == [
+            ("Infra", "https://example.com", 1)
+        ]
+
+    def test_editing_a_receiver_name_keeps_its_destination_and_deleting_it_removes_its_routes(self) -> None:
+        receiver = self._receiver()
+        self.client.post(self.routes_url, {"receiver_id": receiver["id"]}, format="json")
+
+        renamed = self.client.patch(f"{self.receivers_url}{receiver['id']}/", {"name": "Infra pager"}, format="json")
+        assert renamed.status_code == status.HTTP_200_OK, renamed.json()
+        with team_scope(self.team.id):
+            assert AlertReceiver.objects.for_team(self.team.id).get(id=receiver["id"]).config == _WEBHOOK
+
+        deleted = self.client.delete(f"{self.receivers_url}{receiver['id']}/")
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        assert self.client.get(self.routes_url).json() == []
+
+    def test_routing_is_unavailable_without_the_routing_flag(self) -> None:
+        self.flag_patch.side_effect = lambda flag, *args, **kwargs: flag != "platform-alerts-routing"
+
+        assert self.client.get(self.receivers_url).status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.post(self.routes_url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN
+
+    def test_a_route_cannot_send_to_another_projects_receiver(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        with team_scope(other_team.id):
+            foreign = AlertReceiver.objects.for_team(other_team.id).create(
+                team_id=other_team.id, name="Theirs", type="webhook", config=_WEBHOOK
+            )
+
+        response = self.client.post(self.routes_url, {"receiver_id": str(foreign.id)}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "receiver_id"
+
+    @parameterized.expand(
+        [
+            ("same_label_twice", [{"label": "team", "value": "a"}, {"label": "team", "value": "b"}]),
+            ("invalid_label_name", [{"label": "team-name", "value": "a"}]),
+            ("reserved_label", [{"label": "alertname", "value": "a"}]),
+            ("blank_value", [{"label": "team", "value": " "}]),
+        ]
+    )
+    def test_refuses_matchers_no_alert_label_can_satisfy(self, _name: str, matchers: list[dict[str, str]]) -> None:
+        receiver = self._receiver()
+
+        response = self.client.post(
+            self.routes_url, {"receiver_id": receiver["id"], "matchers": matchers}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "matchers"
+
+    @parameterized.expand(
+        [
+            ("pagerduty_is_not_routable", {"name": "Pager", "type": "pagerduty"}, "type"),
+            ("duplicate_name", {"name": "Infra", **_WEBHOOK}, "name"),
+            ("slack_workspace_of_no_integration", {"name": "Chat", "type": "slack"}, "slack_workspace_id"),
+        ]
+    )
+    def test_refuses_receivers_delivery_cannot_send_to(self, _name: str, body: dict[str, Any], attr: str) -> None:
+        self._receiver()
+        if body.get("type") == "slack":
+            body = {**body, "slack_workspace_id": 999999, "slack_channel_id": "C1"}
+
+        response = self.client.post(self.receivers_url, body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == attr
+
+    def test_slack_receiver_needs_a_workspace_connected_to_the_project(self) -> None:
+        workspace = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
+
+        response = self.client.post(
+            self.receivers_url,
+            {"name": "Chat", "type": "slack", "slack_workspace_id": workspace.id, "slack_channel_id": "C1"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()

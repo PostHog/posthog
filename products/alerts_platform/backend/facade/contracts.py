@@ -1363,6 +1363,55 @@ class AlertDestinationValidationError(Exception):
 
 
 @frozen
+class AlertReceiverEdit:
+    """A team-wide destination that routes send to. Fields left as None keep what is stored."""
+
+    name: str | None = None
+    data: AlertDestinationData | None = None
+    enabled: bool | None = None
+
+
+@frozen
+class StoredAlertReceiver:
+    id: UUID
+    name: str
+    data: AlertDestinationData
+    enabled: bool
+    route_count: int
+
+
+@frozen
+class RouteMatcher:
+    """One condition a route checks on an alert's labels. Only equality is supported."""
+
+    label: str
+    value: str
+
+
+@frozen
+class AlertRouteEdit:
+    """Which alerts a receiver hears, by their labels. Fields left as None keep what is stored."""
+
+    receiver_id: UUID | None = None
+    matchers: tuple[RouteMatcher, ...] | None = None
+    event_kinds: tuple[AlertEventKind, ...] | None = None
+    enabled: bool | None = None
+
+
+@frozen
+class StoredAlertRoute:
+    id: UUID
+    receiver_id: UUID
+    matchers: tuple[RouteMatcher, ...]
+    event_kinds: tuple[AlertEventKind, ...]
+    enabled: bool
+
+
+class UnknownAlertRouting(Exception):
+    """No receiver or route with this id on the team."""
+
+
+@frozen
 class AlertDestinationAction:
     url: str
     label: str
