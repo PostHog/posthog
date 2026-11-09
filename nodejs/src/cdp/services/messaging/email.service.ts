@@ -47,6 +47,7 @@ import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, addWorkflowRunTagToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
+import { declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import {
     PreferencesTokenSource,
@@ -167,6 +168,7 @@ export class SESThrottleError extends Error {
 
 const EMAIL_ATTACHMENTS_MISSING = 'attachments_missing'
 const EMAIL_ATTACHMENT_UNAVAILABLE = 'attachment_unavailable'
+const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
 // Loading the files and the SES call share one deadline. It stays under the consumer's stop deadline, so a pod that
 // shuts down mid-send can still write the send's result.
@@ -176,6 +178,13 @@ class EmailSendDeadlineError extends Error {
     constructor(cause: unknown) {
         super('The SES call did not finish before the send deadline', { cause })
         this.name = 'EmailSendDeadlineError'
+    }
+}
+
+class MessageTooLargeError extends Error {
+    constructor() {
+        super('The attachment files of this email are larger than one email can carry')
+        this.name = 'MessageTooLargeError'
     }
 }
 
@@ -194,6 +203,12 @@ function describeAttachmentFailure(error: unknown): { reason: EmailStatusReason;
         return {
             reason: EMAIL_ATTACHMENTS_MISSING,
             message: `${EMAIL_ATTACHMENTS_MISSING}: the attachment files of this email are no longer stored, so it was not sent without them.`,
+        }
+    }
+    if (error instanceof MessageTooLargeError) {
+        return {
+            reason: EMAIL_MESSAGE_TOO_LARGE,
+            message: `${EMAIL_MESSAGE_TOO_LARGE}: the attachment files of this email are larger than one email can carry, so it was not sent.`,
         }
     }
     if (isAttachmentLoadFailure(error)) {
@@ -1309,6 +1324,9 @@ export class EmailService {
         files: EmailAttachmentMetadata[],
         deadline: AbortSignal
     ): Promise<LoadedAttachment[]> {
+        if (exceedsLargestSend(declaredFileBytes(files))) {
+            throw new MessageTooLargeError()
+        }
         if (!this.attachmentStore) {
             throw new AttachmentStoreUnavailableError(new Error('No attachment store is configured on this pod'))
         }

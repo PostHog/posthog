@@ -45,6 +45,7 @@ import {
 } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
+import { LARGEST_SEND_FILE_BYTES } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
@@ -1452,6 +1453,14 @@ describe('EmailService', () => {
                 attachments: [{ ...attachmentFile().metadata, filename: 'report.pdf' }],
             })
         }
+        const filesTooLarge = (): void => {
+            sesAccepts()
+            service['attachmentStore'] = attachmentStore
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                attachments: [{ ...attachmentFile().metadata, sizeBytes: LARGEST_SEND_FILE_BYTES + 1 }],
+            })
+        }
         const filesUnreachableAfterEveryRetry = (): void => {
             filesGone()
             invocation.queueMetadata = { attachmentLoadTries: 10 }
@@ -1733,6 +1742,14 @@ describe('EmailService', () => {
                 'attachments_missing',
             ],
             [
+                'a transactional email whose files are larger than one email can carry',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                filesTooLarge,
+                'failed',
+                'message_too_large',
+            ],
+            [
                 'a transactional email whose files could not be loaded in any retry',
                 TRANSACTIONAL_EMAIL_EVENT,
                 false,
@@ -1771,7 +1788,8 @@ describe('EmailService', () => {
                 status === 'sent' ||
                 reason === 'provider_error' ||
                 reason === 'attachments_missing' ||
-                reason === 'attachment_unavailable'
+                reason === 'attachment_unavailable' ||
+                reason === 'message_too_large'
                     ? 'posthog-test.com'
                     : ''
             expect(rows).toEqual(

@@ -14,7 +14,12 @@ import { Hub } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
 import { settleBefore } from '../services/messaging/attachment-store'
-import { InFlightLimits, InFlightRegistry, estimateSend } from '../services/messaging/in-flight-registry'
+import {
+    InFlightLimits,
+    InFlightRegistry,
+    LARGEST_SEND_FILE_BYTES,
+    estimateSend,
+} from '../services/messaging/in-flight-registry'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { CdpCyclotronWorkerEmail } from './cdp-cyclotron-worker-email.consumer'
@@ -323,6 +328,30 @@ describe('CdpCyclotronWorkerEmail', () => {
                     invocation: expect.objectContaining({ id: canceled.id }),
                 }),
             ])
+            expect(queue.deferInvocations).not.toHaveBeenCalled()
+        })
+
+        it('runs a send larger than one email can carry in its batch, where it fails, instead of deferring it', async () => {
+            const { worker, queue } = workerWith(roomFor(1))
+            const oversized = withFiles({
+                state: {
+                    ...createHogFlowInvocationContext(),
+                    send: {
+                        attachments: [
+                            { filename: 'archive.zip', sha256: 'b'.repeat(64), sizeBytes: LARGEST_SEND_FILE_BYTES + 1 },
+                        ],
+                    },
+                } as any,
+            })
+            const ran = jest
+                .spyOn(worker, 'processInvocations')
+                .mockImplementation((invocations) => Promise.resolve(resultsOf(invocations)))
+
+            await (
+                await worker.processBatch([oversized])
+            ).backgroundTask
+
+            expect(ran).toHaveBeenCalledWith([oversized])
             expect(queue.deferInvocations).not.toHaveBeenCalled()
         })
 

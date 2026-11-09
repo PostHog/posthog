@@ -8,7 +8,7 @@ import { CyclotronJobInvocation } from '~/cdp/types'
 
 const MIB = 1024 * 1024
 const EMAIL_MESSAGE_MAX_BYTES = 40_000_000
-const LARGEST_SEND_FILE_BYTES = (EMAIL_MESSAGE_MAX_BYTES * 3) / 4
+export const LARGEST_SEND_FILE_BYTES = (EMAIL_MESSAGE_MAX_BYTES * 3) / 4
 // The raw bytes sit outside the V8 heap. The Base64 copy and the JSON body the SES client builds sit on it. Email text
 // outside Latin-1 makes V8 store that body at two bytes per character, Base64 included, which the reservation covers.
 const RESERVED_BYTES_PER_FILE_BYTE = 7
@@ -84,8 +84,13 @@ export function fileBytesOf(invocation: CyclotronJobInvocation): number | null {
     const sent = (invocation.state as { send?: { attachments?: readonly EmailAttachmentMetadata[] } } | null)?.send
     const queued = invocation.queueParameters?.type === 'email' ? invocation.queueParameters.attachments : undefined
     const files = sent?.attachments ?? queued
-    return files?.length ? files.reduce((total, file) => total + file.sizeBytes, 0) : null
+    return files?.length ? declaredFileBytes(files) : null
 }
+
+export const declaredFileBytes = (files: readonly EmailAttachmentMetadata[]): number =>
+    files.reduce((total, file) => total + file.sizeBytes, 0)
+
+export const exceedsLargestSend = (fileBytes: number): boolean => fileBytes > LARGEST_SEND_FILE_BYTES
 
 export function deferralDelayMs(earlierDeferrals: number, random: () => number = Math.random): number {
     const ceiling = Math.min(LONGEST_DEFERRAL_MS, FIRST_DEFERRAL_MS * 2 ** earlierDeferrals)

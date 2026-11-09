@@ -6,6 +6,7 @@ import {
     InFlightRegistry,
     callsSettledWithin,
     deferralDelayMs,
+    exceedsLargestSend,
     fileBytesOf,
     inFlightLimitsFor,
 } from '../services/messaging/in-flight-registry'
@@ -50,7 +51,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         const deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[] = []
         for (const invocation of invocations) {
             const fileBytes = fileBytesOf(invocation)
-            if (fileBytes === null || invocation.cancelRequestedAt) {
+            if (fileBytes === null || exceedsLargestSend(fileBytes) || invocation.cancelRequestedAt) {
                 plain.push(invocation)
                 continue
             }
