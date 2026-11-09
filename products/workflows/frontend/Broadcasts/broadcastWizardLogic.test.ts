@@ -992,14 +992,27 @@ describe('broadcastWizardLogic', () => {
     })
 
     it.each([
-        { case: 'an audience under the limit', affected: 3000, expected: null },
+        { case: 'an audience under the limit', affected: 3000, rateLimit: null, expected: null },
         {
             case: 'an audience a sending rate limit can reach',
             affected: 10000,
+            rateLimit: null,
             expected: { affected: 10000, minPerHour: 60, maxPerHour: 62, days: 7 },
         },
-        { case: 'an audience too large for any sending rate', affected: 10417, expected: null },
-    ])('asks for a sending rate limit for $case', ({ affected, expected }) => {
+        {
+            case: 'an audience a rate limit that is too fast cannot reach',
+            affected: 10000,
+            rateLimit: { count: 100, period: 'hour' as const },
+            expected: { affected: 10000, minPerHour: 60, maxPerHour: 62, days: 7 },
+        },
+        {
+            case: 'an audience the chosen rate limit reaches',
+            affected: 10000,
+            rateLimit: { count: 1, period: 'minute' as const },
+            expected: null,
+        },
+        { case: 'an audience too large for any sending rate', affected: 10417, rateLimit: null, expected: null },
+    ])('asks for a sending rate limit for $case', ({ affected, rateLimit, expected }) => {
         // The slowest rate has to reach everyone in max_days, or the server keeps the normal limit.
         const blastRadius: BlastRadiusApi = {
             affected,
@@ -1009,7 +1022,7 @@ describe('broadcastWizardLogic', () => {
             confirm_token: 'token',
             rate_limited: { max_emails_per_hour: 62, max_days: 7, limit: 62 * 24 * 7 },
         }
-        expect(rateLimitNeededForAudience(blastRadius)).toEqual(expected)
+        expect(rateLimitNeededForAudience(blastRadius, rateLimit)).toEqual(expected)
     })
 
     it('asks for a rate limit on the schedule step only once one is set, and applies the suggested rate', () => {
@@ -1029,6 +1042,9 @@ describe('broadcastWizardLogic', () => {
 
         logic.actions.applySuggestedRateLimit()
         expect(logic.values.emailRateLimit).toEqual({ count: 62, period: 'hour' })
+        expect(logic.values.stepValidationErrors.schedule).toEqual([])
+        expect(logic.values.rateLimitNeeded).toBeNull()
+        expect(logic.values.audienceLimit).toEqual(62 * 24 * 7)
     })
 
     it('leaves push text saved as Hog unparsed', () => {

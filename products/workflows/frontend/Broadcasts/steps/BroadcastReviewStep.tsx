@@ -34,7 +34,6 @@ function ReviewRow({
 }): JSX.Element {
     const { stepValidationErrors, rateLimitMessage } = useValues(broadcastWizardLogic)
     const { setStep } = useActions(broadcastWizardLogic)
-    // The sending rate row shows the rate limit issue next to its one-click fix.
     const errors = showErrors ? stepValidationErrors[step].filter((error) => error !== rateLimitMessage) : []
 
     return (

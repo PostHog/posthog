@@ -35,6 +35,7 @@ function AudienceSizePreview(): JSX.Element | null {
         emailRateLimit,
         rateLimitNeeded,
         rateLimitedSendDuration,
+        audienceLimit,
     } = useValues(broadcastWizardLogic)
 
     if (blastRadiusLoading) {
@@ -51,7 +52,7 @@ function AudienceSizePreview(): JSX.Element | null {
     }
 
     const { affected, total, limit } = blastRadius
-    const exceeded = limit != null && affected > limit
+    const exceeded = audienceLimit != null && affected > audienceLimit
 
     return (
         <div className="text-muted">

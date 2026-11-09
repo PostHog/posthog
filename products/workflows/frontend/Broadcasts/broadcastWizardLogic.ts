@@ -386,6 +386,7 @@ export interface broadcastWizardLogicValues {
     aiEmailDraftLoading: boolean
     aiEmailDraftStatus: AiEmailDraftStatusProps | null
     audienceCohortLaunchErrors: AudienceCohortLaunchError[]
+    audienceLimit: number | null
     audienceProperties: AnyPropertyFilter[]
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
@@ -828,13 +829,22 @@ export interface broadcastWizardLogicMeta {
             push: BroadcastPushValue,
             broadcast: HogFlowApi | null
         ) => BroadcastTemplatingErrors
-        rateLimitNeeded: (blastRadius: BlastRadiusApi | null, channel: BroadcastChannel) => RateLimitNeeded | null
+        audienceLimit: (
+            blastRadius: BlastRadiusApi | null,
+            channel: BroadcastChannel,
+            emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+        ) => number | null
+        rateLimitNeeded: (
+            blastRadius: BlastRadiusApi | null,
+            channel: BroadcastChannel,
+            emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+        ) => RateLimitNeeded | null
         rateLimitMessage: (
-            rateLimitNeeded: any,
+            rateLimitNeeded: RateLimitNeeded | null,
             emailRateLimit: HogFlowEmailSendingRateLimitApi | null
         ) => string | null
         rateLimitErrors: (
-            rateLimitMessage: any,
+            rateLimitMessage: string | null,
             emailRateLimit: HogFlowEmailSendingRateLimitApi | null
         ) => {
             review: string | null
@@ -856,7 +866,10 @@ export interface broadcastWizardLogicMeta {
             channel: BroadcastChannel,
             push: BroadcastPushValue,
             templatingErrors: Partial<Record<'body' | 'message' | 'preheader' | 'subject' | 'title' | 'to', string>>,
-            rateLimitErrors: any
+            rateLimitErrors: {
+                review: string | null
+                schedule: string | null
+            }
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
@@ -993,7 +1006,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     }
                     return await hogFlowsUserBlastRadiusCreate(
                         String(values.currentProjectId),
-                        audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit)
+                        audiencePreviewRequest(values.audienceProperties, values.channel)
                     )
                 },
             },
@@ -1577,10 +1590,25 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 broadcast: HogFlowApi | null
             ): BroadcastTemplatingErrors => getBroadcastTemplatingErrors(channel, email, push, broadcast),
         ],
+        audienceLimit: [
+            (s) => [s.blastRadius, s.channel, s.emailRateLimit],
+            (
+                blastRadius: BlastRadiusApi | null,
+                channel: BroadcastChannel,
+                emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+            ): number | null =>
+                blastRadius
+                    ? audienceLimitWithRateLimit(blastRadius, channel === 'email' ? emailRateLimit : null)
+                    : null,
+        ],
         rateLimitNeeded: [
-            (s) => [s.blastRadius, s.channel],
-            (blastRadius: BlastRadiusApi | null, channel: BroadcastChannel): RateLimitNeeded | null =>
-                channel === 'email' ? rateLimitNeededForAudience(blastRadius) : null,
+            (s) => [s.blastRadius, s.channel, s.emailRateLimit],
+            (
+                blastRadius: BlastRadiusApi | null,
+                channel: BroadcastChannel,
+                emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+            ): RateLimitNeeded | null =>
+                channel === 'email' ? rateLimitNeededForAudience(blastRadius, emailRateLimit) : null,
         ],
         rateLimitMessage: [
             (s) => [s.rateLimitNeeded, s.emailRateLimit],
@@ -1934,11 +1962,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             if (values.rateLimitNeeded) {
                 actions.setEmailRateLimit({ count: values.rateLimitNeeded.maxPerHour, period: 'hour' })
             }
-        },
-        setEmailRateLimit: async (_, breakpoint) => {
-            // The rate limit can raise the audience limit, so the preview has to follow it.
-            await breakpoint(500)
-            actions.loadBlastRadius()
         },
         setStep: ({ step }) => {
             if (step === 'review') {
@@ -2370,7 +2393,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     // can fix it. Mirrors the guard on the workflow editor's manual trigger.
                     if (blastRadius.limit != null && blastRadius.affected > blastRadius.limit) {
                         const rateLimitNeeded =
-                            values.channel === 'email' ? rateLimitNeededForAudience(blastRadius) : null
+                            values.channel === 'email'
+                                ? rateLimitNeededForAudience(blastRadius, values.emailRateLimit)
+                                : null
                         captureLaunchFailed(broadcastId, 'audience_over_limit')
                         actions.launchBroadcastFinished()
                         actions.setStep(rateLimitNeeded ? 'schedule' : 'recipients')
@@ -2707,7 +2732,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 try {
                     refreshed = await hogFlowsUserBlastRadiusCreate(
                         String(values.currentProjectId),
-                        audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit)
+                        audiencePreviewRequest(values.audienceProperties, values.channel)
                     )
                 } catch {
                     // A failed check tries again on the next interval.
@@ -2944,7 +2969,7 @@ export const DELETED_PUSH_CHANNEL_ERROR = 'A chosen push channel was deleted. Ch
 function audiencePreviewRequest(
     audienceProperties: AnyPropertyFilter[],
     channel: BroadcastChannel,
-    emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+    emailRateLimit: HogFlowEmailSendingRateLimitApi | null = null
 ): BlastRadiusRequestApi {
     return channel === 'push'
         ? { filters: { properties: audienceProperties }, sends_email: false }
@@ -2969,9 +2994,40 @@ export interface RateLimitNeeded {
  * audience fits already or is too large for any rate. A slower rate takes too many days to reach everyone,
  * and a faster one uses too much of the project's daily email allowance.
  */
-export function rateLimitNeededForAudience(blastRadius: BlastRadiusApi | null): RateLimitNeeded | null {
+const RATE_LIMIT_PERIODS_PER_DAY: Record<HogFlowEmailSendingRateLimitApi['period'], number> = {
+    minute: 24 * 60,
+    hour: 24,
+}
+
+/**
+ * The audience limit with this sending rate limit, mirroring resolve_batch_audience_limit on the server. Worked
+ * out here so editing the rate doesn't recount the audience.
+ */
+export function audienceLimitWithRateLimit(
+    blastRadius: BlastRadiusApi,
+    emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+): number {
+    const rateLimited = blastRadius.rate_limited
+    if (!rateLimited || !emailRateLimit) {
+        return blastRadius.limit
+    }
+    const perDay = emailRateLimit.count * RATE_LIMIT_PERIODS_PER_DAY[emailRateLimit.period]
+    if (perDay > rateLimited.max_emails_per_hour * 24) {
+        return blastRadius.limit
+    }
+    return Math.max(blastRadius.limit, perDay * rateLimited.max_days)
+}
+
+export function rateLimitNeededForAudience(
+    blastRadius: BlastRadiusApi | null,
+    emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+): RateLimitNeeded | null {
     const rateLimited = blastRadius?.rate_limited
-    if (!blastRadius || !rateLimited || blastRadius.affected <= blastRadius.limit) {
+    if (
+        !blastRadius ||
+        !rateLimited ||
+        blastRadius.affected <= audienceLimitWithRateLimit(blastRadius, emailRateLimit)
+    ) {
         return null
     }
     if (blastRadius.affected > rateLimited.limit) {
