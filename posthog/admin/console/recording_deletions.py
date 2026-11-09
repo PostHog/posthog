@@ -1,5 +1,6 @@
 import csv
 import json
+import time
 import uuid
 from typing import Any, cast
 from urllib.parse import urlencode
@@ -20,11 +21,13 @@ from posthog.admin.console.tools import Cell, ConsoleTool, Download, Live, Notic
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.session_replay.delete_recordings.staff import (
+    RECENT_RUNS,
     DeletionRequest,
     DeletionRun,
     RecordingDeletions,
     RecordingFilters,
     describe_query,
+    normalize_date_filter,
     session_ids_from_csv,
 )
 
@@ -40,6 +43,9 @@ PREVIEW_SAMPLE_SIZE = 10
 # A session ID takes about 37 bytes per CSV line, so the byte cap also bounds what the cache holds.
 MAX_CSV_SESSION_IDS = 500_000
 MAX_CSV_BYTES = 25_000_000
+# Session IDs are UUIDs. The csv module's own field limit is process-wide, and other modules raise it.
+MAX_SESSION_ID_LENGTH = 200
+WAIT_FOR_NEW_RUN_SECONDS = 120
 UNDO_HINT = "Deleted recordings cannot be restored. A dry run deletes nothing."
 STATUS_TONES = {
     "RUNNING": Tone.INFO,
@@ -82,6 +88,15 @@ class PersonDeletionForm(DeletionForm):
         return distinct_ids
 
 
+def _clean_date(value: str) -> str:
+    if not value.strip():
+        return ""
+    try:
+        return normalize_date_filter(value)
+    except ValueError:
+        raise forms.ValidationError("Enter a relative date, such as -30d, or a date, such as 2024-01-01.")
+
+
 class FilterDeletionForm(ConfirmTeamIdForm):
     date_from = forms.CharField(required=False, help_text="Relative, such as -30d, or a date, such as 2024-01-01.")
     date_to = forms.CharField(required=False, help_text="Leave empty for now.")
@@ -103,6 +118,12 @@ class FilterDeletionForm(ConfirmTeamIdForm):
         "reason",
     ]
 
+    def clean_date_from(self) -> str:
+        return _clean_date(self.cleaned_data["date_from"])
+
+    def clean_date_to(self) -> str:
+        return _clean_date(self.cleaned_data["date_to"])
+
     def clean(self) -> dict[str, Any] | None:
         cleaned = super().clean()
         if not self.errors and self.filters().is_empty():
@@ -111,8 +132,8 @@ class FilterDeletionForm(ConfirmTeamIdForm):
 
     def filters(self) -> RecordingFilters:
         return RecordingFilters(
-            date_from=self.cleaned_data.get("date_from", "").strip(),
-            date_to=self.cleaned_data.get("date_to", "").strip(),
+            date_from=self.cleaned_data.get("date_from", ""),
+            date_to=self.cleaned_data.get("date_to", ""),
             duration_min=self.cleaned_data.get("duration_min"),
             duration_max=self.cleaned_data.get("duration_max"),
             person_uuid=str(self.cleaned_data["person_uuid"]) if self.cleaned_data.get("person_uuid") else "",
@@ -138,7 +159,8 @@ class SessionIdsDeletionForm(DeletionForm):
                 f"The file is larger than {MAX_CSV_BYTES // 1_000_000} MB. Split it and upload each part on its own."
             )
         try:
-            content = upload.read().decode("utf-8")
+            # Excel starts a UTF-8 CSV with a byte order mark, which would otherwise end up in the first session ID.
+            content = upload.read().decode("utf-8-sig")
         except UnicodeDecodeError:
             raise forms.ValidationError("The file is not UTF-8 text. Save it as a UTF-8 CSV and upload it again.")
         try:
@@ -149,6 +171,12 @@ class SessionIdsDeletionForm(DeletionForm):
             )
         if not session_ids:
             raise forms.ValidationError("The file holds no session IDs.")
+        too_long = next((session_id for session_id in session_ids if len(session_id) > MAX_SESSION_ID_LENGTH), None)
+        if too_long is not None:
+            raise forms.ValidationError(
+                f"The file holds a value of {len(too_long):,} characters, which is not a session ID. "
+                "Check that the first column holds only session IDs."
+            )
         if len(session_ids) > MAX_CSV_SESSION_IDS:
             raise forms.ValidationError(
                 f"The file holds {len(session_ids):,} session IDs. Upload at most {MAX_CSV_SESSION_IDS:,} at a time."
@@ -224,8 +252,10 @@ class StartDeletion:
             return HttpResponse(status=502)
         dry_run = " as a dry run" if deletion.dry_run else ""
         messages.success(request, f"Started {deletion.workflow_id}{dry_run}.")
-        # Temporal lists a new run only after a moment, so the page names it and keeps refreshing until it shows.
-        return HttpResponseRedirect(recording_deletions_url(obj, started=deletion.workflow_id))
+        # Temporal lists a new run only after a moment, so the page names it and refreshes until it shows or the wait ends.
+        return HttpResponseRedirect(
+            recording_deletions_url(obj, started=deletion.workflow_id, started_at=str(int(time.time())))
+        )
 
 
 class PreviewDeletion:
@@ -341,10 +371,32 @@ class SessionRecordingsPanel(Panel):
         ]
 
 
-def _run_row(team: Team, run: DeletionRun) -> Row:
-    temporal_url = (
-        f"{settings.TEMPORAL_UI_HOST}/namespaces/{settings.TEMPORAL_NAMESPACE}/workflows/{run.workflow_id}/{run.run_id}"
+def _temporal_url(workflow_id: str, run_id: str = "") -> str:
+    url = f"{settings.TEMPORAL_UI_HOST}/namespaces/{settings.TEMPORAL_NAMESPACE}/workflows/{workflow_id}"
+    return f"{url}/{run_id}" if run_id else url
+
+
+def _unlisted_run_row(workflow_id: str, waiting: bool) -> Row:
+    status = "Starting" if waiting else f"Not in the {RECENT_RUNS} most recent runs. Open it in Temporal."
+    return Row(
+        cells=(
+            Cell(text=workflow_id, href=_temporal_url(workflow_id), mono=True),
+            Cell(text="-", muted=True),
+            Cell(text=status, tone=Tone.INFO if waiting else Tone.WARNING),
+            *(Cell(text="-", muted=True) for _ in range(4)),
+        )
     )
+
+
+def _seconds_since(started_at: str) -> float | None:
+    try:
+        return time.time() - int(started_at)
+    except ValueError:
+        return None
+
+
+def _run_row(team: Team, run: DeletionRun) -> Row:
+    temporal_url = _temporal_url(run.workflow_id, run.run_id)
     completed = run.status == "COMPLETED"
     certificate_url = reverse("admin:posthog_team_deletion_certificate", args=[team.pk, run.workflow_id])
     download_url = reverse("admin_console_tool_download", kwargs={"tool_key": TOOL_KEY, "download_key": "certificate"})
@@ -415,14 +467,22 @@ class RecordingDeletionsTool(ConsoleTool):
                 block=Notice(text="Temporal did not answer, so the runs cannot be shown. This retries on its own."),
                 refresh_seconds=REFRESH_SECONDS_WHILE_TEMPORAL_IS_AWAY,
             )
+        rows = [_run_row(team, run) for run in runs]
         running = any(run.status in ("RUNNING", "CONTINUED_AS_NEW") for run in runs)
         started = request.GET.get("started")
-        waiting_for_new_run = started is not None and all(run.workflow_id != started for run in runs)
+        waiting_for_new_run = False
+        listed = {run.workflow_id for run in runs}
+        if started and started.startswith(f"delete-recordings-{team.pk}-") and started not in listed:
+            seconds_since_start = _seconds_since(request.GET.get("started_at", ""))
+            waiting_for_new_run = (
+                seconds_since_start is not None and 0 <= seconds_since_start < WAIT_FOR_NEW_RUN_SECONDS
+            )
+            rows.insert(0, _unlisted_run_row(started, waiting_for_new_run))
         return Live(
             key="runs",
             block=Table(
                 columns=("Workflow", "Type", "Status", "Started", "Finished", "Certificate", "Download"),
-                rows=tuple(_run_row(team, run) for run in runs),
+                rows=tuple(rows),
                 empty_text="No deletions have run for this team yet.",
             ),
             refresh_seconds=REFRESH_SECONDS_WHILE_RUNNING if running or waiting_for_new_run else None,

@@ -1,6 +1,7 @@
 """Starting and following recording deletions on behalf of staff, for the PostHog Admin console."""
 
 import io
+import re
 import csv
 import json
 import uuid
@@ -13,6 +14,7 @@ from urllib import parse
 from django.conf import settings
 
 import structlog
+from dateutil import parser as isoparser
 from pydantic import BaseModel
 from temporalio import common
 from temporalio.client import Client, WorkflowExecutionStatus
@@ -96,14 +98,14 @@ class RecordingFilters:
         )
 
     def query(self) -> str:
-        """The query string the delete-recordings-with-query workflow reads."""
-        parts = []
+        """The query string the delete-recordings-with-query workflow reads with parse_qsl."""
+        params: list[tuple[str, str]] = []
         if self.date_from:
-            parts.append(f"date_from={_relative_date(self.date_from)}")
+            params.append(("date_from", self.date_from))
         if self.date_to:
-            parts.append(f"date_to={_relative_date(self.date_to)}")
+            params.append(("date_to", self.date_to))
         if self.person_uuid:
-            parts.append(f"person_uuid={self.person_uuid}")
+            params.append(("person_uuid", self.person_uuid))
         properties: list[dict[str, Any]] = []
         if self.duration_min is not None:
             properties.append({"type": "recording", "key": "duration", "operator": "gt", "value": self.duration_min})
@@ -114,14 +116,29 @@ class RecordingFilters:
                 {"type": "recording", "key": "snapshot_source", "operator": "exact", "value": [self.platform]}
             )
         if properties:
-            parts.append(f"having_predicates={json.dumps(properties)}")
-        return "&".join(parts)
+            params.append(("having_predicates", json.dumps(properties)))
+        # urlencode escapes "+" and "&", so a date such as 2024-01-01T00:00:00+00:00 reaches the workflow unchanged.
+        return parse.urlencode(params)
 
 
-def _relative_date(value: str) -> str:
+def normalize_date_filter(value: str) -> str:
+    """A date filter in a form the recordings query parses, or ValueError.
+
+    The query falls back to its default date window for a value it cannot parse, such as "null", so a
+    deletion with such a value would cover other recordings than staff asked for.
+    """
+    value = value.strip()
     # A bare integer such as "-360" is parsed as an int by query_as_params_to_dict and fails Pydantic
     # validation downstream, so relative dates need the "d" suffix.
-    return f"{value}d" if value.lstrip("-").isdigit() else value
+    if re.fullmatch(r"-?\d+", value):
+        return f"{value}d"
+    if re.fullmatch(r"-?\d*[hdwmqysHDWMQY](Start|End)?", value):
+        return value
+    try:
+        isoparser.isoparse(value)
+    except ValueError:
+        datetime.strptime(value, "%Y-%m-%d")
+    return value
 
 
 def describe_query(query: str) -> str:

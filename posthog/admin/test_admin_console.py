@@ -3,6 +3,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -999,10 +1000,36 @@ class TestAdminConsoleViews(BaseTest):
                 None,
                 "delete-recordings-with-query",
                 {
-                    "query": 'date_from=-30d&having_predicates=[{"type": "recording", "key": "duration", "operator": '
-                    '"lt", "value": 5}, {"type": "recording", "key": "snapshot_source", "operator": "exact", '
-                    '"value": ["web"]}]'
+                    "query": {
+                        "date_from": "-30d",
+                        "having_predicates": '[{"type": "recording", "key": "duration", "operator": "lt", "value": 5}, '
+                        '{"type": "recording", "key": "snapshot_source", "operator": "exact", "value": ["web"]}]',
+                    }
                 },
+            ),
+            (
+                "filters_with_a_datetime_and_its_offset",
+                "delete-by-filters",
+                {"date_from": "2024-01-01T00:00:00+00:00", "date_to": "-7d", "dry_run": "on"},
+                None,
+                "delete-recordings-with-query",
+                {"query": {"date_from": "2024-01-01T00:00:00+00:00", "date_to": "-7d"}},
+            ),
+            (
+                "filters_with_null_as_the_date",
+                "delete-by-filters",
+                {"date_from": "null", "dry_run": "on"},
+                None,
+                None,
+                None,
+            ),
+            (
+                "filters_with_a_date_that_is_not_one",
+                "delete-by-filters",
+                {"date_to": "yesterday", "dry_run": "on"},
+                None,
+                None,
+                None,
             ),
             ("filters_without_a_filter", "delete-by-filters", {"dry_run": "on"}, None, None, None),
             (
@@ -1011,7 +1038,7 @@ class TestAdminConsoleViews(BaseTest):
                 {"person_uuid": " 6B1E2C3D-4F5A-4B6C-8D7E-9F0A1B2C3D4E ", "dry_run": "on"},
                 None,
                 "delete-recordings-with-query",
-                {"query": "person_uuid=6b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e"},
+                {"query": {"person_uuid": "6b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e"}},
             ),
             ("filters_with_null_as_the_person", "delete-by-filters", {"person_uuid": "null"}, None, None, None),
             ("filters_with_quotes_as_the_person", "delete-by-filters", {"person_uuid": '""'}, None, None, None),
@@ -1033,7 +1060,15 @@ class TestAdminConsoleViews(BaseTest):
                 {"total_session_ids": 2, "source_filename": "sessions.csv"},
             ),
             (
-                "session_ids_from_a_csv_with_a_field_over_the_size_limit",
+                "session_ids_from_an_excel_csv_with_a_byte_order_mark",
+                "delete-by-session-ids",
+                {"dry_run": "on"},
+                ("sessions.csv", b"\xef\xbb\xbfsession_id\r\nsession-a\r\nsession-b\r\n"),
+                "delete-recordings-with-session-ids",
+                {"total_session_ids": 2},
+            ),
+            (
+                "session_ids_from_a_csv_with_a_value_too_long_for_a_session_id",
                 "delete-by-session-ids",
                 {"dry_run": "on"},
                 ("sessions.csv", b"a" * 140_000 + b"\n"),
@@ -1091,7 +1126,8 @@ class TestAdminConsoleViews(BaseTest):
         assert workflow_input.config.deleted_by == self.user.email
         assert workflow_input.config.dry_run == ("dry_run" in data)
         for field, value in (expected_input or {}).items():
-            assert getattr(workflow_input, field) == value
+            actual = getattr(workflow_input, field)
+            assert (dict(parse_qsl(actual)) if field == "query" else actual) == value
         if upload is not None:
             assert store_chunks.call_args.args[1] == ["session-a", "session-b"]
 
@@ -1160,6 +1196,29 @@ class TestAdminConsoleViews(BaseTest):
         assert confirmed.status_code == 302
         assert "expired" in " ".join(str(m) for m in get_messages(confirmed.wsgi_request))
         assert not sync_connect.return_value.start_workflow.called
+
+    @parameterized.expand(
+        [
+            ("just_started", 10, True, "Starting"),
+            ("pushed_off_the_recent_list", 600, False, "Not in the 20 most recent runs"),
+        ]
+    )
+    @patch.object(RecordingDeletions, "recent", return_value=[])
+    def test_the_runs_list_waits_for_a_started_run_only_for_a_while(
+        self, _name: str, seconds_ago: int, refreshes: bool, expected_status: str, _recent: MagicMock
+    ) -> None:
+        workflow_id = f"delete-recordings-{self.team.pk}-0b6c3c5e-6f5a-4a4e-9a51-3c3b2f1c9d10"
+        now = datetime(2026, 11, 1, 10, 0, tzinfo=UTC)
+
+        with time_machine.travel(now, tick=False):
+            live = self.client.get(
+                "/admin/console/tools/recording-deletions/live/runs/",
+                {"team": self.team.pk, "started": workflow_id, "started_at": int(now.timestamp()) - seconds_ago},
+            ).content.decode()
+
+        assert ("data-refresh-seconds" in live) == refreshes
+        assert expected_status in live
+        assert f"/workflows/{workflow_id}" in live
 
     @patch.object(RecordingDeletions, "recent")
     @patch.object(RecordingDeletions, "certificate")
