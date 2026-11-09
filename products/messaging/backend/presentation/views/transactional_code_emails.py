@@ -230,7 +230,7 @@ class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["GET"], detail=True)
     def source_candidates(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
-        if not source_detection_enabled(self.team):
+        if not source_detection_enabled(self.team.id):
             raise exceptions.NotFound()
         try:
             email = get_code_email(

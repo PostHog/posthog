@@ -119,7 +119,6 @@ class _InstallationSearches:
 class SourceDetection:
     outcome: SourceDetectionOutcome
     call_site: CallSite | None
-    # Matched files left after test and build paths are dropped.
     candidate_files: int
 
 
@@ -134,7 +133,7 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], key: str, *, shed:
         CallSite(repository=match.repository, path=match.path, line=line.number)
         for match in candidates
         for line in match.lines
-        if _is_call_site(line, key_argument)
+        if _sends_key(line, key_argument)
     ]
     # The link names a file, so a key passed twice in one send block still has one source.
     if len({(site.repository, site.path) for site in call_sites}) > 1:
@@ -159,11 +158,35 @@ def _kept_matches(results: Sequence[ExactCodeSearchResult]) -> list[ExactCodeMat
 def _key_argument(key: str) -> re.Pattern[str]:
     # The matched line must pass the key as the template key's value. Without this, a key used for something else
     # near or inside a send call, such as the subject of a send of another key, links that other email's file.
-    return re.compile(rf"""(?i:template[_-]?key)['"]?\s*(?::|=>|=)\s*['"`]{re.escape(key)}['"`]""")
+    return re.compile(rf"""(?<![\w-])(?i:template[_-]?key)['"]?\s*(?::|=>|=)\s*['"`]{re.escape(key)}['"`]""")
 
 
-def _is_call_site(line: MatchedLine, key_argument: re.Pattern[str]) -> bool:
-    return bool(key_argument.search(line.text) and _SEND_CALL.search(line.context))
+def _sends_key(line: MatchedLine, key_argument: re.Pattern[str]) -> bool:
+    argument = key_argument.search(line.text)
+    context = line.context.split("\n")
+    if argument is None or line.text not in context:
+        return False
+    before_key = "\n".join([*context[: context.index(line.text)], line.text[: argument.start()]])
+    return any(_still_open(before_key[call.end() :]) for call in _SEND_CALL.finditer(before_key))
+
+
+def _still_open(after_call: str) -> bool:
+    """Whether the call a send-call match belongs to is still open at the end of ``after_call``.
+
+    ``emails.send(`` opens its own call, which must not close again. A raw ``send/email`` URL sits inside a call
+    that opened before it, which must not close either.
+    """
+    depth = 0
+    opened = False
+    for char in after_call:
+        if char == "(":
+            depth += 1
+            opened = True
+        elif char == ")":
+            depth -= 1
+            if depth < 0 or (opened and depth == 0):
+                return False
+    return True
 
 
 def _is_skipped_path(path: str) -> bool:
@@ -183,7 +206,7 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
     person, a key GitHub can't search, or the team has no GitHub installation.
     """
     team = Team.objects.filter(id=team_id).first()
-    if team is None or not source_detection_enabled(team):
+    if team is None or not _detection_enabled(team):
         return None
     keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True)
     key = keys.filter(_UNTOUCHED, id=key_id).values_list("key", flat=True).first()
@@ -232,13 +255,13 @@ def find_source_candidates(team: Team, key: str) -> CodeEmailSourceCandidates:
 
 
 def _candidate(match: ExactCodeMatch, key_argument: re.Pattern[str]) -> CodeEmailSourceCandidate:
-    line = next((line for line in match.lines if _is_call_site(line, key_argument)), match.lines[0])
+    line = next((line for line in match.lines if _sends_key(line, key_argument)), match.lines[0])
     return CodeEmailSourceCandidate(
         repository=match.repository,
         path=match.path,
         line=line.number,
         url=_file_url(match.repository, match.path, line.number),
-        call_site=_is_call_site(line, key_argument),
+        call_site=_sends_key(line, key_argument),
     )
 
 
@@ -274,7 +297,12 @@ def _search_installations(
     return _InstallationSearches(results=results, shed=shed, answered=answered)
 
 
-def source_detection_enabled(team: Team) -> bool:
+def source_detection_enabled(team_id: int) -> bool:
+    team = Team.objects.filter(id=team_id).first()
+    return team is not None and _detection_enabled(team)
+
+
+def _detection_enabled(team: Team) -> bool:
     return bool(
         posthoganalytics.feature_enabled(
             SOURCE_DETECTION_FLAG,
