@@ -7,7 +7,7 @@ describe('slack template', () => {
     const tester = new TemplateTester(template)
 
     const commonInputs = {
-        slack_workspace: { access_token: 'xoxb-1234' },
+        slack_workspace: { $integration_id: 1, $credential: 'slack_workspace' },
         icon_emoji: ':hedgehog:',
         username: 'PostHog',
         channel: 'channel',
@@ -38,10 +38,8 @@ describe('slack template', () => {
         expect(response.invocation.queueParameters).toMatchObject({
             url: 'https://slack.com/api/chat.postMessage',
             method: 'POST',
-            headers: {
-                Authorization: 'Bearer xoxb-1234',
-                'Content-Type': 'application/json',
-            },
+            auth_input: 'slack_workspace',
+            headers: { 'Content-Type': 'application/json' },
         })
         expect(bodyOf(response.invocation.queueParameters)).toEqual({
             channel: 'channel',
@@ -112,7 +110,7 @@ describe('slack template', () => {
     ])('given %s, sends the appearance fields: %s', async (_name, scope, expected) => {
         const response = await tester.invoke({
             ...commonInputs,
-            slack_workspace: { access_token: 'xoxb-1234', scope },
+            slack_workspace: { $integration_id: 1, $credential: 'slack_workspace', scope },
         })
 
         expect(response.error).toBeUndefined()
