@@ -4350,6 +4350,32 @@ class TestSshReplace:
         assert captured == [("ssh", ["ssh", coder._ssh_host_alias("devbox-foo")])]
 
 
+class TestDevboxExec:
+    @pytest.mark.parametrize(
+        "flags, remote_command",
+        [
+            ([], "pnpm exec jest 'a b.test.ts'"),
+            (
+                ["--flox"],
+                f"cd {coder.REMOTE_REPO_PATH} && exec flox activate -- pnpm exec jest 'a b.test.ts'",
+            ),
+        ],
+    )
+    def test_runs_command_on_the_box(
+        self, monkeypatch: pytest.MonkeyPatch, flags: list[str], remote_command: str
+    ) -> None:
+        captured: list[list[str]] = []
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
+        monkeypatch.setattr(devbox_cli, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(coder.os, "execvp", lambda file, args: captured.append(args))
+
+        result = runner.invoke(cli, ["devbox:exec", *flags, "--", "pnpm", "exec", "jest", "a b.test.ts"])
+
+        assert result.exit_code == 0, result.output
+        assert captured == [["ssh", "coder.devbox-foo", remote_command]]
+
+
 class TestSetupGitSigning:
     """Test the Git commit signing step in devbox:setup.
 
