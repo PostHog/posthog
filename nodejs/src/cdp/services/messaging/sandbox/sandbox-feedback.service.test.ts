@@ -221,6 +221,8 @@ describe('SandboxFeedbackService', () => {
         it.each([
             ['a server error', () => mockFetch.mockResolvedValueOnce(fetchResponse(503)), 503],
             ['a network error', () => mockFetch.mockRejectedValueOnce(new Error('socket hang up')), 503],
+            ['throttling', () => mockFetch.mockResolvedValueOnce(fetchResponse(429)), 503],
+            ['a request timeout', () => mockFetch.mockResolvedValueOnce(fetchResponse(408)), 503],
             ['a missing certificate', () => mockFetch.mockResolvedValueOnce(fetchResponse(404)), 403],
         ])(
             'answers %s from the certificate download with %s, then verifies once it recovers',

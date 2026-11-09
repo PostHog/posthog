@@ -51,6 +51,8 @@ export type SnsEnvelopeVerdict =
 
 class SnsCertificateUnavailableError extends Error {}
 
+const TRANSIENT_FETCH_STATUSES = new Set([408, 429])
+
 class SnsFetchError extends Error {
     constructor(
         url: string,
@@ -190,8 +192,8 @@ export class SnsEnvelopeVerifier {
         try {
             cert = await this.fetchCert(envelope.SigningCertURL)
         } catch (error) {
-            // A 4xx is AWS's final answer about this URL; only a network error or a 5xx is worth a retry.
-            if (error instanceof SnsFetchError && error.status < 500) {
+            // A 4xx is AWS's final answer about this URL, except a timeout or throttling.
+            if (error instanceof SnsFetchError && error.status < 500 && !TRANSIENT_FETCH_STATUSES.has(error.status)) {
                 return false
             }
             throw new SnsCertificateUnavailableError(String(error))
