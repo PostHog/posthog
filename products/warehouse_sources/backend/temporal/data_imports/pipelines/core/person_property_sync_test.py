@@ -18,8 +18,9 @@ from confluent_kafka import KafkaError
 from parameterized import parameterized
 
 from posthog.kafka_client.client import ProduceResult
-from posthog.models import Organization, PropertyDefinition, Team
+from posthog.models import Organization, Team
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertySyncSource,
     saved_query_binding,

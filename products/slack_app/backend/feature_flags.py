@@ -50,6 +50,7 @@ SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
+SLACK_APP_LINK_SEARCH_SCOPES_FLAG = "slack-app-link-search-scopes"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -181,6 +182,16 @@ def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
         SLACK_APP_FORKING_FLAG,
         integration,
         failure_log_key="slack_app_forking_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_link_search_scopes_enabled(integration: IntegrationRecord) -> bool:
+    """The account link asks for the search scopes only once the Slack app manifest declares them. Slack refuses an
+    authorize request for an undeclared scope, so this flag guards every account link, not only the onboarding."""
+    return _workspace_flag_enabled(
+        SLACK_APP_LINK_SEARCH_SCOPES_FLAG,
+        integration,
+        failure_log_key="slack_app_link_search_scopes_feature_flag_check_failed",
     )
 
 

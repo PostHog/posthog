@@ -37,7 +37,7 @@ import {
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
-import { FILE_UPLOAD_SOURCE_LABEL, isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
+import { sourceTypeLabel } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import {
     clonePayloadPreservingFiles,
     findUploadedFiles,
@@ -1224,6 +1224,18 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     listeners(({ values, actions, props, cache }) => {
         const schemaUpdateCache = getSchemaUpdateCache(cache)
 
+        const setSceneBreadcrumbName = (): void => {
+            const { source } = values
+            const label = source ? sourceTypeLabel(source.source_type, values.availableSources) : 'Source'
+            const breadcrumbName = source?.access_method === 'direct' ? source.prefix || label : label
+
+            const sceneLogicInstance =
+                sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
+                sourceSceneLogic.findMounted({ id: props.id })
+
+            sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
+        }
+
         const scheduleSchemaUpdateFlush = (): void => {
             if (schemaUpdateCache.schemaUpdateFlushTimer) {
                 clearTimeout(schemaUpdateCache.schemaUpdateFlushTimer)
@@ -1378,13 +1390,6 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     actions.loadCdcStatus()
                 }
 
-                const breadcrumbName =
-                    values.source?.access_method === 'direct'
-                        ? values.source?.prefix || values.source?.source_type || 'Source'
-                        : isFileUploadSource(values.source)
-                          ? FILE_UPLOAD_SOURCE_LABEL
-                          : values.source?.source_type || 'Source'
-
                 if (values.pollPauseCount === 0) {
                     cache.disposables.add(() => {
                         const timerId = setTimeout(() => {
@@ -1394,12 +1399,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }, 'sourceRefreshTimeout')
                 }
 
-                const sceneLogicInstance =
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
-                    sourceSceneLogic.findMounted({ id: props.id })
-
-                sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
+                setSceneBreadcrumbName()
             },
+            [availableSourcesLogic.actionTypes.loadSuccess]: setSceneBreadcrumbName,
             loadSourceFailure: () => {
                 if (values.pollPauseCount === 0) {
                     cache.disposables.add(() => {

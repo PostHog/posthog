@@ -70,11 +70,11 @@ Every request carries `X-PostHog-Client-Platform: mobile`, so `run/` never reuse
 
 ## AI consent
 
-The same approval rules cover Chat, Create PR/task handoff, and replay summarization. The chat composer and decision panel remain hidden until approval is known.
+The same approval rules cover Chat, Create PR/task handoff, and replay summarization. Pending access checks keep the chat composer available without a loading indicator. Known organization restrictions and personal consent still gate the composer; every AI action checks current approval before sending.
 
 - **Organization approval.** The selected project's organization must have `is_ai_data_processing_approved: true`. The app reads the requesting user's `membership_level` from `OrganizationSerializer` in `/api/users/@me/` and `/api/organizations/{id}/`: 8 is an administrator and 15 is an owner. Only those confirmed roles see Open settings; other members and unknown roles see instructions to ask an admin or owner. The settings link opens the organization's existing web approval control; mobile never changes that setting itself.
 - **Personal consent.** The shared sheet explains that messages, reports, attached files and photos, selected recordings, and project data used by the agent can go to PostHog AI and third-party model providers. It links to the privacy policy. Continue records the disclosure on this device for this host and user; Not now sends nothing. The broader disclosure invalidates consent saved by older versions of the chat-only sheet. Sign-out and session expiry clear consent.
-- **Fresh checks.** Every submitted message (including queue delivery), handoff, decision answer, and replay summary first reads the organization's current approval. The chat also rechecks on foreground before showing role-specific controls. Unknown approval, a failed read, and removed project access stop the action. Changing host, user, project or session, or leaving the originating screen while the sheet is open, cancels its pending action.
+- **Fresh checks.** Every submitted message (including queue delivery), handoff, decision answer, and replay summary first reads the organization's current approval. The chat also rechecks on foreground without replacing the composer during the read. Unknown approval, a failed read, and removed project access stop the action. Changing host, user, project or session, or leaving the originating screen while the sheet is open, cancels its pending action.
 - Demo mode skips approval and sends no live requests.
 
 These client checks supplement existing server scopes, resource RBAC and product checks. They do not grant an organization role or replace server authorization. Revocation after a check must still be enforced by the backend; mobile cannot stop an agent that is already running on the server.
@@ -430,7 +430,7 @@ New chat drops it.
 
 - Assistant text renders as markdown with `react-native-markdown-display`, styled from `src/ui/tokens.ts`.
   `html: false`; images are dropped. Relative links open on the signed-in host; only http(s) links open.
-- The status line shows the current stage or tool, "Thinking…", or "Reconnecting…".
+- The status line shows the current stage or tool, or "Thinking…". Automatic reconnection stays quiet; confirmed failures still show recovery controls.
 - Compacting and clearing each show one active spinner, even when the stream repeats the start.
   Completion removes that spinner, so a later compaction or clear can show a new one.
 - Thoughts and tool calls fold into activity rows. Every row starts closed, also while it runs. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
