@@ -2224,6 +2224,14 @@ export const fileSystemTypes = {
         filterKey: 'task',
         flag: FEATURE_FLAGS.TASKS,
     },
+    workflows: {
+        name: 'Workflow',
+        iconType: 'workflows',
+        iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+        href: (ref: string) => urls.workflow(ref, 'workflow'),
+        listHref: () => urls.workflows(),
+        filterKey: 'workflows',
+    },
 }
 
 /** This const is auto-generated, as is the whole file */

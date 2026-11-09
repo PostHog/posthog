@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { IconCheck } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonMenuSection } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,6 +10,7 @@ import { fileSystemTypes } from '~/products'
 import { FileSystemType } from '~/types'
 
 import { ProjectTreeLogicProps, projectTreeLogic } from './projectTreeLogic'
+import { isFileTypeFilterEnabled } from './utils'
 
 const missingProductTypes: { value: string; label: string; flag?: string }[] = [
     { value: 'destination', label: 'Destinations' },
@@ -48,23 +48,18 @@ export function useTreeFilterMenuItems(logicProps: ProjectTreeLogicProps): Lemon
             ],
         },
         {
-            items: [
-                ...productTypesMapped.filter(
-                    (productType) => !productType.flag || featureFlags[productType.flag as keyof typeof featureFlags]
-                ),
-                ...(!featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]
-                    ? [{ value: 'workflows', label: 'Workflow' }]
-                    : []),
-            ].map((productType) => {
-                const active = searchFilters.fileType === productType.value
-                return {
-                    label: productType.label,
-                    icon: active ? <IconCheck /> : <IconBlank />,
-                    active,
-                    'data-attr': `tree-filters-dropdown-menu-${productType.value}-button`,
-                    onClick: () => toggleFileTypeFilter(productType.value),
-                }
-            }),
+            items: productTypesMapped
+                .filter((productType) => isFileTypeFilterEnabled(productType, featureFlags))
+                .map((productType) => {
+                    const active = searchFilters.fileType === productType.value
+                    return {
+                        label: productType.label,
+                        icon: active ? <IconCheck /> : <IconBlank />,
+                        active,
+                        'data-attr': `tree-filters-dropdown-menu-${productType.value}-button`,
+                        onClick: () => toggleFileTypeFilter(productType.value),
+                    }
+                }),
         },
     ]
 }
