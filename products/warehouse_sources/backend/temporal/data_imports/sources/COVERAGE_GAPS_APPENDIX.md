@@ -11609,14 +11609,14 @@ Today (12): `alert_muting_rules`, `charts`, `dashboard_groups`, `dashboards`, `d
 Diffed against: <https://dev.splunk.com/observability/reference/>
 
 - [x] `slo (GET /slo/{id}, POST /slo/search)` — SLO definitions and status are the headline reliability metric; nothing SLO-related is synced today (high)
-- [ ] `tests (Synthetics GET /tests)` — the whole Synthetics product is unexposed; tests is its root object (high)
+- [x] `tests (Synthetics GET /tests)` — the whole Synthetics product is unexposed; tests is its root object (high)
 - [x] `tests/{id}/runs and runs/{id} (Synthetics runs)` — actual synthetic check results over time - the analytical fact table for uptime/latency (high)
 - [x] `locations (Synthetics GET /locations)` — lookup table resolving the location IDs stamped on every synthetic run (high)
 - [x] `event / event/find (GET /event, GET /event/find)` — org-wide custom and alert event stream; today only detector_events is synced (high)
 - [ ] `tag (GET /tag, GET /tag/{name})` — metric tag lookup that resolves the breakdown labels on metrics and MTS (medium)
-- [ ] `role (GET /role, GET /role/{roleId})` — role definitions and assignments complement organization_members for access analysis (medium)
-- [ ] `audit events (GET /v2/audit/events)` — who changed which detector/dashboard and when (medium)
-- [ ] `clients (GET /clients, /clients/metadata/values)` — agent/client inventory for fleet coverage reporting (medium)
+- [x] `role (GET /role, GET /role/{roleId})` — role definitions and assignments complement organization_members for access analysis (medium)
+- [x] `audit events (GET /v2/audit/events)` — who changed which detector/dashboard and when (medium)
+- [x] `clients (GET /clients, /clients/metadata/values)` — agent/client inventory for fleet coverage reporting (medium)
 - [ ] `navigator (GET /navigator, /navigator/{id}/dashboards)` — navigator definitions tie infrastructure categories to dashboards (low)
 - [ ] `devices (Synthetics GET /devices)` — lookup resolving device profiles referenced by browser tests (low)
 - [ ] `crosslink (GET /crosslink)` — data link definitions that map dimensions to external targets (low)
