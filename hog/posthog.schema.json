@@ -12,6 +12,20 @@
             "type": "string",
             "format": "uri"
         },
+        "projectId": {
+            "description": "The PostHog project ID, like the 2 in https://us.posthog.com/project/2. HOG_PROJECT_ID overrides it. Never put a personal API key here.",
+            "anyOf": [
+                {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                },
+                {
+                    "type": "string",
+                    "pattern": "^\\d+$"
+                }
+            ]
+        },
         "errorTracking": {
             "type": "object",
             "properties": {

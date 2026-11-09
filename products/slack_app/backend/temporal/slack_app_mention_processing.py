@@ -38,6 +38,10 @@ from products.slack_app.backend.temporal import (
     request_untagged_followup_confirmation_activity,
     request_untagged_question_confirmation_activity,
 )
+from products.slack_app.backend.temporal.activities.report_implementation import (
+    finish_slack_report_implementation_activity,
+    prepare_slack_report_implementation_activity,
+)
 
 if TYPE_CHECKING:
     from products.slack_app.backend.services.slack_messages import SlackThreadMessage
@@ -82,6 +86,7 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
         # An untagged question stays silent, error replies included, until its author's
         # mode lets the run answer. Old histories carry no such input, so they never skip.
         silent_on_error = inputs.untagged_question and not inputs.untagged_question_confirmed
+        implementation_started = False
         try:
             # Gate every workflow entry on the team's AI-credits quota before any
             # other activity runs. Webhook-level short-circuit catches the common
@@ -111,8 +116,23 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                     return
                 silent_on_error = False
 
-            prework = await _prework_in_parallel(inputs, channel, thread_ts, slack_user_id)
-            if prework is None:
+            prework: _NewThreadPrework | None
+            if inputs.report_implementation_message_ts:
+                if not await _execute_posthog_code_activity(prepare_slack_report_implementation_activity, inputs):
+                    return
+                if await _execute_posthog_code_activity(
+                    posthog_code_thread_has_task_activity, inputs, channel, thread_ts
+                ):
+                    implementation_started = await _forward_followup(inputs, channel, thread_ts, slack_user_id, None)
+                    return
+                prework = _NewThreadPrework(
+                    inputs=inputs,
+                    model_override=None,
+                    thread_messages=await _collect_thread_messages(inputs, channel, thread_ts),
+                )
+            else:
+                prework = await _prework_in_parallel(inputs, channel, thread_ts, slack_user_id)
+            if prework is None or not prework.thread_messages:
                 return
             inputs = prework.inputs
             model_override = prework.model_override
@@ -217,7 +237,7 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                 ),
             )
 
-            await _execute_posthog_code_activity(
+            created = await _execute_posthog_code_activity(
                 create_posthog_code_task_for_repo_activity,
                 inputs,
                 channel,
@@ -231,6 +251,7 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                 repo_research_run_id,
                 model_override,
             )
+            implementation_started = bool(created)
         except Exception as exc:
             workflow.logger.exception(
                 "posthog_code_workflow_unhandled_exception",
@@ -249,6 +270,11 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                 channel,
                 thread_ts,
             )
+        finally:
+            if inputs.report_implementation_message_ts:
+                await _execute_posthog_code_activity(
+                    finish_slack_report_implementation_activity, inputs, implementation_started
+                )
 
 
 @frozen

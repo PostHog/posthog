@@ -152,6 +152,7 @@ from products.tasks.backend.facade.tasks import (
     sweep_inactive_tasks_task,
     sweep_queued_gateway_usage,
 )
+from products.ui_customization.backend.facade.tasks import delete_orphaned_fragments
 from products.visual_review.backend.facade.tasks import (
     send_visual_review_debt_digests,
     sweep_visual_review_artifacts,
@@ -280,6 +281,9 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    add_periodic_task_with_expiry(
+        sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
+    )
     add_periodic_task_with_expiry(sender, crontab(minute="37"), expire_datasets.s(), name="expire unused datasets")
     add_periodic_task_with_expiry(
         sender,
@@ -1032,13 +1036,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*/12", minute="26"),
         update_survey_iteration.s(),
         name="update survey iteration based on date",
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*/12", minute="28"),
         update_survey_adaptive_sampling.s(),
         name="update survey's sampling feature flag rollout  based on date",
     )
