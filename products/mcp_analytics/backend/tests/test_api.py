@@ -613,7 +613,8 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
         assert session_id not in results
 
-    def test_detail_shows_all_events_for_overlapping_session(self) -> None:
+    @parameterized.expand([("unbounded", False), ("bounded_by_session_end", True)])
+    def test_detail_shows_all_events_for_overlapping_session(self, _name: str, bound_by_session_end: bool) -> None:
         # Clicking an overlapping session shows every event: the UI passes the full
         # session_start as the scan bound, so the pre-window event is included too.
         session_id = str(uuid7())
@@ -632,7 +633,12 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             if s.session_id == session_id
         )
         page = api.list_mcp_tool_calls(
-            self.team, session_id=session_id, limit=500, offset=0, date_from=session.session_start
+            self.team,
+            session_id=session_id,
+            limit=500,
+            offset=0,
+            date_from=session.session_start,
+            date_to=session.session_end if bound_by_session_end else None,
         )
 
         assert [c.tool_name for c in page.results] == ["before_window", "in_window"]
