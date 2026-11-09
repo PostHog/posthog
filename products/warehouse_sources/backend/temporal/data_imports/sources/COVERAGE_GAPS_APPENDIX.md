@@ -11331,14 +11331,14 @@ Note: Read the full official reference and checked methods, request examples, an
 
 ## Smartreach — gaps
 
-Today (2): `campaigns`, `prospects`
+Today (6): `campaign_prospects`, `campaign_stats`, `campaigns`, `prospects`, `teams`, `users`
 
 Diffed against: <https://help.smartreach.io/llms.txt>
 
-- [ ] `GET /campaigns/{campaign_id}/prospects` — campaign-to-prospect membership plus per-campaign prospect status - the join table between the two tables we already sync (high)
-- [ ] `GET /campaigns/{campaign_id}/stats` — the vendor's headline campaign metrics (sends, opens, replies, bounces) (high)
-- [ ] `GET /teams` — lookup table for the team id that scopes every campaign and prospect (high)
-- [ ] `GET /teams/{team_id}/users` — lookup resolving the owner/user ids carried on campaigns and prospects (high)
+- [x] `GET /campaigns/{campaign_id}/prospects` — campaign-to-prospect membership plus per-campaign prospect status - the join table between the two tables we already sync (high)
+- [x] `GET /campaigns/{campaign_id}/stats` — the vendor's headline campaign metrics (sends, opens, replies, bounces) (high)
+- [x] `GET /teams` — lookup table for the team id that scopes every campaign and prospect (high)
+- [x] `GET /teams/{team_id}/users` — lookup resolving the owner/user ids carried on campaigns and prospects (high) (the v3 route is `GET /users?team_id=...`)
 - [ ] `GET /email_settings (and /email_settings/{id})` — sending mailbox lookup - resolves which inbox a campaign sends from (medium)
 - [ ] `GET /do_not_contact` — suppression list, needed to reconcile deliverable vs excluded prospects (medium)
 - [ ] `GET /campaigns/{campaign_id}/settings (channel settings)` — multichannel step configuration per campaign (low)
