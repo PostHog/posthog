@@ -303,14 +303,12 @@ describe('broadcastsLogic', () => {
 
         it('reads the stored tags back with an error when the save is skipped', async () => {
             saveResponse = { updated: [], skipped: [{ id: DRAFT.id, reason: 'No edit access' }] }
-            const loadsBefore = listed.length
 
             logic.actions.saveBroadcastTags(DRAFT.id, ['other'])
             await expectLogic(logic).toDispatchActions(['broadcastTagsSaved', 'loadBroadcastsSuccess'])
 
             expect(toastError).toHaveBeenCalledWith("Couldn't save tags: No edit access")
-            expect(logic.values.savingTagsFor).toBeNull()
-            expect(listed.length - loadsBefore).toBe(1)
+            expect(logic.values).toMatchObject({ savingTagsFor: null, broadcasts: { results: [{ tags: ['vip'] }] } })
         })
     })
 
