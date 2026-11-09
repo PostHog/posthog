@@ -3402,6 +3402,7 @@ describe('CDP API', () => {
                 rescheduleUnclaimed.mockResolvedValue({
                     outcome: 'rescheduled',
                     job: unclaimedJob(invocation.id, DateTime.fromISO(scheduledAt, { zone: 'utc' }), invocation),
+                    rescheduledAt: new Date(),
                 })
 
                 const res = await manage('reschedule', invocation.id, { scheduled_at: scheduledAt })
@@ -3420,6 +3421,23 @@ describe('CDP API', () => {
                 )
             })
 
+            it('keeps the time of the reschedule that committed last when two status rows arrive out of order', async () => {
+                const invocation = await scheduleSend()
+                const job = unclaimedJob(invocation.id, DateTime.now(), invocation)
+                const [first, second] = [inDays(3), inDays(4)]
+                const committedAt = Date.now() + 60_000
+                rescheduleUnclaimed
+                    .mockResolvedValueOnce({ outcome: 'rescheduled', job, rescheduledAt: new Date(committedAt + 1) })
+                    .mockResolvedValueOnce({ outcome: 'rescheduled', job, rescheduledAt: new Date(committedAt) })
+
+                expect((await manage('reschedule', invocation.id, { scheduled_at: second })).status).toEqual(200)
+                expect((await manage('reschedule', invocation.id, { scheduled_at: first })).status).toEqual(200)
+
+                const rows = emailStatusRows().filter((row) => row.status === 'scheduled')
+                const latest = rows.reduce((a, b) => (BigInt(String(b.version)) > BigInt(String(a.version)) ? b : a))
+                expect(latest.scheduled_at).toEqual(toClickHouseTime(new Date(second)))
+            })
+
             it.each([
                 ['a time that has passed', 0, -60_000],
                 ['a time that has passed, for a message older than 30 days', 31 * DAY_MS, -60_000],
@@ -3428,6 +3446,7 @@ describe('CDP API', () => {
                 rescheduleUnclaimed.mockResolvedValue({
                     outcome: 'rescheduled',
                     job: unclaimedJob(messageId, DateTime.now()),
+                    rescheduledAt: new Date(),
                 })
                 const before = Date.now()
 

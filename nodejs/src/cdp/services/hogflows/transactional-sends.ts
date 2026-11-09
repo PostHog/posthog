@@ -386,6 +386,7 @@ export class ScheduledTransactionalSends {
             recipient: recipientOf(job),
             functionId: job.functionId,
             scheduledAt,
+            statusAt: result.rescheduledAt,
         })
         return { outcome: 'rescheduled', scheduledAt: scheduledAt.toISOString() }
     }

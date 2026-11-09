@@ -819,13 +819,18 @@ export class CyclotronV2Manager {
                 await client.query('ROLLBACK')
             } else {
                 const state = withScheduledAt(row.state, scheduled.toISOString())
-                await client.query(`UPDATE cyclotron_jobs SET scheduled = $2, state = $3 WHERE id = $1`, [
-                    id,
-                    scheduled,
-                    state,
-                ])
+                // Read after the row lock, so two reschedules of one job get their times in commit order.
+                const updated = await client.query<{ rescheduled_at: string }>(
+                    `UPDATE cyclotron_jobs SET scheduled = $2, state = $3 WHERE id = $1
+                     RETURNING clock_timestamp() AS rescheduled_at`,
+                    [id, scheduled, state]
+                )
                 await client.query('COMMIT')
-                return { outcome: 'rescheduled', job: unclaimedJob({ ...row, scheduled, state }) }
+                return {
+                    outcome: 'rescheduled',
+                    job: unclaimedJob({ ...row, scheduled, state }),
+                    rescheduledAt: new Date(updated.rows[0].rescheduled_at),
+                }
             }
         } catch (err) {
             await client.query('ROLLBACK').catch(() => undefined)

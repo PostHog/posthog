@@ -185,7 +185,7 @@ export type CyclotronV2CancelUnclaimedResult =
     | { outcome: 'already_canceled' | 'claimed' | 'not_found' }
 
 export type CyclotronV2RescheduleUnclaimedResult =
-    | { outcome: 'rescheduled'; job: JobRow }
+    | { outcome: 'rescheduled'; job: JobRow; rescheduledAt: Date }
     | { outcome: 'canceled' | 'claimed' | 'not_found' }
 
 /**

@@ -1248,6 +1248,33 @@ describe('Cyclotron V2', () => {
                 expect(row.dequeue_seq).toEqual(before.dequeue_seq)
             })
 
+            it('times a reschedule that waited on the row lock after the commit it waited for', async () => {
+                const id = await seedScheduledEmail()
+                const client = await assertPool.connect()
+                try {
+                    await client.query('BEGIN')
+                    await client.query(`SELECT 1 FROM cyclotron_jobs WHERE id = $1 FOR UPDATE`, [id])
+
+                    const pending = manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
+                    await waitForExpect(async () => {
+                        const waiting = await assertPool.query(
+                            `SELECT 1 FROM pg_stat_activity
+                             WHERE datname = current_database() AND wait_event_type = 'Lock'`
+                        )
+                        expect(waiting.rows).toHaveLength(1)
+                    })
+                    const beforeCommit = Date.now()
+                    await client.query('COMMIT')
+
+                    const result = await pending
+                    expect(result).toMatchObject({ outcome: 'rescheduled', rescheduledAt: expect.any(Date) })
+                    const { rescheduledAt } = result as { rescheduledAt: Date }
+                    expect(rescheduledAt.getTime()).toBeGreaterThanOrEqual(beforeCommit)
+                } finally {
+                    client.release()
+                }
+            })
+
             it.each(operations)(
                 '%s waits for a claim in progress and then reports the job claimed',
                 async (_op, run) => {
