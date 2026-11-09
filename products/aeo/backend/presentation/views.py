@@ -115,6 +115,9 @@ class AEOPromptEngineCheckSerializer(DataclassSerializer):
             "target_best_position": {
                 "help_text": "1-based rank of the first target-domain URL among the answer's cited URLs. Null when the answer did not cite one."
             },
+            "search_queries": {
+                "help_text": "The web searches the engine ran while answering, in the order it ran them. Empty when it ran none or the check failed."
+            },
             "checked_at": {"help_text": "When the check ran."},
         }
 

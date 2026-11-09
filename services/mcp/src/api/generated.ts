@@ -103,6 +103,8 @@ export namespace Schemas {
          * @nullable
          */
       target_best_position: number | null;
+      /** The web searches the engine ran while answering, in the order it ran them. Empty when it ran none or the check failed. */
+      search_queries: string[];
       /** When the check ran. */
       checked_at: string;
     }
@@ -13816,6 +13818,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly llm_detector_available: boolean | null;
+      /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
+      readonly pagerduty_available: boolean;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -13920,6 +13924,51 @@ export namespace Schemas {
       slack_channel_name?: string;
     }
 
+    /**
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info
+     */
+    export type PagerDutySeverityEnum = typeof PagerDutySeverityEnum[keyof typeof PagerDutySeverityEnum];
+
+
+    export const PagerDutySeverityEnum = {
+      Critical: 'critical',
+      Error: 'error',
+      Warning: 'warning',
+      Info: 'info',
+    } as const;
+
+    /**
+     * * `us` - us
+     * * `eu` - eu
+     */
+    export type PagerDutyRegionEnum = typeof PagerDutyRegionEnum[keyof typeof PagerDutyRegionEnum];
+
+
+    export const PagerDutyRegionEnum = {
+      Us: 'us',
+      Eu: 'eu',
+    } as const;
+
+    export interface AlertCreatePagerDutyDestination {
+      /** The 32-character integration key of a PagerDuty Events API v2 integration. */
+      pagerduty_routing_key: string;
+      /** Severity of the incidents the alert opens.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** Region of the PagerDuty account.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+    }
+
     export interface AlertDeleteDestination {
       /**
          * Destination IDs to delete, as returned when the destination was created.
@@ -13932,6 +13981,11 @@ export namespace Schemas {
     export interface AlertDestinationResponse {
       /** IDs of the created destination. Pass them to destinations/delete to remove it. */
       hog_function_ids: string[];
+    }
+
+    export interface AlertPagerDutyAvailability {
+      /** Whether a new alert with these settings can open PagerDuty incidents. */
+      available: boolean;
     }
 
     /**
@@ -63707,34 +63761,6 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
-    /**
-     * * `critical` - critical
-     * * `error` - error
-     * * `warning` - warning
-     * * `info` - info
-     */
-    export type PagerDutySeverityEnum = typeof PagerDutySeverityEnum[keyof typeof PagerDutySeverityEnum];
-
-
-    export const PagerDutySeverityEnum = {
-      Critical: 'critical',
-      Error: 'error',
-      Warning: 'warning',
-      Info: 'info',
-    } as const;
-
-    /**
-     * * `us` - us
-     * * `eu` - eu
-     */
-    export type PagerDutyRegionEnum = typeof PagerDutyRegionEnum[keyof typeof PagerDutyRegionEnum];
-
-
-    export const PagerDutyRegionEnum = {
-      Us: 'us',
-      Eu: 'eu',
-    } as const;
-
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
       /** Notification destination type.
@@ -81806,6 +81832,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly llm_detector_available?: boolean | null;
+      /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
+      readonly pagerduty_available?: boolean;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -125599,6 +125627,37 @@ export namespace Schemas {
      */
     checks_offset?: number;
     };
+
+    export type AlertsPagerdutyAvailabilityRetrieveParams = {
+    /**
+     * How often the new alert is checked.
+     *
+     * * `real_time` - real_time
+     * * `every_15_minutes` - every_15_minutes
+     * * `hourly` - hourly
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly
+     * @minLength 1
+     */
+    calculation_interval: AlertsPagerdutyAvailabilityRetrieveCalculationInterval;
+    /**
+     * Whether the new alert runs the investigation agent.
+     */
+    investigation_agent_enabled?: boolean;
+    };
+
+    export type AlertsPagerdutyAvailabilityRetrieveCalculationInterval = typeof AlertsPagerdutyAvailabilityRetrieveCalculationInterval[keyof typeof AlertsPagerdutyAvailabilityRetrieveCalculationInterval];
+
+
+    export const AlertsPagerdutyAvailabilityRetrieveCalculationInterval = {
+      RealTime: 'real_time',
+      Every15Minutes: 'every_15_minutes',
+      Hourly: 'hourly',
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+    } as const;
 
     export type AnnotationsListParams = {
     /**
