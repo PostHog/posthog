@@ -8,6 +8,7 @@ import { ErrorEventType } from 'lib/components/Errors/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
+import type { Mocks } from '~/mocks/utils'
 import { LogMessage, LogSeverityLevel, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
