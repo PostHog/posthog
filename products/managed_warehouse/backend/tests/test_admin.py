@@ -20,6 +20,7 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.admin.duckgres_server_admin import DuckgresServerAdmin
 from products.managed_warehouse.backend.models import (
     DuckgresServer,
+    ManagedWarehouseSourceLifecycle,
     ManagedWarehouseViewTranslationJob,
     ManagedWarehouseViewTranslationResult,
 )
@@ -147,7 +148,7 @@ class TestManagedWarehouseConsolePanel(BaseTest):
             password="example-password",
         )
 
-    def test_panel_offers_operations_only_for_a_provisioned_organization(self) -> None:
+    def test_panel_status_and_operations_follow_the_warehouse_lifecycle(self) -> None:
         response = self.client.get(self.organization_url)
         assert "Not provisioned" in response.content.decode()
         assert "Provision warehouse" in response.content.decode()
@@ -161,6 +162,12 @@ class TestManagedWarehouseConsolePanel(BaseTest):
         assert "duckgres.example.com" in content
         assert "Enable backfill for a team" in content and "Deprovision warehouse" in content
         assert "example-password" not in content
+
+        ManagedWarehouseSourceLifecycle.objects.create(organization=self.organization, desired_active=False)
+        content = self.client.get(self.organization_url).content.decode()
+
+        assert "Deprovisioned" in content
+        assert "Enable backfill for a team" not in content and "Deprovision warehouse" in content
 
     def _provision(self, team_id: int, **extra: str):
         url = f"{self.organization_url}managed-warehouse/provision/"

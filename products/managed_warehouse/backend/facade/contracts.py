@@ -487,6 +487,7 @@ class DuckgresServerSummary:
     host: str
     bucket: str | None
     internal_testing: bool
+    deprovisioned: bool
 
 
 @frozen

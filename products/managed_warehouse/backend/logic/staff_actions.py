@@ -19,7 +19,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     StaffProvisionPreview,
 )
 from products.managed_warehouse.backend.logic.access import is_internal_warehouse
-from products.managed_warehouse.backend.models import DuckgresServer
+from products.managed_warehouse.backend.models import DuckgresServer, ManagedWarehouseSourceLifecycle
 
 logger = structlog.get_logger(__name__)
 
@@ -28,11 +28,17 @@ def get_duckgres_server_summary(organization_id: UUID) -> DuckgresServerSummary 
     server = DuckgresServer.objects.filter(organization_id=organization_id).first()
     if server is None:
         return None
+    # Deprovisioning keeps the server row and only marks the lifecycle inactive. A missing lifecycle row
+    # means the warehouse predates the lifecycle and is still active.
+    deprovisioned = ManagedWarehouseSourceLifecycle.objects.filter(
+        organization_id=organization_id, desired_active=False
+    ).exists()
     return DuckgresServerSummary(
         server_id=server.pk,
         host=server.host,
         bucket=server.bucket,
         internal_testing=is_internal_warehouse(organization_id),
+        deprovisioned=deprovisioned,
     )
 
 

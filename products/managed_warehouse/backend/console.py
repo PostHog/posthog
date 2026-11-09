@@ -278,8 +278,12 @@ class ManagedWarehousePanel(Panel):
         server = get_duckgres_server_summary(obj.pk)
         if server is None:
             return [Fact(label="Status", value="Not provisioned")]
+        if server.deprovisioned:
+            status = Fact(label="Status", value="Deprovisioned", tone=Tone.WARNING)
+        else:
+            status = Fact(label="Status", value="Provisioned", tone=Tone.SUCCESS)
         return [
-            Fact(label="Status", value="Provisioned", tone=Tone.SUCCESS),
+            status,
             Fact(label="Server", value=server.host, mono=True),
             Fact(label="Bucket", value=server.bucket or "Not recorded yet", mono=bool(server.bucket)),
             Fact(label="Internal testing", value="Yes" if server.internal_testing else "No"),
@@ -318,6 +322,21 @@ class ManagedWarehousePanel(Panel):
         server = get_duckgres_server_summary(obj.pk)
         if server is None:
             return [provision_operation]
+        deprovision_operation = Operation(
+            key="deprovision",
+            label="Deprovision warehouse",
+            handler=deprovision,
+            danger=True,
+            form_class=ReasonForm,
+            description=(
+                f"Calls the control plane to tear down this organization's managed warehouse on {server.host}. "
+                "The control plane team rows are removed."
+            ),
+            undo_hint="This cannot be undone. The connection record stays in Django admin. Delete it there if needed.",
+        )
+        # Deprovision stays on offer after teardown so staff can retry a run whose SQL connection cleanup failed.
+        if server.deprovisioned:
+            return [deprovision_operation]
         return [
             provision_operation,
             *_view_translation_operations(get_view_translation_summary(obj.pk)),
@@ -334,18 +353,5 @@ class ManagedWarehousePanel(Panel):
                 ),
                 undo_hint="This cannot be undone here. The team keeps its schema, and the schema name is permanent.",
             ),
-            Operation(
-                key="deprovision",
-                label="Deprovision warehouse",
-                handler=deprovision,
-                danger=True,
-                form_class=ReasonForm,
-                description=(
-                    f"Calls the control plane to tear down this organization's managed warehouse on {server.host}. "
-                    "The control plane team rows are removed."
-                ),
-                undo_hint=(
-                    "This cannot be undone. The connection record stays in Django admin. Delete it there if needed."
-                ),
-            ),
+            deprovision_operation,
         ]
