@@ -1488,7 +1488,7 @@ export class CdpApi {
                                 contentType: ref.content_type,
                                 contentId: ref.content_id,
                             })),
-                            () => this.messageBodyBytes(hogFlow, invocation, filesShape.emailStep),
+                            (deadline) => this.messageBodyBytes(hogFlow, invocation, filesShape.emailStep, deadline),
                             verificationDeadline
                         )
                         if ('refused' in files) {
@@ -1562,9 +1562,11 @@ export class CdpApi {
     private async messageBodyBytes(
         hogFlow: HogFlow,
         invocation: CyclotronJobInvocationHogFlow,
-        emailStep: EmailStep
+        emailStep: EmailStep,
+        deadline: AbortSignal
     ): Promise<MessageBodySizing> {
         const person = await this.recipientPerson(hogFlow, invocation)
+        deadline.throwIfAborted()
         try {
             return { bodyBytes: await this.emailStepBodyBytes(hogFlow, invocation, emailStep, person) }
         } catch (error) {

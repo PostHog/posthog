@@ -3201,6 +3201,25 @@ describe('CDP API', () => {
                         })
                     },
                 ],
+                [
+                    'the person lookup outlasts the deadline',
+                    () => {
+                        const distinctId = `person-${new UUIDT().toString()}`
+                        const { held, release } = heldUntilReleased<InternalPersonWithDistinctId[]>()
+                        const lookup = personLookups().mockImplementation(() => {
+                            expireTheVerificationDeadline()
+                            return held
+                        })
+                        return Promise.resolve({
+                            options: { distinctId },
+                            fix: async () => {
+                                release([aPersonFor(distinctId)])
+                                await abandonedWorkRan()
+                                lookup.mockRestore()
+                            },
+                        })
+                    },
+                ],
             ])(
                 'answers 503 when %s without waiting on held work, warns, starts nothing after the answer, and its key sends once that is fixed',
                 async (_name, arrange) => {
@@ -3212,8 +3231,12 @@ describe('CDP API', () => {
 
                     const refused = await sendWithFiles(key, [reference(invoice)], options)
                     const bodiesLoadedAfterTheAnswer = jest.spyOn(api as any, 'messageBodyBytes')
+                    const emailStepsRenderedAfterTheAnswer = jest.spyOn(api as any, 'emailStepBodyBytes')
+                    const warningsAtTheAnswer = warn.mock.calls.length
                     await fix()
+                    const warningsFromAbandonedWork = warn.mock.calls.slice(warningsAtTheAnswer)
                     const bodiesLoadedBeforeTheRetry = bodiesLoadedAfterTheAnswer.mock.calls.length
+                    const emailStepsRenderedBeforeTheRetry = emailStepsRenderedAfterTheAnswer.mock.calls.length
                     const retried = await sendWithFiles(key, [reference(invoice)], options)
                     deadlines.mockRestore()
 
@@ -3221,6 +3244,8 @@ describe('CDP API', () => {
                     expect(refused.body).toEqual({ error: 'delivery_unavailable' })
                     expect(storeCallsAfterTheDeadline).toEqual([])
                     expect(bodiesLoadedBeforeTheRetry).toBe(0)
+                    expect(emailStepsRenderedBeforeTheRetry).toBe(0)
+                    expect(warningsFromAbandonedWork).toEqual([])
                     expect(warn).toHaveBeenCalledWith(
                         '⚠️',
                         expect.any(String),

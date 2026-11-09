@@ -144,7 +144,7 @@ export class AttachmentUploads {
     public async acceptSend(
         teamId: number,
         refs: AttachmentRef[],
-        sizeMessageBodies: () => Promise<MessageBodySizing>,
+        sizeMessageBodies: (deadline: AbortSignal) => Promise<MessageBodySizing>,
         deadline: AbortSignal
     ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
         const store = this.store
@@ -168,7 +168,7 @@ export class AttachmentUploads {
         store: AttachmentStore,
         teamId: number,
         refs: AttachmentRef[],
-        sizeMessageBodies: () => Promise<MessageBodySizing>,
+        sizeMessageBodies: (deadline: AbortSignal) => Promise<MessageBodySizing>,
         deadline: AbortSignal
     ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
         deadline.throwIfAborted()
@@ -189,8 +189,9 @@ export class AttachmentUploads {
         deadline.throwIfAborted()
         let sizing: MessageBodySizing
         try {
-            sizing = await sizeMessageBodies()
+            sizing = await sizeMessageBodies(deadline)
         } catch (error) {
+            deadline.throwIfAborted()
             return { refused: unavailable(teamId, 'Could not load the email step of a send', error) }
         }
         deadline.throwIfAborted()
