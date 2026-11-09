@@ -9,7 +9,7 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Comment, SessionRecordingPlaylist
+from posthog.models import Comment, SessionRecording, SessionRecordingPlaylist
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
@@ -178,6 +178,56 @@ class TestSyntheticPlaylists(APIBaseTest):
         playlist = self._get_synthetic_playlist("synthetic-exported")
 
         assert playlist["recordings_counts"]["collection"]["count"] == 2
+
+    def test_list_counts_each_session_once_including_numeric_export_ids(self) -> None:
+        other_user = self._create_user("other@posthog.com")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed-1")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed-2")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="123")
+        SessionRecordingViewed.objects.create(team=self.team, user=other_user, session_id="viewed-by-other")
+        for session_id in ("viewed-1", "viewed-1", "viewed-by-other"):
+            Comment.objects.create(team=self.team, created_by=self.user, scope="Replay", item_id=session_id)
+        SharingConfiguration.objects.create(
+            team=self.team,
+            recording=SessionRecording.objects.create(team=self.team, session_id="viewed-2"),
+            enabled=True,
+            access_token="shared-token",
+        )
+        for export_session_id in ("viewed-1", "viewed-1", "unviewed", 123):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.GIF,
+                export_context={"session_recording_id": export_session_id},
+                created_by=self.user,
+            )
+        cache.set(
+            ExpiringPlaylistSource._get_cache_key(self.team.pk),
+            ["viewed-2", "unviewed"],
+            ExpiringPlaylistSource.CACHE_TTL,
+        )
+        cache.set(
+            FrustrationSignalsPlaylistSource._get_cache_key(self.team.pk),
+            [],
+            FrustrationSignalsPlaylistSource.CACHE_TTL,
+        )
+
+        results = self._get_playlists_response()["results"]
+
+        counts = {
+            playlist["short_id"]: (
+                playlist["recordings_counts"]["collection"]["count"],
+                playlist["recordings_counts"]["collection"]["watched_count"],
+            )
+            for playlist in results
+        }
+        assert counts == {
+            "synthetic-watch-history": (3, 3),
+            "synthetic-commented": (2, 1),
+            "synthetic-shared": (1, 1),
+            "synthetic-exported": (3, 2),
+            "synthetic-expiring": (2, 1),
+            "synthetic-frustrated": (None, 0),
+        }
 
     @parameterized.expand(
         [
