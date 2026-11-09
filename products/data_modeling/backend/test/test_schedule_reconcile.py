@@ -8,6 +8,7 @@ from unittest import mock
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import transaction
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -855,6 +856,21 @@ class TestMaybeReconcileDag(BaseTest):
         self.assertEqual(
             PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists(), expect_retry
         )
+
+    def test_plan_change_that_rolls_back_leaves_no_reconcile(self):
+        organization_id = str(self.organization.id)
+
+        with (
+            mock.patch(f"{RECONCILE_TASKS}.reconcile_organization_schedules.delay") as dispatch,
+            self.captureOnCommitCallbacks(execute=True),
+            self.assertRaises(RuntimeError),
+            transaction.atomic(),
+        ):
+            schedule_organization_schedule_reconcile(organization_id)
+            raise RuntimeError("billing write failed")
+
+        dispatch.assert_not_called()
+        self.assertFalse(PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists())
 
     def test_failed_write_is_retried_after_it_reaches_the_database(self):
         dag = self._dag_with_target()
