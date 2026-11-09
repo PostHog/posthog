@@ -91,7 +91,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     }
 
     private async runSendWithFiles(invocation: CyclotronJobInvocation): Promise<void> {
-        const { backgroundTask } = await super.processBatch([withoutDeferralCount(invocation)])
+        const { backgroundTask } = await super.processBatch([withoutDeferralState(invocation)])
         await backgroundTask
     }
 
@@ -120,21 +120,27 @@ function registryFor(config: PluginsServerConfig): InFlightRegistry {
 
 function deferral(invocation: CyclotronJobInvocation): { invocation: CyclotronJobInvocation; scheduledAt: Date } {
     const earlierDeferrals: number = invocation.queueMetadata?.attachmentDeferrals ?? 0
+    const now = Date.now()
     return {
         invocation: {
             ...invocation,
-            queueMetadata: { ...invocation.queueMetadata, attachmentDeferrals: earlierDeferrals + 1 },
+            queueMetadata: {
+                ...invocation.queueMetadata,
+                attachmentDeferrals: earlierDeferrals + 1,
+                attachmentDueAt:
+                    invocation.queueMetadata?.attachmentDueAt ?? invocation.queueScheduledAt?.toMillis() ?? now,
+            },
         },
-        scheduledAt: new Date(Date.now() + deferralDelayMs(earlierDeferrals)),
+        scheduledAt: new Date(now + deferralDelayMs(earlierDeferrals)),
     }
 }
 
-// The count only grows the delay between deferrals in a row, and marks a deferred dequeue for the lateness metric.
-function withoutDeferralCount(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
+// The deferral state only spaces deferrals in a row and measures their lateness, so an admitted send drops it.
+function withoutDeferralState(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
     if (invocation.queueMetadata?.attachmentDeferrals === undefined) {
         return invocation
     }
-    const { attachmentDeferrals: _, ...queueMetadata } = invocation.queueMetadata
+    const { attachmentDeferrals: _, attachmentDueAt: __, ...queueMetadata } = invocation.queueMetadata
     return { ...invocation, queueMetadata }
 }
 

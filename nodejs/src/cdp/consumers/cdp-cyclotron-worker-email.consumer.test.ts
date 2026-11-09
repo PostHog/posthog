@@ -179,24 +179,33 @@ describe('CdpCyclotronWorkerEmail', () => {
             expect(written(queue)).toEqual([plain.id, slow.id])
         })
 
-        it('defers the sends it has no room for, with one more deferral and a longer delay', async () => {
+        it('defers the sends it has no room for, with one more deferral, a longer delay and the first due time', async () => {
             const { worker, queue } = workerWith({ ...roomFor(5), maxInFlight: 1 })
-            const [admitted, deferred] = [
-                withFiles({ queueMetadata: { attachmentDeferrals: 1 } }),
-                withFiles({ queueMetadata: { attachmentDeferrals: 2 } }),
+            const firstDueAt = Date.now() - 60_000
+            const [admitted, deferred, deferredFirst] = [
+                withFiles({ queueMetadata: { attachmentDeferrals: 1, attachmentDueAt: firstDueAt } }),
+                withFiles({ queueMetadata: { attachmentDeferrals: 2, attachmentDueAt: firstDueAt } }),
+                withFiles({ queueScheduledAt: DateTime.fromMillis(firstDueAt) }),
             ]
             const ran = jest
                 .spyOn(worker, 'processInvocations')
                 .mockImplementation((invocations) => Promise.resolve(resultsOf(invocations)))
             const before = Date.now()
 
-            const { backgroundTask } = await worker.processBatch([admitted, deferred])
+            const { backgroundTask } = await worker.processBatch([admitted, deferred, deferredFirst])
             await backgroundTask
 
             expect(ran.mock.calls.map(([invocations]) => invocations)).toEqual([[{ ...admitted, queueMetadata: {} }]])
             expect(queue.deferInvocations).toHaveBeenCalledWith([
                 {
-                    invocation: { ...deferred, queueMetadata: { attachmentDeferrals: 3 } },
+                    invocation: { ...deferred, queueMetadata: { attachmentDeferrals: 3, attachmentDueAt: firstDueAt } },
+                    scheduledAt: expect.any(Date),
+                },
+                {
+                    invocation: {
+                        ...deferredFirst,
+                        queueMetadata: { attachmentDeferrals: 1, attachmentDueAt: firstDueAt },
+                    },
                     scheduledAt: expect.any(Date),
                 },
             ])

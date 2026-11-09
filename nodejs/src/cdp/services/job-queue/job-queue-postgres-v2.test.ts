@@ -390,21 +390,21 @@ describe('CyclotronJobQueuePostgresV2', () => {
     })
 
     describe('deferInvocations', () => {
-        async function latenessSamples(wait: string): Promise<number> {
+        async function latenessSamples(wait: string, series: 'count' | 'sum' = 'count'): Promise<number> {
             const metric = register.getSingleMetric('cdp_cyclotron_job_lateness_seconds')
             const samples = metric ? (await metric.get()).values : []
             return (
                 samples.find(
                     (sample) =>
                         'metricName' in sample &&
-                        sample.metricName === 'cdp_cyclotron_job_lateness_seconds_count' &&
+                        sample.metricName === `cdp_cyclotron_job_lateness_seconds_${series}` &&
                         sample.labels.queue === 'email' &&
                         sample.labels.wait === wait
                 )?.value ?? 0
             )
         }
 
-        it('hands a job back with its deferral count, and counts its next dequeue as deferred lateness', async () => {
+        it('hands a job back with its deferral state, and counts its next dequeue as late from its first due time', async () => {
             const { queue } = createQueue()
             let consume: (jobs: CyclotronV2DequeuedJob[]) => Promise<void> = () => Promise.resolve()
             jest.spyOn(queue as any, 'createWorker').mockReturnValue({
@@ -424,7 +424,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
                         ...baseInvocation,
                         id: job.id,
                         queue: 'email',
-                        queueMetadata: { attachmentDeferrals: 1 },
+                        queueMetadata: { attachmentDeferrals: 1, attachmentDueAt: Date.now() - 60_000 },
                     },
                     scheduledAt,
                 },
@@ -435,6 +435,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             const [[{ state }]] = job.defer.mock.calls
             const before = {
                 deferred: await latenessSamples('deferred'),
+                deferredSeconds: await latenessSamples('deferred', 'sum'),
                 scheduled: await latenessSamples('scheduled'),
             }
             const dequeued = (overrides: Record<string, any>) =>
@@ -446,6 +447,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
                 }) as unknown as CyclotronV2DequeuedJob
             await consume([dequeued({ id: job.id, state }), dequeued({})])
             expect(await latenessSamples('deferred')).toBe(before.deferred + 1)
+            expect((await latenessSamples('deferred', 'sum')) - before.deferredSeconds).toBeGreaterThanOrEqual(60)
             expect(await latenessSamples('scheduled')).toBe(before.scheduled + 1)
         })
     })

@@ -138,9 +138,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 this.pendingJobs.set(job.id, job)
                 const invocation = v2JobToInvocation(job)
                 invocations.push(invocation)
-                jobLatenessHistogram
-                    .labels({ queue, wait: invocation.queueMetadata?.attachmentDeferrals ? 'deferred' : 'scheduled' })
-                    .observe(Math.max(0, now - job.scheduled.toMillis()) / 1000)
+                const { wait, dueAt } = dueTimeOf(job, invocation)
+                jobLatenessHistogram.labels({ queue, wait }).observe(Math.max(0, now - dueAt) / 1000)
             }
 
             pendingJobsGauge.set(this.pendingJobs.size)
@@ -410,6 +409,17 @@ async function everyWrite(writes: Promise<unknown>[]): Promise<void> {
     if (failed) {
         throw failed.reason
     }
+}
+
+// A deferral moves the job's scheduled time, so a deferred job is late from when it first became due.
+function dueTimeOf(
+    job: CyclotronV2DequeuedJob,
+    invocation: CyclotronJobInvocation
+): { wait: 'deferred' | 'scheduled'; dueAt: number } {
+    const firstDueAt = invocation.queueMetadata?.attachmentDueAt
+    return typeof firstDueAt === 'number'
+        ? { wait: 'deferred', dueAt: firstDueAt }
+        : { wait: 'scheduled', dueAt: job.scheduled.toMillis() }
 }
 
 function serializeState(invocation: CyclotronJobInvocation): Buffer {
