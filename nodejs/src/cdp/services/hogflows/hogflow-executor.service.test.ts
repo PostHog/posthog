@@ -3863,7 +3863,6 @@ if (not res.success) { throw Error(res.error) }`,
                 expect(
                     new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL).validatePreferencesToken(token)
                 ).toMatchObject({ valid: true, team_id: team.id, identifier: 'recipient@example.com' })
-                // The queued send keeps the placeholder, so a retry or a rerun makes its own link.
                 expect(invocation.state.send?.content?.html).toContain('{{ unsubscribe_url }}')
             })
 

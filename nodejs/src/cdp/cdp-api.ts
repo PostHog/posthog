@@ -1472,7 +1472,6 @@ export class CdpApi {
         teamId: number,
         hogFlow: HogFlow,
         recipients: string[],
-        // The category a marketing send's recipients must not have opted out of. Undefined for a transactional send.
         marketingCategoryId: string | undefined
     ): Promise<{ outcome: TransactionalEmailOutcome; status: number } | null> {
         if (hogFlow.status !== 'active') {
