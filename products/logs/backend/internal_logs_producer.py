@@ -89,6 +89,7 @@ class _Batch:
     records: list[bytes]
 
 
+# Identity equality, so each request is its own key in the in-flight map.
 @frozen(eq=False)
 class _Request:
     source: str
