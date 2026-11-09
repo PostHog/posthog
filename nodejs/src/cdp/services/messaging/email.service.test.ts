@@ -1106,7 +1106,6 @@ describe('EmailService', () => {
                 expect(result.logs.map((log) => log.message).join(' ')).toContain('reached its email sending limit of')
             })
 
-            // Each queueMetadata below is what the release before attachment load retries wrote for that reschedule.
             it.each([
                 ['a team cap delay', { originQueue: 'hogflow', originPriority: 2, teamCapped: true }],
                 [
@@ -1114,43 +1113,47 @@ describe('EmailService', () => {
                     { originQueue: 'hogflow', originPriority: 2, suppressionLookupAttempts: 1 },
                 ],
                 ['an SES throttle', { originQueue: 'hogflow', originPriority: 2 }],
-            ])('charges and sends a job the previous release rescheduled after %s', async (_name, queueMetadata) => {
-                claimAllOrNothing.mockResolvedValue({ granted: true, retryAfterMs: null })
-                const storedByThePreviousRelease = Buffer.from(
-                    JSON.stringify({
-                        state: invocation.state,
-                        queueParameters: invocation.queueParameters,
-                        queueMetadata,
+            ])(
+                'charges and sends a job the previous release rescheduled after %s',
+                async (_name, queueMetadataWrittenByThePreviousRelease) => {
+                    claimAllOrNothing.mockResolvedValue({ granted: true, retryAfterMs: null })
+                    const storedByThePreviousRelease = Buffer.from(
+                        JSON.stringify({
+                            state: invocation.state,
+                            queueParameters: invocation.queueParameters,
+                            queueMetadata: queueMetadataWrittenByThePreviousRelease,
+                        })
+                    )
+                    const dequeued = v2JobToInvocation({
+                        id: invocation.id,
+                        teamId: invocation.teamId,
+                        functionId: invocation.functionId,
+                        queueName: 'email',
+                        priority: 0,
+                        scheduled: DateTime.now(),
+                        created: DateTime.now(),
+                        parentRunId: null,
+                        transitionCount: 1,
+                        state: storedByThePreviousRelease,
+                        distinctId: null,
+                        personId: null,
+                        actionId: null,
+                        cancelRequestedAt: null,
+                    } as unknown as CyclotronV2DequeuedJob)
+
+                    const result = await cappedService.executeSendEmail({
+                        ...invocation,
+                        queueParameters:
+                            dequeued.queueParameters as CyclotronJobInvocationHogFunction['queueParameters'],
+                        queueMetadata: dequeued.queueMetadata,
                     })
-                )
-                const dequeued = v2JobToInvocation({
-                    id: invocation.id,
-                    teamId: invocation.teamId,
-                    functionId: invocation.functionId,
-                    queueName: 'email',
-                    priority: 0,
-                    scheduled: DateTime.now(),
-                    created: DateTime.now(),
-                    parentRunId: null,
-                    transitionCount: 1,
-                    state: storedByThePreviousRelease,
-                    distinctId: null,
-                    personId: null,
-                    actionId: null,
-                    cancelRequestedAt: null,
-                } as unknown as CyclotronV2DequeuedJob)
 
-                const result = await cappedService.executeSendEmail({
-                    ...invocation,
-                    queueParameters: dequeued.queueParameters as CyclotronJobInvocationHogFunction['queueParameters'],
-                    queueMetadata: dequeued.queueMetadata,
-                })
-
-                expect(result.finished).toBe(true)
-                expect(result.error).toBeUndefined()
-                expect(cappedSendSpy).toHaveBeenCalledTimes(1)
-                expect(claimAllOrNothing).toHaveBeenCalledTimes(1)
-            })
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBeUndefined()
+                    expect(cappedSendSpy).toHaveBeenCalledTimes(1)
+                    expect(claimAllOrNothing).toHaveBeenCalledTimes(1)
+                }
+            )
 
             it('retries on the token bucket cadence when the limiter reports no horizon', async () => {
                 // A Valkey fault denies with no horizon. Parking on the daily cap's pacing
