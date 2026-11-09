@@ -38,6 +38,9 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
                     { label: 'Move to…', onClick: () => moveFileToFolder(entry) },
                     {
                         label: 'Rename…',
+                        disabledReason: takenFolderPaths
+                            ? undefined
+                            : 'Checking existing folder names. Try again in a moment.',
                         onClick: () =>
                             LemonDialog.openForm({
                                 title: `Rename ${name}`,
