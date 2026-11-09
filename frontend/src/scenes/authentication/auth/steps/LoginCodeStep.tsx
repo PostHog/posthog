@@ -5,9 +5,11 @@ import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass
 import { IconCheckCircle } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
@@ -24,9 +26,13 @@ export function LoginCodeStep(): JSX.Element {
         codeVerificationEmail,
         resendResponseLoading,
         resendResponse,
+        codeResendAttempted,
         isCodeVerificationSubmitting,
         codeVerification,
     } = useValues(loginLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { openSupportForm } = useActions(supportLogic)
+    const { sendSupportRequest } = useValues(supportLogic)
 
     return (
         <AuthSceneCard showPendingConnection>
@@ -53,6 +59,29 @@ export function LoginCodeStep(): JSX.Element {
                     <p className="flex items-center gap-1 text-success mb-0" role="status">
                         <IconCheckCircle />
                         <span>Code sent</span>
+                    </p>
+                )}
+                {codeResendAttempted && preflight?.cloud && (
+                    <p className="text-xs text-secondary mb-0">
+                        <span>Still nothing? </span>
+                        <Link
+                            data-attr="login-code-contact-support"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                openSupportForm({
+                                    kind: 'support',
+                                    email: codeVerificationEmail ?? undefined,
+                                    message: sendSupportRequest.message
+                                        ? undefined
+                                        : `I need help logging in.\nI haven't received the emailed verification code.${
+                                              preflight?.region ? `\nData region: ${preflight.region}` : ''
+                                          }`,
+                                })
+                            }}
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                        >
+                            Contact support
+                        </Link>
                     </p>
                 )}
             </div>
