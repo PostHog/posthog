@@ -78,7 +78,9 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
   The fetcher rejects `scope_field`, because a group has no single scope value.
   The generic fetcher takes an optional `order_by` on the config, so the `max_records` limit keeps the most important records.
 - **Conversations fetcher** (`fetchers/conversations.py`) — queries Django ORM for Postgres tickets + comments.
-  Records emission in `SignalEmissionRecord` optimistically at fetch time.
+  Empty tickets are marked processed at fetch time. Actual outputs use the pipeline's `record_processed_outputs`
+  path, so admission refusal leaves them eligible for a later run. Snapshot keys include the last-message time;
+  retries reuse the receipt and a later conversation update can emit again.
 
 ### Data import sources (Zendesk, GitHub, Linear)
 

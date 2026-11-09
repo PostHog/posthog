@@ -3,7 +3,7 @@ import uuid
 import asyncio
 from collections.abc import Iterator, Sequence
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -22,11 +22,15 @@ from temporalio.worker import Worker
 from posthog.hogql import ast
 
 from posthog.exceptions import QuotaLimitExceeded
+from posthog.models import Team
+from posthog.models.comment import Comment
 from posthog.sync import database_sync_to_async
 
+from products.conversations.backend.models import Ticket
 from products.ml_inference.backend.facade.contracts import DecisionResult, NoulAnswer
 from products.signals.backend.artefact_schemas import Dismissal, ReportLink
 from products.signals.backend.emission._prompts import ISSUE_ACTIONABILITY_PROMPT
+from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
 from products.signals.backend.emission.emit_signals import (
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
@@ -405,6 +409,77 @@ class TestRunSignalPipelineEmitterFailures:
 
 @pytest.mark.django_db(transaction=True)
 class TestEmissionRetryIdentity:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("limit", ["billing", "daily"])
+    async def test_conversations_defer_refused_tickets_and_allow_later_snapshots(self, team: Team, limit: str) -> None:
+        with patch("products.conversations.backend.events.capture_internal"):
+            ticket = await database_sync_to_async(Ticket.objects.create_with_number)(
+                team=team, widget_session_id="admission-test", distinct_id="test-user", channel_source="widget"
+            )
+            await Comment.objects.acreate(
+                team=team, scope="conversations_ticket", item_id=str(ticket.id), content="Export does not finish"
+            )
+        await Ticket.objects.filter(id=ticket.id).aupdate(
+            created_at=timezone.now() - timedelta(days=2), last_message_at=timezone.now() - timedelta(hours=2)
+        )
+        config = CONVERSATIONS_TICKETS_CONFIG
+        fetch = database_sync_to_async(config.record_fetcher)
+        with (
+            patch(
+                "products.signals.backend.quota.is_team_signals_quota_limited", return_value=limit == "billing"
+            ) as quota,
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *a, **kw: key == "self-driving-quota-enforcement",
+            ),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(
+                f"{PIPELINE_MODULE_PATH}.filter_actionable", side_effect=lambda **kwargs: kwargs["outputs"]
+            ) as filter_records,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+        ):
+            if limit == "daily":
+                await SignalTeamConfig.objects.aupdate_or_create(team=team, defaults={"max_reports_per_day": 1})
+                await SignalReport.objects.acreate(team=team, first_visible_at=timezone.now())
+
+            records = await fetch(team, config, {})
+            result = await run_signal_pipeline(team=team, config=config, records=records, extra={})
+            assert result["signals_emitted"] == 0
+            assert not await SignalEmissionRecord.objects.filter(team=team).aexists()
+            emit.assert_not_awaited()
+            assert filter_records.call_args.kwargs["outputs"] == []
+
+            quota.return_value = False
+            await SignalReport.objects.filter(team=team).adelete()
+            records = await fetch(team, config, {})
+            assert [record["id"] for record in records] == [ticket.id]
+            emit.side_effect = RuntimeError("dispatch unavailable")
+            with pytest.raises(RuntimeError, match="All 1 signal emissions failed"):
+                await run_signal_pipeline(team=team, config=config, records=records, extra={})
+            first_signal_id = emit.call_args.kwargs["signal_id"]
+            assert not await SignalEmissionRecord.objects.filter(team=team).aexists()
+            quota.return_value = limit == "billing"
+            if limit == "daily":
+                await SignalReport.objects.acreate(team=team, first_visible_at=timezone.now())
+            emit.side_effect = None
+            records = await fetch(team, config, {})
+            result = await run_signal_pipeline(team=team, config=config, records=records, extra={})
+            assert result["signals_emitted"] == 1
+            assert emit.call_args.kwargs["signal_id"] == first_signal_id
+            assert await fetch(team, config, {}) == []
+
+            quota.return_value = False
+            await SignalReport.objects.filter(team=team).adelete()
+            await SignalEmissionRecord.objects.filter(team=team).aupdate(
+                emitted_at=timezone.now() - timedelta(hours=30)
+            )
+            await Ticket.objects.filter(id=ticket.id).aupdate(last_message_at=timezone.now() - timedelta(minutes=90))
+            records = await fetch(team, config, {})
+            result = await run_signal_pipeline(team=team, config=config, records=records, extra={})
+            assert result["signals_emitted"] == 1
+            assert emit.call_args.kwargs["signal_id"] != first_signal_id
+            assert await fetch(team, config, {}) == []
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize("limit", ["billing", "daily"])
     async def test_pipeline_refuses_new_records_but_retries_admitted_records(self, team, limit: str):

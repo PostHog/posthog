@@ -28,7 +28,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.integrations import IntegrationManager
 from posthog.models import Team, User
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -1031,7 +1031,7 @@ async def emit_signal(
         return False
 
     try:
-        await database_sync_to_async(admit_signal)(
+        await database_sync_to_async_pool(admit_signal)(
             team=team, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
         )
     except (QuotaLimitExceeded, TrialRefused) as error:

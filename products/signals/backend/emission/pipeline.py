@@ -571,7 +571,9 @@ async def _record_processed_outputs(team: Team, outputs: list[SignalEmitterOutpu
             )
             for output in outputs
         ],
-        ignore_conflicts=True,
+        update_conflicts=True,
+        update_fields=["emitted_at"],
+        unique_fields=["team", "source_product", "source_type", "source_id"],
     )
 
 
@@ -681,7 +683,7 @@ async def filter_admitted(
     for output in outputs:
         assert output.signal_id is not None
         try:
-            await database_sync_to_async(admit_signal)(
+            await database_sync_to_async_pool(admit_signal)(
                 team=team, signal_id=output.signal_id, billing_exempt=system_source_exempt(output.source_product)
             )
         except (QuotaLimitExceeded, TrialRefused) as error:
