@@ -26,6 +26,9 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.aeo.backend.brand import brand_names, brand_regex
 from products.aeo.backend.facade.contracts import (
+    MAX_RANKED_COMPETITORS,
+    MAX_RANKED_DOMAINS,
+    MAX_RANKED_PAGES,
     PromptSetRankings,
     RankedBrand,
     RankedBrandDay,
@@ -33,10 +36,6 @@ from products.aeo.backend.facade.contracts import (
     RankedPage,
 )
 from products.aeo.backend.models import AEOCitationCheck
-
-MAX_RANKED_COMPETITORS = 10
-MAX_RANKED_DOMAINS = 20
-MAX_RANKED_PAGES = 20
 
 # Registrable names of sites answers cite whatever the brand, so they are never a competitor.
 NON_BRAND_NAMES = frozenset(

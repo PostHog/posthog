@@ -39,6 +39,9 @@ from products.aeo.backend.facade.api import (
 )
 from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
+    MAX_RANKED_COMPETITORS,
+    MAX_RANKED_DOMAINS,
+    MAX_RANKED_PAGES,
     PROMPT_TOPIC_MAX_LENGTH,
     PROMPT_VERSION_DESCRIPTION_MAX_LENGTH,
     Prompt,
@@ -76,7 +79,6 @@ from products.aeo.backend.facade.contracts import (
     RankedDomain,
     RankedPage,
 )
-from products.aeo.backend.rankings import MAX_RANKED_COMPETITORS, MAX_RANKED_DOMAINS, MAX_RANKED_PAGES
 
 MAX_PROMPTS_PER_IMPORT = 2000
 MAX_SUGGESTED_PROMPTS = 50
