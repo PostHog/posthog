@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import datetime
 from functools import lru_cache
 from typing import TYPE_CHECKING
@@ -5,6 +6,7 @@ from typing import TYPE_CHECKING
 import structlog
 import posthoganalytics
 
+from posthog.hogql.database.models import BooleanDatabaseField, FieldOrTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.escape_sql import escape_hogql_string
 
@@ -223,7 +225,8 @@ class MaterializedCI:
         columns = [column for column in ci_rows.RUN_COLUMNS if column != "is_handoff_shell"]
         floor = " AND run_started_at_raw >= {run_started_floor}" if started_floor else ""
         shells = "" if include_shells else " AND NOT is_handoff_shell"
-        return f"""SELECT {", ".join(columns)}, {workflow_runs.STOPPED_REPORTING_SQL} AS stopped_reporting
+        return f"""SELECT {_stored_select(columns, ci_rows.RUN_FIELDS, ci_rows.RUNS_VIEW_NAME)},
+                {workflow_runs.STOPPED_REPORTING_SQL} AS stopped_reporting
             FROM {ci_rows.RUNS_VIEW_NAME} WHERE {self._scope()}{shells}{floor}"""
 
     def jobs(self, *, created_floor: bool = False, with_cost: bool = False) -> str:
@@ -233,5 +236,14 @@ class MaterializedCI:
             else workflow_jobs.COLUMNS
         )
         floor = " AND created_at_raw >= {job_created_floor}" if created_floor else ""
-        return f"""SELECT {", ".join(columns)} FROM {ci_rows.JOBS_VIEW_NAME}
-            WHERE {self._scope()} AND NOT is_handoff_shell{floor}"""
+        return f"""SELECT {_stored_select(columns, ci_rows.JOB_FIELDS, ci_rows.JOBS_VIEW_NAME)}
+            FROM {ci_rows.JOBS_VIEW_NAME} WHERE {self._scope()} AND NOT is_handoff_shell{floor}"""
+
+
+def _stored_select(columns: Iterable[str], fields: dict[str, FieldOrTable], table: str) -> str:
+    # A materialization stores a boolean column as Int16, because Delta Lake has no unsigned types.
+    # ClickHouse rejects Int16 as an If-combinator or if() condition, so cast it back to UInt8.
+    return ", ".join(
+        f"{table}.{column} != 0 AS {column}" if isinstance(fields[column], BooleanDatabaseField) else column
+        for column in columns
+    )

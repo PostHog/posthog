@@ -10,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import BooleanDatabaseField, FieldOrTable, IntegerDatabaseField
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -61,6 +62,15 @@ def _covered_since() -> datetime:
     return timezone.now() - timedelta(days=7)
 
 
+def _stored_columns(fields: dict[str, FieldOrTable]) -> dict[str, dict[str, Any]]:
+    # Mirrors the materialization, which writes a UInt8 boolean to Delta Lake as Int16.
+    columns = DataWarehouseManagedViewSet._get_columns_from_fields(fields)
+    for name, field in fields.items():
+        if isinstance(field, BooleanDatabaseField):
+            columns[name] = {"hogql": IntegerDatabaseField.__name__, "clickhouse": "Int16", "valid": True}
+    return columns
+
+
 def _ready_views(
     test: BaseTest, *, backing_tables: dict[str, DataWarehouseTable] | None = None
 ) -> dict[str, DataWarehouseSavedQuery]:
@@ -83,7 +93,7 @@ def _ready_views(
         (ci_rows.RUNS_VIEW_NAME, queries.runs, ci_rows.RUN_FIELDS, ci_rows.RUN_INCREMENTAL_CONFIG),
         (ci_rows.JOBS_VIEW_NAME, queries.jobs, ci_rows.JOB_FIELDS, ci_rows.JOB_INCREMENTAL_CONFIG),
     ):
-        columns = DataWarehouseManagedViewSet._get_columns_from_fields(fields)
+        columns = _stored_columns(fields)
         table = (
             backing_tables[name]
             if backing_tables is not None
@@ -493,6 +503,8 @@ class TestMaterializedCIParity(_WarehouseMixin):
                 "runs": f"SELECT id, run_attempt, pr_number, ci_engine, stopped_reporting FROM {reader.run_source(started_floor=floor is not None, since=since)} ORDER BY ci_engine, id",
                 "jobs": f"SELECT id, run_id, run_attempt, is_rerun_copy, ci_engine FROM {reader.jobs_source(created_floor=floor is not None, since=since)} ORDER BY ci_engine, id",
                 "costs": f"SELECT run_id, job_name, run_attempt, head_branch, estimated_cost_usd, pr_number, ci_engine FROM {reader.job_cost_source(created_floor=floor is not None, since=since)} ORDER BY ci_engine, run_id, job_name, run_attempt",
+                "run_flags": f"SELECT ci_engine, countIf(is_merge_queue) FROM {reader.run_source(started_floor=floor is not None, since=since)} GROUP BY ci_engine ORDER BY ci_engine",
+                "job_flags": f"SELECT ci_engine, countIf(is_rerun_copy) FROM {reader.jobs_source(created_floor=floor is not None, since=since)} GROUP BY ci_engine ORDER BY ci_engine",
             }
             return {
                 kind: list(
@@ -512,7 +524,7 @@ class TestMaterializedCIParity(_WarehouseMixin):
         with patch("posthoganalytics.feature_enabled", return_value=False):
             live = read()
             future = timezone.now() + timedelta(days=1)
-            assert read(floor=future) == {"runs": [], "jobs": [], "costs": []}
+            assert read(floor=future) == {"runs": [], "jobs": [], "costs": [], "run_flags": [], "job_flags": []}
         assert len(live["runs"]) == 2
         assert len(live["jobs"]) == 5
         assert any(row[3] for row in live["jobs"])
@@ -554,7 +566,7 @@ class TestMaterializedCIParity(_WarehouseMixin):
                 stored_run_rows = stored_rows
             self._create_table(
                 name,
-                DataWarehouseManagedViewSet._get_columns_from_fields(fields),
+                _stored_columns(fields),
                 stored_rows,
                 source=source,
                 prefix="stored_",
@@ -566,11 +578,17 @@ class TestMaterializedCIParity(_WarehouseMixin):
             observed = read(stored=True)
             assert observed == live, repr({"stored": observed, "live": live})
             assert read(stored=True, floor=timezone.now() - timedelta(days=2)) == live
-            assert read(stored=True, floor=future) == {"runs": [], "jobs": [], "costs": []}
+            assert read(stored=True, floor=future) == {
+                "runs": [],
+                "jobs": [],
+                "costs": [],
+                "run_flags": [],
+                "job_flags": [],
+            }
 
         self._create_table(
             "skewed_ci_runs",
-            DataWarehouseManagedViewSet._get_columns_from_fields(ci_rows.RUN_FIELDS),
+            _stored_columns(ci_rows.RUN_FIELDS),
             [{**row, "is_handoff_shell": 1} if row["id"] == 100 else row for row in stored_run_rows],
             source=source,
             prefix="stored_",
