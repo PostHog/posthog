@@ -2728,6 +2728,27 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             self.assertNotIn("123-45-6789", response.content.decode())
             self.assertNotIn("999-99-9999", response.content.decode())
 
+    def test_properties_at_time_hides_nested_restricted_property(self) -> None:
+        self._restrict_person_property("profile.tax_id")
+        _create_person(team=self.team, distinct_ids=["pit_nested"], properties={}, immediate=True)
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id="pit_nested",
+            properties={"$set": {"profile": {"tax_id": "T-1", "plan": "pro"}}},
+            timestamp="2024-06-01T10:00:00Z",
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/properties_at_time/",
+            {"distinct_id": "pit_nested", "timestamp": "2024-06-01T12:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["properties"], {"profile": {"plan": "pro"}})
+        self.assertNotIn("T-1", response.content.decode())
+
     @mock.patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
     def test_properties_at_time_passes_requesting_user_to_hogql(self, mock_execute_hogql_query) -> None:
         mock_execute_hogql_query.return_value = mock.Mock(results=[])

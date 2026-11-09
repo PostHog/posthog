@@ -2069,10 +2069,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             person_data = PersonSerializer(person, context=serializer_context).data
 
             # The serializer only filtered the current properties, not these reconstructed ones.
-            restricted_person_properties = serializer_context.get("restricted_person_properties") or set()
-            person_data["properties"] = {
-                k: v for k, v in point_in_time_properties.items() if k not in restricted_person_properties
-            }
+            person_data["properties"] = redact_restricted_properties(
+                point_in_time_properties, serializer_context.get("restricted_person_properties") or set()
+            )
 
             # Add metadata about the point-in-time query
             person_data["point_in_time_metadata"] = {
