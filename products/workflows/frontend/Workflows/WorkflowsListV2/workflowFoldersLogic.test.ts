@@ -326,25 +326,79 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
     })
 
-    it('reloads the folder index only when the shared tree drops files the list needs', async () => {
+    it('puts back the files the shared tree prunes without asking the server again', async () => {
         await expectLogic(logic).toFinishAllListeners()
-        let requests = 0
+        logic.actions.openFolder('Billing/Cards')
+        const requests: string[] = []
         useMocks({
             get: {
-                '/api/projects/:team_id/file_system/': () => {
-                    requests += 1
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    requests.push(request.url)
                     return [200, paginated([])]
                 },
             },
         })
-        const kept = Object.keys(projectTreeDataLogic.values.folders).map((folder) => `project://${folder}`)
-        projectTreeDataLogic.actions.pruneClosedFolders(kept)
-        await expectLogic(logic).toFinishAllListeners()
-        expect(requests).toBe(0)
-
         projectTreeDataLogic.actions.pruneClosedFolders(['project://'])
         await expectLogic(logic).toFinishAllListeners()
-        expect(requests).toBeGreaterThan(0)
+        expect(requests).toEqual([])
+        expect(logic.values.browserReadyLoading).toBe(false)
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
+        expect(logic.values.folderTemplates.map((entry) => entry.ref)).toEqual(['template-receipt'])
+    })
+
+    it('pages through a folder the shared tree cut to its first page, and nothing else', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Billing')
+        const requests: URLSearchParams[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    requests.push(params)
+                    return [
+                        200,
+                        paginated(
+                            params.get('parent') === 'Billing'
+                                ? [
+                                      {
+                                          id: 'direct',
+                                          path: 'Billing/Welcome',
+                                          type: 'hog_flow',
+                                          ref: FIXTURE_WORKFLOWS[0].id,
+                                      },
+                                  ]
+                                : []
+                        ),
+                    ]
+                },
+            },
+        })
+        projectTreeDataLogic.actions.loadFolderSuccess(
+            'Billing',
+            [{ id: 'cards', path: 'Billing/Cards', type: 'folder' }],
+            true,
+            1,
+            true
+        )
+        await expectLogic(logic).toFinishAllListeners()
+        expect(requests.map((params) => params.get('parent'))).toEqual(['Billing'])
+        expect(logic.values.browserReadyLoading).toBe(false)
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
+    })
+
+    it('forgets a file a fully reloaded folder no longer lists', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        projectTreeDataLogic.actions.loadFolderSuccess(
+            'Billing',
+            [{ id: 'cards', path: 'Billing/Cards', type: 'folder' }],
+            false,
+            1,
+            true
+        )
+        projectTreeDataLogic.actions.pruneClosedFolders(['project://'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.itemsByRef[`hog_flow::${FIXTURE_WORKFLOWS[0].id}`]).toBeUndefined()
+        expect(logic.values.itemsByRef[`hog_flow::${FIXTURE_WORKFLOWS[1].id}`]?.path).toEqual('Billing/Cards/Renewal')
     })
 
     it('moves workflow files and drops folders to match a full reload', async () => {
