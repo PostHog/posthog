@@ -39,9 +39,10 @@ from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy, ThreadKey
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport, RootImageEditor
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport
 from products.alerts_platform.backend.facade.contracts import (
+    NO_LATE_IMAGE,
     AlertDeliveryRequest,
     AlertDestinationData,
     AlertEventKind,
@@ -366,19 +367,19 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
 
 
 def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -> LateImageResult:
-    """Puts the image the source draws from `late_detail` into the Slack messages this evaluation's
-    firings opened, after they went out without it.
+    """Puts the image the source draws from `late_detail` into the messages this evaluation's firings
+    opened, after they went out without it.
 
     `late_detail` is what the check would have recorded in `source_detail` had it been ready, so the
     source's own image resolver mints the image, as it does for a message that carries it on time.
 
-    Slack only, because only its messages can be edited once sent. Each Slack destination subscribed
+    Only a transport that can edit what it sent takes part, which is Slack. Each destination subscribed
     to firings is read now, as a delivery reads it, and one with no message for the evaluation yet
-    counts as waiting: its delivery may still be on the way, or it delivers through a HogFunction.
+    counts as waiting, because its delivery may still be on the way.
     """
     firing_event = request.event_ids_by_kind.get(AlertEventKind.FIRING.value)
     if not request.owned_by_platform or not request.sends_messages or firing_event is None:
-        return LateImageResult(edited=0, waiting=0)
+        return NO_LATE_IMAGE
     announced = announcement(
         request.team_id,
         request.configuration_id,
@@ -394,7 +395,7 @@ def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -
         if transition.kind == AlertEventKind.FIRING
     )
     if not firings:
-        return LateImageResult(edited=0, waiting=0)
+        return NO_LATE_IMAGE
     # One image for every firing, because a source's late detail describes the check, not a group.
     first = firings[0]
     image = describers.resolve_image(
@@ -403,22 +404,26 @@ def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -
         transition=replace(first, source_detail={**first.source_detail, **late_detail}),
     )
     if image is None:
-        return LateImageResult(edited=0, waiting=0)
+        return NO_LATE_IMAGE
+    # A firing this alert already sent through its HogFunctions has no native message for an emitted-events
+    # destination to edit, so that destination does not wait for one.
+    natively_sent = tuple(transition for transition in firings if not _sent_through_hog_functions(request, transition))
     thread_store = DatabaseThreadStore(request.team_id)
-    edited = 0
-    waiting = 0
+    result = NO_LATE_IMAGE
     for subscribed_destination in _destinations(request, firing_event, _platform_destinations(request)):
-        if subscribed_destination.data["type"] != DestinationType.SLACK:
+        transport_class = _TRANSPORTS.get(subscribed_destination.data["type"])
+        transitions = natively_sent if subscribed_destination.receives_emitted_events else firings
+        if transport_class is None or not issubclass(transport_class, RootImageEditor) or not transitions:
             continue
         try:
-            result = add_late_image_to_target(
-                transport=SlackTransport(),
+            result += add_late_image_to_target(
+                transport=transport_class(),
                 thread_store=thread_store,
                 team_id=request.team_id,
                 configuration_id=request.configuration_id,
                 evaluation_key=request.evaluation_key,
                 target=subscribed_destination.data,
-                transitions=firings,
+                transitions=transitions,
                 image=image,
             )
         # One channel that refuses the edit, such as one the app left, must not cost the others theirs.
@@ -426,10 +431,19 @@ def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -
             logger.warning(
                 "alerts_platform_late_image_refused", destination_id=subscribed_destination.id, error=str(error)
             )
-            continue
-        edited += result.edited
-        waiting += result.waiting
-    return LateImageResult(edited=edited, waiting=waiting)
+    return result
+
+
+def _sent_through_hog_functions(request: AlertDeliveryRequest, transition: AnnouncedTransition) -> bool:
+    if transition.episode_started_at is None or delivery_paths.emitter_for(request.source) is None:
+        return False
+    path = episode_paths.stored_path(
+        team_id=request.team_id,
+        configuration_id=request.configuration_id,
+        grouping_key=transition.grouping_key,
+        episode_started_at=transition.episode_started_at,
+    )
+    return path == DeliveryPath.HOG_FUNCTION
 
 
 def _count_emissions(request: AlertDeliveryRequest, outcome: DeliveryOutcomeLabel, transitions: int) -> None:

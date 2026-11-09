@@ -1486,6 +1486,12 @@ class LateImageResult:
     edited: int
     waiting: int
 
+    def __add__(self, other: LateImageResult) -> LateImageResult:
+        return LateImageResult(edited=self.edited + other.edited, waiting=self.waiting + other.waiting)
+
+
+NO_LATE_IMAGE: Final = LateImageResult(edited=0, waiting=0)
+
 
 @frozen
 class SourceDescription:

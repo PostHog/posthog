@@ -193,14 +193,19 @@ def _image_in_slot(blocks: list[dict[str, Any]], image: MessageImage) -> list[di
     ]
 
 
-def _root_with_image(root_content: dict[str, Any], image: MessageImage) -> dict[str, Any] | None:
-    """The opening content with `image` in its image slot, or None when it has no slot."""
-    attachments = root_content.get("attachments") or []
-    every_block = [*root_content.get("blocks", []), *(block for a in attachments for block in a.get("blocks", []))]
-    if not any(block.get("block_id") == SLACK_IMAGE_SLOT_BLOCK_ID for block in every_block):
-        return None
+def _image_slot(content: dict[str, Any]) -> dict[str, Any] | None:
+    attachment_blocks = (
+        block for attachment in content.get("attachments") or [] for block in attachment.get("blocks", [])
+    )
+    for block in [*content.get("blocks", []), *attachment_blocks]:
+        if block.get("block_id") == SLACK_IMAGE_SLOT_BLOCK_ID:
+            return block
+    return None
+
+
+def _root_with_image(root_content: dict[str, Any], image: MessageImage) -> dict[str, Any]:
     content = {**root_content, "blocks": _image_in_slot(root_content.get("blocks", []), image)}
-    if attachments:
+    if attachments := root_content.get("attachments"):
         content["attachments"] = [
             {**attachment, "blocks": _image_in_slot(attachment.get("blocks", []), image)} for attachment in attachments
         ]
@@ -287,12 +292,16 @@ class SlackTransport:
         """Puts `image` into the opening message's image slot, and returns the content to keep as the root.
 
         None when the message has no image slot, as a message from a source without images has none.
+        A slot that already holds an image is left as it is, so a retried edit changes nothing.
         """
         if not root.root_content:
             raise DeliveryError("This Slack conversation has no opening message to edit.")
-        content = _root_with_image(root.root_content, image)
-        if content is None:
+        slot = _image_slot(root.root_content)
+        if slot is None:
             return None
+        if slot.get("type") == "image":
+            return root.root_content
+        content = _root_with_image(root.root_content, image)
         # A refused image is the edit's whole point, so the edit fails rather than going out unchanged.
         self._update_root(
             team_id=team_id,
@@ -320,12 +329,9 @@ class SlackTransport:
         slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
         original = root.root_content
         attachments = original.get("attachments") or []
-        if state_line is None:
-            text = original["text"]
-        else:
-            text = f"{original['text']} ({state_line})" if original["text"] else ""
+        text = f"{original['text']} ({state_line})" if state_line and original["text"] else original["text"]
         if attachments:
-            if state_line is not None:
+            if state_line:
                 attachments = [
                     *attachments[:-1],
                     {
@@ -340,7 +346,7 @@ class SlackTransport:
             # reader would need, so the edit restores what the opening message actually posted.
             blocks: list[dict[str, Any]] = []
         else:
-            blocks = original["blocks"] if state_line is None else _with_state_line(original["blocks"], state_line)
+            blocks = _with_state_line(original["blocks"], state_line) if state_line else original["blocks"]
         content = SlackMessageContent(text=text, blocks=blocks, attachments=attachments)
 
         def update(content: SlackMessageContent) -> None:

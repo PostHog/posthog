@@ -104,12 +104,7 @@ CHART_RETRY_POLICY = RetryPolicy(
 # The type a failed render raises, which the firing's own wait does not retry: a second render
 # cannot fit in its budget. The late chart's render retries it.
 CHART_RENDER_FAILED = "InsightChartRenderFailed"
-ON_TIME_CHART_RETRY_POLICY = RetryPolicy(
-    initial_interval=CHART_RETRY_POLICY.initial_interval,
-    backoff_coefficient=CHART_RETRY_POLICY.backoff_coefficient,
-    maximum_interval=CHART_RETRY_POLICY.maximum_interval,
-    non_retryable_error_types=[CHART_RENDER_FAILED],
-)
+ON_TIME_CHART_RETRY_POLICY = replace(CHART_RETRY_POLICY, non_retryable_error_types=[CHART_RENDER_FAILED])
 # A firing that went out without its chart renders again for this long, on the same pool. An export
 # stall that outlasts it costs the chart for good.
 LATE_CHART_RENDER_WINDOW = dt.timedelta(minutes=10)
@@ -459,15 +454,14 @@ def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> Render
     try:
         # A slot of its own per attempt, so a timed-out attempt cannot release its retry's slot.
         return render_firing_chart(
-            inputs.team_id,
-            inputs.alert_id,
-            held_until=time.time() + CHART_START_TO_CLOSE.total_seconds(),
-            raise_on_failed_render=inputs.raise_on_failed_render,
+            inputs.team_id, inputs.alert_id, held_until=time.time() + CHART_START_TO_CLOSE.total_seconds()
         )
     except ChartRenderPoolFull:
         raise
     except InsightChartRenderFailed as error:
-        raise ApplicationError(str(error), type=CHART_RENDER_FAILED) from error
+        if inputs.raise_on_failed_render:
+            raise ApplicationError(str(error), type=CHART_RENDER_FAILED) from error
+        return None
     except Exception:
         activity.logger.exception(
             "Could not render a platform insight firing's chart", extra={"alert_id": inputs.alert_id}
@@ -885,14 +879,15 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         recorded = {str(outcome.configuration_id) for outcome in chunk}
         await start_deliveries([delivery for delivery in deliveries if delivery.configuration_id in recorded])
         # After the deliveries, so the late chart finds the messages it edits on their way.
-        for configuration_id in sorted(recorded & self._late_charts.keys()):
-            await self._start_late_chart(
-                LateChartInputs(
-                    team_id=inputs.batch_key.team_id,
-                    alert_id=self._late_charts.pop(configuration_id),
-                    deliveries=tuple(d for d in deliveries if d.configuration_id == configuration_id),
-                )
+        late_charts = [
+            LateChartInputs(
+                team_id=inputs.batch_key.team_id,
+                alert_id=self._late_charts.pop(configuration_id),
+                deliveries=tuple(d for d in deliveries if d.configuration_id == configuration_id),
             )
+            for configuration_id in sorted(recorded & self._late_charts.keys())
+        ]
+        await asyncio.gather(*(self._start_late_chart(late) for late in late_charts if late.deliveries))
         investigated = tuple(outcome for outcome in chunk if requested_investigation(outcome) is not None)
         if workflow.patched(_PATCH_INVESTIGATIONS) and investigated:
             # A task, so a slow claim holds back only the firings it holds, not the next record or round.
@@ -935,8 +930,6 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             return InvestigationClaims()
 
     async def _start_late_chart(self, late: LateChartInputs) -> None:
-        if not late.deliveries:
-            return
         try:
             await workflow.start_child_workflow(
                 LATE_CHART_WORKFLOW,

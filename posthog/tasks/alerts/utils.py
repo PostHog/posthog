@@ -532,14 +532,24 @@ class InsightChartRenderFailed(Exception):
 
 
 def render_alert_insight_chart(
-    alert: AlertConfiguration, render_user: User | None = None, *, raise_on_failed_render: bool = False
+    alert: AlertConfiguration, render_user: User | None = None
 ) -> RenderedInsightChart | None:
     """Render the alerted insight for its Slack destinations, or None when none would show it.
 
-    Best-effort, like `prepare_alert_insight_chart_url`: any failure returns None, or raises
-    `InsightChartRenderFailed` under `raise_on_failed_render`, for a caller that renders again later.
-    The render user defaults the way that function's does.
+    Best-effort, like `prepare_alert_insight_chart_url`: any failure returns None. The render user
+    defaults the way that function's does.
     """
+    try:
+        return render_alert_insight_chart_or_raise(alert, render_user)
+    except InsightChartRenderFailed:
+        return None
+
+
+def render_alert_insight_chart_or_raise(
+    alert: AlertConfiguration, render_user: User | None = None
+) -> RenderedInsightChart | None:
+    """`render_alert_insight_chart`, but a failed render raises `InsightChartRenderFailed`, for a caller
+    that renders again later. None still means no chart applies."""
     render_user = render_user or _resolve_alert_render_user(alert)
     if render_user is None:
         return None
@@ -586,17 +596,13 @@ def render_alert_insight_chart(
                 asset_id=asset.id,
                 exception=asset.exception,
             )
-            if raise_on_failed_render:
-                raise InsightChartRenderFailed(asset.exception or "The render produced no content")
-            return None
+            raise InsightChartRenderFailed(asset.exception or "The render produced no content")
         return RenderedInsightChart(asset_id=asset.id, render_user_id=render_user.id)
     except InsightChartRenderFailed:
         raise
     except Exception as error:
         logger.exception("alerts.insight_chart_render_failed", alert_id=str(alert.id))
-        if raise_on_failed_render:
-            raise InsightChartRenderFailed(type(error).__name__) from error
-        return None
+        raise InsightChartRenderFailed(type(error).__name__) from error
 
 
 def insight_chart_url(*, team_id: int, chart: RenderedInsightChart) -> str | None:

@@ -287,15 +287,16 @@ class TestSlackAttachmentTransport(SimpleTestCase):
 class TestSlackLateImage(SimpleTestCase):
     @parameterized.expand(
         [
-            ("into_its_slot", True, None, True),
-            ("without_a_slot", False, None, False),
-            ("refused_by_slack", True, "invalid_blocks", False),
+            ("into_its_slot", "divider", None, True),
+            ("without_a_slot", None, None, False),
+            ("already_holding_one", "image", None, False),
+            ("refused_by_slack", "divider", "invalid_blocks", False),
         ]
     )
     def test_a_late_image_replaces_the_opening_message_placeholder(
-        self, _name: str, has_slot: bool, refusal: str | None, edited: bool
+        self, _name: str, slot: str | None, refusal: str | None, edited: bool
     ) -> None:
-        placeholder = {"type": "divider", **({"block_id": SLACK_IMAGE_SLOT_BLOCK_ID} if has_slot else {})}
+        placeholder = {"type": slot or "divider", **({"block_id": SLACK_IMAGE_SLOT_BLOCK_ID} if slot else {})}
         actions = {"type": "actions", "elements": []}
         root = MessageHandle(
             external_ref={"channel": "C-SAMPLE", "ts": "1700000000.1"},
@@ -324,7 +325,8 @@ class TestSlackLateImage(SimpleTestCase):
                 return
             content = add()
         if not edited:
-            assert content is None
+            # A retried edit finds its image already in place and leaves the message as it is.
+            assert content == (root.root_content if slot else None)
             update.assert_not_called()
             return
         slotted = {"type": "image", "image_url": image.url, "alt_text": "Chart", "block_id": SLACK_IMAGE_SLOT_BLOCK_ID}

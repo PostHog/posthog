@@ -24,6 +24,7 @@ from products.alerts_platform.backend.delivery.transport import (
     RootImageEditor,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    NO_LATE_IMAGE,
     AlertDestinationData,
     AnnouncedTransition,
     DeliveryPath,
@@ -197,7 +198,8 @@ def _current_state_line(team_id: int, key: ThreadKey) -> str | None:
     return state_line(snapshot, episode_started_at=key.episode_started_at, as_of=timezone.now())
 
 
-# Claims a conversation for a late image under its own key, so a retried edit finds it done.
+# The claim's key while a late image edits a conversation. Only the claim carries it, so it never
+# enters the conversation's delivered evaluations.
 LATE_IMAGE_KEY_PREFIX = "late-image:"
 
 
@@ -219,10 +221,9 @@ def add_late_image(
     the same message, and the image stays in the content later state edits start from.
     """
     if not isinstance(transport, RootImageEditor):
-        return LateImageResult(edited=0, waiting=0)
+        return NO_LATE_IMAGE
     channel_target = transport.channel_target(target)
-    edited = 0
-    waiting = 0
+    result = NO_LATE_IMAGE
     for transition in transitions:
         key = _thread_key(
             configuration_id=configuration_id,
@@ -233,17 +234,14 @@ def add_late_image(
         opening = thread_store.opening(key, evaluation_key)
         if opening == Opening.REPLY:
             continue
-        if opening != Opening.ROOT:
-            waiting += 1
-            continue
         try:
-            claim = thread_store.claim(key, f"{LATE_IMAGE_KEY_PREFIX}{evaluation_key}")
+            claim = (
+                thread_store.claim(key, f"{LATE_IMAGE_KEY_PREFIX}{evaluation_key}") if opening == Opening.ROOT else None
+            )
         except ThreadBusy:
-            waiting += 1
-            continue
+            claim = None
         if claim is None:
-            # An earlier attempt added it.
-            edited += 1
+            result += LateImageResult(edited=0, waiting=1)
             continue
         if claim.handle is None:
             thread_store.release(claim)
@@ -259,13 +257,11 @@ def add_late_image(
         except Exception:
             thread_store.release(claim)
             raise
-        if content is None:
-            # No slot for an image, which no retry changes.
-            thread_store.delivered(claim, None)
-            continue
-        thread_store.edited_root(claim, content)
-        edited += 1
-    return LateImageResult(edited=edited, waiting=waiting)
+        thread_store.release(claim, root_content=content)
+        # None means the message has no image slot, which no retry changes.
+        if content is not None:
+            result += LateImageResult(edited=1, waiting=0)
+    return result
 
 
 def _thread_key(

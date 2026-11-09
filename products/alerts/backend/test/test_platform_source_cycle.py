@@ -285,7 +285,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             **({CHART_PENDING_KEY: str(alert.id)} if wants_chart else {}),
         }
 
-        with patch(f"{_MODULE}.render_alert_insight_chart") as render:
+        with patch(f"{_MODULE}.render_alert_insight_chart_or_raise") as render:
             outcome, _ = self._evaluate(
                 configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
             )
@@ -323,7 +323,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         held_until = time.time() + 60
 
         with patch(
-            f"{_MODULE}.render_alert_insight_chart", return_value=RenderedInsightChart(asset_id=7, render_user_id=3)
+            f"{_MODULE}.render_alert_insight_chart_or_raise",
+            return_value=RenderedInsightChart(asset_id=7, render_user_id=3),
         ) as render:
             # Back to back on a pool of one, so the second render needs the slot the first gave back.
             for _ in range(2):
@@ -956,7 +957,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         return alert, self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
 
     def _fire(self, configuration: PlatformConfigurationSnapshot) -> PlatformAlertOutcome:
-        with patch(f"{_MODULE}.render_alert_insight_chart"):
+        with patch(f"{_MODULE}.render_alert_insight_chart_or_raise"):
             outcome, _ = self._evaluate(
                 configuration,
                 result=AlertEvaluationResult(
@@ -1008,7 +1009,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         uses_llm_detector = detector_config["type"] == "llm"
         result = AlertEvaluationResult(value=150.0, breaches=["above 100"])
 
-        with patch(f"{_MODULE}.render_alert_insight_chart"):
+        with patch(f"{_MODULE}.render_alert_insight_chart_or_raise"):
             first, _ = self._evaluate(configuration, result=result, uses_llm_detector=uses_llm_detector)
             assert first is not None
             assert first.groups[0].kind == AlertEventKind.FIRING

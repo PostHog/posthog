@@ -36,7 +36,11 @@ from posthog.models.user import User
 from posthog.query_cache.single_flight import skip_query_single_flight
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
-from posthog.tasks.alerts.utils import AlertEvaluationResult, render_alert_insight_chart, skip_because_of_weekend
+from posthog.tasks.alerts.utils import (
+    AlertEvaluationResult,
+    render_alert_insight_chart_or_raise,
+    skip_because_of_weekend,
+)
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 
@@ -1073,14 +1077,12 @@ def _wants_chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> b
     return check.owned_by_platform and alert.calculation_interval != AlertCalculationInterval.REAL_TIME
 
 
-def render_firing_chart(
-    team_id: int, alert_id: str, *, held_until: float, raise_on_failed_render: bool = False
-) -> RenderedChart | None:
-    """Render the chart a firing of this alert sends, or None when none applies or the render fails.
+def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> RenderedChart | None:
+    """Render the chart a firing of this alert sends, or None when none applies.
 
     The evaluation workflow calls this after the check, so the render never holds the check's slot.
     Raises `ChartRenderPoolFull` when the render pool has no room, and `InsightChartRenderFailed`
-    for a failed render under `raise_on_failed_render`.
+    when the render fails.
     """
     if not admit_evaluation_slots(
         [alert_id],
@@ -1093,7 +1095,7 @@ def render_firing_chart(
         alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
         if alert is None:
             return None
-        chart = render_alert_insight_chart(alert, raise_on_failed_render=raise_on_failed_render)
+        chart = render_alert_insight_chart_or_raise(alert)
         return (
             RenderedChart(asset_id=chart.asset_id, render_user_id=chart.render_user_id) if chart is not None else None
         )

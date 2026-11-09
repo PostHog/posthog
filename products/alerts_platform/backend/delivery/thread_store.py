@@ -75,9 +75,8 @@ class Opening(StrEnum):
 
     ROOT = "root"
     REPLY = "reply"
-    SENDING = "sending"
-    # Nothing of it is in the conversation, or there is no conversation.
-    ABSENT = "absent"
+    # Not delivered yet: a send of it holds the conversation, or nothing of it is there.
+    WAITING = "waiting"
 
 
 class ThreadBusy(Exception):
@@ -94,11 +93,12 @@ class ThreadStore(Protocol):
 
     def delivered(self, claim: ThreadClaim, handle: MessageHandle | None) -> None: ...
 
-    def release(self, claim: ThreadClaim) -> None: ...
+    def release(self, claim: ThreadClaim, *, root_content: dict[str, Any] | None = None) -> None:
+        """Frees the conversation. `root_content` replaces what the opening message shows, after an
+        edit that changed it, so later edits keep the change."""
+        ...
 
     def opening(self, key: ThreadKey, evaluation_key: str) -> Opening: ...
-
-    def edited_root(self, claim: ThreadClaim, root_content: dict[str, Any]) -> None: ...
 
 
 class NullThreadStore:
@@ -115,14 +115,11 @@ class NullThreadStore:
     def delivered(self, claim: ThreadClaim, handle: MessageHandle | None) -> None:
         return None
 
-    def release(self, claim: ThreadClaim) -> None:
+    def release(self, claim: ThreadClaim, *, root_content: dict[str, Any] | None = None) -> None:
         return None
 
     def opening(self, key: ThreadKey, evaluation_key: str) -> Opening:
-        return Opening.ABSENT
-
-    def edited_root(self, claim: ThreadClaim, root_content: dict[str, Any]) -> None:
-        return None
+        return Opening.WAITING
 
 
 class DatabaseThreadStore:
@@ -188,8 +185,11 @@ class DatabaseThreadStore:
             fields["root_message"] = handle.root_content
         self._fenced(claim).update(**fields)
 
-    def release(self, claim: ThreadClaim) -> None:
-        self._fenced(claim).update(pending_evaluation_key=None, pending_claimed_at=None, updated_at=timezone.now())
+    def release(self, claim: ThreadClaim, *, root_content: dict[str, Any] | None = None) -> None:
+        fields: dict[str, object] = {"pending_evaluation_key": None, "pending_claimed_at": None}
+        if root_content is not None:
+            fields["root_message"] = root_content
+        self._fenced(claim).update(**fields, updated_at=timezone.now())
 
     def opening(self, key: ThreadKey, evaluation_key: str) -> Opening:
         """Where this evaluation's message is in the conversation, read without creating one."""
@@ -205,30 +205,13 @@ class DatabaseThreadStore:
             .first()
         )
         if thread is None:
-            return Opening.ABSENT
+            return Opening.WAITING
         delivered = thread.delivered_evaluation_keys or []
         if evaluation_key in delivered:
             # The list keeps its oldest entry first, and a conversation opens with its first send.
             # The cap only drops that entry after DELIVERED_KEYS_CAP sends, long after a late edit.
             return Opening.ROOT if delivered[0] == evaluation_key and thread.external_ref else Opening.REPLY
-        if thread.pending_evaluation_key == evaluation_key:
-            return Opening.SENDING
-        return Opening.ABSENT
-
-    def edited_root(self, claim: ThreadClaim, root_content: dict[str, Any]) -> None:
-        """Records an edit that changed what the opening message shows, so later edits keep it."""
-        thread = PlatformAlertThread.objects.for_team(self._team_id).filter(id=claim.thread_id).first()
-        if thread is None:
-            return
-        self._fenced(claim).update(
-            delivered_evaluation_keys=[*(thread.delivered_evaluation_keys or []), claim.evaluation_key][
-                -DELIVERED_KEYS_CAP:
-            ],
-            root_message=root_content,
-            pending_evaluation_key=None,
-            pending_claimed_at=None,
-            updated_at=timezone.now(),
-        )
+        return Opening.WAITING
 
     def _fenced(self, claim: ThreadClaim) -> models.QuerySet[PlatformAlertThread]:
         return PlatformAlertThread.objects.for_team(self._team_id).filter(

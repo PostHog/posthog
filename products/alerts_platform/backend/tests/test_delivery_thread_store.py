@@ -165,6 +165,8 @@ class TestDatabaseThreadStore(APIBaseTest):
                 self.images: list[MessageHandle] = []
 
             def add_root_image(self, *, root: MessageHandle, **_: Any) -> dict[str, Any]:
+                if "image" in (root.root_content or {}):
+                    return root.root_content or {}
                 self.images.append(root)
                 return {**(root.root_content or {}), "image": "chart"}
 
