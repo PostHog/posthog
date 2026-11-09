@@ -35,10 +35,18 @@ function googleServicesFile(projectRoot: string): string | undefined {
     return existsSync(join(projectRoot, 'google-services.json')) ? './google-services.json' : undefined
 }
 
-const ICONS: Record<AppVariant, { png: string; adaptive: string }> = {
-    development: { png: './assets/icon-dev.png', adaptive: './assets/adaptive-icon-dev.png' },
-    preview: { png: './assets/icon-preview.png', adaptive: './assets/adaptive-icon-preview.png' },
-    production: { png: './assets/icon.png', adaptive: './assets/adaptive-icon.png' },
+const ICONS: Record<AppVariant, { png: string; adaptive: string; ios: string }> = {
+    development: {
+        png: './assets/icon-dev.png',
+        adaptive: './assets/adaptive-icon-dev.png',
+        ios: './assets/app-dev.icon',
+    },
+    preview: {
+        png: './assets/icon-preview.png',
+        adaptive: './assets/adaptive-icon-preview.png',
+        ios: './assets/app-preview.icon',
+    },
+    production: { png: './assets/icon.png', adaptive: './assets/adaptive-icon.png', ios: './assets/app.icon' },
 }
 
 const APP_LINK_HOSTS = ['us.posthog.com', 'eu.posthog.com']
@@ -66,9 +74,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         userInterfaceStyle: 'automatic',
         icon: icons.png,
         ios: {
-            // The Icon Composer bundle draws the iOS 26 layered icon and has no badged copy, so the internal
-            // variants use their PNG, which keeps their band visible on the home screen.
-            icon: variant === 'production' ? './assets/app.icon' : icons.png,
+            icon: icons.ios,
             bundleIdentifier: appId,
             // The server lists the matching paths in posthog/mobile_app_links.py.
             associatedDomains: APP_LINK_HOSTS.map((host) => `applinks:${host}`),
