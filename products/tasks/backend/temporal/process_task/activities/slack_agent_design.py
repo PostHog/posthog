@@ -81,8 +81,16 @@ class StopSlackAgentDesignStreamInput:
     # run. One of them says what the person asked, for the reply suggestions.
     message_id: Optional[str] = None
     mention: Optional[str] = None
-    # The reply presenter's components. They go under the answer and above the turn's attachments.
-    presentation_blocks: list[dict[str, Any]] = field(default_factory=list)
+
+
+@frozen
+class AppendSlackAgentDesignAnswerInput:
+    slack_thread_context: dict[str, Any]
+    ts: str
+    answer_markdown: str
+    run_id: Optional[str] = None
+    actor_slack_user_id: Optional[str] = None
+    message_id: Optional[str] = None
 
 
 def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]:
@@ -204,10 +212,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
 
         def _append_attachments() -> None:
             ts = input.ts
-            if ts is None:
-                return
-            handler.append_status_blocks(ts, input.presentation_blocks)
-            if task_run is None:
+            if task_run is None or ts is None:
                 return
             deliveries.append(
                 stream_pending_slack_attachments(
@@ -244,3 +249,32 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             handler.offer_feature_tip()
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))
+
+
+@activity.defn
+@close_db_connections
+def append_slack_agent_design_answer(input: AppendSlackAgentDesignAnswerInput) -> bool:
+    """Stream the answer into the open message ahead of the close, so components can follow it there.
+
+    Returns False when nothing should follow: the reader muted the run, or Slack took no piece. The
+    closing activity then gets the answer and handles both cases as it always did.
+    """
+    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+    from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.temporal.process_task.utils import is_explicit_slack_reply
+
+    try:
+        context = SlackThreadContext.from_dict(input.slack_thread_context)
+        task_run = TaskRun.objects.filter(id=input.run_id).first() if input.run_id else None
+        handler = SlackThreadHandler.for_run(context, input.run_id, actor_slack_user_id=input.actor_slack_user_id)
+        if (
+            task_run is not None
+            and handler.proactive_notifications_muted()
+            and not is_explicit_slack_reply(task_run, input.message_id)
+        ):
+            return False
+        markdown = _rewrite_object_tags(input.answer_markdown, handler.project_url)
+        return bool(markdown) and handler.append_status_answer(input.ts, markdown or "")
+    except Exception as e:
+        logger.warning("slack_app_append_agent_design_answer_failed", error=str(e))
+        return False

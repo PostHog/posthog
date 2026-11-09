@@ -124,6 +124,8 @@ class SlackAppUnfurlChartsWorkflowInputs:
     charts: list[SlackUnfurlChartRequest]
     # Read from settings by the starter, because a workflow body must not read settings.
     export_task_queue: str
+    # Set for charts a reply asks for. They post as a thread reply instead of through chat.unfurl.
+    reply_thread_ts: str | None = None
 
 
 @frozen
@@ -426,16 +428,21 @@ class PostHogCodeSlackMentionCommandResult:
 
 
 @frozen
+class SlackReplyPresentationGateInput:
+    run_id: str
+
+
+@frozen
 class PresentSlackReplyInput:
-    integration_id: int
     run_id: str
     answer_markdown: str
     # Gateway trace id of the turn, so the presenter's generation sits in the same trace as the answer.
     trace_id: str | None = None
+    # An open stream that already holds the answer. Each component appends to it as it arrives.
+    # Without one, the components post as a message under the answer that grows as they arrive.
+    stream_ts: str | None = None
 
 
 @frozen
 class SlackReplyPresentation:
-    """Block Kit blocks that go under the answer. Small by construction, because the catalog caps every component."""
-
-    blocks: list[dict[str, Any]]
+    components: int

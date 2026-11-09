@@ -39,16 +39,19 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.slack_app.backend.facade.temporal import (
         PresentSlackReplyInput,
-        SlackReplyPresentation,
+        SlackReplyPresentationGateInput,
+        is_slack_reply_presentation_enabled_activity,
         present_slack_reply_activity,
     )
 
     from .activities.slack_agent_design import (
+        AppendSlackAgentDesignAnswerInput,
         AppendSlackAgentDesignStepsInput,
         SlackAgentDesignStream,
         StartSlackAgentDesignStreamInput,
         StopSlackAgentDesignStreamInput,
         TaskUpdateChunk,
+        append_slack_agent_design_answer,
         append_slack_agent_design_steps,
         start_slack_agent_design_stream,
         stop_slack_agent_design_stream,
@@ -66,8 +69,8 @@ _ACTIVITY_RETRY = RetryPolicy(maximum_attempts=3)
 # The parent's progress step that the first setup line shows.
 _SANDBOX_SETUP_STEP = "sandbox"
 _PATCH_ID_REPLY_PRESENTATION = "slack-agent-design-reply-presentation"
-# The presenter holds up the end of the stream, so a slow call costs the reader more than a missing one.
-_PRESENTATION_TIMEOUT = timedelta(seconds=20)
+# The stream stays open while components arrive, so the presenter gets a budget, not the default wait.
+_PRESENTATION_TIMEOUT = timedelta(seconds=25)
 
 
 def _trace_key(trace_id: Optional[str]) -> Optional[str]:
@@ -439,27 +442,66 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             return replace(self._placeholder, title=title, status="complete")
         return None
 
-    async def _present(self, input: SlackAgentDesignRelayInput, final_answer: str) -> Optional[SlackReplyPresentation]:
-        """Components for under a finished answer. Only an open stream can take them below the answer."""
-        if not (self._turn_complete and final_answer and input.run_id and self._stream and self._stream.ts):
-            return None
+    async def _present(self, input: SlackAgentDesignRelayInput, final_answer: str, *, answer_streamed: bool) -> bool:
+        """Stream components under a finished answer, while the stream is still open.
+
+        The components must come after the answer, so an answer still waiting for the close goes into
+        the stream first. Returns whether that happened here, so the close does not post it again.
+        """
         if not workflow.patched(_PATCH_ID_REPLY_PRESENTATION):
-            return None
+            return False
+        stream = self._stream
+        if not (self._turn_complete and final_answer and input.run_id and stream and stream.ts):
+            return False
         try:
-            return await workflow.execute_activity(
+            enabled = await workflow.execute_activity(
+                is_slack_reply_presentation_enabled_activity,
+                SlackReplyPresentationGateInput(run_id=input.run_id),
+                start_to_close_timeout=_ACTIVITY_TIMEOUT,
+                retry_policy=_ACTIVITY_RETRY,
+            )
+        except ActivityError:
+            return False
+        if not enabled:
+            return False
+        appended_here = False
+        if not answer_streamed:
+            try:
+                appended_here = await workflow.execute_activity(
+                    append_slack_agent_design_answer,
+                    AppendSlackAgentDesignAnswerInput(
+                        slack_thread_context=input.slack_thread_context,
+                        ts=stream.ts,
+                        answer_markdown=final_answer,
+                        run_id=input.run_id,
+                        actor_slack_user_id=stream.actor_slack_user_id,
+                        message_id=input.message_id,
+                    ),
+                    start_to_close_timeout=_ACTIVITY_TIMEOUT,
+                    # One attempt, because a retry would append the answer a second time.
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except ActivityError:
+                # Unknown whether it landed. The close posts the answer, because a repeat costs less than none.
+                return False
+            if not appended_here:
+                return False
+        try:
+            await workflow.execute_activity(
                 present_slack_reply_activity,
                 PresentSlackReplyInput(
-                    integration_id=input.slack_thread_context["integration_id"],
                     run_id=input.run_id,
                     answer_markdown=final_answer,
                     trace_id=self._trace_id,
+                    stream_ts=stream.ts,
                 ),
                 start_to_close_timeout=_PRESENTATION_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except ActivityError:
-            # The answer must still close the stream when the presenter times out.
-            return None
+            # The stream still closes when the presenter times out.
+            pass
+        return appended_here
 
     async def _close_stream(self, input: SlackAgentDesignRelayInput) -> None:
         final_answer = self._final_answer()
@@ -500,7 +542,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             closing = None
         if pending:
             await self._append(input, pending)
-        presentation = await self._present(input, final_answer)
+        if await self._present(input, final_answer, answer_streamed=final_for_stop is None):
+            final_for_stop = None
+            mention_sent = True
         await workflow.execute_activity(
             stop_slack_agent_design_stream,
             StopSlackAgentDesignStreamInput(
@@ -517,7 +561,6 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 answer_markdown=final_answer if self._turn_complete else None,
                 message_id=input.message_id,
                 mention=input.person_message,
-                presentation_blocks=presentation.blocks if presentation else [],
             ),
             # Attachments upload inside this activity. One attempt, because a retry would
             # append the answer a second time.

@@ -1242,22 +1242,97 @@ def start_unfurl_charts(
         charts=charts,
         export_task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
     )
+    _start_charts_workflow(inputs, f"slack-app-unfurl-charts-{integration.integration_id}:{channel}:{message_ts}")
+
+
+def start_reply_charts(
+    *,
+    integration: WorkspaceIntegration,
+    user: User,
+    slack_user_id: str,
+    channel: str,
+    thread_ts: str,
+    message_ts: str,
+    charts: list[SlackUnfurlChartRequest],
+) -> bool:
+    """Start the workflow that posts chart images in the thread, under the reply at ``message_ts``.
+    Best effort, like the unfurl charts, and refused under the same public-sharing rule."""
+    if not charts or not integration.team.organization.allow_publicly_shared_resources:
+        return False
+    inputs = SlackAppUnfurlChartsWorkflowInputs(
+        team_id=integration.team_id,
+        integration_id=integration.id,
+        user_id=user.pk,
+        slack_user_id=slack_user_id,
+        channel=channel,
+        message_ts=message_ts,
+        unfurl_id=None,
+        source=None,
+        unfurls={},
+        charts=charts,
+        export_task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+        reply_thread_ts=thread_ts,
+    )
+    return _start_charts_workflow(inputs, f"slack-app-reply-charts-{integration.integration_id}:{channel}:{message_ts}")
+
+
+def _start_charts_workflow(inputs: SlackAppUnfurlChartsWorkflowInputs, workflow_id: str) -> bool:
     try:
         client = sync_connect()
         asyncio.run(
             client.start_workflow(
                 SlackAppUnfurlChartsWorkflow.run,
                 inputs,
-                id=f"slack-app-unfurl-charts-{integration.integration_id}:{channel}:{message_ts}",
+                id=workflow_id,
                 task_queue=settings.TASKS_TASK_QUEUE,
                 execution_timeout=SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
             )
         )
     except WorkflowAlreadyStartedError:
         # Slack sent the event again while the first run is still rendering.
-        pass
+        return True
     except Exception:
-        logger.warning("slack_app_unfurl_charts_dispatch_failed", team_id=integration.team_id, exc_info=True)
+        logger.warning("slack_app_unfurl_charts_dispatch_failed", team_id=inputs.team_id, exc_info=True)
+        return False
+    return True
+
+
+def resource_card_blocks(
+    *, integration: WorkspaceIntegration, user: User, slack_user_id: str, channel: str, thread_ts: str, url: str
+) -> list[dict] | None:
+    """The full unfurl card for a PostHog link, built with the access of ``user``, or `None` when the
+    link has no card for them. An ad hoc insight has no card without its rendered chart, so it gets none."""
+    ref = parse_posthog_resource_link(url)
+    if ref is None or ref.kind == ADHOC_INSIGHT_KIND:
+        return None
+    url_region = link_url_region(url)
+    if url_region is not None and url_region != get_instance_region():
+        return None
+    team = integration.team
+    ctx = _UnfurlContext(
+        slack=SlackIntegration(integration),
+        integration=integration,
+        team=team,
+        user=user,
+        uac=UserAccessControl(user, team=team),
+        event={"channel": channel, "thread_ts": thread_ts, "message_ts": thread_ts, "user": slack_user_id},
+    )
+    card = _CARD_BUILDERS[ref.kind](ctx, ref.id, url)
+    if isinstance(card, str):
+        return None
+    return _card_blocks(card, kind=ref.kind, url=url, compact=False)
+
+
+def reply_chart_request(team: Team, url: str, title: str) -> SlackUnfurlChartRequest | None:
+    """A chart request for a saved insight link, or `None` for any other link. Access is checked when the
+    chart is prepared and again when it is posted, as for an unfurl."""
+    ref = parse_posthog_resource_link(url)
+    if ref is None or ref.kind != "insight":
+        return None
+    insight = Insight.objects.filter(team_id=team.pk, short_id=ref.id).first()
+    if insight is None:
+        return None
+    return SlackUnfurlChartRequest(url=url, insight_id=insight.id, title=insight.name or insight.derived_name or title)
 
 
 def _queue_unfurl_charts(

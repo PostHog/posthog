@@ -163,6 +163,25 @@ class TestLinkUnfurlCharts(BaseTest):
         assert blocks[1]["alt_text"] == "Weekly active users"
         assert blocks[1]["image_url"].startswith("http")
 
+    @parameterized.expand([("member", True), ("project_access_revoked", False)])
+    @patch("products.slack_app.backend.logic.link_unfurl_charts.SlackIntegration")
+    def test_reply_charts_post_in_the_thread_instead_of_unfurling(
+        self, sharer: str, expect_post: bool, mock_slack: MagicMock
+    ) -> None:
+        inputs = dataclasses.replace(self._inputs(user=self._sharer(sharer)), unfurls={}, reply_thread_ts="100.0")
+
+        self._post(inputs)
+
+        client = mock_slack.return_value.client
+        client.chat_unfurl.assert_not_called()
+        if not expect_post:
+            client.chat_postMessage.assert_not_called()
+            return
+        kwargs = client.chat_postMessage.call_args.kwargs
+        assert kwargs["thread_ts"] == "100.0"
+        assert [block["type"] for block in kwargs["blocks"]] == ["image", "actions"]
+        assert kwargs["blocks"][1]["elements"][0]["url"] == _URL
+
     @parameterized.expand([("adhoc_rendered", True), ("adhoc_render_failed", False)])
     @patch("products.slack_app.backend.logic.link_unfurl_charts.SlackIntegration")
     def test_post_sends_the_adhoc_card_only_with_its_chart(

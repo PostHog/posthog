@@ -114,7 +114,7 @@ class TestRelaySlackMessage(TestCase):
             record_delivered_message(
                 str(self.task_run.id), "slack_message", actor_slack_user_id="U123", person_message="Continue"
             )
-        relay_slack_message(
+        delivered = relay_slack_message(
             RelaySlackMessageInput(
                 run_id=str(self.task_run.id),
                 relay_id=f"relay-{_name}",
@@ -123,6 +123,8 @@ class TestRelaySlackMessage(TestCase):
             )
         )
         assert post.called is expected_post
+        # The workflow presents only a delivered answer, so a muted answer must not report delivery.
+        assert delivered is expected_post
         if expected_post:
             assert post.call_args.args[0] == "Finished with <@UOTHER>."
 
