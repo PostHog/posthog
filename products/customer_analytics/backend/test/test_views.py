@@ -1462,10 +1462,14 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertLessEqual(len(notebook_reads), 2)
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="TaggedItem", activity="deleted")
         self.assertEqual(logs.count(), 3)
-        self.assertEqual({log.detail["context"]["tag_name"] for log in logs}, {"one", "two", "three"})
+        tag_names: set[str] = set()
         for log in logs:
-            self.assertEqual(log.detail["context"]["related_object_id"], str(notebook.id))
-            self.assertEqual(log.detail["context"]["related_object_name"], "Tagged")
+            detail = log.detail
+            assert detail is not None
+            tag_names.add(detail["context"]["tag_name"])
+            self.assertEqual(detail["context"]["related_object_id"], str(notebook.id))
+            self.assertEqual(detail["context"]["related_object_name"], "Tagged")
+        self.assertEqual(tag_names, {"one", "two", "three"})
 
     def test_partial_update_does_not_rename(self):
         # A note's displayed title comes from its first line, so a title set here would disagree
