@@ -4,7 +4,7 @@ import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
 import { PathCleaningControls } from 'lib/components/PathCleanFilters/PathCleaningControls'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 
 import { EditorFilterProps } from '~/types'
@@ -20,7 +20,7 @@ export function JourneysSettings({ insightProps }: EditorFilterProps): JSX.Eleme
     const { updateInsightFilter, setDraftMaxSteps, setDraftMaxRowsPerStep, commitGridSize } = useActions(
         journeysDataLogic(insightProps)
     )
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = useQuillSurface()
 
     return (
         <div className="flex flex-col gap-4 mt-2">
@@ -58,7 +58,7 @@ export function JourneysSettings({ insightProps }: EditorFilterProps): JSX.Eleme
                     />
                 </div>
             </div>
-            {todayRailNav ? (
+            {quillSurface ? (
                 <QuillChartOptionSwitch
                     label="Collapse repeated steps"
                     info={COLLAPSE_REPEATS_INFO}

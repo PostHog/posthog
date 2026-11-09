@@ -32,9 +32,9 @@ permissions:
 jobs:
     digest:
         runs-on: ubuntu-24.04
-        # The endpoint calls run in parallel. The slowest takes about 8.5 minutes: 3 attempts of 150s
-        # with 30s between them.
-        timeout-minutes: 12
+        # The script stops reading Depot usage after DEPOT_TIME_BUDGET_MS (20 minutes) and posts without
+        # spend. This limit leaves room past that for one day's retries and the Slack post.
+        timeout-minutes: 30
         # Never run from forks (no secret access anyway), only the canonical repo.
         # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
         if: >-
