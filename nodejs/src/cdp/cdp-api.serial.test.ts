@@ -8,6 +8,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
+import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
@@ -47,6 +48,7 @@ import { S3AttachmentStore, buildAttachmentStore } from './services/messaging/at
 import { ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX, AttachmentUploads } from './services/messaging/attachment-uploads'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import { template as emailTemplate } from './templates/_destinations/email/email.template'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
@@ -2244,7 +2246,8 @@ describe('CDP API', () => {
         const transactionalFlow = (
             trigger: 'api' | 'schedule',
             status: HogFlow['status'],
-            category: 'transactional' | 'marketing' = 'transactional'
+            category: 'transactional' | 'marketing' = 'transactional',
+            inputs: Record<string, CyclotronInputType> = {}
         ): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
@@ -2255,7 +2258,7 @@ describe('CDP API', () => {
                         trigger: { type: 'trigger', config: { type: trigger } },
                         email: {
                             type: 'function_email',
-                            config: { template_id: 'template-email', inputs: {}, message_category_type: category },
+                            config: { template_id: 'template-email', inputs, message_category_type: category },
                         },
                     },
                     edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
@@ -2310,7 +2313,50 @@ describe('CDP API', () => {
             tracking: { captureEngagement: true },
         }
 
+        type StoredFile = { bytes: Buffer; sha256: string; size: number }
+        const fileOf = (bytes: Buffer): StoredFile => ({
+            bytes,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+            size: bytes.length,
+        })
+        const freshFile = () => fileOf(Buffer.from(`%PDF-1.4 ${randomBytes(16).toString('hex')}`))
+        const invoice = fileOf(Buffer.from('%PDF-1.4 invoice fixture'))
+        const receipt = fileOf(Buffer.from('%PDF-1.4 receipt fixture'))
+        const reference = ({ sha256 }: StoredFile) => ({
+            sha256,
+            filename: 'invoice.pdf',
+            content_type: 'application/pdf',
+        })
+        let attachmentStore: S3AttachmentStore
+        const storeFile = async (teamId: number, file: StoredFile): Promise<void> => {
+            const [slot] = await attachmentStore.prepareUploads(teamId, [{ sha256: file.sha256, size: file.size }])
+            if (slot.status === 'upload') {
+                const put = await globalThis.fetch(slot.url, {
+                    method: slot.method,
+                    headers: slot.headers,
+                    body: new Uint8Array(file.bytes),
+                })
+                expect(put.status).toBe(200)
+            }
+        }
+        const attachmentsFor = (teams: string, store: S3AttachmentStore | null = attachmentStore) =>
+            new AttachmentUploads(store, null, { teams, maxBytesPerTeamDay: 1 })
+
+        beforeAll(async () => {
+            attachmentStore = buildAttachmentStore({
+                ...getDefaultCdpConfig(),
+                CDP_EMAIL_ATTACHMENTS_S3_PREFIX: `attachments-send-test/${Date.now()}`,
+            })!
+            await storeFile(team.id, invoice)
+            await storeFile(team.id, receipt)
+        })
+
+        afterAll(() => {
+            attachmentStore.s3.destroy()
+        })
+
         beforeEach(async () => {
+            api['attachmentUploads'] = attachmentsFor(`${team.id}`)
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
@@ -2331,6 +2377,13 @@ describe('CDP API', () => {
             const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
 
             expect(res.status).toEqual(202)
+            expect(res.body).toEqual({
+                status: 'queued',
+                invocation_id: expect.any(String),
+                replayed: false,
+                attachment_count: 0,
+                attachment_bytes: 0,
+            })
             expect(await outcomeCount('queued')).toEqual(queuedBefore + 1)
             // Without an Idempotency-Key the request makes no idempotency call.
             expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({
@@ -2431,6 +2484,12 @@ describe('CDP API', () => {
                     { ...body, send: addresslessSend },
                     { ...body, send: addresslessSend },
                 ],
+                [
+                    'a code send with files',
+                    'transactional_email/send',
+                    { ...body, send: { ...codeSend, attachments: [reference(invoice)] } },
+                    { ...body, send: { ...codeSend, attachments: [reference(invoice)] } },
+                ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
                 async (_desc, route, first, retry) => {
@@ -2488,6 +2547,11 @@ describe('CDP API', () => {
                     'a changed cc',
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['manager@example.com'] } }],
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['someone-else@example.com'] } }],
+                ],
+                [
+                    'other files',
+                    ['transactional_email/send', { ...body, send: { ...codeSend, attachments: [reference(invoice)] } }],
+                    ['transactional_email/send', { ...body, send: { ...codeSend, attachments: [reference(receipt)] } }],
                 ],
             ] as const)(
                 'rejects the key for a request with %s',
@@ -2608,6 +2672,25 @@ describe('CDP API', () => {
                 'more than 10 cc addresses',
                 { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
             ],
+            ['more than 10 files', { ...codeSend, attachments: Array(11).fill(reference(invoice)) }],
+            [
+                'a file hash that is not 64 lowercase hex characters',
+                { ...codeSend, attachments: [{ ...reference(invoice), sha256: invoice.sha256.toUpperCase() }] },
+            ],
+            ['a file without a name', { ...codeSend, attachments: [{ ...reference(invoice), filename: '' }] }],
+            [
+                'a file field this version does not know',
+                { ...codeSend, attachments: [{ ...reference(invoice), disposition: 'inline' }] },
+            ],
+            [
+                'an inline file instead of a reference',
+                {
+                    ...codeSend,
+                    attachments: [
+                        { filename: 'report.pdf', content: 'c2VjcmV0LWZpbGU=', contentType: 'application/pdf' },
+                    ],
+                },
+            ],
         ])('refuses a code send with %s', async (_desc, acceptedSend) => {
             const invalidBefore = await outcomeCount('invalid_request')
 
@@ -2650,27 +2733,215 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
-        it('refuses a code send with files as a field it does not take, and leaves its key free for a send without them', async () => {
-            const idempotencyKey = `key-${new UUIDT().toString()}`
-            const file = { filename: 'report.pdf', content: 'c2VjcmV0LWZpbGU=', contentType: 'application/pdf' }
+        describe('with files', () => {
+            // Travels as 39,476,063 bytes with the headers, so bodies over 523,937 bytes do not fit beside it.
+            const large = fileOf(Buffer.alloc(28_800_000, 'a'))
+            const newKey = () => `key-${new UUIDT().toString()}`
+            const sendWithFiles = (
+                key: string,
+                attachments: object[],
+                {
+                    acceptedSend = codeSend as object,
+                    flowId = hogFlow.id,
+                    variables = body.variables as Record<string, string>,
+                } = {}
+            ) =>
+                sendAccepted(flowId, {
+                    ...body,
+                    variables,
+                    idempotency_key: key,
+                    send: { ...acceptedSend, attachments },
+                })
 
-            const refused = await sendAccepted(hogFlow.id, {
-                ...body,
-                idempotency_key: idempotencyKey,
-                send: { ...codeSend, attachments: [file] },
+            beforeAll(async () => {
+                await storeFile(team.id, large)
             })
-            expect(refused.status).toEqual(400)
-            expect(parseJSON(refused.body.error)).toEqual([
-                expect.objectContaining({ code: 'unrecognized_keys', keys: ['attachments'], path: ['send'] }),
-            ])
-            expect(mockQueueInvocations).not.toHaveBeenCalled()
 
-            const withoutFiles = await sendAccepted(hogFlow.id, {
-                ...body,
-                idempotency_key: idempotencyKey,
-                send: codeSend,
+            it('queues the metadata of the files it verified, without their bytes, and answers their totals', async () => {
+                const logo = {
+                    sha256: receipt.sha256,
+                    filename: 'logo.png',
+                    content_type: 'image/png',
+                    content_id: 'logo',
+                }
+
+                const res = await sendWithFiles(newKey(), [reference(invoice), logo])
+
+                expect(res.status).toBe(202)
+                expect(res.body).toEqual({
+                    status: 'queued',
+                    invocation_id: expect.any(String),
+                    replayed: false,
+                    attachment_count: 2,
+                    attachment_bytes: invoice.size + receipt.size,
+                })
+                const [invocation] = mockQueueInvocations.mock.calls[0][0]
+                expect(invocation.state.send).toEqual({
+                    ...codeSend,
+                    attachments: [
+                        {
+                            sha256: invoice.sha256,
+                            filename: 'invoice.pdf',
+                            contentType: 'application/pdf',
+                            sizeBytes: invoice.size,
+                        },
+                        {
+                            sha256: receipt.sha256,
+                            filename: 'logo.png',
+                            contentType: 'image/png',
+                            contentId: 'logo',
+                            sizeBytes: receipt.size,
+                        },
+                    ],
+                })
             })
-            expect(withoutFiles.status).toEqual(202)
+
+            it('refuses files from a team off the allowlist before it reserves the key', async () => {
+                api['attachmentUploads'] = attachmentsFor(`${team.id + 1}`)
+                const stagesBefore = await stageCounts()
+
+                const res = await sendWithFiles(newKey(), [reference(invoice)])
+
+                expect(res.status).toBe(400)
+                expect(res.body).toEqual({ error: 'field_not_accepted' })
+                expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({ auth: 1, validate: 1, total: 1 })
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+            })
+
+            const restoreStore = () => {
+                api['attachmentUploads'] = attachmentsFor(`${team.id}`)
+                return Promise.resolve()
+            }
+            it.each<
+                [
+                    string,
+                    () => Promise<{ file: StoredFile; fix: () => Promise<void> }>,
+                    number,
+                    (file: StoredFile) => Record<string, unknown>,
+                ]
+            >([
+                [
+                    'a file that was never uploaded',
+                    () => {
+                        const file = freshFile()
+                        return Promise.resolve({ file, fix: () => storeFile(team.id, file) })
+                    },
+                    400,
+                    ({ sha256 }) => ({ error: 'attachment_not_uploaded', sha256 }),
+                ],
+                [
+                    'a file only another team uploaded',
+                    async () => {
+                        const file = freshFile()
+                        await storeFile(await createTeam(hub.postgres, team.organization_id), file)
+                        return { file, fix: () => storeFile(team.id, file) }
+                    },
+                    400,
+                    ({ sha256 }) => ({ error: 'attachment_not_uploaded', sha256 }),
+                ],
+                [
+                    'no attachment store',
+                    () => {
+                        api['attachmentUploads'] = attachmentsFor(`${team.id}`, null)
+                        return Promise.resolve({ file: invoice, fix: restoreStore })
+                    },
+                    503,
+                    () => ({ error: 'delivery_unavailable' }),
+                ],
+                [
+                    'an attachment store that does not answer',
+                    () => {
+                        api['attachmentUploads'] = attachmentsFor(
+                            `${team.id}`,
+                            buildAttachmentStore({
+                                ...getDefaultCdpConfig(),
+                                CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://127.0.0.1:9',
+                                CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: 1_000,
+                            })
+                        )
+                        return Promise.resolve({ file: invoice, fix: restoreStore })
+                    },
+                    503,
+                    () => ({ error: 'delivery_unavailable' }),
+                ],
+            ])(
+                'refuses a send with %s, and its key sends once that is fixed',
+                async (_name, arrange, status, answer) => {
+                    const warn = jest.spyOn(logger, 'warn')
+                    const { file, fix } = await arrange()
+                    const key = newKey()
+
+                    const refused = await sendWithFiles(key, [reference(file)])
+                    await fix()
+                    const retried = await sendWithFiles(key, [reference(file)])
+
+                    expect(refused.status).toBe(status)
+                    expect(refused.body).toEqual(answer(file))
+                    if (status === 503) {
+                        expect(warn).toHaveBeenCalledWith(
+                            '⚠️',
+                            expect.any(String),
+                            expect.objectContaining({ team_id: team.id })
+                        )
+                    }
+                    expect(retried.status).toBe(202)
+                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                }
+            )
+
+            it.each([
+                ['content whose body fits beside the files', false, 1, true],
+                ['content whose body does not fit beside the files', false, 600_000, false],
+                // The request carries 300 KB, which would fit, and the template renders it twice.
+                ['a template whose rendered body fits beside the files', true, 1, true],
+                ['a template whose rendered body does not fit beside the files', true, 300_000, false],
+            ])('counts the bodies of %s', async (_name, fromTemplate, length, fits) => {
+                const chunk = 'x'.repeat(length)
+                let options: Parameters<typeof sendWithFiles>[2]
+                if (fromTemplate) {
+                    await insertHogFunctionTemplate(hub.postgres, emailTemplate)
+                    const flow = await insertHogFlow(
+                        transactionalFlow('api', 'active', 'transactional', {
+                            email: {
+                                templating: 'liquid',
+                                value: {
+                                    to: { email: '{{ event.properties.to }}', name: '' },
+                                    from: {},
+                                    subject: 'Your report',
+                                    html: '<p>{{ variables.chunk }}</p><p>{{ variables.chunk }}</p>',
+                                    text: 'Your report is attached',
+                                },
+                            },
+                        })
+                    )
+                    options = {
+                        flowId: flow.id,
+                        variables: { chunk },
+                        acceptedSend: { tracking: { captureEngagement: false } },
+                    }
+                } else {
+                    options = { acceptedSend: { ...codeSend, content: { subject: 'Your report', html: chunk } } }
+                }
+                const key = newKey()
+
+                const res = await sendWithFiles(key, [reference(large)], options)
+
+                if (fits) {
+                    expect(res.status).toBe(202)
+                    expect(res.body).toMatchObject({ attachment_count: 1, attachment_bytes: large.size })
+                } else {
+                    expect(res.status).toBe(400)
+                    expect(res.body).toEqual({
+                        error: 'message_too_large',
+                        message_bytes: expect.any(Number),
+                        max_message_bytes: 40_000_000,
+                        attachment_bytes: large.size,
+                    })
+                    expect(res.body.message_bytes).toBeGreaterThan(40_000_000)
+                    expect(mockQueueInvocations).not.toHaveBeenCalled()
+                    expect((await sendWithFiles(key, [reference(invoice)], options)).status).toBe(202)
+                }
+            })
         })
 
         it.each<[string, () => { payload: Record<string, unknown>; verify?: () => void }]>([
@@ -2812,7 +3083,11 @@ describe('CDP API', () => {
                 const retry = await sendOn(route, hogFlow.id, headers, keyed)
 
                 expect(retry.status).toEqual(202)
-                expect(retry.body).toEqual({ ...first.body, replayed: true })
+                expect(retry.body).toEqual({
+                    status: 'queued',
+                    invocation_id: first.body.invocation_id,
+                    replayed: true,
+                })
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
             })
         })

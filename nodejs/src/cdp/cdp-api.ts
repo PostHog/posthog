@@ -47,6 +47,7 @@ import {
     serializeResolverState,
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
+import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
@@ -89,7 +90,7 @@ import {
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
-import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
+import { CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import {
     convertToHogFunctionInvocationGlobals,
     isConvertibleClickHouseEvent,
@@ -217,6 +218,7 @@ export class CdpApi {
     private hogFlowManager: HogFlowManagerService
 
     private hogFlowExecutor: HogFlowExecutorService
+    private hogFlowFunctionsService: HogFlowFunctionsService
     private hogWatcher: HogWatcherService
     private hogWatcherMirror: HogWatcherService
     private hogTransformer: HogTransformerService
@@ -264,6 +266,7 @@ export class CdpApi {
         this.hogExecutorAsync = services.hogExecutorAsync
         this.hogInputsService = services.hogInputsService
         this.hogFlowExecutor = services.hogFlowExecutor
+        this.hogFlowFunctionsService = services.hogFlowFunctionsService
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
         this.hogWatcher = services.hogWatcher
@@ -1317,6 +1320,10 @@ export class CdpApi {
                     return reply('invalid_request', 400, { error: parsed.error.message })
                 }
                 const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey, send } = parsed.data
+                const references = send?.attachments ?? []
+                if (references.length > 0 && !this.attachmentUploads.isAllowed(parseInt(req.params.team_id))) {
+                    return reply('field_not_accepted', 400, { error: 'field_not_accepted' })
+                }
 
                 stages.start('load')
                 const teamLookup = this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
@@ -1364,7 +1371,8 @@ export class CdpApi {
 
                 const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
                 if (send) {
-                    invocation.state.send = send
+                    const { attachments: _references, ...queuedSend } = send
+                    invocation.state.send = queuedSend
                 }
                 // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
                 // worker counts it instead.
@@ -1377,6 +1385,13 @@ export class CdpApi {
 
                 const idempotencyKeys = this.transactionalEmailIdempotencyKeys
                 const fingerprint = transactionalEmailFingerprint(hogFlow.id, parsed.data, send)
+                // Nothing was queued, so the caller's retry with the same key must be able to send.
+                const releaseKey = async () => {
+                    if (idempotencyKey) {
+                        stages.start('idempotency')
+                        await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                    }
+                }
                 if (idempotencyKey) {
                     // Checked before the quota, so a retry of a send that went out gets its answer even
                     // when the team has hit its quota since.
@@ -1402,6 +1417,7 @@ export class CdpApi {
                             return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
                     }
                 }
+                let attachmentTotals = { attachment_count: 0, attachment_bytes: 0 }
                 try {
                     stages.start('checks')
                     const refusal = await this.refuseTransactionalEmail(
@@ -1410,11 +1426,30 @@ export class CdpApi {
                         transactionalEmailRecipients(parsed.data)
                     )
                     if (refusal) {
-                        if (idempotencyKey) {
-                            stages.start('idempotency')
-                            await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
-                        }
+                        await releaseKey()
                         return reply(refusal.outcome, refusal.status, { error: refusal.outcome })
+                    }
+                    if (send && references.length > 0) {
+                        stages.start('attachments')
+                        const files = await this.attachmentUploads.acceptSend(
+                            team.id,
+                            references.map((ref) => ({
+                                sha256: ref.sha256,
+                                filename: ref.filename,
+                                contentType: ref.content_type,
+                                contentId: ref.content_id,
+                            })),
+                            () => this.messageBodies(hogFlow, invocation, send)
+                        )
+                        if ('refused' in files) {
+                            await releaseKey()
+                            return reply(files.refused.body.error, files.refused.status, files.refused.body)
+                        }
+                        invocation.state.send = { ...invocation.state.send!, attachments: files.accepted.files }
+                        attachmentTotals = {
+                            attachment_count: files.accepted.files.length,
+                            attachment_bytes: files.accepted.attachmentBytes,
+                        }
                     }
                     stages.start('queue_insert')
                     this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
@@ -1426,11 +1461,7 @@ export class CdpApi {
                     }
                     cdpEmailQueuedTotal.labels(priorityClass).inc()
                 } catch (error) {
-                    // Nothing was queued, so the caller's retry with the same key must be able to send.
-                    if (idempotencyKey) {
-                        stages.start('idempotency')
-                        await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
-                    }
+                    await releaseKey()
                     throw error
                 }
                 if (idempotencyKey) {
@@ -1456,7 +1487,12 @@ export class CdpApi {
                     await this.invocationResultsService.invocationResultsRowsService.handOffQueuedRows()
                 void produced.catch(warnTelemetryFlushFailed)
 
-                return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
+                return reply('queued', 202, {
+                    status: 'queued',
+                    invocation_id: invocation.id,
+                    replayed: false,
+                    ...attachmentTotals,
+                })
             } catch (e) {
                 logger.error('Error queueing transactional email', {
                     error: e instanceof Error ? e.message : String(e),
@@ -1466,6 +1502,43 @@ export class CdpApi {
                 stages.finish()
             }
         }
+
+    // The bodies the email worker will send: the send's own content, or else its email step rendered the way the
+    // worker renders it, from the same run. A step that fails to render here fails in the worker too, so it counts
+    // as empty rather than refusing a send that would fail anyway.
+    private async messageBodies(
+        hogFlow: HogFlow,
+        invocation: CyclotronJobInvocationHogFlow,
+        send: AcceptedSend
+    ): Promise<string[]> {
+        if (send.content) {
+            return [send.content.html ?? '', send.content.text ?? '']
+        }
+        const step = hogFlow.actions.find(
+            (action): action is Extract<HogFlowAction, { type: 'function_email' }> => action.type === 'function_email'
+        )
+        if (!step) {
+            return []
+        }
+        try {
+            const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, step.config, step.name)
+            const rendered = await this.hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
+                event: invocation.state.event,
+                person: invocation.person,
+                groups: invocation.groups,
+                variables: invocation.state.variables,
+            })
+            const email = rendered.state.globals.inputs?.email
+            return [email?.html, email?.text].filter((body): body is string => typeof body === 'string')
+        } catch (error) {
+            logger.warn('⚠️', 'Could not render the email step of a send with files', {
+                team_id: hogFlow.team_id,
+                hog_flow_id: hogFlow.id,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            return []
+        }
+    }
 
     private postAttachmentUploads = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         if (!this.transactionalEmailJwt.enabled) {

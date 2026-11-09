@@ -1,11 +1,12 @@
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
+import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
-import { AttachmentStore, AttachmentStoreUnavailableError, UploadSlot } from './attachment-store'
+import { AttachmentRef, AttachmentStore, AttachmentStoreUnavailableError, UploadSlot } from './attachment-store'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 
 export const ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX = 'cdp-email-attachments-upload-bytes'
@@ -31,6 +32,15 @@ const UploadsRequestSchema = z.object({
 
 export type AttachmentUploadsSettings = { teams: string; maxBytesPerTeamDay: number }
 export type UploadsAnswer = { status: number; body: Record<string, unknown> }
+export type SendRefusal = {
+    status: number
+    body: { error: 'attachment_not_uploaded' | 'message_too_large' | 'delivery_unavailable'; [key: string]: unknown }
+}
+export type AcceptedSendFiles = { files: EmailAttachmentMetadata[]; attachmentBytes: number }
+
+const DAY_MS = 24 * 60 * 60 * 1000
+// How long a queued send can still load its files after it was accepted.
+const SEND_NEEDS_FILES_FOR_MS = 7 * DAY_MS
 
 const uploadRequestsTotal = new Counter({
     name: 'cdp_email_attachments_upload_requests_total',
@@ -38,10 +48,11 @@ const uploadRequestsTotal = new Counter({
     labelNames: ['outcome'],
 })
 
-const DELIVERY_UNAVAILABLE: UploadsAnswer = { status: 503, body: { error: 'delivery_unavailable' } }
+const DELIVERY_UNAVAILABLE = { status: 503, body: { error: 'delivery_unavailable' } } as const satisfies SendRefusal
 
+// The upload route and the send route share one allowlist, so a team either uses files on both or on neither.
 export class AttachmentUploads {
-    private readonly isAllowed: (teamId: number) => boolean
+    public readonly isAllowed: (teamId: number) => boolean
 
     constructor(
         private readonly store: AttachmentStore | null,
@@ -120,6 +131,48 @@ export class AttachmentUploads {
         return { status: 200, body: { files: slots.map(toAnswer) } }
     }
 
+    // Verifies a send's files under the team and estimates its message. The bodies are only read once every file is
+    // verified, because rendering them can cost more than the checks that refuse first.
+    public async acceptSend(
+        teamId: number,
+        refs: AttachmentRef[],
+        bodies: () => Promise<string[]>
+    ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
+        if (!this.store) {
+            return { refused: unavailable(teamId, 'No attachment store to verify the files of a send', null) }
+        }
+        let verified: Awaited<ReturnType<AttachmentStore['acceptForSend']>>
+        try {
+            const needsUntil = new Date(this.now().getTime() + SEND_NEEDS_FILES_FOR_MS)
+            verified = await this.store.acceptForSend(teamId, refs, needsUntil)
+        } catch (error) {
+            if (error instanceof AttachmentStoreUnavailableError) {
+                return { refused: unavailable(teamId, 'Could not verify the files of a send', error) }
+            }
+            throw error
+        }
+        if ('refusal' in verified) {
+            return { refused: { status: 400, body: { error: verified.refusal, sha256: verified.sha256 } } }
+        }
+        const sizes = verified.files.map((file) => file.sizeBytes)
+        const attachmentBytes = sizes.reduce((total, size) => total + size, 0)
+        const messageBytes = estimateMessageBytes(sizes, await bodies())
+        if (messageBytes > MESSAGE_MAX_BYTES) {
+            return {
+                refused: {
+                    status: 400,
+                    body: {
+                        error: 'message_too_large',
+                        message_bytes: messageBytes,
+                        max_message_bytes: MESSAGE_MAX_BYTES,
+                        attachment_bytes: attachmentBytes,
+                    },
+                },
+            }
+        }
+        return { accepted: { files: verified.files, attachmentBytes } }
+    }
+
     // Counts the bytes of the upload slots a team gets per UTC day.
     private async charge(counter: RedisV2, teamId: number, bytes: number): Promise<boolean> {
         const key = `${ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX}:${teamId}:${this.now().toISOString().slice(0, 10)}`
@@ -130,8 +183,11 @@ export class AttachmentUploads {
     }
 }
 
-function unavailable(teamId: number, message: string, error: unknown): UploadsAnswer {
-    logger.warn('⚠️', message, { team_id: teamId, error: error instanceof Error ? error.message : String(error) })
+function unavailable(teamId: number, message: string, error: unknown): typeof DELIVERY_UNAVAILABLE {
+    logger.warn('⚠️', message, {
+        team_id: teamId,
+        ...(error !== null && { error: error instanceof Error ? error.message : String(error) }),
+    })
     return DELIVERY_UNAVAILABLE
 }
 
