@@ -70,6 +70,12 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunRequestSerializer,
     HogInvocationRerunResponseSerializer,
 )
+from products.cdp.backend.services.destination_test_runs import (
+    destination_test_run_context,
+    record_test_run_request_origins,
+    sends_real_requests,
+    without_request_origins,
+)
 from products.cdp.backend.services.icons import CDPIconsService
 from products.cdp.backend.site_functions import get_transpiled_function
 from products.cdp.backend.validation import (
@@ -1448,10 +1454,40 @@ class HogFunctionViewSet(
         # Remove the team from the config
         configuration.pop("team")
 
+        mock_async_functions = serializer.validated_data["mock_async_functions"]
+        test_run_row = None
+        if sends_real_requests(configuration, mock_async_functions=mock_async_functions):
+            # The row is written before the worker call, so a test that then fails is still recorded.
+            # Without `strict`, production drops a failed write and the test still sends real requests.
+            test_run_row = log_activity(
+                strict=True,
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+                item_id=str(hog_function.id) if hog_function else None,
+                scope="HogFunction",
+                activity="tested",
+                detail=Detail(
+                    name=configuration.get("name") or (hog_function.name if hog_function else None),
+                    type=humanize_hog_function_type(configuration.get("type")),
+                    context=destination_test_run_context(
+                        configuration, stored=hog_function, mock_async_functions=mock_async_functions
+                    ),
+                ),
+            )
+
         res = create_hog_invocation_test(
             team_id=self.team_id,
             hog_function_id=str(hog_function.id) if hog_function else "new",
             payload=serializer.validated_data,
+        )
+        record_test_run_request_origins(
+            test_run_row,
+            res,
+            secret_inputs=[hog_function.encrypted_inputs, hog_function.draft_encrypted_inputs]
+            if hog_function
+            else None,
         )
 
         if res.status_code != 200:
@@ -1459,7 +1495,7 @@ class HogFunctionViewSet(
             # caller with a bare status code and nothing to act on.
             return Response({"status": "error", "errors": _worker_error_messages(res)}, status=res.status_code)
 
-        return Response(res.json())
+        return Response(without_request_origins(res.json()))
 
     @extend_schema(
         request=HogInvocationRerunRequestSerializer,

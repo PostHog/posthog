@@ -337,6 +337,8 @@ This check does not change mode selection. Cursor still defaults to tools mode, 
 
 ## Claude web and desktop exec schema budget
 
+The server's tool instructions resolve an ambiguous target project before skill or tool discovery. An explicit target or an unambiguous active project needs no confirmation. Project clarification comes before the skill-first workflow; once the target is clear, the agent discovers and loads the relevant skills.
+
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
 Keep only guidance needed on nearly every call inline, including the compact tool-domain index.
 Everything else belongs in the `learn` catalog: Claude web and desktop guides, and, behind the `mcp-exec-skills` flag, PostHog and project skills.
