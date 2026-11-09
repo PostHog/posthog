@@ -98,21 +98,37 @@ class TestCheckTestOwners:
 
 class TestLintTestOwners:
     @pytest.mark.parametrize(
-        ("path", "moved_from", "exit_code"),
+        ("path", "moved_from", "owners_yaml", "exit_code"),
         [
-            pytest.param("nobody/test_new.py", None, 1, id="new_test_in_a_baseline_directory_fails"),
-            pytest.param("team/test_new.py", None, 0, id="new_test_with_a_team_owner_passes"),
-            pytest.param("nobody/test_renamed.py", "nobody/test_c.py", 0, id="moved_unowned_test_passes"),
-            pytest.param("nobody/test_moved.py", "team/test_a.py", 1, id="test_moved_out_of_a_team_path_fails"),
+            pytest.param("nobody/test_new.py", None, OWNERS_YAML, 1, id="new_test_in_a_baseline_directory_fails"),
+            pytest.param("team/test_new.py", None, OWNERS_YAML, 0, id="new_test_with_a_team_owner_passes"),
+            pytest.param("nobody/test_renamed.py", "nobody/test_c.py", OWNERS_YAML, 0, id="moved_unowned_test_passes"),
+            pytest.param(
+                "nobody/test_moved.py", "team/test_a.py", OWNERS_YAML, 1, id="test_moved_out_of_a_team_path_fails"
+            ),
+            pytest.param(
+                "nobody/test_moved.py",
+                "team/test_a.py",
+                "version: 1\nowners: []\nrules: []\n",
+                1,
+                id="dropping_the_team_rule_with_the_move_still_fails",
+            ),
         ],
     )
     def test_checks_each_test_file_the_branch_adds(
-        self, repo: Path, git: Callable[..., str], path: str, moved_from: str | None, exit_code: int
+        self,
+        repo: Path,
+        git: Callable[..., str],
+        path: str,
+        moved_from: str | None,
+        owners_yaml: str,
+        exit_code: int,
     ) -> None:
         if moved_from:
             git(repo, "mv", moved_from, path)
         else:
             (repo / path).write_text("def test_y():\n    pass\n")
+        (repo / "owners.yaml").write_text(owners_yaml)
         git(repo, "add", "-A")
         git(repo, "commit", "-q", "-m", "add a test")
 
@@ -126,4 +142,19 @@ class TestLintTestOwners:
 
         assert result.exit_code == exit_code
         assert exit_code == 0 or f"{path} is a new test that no team owns" in result.output
-        assert exit_code == 0 or f"- `{path}`" in summary.read_text()
+        assert exit_code == 0 or f"\n{path}\n" in summary.read_text()
+
+    def test_a_path_cannot_forge_a_workflow_command(self, repo: Path, git: Callable[..., str]) -> None:
+        (repo / "nobody/test_x\n::error::forged.py").write_text("def test_y():\n    pass\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "add a test")
+        summary = repo / "step_summary.md"
+
+        result = CliRunner().invoke(
+            ownership_lint.cmd_lint_test_owners,
+            ["--against", "HEAD~1", "--committed"],
+            env={"GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": str(summary)},
+        )
+
+        assert result.exit_code == 1
+        assert not any(line.startswith("::error") for line in (result.output + summary.read_text()).splitlines())

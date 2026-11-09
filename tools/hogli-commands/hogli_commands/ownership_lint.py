@@ -90,16 +90,15 @@ def drift_problems(drift: BaselineDrift) -> list[str]:
     ]
 
 
-def _added_paths(resolver: OwnersResolver, merge_base: str, committed_only: bool) -> set[str]:
-    """Paths that `merge_base` lacks. A test moved from an unowned path is left out, because it had no
-    owner before the move either. A test moved out of a team's path counts as new."""
+def _added_paths(merge_base: str, committed_only: bool) -> set[str]:
+    """Paths that `merge_base` lacks. A test moved from a path no team owned at `merge_base` is left out,
+    because it had no owner before the move either. A test moved out of a team's path counts as new,
+    even when the branch also drops that team's rule."""
     diff_range = (merge_base, *(["HEAD"] if committed_only else []))
-    moved_from = _rename_map(*diff_range)
-    added = {
-        path
-        for path in _git_paths("diff", "--name-only", "--diff-filter=AR", "--find-renames", *diff_range)
-        if path not in moved_from or not is_unowned_test(resolver, moved_from[path])
-    }
+    added = _git_paths("diff", "--name-only", "--diff-filter=AR", "--find-renames", *diff_range)
+    if moved_from := _rename_map(*diff_range):
+        base = OwnersResolver(REPO_ROOT, source=GitRefSource(REPO_ROOT, merge_base))
+        added -= {path for path, source in moved_from.items() if is_unowned_test(base, source)}
     if not committed_only:
         added |= _git_paths("ls-files", "--others", "--exclude-standard")
     return added
@@ -107,13 +106,17 @@ def _added_paths(resolver: OwnersResolver, merge_base: str, committed_only: bool
 
 def new_unowned_tests(resolver: OwnersResolver, merge_base: str, committed_only: bool) -> list[str]:
     """The baseline lists directories, so only this check reports a new unowned test in a listed directory."""
-    return sorted(
-        path for path in _added_paths(resolver, merge_base, committed_only) if is_unowned_test(resolver, path)
-    )
+    return sorted(path for path in _added_paths(merge_base, committed_only) if is_unowned_test(resolver, path))
 
 
 def _new_test_problem(path: str) -> str:
     return f"{path} is a new test that no team owns: name the team in its nearest owners.yaml"
+
+
+def _one_line(text: str) -> str:
+    """Git allows a newline in a path. CI reads a line that starts with `::` as a workflow command,
+    so a path that kept its newline could forge an annotation."""
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
 def check_test_owners(scope: Scope) -> Outcome:
@@ -140,21 +143,25 @@ def cmd_lint_test_owners(against: str | None, committed: bool) -> None:
     if merge_base is None:
         raise click.ClickException(f"no merge base with {against or 'origin/master or master'}")
     resolver, _ = _tree(committed)
-    paths = new_unowned_tests(resolver, merge_base, committed)
+    paths = [_one_line(path) for path in new_unowned_tests(resolver, merge_base, committed)]
     if not paths:
         return
     # GitHub Actions shows a `::warning` line as an annotation. Depot CI forwards only the step summary to the GitHub check.
     in_actions = os.environ.get("GITHUB_ACTIONS") == "true"
     for path in paths:
+        file_property = path.replace(":", "%3A").replace(",", "%2C")
         click.echo(
-            f"::warning file={path},title=lint:test-owners::{_new_test_problem(path)}"
+            f"::warning file={file_property},title=lint:test-owners::{_new_test_problem(path)}"
             if in_actions
             else _new_test_problem(path)
         )
     click.echo(HINT)
     if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
+        # A fence closes only on a line of its own, so a one-line path cannot break out of the block.
         with Path(summary_path).open("a", encoding="utf-8") as summary:
             summary.write(
-                "### New tests with no team owner\n\n" + "".join(f"- `{path}`\n" for path in paths) + f"\n{HINT}\n\n"
+                "### New tests with no team owner\n\n```text\n"
+                + "".join(f"{path}\n" for path in paths)
+                + f"```\n\n{HINT}\n\n"
             )
     raise SystemExit(1)
