@@ -6992,7 +6992,9 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
     def test_ai_overage_bytes_sum_each_ai_event_above_the_included_bytes(self) -> None:
         from posthog.tasks.usage_report import get_teams_with_ai_overage_bytes_in_period
 
-        included = get_ai_event_limits().included_bytes_per_event
+        limits = get_ai_event_limits()
+        included = limits.included_bytes_per_event
+        int64_max = 2**63 - 1
         other_team = Team.objects.create(organization=self.team.organization)
         in_period = self.begin + relativedelta(hours=1)
         events = [
@@ -7001,6 +7003,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             (self.team, "$ai_generation", {"$ai_event_bytes": included + 1}, in_period),
             (self.team, "$ai_span", {"$ai_event_bytes": included + 2_500_000}, in_period),
             (self.team, "$ai_trace", {}, in_period),
+            (self.team, "$ai_generation", {"$ai_event_bytes": int64_max}, in_period),
+            (self.team, "$ai_generation", {"$ai_event_bytes": int64_max}, in_period),
             (
                 self.team,
                 "$ai_generation",
@@ -7023,7 +7027,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         flush_persons_and_events()
 
         assert dict(get_teams_with_ai_overage_bytes_in_period(self.begin, self.end)) == {
-            self.team.id: 1 + 2_500_000 + 200_000,
+            self.team.id: 1 + 2_500_000 + 200_000 + 2 * (limits.max_event_bytes_ceiling - included),
             other_team.id: 50_000,
         }
 

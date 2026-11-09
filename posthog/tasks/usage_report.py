@@ -1920,6 +1920,7 @@ def get_teams_with_ai_overage_bytes_in_period(begin: datetime, end: datetime) ->
 
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def _query_teams_with_ai_overage_bytes_in_period(begin: datetime, end: datetime) -> TeamUsageRows:
+    limits = get_ai_event_limits()
     use_new = use_new_events_schema(None)
     event_bytes_expr, _ = get_property_string_expr(
         "events",
@@ -1933,7 +1934,10 @@ def _query_teams_with_ai_overage_bytes_in_period(begin: datetime, end: datetime)
         # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
         return sync_execute(
             f"""
-            SELECT team_id, sum(greatest(toInt64OrZero({event_bytes_expr}) - %(included_bytes)s, 0)) AS overage_bytes
+            SELECT
+                team_id,
+                sum(greatest(least(toInt64OrZero({event_bytes_expr}), %(max_event_bytes)s) - %(included_bytes)s, 0))
+                    AS overage_bytes
             FROM {events_read_table(use_new)}
             WHERE startsWith(event, %(ai_event_prefix)s) AND timestamp >= %(begin)s AND timestamp < %(end)s
             GROUP BY team_id
@@ -1943,7 +1947,8 @@ def _query_teams_with_ai_overage_bytes_in_period(begin: datetime, end: datetime)
                 "begin": begin,
                 "end": end,
                 "ai_event_prefix": AI_EVENT_NAME_PREFIX,
-                "included_bytes": get_ai_event_limits().included_bytes_per_event,
+                "included_bytes": limits.included_bytes_per_event,
+                "max_event_bytes": limits.max_event_bytes_ceiling,
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,

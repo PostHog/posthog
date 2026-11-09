@@ -436,7 +436,7 @@
   '''
   
   SELECT team_id,
-         sum(greatest(toInt64OrZero(replaceRegexpAll(JSONExtractRaw(properties, '$ai_event_bytes'), '^"|"$', '')) - 100000, 0)) AS overage_bytes
+         sum(greatest(least(toInt64OrZero(replaceRegexpAll(JSONExtractRaw(properties, '$ai_event_bytes'), '^"|"$', '')), 48000000) - 100000, 0)) AS overage_bytes
   FROM events
   WHERE startsWith(event, '$ai_')
     AND timestamp >= '2022-01-10 00:00:00'
