@@ -1259,6 +1259,54 @@ class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         assert (call.error_type, call.error_status) == expected_bucket
         assert (json.loads(call.response) if call.response else None) == extra_properties.get("$mcp_response")
 
+    @parameterized.expand(
+        [
+            (
+                "exec_discovery_with_failure_details",
+                {
+                    "$mcp_exec_verb": "info",
+                    "$mcp_exec_target_tool": "execute-sql",
+                    "$mcp_input_keys": ["context", "query"],
+                    "$mcp_error_code": "unknown_command",
+                    "$mcp_error_field": "query",
+                    "$mcp_llm_model": "claude-opus-5-5",
+                },
+                ("info", "execute-sql", ["context", "query"], "unknown_command", "query", "claude-opus-5-5"),
+            ),
+            ("nothing_captured", {}, ("", "", [], "", "", "")),
+            ("malformed_input_keys", {"$mcp_input_keys": "query"}, ("", "", [], "", "", "")),
+            ("deeply_nested_input_keys", {"$mcp_input_keys": [[[["query"]]]]}, ("", "", [], "", "", "")),
+            (
+                "blank_or_control_input_keys",
+                {"$mcp_input_keys": ["query", "", "  ", "line\nbreak"]},
+                ("", "", ["query"], "", "", ""),
+            ),
+        ]
+    )
+    def test_returns_exec_input_and_error_details(
+        self, _name: str, extra_properties: dict[str, Any], expected: tuple[str, str, list[str], str, str, str]
+    ) -> None:
+        session_id = str(uuid7())
+        start = datetime.now(tz=UTC) - timedelta(minutes=5)
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=start,
+            properties={"$session_id": session_id, "$mcp_tool_name": "exec", **extra_properties},
+        )
+
+        [call] = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=50, offset=0, date_from=start).results
+
+        assert (
+            call.exec_verb,
+            call.exec_target_tool,
+            call.input_keys,
+            call.error_code,
+            call.error_field,
+            call.llm_model,
+        ) == expected
+
     def test_has_next_signals_more_pages(self) -> None:
         session_id = str(uuid7())
         start = datetime.now(tz=UTC) - timedelta(minutes=5)

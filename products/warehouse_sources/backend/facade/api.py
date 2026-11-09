@@ -93,6 +93,7 @@ __all__ = [
     "list_revenue_source_settings",
     "get_schema",
     "list_schemas_for_source",
+    "github_repositories_syncing",
     "list_imported_schema_snapshots",
     "source_locations_for_tables",
     "get_table",
@@ -397,6 +398,40 @@ def get_schema(schema_id: UUID, team_id: int) -> contracts.ExternalDataSchema:
 def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataSchema]:
     qs = _ExternalDataSchema.objects.select_related("source").filter(team_id=team_id, source_id=source_id)
     return [_to_schema(s) for s in qs]
+
+
+def github_repositories_syncing(team_id: int, endpoint: str) -> frozenset[str]:
+    """The repositories, lowercased `owner/repo`, whose `endpoint` a live GitHub source of this team syncs."""
+    # Imported here to keep the source registry and the credential stores off the `django.setup()` path.
+    from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore  # noqa: PLC0415
+    from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import (  # noqa: PLC0415
+        normalize_repository,
+        schema_repo_endpoint,
+    )
+
+    schemas = (
+        _ExternalDataSchema.objects.filter(
+            team_id=team_id, should_sync=True, source__source_type=ExternalDataSourceType.GITHUB
+        )
+        .exclude(deleted=True)
+        .exclude(source__deleted=True)
+        .select_related("source")
+    )
+    repositories: set[str] = set()
+    for schema in schemas:
+        repository, schema_endpoint = schema_repo_endpoint(schema.schema_metadata, schema.name, None)
+        if schema_endpoint != endpoint:
+            continue
+        # Only a bare single-repository row keeps its repository in encrypted inputs, so decrypt just those.
+        if repository is None:
+            try:
+                legacy = str(SourceInputsStore.load(schema.source).get("repository") or "")
+            except contracts.UnreadableSourceInputsError:
+                continue
+            repository = normalize_repository(legacy).lower() or None
+        if repository:
+            repositories.add(repository)
+    return frozenset(repositories)
 
 
 def list_imported_schema_snapshots(team_id: int) -> list[contracts.ImportedSchemaSnapshot]:
