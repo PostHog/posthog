@@ -24,7 +24,9 @@ describe('InboxUsageWidget', () => {
             get: {
                 '/api/projects/:team_id/signals/trial/': () => [503, { detail: 'Unavailable' }],
                 '/api/billing': {
-                    products: [{ type: 'inbox_usage', subscribed: true, current_amount_usd: '1.04' }],
+                    products: [
+                        { type: 'inbox_usage', subscribed: true, current_amount_usd: '1.04', current_usage: 104 },
+                    ],
                     usage_summary: { signals_spend_credits: { billing_start_date: '2020-01-01' } },
                 },
             },
@@ -33,7 +35,7 @@ describe('InboxUsageWidget', () => {
         await waitFor(() =>
             expect(selfDrivingTrialLogic({ teamId: teamLogic.values.currentTeamId! }).values.error).toBeTruthy()
         )
-        expect(await findByText('Inbox spend')).toBeTruthy()
+        expect(await findByText('AI credits used')).toBeTruthy()
         expect(await findByText('View usage and limits')).toBeTruthy()
         expect(queryByText('Could not load Self-driving usage. Try again.')).toBeNull()
     })
@@ -57,15 +59,18 @@ describe('InboxUsageWidget', () => {
                         new_work_paused: continuation !== 'continue_paid',
                     },
                     '/api/billing': {
-                        products: [{ type: 'inbox_usage', subscribed: true, current_amount_usd: '1.04' }],
+                        products: [
+                            { type: 'inbox_usage', subscribed: true, current_amount_usd: '1.04', current_usage: 104 },
+                        ],
                         usage_summary: { signals_spend_credits: { billing_start_date: '2020-01-01' } },
                     },
                 },
             })
             const { findByText } = render(<InboxUsageWidget />)
             expect(await findByText('Trial limit reached')).toBeTruthy()
-            expect(await findByText('Inbox spend')).toBeTruthy()
-            expect(await findByText('$1.04')).toBeTruthy()
+            expect(await findByText('Trial allowance used: 100 credits of 1,000 credits.')).toBeTruthy()
+            expect(await findByText('AI credits used')).toBeTruthy()
+            expect(await findByText('104 credits')).toBeTruthy()
             expect(await findByText('View usage and limits')).toBeTruthy()
         }
     )
