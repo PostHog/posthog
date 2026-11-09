@@ -278,10 +278,14 @@ def test_a_downgrade_clears_periods_set_past_the_new_plan(
         .values_list("default_events_retention_months", flat=True)
         .first(),
     ) == expected_settings
-    assert [
-        (log.scope, log.detail["changes"][0]["before"])
-        for log in ActivityLog.objects.filter(organization_id=organization.id, is_system=True, activity="updated")
-    ] == expected_logs
+    assert (
+        list(
+            ActivityLog.objects.filter(organization_id=organization.id, is_system=True, activity="updated").values_list(
+                "scope", "detail__changes__0__before"
+            )
+        )
+        == expected_logs
+    )
     assert TeamEventsPlanDeletion.objects.get(team=team).state == expected_pass
 
 
