@@ -744,17 +744,13 @@ class TestTrialExecution(BaseTest):
                 continue_admitted_pipeline=continue_admitted_pipeline,
             )
 
-        if funding in {"trial", "paid", "operator"}:
-            created = create_implementation(continue_admitted_pipeline=True)
-            assert created.latest_run is not None
-            run = TaskRun.objects.get(id=created.latest_run.id)
-            assert run.state["self_driving_funding"]["funding"] == funding
-            receipt = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
-            assert receipt.billing_exempt is (funding in {"trial", "operator"})
-            assert (receipt.trial_grant_id == grant.id) is (funding == "trial")
-        else:
-            with self.assertRaises(FreeTrialPullRequestRefused):
-                create_implementation(continue_admitted_pipeline=True)
+        created = create_implementation(continue_admitted_pipeline=True)
+        assert created.latest_run is not None
+        run = TaskRun.objects.get(id=created.latest_run.id)
+        assert run.state["self_driving_funding"]["funding"] == (funding or "existing")
+        receipt = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert receipt.billing_exempt is (funding in {"trial", "operator"})
+        assert (receipt.trial_grant_id == grant.id) is (funding == "trial")
         with self.assertRaises(FreeTrialPullRequestRefused):
             create_implementation()
         assert implementation_requires_trial_opt_in(self.team.id, str(report.id)) is (funding == "trial")

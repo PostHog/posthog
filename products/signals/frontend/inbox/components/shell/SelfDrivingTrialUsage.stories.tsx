@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 
 import type { SelfDrivingTrialStatusApi } from '../../../generated/api.schemas'
@@ -36,6 +38,7 @@ const meta: Meta<typeof SelfDrivingTrialUsage> = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/signals/trial/': activeTrial } })],
     parameters: {
         layout: 'padded',
+        featureFlags: [FEATURE_FLAGS.SELF_DRIVING_UBP],
         mockDate: '2026-11-06',
         testOptions: { snapshotBrowsers: [], waitForSelector: '[aria-label="Self-driving free trial"]' },
     },

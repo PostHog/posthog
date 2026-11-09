@@ -245,7 +245,7 @@ class TestSignalsRatedUsage(BaseTest):
         usage.assert_called_once_with(str(self.organization.id), "2026-06-10")
 
     @patch("ee.billing.billing_manager.http_session.post")
-    def test_direct_report_matches_meter_and_replays_the_same_day(self, post: MagicMock) -> None:
+    def test_direct_report_matches_meter_and_skips_acknowledged_delivery(self, post: MagicMock) -> None:
         self._spend("1.49")
         self._spend("1.49")
         self._spend("50", exempt=True)
@@ -267,7 +267,7 @@ class TestSignalsRatedUsage(BaseTest):
         assert dict(get_signals_spend_billing_credits_by_team(_at(10, 0), _at(11, 0), self.organization.id)) == {
             self.team.id: 3
         }
-        assert post.call_count == 2
+        assert post.call_count == 1
         for call in post.call_args_list:
             assert call.args[0].endswith("/api/rated-usage")
             assert call.kwargs["json"] == expected
@@ -316,6 +316,19 @@ class TestSignalsRatedUsage(BaseTest):
             .filter(organization_id=self.organization.id, reported_at__isnull=False)
             .count()
         ) == (1000 if second_batch_fails else 1001)
+
+        post.reset_mock()
+        post.side_effect = None
+        post.return_value = MagicMock(status_code=200, json=lambda: {"results": ["created"]})
+        report_signals_rated_usage.run(str(self.organization.id), "2026-06-10")
+        assert [len(call.kwargs["json"]["items"]) for call in post.call_args_list] == (
+            [1] if second_batch_fails else []
+        )
+        assert (
+            not SignalRatedUsage.objects.unscoped()
+            .filter(organization_id=self.organization.id, reported_at__isnull=True)
+            .exists()
+        )
 
     @parameterized.expand(
         [
@@ -415,6 +428,9 @@ class TestSignalsRatedUsage(BaseTest):
         assert {call.args[0] for call in enqueue.call_args_list} == {str(self.organization.id), str(other_org.id)}
         for call in enqueue.call_args_list:
             report_signals_rated_usage.run(*call.args)
+        if not lost_acknowledgment:
+            post.assert_not_called()
+            return
         post.assert_called_once()
         assert post.call_args.kwargs["json"] == original_payload
         token = post.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")

@@ -1,17 +1,42 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { selfDrivingTrialLogic } from '../../logics/selfDrivingTrialLogic'
 import { InboxUsageWidget } from './InboxUsageWidget'
 
 describe('InboxUsageWidget', () => {
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_UBP]: true })
     })
 
     afterEach(cleanup)
+
+    it('keeps paid usage and billing controls when trial status is unavailable', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/trial/': () => [503, { detail: 'Unavailable' }],
+                '/api/billing': {
+                    products: [{ type: 'inbox_usage', subscribed: true, current_amount_usd: '1.04' }],
+                    usage_summary: { signals_spend_credits: { billing_start_date: '2020-01-01' } },
+                },
+            },
+        })
+        const { findByText, queryByText } = render(<InboxUsageWidget />)
+        await waitFor(() =>
+            expect(selfDrivingTrialLogic({ teamId: teamLogic.values.currentTeamId! }).values.error).toBeTruthy()
+        )
+        expect(await findByText('Inbox spend')).toBeTruthy()
+        expect(await findByText('View usage and limits')).toBeTruthy()
+        expect(queryByText('Could not load Self-driving usage. Try again.')).toBeNull()
+    })
 
     it.each(['continue_paid', 'increase_limit'])(
         'shows paid spending and billing access after the trial when continuation is %s',

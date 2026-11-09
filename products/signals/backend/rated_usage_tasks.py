@@ -31,7 +31,7 @@ def _report_day(organization_id: UUID, day: date) -> None:
     # Snapshot the customer and amount before POST so retries survive project moves.
     deliveries = (
         SignalRatedUsage.objects.unscoped()
-        .filter(organization_id=organization_id, day=day)
+        .filter(organization_id=organization_id, day=day, reported_at__isnull=True)
         .order_by("team_id")
         .values("team_id", "cents", "grants")
     )

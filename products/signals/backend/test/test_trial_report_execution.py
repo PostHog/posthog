@@ -26,6 +26,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.facade.trial import task_trial_admission
+from products.signals.backend.free_trial import self_driving_free_trial_enabled
 from products.signals.backend.llm_spend import generate_with_spend
 from products.signals.backend.models import ArtefactAttribution, InvalidStatusTransition, SignalReport, SignalSpend
 from products.signals.backend.report_generation.research import ActionabilityAssessment, ActionabilityChoice
@@ -264,6 +265,23 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         assert paused is (not enabled)
         if not enabled:
             assert TrialLLMExecution.prepare(team_id=self.team.id, gateway=None) is None
+
+    @parameterized.expand([(restricted, signal) for restricted in (False, True) for signal in (False, True)])
+    def test_report_keeps_implementation_eligibility_when_legacy_flag_changes(
+        self, restricted: bool, signal: bool
+    ) -> None:
+        self.flag_mock.side_effect = lambda key, *args, **kwargs: (
+            restricted if key == "self-driving-free-trial" else False
+        )
+        signal_id = str(uuid4()) if signal else None
+        if signal_id:
+            begin_signal_spend(team_id=self.team.id, signal_id=signal_id)
+        report = SignalReport.objects.create(team=self.team)
+        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="accepted", signal_id=signal_id)
+        self.flag_mock.side_effect = lambda key, *args, **kwargs: (
+            not restricted if key == "self-driving-free-trial" else False
+        )
+        assert self_driving_free_trial_enabled(self.team, admitted_report_id=str(report.id)) is restricted
 
     def test_free_signal_does_not_replace_customer_report_trial_funding(self) -> None:
         grant = self.claim()
@@ -551,6 +569,13 @@ class TestTrialReportExecution(NonAtomicBaseTest):
                     team=self.team, report_id=str(report.id), operation_key="explicit-later-rerun", signal_id=signal_id
                 )
 
+    def test_older_report_can_implement_after_the_project_claims_a_trial(self) -> None:
+        report = SignalReport.objects.create(team=self.team)
+        self.claim()
+        self.flag_mock.return_value = True
+        assert not implementation_requires_trial_opt_in(self.team.id, str(report.id))
+        assert not self_driving_free_trial_enabled(self.team, admitted_report_id=str(report.id))
+
     def test_nontrial_receipt_does_not_bypass_current_quota(self) -> None:
         from products.signals.backend.quota import self_driving_quota_gate
 
@@ -616,6 +641,42 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         grant.refresh_from_db()
         assert trial_usage(grant).spend_microusd == grant.allowance_microusd + 1
         assert SignalSpend.objects.unscoped().filter(trial_grant=grant, accounting_pending=True).count() == 0
+
+    @parameterized.expand([(False,), (True,)])
+    def test_standalone_trial_generation_finalizes_when_its_cost_settles(self, delayed: bool) -> None:
+        grant = self.claim()
+        generation = AsyncMock(return_value=SimpleNamespace(_request_id="standalone-generation"))
+        with patch(
+            "products.signals.backend.llm_spend.fetch_gateway_cost",
+            new=AsyncMock(
+                side_effect=TimeoutError if delayed else None,
+                return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123),
+            ),
+        ):
+            async_to_sync(generate_with_spend)(
+                generation(),
+                gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key"),
+                team_id=self.team.id,
+                signal_id=None,
+                stage="safety_judge",
+            )
+        receipt = SignalSpend.objects.for_team(self.team.id).get(trial_grant=grant)
+        assert receipt.finalization_requested_at is not None
+        assert (receipt.finalized_at is None) is delayed
+        if delayed:
+            record_llm_spend(
+                "standalone-generation",
+                team_id=self.team.id,
+                signal_id=str(receipt.signal_id),
+                source_id=next(iter(receipt.pending_requests)),
+                stage="safety_judge",
+                token_cost_microusd=123,
+            )
+            receipt.refresh_from_db()
+        assert receipt.finalized_at is not None
+        assert not receipt.accounting_pending
+        assert trial_usage(grant).settled_microusd == 123
+        generation.assert_awaited_once()
 
     def test_failed_generation_registration_prevents_provider_request(self) -> None:
         self.claim()

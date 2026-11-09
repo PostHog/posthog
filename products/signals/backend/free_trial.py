@@ -56,8 +56,8 @@ def self_driving_free_trial_enabled(
         from products.signals.backend.trial.reports import report_funding  # noqa: PLC0415 -- Tasks model import cycle
 
         funding = report_funding(team, admitted_report_id)
-        if funding is not None and funding.funding in {"trial", "paid", "operator"}:
-            return False
+        # Older accepted pipelines have no snapshot and retain implementation access.
+        return not funding.implementation_allowed if funding is not None else False
     if enabled is not None:
         return enabled
     if TrialPolicy(team).active_grant() is not None:

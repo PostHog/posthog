@@ -89,9 +89,8 @@ def requires_trial_accounting(team_id: int, signal_id: str | None = None) -> boo
 def implementation_requires_trial_opt_in(team_id: int, report_id: str) -> bool:
     team = Team.objects.get(id=team_id)
     funding = report_funding(team, report_id)
-    if funding is not None:
-        return funding.funding == "trial"
-    return requires_trial_accounting(team_id)
+    # A later grant must not add an opt-in gate to a pipeline accepted before trials.
+    return funding is not None and funding.funding == "trial"
 
 
 def report_pass_admission(
@@ -114,6 +113,12 @@ def report_pass_admission(
         parent = TrialFunding(funding="existing")
     else:
         parent = signal_funding(team.id, signal_id, for_report=True) if previous is None else None
+        if parent is not None and parent.funding == "existing":
+            from products.signals.backend.free_trial import (  # noqa: PLC0415 -- legacy gate reads report funding
+                self_driving_free_trial_enabled,
+            )
+
+            parent = replace(parent, implementation_allowed=not self_driving_free_trial_enabled(team))
     return prepare_self_driving_admission(team, parent=parent)
 
 
@@ -138,7 +143,7 @@ def prepare_report_pass(
             return
         if previous is not None and report.status == SignalReport.Status.IN_PROGRESS:
             raise TrialRefused("report_pass_in_progress")
-        funding = admission.bind(report_id=report.id)
+        funding = admission.bind(report_id=report.id, report_pass_key=operation_key)
         SignalReport.objects.filter(team_id=team.id, id=report.id).update(
             self_driving_funding=replace(funding, report_pass_key=operation_key).as_dict()
         )

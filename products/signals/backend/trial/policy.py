@@ -180,6 +180,7 @@ class TrialPolicy:
         paid_authorized: bool,
         parent: TrialFunding | None = None,
         report_id: UUID | None = None,
+        report_pass_key: str | None = None,
     ) -> TrialFunding:
         if parent is not None and parent.grant_id is None:
             return parent
@@ -194,6 +195,13 @@ class TrialPolicy:
             # Report transitions already lock their row before admission locks the grant.
             if report_id is not None:
                 report = SignalReport.objects.select_for_update().get(id=report_id, team_id=self.environment_id)
+                previous = TrialFunding.from_dict(report.self_driving_funding)
+                if (
+                    parent is None
+                    and previous is not None
+                    and (report_pass_key is None or previous.report_pass_key == report_pass_key)
+                ):
+                    return previous
             with self.locked_grant(grant.id) as grant:
                 if parent is not None and parent.grant_id != grant.id:
                     raise TrialRefused("grant_unavailable")
@@ -206,7 +214,7 @@ class TrialPolicy:
                             raise TrialRefused(reason)
                         funding = TrialFunding(funding="paid")
                     else:
-                        funding = TrialFunding(funding="trial", grant_id=grant.id, policy_version=grant.policy_version)
+                        funding = TrialFunding(funding="trial", grant_id=grant.id)
                 if report_id is not None:
                     # Task admission must not erase the enclosing report pass's retry identity.
                     previous = TrialFunding.from_dict(report.self_driving_funding)

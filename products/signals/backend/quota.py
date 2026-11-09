@@ -108,7 +108,7 @@ class SelfDrivingAdmission:
     def trial_accounting_required(self) -> bool:
         return self.parent.grant_id is not None if self.parent is not None else not self.paid_authorized
 
-    def bind(self, *, report_id: UUID | None = None) -> TrialFunding:
+    def bind(self, *, report_id: UUID | None = None, report_pass_key: str | None = None) -> TrialFunding:
         from products.signals.backend.trial.policy import (  # noqa: PLC0415 -- avoid model registration cycle
             TrialPolicy,
             TrialRefused,
@@ -119,7 +119,10 @@ class SelfDrivingAdmission:
                 raise QuotaLimitExceeded()
             raise TrialRefused(self.reason)
         return TrialPolicy(self.team).admit(
-            parent=self.parent, paid_authorized=self.paid_authorized, report_id=report_id
+            parent=self.parent,
+            paid_authorized=self.paid_authorized,
+            report_id=report_id,
+            report_pass_key=report_pass_key,
         )
 
 
@@ -156,10 +159,14 @@ def prepare_self_driving_admission(
             reason=reason,
         )
     limited = is_team_signals_quota_limited(team.api_token, self_driving_quota_resource(team.organization))
+    from products.signals.backend.free_trial import (  # noqa: PLC0415 -- legacy gate imports trial policy
+        self_driving_free_trial_enabled,
+    )
+
     return SelfDrivingAdmission(
         team=team,
         gate=SelfDrivingQuotaGate(limited=limited, enforced=limited and self_driving_quota_enforcement_enabled(team)),
-        parent=TrialFunding(funding="existing"),
+        parent=TrialFunding(funding="existing", implementation_allowed=not self_driving_free_trial_enabled(team)),
     )
 
 

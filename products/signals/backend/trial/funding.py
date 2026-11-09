@@ -11,14 +11,14 @@ from posthog.dataclasses import frozen
 class TrialFunding:
     funding: Literal["trial", "paid", "existing", "operator"]
     grant_id: UUID | None = None
-    policy_version: int = 1
+    implementation_allowed: bool = True
     report_pass_key: str = ""
 
     def as_dict(self) -> dict[str, str | int]:
         return {
             "funding": self.funding,
             "grant_id": str(self.grant_id) if self.grant_id else "",
-            "policy_version": self.policy_version,
+            "implementation_allowed": self.implementation_allowed,
             "report_pass_key": self.report_pass_key,
         }
 
@@ -35,7 +35,7 @@ class TrialFunding:
         return cls(
             funding=cast(Literal["trial", "paid", "existing", "operator"], mode),
             grant_id=grant_id,
-            policy_version=int(str(value["policy_version"])),
+            implementation_allowed=value.get("implementation_allowed") is not False,
             report_pass_key=str(value.get("report_pass_key", "")),
         )
 

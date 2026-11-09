@@ -11,9 +11,12 @@ import { selfDrivingTrialLogic } from '../../logics/selfDrivingTrialLogic'
 export function SelfDrivingTrialUsage(): JSX.Element | null {
     const { currentTeamId } = useValues(teamLogic)
     const logic = selfDrivingTrialLogic({ teamId: currentTeamId! })
-    const { trial, trialLoading, error } = useValues(logic)
+    const { trial, trialEnabled, trialLoading, error } = useValues(logic)
     const { loadTrial } = useActions(logic)
 
+    if (!trialEnabled) {
+        return null
+    }
     if (error) {
         return (
             <div>

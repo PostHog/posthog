@@ -601,7 +601,10 @@ export interface inboxTaskKickoffLogicMeta {
             dataProcessingAccepted: boolean,
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
-        freeTrialDisabledReason: (trial: SelfDrivingTrialStatusApi | null) => string | null
+        freeTrialDisabledReason: (
+            featureFlags: FeatureFlagsSet,
+            trial: SelfDrivingTrialStatusApi | null
+        ) => string | null
         createPrDisabledReason: (
             aiConsentDisabledReason: string | null,
             freeTrialDisabledReason: string | null
@@ -770,9 +773,14 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 aiConsentDisabledReason(dataProcessingAccepted, dataProcessingApprovalDisabledReason),
         ],
         freeTrialDisabledReason: [
-            (s) => [s.trial],
-            (trial: SelfDrivingTrialStatusApi | null): string | null =>
-                trial?.legacy_pr_restricted ? FREE_TRIAL_PR_DISABLED_REASON : null,
+            (s) => [s.featureFlags, s.trial],
+            (featureFlags: FeatureFlagsSet, trial: SelfDrivingTrialStatusApi | null): string | null => {
+                const restricted =
+                    featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP] && trial
+                        ? trial.legacy_pr_restricted
+                        : featureFlags[FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL]
+                return restricted ? FREE_TRIAL_PR_DISABLED_REASON : null
+            },
         ],
         // Why Create PR is unavailable before any report is considered: consent first, then the
         // trial. Discuss keeps only the consent reason, because a trial org can still discuss.

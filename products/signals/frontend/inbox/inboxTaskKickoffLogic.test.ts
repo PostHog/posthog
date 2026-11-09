@@ -661,13 +661,19 @@ describe('inboxTaskKickoffLogic', () => {
         })
 
         it.each([
-            [true, FREE_TRIAL_PR_DISABLED_REASON],
-            [false, null],
-        ])('with the trial API restriction %s, Create PR carries %s', async (enabled, expected) => {
+            [true, true, false, FREE_TRIAL_PR_DISABLED_REASON],
+            [true, false, true, null],
+            [false, false, true, FREE_TRIAL_PR_DISABLED_REASON],
+            [false, true, false, null],
+        ])('gates Create PR with rollout %s, API %s, legacy %s', async (rollout, enabled, legacy, expected) => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/signals/trial/': { legacy_pr_restricted: enabled },
                 },
+            })
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.SELF_DRIVING_UBP]: rollout,
+                [FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL]: legacy,
             })
             await selfDrivingTrialLogic({ teamId: teamLogic.values.currentTeamId! }).asyncActions.loadTrial()
             expect(logic.values.freeTrialDisabledReason).toBe(expected)

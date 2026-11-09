@@ -137,6 +137,7 @@ async def generate_with_spend(
             return PricedGeneration(response=await generation, spend=None)
         source_id = f"generation:{uuid4()}" if trial else None
         trial_grant_id = str(trial.funding.grant_id) if trial else None
+        standalone = signal_id is None
         signal_id = signal_id or (str(uuid4()) if trial else None)
         if trial:
             token = _generation_source.set(source_id)
@@ -149,6 +150,7 @@ async def generate_with_spend(
                 source_id=source_id,
                 trial_grant_id=trial_grant_id,
                 strict=True,
+                finalize=standalone,
             )
         return await _generate_with_spend(
             generation,

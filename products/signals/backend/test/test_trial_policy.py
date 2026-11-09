@@ -151,6 +151,8 @@ class TestTrialPolicy(BaseTest):
         with self.assertRaisesMessage(TrialRefused, reason):
             self.admit()
         assert self.policy.admit(paid_authorized=False, parent=funding, report_id=report.id) == funding
+        assert self.policy.admit(paid_authorized=False, report_id=report.id) == funding
+        assert self.policy.admit(paid_authorized=True, report_id=report.id) == funding
         assert self.policy.admit(paid_authorized=True).funding == "paid"
         self.flag_mock.return_value = False
         assert self.policy.admit(paid_authorized=False, parent=funding) == funding

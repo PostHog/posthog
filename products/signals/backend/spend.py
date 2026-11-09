@@ -184,6 +184,7 @@ def record_llm_spend(
     source_id: str | None = None,
     trial_grant_id: str | None = None,
     strict: bool = False,
+    finalize: bool = False,
 ) -> None:
     if team_id is None or signal_id is None:
         return
@@ -214,7 +215,7 @@ def record_llm_spend(
             spend.llm_failed_stages = sorted(set(spend.llm_failed_stages) | {stage})
         else:
             spend.spend += cost_to_spend(token_cost_microusd)
-        _save_ad_hoc_spend(spend)
+        _save_ad_hoc_spend(spend, finalize=finalize)
 
 
 def signal_spend_summaries(*, team_id: int, signal_ids: list[str]) -> dict[str, SignalSpendSummary]:

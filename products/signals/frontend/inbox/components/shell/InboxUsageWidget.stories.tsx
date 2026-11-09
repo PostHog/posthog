@@ -97,7 +97,8 @@ export const FreePlanZeroUsage: Story = {
 
 export const TrialStatusUnavailable: Story = {
     parameters: {
-        testOptions: { snapshotBrowsers: [], waitForSelector: '[data-attr="self-driving-trial-retry"]' },
+        featureFlags: [FEATURE_FLAGS.SELF_DRIVING_UBP],
+        testOptions: { snapshotBrowsers: [] },
     },
     render: () => <StateMocks state={{ subscribed: false, freePrs: 3, usedPrs: 0, limitPrs: 3 }} trialUnavailable />,
 }

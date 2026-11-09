@@ -144,7 +144,7 @@ function EditLimitModal(): JSX.Element {
  */
 export function InboxUsageWidget(): JSX.Element | null {
     const { currentTeamId } = useValues(teamLogic)
-    const { trial, error: trialError } = useValues(selfDrivingTrialLogic({ teamId: currentTeamId! }))
+    const { trial, trialEnabled } = useValues(selfDrivingTrialLogic({ teamId: currentTeamId! }))
     const {
         product,
         spendProduct,
@@ -166,7 +166,7 @@ export function InboxUsageWidget(): JSX.Element | null {
     const { openModal } = useActions(inboxUsageLogic)
 
     const paidContinuation = trial?.grant_status === 'exhausted' && !!spendProduct?.subscribed
-    if ((trialError && !trial) || (trial?.enabled && trial.grant_status !== 'not_claimed' && !paidContinuation)) {
+    if (trialEnabled && trial?.enabled && trial.grant_status !== 'not_claimed' && !paidContinuation) {
         return <SelfDrivingTrialUsage />
     }
 
@@ -180,7 +180,7 @@ export function InboxUsageWidget(): JSX.Element | null {
     if (spendProduct) {
         return (
             <>
-                {trial?.enabled && paidContinuation && <SelfDrivingTrialUsage />}
+                {trialEnabled && trial?.enabled && paidContinuation && <SelfDrivingTrialUsage />}
                 <div className="flex flex-col gap-2">
                     <span className="text-[13px] font-semibold">Inbox spend</span>
                     {spendAmountUsd != null && (

@@ -9942,7 +9942,7 @@ def run_task(
     """Return None for an inaccessible task, otherwise return its refreshed detail or a structured error.
 
     The caller applies the usage gate. Only server-requested Signals research may set pipeline_rerun.
-    With only_if_no_runs, the task lock is taken first and a task that already has a run starts no other.
+    With only_if_no_runs, the task lock prevents another first run, after any report admission lock.
     """
     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
@@ -10506,6 +10506,8 @@ def run_task(
     try:
         with transaction.atomic():
             if only_if_no_runs:
+                if trial_admission is not None:
+                    trial_admission.lock_report(task.signal_report_source_id)
                 Task.objects.select_for_update(of=("self",)).get(id=task.id, team_id=task.team_id)
                 if task.runs.filter(team_id=task.team_id).exists():
                     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
