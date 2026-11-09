@@ -3849,7 +3849,7 @@ if (not res.success) { throw Error(res.error) }`,
                 expect(sesSend).toHaveBeenCalledTimes(sent ? 1 : 0)
             })
 
-            it("puts the recipient's unsubscribe link in the body and headers of a marketing code send", async () => {
+            it("puts the recipient's unsubscribe link in a marketing code send and keeps the placeholder for a retry", async () => {
                 await insertEmailSetup('ses')
                 const invocation = flowInvocation(codeSendFlow())
                 invocation.state.send = unsubscribeSend(newsletterId)
