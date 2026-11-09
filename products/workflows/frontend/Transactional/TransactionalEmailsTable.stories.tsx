@@ -46,7 +46,7 @@ const codeEmail = (id: string, key: string, fields: Partial<CodeEmailApi>): Code
     tags: [],
     sensitive: true,
     source_url: null,
-    source_origin: 'manual',
+    source_origin: null,
     created_at: '2026-11-01T10:00:00Z',
     ...fields,
 })
@@ -56,10 +56,12 @@ const codeEmails: CodeEmailApi[] = [
         description: 'Sent when someone asks to reset their password',
         tags: ['auth'],
         source_url: 'https://github.com/acme/web/blob/main/src/emails/password-reset.tsx',
+        source_origin: 'manual',
     }),
     codeEmail('2', 'invoice-paid', {
         tags: ['billing'],
         source_url: 'https://gitlab.com/acme/platform/billing/-/blob/main/app/mailers/invoice_paid.rb',
+        source_origin: 'manual',
     }),
     codeEmail('3', 'order-shipped', {}),
 ]

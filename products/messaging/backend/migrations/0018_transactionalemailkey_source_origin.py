@@ -12,9 +12,8 @@ class Migration(migrations.Migration):
             name="source_origin",
             field=models.CharField(
                 choices=[("manual", "Manual"), ("detected", "Detected from GitHub")],
-                db_default="manual",
-                default="manual",
                 max_length=16,
+                null=True,
             ),
         ),
     ]

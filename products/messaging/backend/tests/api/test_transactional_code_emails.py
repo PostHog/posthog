@@ -111,10 +111,11 @@ class TestTransactionalCodeEmails(APIBaseTest):
         response = self.client.patch(self._url(f"{email.id}/"), {"tags": ["auth"], "source_url": ""}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
-        assert {k: response.json()[k] for k in ("description", "tags", "source_url")} == {
+        assert {k: response.json()[k] for k in ("description", "tags", "source_url", "source_origin")} == {
             "description": "Sign-in link",
             "tags": ["auth"],
             "source_url": None,
+            "source_origin": "manual",
         }
         assert self.client.get(self._url(f"{email.id}/")).json()["tags"] == ["auth"]
 

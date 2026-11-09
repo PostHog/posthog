@@ -6,10 +6,13 @@ answered in full. Anything less leaves the key for a person to link.
 
 import re
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import PurePosixPath
 from typing import Literal
 from urllib.parse import quote
 from uuid import UUID
+
+from django.db.models import Q
 
 import structlog
 import posthoganalytics
@@ -24,11 +27,14 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.integration.github import GitHubInstallationAccessFetchError
 from posthog.models.integration.github_code_search import (
+    CONTEXT_LINES,
     MAX_LITERAL_LENGTH,
     ExactCodeSearchResult,
     GitHubExactCodeSearch,
+    MatchedLine,
 )
 from posthog.models.team import Team
+from posthog.ph_client import ph_scoped_capture
 
 from products.messaging.backend.facade.contracts import CodeEmailSourceOrigin
 from products.messaging.backend.models import TransactionalEmailKey
@@ -38,7 +44,8 @@ logger = structlog.get_logger(__name__)
 SOURCE_DETECTION_FLAG = "workflows-code-email-source-detection"
 SOURCE_DETECTED_EVENT = "transactional email source detected"
 
-SourceDetectionOutcome = Literal["linked", "several", "none", "incomplete", "budget"]
+# "kept" means the search found one call site, but a person linked or unlinked the key before detection could write it.
+SourceDetectionOutcome = Literal["linked", "kept", "several", "none", "incomplete", "budget"]
 # Outcomes another search can change: code pushed minutes before the first send, an index GitHub had not finished,
 # or a budget that has refilled.
 RETRIED_OUTCOMES: frozenset[SourceDetectionOutcome] = frozenset({"none", "incomplete", "budget"})
@@ -61,11 +68,19 @@ _SKIPPED_DIRECTORIES = frozenset(
     }
 )
 _SKIPPED_FILE_NAME_PARTS = (".test.", ".spec.", "_test.", ".stories.")
+_SKIPPED_FILE_NAME_PREFIXES = ("test_",)
+_SKIPPED_FILE_NAME_SUFFIXES = ("_spec.rb",)
 # The send calls of PostHog's SDKs, and the raw API route. A matched line's context holds up to five lines on
 # either side, so a key passed a few lines below the call still counts.
 _SEND_CALL = re.compile(
     r"emails\.send|emails\(\)(?:\.|->)send|Emails\(\)\.Send|Emails\.SendAsync|Emails\.send|send/email"
 )
+# The matched line must pass the key as the template key. Without this, a key used for something else near a
+# send call, such as a subject string beside a send of another key, links that other email's file.
+_TEMPLATE_KEY_ARGUMENT = re.compile(r"template[_-]?key", re.IGNORECASE)
+
+
+_UNTOUCHED = Q(source_url__isnull=True, source_origin__isnull=True)
 
 
 @frozen
@@ -98,7 +113,7 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], *, shed: bool) -> 
         CallSite(repository=match.repository, path=match.path, line=line.number)
         for match in candidates
         for line in match.lines
-        if _SEND_CALL.search(line.context)
+        if _TEMPLATE_KEY_ARGUMENT.search(_matched_text(line)) and _SEND_CALL.search(line.context)
     ]
     # The link names a file, so a key passed twice in one send block still has one source.
     if len({(site.repository, site.path) for site in call_sites}) > 1:
@@ -116,24 +131,33 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], *, shed: bool) -> 
     )
 
 
+def _matched_text(line: MatchedLine) -> str:
+    # The context starts CONTEXT_LINES above the matched line, or at the file's first line when the match is nearer
+    # the top than that.
+    return line.context.split("\n")[min(line.number - 1, CONTEXT_LINES)]
+
+
 def _is_skipped_path(path: str) -> bool:
-    parts = PurePosixPath(path.lower()).parts
-    return bool(_SKIPPED_DIRECTORIES.intersection(parts[:-1])) or any(
-        part in parts[-1] for part in _SKIPPED_FILE_NAME_PARTS
+    *directories, name = PurePosixPath(path.lower()).parts
+    return (
+        bool(_SKIPPED_DIRECTORIES.intersection(directories))
+        or any(part in name for part in _SKIPPED_FILE_NAME_PARTS)
+        or name.startswith(_SKIPPED_FILE_NAME_PREFIXES)
+        or name.endswith(_SKIPPED_FILE_NAME_SUFFIXES)
     )
 
 
 def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> SourceDetection | None:
     """Search the team's GitHub installations for a key and link the one file that sends it.
 
-    Returns None when detection does not apply: the flag is off, the key is gone, already linked or too long to
-    search, or the team has no GitHub installation.
+    Returns None when detection does not apply: the flag is off, the key is gone, already linked or unlinked by a
+    person, too long to search, or the team has no GitHub installation.
     """
     team = Team.objects.filter(id=team_id).first()
     if team is None or not _detection_enabled(team):
         return None
     keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True)
-    key = keys.filter(id=key_id, source_url__isnull=True).values_list("key", flat=True).first()
+    key = keys.filter(_UNTOUCHED, id=key_id).values_list("key", flat=True).first()
     if key is None or len(key) > MAX_LITERAL_LENGTH:
         return None
     integrations = IntegrationManager.github.oauth.list(team_id)
@@ -159,10 +183,12 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
 
     detection = rank_call_sites(results, shed=shed)
     if detection.call_site is not None:
-        # A person may link the key while the search runs, and their link wins.
-        keys.filter(id=key_id, team_id=team_id, source_url__isnull=True).update(
+        # A person may link or unlink the key while the search runs, and their choice wins.
+        written = keys.filter(_UNTOUCHED, id=key_id, team_id=team_id).update(
             source_url=detection.call_site.url, source_origin=CodeEmailSourceOrigin.DETECTED
         )
+        if not written:
+            detection = replace(detection, outcome="kept", call_site=None)
     _report(team, detection, attempt=attempt, installations=len(integrations))
     return detection
 
@@ -181,17 +207,18 @@ def _detection_enabled(team: Team) -> bool:
 
 def _report(team: Team, detection: SourceDetection, *, attempt: int, installations: int) -> None:
     try:
-        posthoganalytics.capture(
-            distinct_id=str(team.uuid),
-            event=SOURCE_DETECTED_EVENT,
-            properties={
-                "team_id": team.id,
-                "outcome": detection.outcome,
-                "attempt": attempt,
-                "installations": installations,
-                "candidate_files": detection.candidate_files,
-            },
-            groups=groups(team=team),
-        )
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=str(team.uuid),
+                event=SOURCE_DETECTED_EVENT,
+                properties={
+                    "team_id": team.id,
+                    "outcome": detection.outcome,
+                    "attempt": attempt,
+                    "installations": installations,
+                    "candidate_files": detection.candidate_files,
+                },
+                groups=groups(team=team),
+            )
     except Exception as e:
         logger.warning("code_email_source_report_failed", team_id=team.id, error=str(e))

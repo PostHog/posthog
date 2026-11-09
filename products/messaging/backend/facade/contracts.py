@@ -359,7 +359,7 @@ class CodeManagedEmail:
     tags: tuple[str, ...]
     sensitive: bool
     source_url: str | None
-    source_origin: CodeEmailSourceOrigin
+    source_origin: CodeEmailSourceOrigin | None
     created_at: datetime
 
 

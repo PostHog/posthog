@@ -601,7 +601,7 @@ class TestTransactionalEmail(APIBaseTest):
         self._cdp_accepts(mock_post)
         psak = self._psak_client(["hog_flow:write"])
 
-        with patch.object(detect_code_email_source_task, "delay", side_effect=queue_error) as queue:
+        with patch.object(detect_code_email_source_task, "apply_async", side_effect=queue_error) as queue:
             with self.captureOnCommitCallbacks(execute=True):
                 first = psak.post(self.send_email_url, self._code_send(), format="json")
                 assert queue.call_count == 0
@@ -610,7 +610,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert first.status_code == second.status_code == status.HTTP_202_ACCEPTED, first.json()
         key = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome")
-        queue.assert_called_once_with(self.team.id, str(key.id))
+        queue.assert_called_once_with(args=(self.team.id, str(key.id)), retry=False)
 
     def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)

@@ -27,9 +27,46 @@ def _match(path: str, context: str, *, repository: str = "acme/web", line: int =
     return ExactCodeMatch(repository=repository, path=path, lines=(MatchedLine(number=line, context=context),))
 
 
-_SDK_SEND = "await posthog.emails.send({\n  template_key: 'welcome',\n  to: user.email,\n})"
-_RAW_SEND = "requests.post(f'{host}/api/projects/{project}/messaging/send/email/', json={'template_key': 'welcome'})"
-_KEY_ONLY = "WELCOME_KEY = 'welcome'"
+# Each context is the matched line on line 12 with the five lines before and after it, as the search builds it.
+_SDK_SEND = "\n".join(
+    [
+        "import { posthog } from './posthog'",
+        "",
+        "export async function sendWelcome(user: User): Promise<void> {",
+        "    const to = user.email",
+        "    await posthog.emails.send({",
+        "        template_key: 'welcome',",
+        "        to,",
+        "    })",
+        "}",
+    ]
+)
+_RAW_SEND = "\n".join(
+    [
+        "import requests",
+        "",
+        "",
+        "def send_welcome(host: str, project: int, to: str) -> None:",
+        "    url = f'{host}/api/projects/{project}/messaging/send/email/'",
+        "    requests.post(url, json={'template_key': 'welcome', 'to': to})",
+    ]
+)
+_KEY_ONLY = "\n".join(["", "", "", "", "", "WELCOME_KEY = 'welcome'"])
+_SUBJECT_BESIDE_ANOTHER_SEND = "\n".join(
+    [
+        "export async function sendReceipt(user: User): Promise<void> {",
+        "    // The subject line the welcome email uses too",
+        "    const intro = t('emails.subject')",
+        "    const legacy = intro",
+        "    const total = user.cart.total",
+        "    const subject = 'welcome'",
+        "    await posthog.emails.send({",
+        "        template_key: 'receipt',",
+        "        to: user.email,",
+        "    })",
+        "}",
+    ]
+)
 
 
 class TestRankCallSites(SimpleTestCase):
@@ -87,6 +124,16 @@ class TestRankCallSites(SimpleTestCase):
                 SourceDetection(outcome="none", call_site=None, candidate_files=1),
             ),
             (
+                "key_beside_a_send_of_another_key",
+                [
+                    ExactCodeSearchResult(
+                        matches=[_match("src/emails/receipt.ts", _SUBJECT_BESIDE_ANOTHER_SEND)], complete=True
+                    )
+                ],
+                False,
+                SourceDetection(outcome="none", call_site=None, candidate_files=1),
+            ),
+            (
                 "test_paths_dropped",
                 [
                     ExactCodeSearchResult(
@@ -95,6 +142,8 @@ class TestRankCallSites(SimpleTestCase):
                             _match("src/__tests__/welcome.ts", _SDK_SEND),
                             _match("src/emails/welcome.test.ts", _SDK_SEND),
                             _match("node_modules/@acme/mail/index.js", _SDK_SEND),
+                            _match("app/test_mailer.py", _RAW_SEND),
+                            _match("lib/mailer_spec.rb", _SDK_SEND),
                         ],
                         complete=True,
                     )
@@ -138,7 +187,10 @@ _ONE_CALL_SITE = ExactCodeSearchResult(matches=[_match("src/emails/welcome.ts", 
 _NOTHING = ExactCodeSearchResult(matches=[], complete=True)
 
 
-@patch("products.messaging.backend.services.code_email_source.posthoganalytics.capture")
+BROKER_VISIBILITY_TIMEOUT_SECONDS = 3600
+
+
+@patch("products.messaging.backend.services.code_email_source.ph_scoped_capture")
 @patch(
     "products.messaging.backend.services.code_email_source.posthoganalytics.feature_enabled",
     return_value=True,
@@ -159,7 +211,8 @@ class TestDetectCodeEmailSource(BaseTest):
     def _detect(self, attempt: int = 1, key: TransactionalEmailKey | None = None) -> None:
         detect_code_email_source_task(self.team.id, str((key or self.key).id), attempt)
 
-    def _reported(self, capture: MagicMock) -> list[dict[str, Any]]:
+    def _reported(self, scoped_capture: MagicMock) -> list[dict[str, Any]]:
+        capture = scoped_capture.return_value.__enter__.return_value
         return [
             call.kwargs["properties"]
             for call in capture.call_args_list
@@ -182,22 +235,22 @@ class TestDetectCodeEmailSource(BaseTest):
         ]
         retry.assert_not_called()
 
-    def test_keeps_a_link_a_person_set_while_it_searched(self, _retry, find, _flag, _capture) -> None:
-        def person_links_the_file(_literal: str) -> ExactCodeSearchResult:
+    @parameterized.expand([("linked", "https://gitlab.example.com/acme/web/-/blob/main/mail.ts"), ("unlinked", None)])
+    def test_keeps_what_a_person_chose_while_it_searched(self, retry, find, _flag, capture, _name, person_link) -> None:
+        def person_sets_the_link(_literal: str) -> ExactCodeSearchResult:
             TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(id=self.key.id).update(
-                source_url="https://gitlab.example.com/acme/web/-/blob/main/mail.ts"
+                source_url=person_link, source_origin="manual"
             )
             return _ONE_CALL_SITE
 
-        find.side_effect = person_links_the_file
+        find.side_effect = person_sets_the_link
 
         self._detect()
 
         self.key.refresh_from_db()
-        assert (self.key.source_url, self.key.source_origin) == (
-            "https://gitlab.example.com/acme/web/-/blob/main/mail.ts",
-            "manual",
-        )
+        assert (self.key.source_url, self.key.source_origin) == (person_link, "manual")
+        assert [report["outcome"] for report in self._reported(capture)] == ["kept"]
+        retry.assert_not_called()
 
     @parameterized.expand(
         [
@@ -214,7 +267,7 @@ class TestDetectCodeEmailSource(BaseTest):
             ),
         ]
     )
-    def test_searches_once_more_an_hour_later_only_after_a_first_miss(
+    def test_searches_once_more_only_after_a_first_miss(
         self, retry, find, _flag, capture, _name, attempt, answer, outcome, retried
     ) -> None:
         if isinstance(answer, Exception):
@@ -226,12 +279,13 @@ class TestDetectCodeEmailSource(BaseTest):
 
         assert [(report["outcome"], report["attempt"]) for report in self._reported(capture)] == [(outcome, attempt)]
         assert retry.call_args_list == (
-            [((), {"args": (self.team.id, str(self.key.id), 2), "countdown": 3600})] if retried else []
+            [((), {"args": (self.team.id, str(self.key.id), 2), "countdown": 3000})] if retried else []
         )
+        assert all(call.kwargs["countdown"] < BROKER_VISIBILITY_TIMEOUT_SECONDS for call in retry.call_args_list)
         self.key.refresh_from_db()
         assert self.key.source_url is None
 
-    @parameterized.expand(["flag_off", "key_too_long_to_search", "already_linked", "no_github"])
+    @parameterized.expand(["flag_off", "key_too_long_to_search", "already_linked", "link_cleared", "no_github"])
     def test_skips_the_search(self, retry, find, flag, capture, case) -> None:
         key = self.key
         if case == "flag_off":
@@ -241,6 +295,10 @@ class TestDetectCodeEmailSource(BaseTest):
         elif case == "already_linked":
             TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(id=key.id).update(
                 source_url="https://example.com/mail.ts"
+            )
+        elif case == "link_cleared":
+            TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(id=key.id).update(
+                source_url=None, source_origin="manual"
             )
         else:
             Integration.objects.filter(team=self.team, kind="github").delete()

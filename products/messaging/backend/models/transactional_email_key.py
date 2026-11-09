@@ -18,13 +18,9 @@ class TransactionalEmailKey(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     # The file in the customer's repository that sends under this key, as a link a person pasted.
     source_url = models.URLField(max_length=SOURCE_URL_MAX_LENGTH, null=True, blank=True)
-    # Whether a person set source_url or detection found it. Detection never replaces a link a person set.
-    source_origin = models.CharField(
-        max_length=16,
-        choices=CodeEmailSourceOrigin.choices,
-        default=CodeEmailSourceOrigin.MANUAL.value,
-        db_default=CodeEmailSourceOrigin.MANUAL.value,
-    )
+    # Whether a person set or cleared source_url, or detection found it. Null until either happens, so detection
+    # can tell a key nobody touched from one a person unlinked, and never relinks the second.
+    source_origin = models.CharField(max_length=16, choices=CodeEmailSourceOrigin.choices, null=True)
 
     class Meta:
         constraints = [

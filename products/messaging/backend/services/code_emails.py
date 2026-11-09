@@ -40,7 +40,7 @@ def _code_email(key: TransactionalEmailKey, workflow: CodeEmailWorkflow) -> Code
         tags=workflow.tags,
         sensitive=workflow.sensitive,
         source_url=key.source_url,
-        source_origin=CodeEmailSourceOrigin(key.source_origin),
+        source_origin=CodeEmailSourceOrigin(key.source_origin) if key.source_origin else None,
         created_at=key.created_at,
     )
 
