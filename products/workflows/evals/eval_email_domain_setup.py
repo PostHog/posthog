@@ -3,6 +3,7 @@ from __future__ import annotations
 from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.workflows.evals.offline_config import email_domain_setup_suite
 from products.workflows.evals.scorers import (
     AvoidedTool,
     BoundedVerifyPolling,
@@ -291,6 +292,8 @@ async def eval_email_domain_setup(ctx: EvalContext) -> None:
     with simulated_email_domains():
         await SandboxedEval(
             experiment_name="sandboxed-email-domain-setup-cli",
+            offline_suite=email_domain_setup_suite(),
+            send_to_posthog=True,
             cases=_cases(),
             scorers=[
                 SendersInProject(),
