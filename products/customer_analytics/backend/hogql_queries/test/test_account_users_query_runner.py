@@ -123,7 +123,7 @@ class TestAccountPersonsCatalogEvents(SimpleTestCase):
         user = User(distinct_id="example-reader", email="reader@example.com")
         catalog = AccountPersonsCatalog(team, user)
         with (
-            patch(CATALOG_FLAG_CHECK, return_value=variant),
+            patch("posthog.ph_client.posthoganalytics.get_feature_flag", return_value=variant) as flag_check,
             patch(
                 "products.customer_analytics.backend.hogql_queries.account_persons_catalog.emit_slo_started"
             ) as started,
@@ -137,6 +137,8 @@ class TestAccountPersonsCatalogEvents(SimpleTestCase):
             else:
                 with catalog.run(track=track):
                     catalog.cache_hit = True
+            assert flag_check.call_args.kwargs["only_evaluate_locally"] is True
+            assert flag_check.call_args.kwargs["send_feature_flag_events"] is False
             if variant is None or not track:
                 assert not started.called and not completed.called
             else:

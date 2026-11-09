@@ -117,6 +117,7 @@ class AccountPersonsCatalog:
             groups={"organization": org_id, "project": team_id},
             group_properties={"organization": {"id": org_id}, "project": {"id": team_id}},
             person_properties={"email": self.user.email, "is_staff": self.user.is_staff},
+            only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
         if variant not in {"control", "test"}:
