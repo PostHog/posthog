@@ -575,18 +575,49 @@ function OpenTab({
     tab,
     children,
     issueId = 'issue-id',
+    onSetUpVisionScanner,
 }: {
     tab: ExceptionCardTab
     children: JSX.Element
     issueId?: string
+    onSetUpVisionScanner?: () => void
 }): JSX.Element {
-    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId, loading: false }))
+    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId, loading: false, onSetUpVisionScanner }))
 
     useEffect(() => {
         setCurrentTab(tab)
     }, [setCurrentTab, tab])
 
     return children
+}
+
+//////////////////// Recording tab
+
+const noop = (): void => {}
+
+// Only the issue page passes the hand-off, so the button shows here and not in the notebook widget.
+export function ExceptionCardRecordingWithVisionButton(): JSX.Element {
+    const event = asErrorEventType(TEST_EVENTS['javascript_resolved'])
+
+    return (
+        <HeaderWidthMatrix widths={RECORDING_TAB_WIDTHS} height="h-44">
+            {(width) => (
+                <OpenTab tab="recording" issueId={`recording-${width}`} onSetUpVisionScanner={noop}>
+                    <ExceptionCard
+                        issueId={`recording-${width}`}
+                        issueName="Test Issue"
+                        loading={false}
+                        event={event}
+                        onSetUpVisionScanner={noop}
+                    />
+                </OpenTab>
+            )}
+        </HeaderWidthMatrix>
+    )
+}
+ExceptionCardRecordingWithVisionButton.parameters = {
+    ...sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved'])),
+    mockDate: '2026-04-04T23:42:36Z',
 }
 
 //////////////////// All Events
@@ -645,9 +676,11 @@ const HEADER_WIDTHS_WITH_ACTION: typeof HEADER_WIDTHS = [
 
 function HeaderWidthMatrix({
     widths = HEADER_WIDTHS,
+    height = 'h-48',
     children,
 }: {
     widths?: typeof HEADER_WIDTHS
+    height?: string
     children: (width: number) => JSX.Element
 }): JSX.Element {
     return (
@@ -657,7 +690,10 @@ function HeaderWidthMatrix({
                     <div className="text-muted text-xs">{caption}</div>
                     {/* outline rather than border: a border eats 2px of the card's width and shifts the
                         container-query boundary these captions name. */}
-                    <div className="h-48 overflow-hidden outline outline-1 outline-[var(--border)]" style={{ width }}>
+                    <div
+                        className={`${height} overflow-hidden outline outline-1 outline-[var(--border)]`}
+                        style={{ width }}
+                    >
                         {children(width)}
                     </div>
                 </div>
@@ -665,6 +701,12 @@ function HeaderWidthMatrix({
         </div>
     )
 }
+
+// The narrow pane is the issue page's minimum right-column width, where the two sub-header buttons wrap.
+const RECORDING_TAB_WIDTHS: typeof HEADER_WIDTHS = [
+    { width: 375, caption: '375px: narrowest issue pane, the sub-header wraps' },
+    { width: 900, caption: '900px: both buttons on one row' },
+]
 
 // The footer shows how long ago the event happened. Pin the clock so the label stays "a year ago".
 const HEADER_WIDTHS_MOCK_DATE = '2026-04-04T23:42:36Z'
