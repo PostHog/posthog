@@ -10,7 +10,11 @@ from rest_framework import status
 
 from posthog.dataclasses import frozen
 
-from products.managed_warehouse.backend.facade.contracts import TrinoCompiledQuery, TrinoExpansionMode
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseTeamMembership,
+    TrinoCompiledQuery,
+    TrinoExpansionMode,
+)
 from products.managed_warehouse.backend.facade.cp_teams import get_org_team_membership
 from products.managed_warehouse.backend.table_binding import build_trino_table_locators
 
@@ -72,6 +76,26 @@ class PreparedTrinoCompiler:
             TRINO_PURE_REJECTION_TOTAL.labels(feature_code=error.feature_code).inc()
             raise
         return TrinoCompiledQuery(sql=transpiled.sql, values=transpiled.values, hogql=transpiled.hogql)
+
+
+@frozen
+class TrinoTarget:
+    """The ready catalog and physical table mapping that a Django-mode compilation targets."""
+
+    catalog_name: str
+    membership: ManagedWarehouseTeamMembership
+
+
+def resolve_trino_target(team: Team) -> TrinoTarget:
+    organization_id = str(team.organization_id)
+    catalog_name = get_ready_trino_catalog_name(organization_id)
+    if catalog_name is None:
+        raise TrinoTargetUnavailable("The organization does not have a ready Trino catalog")
+
+    membership = get_org_team_membership(organization_id, team.pk)
+    if membership is None:
+        raise TrinoTargetUnavailable("The project does not have an authoritative physical table mapping")
+    return TrinoTarget(catalog_name=catalog_name, membership=membership)
 
 
 def _reject_pure_compilation(error: Exception, *, feature_code: str) -> None:
@@ -236,6 +260,7 @@ def compile_hogql_to_trino_sql(
     select_transform: Callable[[ast.SelectQuery | ast.SelectSetQuery], ast.SelectQuery | ast.SelectSetQuery]
     | None = None,
     preserve_clickhouse_output_names: bool = False,
+    target: TrinoTarget | None = None,
 ) -> TrinoCompiledQuery:
     """Compile HogQL for the ready Trino catalog that serves the team's DuckLake data.
 
@@ -249,10 +274,12 @@ def compile_hogql_to_trino_sql(
     same AST the printer does. It needs ``TrinoExpansionMode.DJANGO``.
     ``preserve_clickhouse_output_names`` resolves the query locally for both dialects and gives the
     Trino output the names that ClickHouse derives. It does not execute a ClickHouse query.
+    ``target`` reuses a ``resolve_trino_target`` result instead of asking the control plane again.
+    It needs ``TrinoExpansionMode.DJANGO``.
     """
     if expansion_mode == TrinoExpansionMode.PURE:
-        if select_transform is not None or preserve_clickhouse_output_names:
-            raise ValueError("A select transform or ClickHouse output names need Django expansion")
+        if select_transform is not None or preserve_clickhouse_output_names or target is not None:
+            raise ValueError("A select transform, ClickHouse output names or a target need Django expansion")
         return prepare_hogql_to_trino_compiler(
             team_id,
             team=team,
@@ -278,14 +305,8 @@ def compile_hogql_to_trino_sql(
     from posthog.models.team.team import Team  # noqa: PLC0415
 
     team = team or Team.objects.get(pk=team_id)
-    organization_id = str(team.organization_id)
-    catalog_name = get_ready_trino_catalog_name(organization_id)
-    if catalog_name is None:
-        raise TrinoTargetUnavailable("The organization does not have a ready Trino catalog")
-
-    membership = get_org_team_membership(organization_id, team_id)
-    if membership is None:
-        raise TrinoTargetUnavailable("The project does not have an authoritative physical table mapping")
+    target = target or resolve_trino_target(team)
+    catalog_name, membership = target.catalog_name, target.membership
 
     TRINO_COMPILATION_TOTAL.labels(mode=expansion_mode.value).inc()
     if expansion_mode != TrinoExpansionMode.DJANGO:
