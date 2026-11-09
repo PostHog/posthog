@@ -277,7 +277,7 @@ def _export_to_png(
                 heatmap_url, exported_asset.export_context.get("heatmap_type"), exported_asset.team
             )
             if not ok:
-                raise Exception(f"heatmap_url not allowed: {err}")
+                raise InvalidExportContext(f"heatmap_url not allowed: {err}")
 
             # URL-encode the page and data URLs so their inner `?` and `&` (e.g.
             # `?width=1024&format=jpeg` on screenshot content URLs) don't corrupt

@@ -739,7 +739,7 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
         with (
             self.settings(OBJECT_STORAGE_ENABLED=False),
             mock_anti_ssrf_dns_lookup(),
-            self.assertRaisesRegex(Exception, "authorized URLs"),
+            self.assertRaisesRegex(InvalidExportContext, "authorized URLs"),
         ):
             image_exporter.export_image(exported_asset)
 
