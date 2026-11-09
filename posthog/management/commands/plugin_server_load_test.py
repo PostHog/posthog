@@ -147,6 +147,6 @@ class Command(BaseCommand):
             logger.info("offset_lag", offset=offset, end_offset=end_offset)
             if end_offset == offset:
                 break
-            time.sleep(1)
+            time.sleep(1)  # noqa: TID251  # Kafka consumers publish progress through their offsets.
 
         logger.info("load_test_completed", time_taken=time.monotonic() - start_time)

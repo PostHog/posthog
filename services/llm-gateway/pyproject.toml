@@ -90,7 +90,6 @@ ignore = [
 "tests/**" = ["PLC0415"]
 # TID251 bans `time.sleep` in test code only (see the root pyproject.toml).
 "!{**/test_*.py,**/*_test.py,**/conftest.py,**/test/**,**/tests/**}" = ["TID251"]
-"tests/integration/conftest.py" = ["TID251"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "time.sleep".msg = "Wait on a condition or control the clock in tests. See /writing-tests."

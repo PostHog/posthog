@@ -56,7 +56,7 @@ class TestMultimodalBlessedPath:
             stored_input = client.read_ai_events_input(trace_id)
             if stored_input:
                 break
-            time.sleep(2)
+            time.sleep(2)  # noqa: TID251  # ClickHouse ingestion completes asynchronously.
 
         assert stored_input is not None, f"no ai_events row for trace_id={trace_id} after 60s"
 

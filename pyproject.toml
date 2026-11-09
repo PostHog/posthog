@@ -452,26 +452,9 @@ select = [
 # Not portable to explicit re-exports without losing the settings-loading semantics.
 "posthog/settings/**" = ["F403", "F405"]
 
-# TID251 bans `time.sleep` in test code only. CI also runs it with --ignore-noqa, so an
-# inline noqa does nothing: the exemption is a path here. A poll belongs in
-# `posthog.test.waiting.wait_until`; a fake that must be slow stays listed.
+# Restrict this ban to test code so production retry backoff is unaffected.
 "!{**/test_*.py,**/*_test.py,**/conftest.py,**/test/**,**/tests/**}" = ["TID251"]
-"posthog/test/waiting.py" = ["TID251"]
-"posthog/management/commands/plugin_server_load_test.py" = ["TID251"]
-"bin/test/test_granian_shared_socket.py" = ["TID251"]
-"common/ingestion/acceptance_tests/test_ai_multimodal_blessed_path.py" = ["TID251"]
-"ee/clickhouse/materialized_columns/test/test_columns.py" = ["TID251"]
-"ee/clickhouse/models/test/utils/util.py" = ["TID251"]
-"posthog/dags/tests/test_clickhouse_cleanup.py" = ["TID251"]
-"posthog/hogql_queries/test/test_query_runner.py" = ["TID251"]
-"posthog/temporal/common/test_threaded_worker.py" = ["TID251"]
-"posthog/temporal/common/test_utils.py" = ["TID251"]
-"posthog/temporal/tests/common/test_combined_metrics_server.py" = ["TID251"]
-"posthog/temporal/tests/test_alerts_activities.py" = ["TID251"]
-"posthog/temporal/tests/utils/workflow.py" = ["TID251"]
-"posthog/test/base.py" = ["TID251"]
-"posthog/test/playwright_setup_functions.py" = ["TID251"]
-"posthog/test/temporal_test_servers.py" = ["TID251"]
+# The standalone Rust crash-injection harness manages its own process timing.
 "rust/deltalite/python/tests/test_crash_redelivery.py" = ["TID251"]
 
 # PLC0415 exemptions. products/ and services/llm-gateway/ have their own ruff configs.

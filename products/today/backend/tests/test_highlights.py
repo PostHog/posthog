@@ -1,10 +1,11 @@
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from queue import Queue
-from time import monotonic, sleep
+from time import monotonic
 from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -801,7 +802,7 @@ def test_finalization_keeps_a_concurrent_publication(team: Team, user: User) -> 
                 cursor.execute("SELECT cardinality(pg_blocking_pids(%s))", [pid])
                 if cursor.fetchone()[0] > 0:
                     return
-            sleep(0.01)
+            time.sleep(0.01)  # noqa: TID251  # Postgres reports row-lock contention from another connection.
         pytest.fail("The concurrent database operation did not wait for the row lock")
 
     with ThreadPoolExecutor(max_workers=2) as pool:

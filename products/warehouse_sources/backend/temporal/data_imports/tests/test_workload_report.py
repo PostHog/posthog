@@ -251,7 +251,7 @@ class TestWorkloadReporterThread:
         assert redis is not None
         deadline = time.monotonic() + 5
         while redis.get(run_key("run-thread")) is None and time.monotonic() < deadline:
-            time.sleep(0.02)
+            time.sleep(0.02)  # noqa: TID251  # The reporter thread publishes its first sample asynchronously.
         assert redis.get(run_key("run-thread")) is not None, "no immediate first sample"
 
         reporter.set_buffer_bytes(777)

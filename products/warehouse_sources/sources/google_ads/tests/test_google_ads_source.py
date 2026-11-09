@@ -1699,7 +1699,7 @@ class TestGoogleAdsQueryConstruction:
             mock.patch(f"{self._MODULE}.google_ads_client"),
             mock.patch(f"{self._MODULE}._search_as_arrow_tables", side_effect=fake_search),
             mock.patch(f"{self._MODULE}._search_with_transient_retry", side_effect=fake_probe),
-            mock.patch(f"{self._MODULE}.time", SimpleNamespace(monotonic=clock.monotonic, sleep=time.sleep)),
+            mock.patch(f"{self._MODULE}.time", SimpleNamespace(monotonic=clock.monotonic, sleep=time.sleep)),  # noqa: TID251  # Replace the drain clock without changing retry sleep behavior.
         ):
             response = google_ads_source(
                 config,

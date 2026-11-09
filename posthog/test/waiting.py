@@ -13,4 +13,4 @@ def wait_until(
     while not condition():
         if time.monotonic() >= deadline:
             raise AssertionError(f"{message} within {timeout}s")
-        time.sleep(interval)
+        time.sleep(interval)  # noqa: TID251  # Polling must yield to the worker that changes the condition.

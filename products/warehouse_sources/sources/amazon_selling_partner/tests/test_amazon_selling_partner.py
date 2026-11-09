@@ -1004,7 +1004,7 @@ def test_probes_past_the_setup_budget_leave_access_unknown() -> None:
     def respond(request: RecordedRequest) -> ScriptedResponse:
         if request.path == TOKEN_PATH:
             return TOKEN
-        time.sleep(40)
+        time.sleep(40)  # noqa: TID251  # Simulate a stalled vendor response for the deadline test.
         return SP_API_FORBIDDEN
 
     with scripted_network(respond) as network:

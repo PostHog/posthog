@@ -24,7 +24,7 @@ class _WorkerDiesOnStartup(_FakeWorker):
 class _WorkerNeverReady(_FakeWorker):
     def run_using_loop(self, loop) -> None:
         while not self._shutdown_event.is_set():
-            time.sleep(0.05)
+            time.sleep(0.05)  # noqa: TID251  # This fake worker stays unready until shutdown.
 
 
 def test_run_in_thread_surfaces_worker_startup_failure():

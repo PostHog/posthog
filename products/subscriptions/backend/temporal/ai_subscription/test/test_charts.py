@@ -175,7 +175,7 @@ async def test_a_failed_render_drops_that_chart_and_keeps_the_rest():
 
 
 def _hangs(*, released: threading.Event, **kwargs):
-    released.wait()
+    assert released.wait(timeout=10), "the test never released the renderer"
     return MagicMock(id=1, exception=None), b"png"
 
 
@@ -219,7 +219,7 @@ async def test_a_slow_chart_does_not_discard_the_ones_that_rendered():
 
     def _render(**kwargs):
         if kwargs["export_context"]["source"]["source"]["query"] == "SLOW":
-            released.wait()
+            assert released.wait(timeout=10), "the test never released the slow renderer"
         return MagicMock(id=7, exception=None), b"png"
 
     with (

@@ -58,7 +58,7 @@ def _start_drip_server(byte_interval: float) -> int:
             conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 1000000\r\n\r\n")
             while True:
                 conn.sendall(b"x")
-                time.sleep(byte_interval)
+                time.sleep(byte_interval)  # noqa: TID251  # Trickled bytes keep the socket active while the request deadline expires.
         except OSError:
             pass
         finally:

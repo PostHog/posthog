@@ -1,7 +1,7 @@
+import time
 import datetime
 from collections.abc import Iterable
 from datetime import timedelta
-from time import sleep
 
 import pytest
 import time_machine
@@ -239,7 +239,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         iterations = 0
         while self._get_count_of_mutations_running() > 0 and iterations < 100:
-            sleep(0.1)
+            time.sleep(0.1)  # noqa: TID251  # ClickHouse mutations finish asynchronously.
             iterations += 1
 
         assert self._count_materialized_rows("mat_prop") >= 4

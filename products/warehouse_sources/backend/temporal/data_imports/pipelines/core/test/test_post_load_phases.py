@@ -109,7 +109,7 @@ class TestPostLoadPhaseRecorder:
             deadline = time.monotonic() + 5
             while window.peak_mb != 4_000.0:
                 assert time.monotonic() < deadline, "timed out"
-                time.sleep(0.001)
+                time.sleep(0.001)  # noqa: TID251  # Wait for the sampler thread to observe the peak.
             rss.set(1_000.0)
         summary = recorder.finish()
         assert _by_name(summary)["compact"]["peak_rss_mb"] == 4_000.0

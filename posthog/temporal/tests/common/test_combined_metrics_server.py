@@ -49,7 +49,7 @@ def create_mock_temporal_server_with_delay(port: int, delay_seconds: float) -> H
 
     class SlowHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
-            time.sleep(delay_seconds)
+            time.sleep(delay_seconds)  # noqa: TID251  # Simulate a response that outlasts the HTTP client timeout.
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()

@@ -43,7 +43,7 @@ class TestRunIngestionAcceptanceTestsTimeout:
         release_run_tests = threading.Event()
 
         def hanging_run_tests(*args, **kwargs):
-            release_run_tests.wait()
+            assert release_run_tests.wait(timeout=10), "the test never released run_tests"
 
         mock_run_tests.side_effect = hanging_run_tests
 

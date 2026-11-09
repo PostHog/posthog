@@ -4,7 +4,7 @@ from typing import SupportsFloat, SupportsIndex
 
 import pytest
 
-_real_sleep = time.sleep
+_real_sleep = time.sleep  # noqa: TID251  # Cap production retry delays within source tests.
 
 
 def _capped_sleep(seconds: SupportsFloat | SupportsIndex, /) -> None:
@@ -25,8 +25,8 @@ def _cap_backoff_sleeps() -> Generator[None]:
     A plain attribute swap rather than mock.patch: this runs for every test in the
     sources tree, and MagicMock construction is measurable at that volume.
     """
-    time.sleep = _capped_sleep  # ty: ignore[invalid-assignment]
+    time.sleep = _capped_sleep  # ty: ignore[invalid-assignment]  # noqa: TID251  # Cap production retry delays within source tests.
     try:
         yield
     finally:
-        time.sleep = _real_sleep
+        time.sleep = _real_sleep  # noqa: TID251  # Cap production retry delays within source tests.

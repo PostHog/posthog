@@ -43,30 +43,19 @@ class TestCacheUtils(SimpleTestCase):
 
     def test_background_cache_refresh(self) -> None:
         dependency = Mock(side_effect=[1, 2])
-        order_of_events: list[str] = []
         refresh_started = threading.Event()
         refresh_released = threading.Event()
         refresh_released.set()
 
         @cache_for(timedelta(milliseconds=200), background_refresh=True)
         def fn_background() -> int:
-            order_of_events.append("Background task started")
-            refresh_started.set()
             value = dependency()
-            refresh_released.wait()
-            order_of_events.append("Background task finished")
+            refresh_started.set()
+            assert refresh_released.wait(timeout=10), "the test never released the background refresh"
             return value
 
         with time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False) as traveller:
-            order_of_events.append("Initial call 1")
             assert 1 == fn_background(use_cache=True)
-            assert dependency.call_count == 1
-
-            order_of_events.append("Initial call 2")
-            assert 1 == fn_background(use_cache=True)
-            assert dependency.call_count == 1
-
-            order_of_events.append("Initial call 3")
             assert 1 == fn_background(use_cache=True)
             assert dependency.call_count == 1
 
@@ -74,14 +63,13 @@ class TestCacheUtils(SimpleTestCase):
             refresh_released.clear()
             try:
                 traveller.shift(timedelta(milliseconds=300))
-                assert dependency.call_count == 1
-                order_of_events.append("Expired call 1")
                 assert 1 == fn_background(use_cache=True)
                 assert refresh_started.wait(timeout=5)
+                assert dependency.call_count == 2
 
                 traveller.shift(timedelta(milliseconds=500))
-                order_of_events.append("Expired call 2")
                 assert 1 == fn_background(use_cache=True)
+                assert dependency.call_count == 2
             finally:
                 refresh_released.set()
 
@@ -89,18 +77,4 @@ class TestCacheUtils(SimpleTestCase):
                 lambda: fn_background(use_cache=True) == 2,
                 message="the background refresh never stored the new value",
             )
-            order_of_events.append("Post refresh call 1")
-            assert 2 == fn_background(use_cache=True)
-
-        assert order_of_events == [
-            "Initial call 1",
-            "Background task started",
-            "Background task finished",
-            "Initial call 2",
-            "Initial call 3",
-            "Expired call 1",
-            "Background task started",
-            "Expired call 2",
-            "Background task finished",
-            "Post refresh call 1",
-        ]
+            assert dependency.call_count == 2

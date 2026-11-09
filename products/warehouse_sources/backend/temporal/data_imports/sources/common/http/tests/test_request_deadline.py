@@ -271,7 +271,7 @@ def _hand_written_loop(wait: float) -> tuple[Send, list[float]]:
                 except requests.RequestException:
                     if attempt == 4 or not request_deadline_allows_wait(wait):
                         raise
-                    time.sleep(wait)
+                    time.sleep(wait)  # noqa: TID251  # Exercise retry waits against the request deadline.
 
     return fetch, tries
 

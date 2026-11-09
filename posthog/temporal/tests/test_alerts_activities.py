@@ -796,7 +796,7 @@ class TestEvaluateAlert:
             give_up_at = time.monotonic() + 5
             while get_client().zscore(INFLIGHT_KEY, alert_id) == first_expiry:
                 assert time.monotonic() < give_up_at, "the running evaluation never re-held its slot"
-                time.sleep(0.05)
+                time.sleep(0.05)  # noqa: TID251  # A background evaluation renews its Redis lease.
             return AlertEvaluationResult(value=5.0, breaches=None)
 
         loop = asyncio.get_running_loop()

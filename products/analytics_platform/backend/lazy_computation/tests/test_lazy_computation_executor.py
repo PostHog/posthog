@@ -3993,7 +3993,7 @@ class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
 
         def slow_insert(_t, job) -> None:
             calls.append(job.id)
-            time_mod.sleep(0.1)
+            time_mod.sleep(0.1)  # noqa: TID251  # Keep inserts in flight while the executor's wait budget expires.
 
         schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=1)
         result = LazyComputationExecutor(wait_timeout_seconds=0.5, ttl_schedule=schedule).execute(

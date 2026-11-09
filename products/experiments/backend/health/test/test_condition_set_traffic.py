@@ -267,7 +267,7 @@ class TestLoadConditionSetTraffic(BaseTest):
 
         def wait_a_moment(_seconds: float) -> None:
             second_load_waits.set()
-            time.sleep(0.01)
+            time.sleep(0.01)  # noqa: TID251  # Let the first scan finish before the contending loader retries.
 
         with (
             patch(
