@@ -21,7 +21,7 @@ from products.canvas.backend.layout import (
 from products.canvas.backend.logic import canvases as canvas_logic
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasState
 from products.canvas.backend.source import has_errors, validate_source_project
-from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
+from products.canvas.backend.tests.test_canvas_api import WIDE_CAPABILITIES, CanvasAPIBaseTest
 from products.canvas.backend.tests.test_component_store import COMPONENT_META
 from products.tasks.backend.models import Channel, Task
 
@@ -412,6 +412,25 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         )
         response = self._publish_layout(grid_id, doc)
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @parameterized.expand([("component_creator", True, status.HTTP_200_OK), ("other_member", False, 403)])
+    def test_pinning_an_older_wider_component_version_needs_the_component_creator(
+        self, _name: str, as_creator: bool, expected_status: int
+    ) -> None:
+        component_id = self._create_component()
+        wide = self._project(component=COMPONENT_META, capabilities=WIDE_CAPABILITIES)
+        wide_version = self._publish(component_id, wide).json()["current_version_id"]
+        assert self._publish(component_id, self._project(component=COMPONENT_META)).status_code == 200
+        grid_id = self._create_grid()
+        if not as_creator:
+            self.client.force_login(self._create_user("grid-member@example.com"))
+        doc = layout(placements=[placement(status="generating", component=component_id, version=wide_version)])
+
+        response = self._publish_layout(grid_id, doc)
+
+        assert response.status_code == expected_status, response.json()
+        if not as_creator:
+            assert response.json()["code"] == "capability_widening_requires_creator"
 
     def test_live_placement_pinned_to_a_version_without_a_ready_build_rejected(self):
         grid_id = self._create_grid()

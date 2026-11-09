@@ -63,6 +63,16 @@ class InMemoryStorage:
             self.objects.pop(key, None)
 
 
+NARROW_CAPABILITIES = {
+    "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+    "network": {"origins": []},
+}
+WIDE_CAPABILITIES = {
+    "posthog": {"insights": ["abc123"], "inlineQueries": True, "captureEvents": []},
+    "network": {"origins": []},
+}
+
+
 class CanvasAPIBaseTest(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1075,6 +1085,130 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         response = self._publish(canvas_id, expected_current_version_id=None)
         assert response.status_code == status.HTTP_200_OK
         assert Canvas.objects.unscoped().get(id=canvas_id).legacy_code is None
+
+    def _act_as_other_member(self, sandbox: bool) -> User:
+        other_user = self._create_user("canvas-member@example.com")
+        if sandbox:
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=other_user,
+                title="Canvas edit",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            self.client = self._sandbox_client(task.id, user=other_user)
+            self.client.defaults["HTTP_X_POSTHOG_TASK_ID"] = str(task.id)
+        else:
+            self.client = APIClient()
+            self.client.force_login(other_user)
+        return other_user
+
+    @parameterized.expand(
+        [
+            (f"{caller}_{action}", caller == "sandbox", action)
+            for caller in ("member", "sandbox")
+            for action in ("publish", "edit", "promote", "revert")
+        ]
+    )
+    def test_only_the_creator_can_add_capabilities(self, _name: str, sandbox: bool, action: str) -> None:
+        base = f"/api/projects/{self.team.id}/canvases"
+        canvas_id = self._create_canvas()
+        # Revert needs an older version that declares more than the head does.
+        first_capabilities = WIDE_CAPABILITIES if action == "revert" else NARROW_CAPABILITIES
+        first = self._publish(
+            canvas_id, self._project(capabilities=first_capabilities), expected_current_version_id=None
+        )
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        head_id = first.json()["current_version_id"]
+        if action == "revert":
+            second = self._publish(
+                canvas_id,
+                self._project("export default function C() { return 2 }"),
+                expected_current_version_id=head_id,
+            )
+            old_wide_id, head_id = head_id, second.json()["current_version_id"]
+        self._act_as_other_member(sandbox)
+
+        if action == "publish":
+            response = self.client.post(
+                f"{base}/{canvas_id}/publish/",
+                {"project": self._project(capabilities=WIDE_CAPABILITIES), "expected_current_version_id": head_id},
+                format="json",
+            )
+        elif action == "edit":
+            response = self.client.post(
+                f"{base}/{canvas_id}/edit/",
+                {
+                    "operations": [{"path": "src/canvas.tsx", "content": "export default () => 1"}],
+                    "capabilities": WIDE_CAPABILITIES,
+                    "expected_current_version_id": head_id,
+                },
+                format="json",
+            )
+        elif action == "promote":
+            draft = self.client.post(
+                f"{base}/{canvas_id}/draft/",
+                {"project": self._project(capabilities=WIDE_CAPABILITIES)},
+                format="json",
+            )
+            assert draft.status_code == status.HTTP_200_OK, draft.json()
+            response = self.client.post(
+                f"{base}/{canvas_id}/promote/",
+                {"version_id": draft.json()["version_id"], "expected_current_version_id": head_id},
+                format="json",
+            )
+        else:
+            response = self.client.post(
+                f"{base}/{canvas_id}/revert/",
+                {"version_id": old_wide_id, "expected_current_version_id": head_id},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        body = response.json()
+        assert body["code"] == "capability_widening_requires_creator"
+        assert body["capability_widening"]["widens"] is True
+        assert body["capability_widening"]["insights_added"] == ["abc123"]
+        assert str(Canvas.objects.unscoped().get(id=canvas_id).current_source_version_id) == head_id
+
+    def test_non_creator_can_narrow_or_keep_capabilities_and_creator_can_widen(self) -> None:
+        base = f"/api/projects/{self.team.id}/canvases"
+        canvas_id = self._create_canvas()
+        first = self._publish(
+            canvas_id, self._project(capabilities=WIDE_CAPABILITIES), expected_current_version_id=None
+        )
+        head_id = first.json()["current_version_id"]
+        creator_client = self.client
+        self._act_as_other_member(sandbox=False)
+
+        kept = self.client.post(
+            f"{base}/{canvas_id}/edit/",
+            {
+                "operations": [{"path": "src/canvas.tsx", "content": "export default () => 1"}],
+                "expected_current_version_id": head_id,
+            },
+            format="json",
+        )
+        assert kept.status_code == status.HTTP_200_OK, kept.json()
+        narrowed = self.client.post(
+            f"{base}/{canvas_id}/publish/",
+            {
+                "project": self._project(capabilities=NARROW_CAPABILITIES),
+                "expected_current_version_id": kept.json()["current_version_id"],
+            },
+            format="json",
+        )
+        assert narrowed.status_code == status.HTTP_200_OK, narrowed.json()
+
+        widened = creator_client.post(
+            f"{base}/{canvas_id}/publish/",
+            {
+                "project": self._project(capabilities=WIDE_CAPABILITIES),
+                "expected_current_version_id": narrowed.json()["current_version_id"],
+            },
+            format="json",
+        )
+        assert widened.status_code == status.HTTP_200_OK, widened.json()
 
 
 class TestCanvasViewEndpoint(CanvasAPIBaseTest):

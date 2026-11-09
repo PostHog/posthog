@@ -367,6 +367,14 @@ class CanvasVersionConflict(Exception):
         self.current_version_id = current_version_id
 
 
+class CanvasCapabilityWideningDenied(Exception):
+    """The change adds capabilities and the caller is not the canvas creator."""
+
+    def __init__(self, widening: CanvasCapabilityWidening) -> None:
+        super().__init__("Only the canvas creator can add capabilities.")
+        self.widening = widening
+
+
 class CanvasRequestRejected(Exception):
     """A canvas rule refused the request. The view returns `detail` with `status_code`."""
 

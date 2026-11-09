@@ -23261,6 +23261,18 @@ export namespace Schemas {
       connectors_added: CanvasConnectorDeclaration[];
     }
 
+    /**
+     * 403 body for a change that adds capabilities when the caller did not create the canvas.
+     */
+    export interface CanvasCapabilityWideningDenied {
+      /** Human-readable description of the refusal. */
+      detail: string;
+      /** Always "capability_widening_requires_creator". */
+      code: string;
+      /** The capabilities the change adds, so the caller can ask the canvas creator to publish them. */
+      capability_widening: CanvasCapabilityWidening;
+    }
+
     export interface CanvasCommentAnchor {
       /** Anchor kind: text or region. */
       kind?: string;

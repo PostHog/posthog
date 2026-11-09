@@ -1146,6 +1146,16 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
     )
 
 
+class CanvasCapabilityWideningDeniedSerializer(serializers.Serializer):
+    """403 body for a change that adds capabilities when the caller did not create the canvas."""
+
+    detail = serializers.CharField(help_text="Human-readable description of the refusal.")
+    code = serializers.CharField(help_text='Always "capability_widening_requires_creator".')
+    capability_widening = CanvasCapabilityWideningSerializer(
+        help_text="The capabilities the change adds, so the caller can ask the canvas creator to publish them."
+    )
+
+
 class CanvasActionDefinitionSerializer(serializers.Serializer):
     """One registered action verb, as the host renders it before invoking."""
 

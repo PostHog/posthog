@@ -52,6 +52,7 @@ from products.canvas.backend.facade.api import (
 from products.canvas.backend.facade.contracts import (
     CanvasBuildCapacityExceeded,
     CanvasBuildNotFoundError,
+    CanvasCapabilityWideningDenied,
     CanvasFieldChange,
     CanvasNotFoundError,
     CanvasRecord,
@@ -71,6 +72,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBuildActionSerializer,
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
+    CanvasCapabilityWideningDeniedSerializer,
     CanvasCommentDetailQuerySerializer,
     CanvasCommentDetailSerializer,
     CanvasCommentsQuerySerializer,
@@ -172,6 +174,18 @@ def _conflict_response(error: CanvasVersionConflict) -> Response:
             "current_version_id": error.current_version_id,
         },
         status=status.HTTP_409_CONFLICT,
+    )
+
+
+def _widening_denied_response(error: CanvasCapabilityWideningDenied) -> Response:
+    return Response(
+        {
+            "detail": "Only the canvas creator can add capabilities. Ask the creator to publish this change, "
+            "or publish it without the added capabilities.",
+            "code": "capability_widening_requires_creator",
+            "capability_widening": error.widening,
+        },
+        status=status.HTTP_403_FORBIDDEN,
     )
 
 
@@ -861,7 +875,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         request=CanvasSourcePublishSerializer,
         responses={
             200: CanvasSourcePublishResponseSerializer,
-            403: OpenApiResponse(description="Only the canvas creator can supply a name when publishing."),
+            403: OpenApiResponse(
+                response=CanvasCapabilityWideningDeniedSerializer,
+                description="The caller is not the canvas creator and either supplied a name or added capabilities. "
+                "Adding capabilities carries code capability_widening_requires_creator.",
+            ),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="The source project failed validation.",
@@ -902,7 +920,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         request=CanvasSourceEditSerializer,
         responses={
             200: CanvasSourcePublishResponseSerializer,
-            403: OpenApiResponse(description="Only the canvas creator can supply a name when editing."),
+            403: OpenApiResponse(
+                response=CanvasCapabilityWideningDeniedSerializer,
+                description="The caller is not the canvas creator and either supplied a name or added capabilities. "
+                "Adding capabilities carries code capability_widening_requires_creator.",
+            ),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="An operation did not apply (a missing file, or old_string matched no place or several), or the edited project failed validation.",
@@ -1007,6 +1029,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         except CanvasVersionConflict as conflict:
             return _conflict_response(conflict)
+        except CanvasCapabilityWideningDenied as denied:
+            return _widening_denied_response(denied)
         except CanvasBuildCapacityExceeded:
             return _capacity_response()
         except ObjectStorageError:
@@ -1137,6 +1161,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         request=CanvasPromoteSerializer,
         responses={
             200: CanvasBuildSerializer,
+            403: OpenApiResponse(
+                response=CanvasCapabilityWideningDeniedSerializer,
+                description="The change adds capabilities and the caller is not the canvas creator.",
+            ),
             409: OpenApiResponse(
                 response=CanvasPublishConflictSerializer,
                 description="The canvas moved past expected_current_version_id (a concurrent publish or a revert).",
@@ -1165,6 +1193,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         except CanvasVersionConflict as conflict:
             return _conflict_response(conflict)
+        except CanvasCapabilityWideningDenied as denied:
+            return _widening_denied_response(denied)
         except CanvasBuildCapacityExceeded:
             return _capacity_response()
         except CanvasVersionNotFoundError:
@@ -1182,6 +1212,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         request=CanvasRevertSerializer,
         responses={
             200: CanvasBuildSerializer,
+            403: OpenApiResponse(
+                response=CanvasCapabilityWideningDeniedSerializer,
+                description="The change adds capabilities and the caller is not the canvas creator.",
+            ),
             429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
         },
     )
@@ -1202,6 +1236,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         except CanvasVersionConflict as conflict:
             return _conflict_response(conflict)
+        except CanvasCapabilityWideningDenied as denied:
+            return _widening_denied_response(denied)
         except CanvasBuildCapacityExceeded:
             return _capacity_response()
         except CanvasVersionNotFoundError:
@@ -1330,6 +1366,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         request=CanvasLayoutPublishSerializer,
         responses={
             200: CanvasLayoutPublishResponseSerializer,
+            403: OpenApiResponse(
+                response=CanvasCapabilityWideningDeniedSerializer,
+                description="The change adds capabilities and the caller is not the canvas creator.",
+            ),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="The canvas is not a grid canvas, or the layout failed validation.",
@@ -1368,6 +1408,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         request=CanvasLayoutPatchSerializer,
         responses={
             200: CanvasLayoutPublishResponseSerializer,
+            403: OpenApiResponse(
+                response=CanvasCapabilityWideningDeniedSerializer,
+                description="The change adds capabilities and the caller is not the canvas creator.",
+            ),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="An operation targeted a missing placement, or the edited layout failed validation.",
@@ -1464,6 +1508,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         except CanvasVersionConflict as conflict:
             return _conflict_response(conflict)
+        except CanvasCapabilityWideningDenied as denied:
+            return _widening_denied_response(denied)
         except ObjectStorageError:
             return Response(
                 {"detail": "Canvas source storage is temporarily unavailable; the layout was not saved."},

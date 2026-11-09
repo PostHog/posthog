@@ -49,6 +49,7 @@ from products.canvas.backend import error_reports
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
 from products.canvas.backend.facade.contracts import CanvasBuildCapacityExceeded, CanvasVersionConflict
+from products.canvas.backend.logic.capability_policy import assert_may_set_capabilities
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import (
     SYNTHETIC_INDEX_HTML,
@@ -584,6 +585,12 @@ def commit_source_project_publish(
         canvas = _claim_canvas_head(
             canvas, has_expected_version=has_expected_version, expected_version_id=expected_version_id
         )
+        assert_may_set_capabilities(
+            canvas,
+            created_by,
+            _version_capabilities(canvas.team_id, canvas.current_source_version_id),
+            prepared.project.get("capabilities") or {},
+        )
         first_publish = canvas.current_source_version_id is None and not (canvas.legacy_code or "").strip()
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
@@ -747,6 +754,7 @@ def publish_grid_layout(
             expected_version_id=expected_version_id,
             check_capacity=False,
         )
+        _assert_pinned_components_not_wider(canvas.team_id, created_by, layout)
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
             canvas=canvas,
@@ -768,6 +776,31 @@ def publish_grid_layout(
         detail=Detail(name=canvas.name),
     )
     return canvas, version
+
+
+def _assert_pinned_components_not_wider(team_id: int, user: User | None, layout: dict[str, Any]) -> None:
+    """Refuse a layout that pins a component version declaring more than that component's head.
+
+    A placement that follows the latest version only ever runs what the component's creator
+    published. A pinned placement can name an older version, so it must not bring back
+    capabilities the component has since dropped unless the user created that component.
+    """
+    pinned_ids = {
+        str(placement["version"])
+        for placement in layout.get("placements", [])
+        if isinstance(placement, dict) and placement.get("version") not in (None, "latest")
+    }
+    if not pinned_ids:
+        return
+    for version in (
+        CanvasSourceVersion.objects.for_team(team_id).filter(id__in=pinned_ids, draft=False).select_related("canvas")
+    ):
+        assert_may_set_capabilities(
+            version.canvas,
+            user,
+            _version_capabilities(team_id, version.canvas.current_source_version_id),
+            version.capabilities,
+        )
 
 
 def publish_current_source_version(
@@ -822,6 +855,9 @@ def revert_to_version(
         previous_head_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
         version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(
             pk=version_id, canvas_id=canvas.id, draft=False
+        )
+        assert_may_set_capabilities(
+            canvas, user, _version_capabilities(canvas.team_id, previous_head_id), version.capabilities
         )
         canvas.current_source_version = version
         canvas.save(update_fields=["current_source_version", "updated_at"])
@@ -932,6 +968,9 @@ def promote_draft_version(
         previous_head_id = canvas.current_source_version_id
         version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(
             pk=version_id, canvas_id=canvas.id, draft=True
+        )
+        assert_may_set_capabilities(
+            canvas, user, _version_capabilities(canvas.team_id, previous_head_id), version.capabilities
         )
         version.draft = False
         version.save(update_fields=["draft"])
