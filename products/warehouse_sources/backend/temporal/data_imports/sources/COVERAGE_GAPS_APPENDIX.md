@@ -11671,15 +11671,15 @@ Today (9): `escalation_policies`, `incidents`, `postmortems`, `runbooks`, `sched
 
 Diffed against: <https://developers.incidents.cloud.solarwinds.com/llms.txt>
 
-- [ ] `incidents/{incidentID}/events (Get Incident Events)` — the incident timeline - acknowledge/reassign/resolve state transitions behind MTTA and MTTR (high)
+- [ ] `incidents/{incidentID}/events (Get Incident Events)` — the incident timeline - acknowledge/reassign/resolve state transitions behind MTTA and MTTR (high); skipped: the call returns the raw alert events grouped into an incident, not the state timeline (the `incidents` export already carries `logs`, `tta` and `ttr`), its event schema has no unique id, and it returns at most 10 rows per page per incident
 - [x] `squads` — lookup plus membership table resolving squad ids on incidents, services and escalation policies (high)
 - [x] `schedules/{scheduleID}/rotations and .../rotations/{id}/participants` — on-call rotations and who is in them; schedules are synced but are meaningless without rotations (high)
-- [ ] `analytics (org-level and team-level)` — the vendor's headline MTTA/MTTR/incident-volume metrics (high)
-- [ ] `incidents/tags` — incident tag values, the primary breakdown dimension for incident reporting (medium)
+- [ ] `analytics (org-level and team-level)` — the vendor's headline MTTA/MTTR/incident-volume metrics (high); skipped: `/v3/analyticsv2/organization` and `/v3/analyticsv2/team` return one `{mtta, mttr}` aggregate for a requested date range, not records, and both values derive from the synced `incidents` table
+- [ ] `incidents/tags` — incident tag values, the primary breakdown dimension for incident reporting (medium); skipped: the API documents only `PUT` and `PATCH` on `/v3/incidents/{IncidentId}/tags`, so there is no list call, and the `incidents` export already carries each incident's `tags`
 - [ ] `incidents/{incidentID}/notes` — responder commentary attached to incidents (medium)
 - [ ] `incidents/additional-responders` — who else was pulled into an incident beyond the primary assignee (medium)
 - [ ] `schedules/{scheduleID}/overrides` — on-call override history, needed for accurate coverage analysis (medium)
-- [ ] `audit-logs` — configuration change history across the org (medium)
+- [x] `audit-logs` — configuration change history across the org (medium). Added as `audit_logs` (incremental on `timestamp`).
 - [ ] `services/dependencies` — service dependency graph for blast-radius analysis on the services we already sync (medium)
 - [ ] `status-pages/issues` — customer-facing issue records with their own lifecycle (low)
 - [ ] `status-pages/maintenances` — planned maintenance windows to exclude from incident stats (low)
