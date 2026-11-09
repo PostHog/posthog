@@ -15729,6 +15729,74 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_applies_nested_property_rule(self, mock_get_flags):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="profile.tax_id", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        create_property_access_control(
+            team_id=self.team.pk, property_definition_id=definition.id, access_level=PropertyAccessLevel.NONE.value
+        )
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "profile", "type": "person", "value": "x", "operator": "icontains"}]}
+                ]
+            },
+        )
+        create_person(
+            team=self.team, distinct_ids=["test-user"], properties={"profile": {"tax_id": "T-1", "plan": "pro"}}
+        )
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {},
+                    "conditions": [
+                        {
+                            "index": 0,
+                            "matched": True,
+                            "explanation": "Condition matched",
+                            "rollout_percentage": 100.0,
+                            "rollout_excluded": False,
+                            "variant": None,
+                            "properties": [
+                                {
+                                    "key": "profile",
+                                    "operator": "icontains",
+                                    "value": "x",
+                                    "type": "person",
+                                    "actual_value": {"tax_id": "T-1", "plan": "pro"},
+                                    "matched": True,
+                                    "explanation": "Property 'profile' matched",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["person_properties"], {"profile": {"plan": "pro"}})
+        self.assertIsNone(data["conditions"][0]["properties"][0]["actual_value"])
+
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_filters_feature_enrollment_property(self, mock_get_flags):
         flag = FeatureFlag.objects.create(
             team=self.team,

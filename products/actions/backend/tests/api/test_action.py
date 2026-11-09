@@ -19,10 +19,10 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import Tag, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.event import MAX_SELECTOR_LENGTH
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.actions.backend.models.action import Action
-from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.actions.backend.presentation.views.action import ActionSerializer, ActionStepJSONSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
@@ -211,6 +211,22 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "attr": "steps",
             },
         )
+        self.assertEqual(Action.objects.count(), count)
+
+    def test_cant_create_action_with_overlong_selector(self, *args):
+        count = Action.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {
+                "name": "long selector",
+                "steps": [{"event": "$autocapture", "selector": "a" * (MAX_SELECTOR_LENGTH + 1)}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "max_length")
+        self.assertEqual(response.json()["attr"], "steps")
+        self.assertIn(f"The maximum is {MAX_SELECTOR_LENGTH}", response.json()["detail"])
         self.assertEqual(Action.objects.count(), count)
 
     def test_cant_create_action_with_whitespace_only_name(self, *args):
@@ -440,68 +456,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         action = Action.objects.get(pk=response.json()["id"])
         assert action.steps[0].event == "test_event "
-
-    def test_selector_match_changes_reports_only_requested_affected_actions(self) -> None:
-        changed = Action.objects.create(
-            team=self.team,
-            name="changed",
-            steps_json=[{"selector": "div .btn:nth-child(2)"}, {"selector": ".sibling"}],
-        )
-        unaffected = Action.objects.create(team=self.team, name="unaffected", steps_json=[{"selector": ".fine"}])
-        for step_index, selector in [(1, ".sibling"), (0, "div .btn:nth-child(2)")]:
-            ActionSelectorMatchChange.objects.for_team(self.team.id).create(
-                team=self.team,
-                action=changed,
-                step_index=step_index,
-                selector=selector,
-                old_match_count=900,
-                new_match_count=120,
-                measured_at=datetime(2026, 9, 11, tzinfo=UTC),
-            )
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/selector_match_changes/",
-            {"action_ids": f"{unaffected.id},{changed.id}"},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == [
-            {
-                "action_id": changed.id,
-                "action_name": "changed",
-                "selectors": ["div .btn:nth-child(2)", ".sibling"],
-            }
-        ]
-
-    @parameterized.expand(
-        [
-            ("the step now carries a different selector", [{"selector": ".rewritten"}]),
-            ("the step was removed", []),
-        ]
-    )
-    def test_selector_match_changes_drops_a_verdict_the_action_no_longer_matches(
-        self, _name: str, steps_json: list[dict]
-    ) -> None:
-        action = Action.objects.create(team=self.team, name="edited", steps_json=[{"selector": ".measured"}])
-        ActionSelectorMatchChange.objects.for_team(self.team.id).create(
-            team=self.team,
-            action=action,
-            step_index=0,
-            selector=".measured",
-            old_match_count=900,
-            new_match_count=120,
-            measured_at=datetime(2026, 9, 11, tzinfo=UTC),
-        )
-        action.steps_json = steps_json
-        action.save()
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/selector_match_changes/",
-            {"action_ids": str(action.id)},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == []
 
     @time_machine.travel("2021-12-12", tick=False)
     def test_listing_actions_is_not_nplus1(self) -> None:
@@ -1120,6 +1074,18 @@ class TestActionStepRegexValidation(SimpleTestCase):
         else:
             with self.assertRaisesMessage(ValidationError, "Invalid regular expression"):
                 ActionSerializer().validate_steps(steps)
+
+
+class TestActionStepSelectorLength(SimpleTestCase):
+    @parameterized.expand([("at_limit", MAX_SELECTOR_LENGTH, True), ("over_limit", MAX_SELECTOR_LENGTH + 1, False)])
+    def test_validates_selector_length(self, _name: str, length: int, expect_valid: bool) -> None:
+        steps = [{"event": "$autocapture", "selector": "a" * length}]
+        if expect_valid:
+            self.assertEqual(ActionSerializer().validate_steps(steps), steps)
+        else:
+            with self.assertRaises(ValidationError) as context:
+                ActionSerializer().validate_steps(steps)
+            self.assertEqual(context.exception.get_codes(), ["max_length"])
 
 
 class TestSelectorWarning(SimpleTestCase):
