@@ -24,9 +24,11 @@ const TAXONOMIC_GROUP_TYPES = [
 // variant and default size in quill's button.css. They read quill tokens such as --foreground and --radius-sm,
 // which exist only inside a data-quill subtree, so the button must render inside one. LemonButton draws its
 // border on both ::before and ::after of the chrome element. The quill border color is translucent, so two
-// layers make it darker, and the overrides hide the ::before layer.
+// layers make it darker, and the overrides hide the ::before layer. FilterRow renders IconPlusSmall, whose glyph
+// fills less of its box than the icons in the other buttons, so the overrides scale it to the same drawn size.
 const QUILL_OUTLINE_ADD_FILTER_BUTTON = [
     '*:before:hidden!',
+    '[&_svg]:scale-150!',
     '[--lemon-button-chrome-depth:0px]! [--lemon-button-hover-depth:0px]! [--lemon-button-press-depth:0px]! [--lemon-button-frame-bg-color:transparent]!',
     '[--button-border-color:color-mix(in_oklab,var(--foreground)_10%,transparent)]! [--lemon-button-border-color-hover:color-mix(in_oklab,var(--foreground)_10%,transparent)]!',
     'dark:[--button-border-color:color-mix(in_oklab,var(--foreground)_15%,transparent)]! dark:[--lemon-button-border-color-hover:color-mix(in_oklab,var(--foreground)_15%,transparent)]!',
