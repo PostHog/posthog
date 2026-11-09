@@ -51,7 +51,11 @@ with workflow.unsafe.imports_passed_through():
         SourceOutcomeInputs,
     )
     from products.alerts_platform.backend.facade.payload import outcome_chunks
-    from products.alerts_platform.backend.facade.platform_metrics import increment_checks_unfinished, safe_record
+    from products.alerts_platform.backend.facade.platform_metrics import (
+        increment_chart_renders,
+        increment_checks_unfinished,
+        safe_record,
+    )
     from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout, start_deliveries
 
 PLAN_START_TO_CLOSE = dt.timedelta(seconds=10)
@@ -80,13 +84,14 @@ REAL_TIME_CHECK_HEARTBEAT_TIMEOUT = _REAL_TIME_TIMEOUTS.heartbeat_timeout
 LLM_CHECK_RETRY_POLICY = CHECK_RETRY_POLICY
 # A firing's chart renders in its own activity, after the check has released its pool slot. It
 # outlasts the export render's own 90-second limit, so the render, not the activity, gives up first.
-CHART_START_TO_CLOSE = dt.timedelta(minutes=2)
-# Room to wait for a render slot. A render that gets none in time sends its firing without a chart.
-CHART_SCHEDULE_TO_CLOSE = CHART_START_TO_CLOSE + dt.timedelta(minutes=2)
+CHART_START_TO_CLOSE = dt.timedelta(seconds=100)
+# The firing waits for one render at most, so a wait for a render slot comes out of the same budget.
+# Past it the firing goes out without its chart, as production sends one whose render timed out.
+CHART_SCHEDULE_TO_CLOSE = CHART_START_TO_CLOSE
 CHART_RETRY_POLICY = RetryPolicy(
     initial_interval=dt.timedelta(seconds=5),
     backoff_coefficient=2.0,
-    maximum_interval=dt.timedelta(seconds=30),
+    maximum_interval=dt.timedelta(seconds=15),
 )
 FAIL_START_TO_CLOSE = dt.timedelta(seconds=10)
 FAIL_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
@@ -513,6 +518,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             chart = next(charts)
             if isinstance(chart, BaseException) and not isinstance(chart, ActivityError):
                 raise chart
+            safe_record(increment_chart_renders, SourceKind.INSIGHT.value, _render_outcome(chart))
             result.append(with_chart(evaluation, chart if isinstance(chart, RenderedChart) else None))
         return result
 
@@ -883,6 +889,17 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         except WorkflowAlreadyStartedError:
             # A retried record claims again and gets the same investigation back.
             pass
+
+
+def _render_outcome(chart: object) -> str:
+    # The firing goes out either way, so only this counter shows the charts it went without.
+    if isinstance(chart, RenderedChart):
+        return "rendered"
+    # The activity ran out of its budget, in a render or waiting for a render slot.
+    if isinstance(chart, ActivityError):
+        return "timed_out"
+    # The render failed, or the alert had no render user.
+    return "no_chart"
 
 
 def _maximum_attempts(check: AdmittedInsightCheck) -> int:

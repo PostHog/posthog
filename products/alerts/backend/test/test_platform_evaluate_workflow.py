@@ -29,6 +29,8 @@ from products.alerts.backend.platform_investigation_detail import (
 )
 from products.alerts.backend.platform_source_cycle import PLATFORM_LLM_CHECKS
 from products.alerts.backend.temporal.platform_evaluate import (
+    CHART_SCHEDULE_TO_CLOSE,
+    CHART_START_TO_CLOSE,
     CHECK_HEARTBEAT_TIMEOUT,
     CHECK_RETRY_POLICY,
     EVALUATION_BUDGET,
@@ -58,6 +60,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceOutcomeInputs,
 )
 from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
+from products.exports.backend.facade.api import RENDER_TIMEOUT
 
 QUEUE = "test-platform-insight-evaluation"
 ADMITTED = ("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")
@@ -413,19 +416,26 @@ async def test_a_slow_check_does_not_hold_back_the_record_of_a_check_that_finish
 
 
 @pytest.mark.parametrize(
-    "failed_attempts, expected_detail",
+    "failed_attempts, returns_chart, expected_detail, render_outcome",
     [
-        (0, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}),
+        (0, True, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}, "rendered"),
         # The render pool was full at first, so the render waited for a slot.
-        (1, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}),
-        (None, {"alert_id": "legacy-alert"}),
+        (1, True, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}, "rendered"),
+        # No slot freed within the firing's one-render budget, so the firing goes out without a chart.
+        (None, True, {"alert_id": "legacy-alert"}, "timed_out"),
+        (0, False, {"alert_id": "legacy-alert"}, "no_chart"),
     ],
 )
 async def test_a_firing_records_the_chart_rendered_after_its_check(
-    environment: WorkflowEnvironment, failed_attempts: int | None, expected_detail: dict[str, object]
+    environment: WorkflowEnvironment,
+    failed_attempts: int | None,
+    returns_chart: bool,
+    expected_detail: dict[str, object],
+    render_outcome: str,
 ) -> None:
     events: list[str] = []
     recorded: list[SourceOutcomeInputs] = []
+    counted: list[str] = []
 
     @activity.defn(name="plan_platform_insight_checks_activity")
     async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
@@ -455,7 +465,7 @@ async def test_a_firing_records_the_chart_rendered_after_its_check(
         if failed_attempts is None or activity.info().attempt <= failed_attempts:
             raise ApplicationError("render pool full")
         events.append(f"render:{inputs.alert_id}")
-        return RenderedChart(asset_id=7, render_user_id=3)
+        return RenderedChart(asset_id=7, render_user_id=3) if returns_chart else None
 
     @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
     async def record(inputs: SourceOutcomeInputs) -> int:
@@ -470,25 +480,36 @@ async def test_a_firing_records_the_chart_rendered_after_its_check(
         activities=[plan, evaluate, render, record],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
-        await environment.client.execute_workflow(
-            InsightAlertPlatformEvaluateWorkflow.run,
-            SourceEvaluationInputs(
-                source=SourceKind.INSIGHT,
-                cutoff="2026-09-16T10:00:00+00:00",
-                batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
-            ),
-            id=f"test-{uuid.uuid4()}",
-            task_queue=QUEUE,
-        )
+        with patch(
+            "products.alerts.backend.temporal.platform_evaluate.increment_chart_renders",
+            side_effect=lambda _source, outcome: counted.append(outcome),
+        ):
+            await environment.client.execute_workflow(
+                InsightAlertPlatformEvaluateWorkflow.run,
+                SourceEvaluationInputs(
+                    source=SourceKind.INSIGHT,
+                    cutoff="2026-09-16T10:00:00+00:00",
+                    batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
+                ),
+                id=f"test-{uuid.uuid4()}",
+                task_queue=QUEUE,
+            )
 
     assert events == (["check", "record"] if failed_attempts is None else ["check", "render:legacy-alert", "record"])
     assert [group.source_detail for batch in recorded for o in batch.outcomes for group in o.groups] == [
         expected_detail
     ]
+    assert counted == [render_outcome]
 
 
 def test_the_binding_holds_the_whole_batch() -> None:
     assert source_evaluation_timeout(SourceKind.INSIGHT) > EVALUATION_BUDGET
+
+
+def test_a_firing_waits_for_one_render_at_most() -> None:
+    # The render gives up before its activity does, and a wait for a render slot adds nothing on top.
+    assert CHART_START_TO_CLOSE > RENDER_TIMEOUT
+    assert CHART_SCHEDULE_TO_CLOSE <= CHART_START_TO_CLOSE
 
 
 async def test_a_cancelled_platform_ai_check_keeps_its_place_in_the_cap_until_its_thread_ends() -> None:
