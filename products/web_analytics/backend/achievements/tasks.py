@@ -266,7 +266,7 @@ def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
         capture_exception(e)
         return
 
-    _apply_progress(ctx, track, progress, evaluation)
+    _apply_progress(ctx, track, progress, evaluation, skip_locked=not incremental)
 
 
 def _apply_progress(
@@ -274,13 +274,17 @@ def _apply_progress(
     track: TrackDefinition,
     evaluated_progress: WebAnalyticsAchievementProgress,
     evaluation: TrackEvaluation,
+    skip_locked: bool = False,
 ) -> list[int]:
     with transaction.atomic():
         progress = (
             WebAnalyticsAchievementProgress.objects.for_team(ctx.team.id)
-            .select_for_update()
-            .get(pk=evaluated_progress.pk)
+            .select_for_update(skip_locked=skip_locked)
+            .filter(pk=evaluated_progress.pk)
+            .first()
         )
+        if progress is None:
+            return []
         if evaluation.checkpoint is not None and (
             progress.last_computed_at != evaluated_progress.last_computed_at
             or (progress.state or {}).get("checkpoint") != (evaluated_progress.state or {}).get("checkpoint")

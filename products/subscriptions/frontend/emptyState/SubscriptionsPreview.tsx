@@ -2,7 +2,7 @@ import './SubscriptionsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored weekly series for the snapshot that gets delivered.
 const LINE = 'M 0 28 L 14 25 L 28 27 L 42 20 L 56 22 L 70 14 L 84 12 L 100 7'
@@ -19,7 +19,7 @@ function areaPath(line: string): string {
  * skill. Before/after pairs share a `__swap` grid cell and crossfade, so nothing moves.
  */
 export function SubscriptionsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('SubscriptionPreview', isStatic && 'SubscriptionPreview--static')}>

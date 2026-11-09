@@ -43,6 +43,7 @@ pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolic
         "dwh_cdp_producer_job",
         "endpoints",
         "alert_destination",
+        "session_replay",
     ]
     .into_iter()
     .map(|source| {

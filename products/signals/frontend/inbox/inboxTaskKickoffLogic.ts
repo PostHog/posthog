@@ -10,6 +10,7 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
@@ -29,6 +30,7 @@ import {
     wrapWithPosthogContext,
 } from 'products/posthog_ai/frontend/api/logics'
 import { submitWithWarmRunRetry } from 'products/posthog_ai/frontend/utils/warmRunSubmission'
+import type { SelfDrivingTrialStatusApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     tasksCreate,
     tasksRunCreate,
@@ -49,6 +51,7 @@ import {
 
 import type { SignalReportCheckApi } from '../generated/api.schemas'
 import { InboxReportActionType, captureInboxReportActionCompleted } from './inboxAnalytics'
+import { selfDrivingTrialLogic } from './logics/selfDrivingTrialLogic'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
@@ -441,6 +444,7 @@ export interface inboxTaskKickoffLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | null // projectLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
+    trial: SelfDrivingTrialStatusApi | null // selfDrivingTrialLogic
     defaultModel: string | null // taskRunDefaultsLogic
     defaultsResolved: boolean // taskRunDefaultsLogic
     aiConsentDisabledReason: string | null
@@ -597,7 +601,10 @@ export interface inboxTaskKickoffLogicMeta {
             dataProcessingAccepted: boolean,
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
-        freeTrialDisabledReason: (featureFlags: FeatureFlagsSet) => string | null
+        freeTrialDisabledReason: (
+            featureFlags: FeatureFlagsSet,
+            trial: SelfDrivingTrialStatusApi | null
+        ) => string | null
         createPrDisabledReason: (
             aiConsentDisabledReason: string | null,
             freeTrialDisabledReason: string | null
@@ -638,6 +645,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason'],
             featureFlagLogic,
             ['featureFlags'],
+            selfDrivingTrialLogic({ teamId: teamLogic.values.currentTeamId! }),
+            ['trial'],
         ],
     })),
 
@@ -763,12 +772,15 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             (dataProcessingAccepted: boolean, dataProcessingApprovalDisabledReason: string | null): string | null =>
                 aiConsentDisabledReason(dataProcessingAccepted, dataProcessingApprovalDisabledReason),
         ],
-        // The flag is keyed on the organization group, so it resolves once the org group is
-        // registered and flags are re-fetched. The server refuses the call regardless.
         freeTrialDisabledReason: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): string | null =>
-                featureFlags[FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL] ? FREE_TRIAL_PR_DISABLED_REASON : null,
+            (s) => [s.featureFlags, s.trial],
+            (featureFlags: FeatureFlagsSet, trial: SelfDrivingTrialStatusApi | null): string | null => {
+                const restricted =
+                    featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP] && trial
+                        ? trial.legacy_pr_restricted
+                        : featureFlags[FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL]
+                return restricted ? FREE_TRIAL_PR_DISABLED_REASON : null
+            },
         ],
         // Why Create PR is unavailable before any report is considered: consent first, then the
         // trial. Discuss keeps only the consent reason, because a trial org can still discuss.
