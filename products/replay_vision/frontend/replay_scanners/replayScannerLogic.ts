@@ -41,6 +41,7 @@ import {
     visionScannersAffectedCohortCreate,
     visionScannersCreate,
     visionScannersDraftCreate,
+    visionScannersDraftRefineCreate,
     visionScannersEstimateCreate,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
@@ -53,6 +54,7 @@ import type {
     DraftScannerResponseApi,
     EstimateResponseApi,
     ObservationStatsApi,
+    RefineScannerDraftResponseApi,
     ReplayObservationApi,
     ReplayScannerApi,
 } from '../generated/api.schemas'
@@ -70,7 +72,7 @@ import {
     parseSortParam,
     serializeSortParam,
 } from '../utils/urlParams'
-import { draftChanges } from './draftChanges'
+import { draftChanges, refineCurrentDraft, refinedFormValues } from './draftChanges'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
 import {
     ExperimentScannerContext,
@@ -453,6 +455,36 @@ export interface GoalDraftRequest {
     experimentId?: number
 }
 
+export interface DraftRefineRequest {
+    instruction: string
+    /** The suggestion the instruction came from, or undefined when the person typed it. */
+    chip?: string
+}
+
+/** What the last refine changed, for the review page's summary and highlights. */
+export interface DraftRefinementSummary {
+    changedFields: string[]
+    couldNot: string[]
+    at: number
+}
+
+/** The budget a refine re-solves against: the one the form shows, else the goal page's choice. */
+function refineSpend(
+    scanner: ScannerFormValues,
+    fallback: GoalDraftSpend | null
+): { free_only: true } | { monthly_credit_budget: number } {
+    if (scanner.free_only) {
+        return { free_only: true }
+    }
+    if (scanner.credit_limit_enabled && scanner.credit_limit) {
+        return { monthly_credit_budget: scanner.credit_limit }
+    }
+    return {
+        monthly_credit_budget:
+            fallback && 'monthlyCreditBudget' in fallback ? fallback.monthlyCreditBudget : DEFAULT_GOAL_BUDGET,
+    }
+}
+
 /** Kept only when it is a slug the create API accepts, so a telemetry value can never block a save. */
 function scannerEntryPoint(value: unknown): string | null {
     return typeof value === 'string' && /^[a-z0-9_]{1,64}$/.test(value) ? value : null
@@ -554,6 +586,8 @@ export interface replayScannerLogicValues {
     goalDraftLoading: boolean
     goalDraftQuery: RecordingsQuery | null
     goalExperiment: ExperimentBasicApi | null
+    goalRefinement: RefineScannerDraftResponseApi | null
+    goalRefinementLoading: boolean
     goalSpendMode: GoalSpendMode
     hasActiveObservationFilters: boolean
     hasObservationsInFlight: boolean
@@ -561,6 +595,7 @@ export interface replayScannerLogicValues {
     isNew: boolean
     isScannerSubmitting: boolean
     isScannerValid: boolean
+    lastRefinement: DraftRefinementSummary | null
     linkedExperimentContext: ExperimentScannerContext | null
     lockedToExperimentScanner: boolean
     observationBackfillFilter: string | null
@@ -589,6 +624,7 @@ export interface replayScannerLogicValues {
     onDemandObservationSuccessCount: number
     originalScanner: ScannerFormValues | null
     pollUntil: number
+    refinementCount: number
     retryingObservationIds: string[]
     savingCohortKey: string | null
     scanner: ScannerFormValues
@@ -700,6 +736,21 @@ export interface replayScannerLogicActions {
     }
     rebuildExperimentContext: (linkedExperimentId?: number | null) => {
         linkedExperimentId: number | null
+    }
+    refineScannerDraft: ({ instruction, chip }: DraftRefineRequest) => DraftRefineRequest
+    refineScannerDraftFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    refineScannerDraftSuccess: (
+        goalRefinement: RefineScannerDraftResponseApi | null,
+        payload?: DraftRefineRequest
+    ) => {
+        goalRefinement: RefineScannerDraftResponseApi | null
+        payload?: DraftRefineRequest
     }
     refreshObservations: () => {
         value: true
@@ -825,6 +876,9 @@ export interface replayScannerLogicActions {
     }
     setGoalDraftQuery: (query: RecordingsQuery | null) => {
         query: RecordingsQuery | null
+    }
+    setGoalDraftRationale: (rationale: string) => {
+        rationale: string
     }
     setGoalExperiment: (experiment: ExperimentBasicApi | null) => {
         experiment: ExperimentBasicApi | null
@@ -1082,6 +1136,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setGoalDraftQuery: (query: RecordingsQuery | null) => ({ query }),
         setEntryPoint: (entryPoint: string | null) => ({ entryPoint }),
         setGoalDraftBaseline: (baseline: ScannerFormValues | null) => ({ baseline }),
+        setGoalDraftRationale: (rationale: string) => ({ rationale }),
         setCreationMethod: (creationMethod: ScannerCreationMethodEnumApi) => ({ creationMethod }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
@@ -1250,6 +1305,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                 drafted_scanner_type: values.goalDraftBaseline?.scanner_type ?? null,
                                 scanner_type: scanner.scanner_type,
                                 entry_point: values.entryPoint,
+                                refinements: values.refinementCount,
                             })
                         }
                         actions.scannerSaved(scanner)
@@ -1353,6 +1409,38 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 },
             },
         ],
+        goalRefinement: [
+            null as RefineScannerDraftResponseApi | null,
+            {
+                // Errors surface through refineScannerDraftFailure; kea-loaders dispatches it for us.
+                refineScannerDraft: async ({ instruction, chip }: DraftRefineRequest) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    const scanner = values.scanner
+                    const goal = (scanner?.goal || values.goalDraftInput).trim()
+                    // Null, not the last refinement: the success listener would apply that one again.
+                    if (!teamId || !scanner || !instruction.trim() || !goal) {
+                        return null
+                    }
+                    return await visionScannersDraftRefineCreate(String(teamId), {
+                        goal,
+                        ...refineSpend(
+                            scanner,
+                            goalSpendChoice(
+                                values.goalSpendMode,
+                                values.goalBudgetInput,
+                                visionQuotaLogic.findMounted()?.values.freeCreditsLeft ?? null
+                            ).spend
+                        ),
+                        experiment_id: values.goalExperiment?.id,
+                        ...(values.goalDraftQuery ? { query: values.goalDraftQuery } : {}),
+                        instruction: instruction.trim(),
+                        current: refineCurrentDraft(scanner),
+                        refinement_index: values.refinementCount + 1,
+                        chip: chip ?? null,
+                    })
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -1430,6 +1518,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as DraftScannerResponseApi | null,
             {
                 startFromScratch: () => null,
+                // The rationale describes the latest change once the draft is refined.
+                setGoalDraftRationale: (state, { rationale }) => (state ? { ...state, rationale } : state),
             },
         ],
         // The form as the AI draft filled it, so the save can report what the person changed on review.
@@ -1437,6 +1527,34 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as ScannerFormValues | null,
             {
                 setGoalDraftBaseline: (_, { baseline }) => baseline,
+                draftScannerFromGoal: () => null,
+                startFromScratch: () => null,
+                discardScannerDraft: () => null,
+                scannerSaved: () => null,
+            },
+        ],
+        // How many refines the draft standing in front of the user went through, reported with its save.
+        refinementCount: [
+            0,
+            {
+                refineScannerDraftSuccess: (count, { goalRefinement }) => (goalRefinement ? count + 1 : count),
+                draftScannerFromGoal: () => 0,
+                startFromScratch: () => 0,
+                discardScannerDraft: () => 0,
+                scannerSaved: () => 0,
+            },
+        ],
+        lastRefinement: [
+            null as DraftRefinementSummary | null,
+            {
+                refineScannerDraftSuccess: (state, { goalRefinement }) =>
+                    goalRefinement
+                        ? {
+                              changedFields: goalRefinement.changed_fields,
+                              couldNot: goalRefinement.could_not,
+                              at: Date.now(),
+                          }
+                        : state,
                 draftScannerFromGoal: () => null,
                 startFromScratch: () => null,
                 discardScannerDraft: () => null,
@@ -2508,6 +2626,42 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // The form now carries the drafted filter, so count what it will actually watch.
                 actions.loadScannerEstimate()
                 actions.setGoalDraftBaseline(values.scanner)
+            },
+
+            refineScannerDraft: ({ instruction, chip }) => {
+                posthog.capture('replay_vision_scanner_draft_refine_started', {
+                    // The instruction is customer text, so only its length is captured.
+                    instruction_length: instruction.trim().length,
+                    chip: chip ?? null,
+                    refinement_index: values.refinementCount + 1,
+                })
+            },
+
+            // Applies only what the refine changed, so the person's own edits to other fields survive.
+            refineScannerDraftSuccess: ({ goalRefinement }) => {
+                const scanner = values.scanner
+                if (!goalRefinement || !scanner) {
+                    return
+                }
+                const refined = refinedFormValues(scanner, goalRefinement)
+                const changed = new Set<string>(goalRefinement.changed_fields)
+                const scopeChanged = !objectsEqual(scannerExperimentScope(scanner), scannerExperimentScope(refined))
+                if (changed.size > 0) {
+                    actions.resetScanner(refined)
+                    persistDraft()
+                }
+                if (goalRefinement.rationale.trim()) {
+                    actions.setGoalDraftRationale(goalRefinement.rationale)
+                }
+                // Later edits are measured against the refined form, so the save reports what the person changed after it.
+                actions.setGoalDraftBaseline(values.scanner)
+                if (changed.has('query') || changed.has('sampling') || changed.has('model') || scopeChanged) {
+                    actions.loadScannerEstimate()
+                }
+            },
+
+            refineScannerDraftFailure: ({ errorObject }) => {
+                lemonToast.error(errorObject?.detail ?? "Couldn't update the draft. Try again in a moment.")
             },
 
             draftScannerFromGoalFailure: ({ errorObject }) => {

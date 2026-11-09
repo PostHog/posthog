@@ -5,25 +5,37 @@ import { TextMorph } from 'torph/react'
 
 import * as researchPng from '@posthog/brand/hoggies/png/research'
 import { IconChevronDown, IconChevronRight, IconInfo, IconSparkles, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonSkeleton,
+    LemonSnack,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook } from 'lib/utils/dom'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
+import { getExperimentVariants } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { AnyPropertyFilter, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, Experiment, PropertyFilterType } from '~/types'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { freeCreditsCoverage } from '../../utils/quotaProjection'
 import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
-import { replayScannerLogic } from '../replayScannerLogic'
+import { DEFAULT_GOAL_BUDGET, type DraftRefinementSummary, replayScannerLogic } from '../replayScannerLogic'
 import { ScannerEditorStep, scannerEditorSceneLogic, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
 import {
     OBSERVATION_CREDITS_BY_MODEL,
@@ -121,6 +133,7 @@ function OverviewSection({
     info,
     editStep,
     scannerId,
+    highlighted = false,
     children,
 }: {
     label: string
@@ -128,11 +141,17 @@ function OverviewSection({
     info?: string
     editStep?: ScannerEditorStep
     scannerId: string
+    /** Marks a section the last refine changed. */
+    highlighted?: boolean
     children: React.ReactNode
 }): JSX.Element {
     const { searchParams } = useValues(router)
     return (
-        <div className="bg-bg-light border rounded-lg p-4 flex items-start justify-between gap-4">
+        <div
+            className={`bg-bg-light border rounded-lg p-4 flex items-start justify-between gap-4 transition-colors ${
+                highlighted ? 'border-accent' : ''
+            }`}
+        >
             <div className="flex-1 min-w-0 space-y-2">
                 <div className="flex items-center gap-1 text-xs text-tertiary uppercase tracking-wide">
                     <span>{label}</span>
@@ -317,6 +336,145 @@ export function eligibleFilterGroups(
 
 /** The landing step after a goal-based draft: the whole drafted config, ordered by comprehension,
  * with each section deep-linking into the wizard step that edits it. */
+export interface DraftRefineChip {
+    /** Sent with the refine for telemetry, so it stays a slug. */
+    key: string
+    label: string
+    instruction: string
+}
+
+const MAX_REFINE_CHIPS = 3
+
+/** Suggested changes for this draft, each one the refine can apply. */
+export function draftRefineChips(scanner: ReplayScanner, experiment: Experiment | null): DraftRefineChip[] {
+    const chips: DraftRefineChip[] = []
+    const scope = scannerExperimentScope(scanner)
+    const testVariant = experiment
+        ? getExperimentVariants(experiment)
+              .map((variant) => variant.key)
+              .find((key) => key !== 'control')
+        : undefined
+    if (scope && !scope.variants?.length && testVariant) {
+        chips.push({
+            key: 'only_test_variant',
+            label: `Only the ${testVariant} variant`,
+            instruction: `Only watch people in the ${testVariant} variant`,
+        })
+    }
+    if (scanner.free_only) {
+        chips.push({
+            key: 'add_monthly_cap',
+            label: 'Add a monthly cap',
+            instruction: `Add a monthly cap of ${DEFAULT_GOAL_BUDGET.toLocaleString()} credits`,
+        })
+    }
+    if (scanner.scanner_type !== 'monitor') {
+        chips.push({ key: 'yes_no_check', label: 'Make it a yes/no check', instruction: 'Make it a yes/no check' })
+    }
+    if (scanner.model !== 'gemini-3.5-flash-lite') {
+        chips.push({ key: 'cheaper_model', label: 'Use a cheaper model', instruction: 'Use the cheapest model' })
+    }
+    return chips.slice(0, MAX_REFINE_CHIPS)
+}
+
+/** One line on what the last refine did. */
+function refinementSummary(refinement: DraftRefinementSummary, labels: Record<string, string>): string {
+    const changed = refinement.changedFields.map((field) => labels[field] ?? field)
+    const parts = [changed.length > 0 ? `Changed: ${changed.join(', ')}.` : 'Nothing changed.']
+    if (refinement.couldNot.length > 0) {
+        parts.push(`Could not: ${refinement.couldNot.join(' ')}`)
+    }
+    return parts.join(' ')
+}
+
+/** A text box that re-drafts the scanner with one change applied and everything else kept. */
+function DraftRefineBox({
+    scannerId,
+    fieldLabels,
+}: {
+    scannerId: string
+    fieldLabels: Record<string, string>
+}): JSX.Element {
+    const logic = replayScannerLogic({ id: scannerId })
+    const { scanner, goalRefinementLoading, lastRefinement, experimentContext } = useValues(logic)
+    const { refineScannerDraft } = useActions(logic)
+    const [instruction, setInstruction] = useState('')
+    const chips = draftRefineChips(scanner, experimentContext?.experiment ?? null)
+    const submit = (text: string, chip?: string): void => {
+        if (!text.trim() || goalRefinementLoading) {
+            return
+        }
+        refineScannerDraft({ instruction: text, chip })
+        setInstruction('')
+    }
+
+    return (
+        <div className="bg-bg-light border rounded-lg p-4 space-y-2">
+            <div className="flex items-center gap-1 text-sm font-medium">
+                <IconSparkles className="text-ai" />
+                <span>Change something?</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+                <LemonInput
+                    className="flex-1 min-w-60"
+                    value={instruction}
+                    onChange={setInstruction}
+                    onPressEnter={() => submit(instruction)}
+                    placeholder="For example: only the test variant, or make it a 1-5 score"
+                    maxLength={500}
+                    disabled={goalRefinementLoading}
+                    data-attr="vision-goal-overview-refine-input"
+                />
+                <LemonButton
+                    type="secondary"
+                    onClick={() => submit(instruction)}
+                    loading={goalRefinementLoading}
+                    disabledReason={!instruction.trim() ? 'Describe the change you want' : undefined}
+                    data-attr="vision-goal-overview-refine"
+                >
+                    Update draft
+                </LemonButton>
+            </div>
+            {chips.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                    {chips.map((chip) => (
+                        <LemonButton
+                            key={chip.key}
+                            size="xsmall"
+                            type="secondary"
+                            onClick={() => submit(chip.instruction, chip.key)}
+                            disabledReason={goalRefinementLoading ? 'Updating the draft' : undefined}
+                            data-attr="vision-goal-overview-refine-chip"
+                        >
+                            {chip.label}
+                        </LemonButton>
+                    ))}
+                </div>
+            ) : null}
+            {lastRefinement && !goalRefinementLoading ? (
+                <LemonBanner type="ai">{refinementSummary(lastRefinement, fieldLabels)}</LemonBanner>
+            ) : null}
+        </div>
+    )
+}
+
+const REFINE_HIGHLIGHT_MS = 4000
+
+/** The fields of the last refine, for a few seconds after it lands. */
+function useRecentlyRefinedFields(refinement: DraftRefinementSummary | null): Set<string> {
+    const [fields, setFields] = useState<Set<string>>(new Set())
+    useEffect(() => {
+        if (!refinement) {
+            setFields(new Set())
+            return
+        }
+        setFields(new Set(refinement.changedFields))
+        const timeout = setTimeout(() => setFields(new Set()), REFINE_HIGHLIGHT_MS)
+        return () => clearTimeout(timeout)
+    }, [refinement])
+    return fields
+}
+
 export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = replayScannerLogic({ id: scannerId })
     const {
@@ -328,7 +486,10 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         scannerEstimateLoading,
         isScannerSubmitting,
         experimentContext,
+        lastRefinement,
     } = useValues(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const refined = useRecentlyRefinedFields(lastRefinement)
     const { freeCreditsAllowance } = useValues(visionQuotaLogic)
     const { recordingsFirst, stepLabels } = useValues(scannerEditorSceneLogic)
     const sectionLabels = goalOverviewSectionTitles(recordingsFirst)
@@ -393,7 +554,12 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
     // The recordings-first experiment arm reviews what the scanner watches before what it asks.
     const askSection = (
-        <OverviewSection label={sectionLabels.configure} editStep="configure" scannerId={scannerId}>
+        <OverviewSection
+            label={sectionLabels.configure}
+            editStep="configure"
+            scannerId={scannerId}
+            highlighted={['prompt', 'scanner_type', 'type_config', 'model'].some((field) => refined.has(field))}
+        >
             <div className="space-y-3">
                 <LemonTag type={SCANNER_TYPE_TAG_TYPE[scanner.scanner_type]}>
                     {scannerTypeLabel(scanner.scanner_type)}
@@ -431,14 +597,24 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 </OverviewSection>
             )}
 
-            <OverviewSection label="Name" editStep="details" scannerId={scannerId}>
+            <OverviewSection
+                label="Name"
+                editStep="details"
+                scannerId={scannerId}
+                highlighted={refined.has('name') || refined.has('description')}
+            >
                 <div className="text-sm font-medium">{scanner.name}</div>
                 {scanner.description ? <div className="text-sm text-muted">{scanner.description}</div> : null}
             </OverviewSection>
 
             {recordingsFirst ? null : askSection}
 
-            <OverviewSection label={sectionLabels.triggers} editStep="triggers" scannerId={scannerId}>
+            <OverviewSection
+                label={sectionLabels.triggers}
+                editStep="triggers"
+                scannerId={scannerId}
+                highlighted={refined.has('query')}
+            >
                 {filterGroups.length > 0 ? (
                     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-sm">
                         {filterGroups.map((group) => (
@@ -493,6 +669,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 info="Estimated from your last 7 days of recordings, projected to a month. Your real volume follows your future traffic, so treat this as a guide."
                 editStep="budget"
                 scannerId={scannerId}
+                highlighted={refined.has('sampling') || refined.has('budget')}
             >
                 <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm">
                     <StatRow label="Recordings">
@@ -562,6 +739,24 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                     </LemonBanner>
                 ) : null}
             </OverviewSection>
+
+            {/* Legacy experiment targeting sits outside the draft the refine reads, so it would be dropped. */}
+            {featureFlags[FEATURE_FLAGS.VISION_DRAFT_REFINE] && !scanner.experiment_targeting ? (
+                <DraftRefineBox
+                    scannerId={scannerId}
+                    fieldLabels={{
+                        name: 'Name',
+                        description: 'Description',
+                        prompt: 'Prompt',
+                        scanner_type: 'Scanner type',
+                        type_config: 'Type settings',
+                        query: sectionLabels.triggers,
+                        sampling: 'Sampling',
+                        model: 'Model',
+                        budget: sectionLabels.budget,
+                    }}
+                />
+            ) : null}
 
             <div className="flex items-center justify-end gap-2">
                 <LemonButton

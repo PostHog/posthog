@@ -44,6 +44,8 @@ import type {
     PaginatedVisionAlertEventListApi,
     PatchedReplayScannerApi,
     PatchedVisionAlertConfigurationApi,
+    RefineScannerDraftRequestApi,
+    RefineScannerDraftResponseApi,
     ReplayObservationApi,
     ReplayObservationLabelApi,
     ReplayScannerApi,
@@ -1659,6 +1661,26 @@ export const visionScannersDraftCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(draftScannerRequestApi),
+    })
+}
+
+export const getVisionScannersDraftRefineCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/draft/refine/`
+}
+
+/**
+ * Apply one instruction to an AI-drafted scanner the person is reviewing, keeping everything else.
+ */
+export const visionScannersDraftRefineCreate = async (
+    projectId: string,
+    refineScannerDraftRequestApi: RefineScannerDraftRequestApi,
+    options?: RequestInit
+): Promise<RefineScannerDraftResponseApi> => {
+    return apiMutator<RefineScannerDraftResponseApi>(getVisionScannersDraftRefineCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(refineScannerDraftRequestApi),
     })
 }
 

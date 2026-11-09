@@ -16,6 +16,7 @@ import numpy as np
 import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from rest_framework import status
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -73,7 +74,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import SETTL
 from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_access import recording_viewer_access
-from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
+from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft, ScannerDraftRefinement
 from products.replay_vision.backend.search import ObservationMatch
 from products.replay_vision.backend.semantic_clusters import cluster_status
 from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack
@@ -1872,6 +1873,157 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(properties.get("failure_reason"), expected_reason)
         # The goal is customer text; only its length may ride along.
         self.assertNotIn("goal", properties)
+
+
+class TestScannerDraftRefineEndpoint(_VisionAPITestCase):
+    _INSTRUCTION = "make it a 1-5 score"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+    def _body(self, **overrides: Any) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "goal": "find users who get stuck in onboarding",
+            "monthly_credit_budget": 5000,
+            "instruction": self._INSTRUCTION,
+            "refinement_index": 2,
+            "chip": "yes_no_check",
+            "current": {
+                "name": "Stuck in onboarding",
+                "description": "Sessions where onboarding stalls",
+                "scanner_type": "monitor",
+                "scanner_config": {"prompt": "Did the user get stuck?"},
+                "query": {"kind": "RecordingsQuery", "filter_test_accounts": True},
+                "sampling_mode": "comprehensive",
+                "sampling_rate": 1.0,
+                "model": "gemini-3-flash-preview",
+                "credit_limit": 5000,
+                "free_only": False,
+            },
+        }
+        body.update(overrides)
+        return body
+
+    def _post(self, body: dict[str, Any] | None = None, *, enabled: bool = True, error: Exception | None = None):
+        refined = ScannerDraftRefinement(
+            draft=ScannerDraft(
+                name="Stuck in onboarding",
+                description="Sessions where onboarding stalls",
+                scanner_type=ScannerType.SCORER,
+                scanner_config={"prompt": "Did the user get stuck?", "scale": {"min": 1, "max": 5}},
+                rationale="A 1-5 score ranks how stuck each person got.",
+                query={"kind": "RecordingsQuery", "filter_test_accounts": True},
+                sampling_mode="comprehensive",
+                sampling_rate=1.0,
+                model="gemini-3-flash-preview",
+                credit_limit=5000,
+            ),
+            changed_fields=["scanner_type", "type_config"],
+            could_not=[],
+        )
+        with (
+            patch("products.replay_vision.backend.api.scanners.draft_refine_enabled", return_value=enabled),
+            patch(
+                "products.replay_vision.backend.api.scanners.refine_scanner_draft",
+                side_effect=error,
+                return_value=refined,
+            ) as refine,
+            patch("products.replay_vision.backend.api.scanners.report_user_action") as report,
+        ):
+            resp = self.client.post(f"{self.scanners_url}draft/refine/", data=body or self._body(), format="json")
+        return resp, refine, report
+
+    def test_draft_refine_returns_the_revised_draft_and_what_changed(self) -> None:
+        resp, refine, report = self._post()
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        data = resp.json()
+        assert data["scanner_type"] == "scorer"
+        assert data["changed_fields"] == ["scanner_type", "type_config"]
+        assert data["could_not"] == []
+        assert data["refinement_index"] == 2
+        assert refine.call_args.kwargs["current"].scanner_config == {"prompt": "Did the user get stuck?"}
+        properties = report.call_args.args[2]
+        assert report.call_args.args[1] == "replay_vision_scanner_draft_refined"
+        assert properties["success"] is True
+        assert properties["changed_fields"] == ["scanner_type", "type_config"]
+        assert properties["chip"] == "yes_no_check"
+        assert properties["instruction_length"] == len(self._INSTRUCTION)
+        # The instruction is customer text; only its length may ride along.
+        assert self._INSTRUCTION not in str(properties)
+
+    def test_draft_refine_is_not_found_without_the_flag_while_draft_stays_open(self) -> None:
+        resp, refine, _ = self._post(enabled=False)
+
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+        refine.assert_not_called()
+        with (
+            patch("products.replay_vision.backend.api.scanners.draft_refine_enabled", return_value=False),
+            patch(
+                "products.replay_vision.backend.api.scanners.draft_scanner_from_goal",
+                return_value=ScannerDraft(
+                    name="n",
+                    description="d",
+                    scanner_type="monitor",
+                    scanner_config={"prompt": "p"},
+                    rationale="",
+                    query=None,
+                ),
+            ),
+        ):
+            drafted = self.client.post(
+                f"{self.scanners_url}draft/", data={"goal": "g", "monthly_credit_budget": 5000}, format="json"
+            )
+        assert drafted.status_code == status.HTTP_200_OK, drafted.json()
+
+    def test_draft_refine_needs_scanner_edit_access(self) -> None:
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, required_level=None, **_: (
+                not (resource == "replay_scanner" and required_level == "editor")
+            ),
+        ):
+            resp, refine, _ = self._post()
+
+        assert resp.status_code == status.HTTP_403_FORBIDDEN, resp.json()
+        refine.assert_not_called()
+
+    def test_draft_refine_needs_ai_consent(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        resp, refine, _ = self._post()
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        refine.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("instruction_too_long", {"instruction": "x" * 501}, "instruction"),
+            (
+                "unsavable_current_draft",
+                {"current": {"name": "n", "scanner_type": "classifier", "scanner_config": {"prompt": "p"}}},
+                "current",
+            ),
+        ]
+    )
+    def test_draft_refine_rejects_an_invalid_request(self, _name: str, overrides: dict[str, Any], attr: str) -> None:
+        resp, refine, _ = self._post(self._body(**overrides))
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
+        assert resp.json()["attr"].startswith(attr)
+        refine.assert_not_called()
+
+    def test_draft_refine_reports_a_model_failure(self) -> None:
+        resp, _, report = self._post(error=DraftError("model_call_failed"))
+
+        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        properties = report.call_args.args[2]
+        assert report.call_args.args[1] == "replay_vision_scanner_draft_refined"
+        assert properties["success"] is False
+        assert properties["failure_reason"] == "model_call_failed"
 
 
 class TestScannerDuplicateAction(_VisionAPITestCase):
