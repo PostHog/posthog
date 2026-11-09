@@ -1,5 +1,9 @@
 # Today shell agent guide (`frontend/src/layout/today`)
 
+## Products pane
+
+- **The Products pane lists every product the current navigation lists.** People go there to find everything. Never filter a product out of `todayProductsLogic`'s `products`, even when another rail pane (People, Analytics, Home) also links to it. Opening such a product from the Products pane keeps that pane open (`paneAfterNavigation` in `todayShellLogic.ts`). `todayProductsLogic.test.ts` fails if the list drifts from `getNavProductItems`.
+
 ## Recents sections
 
 These rules apply to every sidebar section that lists items a person recently opened, for example Recents in the People and Analytics panes.
