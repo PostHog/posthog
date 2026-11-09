@@ -357,6 +357,29 @@ class HyperCache:
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
 
+    def peek_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str | None]:
+        """
+        Reads Redis, then S3, and writes nothing. Unlike get_from_cache_with_source, a miss in both
+        tiers returns (None, None) instead of loading the value and filling Redis, so a debug view
+        sees the cache as it is. (None, "redis") means Redis holds the "missing" marker.
+        """
+        cache_key = self.get_cache_key(key)
+        try:
+            data = self.cache_client.get(cache_key)
+        except _REDIS_READ_ERRORS as e:
+            # A debug view must still show the S3 copy during a Redis outage, like get_from_cache_with_source does.
+            capture_exception(e)
+            data = None
+        if data == _HYPER_CACHE_EMPTY_VALUE:
+            return None, "redis"
+        if data:
+            return json.loads(data), "redis"
+        if self.s3_enabled:
+            data = object_storage.read(cache_key, missing_ok=True)
+            if data:
+                return json.loads(data), "s3"
+        return None, None
+
     def batch_get_from_cache(self, teams: list[Team]) -> dict[int, tuple[dict | None, str, str | None]]:
         """
         Batch get cached values for multiple teams using MGET.
