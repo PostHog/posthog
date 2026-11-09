@@ -354,6 +354,8 @@ class EmailSendingAllowance:
     max_batch_audience: int
     emails_sent_last_day: int
     enforced: bool
+    # The largest batch a slow enough sending rate limit allows. None when no rate raises the cap.
+    rate_limited_max_batch_audience: int | None = None
 
 
 class StaffPausedError(Exception):

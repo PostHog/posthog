@@ -12,6 +12,7 @@ import { SendDayPicker } from '../../SendCalendar/SendDayPicker'
 import { EmailSendingRateLimitPicker } from '../../Workflows/hogflows/steps/components/EmailSendingRateLimitPicker'
 import { RecurringSchedulePicker } from '../../Workflows/hogflows/steps/components/RecurringSchedulePicker'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
+import { BroadcastRateLimitSuggestion } from './BroadcastRateLimitSuggestion'
 
 function SendingRateLimit(): JSX.Element | null {
     const { emailRateLimit, channel } = useValues(broadcastWizardLogic)
@@ -23,6 +24,7 @@ function SendingRateLimit(): JSX.Element | null {
     return (
         <div className="max-w-160">
             <EmailSendingRateLimitPicker value={emailRateLimit} onChange={setEmailRateLimit} />
+            <BroadcastRateLimitSuggestion />
         </div>
     )
 }
@@ -59,6 +61,7 @@ export function BroadcastScheduleStep(): JSX.Element {
         effectiveTimezone,
         stepValidationErrors,
         channel,
+        rateLimitMessage,
     } = useValues(broadcastWizardLogic)
     const {
         setScheduleMode,
@@ -134,11 +137,13 @@ export function BroadcastScheduleStep(): JSX.Element {
 
             <SendingRateLimit />
 
-            {stepValidationErrors.schedule.map((error) => (
-                <div key={error} className="text-danger text-xs">
-                    {error}
-                </div>
-            ))}
+            {stepValidationErrors.schedule
+                .filter((error) => error !== rateLimitMessage)
+                .map((error) => (
+                    <div key={error} className="text-danger text-xs">
+                        {error}
+                    </div>
+                ))}
         </div>
     )
 }

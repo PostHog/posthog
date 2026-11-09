@@ -996,7 +996,7 @@ describe('broadcastWizardLogic', () => {
         {
             case: 'an audience a sending rate limit can reach',
             affected: 10000,
-            expected: { minPerHour: 60, maxPerHour: 62 },
+            expected: { affected: 10000, minPerHour: 60, maxPerHour: 62, days: 7 },
         },
         { case: 'an audience too large for any sending rate', affected: 10417, expected: null },
     ])('asks for a sending rate limit for $case', ({ affected, expected }) => {
@@ -1010,6 +1010,25 @@ describe('broadcastWizardLogic', () => {
             rate_limited: { max_emails_per_hour: 62, max_days: 7, limit: 62 * 24 * 7 },
         }
         expect(rateLimitNeededForAudience(blastRadius)).toEqual(expected)
+    })
+
+    it('asks for a rate limit on the schedule step only once one is set, and applies the suggested rate', () => {
+        logic.actions.loadBlastRadiusSuccess({
+            affected: 10000,
+            total: 10000,
+            limit: 3000,
+            dedupe_key: 'email',
+            confirm_token: 'token',
+            rate_limited: { max_emails_per_hour: 62, max_days: 7, limit: 62 * 24 * 7 },
+        })
+        expect(logic.values.stepValidationErrors.schedule).toEqual([])
+        expect(logic.values.stepValidationErrors.review).toContain(logic.values.rateLimitMessage)
+
+        logic.actions.setEmailRateLimit({ count: 100, period: 'hour' })
+        expect(logic.values.stepValidationErrors.schedule).toEqual([logic.values.rateLimitMessage])
+
+        logic.actions.applySuggestedRateLimit()
+        expect(logic.values.emailRateLimit).toEqual({ count: 62, period: 'hour' })
     })
 
     it('leaves push text saved as Hog unparsed', () => {

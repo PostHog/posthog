@@ -3052,6 +3052,12 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
         read_only=True,
         help_text="True when these allowances are applied to sends. False while they are only being measured.",
     )
+    rate_limited_max_batch_audience = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="The largest audience a single email batch may reach when its sending rate limit is slow enough. "
+        "Null when no rate limit raises max_batch_audience.",
+    )
 
 
 class TeamEmailReputationResponseSerializer(serializers.Serializer):

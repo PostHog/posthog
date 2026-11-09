@@ -38333,6 +38333,11 @@ export namespace Schemas {
       readonly emails_sent_last_day: number;
       /** True when these allowances are applied to sends. False while they are only being measured. */
       readonly enforced: boolean;
+      /**
+         * The largest audience a single email batch may reach when its sending rate limit is slow enough. Null when no rate limit raises max_batch_audience.
+         * @nullable
+         */
+      readonly rate_limited_max_batch_audience: number | null;
     }
 
     /**
