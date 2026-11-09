@@ -75,15 +75,25 @@ function FilledNewMetricScene({
     form,
     preview,
     className,
+    queryError,
 }: {
     form: Partial<NewMetricFormValues>
     preview: SqlPreview
     className: string
+    queryError?: string
 }): JSX.Element {
     useEffect(() => {
         dataCatalogNewMetricSceneLogic.actions.setMetricFormValues(form)
         dataCatalogNewMetricSceneLogic.actions.runSqlPreviewSuccess(preview)
-    }, [form, preview])
+        if (queryError) {
+            dataCatalogNewMetricSceneLogic.actions.setSqlMetadata({
+                query: form.sql,
+                errors: [{ message: queryError }],
+                warnings: [],
+                notices: [],
+            })
+        }
+    }, [form, preview, queryError])
 
     return (
         <div className={className}>
@@ -143,4 +153,41 @@ export const QuillInsightDefinition: Story = {
         }),
     ],
     render: () => <FilledNewMetricScene form={WEEKLY_SIGNUPS_INSIGHT} preview={SINGLE_NUMBER} className="w-[960px]" />,
+}
+
+const UNKNOWN_COLUMN_SQL = 'SELECT count(DISTINCT person_idd) AS value\nFROM events'
+const UNKNOWN_COLUMN_ERROR = 'Unable to resolve field: person_idd'
+
+export const QuillSqlBlockedByQueryError: Story = {
+    parameters: QUILL_PARAMETERS,
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as { query?: { kind?: string; query?: string } }
+                    if (body.query?.kind !== 'HogQLMetadata') {
+                        return [200, {}]
+                    }
+                    return [
+                        200,
+                        {
+                            query: body.query.query,
+                            isValid: false,
+                            errors: [{ message: UNKNOWN_COLUMN_ERROR }],
+                            warnings: [],
+                            notices: [],
+                        },
+                    ]
+                },
+            },
+        }),
+    ],
+    render: () => (
+        <FilledNewMetricScene
+            form={{ ...MONTHLY_ACTIVE_USERS, sql: UNKNOWN_COLUMN_SQL }}
+            preview={SINGLE_NUMBER}
+            queryError={UNKNOWN_COLUMN_ERROR}
+            className="w-[960px]"
+        />
+    ),
 }

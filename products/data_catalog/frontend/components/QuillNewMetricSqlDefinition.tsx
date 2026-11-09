@@ -5,9 +5,19 @@ import { Button, Item, ItemContent, ItemDescription, Kbd, KbdGroup } from '@post
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { dataCatalogNewMetricSceneLogic } from '../dataCatalogNewMetricSceneLogic'
-import { NEW_METRIC_SQL_QUERY_KEY, SQL_PLACEHOLDER } from './NewMetricSqlDefinition'
+import { NEW_METRIC_SQL_QUERY_KEY, SQL_PLACEHOLDER, SQL_VALIDATION_DEBOUNCE_MS } from './NewMetricSqlDefinition'
 import { QuillMetricFormField } from './QuillMetricFormField'
 import { QuillSqlTestResult } from './QuillSqlTestResult'
+
+function SqlErrorCallout({ message }: { message: string }): JSX.Element {
+    return (
+        <Item variant="outline" size="sm" tone="destructive">
+            <ItemContent>
+                <ItemDescription>{message}</ItemDescription>
+            </ItemContent>
+        </Item>
+    )
+}
 
 export function QuillNewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void }): JSX.Element {
     const {
@@ -17,13 +27,14 @@ export function QuillNewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => vo
         sqlPreviewLoading,
         sqlPreviewError,
         sqlPreviewStale,
-        sqlEditorError,
+        sqlValidationMessage,
     } = useValues(dataCatalogNewMetricSceneLogic)
-    const { testSqlQuery, setSqlEditorError, openInSqlEditor } = useActions(dataCatalogNewMetricSceneLogic)
+    const { testSqlQuery, setSqlEditorError, setSqlMetadata, setSqlMetadataLoading, openInSqlEditor } =
+        useActions(dataCatalogNewMetricSceneLogic)
 
     const testDisabledReason = !metricForm.sql.trim()
         ? 'Write a query before testing it'
-        : (sqlEditorError ?? undefined)
+        : (sqlValidationMessage ?? undefined)
 
     return (
         <div className="flex flex-col gap-2">
@@ -36,6 +47,10 @@ export function QuillNewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => vo
                         queryKey={NEW_METRIC_SQL_QUERY_KEY}
                         sourceQuery={sqlSourceQuery}
                         onError={setSqlEditorError}
+                        onMetadata={setSqlMetadata}
+                        onMetadataLoading={setSqlMetadataLoading}
+                        metadataDebounceMs={SQL_VALIDATION_DEBOUNCE_MS}
+                        metadataFreshSources
                         onPressCmdEnter={testSqlQuery}
                         options={{ placeholder: SQL_PLACEHOLDER }}
                         minHeight="10rem"
@@ -61,12 +76,9 @@ export function QuillNewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => vo
                     Open in SQL editor
                 </Button>
             </div>
-            {sqlPreviewError ? (
-                <Item variant="outline" size="sm" tone="destructive">
-                    <ItemContent>
-                        <ItemDescription>{sqlPreviewError}</ItemDescription>
-                    </ItemContent>
-                </Item>
+            {sqlValidationMessage && <SqlErrorCallout message={sqlValidationMessage} />}
+            {sqlPreviewError && !sqlValidationMessage ? (
+                <SqlErrorCallout message={sqlPreviewError} />
             ) : sqlPreview ? (
                 <QuillSqlTestResult
                     preview={sqlPreview}

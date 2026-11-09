@@ -21,7 +21,7 @@ import { dataCatalogNewMetricSceneLogic } from './dataCatalogNewMetricSceneLogic
 import { DEFINITION_TYPE_HINTS, DEFINITION_TYPE_OPTIONS, isMetricDefinitionType } from './newMetricDefinitionTypes'
 
 export function QuillDataCatalogNewMetricScene(): JSX.Element {
-    const { metricForm, metricFormValidationErrors, showMetricFormErrors, saving, sqlNameTaken } =
+    const { metricForm, metricFormValidationErrors, showMetricFormErrors, saving, saveDisabledReason, sqlNameTaken } =
         useValues(dataCatalogNewMetricSceneLogic)
     const { setMetricFormValues, submitMetric } = useActions(dataCatalogNewMetricSceneLogic)
     const unitInputRef = useRef<HTMLInputElement>(null)
@@ -46,7 +46,9 @@ export function QuillDataCatalogNewMetricScene(): JSX.Element {
                             variant="outline"
                             onClick={() => submitMetric(false)}
                             loading={saving === 'propose'}
-                            disabledReason={saving === 'approve' ? 'Saving the metric' : undefined}
+                            disabledReason={
+                                saving === 'approve' ? 'Saving the metric' : (saveDisabledReason ?? undefined)
+                            }
                             data-attr="data-catalog-new-metric-save-proposed"
                         >
                             Save as proposed
@@ -56,7 +58,9 @@ export function QuillDataCatalogNewMetricScene(): JSX.Element {
                             type="submit"
                             onClick={() => submitMetric(true)}
                             loading={saving === 'approve'}
-                            disabledReason={saving === 'propose' ? 'Saving the metric' : undefined}
+                            disabledReason={
+                                saving === 'propose' ? 'Saving the metric' : (saveDisabledReason ?? undefined)
+                            }
                             data-attr="data-catalog-create-metric-submit"
                         >
                             Create and approve
