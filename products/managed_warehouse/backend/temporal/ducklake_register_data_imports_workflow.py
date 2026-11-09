@@ -33,7 +33,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.metrics import ExecutionTimeRecorder
 
 from products.data_warehouse.backend.facade.api import get_s3_client
-from products.managed_warehouse.backend.backfill_trino import backfills_through_trino
+from products.managed_warehouse.backend.backfill_trino import data_imports_through_trino
 from products.managed_warehouse.backend.client import make_duckgres_conninfo
 from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
@@ -208,6 +208,7 @@ def _bind_registration_activity_context(*, team_id: int, schema_id: str, job_id:
 @dataclasses.dataclass
 class DuckLakeRegisterDataImportsGateInputs:
     team_id: int
+    register_through_trino: bool | None = None
 
 
 @dataclasses.dataclass
@@ -216,6 +217,9 @@ class DuckLakeRegisterDataImportsInputs:
     job_id: str
     schema_id: uuid.UUID
     prepared_queryable_folder: str
+    # None follows the data imports flag, True forces Trino and False forces duckgres.
+    register_through_trino: bool | None = None
+    use_trino_canary: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -224,6 +228,8 @@ class DuckLakeRegisterDataImportsInputs:
             "job_id": self.job_id,
             "schema_id": str(self.schema_id),
             "prepared_queryable_folder": self.prepared_queryable_folder,
+            "register_through_trino": self.register_through_trino,
+            "use_trino_canary": self.use_trino_canary,
         }
 
 
@@ -236,6 +242,7 @@ class DuckLakeRegisterDataImportsMetadata:
     ducklake_schema_name: str
     ducklake_table_name: str
     engine: str = ENGINE_DUCKGRES
+    trino_canary: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -254,6 +261,7 @@ class DuckLakeRegisterCleanupInputs:
     schema_name: str
     table_names: list[str]
     engine: str = ENGINE_DUCKGRES
+    trino_canary: bool = False
 
 
 class _StalePreparedGenerationError(Exception):
@@ -303,9 +311,13 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
     if not flag_enabled:
         return False
 
-    if await asyncio.to_thread(backfills_through_trino, organization_id):
-        # This flag marks a warehouse that may have no duckgres, so a Trino target that is not ready skips the
-        # run instead of falling back to duckgres. The next completed sync starts registration again.
+    if inputs.register_through_trino is not None:
+        through_trino = inputs.register_through_trino
+    else:
+        through_trino = await asyncio.to_thread(data_imports_through_trino, organization_id)
+    if through_trino:
+        # A warehouse on the Trino path may have no duckgres, so a Trino target that is not ready skips the run
+        # instead of falling back to duckgres. The next completed sync starts registration again.
         if await asyncio.to_thread(get_ready_trino_catalog_name, organization_id) is None:
             await logger.ainfo("Trino target is not ready; skipping DuckLake data imports registration through Trino")
             get_ducklake_register_data_imports_skipped_metric(team_id=inputs.team_id, reason="trino_not_ready").add(1)
@@ -363,7 +375,16 @@ async def prepare_ducklake_data_imports_registration_activity(
         prepared_source_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{inputs.prepared_queryable_folder}"
         ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
         ducklake_table_name = await database_sync_to_async(duckgres_data_imports_table_name)(schema)
-        engine = await database_sync_to_async(_registration_engine_for_team)(inputs.team_id)
+        engine = await database_sync_to_async(_registration_engine_for_team)(
+            inputs.team_id, inputs.register_through_trino
+        )
+        trino_canary = inputs.use_trino_canary and engine == ENGINE_TRINO
+        await logger.ainfo(
+            "Chose the DuckLake data imports registration engine",
+            engine=engine,
+            engine_source="override" if inputs.register_through_trino is not None else "flag",
+            trino_canary=trino_canary,
+        )
         if engine == ENGINE_TRINO:
             landing_uri = await database_sync_to_async(_resolve_trino_landing_uri)(
                 team_id=inputs.team_id,
@@ -390,6 +411,7 @@ async def prepare_ducklake_data_imports_registration_activity(
             ducklake_schema_name=ducklake_schema_name,
             ducklake_table_name=ducklake_table_name,
             engine=engine,
+            trino_canary=trino_canary,
         )
 
 
@@ -473,11 +495,13 @@ def _record_registration_metrics(
     get_ducklake_register_data_imports_bytes_metric(team_id=team_id, schema_id=schema_id).record(float(copied_bytes))
 
 
-def _registration_engine_for_team(team_id: int) -> str:
+def _registration_engine_for_team(team_id: int, register_through_trino: bool | None) -> str:
+    if register_through_trino is not None:
+        return ENGINE_TRINO if register_through_trino else ENGINE_DUCKGRES
     organization_id = str(_get_org_id_for_team(team_id))
-    if backfills_through_trino(organization_id):
+    if data_imports_through_trino(organization_id):
         return ENGINE_TRINO
-    # backfills_through_trino returns False when the flag evaluation fails, so an org without a duckgres server
+    # data_imports_through_trino returns False when the flag evaluation fails, so an org without a duckgres server
     # must retry instead of falling back to an engine it cannot use.
     if not is_dev_mode() and get_duckgres_server_by_team_org(team_id) is None:
         raise ApplicationError(
@@ -555,6 +579,7 @@ def _copy_and_register_through_trino(
                 filesystem=get_s3_client(),
                 should_publish=lambda: _should_publish_prepared_generation(inputs),
                 deadline_monotonic=None if cancel_delay is None else time.monotonic() + cancel_delay,
+                canary=metadata.trino_canary,
             )
         if not result.published:
             _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
@@ -1130,6 +1155,7 @@ def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanu
             table_names=inputs.table_names,
             sweep_min_age=_SWEEP_MIN_AGE,
             sweep_limit=_SWEEP_BATCH_LIMIT,
+            canary=inputs.trino_canary,
         )
         return
 
@@ -1173,6 +1199,8 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             job_id=loaded["job_id"],
             schema_id=uuid.UUID(schema_id) if isinstance(schema_id, str) else schema_id,
             prepared_queryable_folder=loaded["prepared_queryable_folder"],
+            register_through_trino=loaded.get("register_through_trino"),
+            use_trino_canary=loaded.get("use_trino_canary", False),
         )
 
     @workflow.run
@@ -1185,7 +1213,9 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
 
         should_register = await workflow.execute_activity(
             ducklake_register_data_imports_gate_activity,
-            DuckLakeRegisterDataImportsGateInputs(team_id=inputs.team_id),
+            DuckLakeRegisterDataImportsGateInputs(
+                team_id=inputs.team_id, register_through_trino=inputs.register_through_trino
+            ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
@@ -1263,6 +1293,7 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                                     registration_table_names.previous_name,
                                 ],
                                 engine=metadata.engine,
+                                trino_canary=metadata.trino_canary,
                             ),
                             start_to_close_timeout=dt.timedelta(minutes=2),
                             # Patient on purpose: the drops are idempotent and a leaked

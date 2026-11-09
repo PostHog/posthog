@@ -14,12 +14,18 @@ from products.managed_warehouse.backend.backfill_trino import (
     ADD_FILES_MAX_FILES,
     BACKFILL_TRINO_PRINCIPAL,
     TrinoBackfillCatalog,
+    backfills_through_trino,
+    data_imports_through_trino,
 )
 from products.managed_warehouse.backend.facade.backfill_trino import connect_backfill_catalog
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeDayReplacement,
     DuckLakeTableLayoutError,
     DuckLakeTableReplacement,
+)
+from products.managed_warehouse.backend.facade.feature_flags import (
+    DATA_IMPORTS_TRINO_REGISTRATION_FLAG,
+    DUCKLAKE_TRINO_REGISTRATION_FLAG,
 )
 
 if TYPE_CHECKING:
@@ -401,3 +407,19 @@ class TestTransientFailures:
             )
 
         assert [statement.split()[0] for statement in connection.statements] == ["SELECT", "ALTER", "SELECT"]
+
+
+@pytest.mark.parametrize(
+    "through_trino, flag",
+    [
+        (backfills_through_trino, DUCKLAKE_TRINO_REGISTRATION_FLAG),
+        (data_imports_through_trino, DATA_IMPORTS_TRINO_REGISTRATION_FLAG),
+    ],
+)
+def test_each_trino_helper_evaluates_its_own_flag(through_trino, flag: str) -> None:
+    with patch(
+        "products.managed_warehouse.backend.backfill_trino.feature_enabled_or_false", return_value=True
+    ) as evaluate:
+        assert through_trino("org-1") is True
+
+    assert evaluate.call_args.args[0] == flag

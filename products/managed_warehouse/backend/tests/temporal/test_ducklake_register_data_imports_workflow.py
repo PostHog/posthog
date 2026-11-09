@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import uuid
 import decimal
@@ -66,7 +67,7 @@ def _cp_no_rows():
 
 @pytest.fixture(autouse=True)
 def _trino_engine_off(monkeypatch):
-    monkeypatch.setattr(registration_module, "backfills_through_trino", lambda organization_id: False)
+    monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: False)
 
 
 @pytest.mark.asyncio
@@ -1488,6 +1489,7 @@ def _register_through_trino(
     hive_partition_columns: tuple[str, ...] = (),
     should_publish: bool = True,
     deadline_monotonic: float | None = None,
+    canary: bool = False,
 ) -> trino_module.TrinoRegistrationResult:
     connect = MagicMock(return_value=contextlib.nullcontext(fake))
     monkeypatch.setattr(trino_module, "connect_managed_warehouse_trino", connect)
@@ -1504,6 +1506,7 @@ def _register_through_trino(
         filesystem=_LocalFilesystem(),
         should_publish=lambda: should_publish,
         deadline_monotonic=deadline_monotonic,
+        canary=canary,
     )
 
 
@@ -1523,7 +1526,9 @@ def _footer(path: str, **types: pa.DataType) -> trino_module.ParquetFooter:
         ),
     ],
 )
+@pytest.mark.parametrize("canary", [False, True])
 def test_trino_registration_runs_the_expected_statements(
+    canary: bool,
     _name: str,
     hive_partition_columns: tuple[str, ...],
     relative_paths: list[str],
@@ -1547,9 +1552,11 @@ def test_trino_registration_runs_the_expected_statements(
         tmp_path,
         dict.fromkeys(relative_paths, table),
         hive_partition_columns=hive_partition_columns,
+        canary=canary,
     )
 
     assert result == trino_module.TrinoRegistrationResult(published=True, row_count=4)
+    assert trino_module.connect_managed_warehouse_trino.call_args.kwargs["canary"] is canary
     create = fake.statements_matching("CREATE TABLE")[0]
     columns = '"id" BIGINT, "amount" DECIMAL(10, 2), "created" TIMESTAMP(6) WITH TIME ZONE, "note" VARCHAR' + (
         ', "_ph_partition_key" VARCHAR' if hive_partition_columns else ""
@@ -1802,13 +1809,15 @@ def test_stale_staging_tables_selects_old_tables_with_the_staging_name_up_to_the
     assert re.fullmatch(r"__ph_register_\d{10}_[0-9a-f]{16}", names[0])
 
 
-def test_trino_cleanup_drops_given_tables_and_sweeps_only_old_staging_tables(monkeypatch) -> None:
+@pytest.mark.parametrize("canary", [False, True])
+def test_trino_cleanup_drops_given_tables_and_sweeps_only_old_staging_tables(canary: bool, monkeypatch) -> None:
     now = dt.datetime.now(dt.UTC)
     old = trino_module.staging_table_name(now - dt.timedelta(hours=7), "0" * 16)
     young = trino_module.staging_table_name(now - dt.timedelta(hours=1), "1" * 16)
     legacy = f"__ph_register_{uuid.UUID(int=3).hex}"
     fake = _FakeTrino(staging_tables=[old, young, legacy])
-    monkeypatch.setattr(trino_module, "connect_managed_warehouse_trino", lambda *a, **k: contextlib.nullcontext(fake))
+    connect = MagicMock(return_value=contextlib.nullcontext(fake))
+    monkeypatch.setattr(trino_module, "connect_managed_warehouse_trino", connect)
 
     trino_module.cleanup_trino_registration_tables(
         organization_id="org",
@@ -1817,8 +1826,10 @@ def test_trino_cleanup_drops_given_tables_and_sweeps_only_old_staging_tables(mon
         table_names=["__ph_register_abc"],
         sweep_min_age=registration_module._SWEEP_MIN_AGE,
         sweep_limit=registration_module._SWEEP_BATCH_LIMIT,
+        canary=canary,
     )
 
+    assert connect.call_args.kwargs["canary"] is canary
     assert fake.statements == [
         'DROP TABLE IF EXISTS "lake"."schema_a"."__ph_register_abc"',
         "SELECT table_name FROM \"lake\".information_schema.tables WHERE table_schema = 'schema_a' "
@@ -1912,7 +1923,8 @@ def test_trino_registration_refuses_to_start_at_the_activity_deadline(fake_timer
     assert fake_timer.instances == []
 
 
-def test_trino_cleanup_activity_dispatches_on_the_engine(monkeypatch) -> None:
+@pytest.mark.parametrize("trino_canary", [False, True])
+def test_trino_cleanup_activity_dispatches_on_the_engine(trino_canary: bool, monkeypatch) -> None:
     cleanup = MagicMock()
     monkeypatch.setattr(registration_module, "cleanup_trino_registration_tables", cleanup)
     monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
@@ -1920,19 +1932,25 @@ def test_trino_cleanup_activity_dispatches_on_the_engine(monkeypatch) -> None:
 
     registration_module.cleanup_ducklake_registration_tables_activity(
         registration_module.DuckLakeRegisterCleanupInputs(
-            team_id=1, schema_name="schema_a", table_names=["__ph_register_abc"], engine=ENGINE_TRINO
+            team_id=1,
+            schema_name="schema_a",
+            table_names=["__ph_register_abc"],
+            engine=ENGINE_TRINO,
+            trino_canary=trino_canary,
         )
     )
 
     assert cleanup.call_args.kwargs["table_names"] == ["__ph_register_abc"]
     assert cleanup.call_args.kwargs["organization_id"] == "org"
+    assert cleanup.call_args.kwargs["canary"] is trino_canary
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("trino_ready", [True, False])
 @pytest.mark.parametrize("server_provisioned", [True, False])
+@pytest.mark.parametrize("flag_enabled, override", [(True, None), (False, True)])
 async def test_registration_gate_requires_a_ready_trino_target_and_ignores_the_duckgres_server(
-    monkeypatch, server_provisioned, trino_ready
+    monkeypatch, server_provisioned, trino_ready, flag_enabled, override
 ) -> None:
     team = MagicMock(organization_id=uuid.UUID(int=9))
     monkeypatch.setattr(registration_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
@@ -1940,7 +1958,7 @@ async def test_registration_gate_requires_a_ready_trino_target_and_ignores_the_d
     monkeypatch.setattr(
         "products.managed_warehouse.backend.facade.access.background_loading_configured", lambda organization_id: False
     )
-    monkeypatch.setattr(registration_module, "backfills_through_trino", lambda organization_id: True)
+    monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: flag_enabled)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
     monkeypatch.setattr(
         registration_module,
@@ -1953,7 +1971,9 @@ async def test_registration_gate_requires_a_ready_trino_target_and_ignores_the_d
     skipped_metric = MagicMock(return_value=skipped_counter)
     monkeypatch.setattr(registration_module, "get_ducklake_register_data_imports_skipped_metric", skipped_metric)
 
-    result = await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=1))
+    result = await ducklake_register_data_imports_gate_activity(
+        DuckLakeRegisterDataImportsGateInputs(team_id=1, register_through_trino=override)
+    )
 
     assert result is trino_ready
     trino_catalog.assert_called_once_with(str(uuid.UUID(int=9)))
@@ -1992,10 +2012,11 @@ def test_trino_landing_uri_sits_under_the_data_path_with_the_job_and_generation(
     assert error.value.non_retryable is False
 
 
+@pytest.mark.parametrize("trino_canary", [True, False])
 @pytest.mark.parametrize("names_minted_by_workflow", [True, False])
 @pytest.mark.parametrize("published", [True, False])
 def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_staleness(
-    monkeypatch, published, names_minted_by_workflow
+    monkeypatch, published, names_minted_by_workflow, trino_canary
 ) -> None:
     copy_calls: list[tuple[list[str], list[str]]] = []
     s3 = MagicMock()
@@ -2014,7 +2035,9 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
     base = _activity_inputs()
     inputs = dataclasses.replace(
         base,
-        metadata=dataclasses.replace(base.metadata, engine=ENGINE_TRINO, source_schema_id=str(uuid.UUID(int=5))),
+        metadata=dataclasses.replace(
+            base.metadata, engine=ENGINE_TRINO, source_schema_id=str(uuid.UUID(int=5)), trino_canary=trino_canary
+        ),
         registration_table_names=(
             registration_module._new_trino_registration_table_names(minted_at, "a1b2c3d4e5f60718")
             if names_minted_by_workflow
@@ -2038,6 +2061,7 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
     assert kwargs["landing_paths"] == [f"s3://{attempt_prefix}/k=1/a.parquet"]
     assert kwargs["hive_partition_columns"] == ["k"]
     assert kwargs["filesystem"] is s3
+    assert kwargs["canary"] is trino_canary
     assert kwargs["deadline_monotonic"] == pytest.approx(time.monotonic() + 99.0, abs=30.0)
 
 
@@ -2068,7 +2092,7 @@ def test_trino_copy_activity_refuses_names_older_than_the_start_delay(monkeypatc
 @pytest.mark.asyncio
 async def test_workflow_mints_time_stamped_staging_names_for_trino(monkeypatch) -> None:
     finished_at = MINTED_AT + dt.timedelta(minutes=7)
-    metadata = dataclasses.replace(_activity_inputs().metadata, engine=ENGINE_TRINO)
+    metadata = dataclasses.replace(_activity_inputs().metadata, engine=ENGINE_TRINO, trino_canary=True)
     execute_activity = AsyncMock(side_effect=[True, None, metadata, True, None, None])
     _mock_workflow_metrics(monkeypatch)
     monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
@@ -2077,8 +2101,12 @@ async def test_workflow_mints_time_stamped_staging_names_for_trino(monkeypatch) 
         registration_module.workflow, "now", MagicMock(side_effect=[MINTED_AT, MINTED_AT, finished_at, finished_at])
     )
 
-    await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+    await DuckLakeRegisterDataImportsWorkflow().run(
+        dataclasses.replace(_workflow_inputs(), register_through_trino=True)
+    )
 
+    gate_call = execute_activity.await_args_list[0]
+    assert gate_call.args[1].register_through_trino is True
     copy_call = next(
         call
         for call in execute_activity.await_args_list
@@ -2092,38 +2120,59 @@ async def test_workflow_mints_time_stamped_staging_names_for_trino(monkeypatch) 
     names = copy_call.args[1].registration_table_names
     assert names.shadow_name == trino_module.staging_table_name(MINTED_AT, uuid.UUID(int=7).hex[:16])
     assert cleanup_call.args[1].engine == ENGINE_TRINO
+    assert cleanup_call.args[1].trino_canary is True
     assert names.shadow_name in cleanup_call.args[1].table_names
 
 
 @pytest.mark.parametrize(
-    "_name, trino_flag, dev_mode, server, expected",
+    "_name, trino_flag, dev_mode, server, override, expected",
     [
-        ("trino", True, False, None, ENGINE_TRINO),
-        ("duckgres_with_a_server", False, False, MagicMock(), ENGINE_DUCKGRES),
-        ("duckgres_in_dev_mode_without_a_server", False, True, None, ENGINE_DUCKGRES),
-        ("unconfirmed_without_a_server", False, False, None, None),
+        ("trino", True, False, None, None, ENGINE_TRINO),
+        ("duckgres_with_a_server", False, False, MagicMock(), None, ENGINE_DUCKGRES),
+        ("duckgres_in_dev_mode_without_a_server", False, True, None, None, ENGINE_DUCKGRES),
+        ("unconfirmed_without_a_server", False, False, None, None, None),
+        ("override_trino_without_flag_or_server", False, False, None, True, ENGINE_TRINO),
+        ("override_duckgres_with_flag_and_server", True, False, MagicMock(), False, ENGINE_DUCKGRES),
     ],
 )
 def test_registration_engine_retries_instead_of_falling_back_for_an_org_without_a_server(
-    _name: str, trino_flag: bool, dev_mode: bool, server: Any, expected: str | None, monkeypatch
+    _name: str,
+    trino_flag: bool,
+    dev_mode: bool,
+    server: Any,
+    override: bool | None,
+    expected: str | None,
+    monkeypatch,
 ) -> None:
     monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
-    monkeypatch.setattr(registration_module, "backfills_through_trino", lambda organization_id: trino_flag)
+    monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: trino_flag)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: dev_mode)
     monkeypatch.setattr(registration_module, "get_duckgres_server_by_team_org", lambda team_id: server)
 
     if expected is None:
         with pytest.raises(ApplicationError, match="could not be confirmed") as error:
-            registration_module._registration_engine_for_team(1)
+            registration_module._registration_engine_for_team(1, override)
         assert error.value.non_retryable is False
     else:
-        assert registration_module._registration_engine_for_team(1) == expected
+        assert registration_module._registration_engine_for_team(1, override) == expected
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_prepare_registration_stamps_the_trino_engine_and_lands_under_the_data_path(monkeypatch, ateam):
-    monkeypatch.setattr(registration_module, "backfills_through_trino", lambda organization_id: True)
+@pytest.mark.parametrize(
+    "register_through_trino, use_trino_canary, expected_engine, expected_canary",
+    [
+        (None, False, ENGINE_TRINO, False),
+        (None, True, ENGINE_TRINO, True),
+        (True, True, ENGINE_TRINO, True),
+        (False, True, ENGINE_DUCKGRES, False),
+    ],
+)
+async def test_prepare_registration_stamps_the_engine_and_canary_and_lands_trino_under_the_data_path(
+    monkeypatch, ateam, register_through_trino, use_trino_canary, expected_engine, expected_canary
+):
+    monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: True)
+    monkeypatch.setattr(registration_module, "_resolve_data_imports_landing_uri", lambda **kwargs: "s3://duckgres/path")
     monkeypatch.setattr(registration_module, "get_control_plane_data_path", lambda organization_id: "s3://bucket/lake/")
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam, access_key="test_key", access_secret="test_secret"
@@ -2152,12 +2201,41 @@ async def test_prepare_registration_stamps_the_trino_engine_and_lands_under_the_
             job_id="job-123",
             schema_id=schema.id,
             prepared_queryable_folder=prepared_queryable_folder,
+            register_through_trino=register_through_trino,
+            use_trino_canary=use_trino_canary,
         )
     )
 
     assert metadata is not None
-    assert metadata.engine == ENGINE_TRINO
-    assert metadata.landing_uri == (
-        f"s3://bucket/lake/_ph_imports/posthog_data_imports_team_{ateam.id}/postgres_customers/"
-        f"{schema.id}/job-123/1234567890_abcdef12"
-    )
+    assert metadata.engine == expected_engine
+    assert metadata.trino_canary is expected_canary
+    if expected_engine == ENGINE_TRINO:
+        assert metadata.landing_uri == (
+            f"s3://bucket/lake/_ph_imports/posthog_data_imports_team_{ateam.id}/postgres_customers/"
+            f"{schema.id}/job-123/1234567890_abcdef12"
+        )
+
+
+@pytest.mark.parametrize(
+    "extra, expected_override, expected_canary",
+    [
+        ({}, None, False),
+        ({"register_through_trino": True, "use_trino_canary": True}, True, True),
+        ({"register_through_trino": False}, False, False),
+    ],
+)
+def test_parse_inputs_reads_the_engine_override_and_keeps_old_json_valid(
+    extra: dict[str, Any], expected_override: bool | None, expected_canary: bool
+) -> None:
+    payload = {
+        "team_id": 1,
+        "job_id": "job",
+        "schema_id": "019ef5df-e4c7-0000-b543-8ef7f13b5f15",
+        "prepared_queryable_folder": "customers__query",
+        **extra,
+    }
+
+    inputs = DuckLakeRegisterDataImportsWorkflow.parse_inputs([json.dumps(payload)])
+
+    assert inputs.register_through_trino is expected_override
+    assert inputs.use_trino_canary is expected_canary

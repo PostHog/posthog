@@ -101,7 +101,7 @@ async def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
 
 @pytest.fixture(autouse=True)
 def _trino_engine_off(monkeypatch):
-    monkeypatch.setattr(ducklake_module, "backfills_through_trino", lambda organization_id: False)
+    monkeypatch.setattr(ducklake_module, "data_imports_through_trino", lambda organization_id: False)
 
 
 @pytest.mark.asyncio
@@ -1704,7 +1704,7 @@ async def test_ducklake_copy_data_imports_gate_refuses_trino_organizations(monke
         "products.managed_warehouse.backend.facade.access.internal_loading_enabled", lambda organization_id: True
     )
     trino_on = MagicMock(return_value=True)
-    monkeypatch.setattr(ducklake_module, "backfills_through_trino", trino_on)
+    monkeypatch.setattr(ducklake_module, "data_imports_through_trino", trino_on)
 
     result = await ducklake_copy_data_imports_gate_activity(
         DuckLakeCopyWorkflowGateInputs(team_id=1, internal_bootstrap=bootstrap)

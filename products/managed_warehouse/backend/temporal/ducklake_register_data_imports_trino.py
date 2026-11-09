@@ -284,7 +284,7 @@ class _TrinoStatements:
 
 @contextlib.contextmanager
 def _registration_statements(
-    organization_id: str, *, principal: str, cancel_after_seconds: float | None
+    organization_id: str, *, principal: str, cancel_after_seconds: float | None, canary: bool = False
 ) -> Iterator[_TrinoStatements]:
     """Connect, and cancel the running statement at the activity deadline.
 
@@ -293,7 +293,7 @@ def _registration_statements(
     """
     if cancel_after_seconds is not None and cancel_after_seconds <= 0:
         raise TimeoutError("Trino registration started too close to the Temporal activity deadline")
-    with connect_managed_warehouse_trino(organization_id, principal=principal) as connection:
+    with connect_managed_warehouse_trino(organization_id, principal=principal, canary=canary) as connection:
         if cancel_after_seconds is None:
             yield _TrinoStatements(connection)
             return
@@ -352,6 +352,7 @@ def register_prepared_files_through_trino(
     filesystem: ParquetFilesystem,
     should_publish: Callable[[], bool],
     deadline_monotonic: float | None = None,
+    canary: bool = False,
 ) -> TrinoRegistrationResult:
     """Create the shadow table, add the copied files to it, check its row count and publish it.
 
@@ -371,6 +372,7 @@ def register_prepared_files_through_trino(
         organization_id,
         principal=_principal(team_id, f"schema:{schema_id}"),
         cancel_after_seconds=None if deadline_monotonic is None else deadline_monotonic - monotonic(),
+        canary=canary,
     ) as statements:
         statements.run(f"CREATE SCHEMA IF NOT EXISTS {statements.qualified(ducklake_schema)}")
         statements.run(_create_table_statement(statements, ducklake_schema, shadow_name, staging_schema))
@@ -414,9 +416,12 @@ def cleanup_trino_registration_tables(
     table_names: Sequence[str],
     sweep_min_age: dt.timedelta,
     sweep_limit: int,
+    canary: bool = False,
 ) -> None:
     """Drop the given tables, then drop up to `sweep_limit` registration tables older than `sweep_min_age`."""
-    with connect_managed_warehouse_trino(organization_id, principal=_principal(team_id, "cleanup")) as connection:
+    with connect_managed_warehouse_trino(
+        organization_id, principal=_principal(team_id, "cleanup"), canary=canary
+    ) as connection:
         statements = _TrinoStatements(connection)
         for table_name in table_names:
             statements.run(f"DROP TABLE IF EXISTS {statements.qualified(schema_name, table_name)}")

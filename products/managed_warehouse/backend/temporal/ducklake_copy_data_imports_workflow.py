@@ -28,7 +28,7 @@ from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.metrics import Attributes, ExecutionTimeRecorder
 
-from products.managed_warehouse.backend.backfill_trino import backfills_through_trino
+from products.managed_warehouse.backend.backfill_trino import data_imports_through_trino
 from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
     attach_catalog,
@@ -290,8 +290,9 @@ class DuckLakeCopyDataImportsVerificationResult:
 
 
 async def _organization_registers_through_trino(organization_id: object) -> bool:
-    # This workflow runs DuckDB statements on duckgres, which an organization on the Trino engine does not have.
-    return await database_sync_to_async(backfills_through_trino)(str(organization_id))
+    # This workflow runs DuckDB statements on duckgres, which an organization whose data imports register through
+    # Trino does not have.
+    return await database_sync_to_async(data_imports_through_trino)(str(organization_id))
 
 
 @activity.defn

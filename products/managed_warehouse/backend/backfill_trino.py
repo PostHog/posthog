@@ -27,7 +27,10 @@ from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeTableLayoutError,
     DuckLakeTableReplacement,
 )
-from products.managed_warehouse.backend.facade.feature_flags import DUCKLAKE_TRINO_REGISTRATION_FLAG
+from products.managed_warehouse.backend.facade.feature_flags import (
+    DATA_IMPORTS_TRINO_REGISTRATION_FLAG,
+    DUCKLAKE_TRINO_REGISTRATION_FLAG,
+)
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 from products.managed_warehouse.backend.trino_execution import is_transient_trino_error
 
@@ -56,21 +59,29 @@ REBUILD_HINT = "Run duckling_trino_conversion_job for the team, or a full backfi
 Replacement = DuckLakeDayReplacement | DuckLakeTableReplacement
 
 
-def backfills_through_trino(organization_id: str) -> bool:
+def _organization_flag_enabled(flag: str, organization_id: str) -> bool:
     try:
         # Dagster runs without POSTHOG_PERSONAL_API_KEY, so the client cannot load flag definitions there. A
         # local-only evaluation would return off for every organization, so the client asks the flags service.
         return feature_enabled_or_false(
-            DUCKLAKE_TRINO_REGISTRATION_FLAG,
+            flag,
             organization_id,
             groups={"organization": organization_id},
             group_properties={"organization": {"id": organization_id}},
             send_feature_flag_events=False,
         )
     except Exception as error:
-        LOGGER.warning("Failed to evaluate the DuckLake Trino registration feature flag", error=str(error))
+        LOGGER.warning("Failed to evaluate the DuckLake Trino registration feature flag", flag=flag, error=str(error))
         capture_exception(error)
         return False
+
+
+def backfills_through_trino(organization_id: str) -> bool:
+    return _organization_flag_enabled(DUCKLAKE_TRINO_REGISTRATION_FLAG, organization_id)
+
+
+def data_imports_through_trino(organization_id: str) -> bool:
+    return _organization_flag_enabled(DATA_IMPORTS_TRINO_REGISTRATION_FLAG, organization_id)
 
 
 def _timestamp_bound(day: date) -> str:
