@@ -310,7 +310,7 @@ def _team_notification_target(team_id: int, *, priority: str | None) -> tuple[In
     channel = ((config.default_slack_notification_channel if config else None) or "").strip()
     if config is None or not channel:
         return None
-    if config.default_slack_notification_min_priority is not None and not _meets_min_priority(
+    if config.default_slack_notification_min_priority and not _meets_min_priority(
         priority, config.default_slack_notification_min_priority
     ):
         return None

@@ -253,6 +253,16 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert self.config.default_slack_notification_channel == expected
         assert self.config.default_slack_notification_integration_id == (workspace.id if expect_bound else None)
 
+    def test_empty_slack_priority_clears_threshold(self):
+        self.config.default_slack_notification_min_priority = "P1"
+        self.config.save(update_fields=["default_slack_notification_min_priority"])
+        response = self.client.post(self._url(), {"default_slack_notification_min_priority": ""}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["default_slack_notification_min_priority"] is None
+        self.config.refresh_from_db()
+        assert self.config.default_slack_notification_min_priority is None
+        assert self.client.get(self._url()).json()["default_slack_notification_min_priority"] is None
+
     def test_partial_update_preserves_default_autostart_priority(self):
         self.config.default_autostart_priority = "P2"
         self.config.save(update_fields=["default_autostart_priority"])

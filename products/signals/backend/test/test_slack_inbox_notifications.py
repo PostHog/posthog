@@ -859,7 +859,7 @@ def test_dispatch_does_not_offer_implement_for_a_plan_parent(org_and_team, trigg
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(("min_priority", "expected_sent"), [(None, 1), ("P2", 0), ("P4", 0)])
+@pytest.mark.parametrize(("min_priority", "expected_sent"), [(None, 1), ("", 1), ("P2", 0), ("P4", 0)])
 def test_dispatch_notifies_requires_human_input_report_without_priority(org_and_team, min_priority, expected_sent):
     org, team = org_and_team
     reviewer = _make_reviewer_user(org, "rhi@example.com", "rhi-bot")

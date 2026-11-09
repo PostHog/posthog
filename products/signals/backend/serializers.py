@@ -825,6 +825,9 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             },
         }
 
+    def validate_default_slack_notification_min_priority(self, value: str) -> str | None:
+        return value or None
+
     def validate_default_slack_notification_integration(self, value: IntegrationRecord | None) -> int | None:
         return value.id if value is not None else None
 
