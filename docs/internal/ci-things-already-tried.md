@@ -461,7 +461,7 @@ The `code-quality` job in `ci-python.yml` runs mypy, ty, the projections check a
 
 It is a large regression. The job went from 382s to 528s, which is 38% slower.
 mypy went from 106-187s to 415s, and ty from 46-53s to 137s.
-The block itself took 402s and finished after mypy's own step had already ended, so it bought nothing on top.
+The block itself took 415s, held open until mypy finished at 06:53:29Z, so overlapping the checks bought nothing on top.
 
 `code-quality` runs on `depot-ubuntu-24.04`, which has 2 vCPUs. mypy already saturates both cores with its own worker, and ty parallelizes internally too. Overlapping them does not divide the work, it time-shares one saturated CPU between three jobs, and each one pays the contention.
 On a 2-vCPU runner, the serial order is the fast order.
