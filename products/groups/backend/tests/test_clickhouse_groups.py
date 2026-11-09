@@ -32,6 +32,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature, GroupTypeIndex
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.group.group import Group
 from posthog.models.group.util import ListGroupsResult, create_group, list_groups, raw_create_group_ch
 from posthog.models.group_type_mapping import (
@@ -65,6 +66,12 @@ def typed_group_type_index(value: int) -> GroupTypeIndex:
 
 
 class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
+    def _assert_group_activity_records_group_type(self, group_type_index: int) -> None:
+        entries = ActivityLog.objects.filter(team_id=self.team.id, scope="Group")
+        self.assertTrue(entries.exists())
+        for entry in entries:
+            self.assertEqual(entry.detail["context"], {"group_type_index": group_type_index})
+
     maxDiff = None
 
     @time_machine.travel("2021-05-02", tick=False)
@@ -541,7 +548,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             self.assertIsNone(result["detail"]["changes"][0]["before"])
             prop_name = result["detail"]["name"]
             self.assertEqual(result["detail"]["changes"][0]["after"], group_properties[prop_name])
-            self.assertEqual(result["detail"]["context"], {"group_type_index": 0})
+        self._assert_group_activity_records_group_type(0)
 
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_create_group_duplicated_group_key(self, mock_capture):
@@ -753,7 +760,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "created")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], None)
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
-        self.assertEqual(response.json()["results"][0]["detail"]["context"], {"group_type_index": 0})
+        self._assert_group_activity_records_group_type(0)
 
     @time_machine.travel("2021-05-02", tick=False)
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
@@ -836,7 +843,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
-        self.assertEqual(response.json()["results"][0]["detail"]["context"], {"group_type_index": 0})
+        self._assert_group_activity_records_group_type(0)
 
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_group_property_update_reuses_definition_from_another_environment(self, mock_capture):
@@ -997,7 +1004,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "deleted")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], None)
-        self.assertEqual(response.json()["results"][0]["detail"]["context"], {"group_type_index": 0})
+        self._assert_group_activity_records_group_type(0)
 
     @time_machine.travel("2021-05-02", tick=False)
     def test_group_property_crud_delete_missing_key(self):
