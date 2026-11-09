@@ -96,6 +96,13 @@ describe('SandboxEmailService', () => {
             'render_failed',
         ],
         [
+            'the action id has a character SES tags cannot carry',
+            {},
+            { actionId: 'email.step' },
+            'failed',
+            'unsupported_action_id',
+        ],
+        [
             'the team has no sandbox sender',
             { isProvisioned: jest.fn().mockResolvedValue(false) },
             {},

@@ -20,7 +20,7 @@ import {
     SandboxRecipientCheckRequest,
     checkSandboxRecipient,
 } from './sandbox-recipient-checks'
-import { SandboxSesClient } from './sandbox-ses-client'
+import { SES_TAG_ID, SandboxSesClient } from './sandbox-ses-client'
 import { admitTenant } from './sandbox-tenant-admission'
 
 export const SANDBOX_INTEGRATION_ID = 'posthog-managed-sandbox'
@@ -94,6 +94,9 @@ export class SandboxEmailService {
         const email = SandboxRenderedEmailSchema.safeParse(request.email)
         if (!email.success) {
             return { status: 'failed', reason: 'render_failed' }
+        }
+        if (!SES_TAG_ID.test(request.actionId)) {
+            return { status: 'failed', reason: 'unsupported_action_id' }
         }
         const provisioned = await this.deps.isProvisioned(request.teamId).catch(() => null)
         if (provisioned === null) {

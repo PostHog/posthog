@@ -16,6 +16,9 @@ export const SANDBOX_SES_TAGS = {
     parentRun: 'ph_sbx_parent_run',
 } as const
 
+/** The identifiers SES accepts as tag values, capped at the length the feedback webhook attributes. */
+export const SES_TAG_ID = /^[A-Za-z0-9_-]{1,128}$/
+
 export type SandboxSendTags = {
     teamId: number
     hogFlowId: string
