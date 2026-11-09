@@ -8,6 +8,7 @@ from posthog.errors import (
     CHQueryErrorCannotParseUuid,
     CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorMalformedCsvRow,
+    CHQueryErrorNotImplemented,
     CHQueryErrorUnknownType,
     ExposedCHQueryError,
     InternalCHQueryError,
@@ -62,13 +63,6 @@ class TestWrapClickhouseQueryError:
             ),
             (38, "CANNOT_PARSE_DATE", "Cannot parse a date. Check your date values and their format."),
             (41, "CANNOT_PARSE_DATETIME", "Cannot parse a date and time. Check your datetime values and their format."),
-            (
-                48,
-                "NOT_IMPLEMENTED",
-                "ClickHouse doesn't support something in this query. A subquery that refers to a column of the "
-                "outer query is the most common cause, so rewrite it as a JOIN. Decimal values with different scales in "
-                "if() or CASE also cause this, so cast them to one type.",
-            ),
             (69, "ARGUMENT_OUT_OF_BOUND", "An argument is out of bounds."),
             (
                 70,
@@ -320,3 +314,82 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+    @parameterized.expand(
+        [
+            (
+                "correlated_subquery_with_remote_table",
+                "Correlated subqueries are not supported with remote tables.",
+                "A subquery refers to a column of the outer query, which ClickHouse doesn't support here. "
+                "Rewrite it as a JOIN, or move the filter into the outer query.",
+            ),
+            (
+                "correlated_subquery_in_in_function",
+                "Correlated subqueries are not supported as IN function arguments yet, but found in expression: "
+                "globalIn(private_column, _subquery_1)",
+                "A subquery refers to a column of the outer query, which ClickHouse doesn't support here. "
+                "Rewrite it as a JOIN, or move the filter into the outer query.",
+            ),
+            (
+                "cannot_decorrelate",
+                "Cannot decorrelate query, because 'Window' step is not supported.",
+                "A subquery refers to a column of the outer query, which ClickHouse doesn't support here. "
+                "Rewrite it as a JOIN, or move the filter into the outer query.",
+            ),
+            (
+                "range_offset_frame",
+                "The RANGE OFFSET frame for 'private_type' ORDER BY column is not implemented.",
+                "A window frame with RANGE and an offset doesn't work with the type of this ORDER BY column. "
+                "Use a ROWS frame, or change the type of the ORDER BY column.",
+            ),
+            (
+                "unquoted_uuid",
+                "Conversion between numeric types and UUID is not supported. Probably the passed UUID is unquoted.",
+                "A number is being converted to a UUID, which ClickHouse doesn't support. "
+                "Put the UUID value in quotes.",
+            ),
+        ]
+    )
+    def test_not_implemented_exposes_user_caused_shapes_with_fixed_message(
+        self, _name: str, shape: str, message: str
+    ) -> None:
+        raw_message = (
+            f"DB::Exception: {shape} In query SELECT private_column FROM private_table WHERE token = "
+            "'fake-signed-token'. Received from private-host.example.com:9000. Stack trace: private-stack-frame"
+        )
+        err = ServerException(raw_message, code=48, nested=ServerException("fake-nested-secret", code=1000))
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, CHQueryErrorNotImplemented)
+        assert str(wrapped) == message
+        assert wrapped.message == message
+        assert wrapped.code == 48
+        assert wrapped.code_name == "not_implemented"
+        assert wrapped.nested is None
+
+    @parameterized.expand(
+        [
+            (
+                "decimal_scales",
+                "Conditional functions with different Decimal scales: 'Decimal(18, 2)' and 'Decimal(18, 10)'.",
+            ),
+            (
+                "insert_into_nothing",
+                "Cannot insert element into Nothing: In scope SELECT private_column FROM private_table.",
+            ),
+            ("unsupported_method_on_function", "Method structureEquals is not supported for FunctionNode."),
+            (
+                "plan_header_mismatch",
+                "Current query is not supported yet, because can't find '__table1.private_column' in current header.",
+            ),
+        ]
+    )
+    def test_other_not_implemented_shapes_stay_internal(self, _name: str, raw_message: str) -> None:
+        err = ServerException(f"DB::Exception: {raw_message} Stack trace: private-stack-frame", code=48)
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, InternalCHQueryError)
+        assert not isinstance(wrapped, ExposedCHQueryError)
+        assert look_up_clickhouse_error_code_meta(err).get_category() == QueryErrorCategory.ERROR

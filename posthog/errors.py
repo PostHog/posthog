@@ -165,6 +165,34 @@ def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnknownType"
     )
 
 
+# NOT_IMPLEMENTED covers many ClickHouse limits, and PostHog-generated SQL can reach some of them. Only
+# these message shapes are known to come from the SQL a person wrote. Every other shape stays internal,
+# so error tracking still receives it.
+USER_CAUSED_NOT_IMPLEMENTED_MESSAGES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (
+        ("Correlated subqueries", "Cannot decorrelate query", "Lateral joins are not supported"),
+        "A subquery refers to a column of the outer query, which ClickHouse doesn't support here. "
+        "Rewrite it as a JOIN, or move the filter into the outer query.",
+    ),
+    (
+        ("RANGE OFFSET frame",),
+        "A window frame with RANGE and an offset doesn't work with the type of this ORDER BY column. "
+        "Use a ROWS frame, or change the type of the ORDER BY column.",
+    ),
+    (
+        ("Conversion between numeric types and UUID is not supported",),
+        "A number is being converted to a UUID, which ClickHouse doesn't support. Put the UUID value in quotes.",
+    ),
+)
+
+
+def _user_caused_not_implemented_message(raw_message: str) -> str | None:
+    for needles, message in USER_CAUSED_NOT_IMPLEMENTED_MESSAGES:
+        if any(needle in raw_message for needle in needles):
+            return message
+    return None
+
+
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if isinstance(err, UnknownTypeError):
@@ -268,6 +296,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorInvalidJoinOnExpression(message, code=err.code, code_name="invalid_join_on_expression")
     elif name == "UNKNOWN_TABLE":
         return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
+    elif name == "NOT_IMPLEMENTED" and (fixed_message := _user_caused_not_implemented_message(err.message)):
+        return CHQueryErrorNotImplemented(fixed_message, code=err.code, code_name="not_implemented")
 
     # all other errors
     else:
@@ -407,6 +437,10 @@ class CHQueryErrorUnknownTable(ExposedCHQueryError):
     pass
 
 
+class CHQueryErrorNotImplemented(ExposedCHQueryError):
+    pass
+
+
 #
 # From https://github.com/ClickHouse/ClickHouse/blob/v25.8.12.129-lts/src/Common/ErrorCodes.cpp#L17-L650
 #
@@ -499,12 +533,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     ),  # column has wrong type for the operation (e.g. non-constant where constant required)
     46: ErrorCodeMeta("UNKNOWN_FUNCTION", user_safe=True),
     47: ErrorCodeMeta("UNKNOWN_IDENTIFIER", user_safe=True),  # TODO: Unset user_safe once HogQL is accurate in Data WH
-    48: ErrorCodeMeta(
-        "NOT_IMPLEMENTED",
-        user_safe="ClickHouse doesn't support something in this query. A subquery that refers to a column of the "
-        "outer query is the most common cause, so rewrite it as a JOIN. Decimal values with different scales in "
-        "if() or CASE also cause this, so cast them to one type.",
-    ),
+    48: ErrorCodeMeta("NOT_IMPLEMENTED"),
     49: ErrorCodeMeta("LOGICAL_ERROR"),
     50: ErrorCodeMeta("UNKNOWN_TYPE", user_safe=True),  # referenced data type does not exist
     51: ErrorCodeMeta("EMPTY_LIST_OF_COLUMNS_QUERIED"),
