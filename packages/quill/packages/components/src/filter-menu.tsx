@@ -252,6 +252,22 @@ export function FilterCheckboxSubMenu<Value extends string>({
     )
 }
 
+// Each row is a mounted component. Thousands of them make the submenu slow to open and can run the tab out of memory.
+const SEARCH_OPTION_LIMIT = 200
+
+// The same match as Base UI's default filter: the text contains the query, ignoring case, accents and punctuation.
+// The submenu gives it to Base UI too, so the capped rows and the rows Base UI shows always agree.
+const searchCollator = new Intl.Collator(undefined, { usage: 'search', sensitivity: 'base', ignorePunctuation: true })
+
+function matchesSearch(text: string, query: string): boolean {
+    for (let start = 0; start <= text.length - query.length; start++) {
+        if (searchCollator.compare(text.slice(start, start + query.length), query) === 0) {
+            return true
+        }
+    }
+    return false
+}
+
 /** A filter with several choices from a long list, such as people or tags. An empty selection means all of them. */
 export function FilterSearchSubMenu({
     label,
@@ -288,6 +304,10 @@ export function FilterSearchSubMenu({
     const unknown = selected.filter((value) => !options.some((option) => option.value === value))
     const known: FilterOption[] = [...options, ...unknown.map((value) => ({ value, label: value }))]
     const picked = known.filter((option) => selected.includes(option.value))
+    const [query, setQuery] = React.useState('')
+    // Base UI trims the query before it matches, so the cap must too.
+    const trimmedQuery = query.trim()
+    const matches = trimmedQuery === '' ? known : known.filter((option) => matchesSearch(option.label, trimmedQuery))
     const handleOpenChange = (open: boolean): void => {
         if (!open) {
             return
@@ -304,7 +324,7 @@ export function FilterSearchSubMenu({
         }
     }
     return (
-        <DropdownMenuFilterProvider autoHighlight>
+        <DropdownMenuFilterProvider autoHighlight filter={matchesSearch} value={query} onValueChange={setQuery}>
             <DropdownMenuSub onOpenChange={handleOpenChange}>
                 <FilterSubMenuRow
                     label={label}
@@ -329,12 +349,15 @@ export function FilterSearchSubMenu({
                             dataAttr={optionDataAttr}
                         />
                         <FilterOptionRows
-                            options={known}
+                            options={matches.slice(0, SEARCH_OPTION_LIMIT)}
                             selected={selected}
                             onChange={onChange}
                             dataAttr={optionDataAttr}
                         />
                     </DropdownMenuList>
+                    {matches.length > SEARCH_OPTION_LIMIT && (
+                        <div className="p-2 text-xs text-muted-foreground">Keep typing to see more</div>
+                    )}
                     {loading && <div className="p-2 text-xs text-muted-foreground">Loading…</div>}
                 </DropdownMenuSubContent>
             </DropdownMenuSub>

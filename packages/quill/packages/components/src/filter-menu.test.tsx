@@ -70,6 +70,45 @@ describe('FilterSearchSubMenu', () => {
         expect(onOpen).toHaveBeenCalledTimes(1)
     })
 
+    it('caps the rows until a search narrows them', async () => {
+        render(
+            <DropdownMenu defaultOpen>
+                <DropdownMenuTrigger>Filters</DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    <FilterSearchSubMenu
+                        label="Tags"
+                        allLabel="Any tag"
+                        pluralNoun="tags"
+                        options={Array.from({ length: 300 }, (_, index) => ({
+                            value: `tag-${index}`,
+                            label: `tag-${index}`,
+                        }))}
+                        selected={[]}
+                        onChange={jest.fn()}
+                        searchPlaceholder="Search tags"
+                        emptyText="No tag matches"
+                    />
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+        await act(async () => {
+            fireEvent.click(await screen.findByText('Tags'))
+        })
+        const input = await screen.findByLabelText('Search tags')
+
+        // The "Any tag" row and the first 200 options.
+        expect(screen.getAllByRole('menuitemcheckbox')).toHaveLength(201)
+        expect(screen.getByText('Keep typing to see more')).toBeTruthy()
+        expect(screen.queryByText('tag-299')).toBeNull()
+
+        await act(async () => {
+            fireEvent.change(input, { target: { value: 'tag-299' } })
+        })
+
+        expect(screen.getAllByRole('menuitemcheckbox').map((row) => row.textContent)).toEqual(['tag-299'])
+        expect(screen.queryByText('Keep typing to see more')).toBeNull()
+    })
+
     it('reports how long the submenu took to open', async () => {
         const onOpened = jest.fn()
         render(
