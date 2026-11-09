@@ -104,7 +104,10 @@ CHART_RETRY_POLICY = RetryPolicy(
 # The type a failed render raises, which the firing's own wait does not retry: a second render
 # cannot fit in its budget. The late chart's render retries it.
 CHART_RENDER_FAILED = "InsightChartRenderFailed"
-ON_TIME_CHART_RETRY_POLICY = replace(CHART_RETRY_POLICY, non_retryable_error_types=[CHART_RENDER_FAILED])
+CHART_RENDER_TIMED_OUT = "ChartRenderTimedOut"
+ON_TIME_CHART_RETRY_POLICY = replace(
+    CHART_RETRY_POLICY, non_retryable_error_types=[CHART_RENDER_FAILED, CHART_RENDER_TIMED_OUT]
+)
 # A firing that went out without its chart renders again for this long, on the same pool. An export
 # stall that outlasts it costs the chart for good.
 LATE_CHART_RENDER_WINDOW = dt.timedelta(minutes=10)
@@ -455,11 +458,15 @@ def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsIn
 @close_db_connections
 def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> RenderedChart | None:
     """Sync, because the render blocks for its whole duration. A full render pool raises, for a retry, and
-    so does a failed render the caller asked about. Any other failure sends the firing without a chart,
-    as production does."""
+    so does a failed or timed-out render the caller asked about. Any other failure sends the firing
+    without a chart, as production does."""
     from posthog.tasks.alerts.utils import InsightChartRenderFailed  # noqa: PLC0415
 
-    from products.alerts.backend.platform_source_cycle import ChartRenderPoolFull, render_firing_chart  # noqa: PLC0415
+    from products.alerts.backend.platform_source_cycle import (  # noqa: PLC0415
+        ChartRenderPoolFull,
+        ChartRenderTimedOut,
+        render_firing_chart,
+    )
 
     try:
         # A slot of its own per attempt, so a timed-out attempt cannot release its retry's slot.
@@ -468,6 +475,12 @@ def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> Render
         )
     except ChartRenderPoolFull:
         raise
+    except ChartRenderTimedOut as error:
+        # A late render retries a timed-out export, which is the stall it exists for. Without one, a second
+        # render would hold the firing past its budget, so it is not retried.
+        raise ApplicationError(
+            "The chart render timed out", type=CHART_RENDER_TIMED_OUT, non_retryable=not inputs.raise_on_failed_render
+        ) from error
     except InsightChartRenderFailed as error:
         if inputs.raise_on_failed_render:
             raise ApplicationError(str(error), type=CHART_RENDER_FAILED) from error

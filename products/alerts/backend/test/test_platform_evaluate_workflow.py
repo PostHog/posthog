@@ -31,6 +31,7 @@ from products.alerts.backend.platform_investigation_detail import (
 from products.alerts.backend.platform_source_cycle import PLATFORM_LLM_CHECKS
 from products.alerts.backend.temporal.platform_evaluate import (
     CHART_RENDER_FAILED,
+    CHART_RENDER_TIMED_OUT,
     CHART_START_TO_CLOSE,
     CHECK_HEARTBEAT_TIMEOUT,
     CHECK_RETRY_POLICY,
@@ -66,6 +67,7 @@ from products.exports.backend.facade.api import RENDER_TIMEOUT
 QUEUE = "test-platform-insight-evaluation"
 _CHART = RenderedChart(asset_id=7, render_user_id=3)
 _FAILED_RENDER = RenderedChart(asset_id=-1, render_user_id=-1)
+_TIMED_OUT_RENDER = RenderedChart(asset_id=-2, render_user_id=-2)
 ADMITTED = ("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")
 AI_CHECK = "00000000-0000-0000-0000-000000000003"
 
@@ -441,6 +443,9 @@ async def test_a_slow_check_does_not_hold_back_the_record_of_a_check_that_finish
         pytest.param(
             0, _FAILED_RENDER, {"alert_id": "legacy-alert"}, "no_chart", True, id="failed_export_renders_late"
         ),
+        pytest.param(
+            0, _TIMED_OUT_RENDER, {"alert_id": "legacy-alert"}, "timed_out", True, id="timed_out_export_renders_late"
+        ),
     ],
 )
 async def test_a_firing_records_the_chart_rendered_after_its_check(
@@ -492,7 +497,9 @@ async def test_a_firing_records_the_chart_rendered_after_its_check(
             raise ApplicationError("render pool full")
         events.append(f"render:{inputs.alert_id}")
         if chart is _FAILED_RENDER:
-            raise ApplicationError("export timed out", type=CHART_RENDER_FAILED)
+            raise ApplicationError("export failed", type=CHART_RENDER_FAILED)
+        if chart is _TIMED_OUT_RENDER:
+            raise ApplicationError("export timed out", type=CHART_RENDER_TIMED_OUT)
         return chart
 
     @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)

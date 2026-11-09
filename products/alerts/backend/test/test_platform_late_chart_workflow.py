@@ -12,7 +12,11 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.alerts.backend.platform_chart_detail import LateChartInputs, RenderedChart
-from products.alerts.backend.temporal.platform_evaluate import CHART_RENDER_FAILED, InsightChartInputs
+from products.alerts.backend.temporal.platform_evaluate import (
+    CHART_RENDER_FAILED,
+    CHART_RENDER_TIMED_OUT,
+    InsightChartInputs,
+)
 from products.alerts.backend.temporal.platform_late_chart import (
     LATE_CHART_MESSAGE_PENDING,
     AddLateChartInputs,
@@ -45,6 +49,7 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
     [
         pytest.param("failed", None, 0, ["late_render_failed"], id="export_stalls_past_the_window"),
         pytest.param("pool_full_once", 1, 1, ["added_late"], id="pool_frees_then_chart_lands"),
+        pytest.param("timed_out_once", 1, 1, ["added_late"], id="stall_clears_then_chart_lands"),
         pytest.param("none", None, 0, [], id="no_chart_applies_any_more"),
         pytest.param("rendered", "pending", 0, ["late_unsent"], id="no_native_message_to_edit"),
     ],
@@ -66,6 +71,8 @@ async def test_a_late_chart_renders_again_and_reaches_the_firing_message(
             raise ApplicationError("export timed out", type=CHART_RENDER_FAILED)
         if renders == "pool_full_once" and activity.info().attempt == 1:
             raise ApplicationError("render pool full")
+        if renders == "timed_out_once" and activity.info().attempt == 1:
+            raise ApplicationError("export timed out", type=CHART_RENDER_TIMED_OUT)
         return None if renders == "none" else CHART
 
     @activity.defn(name="add_late_platform_insight_chart_activity")
