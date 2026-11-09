@@ -4063,16 +4063,6 @@ export type ProductTourType = 'tour' | 'announcement'
 
 export type ProductTourDisplayFrequency = 'show_once' | 'until_interacted' | 'always'
 
-export interface ProductTourGeneratedStepContent {
-    step_id: string
-    title: string
-    description: string
-}
-
-export interface ProductTourAIGenerationResponse {
-    steps: ProductTourGeneratedStepContent[]
-}
-
 export interface ProductTourContent {
     type?: ProductTourType
     steps: ProductTourStep[]
@@ -4939,6 +4929,8 @@ export interface EventDefinition {
     is_action?: boolean
     is_data_warehouse?: boolean
     hidden?: boolean
+    /** Set after ingestion of the event is stopped. The definition is deleted after this time. */
+    scheduled_deletion_at?: string | null
     default_columns?: string[]
     enforcement_mode?: SchemaEnforcementMode
     media_preview_urls?: string[]
