@@ -1,10 +1,6 @@
-"""History tables for incremental syncs.
+"""History tables for incremental syncs: a second output lane into `_history`, chosen by `cdc_table_mode`.
 
-An incremental schema keeps history the way a CDC schema does: its run gets a second output lane
-into the `_history` table, and `cdc_table_mode` chooses the tables (consolidated, history only, or
-both). Each version starts at the row's incremental field value, so a change that does not move the
-cursor makes no version. The lane stages its batches and writes versions once per run, at its final
-batch (see `history_upsert`).
+Each version starts at the row's incremental field value, and the lane writes versions once per run (see `history_upsert`).
 """
 
 import functools
@@ -67,14 +63,10 @@ _TColumn = TypeVar("_TColumn")
 
 
 class IncrementalHistoryUnavailableError(Exception):
-    """A run of a schema that keeps history cannot write its history table.
-
-    Non-retryable: the cause is the source's shape or the schema's settings, so a retry fails the same way.
-    """
+    """A run can't write its history table. Non-retryable: a retry fails the same way."""
 
 
 def incremental_history_refusal(*, incremental_field: str | None, incremental_field_type: str | None) -> str | None:
-    """Why an incremental schema can't keep a history table with this field, or None when it can."""
     if not incremental_field or incremental_field_type not in HISTORY_CURSOR_TYPES:
         return (
             "A history table needs an incremental field that holds a date and time, "
@@ -95,11 +87,7 @@ def is_incremental_history_enabled_for_team(team: Team) -> bool:
 def attach_history_lanes(
     schema: ExternalDataSchema, source_response: SourceResponse, *, destination_ids: Sequence[str] = ()
 ) -> None:
-    """Add the history lane to an incremental run of a schema that keeps history.
-
-    The flag is a kill switch too: with it off, a run with both tables skips the history lane and keeps the
-    setting, and a history-only run fails, since its only table is the history table.
-    """
+    """Add the history lane. With the flag off, a `both` run skips it and a history-only run fails."""
     if not (schema.is_incremental and schema.keeps_history):
         return
     history_only = schema.cdc_table_mode == "cdc_only"
@@ -157,12 +145,7 @@ def attach_history_lanes(
 def stamp_history_batch(
     table: pa.Table, *, schema_name: str, cursor: str, naming: HistoryNaming, tracked_since: datetime
 ) -> pa.Table:
-    """Add `valid_from` from the cursor. A row without a cursor value takes the time of the run that reads
-    it, so each run that reads it again (a reload) makes a new version of it.
-
-    Raises `IncrementalHistoryUnavailableError`, which ends the run without retries, when the batch can't
-    give its rows a start time: a retry reads the same rows.
-    """
+    """Add `valid_from` from the cursor, or the run's time for a row without one, so a reload versions it again."""
     taken = reserved_column_collisions(table.column_names, history_columns(naming))
     if taken:
         raise IncrementalHistoryUnavailableError(
@@ -200,12 +183,8 @@ def registered_history_columns(
     primary_keys: list[str] | None,
     incremental_field: str | None,
 ) -> dict[str, _TColumn]:
-    """The history table columns a query may read: the synced columns, as the main table registers them,
-    plus the validity and partition columns.
-
-    The history table keeps a column the user stopped syncing, with its past values, so only its
-    registration can hide that column. A table CDC wrote before the schema left CDC keeps its capture columns.
-    """
+    """The synced columns plus the history columns. The table keeps an unselected column's past values, so only its
+    registration can hide it."""
     synced = filter_dwh_columns_by_enabled_columns(dict(columns), enabled_columns, primary_keys, incremental_field)
     kept = HISTORY_NAMING.stamped_columns | CAPTURE_COLUMNS
     return {name: column for name, column in columns.items() if name in synced or name in kept}
@@ -231,7 +210,6 @@ def _staging_ref(table: DeltaTableRef) -> DeltaTableRef:
 async def stage_history_batch(
     table: DeltaTableRef, data: pa.Table, *, primary_keys: Sequence[str], run_uuid: str, batch_index: int
 ) -> deltalake.DeltaTable:
-    """Stage one batch of a history lane, and return the staging table it went to."""
     staging = _staging_ref(table)
     await history_upsert.stage(
         staging,

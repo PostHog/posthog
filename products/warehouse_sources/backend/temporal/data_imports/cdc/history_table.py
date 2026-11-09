@@ -232,7 +232,6 @@ def history_naming(schema: ExternalDataSchema) -> HistoryNaming:
 
 
 def incremental_history_naming(schema: ExternalDataSchema) -> HistoryNaming:
-    """`SourceHistoryNamings.incremental_naming` for one schema."""
     return SourceHistoryNamings(schema.source).incremental_naming(schema)
 
 
@@ -353,7 +352,6 @@ def history_table_name(schema: ExternalDataSchema) -> str | None:
     return build_table_name(schema.source, companion_resource_name(schema.name, naming))
 
 
-# An incremental history lane stages its batches in a table next to its history table, under this suffix.
 HISTORY_STAGING_SUFFIX = "_ph_staging"
 
 HISTORY_TABLE_STILL_WRITTEN_ERROR = (
@@ -490,10 +488,7 @@ def purge_history_staging(schema: ExternalDataSchema) -> bool:
 
 
 def _delete_history_files(schema: ExternalDataSchema, folder_name: str, staging_folder_name: str) -> None:
-    """Delete the history table's Delta folder, its `<table>__query*` copies and its staging table.
-
-    Staged rows would otherwise reach a later history table with values a mask change since then hides.
-    """
+    """Delete the history table's Delta folder, its `<table>__query*` copies and its staging table."""
     from products.data_warehouse.backend.facade.api import get_s3_client  # noqa: PLC0415
 
     s3 = get_s3_client()

@@ -1238,8 +1238,7 @@ def _finalize_run(
             )
             history_table = async_to_sync(delta_table_ref.get_delta_table)()
             if history_table is not None:
-                # The batches went to the staging table, whose columns are not the history table's. Only
-                # the batch tells a JSON string from a plain one, so those types carry over.
+                # Only the batch tells a JSON string from a plain one, so those types carry over from it.
                 batch_types = internal_schema.to_hogql_types()
                 internal_schema = HogQLSchema()
                 internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(history_table.schema()))

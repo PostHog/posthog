@@ -854,8 +854,7 @@ def _refuse_reserved_columns(
             )
         except LegacyHistoryTableError as e:
             raise ValidationError(str(e)) from e
-        # A CDC schema that kept history keeps writing its registered table. An incremental one always needs the
-        # `_history` name.
+        # Incremental history always needs the `_history` name; a CDC schema keeps its registered table.
         if history is None and is_history_table_mode(new_mode) and (not kept_history or not captures):
             raise ValidationError(
                 f"A history table for {instance.name} would share its name with another table of this "
@@ -1618,11 +1617,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     )
 
         masked_columns_changed = _validate_masked_columns(instance, validated_data, data)
-        # The rebuild a new mask starts leaves a registered history table as it is, also after the schema
-        # stopped writing it, so the earlier values would stay readable there. Only a table that is CDC and
-        # keeps history after this request reseeds that table from its new snapshot. Elsewhere the request
-        # deletes the history table with `drop_history_table`, and the rebuild starts a new one. Removing a
-        # mask leaks nothing.
+        # A masking rebuild leaves the history table's past values readable. Only a CDC table that keeps history
+        # reseeds it; elsewhere the request must delete it with `drop_history_table`.
         stored_masks = {fold_column_name(column) for column in instance.masked_columns or []}
         adds_a_mask = masked_columns_changed and any(
             fold_column_name(column) not in stored_masks for column in validated_data.get("masked_columns") or []
@@ -1883,8 +1879,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if cdc_table_mode in ("consolidated", "cdc_only", "both"):
                 payload["cdc_table_mode"] = cdc_table_mode
             elif instance.sync_type != ExternalDataSchema.SyncType.CDC and not instance.keeps_history:
-                # The API reports a schema that left CDC as consolidated, so a switch back can't bring back
-                # the history mode it stored there.
+                # The API reports a schema that left CDC as consolidated.
                 payload["cdc_table_mode"] = "consolidated"
 
             # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
@@ -2399,12 +2394,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         return table
 
     def _empty_history_table_for_mask(self, instance: ExternalDataSchema, *, keep_record: bool) -> None:
-        """Delete the history table's contents before the mask saves, so a refused delete fails the save.
-
-        A schema that keeps history after this request keeps the record, so the rebuild refills the same table
-        and its access rules stay. Otherwise nothing refills it, so the record goes too. The delete runs on a
-        fresh copy, and only its own changes are mirrored onto this request's unsaved schema.
-        """
+        """Delete before the mask saves, so a refused delete fails the save. Only a schema that keeps history keeps the
+        record, for the rebuild to refill with its access rules."""
         fresh = ExternalDataSchema.objects.get(id=instance.id, team_id=instance.team_id)
         config_before = dict(fresh.sync_type_config or {})
         try:
@@ -2428,11 +2419,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             report_history_table_deleted(request.user, instance, trigger="mask", request=request)
 
     def _purge_history_staging_for_mask(self, instance: ExternalDataSchema) -> None:
-        """Delete rows a history lane staged before the mask, also when no history table exists yet.
-
-        A first history sync can stage rows and fail before it registers its table, so the delete above has
-        nothing to remove, and a reset that fails before it clears staging would leave them for finalize.
-        """
+        """Delete staged history rows, also before a first sync registered the history table."""
         try:
             purge_history_staging(instance)
         except HistoryTableDropRefusedError as e:
