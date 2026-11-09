@@ -458,6 +458,37 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class ProviderKeyDependentEvaluationSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Evaluation ID.")
+    name = serializers.CharField(help_text="Evaluation name.")
+    model_configuration_id = serializers.CharField(
+        required=False, help_text="Model configuration that pins this key. Absent for evaluations on the active key."
+    )
+    enabled = serializers.BooleanField(help_text="Whether the evaluation is running.")
+    status_reason = serializers.CharField(
+        allow_null=True, help_text="Why the system turned the evaluation off, such as provider_key_quota_exceeded."
+    )
+
+
+class ProviderKeyAlternativeSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Provider key ID.")
+    name = serializers.CharField(help_text="Provider key name.")
+    provider = serializers.CharField(help_text="Provider of the key.")
+
+
+class ProviderKeyDependentConfigsSerializer(serializers.Serializer):
+    evaluations = ProviderKeyDependentEvaluationSerializer(
+        many=True, help_text="Evaluations whose model configuration pins this key."
+    )
+    alternative_keys = ProviderKeyAlternativeSerializer(
+        many=True, help_text="Working keys for the same provider that could replace this one."
+    )
+    active_key_evaluations = ProviderKeyDependentEvaluationSerializer(
+        many=True,
+        help_text="Errored evaluations with no pinned key, which run on this key while it is the project's active key.",
+    )
+
+
 class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "llm_provider_key"
     permission_classes = [TeamMemberStrictManagementPermission]
@@ -610,6 +641,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         page on a project other than the user's current one still lists its own keys' models."""
         return Response(provider_key_models(self.get_object()))
 
+    @extend_schema(responses={200: ProviderKeyDependentConfigsSerializer})
     @action(detail=True, methods=["get"], required_scopes=["llm_provider_key:read"])
     @llma_track_latency("llma_provider_keys_dependent_configs")
     @monitor(feature=None, endpoint="llma_provider_keys_dependent_configs", method="GET")
@@ -662,13 +694,15 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             ]
 
         return Response(
-            {
-                "evaluations": evaluations,
-                "alternative_keys": [
-                    {"id": str(key.id), "name": key.name, "provider": key.provider} for key in alternative_keys
-                ],
-                "active_key_evaluations": active_key_evaluations,
-            }
+            ProviderKeyDependentConfigsSerializer(
+                {
+                    "evaluations": evaluations,
+                    "alternative_keys": [
+                        {"id": str(key.id), "name": key.name, "provider": key.provider} for key in alternative_keys
+                    ],
+                    "active_key_evaluations": active_key_evaluations,
+                }
+            ).data
         )
 
     @llma_track_latency("llma_provider_keys_destroy")
