@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Any
 
 from django.test import SimpleTestCase
@@ -14,6 +16,11 @@ USER_INPUT = {"key": "user", "type": "string"}
 SECRET_USER_INPUT = {"key": "user", "type": "string", "secret": True}
 
 ORIGINS = ["https://api.example.com"]
+
+# The Node worker's tests read the same table, so the origin stored here is the one the worker compares.
+ORIGIN_CASES = json.loads(
+    (Path(__file__).parents[2] / "shared" / "crosslang" / "credential_origin_cases.json").read_text(encoding="utf-8")
+)
 
 
 def schema_with(item: dict[str, Any], auth: dict[str, Any], *others: dict[str, Any]) -> list[dict[str, Any]]:
@@ -93,17 +100,21 @@ class TestBindSecretAuth(SimpleTestCase):
 
         assert bound == {"scheme": "bearer", "origins": [origin]}
 
-    @parameterized.expand([("templated", "https://{inputs.region}.example.com"), ("not_a_url", "example.com")])
+    @parameterized.expand(
+        [
+            ("templated", "https://{inputs.region}.example.com"),
+            ("not_a_url", "example.com"),
+            ("plain_http", "http://example.com"),
+        ]
+    )
     def test_refuses_a_url_input_without_a_fixed_origin(self, _name: str, url: str) -> None:
         with self.assertRaises(ValidationError):
             bind_secret_auth({"scheme": "bearer", "origin_input": "host"}, {"host": {"value": url}})
 
-    @parameterized.expand(
-        [
-            ("userinfo", "https://api.example.com@evil.example/"),
-            ("ipv6", "https://[::1]/"),
-            ("hex_ipv4", "https://0x7f.1/"),
-        ]
-    )
-    def test_url_origin_refuses_hosts_the_worker_reads_differently(self, _name: str, url: str) -> None:
-        assert url_origin(url) is None
+    @parameterized.expand([(case["url"], case["origin"]) for case in ORIGIN_CASES["url_origins"]])
+    def test_url_origin_matches_the_worker(self, url: str, origin: str | None) -> None:
+        assert url_origin(url) == origin
+
+    @parameterized.expand([(case["url"], case["origins"][0]) for case in ORIGIN_CASES["routed_origins"]])
+    def test_url_origin_is_the_first_origin_the_worker_routes_to(self, url: str, origin: str) -> None:
+        assert url_origin(url) == origin
