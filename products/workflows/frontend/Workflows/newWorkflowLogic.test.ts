@@ -10,6 +10,7 @@ import { maxMocks } from 'scenes/max/testUtils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { newWorkflowFolder } from './newWorkflowFolder'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
@@ -39,7 +40,7 @@ describe('newWorkflowLogic', () => {
         router.actions.push('/workflows', {}, {})
         await expectLogic(logic, () => logic.actions.startNewWorkflow()).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.createEmptyWorkflow()).toFinishAllListeners()
-        expect(router.values.searchParams._create_in_folder).toBeUndefined()
+        expect(newWorkflowFolder()).toBeNull()
         logic.unmount()
     })
 
@@ -50,7 +51,7 @@ describe('newWorkflowLogic', () => {
         router.actions.push('/workflows', { q: 'in:Unfiled' }, {})
         await expectLogic(logic, () => logic.actions.startNewWorkflow()).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.createEmptyWorkflow()).toFinishAllListeners()
-        expect(router.values.searchParams._create_in_folder).toBeUndefined()
+        expect(newWorkflowFolder()).toBeNull()
         logic.unmount()
     })
 
@@ -63,29 +64,28 @@ describe('newWorkflowLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.createEmptyWorkflow()
         await expectLogic(logic).toFinishAllListeners()
-        expect(router.values.searchParams._create_in_folder).toBe('Campaigns/Annual plans')
+        expect(newWorkflowFolder()).toBe('Campaigns/Annual plans')
         logic.unmount()
     })
 
     describe('AI-first new workflow', () => {
-        it('keeps a number-like folder when switching from the composer to the editor', async () => {
-            setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2, FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES, ...AI_FIRST_FLAGS])
-            const logic = newWorkflowLogic()
-            logic.mount()
-            router.actions.locationChanged({
-                pathname: '/workflows/new/workflow',
-                search: '?_create_in_folder=007&mode=ai',
-                hash: '',
-                searchParams: { _create_in_folder: 7, mode: 'ai' },
-                hashParams: {},
-                url: '/workflows/new/workflow?_create_in_folder=007&mode=ai',
-                method: 'PUSH',
-            })
-            logic.actions.createEmptyWorkflow()
-            await expectLogic(logic).toFinishAllListeners()
-            expect(new URLSearchParams(router.values.location.search).get('_create_in_folder')).toBe('007')
-            logic.unmount()
-        })
+        it.each(['007', '1.50'])(
+            'keeps the number-like folder %s when switching from the composer to the editor',
+            async (folder) => {
+                setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2, FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES, ...AI_FIRST_FLAGS])
+                const logic = newWorkflowLogic()
+                logic.mount()
+                router.actions.push('/workflows', { q: `in:${folder}` }, {})
+                logic.actions.startNewWorkflow()
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.openEditorFromAiComposer()
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.createEmptyWorkflow()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(newWorkflowFolder()).toBe(folder)
+                logic.unmount()
+            }
+        )
         // The flag-off path must stay byte-identical, and exposure is recorded only for a click the composer could answer.
         it.each([
             { name: 'flag on', flags: AI_FIRST_FLAGS, routed: true, exposed: true },
