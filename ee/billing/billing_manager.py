@@ -965,22 +965,23 @@ class BillingManager:
             if org_modified:
                 usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
-        with transaction.atomic():
-            applied = True
-            if org_modified:
-                organization.save()
-            elif package_changed and usage is not None:
-                applied = _patch_usage_unless_a_newer_status_applied(
-                    organization, [([key], usage[key]) for key in patched_keys], computed_at
-                )
-                if not applied:
-                    logger.info(
-                        "billing_status_out_of_order_skipped",
-                        organization_id=str(organization.id),
-                        computed_at=computed_at.isoformat() if computed_at else None,
+        if org_modified or package_changed:
+            with transaction.atomic():
+                applied = True
+                if org_modified:
+                    organization.save()
+                elif usage is not None:
+                    applied = _patch_usage_unless_a_newer_status_applied(
+                        organization, [([key], usage[key]) for key in patched_keys], computed_at
                     )
-            if applied and (plan_changed or (package_switched and organization.billing_plan_label() == "paid")):
-                data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
+                    if not applied:
+                        logger.info(
+                            "billing_status_out_of_order_skipped",
+                            organization_id=str(organization.id),
+                            computed_at=computed_at.isoformat() if computed_at else None,
+                        )
+                if applied and (plan_changed or (package_switched and organization.billing_plan_label() == "paid")):
+                    data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
 
         if events_retention_changed:
             apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
