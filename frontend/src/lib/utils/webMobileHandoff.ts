@@ -1,4 +1,10 @@
-import { HANDOFF_FLAG, HANDOFF_PARAM, handoffMarker, isMobileHandoffUrl, takeHandoff } from './handoffProtocol'
+import {
+    HANDOFF_FLAG,
+    HANDOFF_PARAM,
+    handoffMarker,
+    isMobileHandoffUrl,
+    takeHandoff,
+} from 'products/mobile/shared/handoffProtocol'
 
 interface HandoffClient {
     capture: (event: string, properties: Record<string, string>) => unknown

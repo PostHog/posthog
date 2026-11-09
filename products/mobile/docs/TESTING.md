@@ -503,7 +503,7 @@ and [privacy controls](https://posthog.com/docs/session-replay/privacy).
 
 ## Web/mobile handoff prototype
 
-The shared handoff protocol lives in `frontend/handoffProtocol.ts`. Browser modules in this directory use the web TypeScript configuration in `frontend/tsconfig.json`, so the web app and Storybook can build without installing the native Expo workspace.
+The shared handoff protocol lives in `shared/handoffProtocol.ts` and has no Expo dependencies. The browser integration lives in `frontend/src/lib/utils/webMobileHandoff.ts` at the repository root.
 
 This prototype correlates separate sessions. It does not produce one recording spanning web and
 native. Identity (`distinct_id`), authentication, analytics sessions (`$session_id`) and the

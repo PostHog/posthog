@@ -2,7 +2,7 @@ import * as Crypto from 'expo-crypto'
 import { Linking } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
-import { HANDOFF_PARAM, handoffMarker, isMobileHandoffUrl, takeHandoff } from '../../frontend/handoffProtocol'
+import { HANDOFF_PARAM, handoffMarker, isMobileHandoffUrl, takeHandoff } from '../../shared/handoffProtocol'
 import { track, trackWhenReady } from './analytics'
 import { isInternalBuild } from './environment'
 

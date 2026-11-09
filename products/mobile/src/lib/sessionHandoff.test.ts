@@ -1,7 +1,7 @@
 import { Linking } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { redirectSystemPath } from '../../app/+native-intent'
-import { HANDOFF_PARAM, handoffId, handoffMarker, takeHandoff } from '../../frontend/handoffProtocol'
+import { HANDOFF_PARAM, handoffId, handoffMarker, takeHandoff } from '../../shared/handoffProtocol'
 import { setAnalyticsClient } from './analytics'
 import { openPostHogUrl, receiveSessionHandoff } from './sessionHandoff'
 

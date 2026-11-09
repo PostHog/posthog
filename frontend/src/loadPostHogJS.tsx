@@ -13,8 +13,8 @@ import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
 import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
 import { isOAuthMode } from 'lib/utils/oauthClient'
 import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
+import { consumeMobileHandoff, installMobileHandoff } from 'lib/utils/webMobileHandoff'
 
-import { consumeMobileHandoff, installMobileHandoff } from 'products/mobile/frontend/webHandoff'
 import { dropWebMCPToolErrors } from 'products/webmcp/frontend/webmcpToolError'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
