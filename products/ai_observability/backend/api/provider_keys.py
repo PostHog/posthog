@@ -650,7 +650,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         instance = self.get_object()
 
         # Reading a key must not reveal evaluations the caller cannot open.
-        visible_evaluations = Evaluation.objects.filter(team_id=self.team_id, deleted=False)
+        visible_evaluations: QuerySet[Evaluation] = Evaluation.objects.filter(team_id=self.team_id, deleted=False)
         if not is_service_auth(request):
             visible_evaluations = self.user_access_control.filter_queryset_by_access_level(visible_evaluations)
         visible_evaluation_ids = visible_evaluations.values("id")
