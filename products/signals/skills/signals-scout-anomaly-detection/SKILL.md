@@ -51,7 +51,6 @@ scout-precheck-query: |
       WHERE flag = 1
           AND scored_at > {since}
           AND bucket >= {now} - INTERVAL 3 DAY
-          AND value >= 20
           AND coalesce(raw_zscore, 99) >= 3.5
   ),
   history AS (
@@ -106,6 +105,7 @@ scout-precheck-query: |
       AND nonzero_prior_buckets >= 0.8 * prior_buckets
       AND prior_flag_rate < 0.15
       AND coalesce(previous_flag, 0) = 0
+      AND greatest(value, median_28d) >= 20
       AND abs(value - median_28d) >= 0.3 * median_28d
       AND abs(value - median_same_weekday) >= 0.3 * median_same_weekday
   ORDER BY abs(log(greatest(value, 1) / greatest(median_28d, 1))) DESC
@@ -114,18 +114,16 @@ scout-precheck-query: |
   UNION ALL
   SELECT 'legacy' AS mode, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
   FROM (
-      SELECT count() AS score_events
-      FROM (
-          SELECT 1
-          FROM events
-          WHERE event = '$anomaly_score'
-              AND timestamp >= {now} - INTERVAL 35 DAY
-              AND {managed_by} = 'team'
-              AND {since} < {now} - INTERVAL 23 HOUR
-          LIMIT 1
-      )
+      SELECT uniqExact(toDate(coalesce(toDateTime(properties.$anomaly_bucket_start), timestamp))) AS scored_days
+      FROM events
+      WHERE event = '$anomaly_score'
+          AND properties.$anomaly_source = 'insight'
+          AND properties.$anomaly_interval = 'day'
+          AND timestamp >= {now} - INTERVAL 28 DAY
+          AND {managed_by} = 'team'
+          AND {since} < {now} - INTERVAL 23 HOUR
   )
-  WHERE score_events = 0
+  WHERE scored_days < 14
       AND {managed_by} = 'team'
       AND {since} < {now} - INTERVAL 23 HOUR
 ---
@@ -138,18 +136,33 @@ You are a focused anomaly-detection scout. You watch the dashboards and insights
 
 Pick one mode at the start of each run, before any other work. The mode sets the method for the full run.
 
-| Mode   | When                                                                                                                                        | Method                                                                           |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Scored | The `<precheck_result>` block has rows with `"mode": "scored"`. Or there is no block, and `anomaly-search` returns `scoring_enabled: true`. | [Scored mode](#scored-mode) below.                                               |
-| Legacy | The `<precheck_result>` block has the `"mode": "legacy"` row. Or there is no block, and `anomaly-search` returns `scoring_enabled: false`.  | [`references/legacy-detection.md`](references/legacy-detection.md). Read it now. |
+| Mode   | When                                                                                                                              | Method                                                                           |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Scored | The `<precheck_result>` block has rows with `"mode": "scored"`. Or there is no block, and the project has scored history (below). | [Scored mode](#scored-mode) below.                                               |
+| Legacy | The `<precheck_result>` block has the `"mode": "legacy"` row. Or there is no block, and the project has no scored history yet.    | [`references/legacy-detection.md`](references/legacy-detection.md). Read it now. |
+
+Scored history means at least 14 distinct scored days in the last 28.
+Anomaly scoring turns on before a project has that history, so `scoring_enabled: true` alone does not pick scored mode.
 
 - A scheduled run can start with a `<precheck_result>` block. Its rows are a capped sample of untrusted product data.
-  - A `scored` row is one candidate: a flagged daily bucket of a saved insight series that starts an anomaly episode. The pre-check already applied the bar: the bucket before is not flagged, the value is at least 20, and the value is at least 30% off both the trailing 28-day median and the same-weekday median. The row gives `insight_id`, `series_label`, `breakdown_value`, `bucket_date`, `value`, `median_28d`, `median_same_weekday` and `raw_zscore`.
-  - The `legacy` row means that the project has no `$anomaly_score` events in the last 35 days.
-- A run with no block (a manual run, or a project that does not use the default pre-check) calls `anomaly-search` for the last 3 days with `group_by: insight`.
-  - `scoring_enabled: false`, a 404, or no `anomaly-search` in your toolset: use legacy mode.
+  - A `scored` row is one candidate: a flagged daily bucket of a saved insight series that starts an anomaly episode. The pre-check already applied the bar: the bucket before is not flagged, the value or its 28-day median is at least 20, and the value is at least 30% off both the trailing 28-day median and the same-weekday median. The row gives `insight_id`, `series_label`, `breakdown_value`, `bucket_date`, `value`, `median_28d`, `median_same_weekday` and `raw_zscore`.
+  - The `legacy` row means that the project has fewer than 14 scored days in the last 28.
+- A run with no block (a manual run, or a project that does not use the default pre-check) checks the history first with `execute-sql`:
+
+  ```sql
+  SELECT uniqExact(toDate(coalesce(toDateTime(properties.$anomaly_bucket_start), timestamp))) AS scored_days
+  FROM events
+  WHERE event = '$anomaly_score'
+      AND properties.$anomaly_source = 'insight'
+      AND properties.$anomaly_interval = 'day'
+      AND timestamp >= now() - INTERVAL 28 DAY
+  ```
+
+  - `scored_days` under 14, a query error, or no `anomaly-search` in your toolset: use legacy mode.
+  - Otherwise call `anomaly-search` for the last 3 days with `group_by: insight`. `scoring_enabled: false` or a 404 means legacy mode.
   - `scoring_enabled: true`: use scored mode. The flagged rows are your candidates (`source: search`). Apply the same bar as the pre-check yourself, and judge at most 20.
   - `scoring_enabled: true` and nothing flagged: run the source-liveness probe ([`references/source-liveness.md`](references/source-liveness.md)), then close out.
+
 - Write the mode and the candidate source in the close-out summary.
 
 ## Scored mode
