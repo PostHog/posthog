@@ -613,9 +613,12 @@ def list_brands(
     offset: int,
     kind: BrandKind | None = None,
     status: BrandStatus | None = None,
+    search: str | None = None,
 ) -> tuple[list[Brand], int]:
     """One page of the team's brand catalog, by domain, and the total count."""
     rows = AEOBrand.objects.for_team(team_id)
+    if search:
+        rows = rows.filter(Q(domain__icontains=search) | Q(name__icontains=search))
     if kind is not None:
         rows = rows.filter(kind=kind)
     if status is not None:

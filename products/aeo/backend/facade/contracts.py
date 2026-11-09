@@ -521,6 +521,7 @@ class PromptSetRankings:
     window_from: dt.date
     window_to: dt.date
     answers: int
+    competitors_confirmed: bool
     brands: tuple[RankedBrand, ...]
     daily: tuple[RankedBrandDay, ...]
     top_domains: tuple[RankedDomain, ...]

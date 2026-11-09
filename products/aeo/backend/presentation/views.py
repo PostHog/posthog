@@ -580,7 +580,7 @@ class AEORankedPageSerializer(DataclassSerializer):
 class AEOPromptSetRankingsSerializer(DataclassSerializer):
     brands = AEORankedBrandSerializer(
         many=True,
-        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks. A competitor counts as named when its domain's name appears as a word, so a common-word name can over-count.",
+        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count.",
     )
     daily = AEORankedBrandDaySerializer(
         many=True, help_text="Visibility per brand and day in the current window, ordered by day then domain."
@@ -601,6 +601,9 @@ class AEOPromptSetRankingsSerializer(DataclassSerializer):
             "window_from": {"help_text": "First day of the current window, in the project's timezone."},
             "window_to": {"help_text": "Last day of the current window (today), in the project's timezone."},
             "answers": {"help_text": "Answered checks in the current window: the denominator of every share."},
+            "competitors_confirmed": {
+                "help_text": "Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains."
+            },
         }
 
 
@@ -858,6 +861,12 @@ class AEOBrandListQuerySerializer(serializers.Serializer):
     )
     status = serializers.ChoiceField(
         choices=BrandStatus.choices, required=False, help_text="Only list brands with this review status."
+    )
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text="Only list brands whose domain or name contains this text, ignoring case.",
     )
 
 
@@ -1182,6 +1191,7 @@ class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             offset=paginator.get_offset(request),
             kind=request.validated_query_data.get("kind"),
             status=request.validated_query_data.get("status"),
+            search=request.validated_query_data.get("search") or None,
         )
         paginator.set_count(count)
         page = self.paginate_queryset(page_brands)
