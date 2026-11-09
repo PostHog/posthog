@@ -86,6 +86,7 @@ class TestSetIssueTag(BaseTest):
             ("new_tagger_keeps_manual", Source.MANUAL, NEW_TAGGER, None, False, 1),
             ("jev_repeats_its_answer", Source.JEV, Source.JEV, True, True, 1),
             ("manual_confirms_jev", Source.JEV, Source.MANUAL, True, True, 2),
+            ("manual_overrules_jev", Source.JEV, Source.MANUAL, False, True, 2),
         ]
     )
     def test_an_answer_replaces_only_sources_that_rank_no_higher(
@@ -100,6 +101,7 @@ class TestSetIssueTag(BaseTest):
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         with time_machine.travel("2026-01-05T10:00:00Z", tick=False), self.captureOnCommitCallbacks(execute=True):
             set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(first, value=True), first)
+        _, first_version = self._latest_clickhouse_answer(issue)
 
         with time_machine.travel("2026-01-05T10:01:00Z", tick=False), self.captureOnCommitCallbacks(execute=True):
             stored = set_issue_tag(
@@ -109,7 +111,9 @@ class TestSetIssueTag(BaseTest):
         tag = ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue, key="blocks_checkout")
         assert (stored, tag.source, tag.value) == ((True, second, second_value) if replaced else (False, first, True))
         assert self._issue_activity(issue).count() == logs
-        assert self._latest_clickhouse_value(issue) == tag.value
+        value, version = self._latest_clickhouse_answer(issue)
+        assert value == tag.value
+        assert (version > first_version) is replaced
 
     def test_manual_replaces_an_answer_from_a_tagger_the_definition_no_longer_lists(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
@@ -179,10 +183,10 @@ class TestSetIssueTag(BaseTest):
     def _issue_activity(self, issue: ErrorTrackingIssue) -> QuerySet[ActivityLog]:
         return ActivityLog.objects.filter(team_id=self.team.id, scope="ErrorTrackingIssue", item_id=str(issue.id))
 
-    def _latest_clickhouse_value(self, issue: ErrorTrackingIssue) -> bool | None:
+    def _latest_clickhouse_answer(self, issue: ErrorTrackingIssue) -> tuple[bool | None, int]:
         response = execute_hogql_query(
             """
-            SELECT value FROM posthog.error_tracking_issue_tags
+            SELECT value, version FROM posthog.raw_error_tracking_issue_tags
             WHERE issue_id = {issue_id} AND key = 'blocks_checkout'
             ORDER BY version DESC
             LIMIT 1
@@ -190,5 +194,5 @@ class TestSetIssueTag(BaseTest):
             self.team,
             placeholders={"issue_id": ast.Constant(value=str(issue.id))},
         )
-        [(value,)] = response.results
-        return None if value is None else bool(value)
+        [(value, version)] = response.results
+        return None if value is None else bool(value), version
