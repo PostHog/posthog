@@ -5,11 +5,11 @@ import { Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Skeleton, Tex
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { ModelsOverviewErrorCallout } from 'products/data_modeling/frontend/ModelsOverviewErrorCallout'
-import { CheckEditorModal } from 'products/data_quality/frontend/CheckEditorModal'
 import { dataQualityCheckEditorLogic } from 'products/data_quality/frontend/dataQualityCheckEditorLogic'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 import { overviewCheckEditorProps } from 'products/data_quality/frontend/overview/overviewCheckEditorProps'
-import { RunAllBanners } from 'products/data_quality/frontend/overview/RunAllBanners'
+import { QuillRunAllBanners } from 'products/data_quality/frontend/overview/QuillRunAllBanners'
+import { QuillCheckEditorDialog } from 'products/data_quality/frontend/QuillCheckEditorDialog'
 
 import { CatalogDataQualityActions } from './CatalogDataQualityActions'
 import { catalogDataQualityLogic } from './catalogDataQualityLogic'
@@ -108,10 +108,10 @@ export function CatalogDataQualitySection(): JSX.Element {
                     {tableFilter && <TableFilterNote tableName={tableFilter} />}
                     <CatalogDataQualityActions />
                 </div>
-                <RunAllBanners />
+                <QuillRunAllBanners />
                 <QualityContent />
             </section>
-            <CheckEditorModal />
+            <QuillCheckEditorDialog />
         </BindLogic>
     )
 }
