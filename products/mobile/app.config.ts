@@ -172,6 +172,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                     microphonePermission: false,
                 },
             ],
+            ['expo-video', { supportsBackgroundPlayback: false, supportsPictureInPicture: true }],
             ['./plugins/withAndroidLoopbackNetworking', { allowLoopback: variant !== 'production' }],
             './plugins/withAndroidAdaptiveIconInsets',
             './plugins/withAndroidNotificationIntents',
