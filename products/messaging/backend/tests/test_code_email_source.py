@@ -93,6 +93,11 @@ _TRIPLE_QUOTED_BODY_BEFORE_THE_KEY = (
     'posthog.emails.send(\n    body="""Hello (friend\nWelcome\n)""",\n    template_key="welcome",\n)',
 )
 
+_INLINE_COMMENT_WITH_A_PARENTHESIS_BEFORE_THE_KEY = (
+    "    template_key: 'welcome',",
+    "await posthog.emails.send({\n    to: user.email, // 1) recipient\n    template_key: 'welcome',\n})",
+)
+
 
 class TestRankCallSites(SimpleTestCase):
     @parameterized.expand(
@@ -195,6 +200,21 @@ class TestRankCallSites(SimpleTestCase):
                 SourceDetection(
                     outcome="linked",
                     call_site=CallSite(repository="acme/web", path="app/mailer.py", line=12),
+                    candidate_files=1,
+                ),
+            ),
+            (
+                "inline_comment_with_a_parenthesis_before_the_key",
+                [
+                    ExactCodeSearchResult(
+                        matches=[_match("src/emails/welcome.ts", _INLINE_COMMENT_WITH_A_PARENTHESIS_BEFORE_THE_KEY)],
+                        complete=True,
+                    )
+                ],
+                False,
+                SourceDetection(
+                    outcome="linked",
+                    call_site=CallSite(repository="acme/web", path="src/emails/welcome.ts", line=12),
                     candidate_files=1,
                 ),
             ),

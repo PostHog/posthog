@@ -1,20 +1,11 @@
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { parseSourceFile } from './sourceFile'
-
 /** A prompt a person pastes into their coding agent to change an email their code sends. */
 export function agentPrompt(codeEmail: CodeEmailApi): string {
-    const file = codeEmail.source_url ? parseSourceFile(codeEmail.source_url) : null
-    const where = !file
-        ? `Find the code that sends it with that template_key.`
-        : file.host === 'other'
-          ? `It is built in the file at the link ${quoted(file.url)}.`
-          : [
-                `It is built in the file ${quoted(file.path)}`,
-                file.repo ? ` in the repository ${quoted(file.repo)}` : '',
-                file.ref ? ` on ${quoted(file.ref)}` : '',
-                '.',
-            ].join('')
+    // The whole link, not its parsed parts: a branch can contain "/", so only the code host can split it from the path.
+    const where = codeEmail.source_url
+        ? `It is built in the file at the link ${quoted(codeEmail.source_url)}.`
+        : `Find the code that sends it with that template_key.`
     return [
         `Change the email that our code sends through PostHog with the template_key ${quoted(codeEmail.key)}.`,
         where,

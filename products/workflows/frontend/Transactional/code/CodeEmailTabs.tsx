@@ -52,7 +52,16 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
                         content: workflowFailed ? (
                             failedBanner
                         ) : (
-                            <WorkflowInvocations id={codeEmail.hog_flow_id} linkSteps={false} />
+                            <WorkflowInvocations
+                                id={codeEmail.hog_flow_id}
+                                linkSteps={false}
+                                // A sensitive email's sends keep no content, so a re-run would send nothing.
+                                rerunDisabledReason={
+                                    codeEmail.sensitive
+                                        ? "This email is sensitive, so its content isn't stored and can't be sent again"
+                                        : undefined
+                                }
+                            />
                         ),
                     },
                     { key: 'api', label: 'API', content: <CodeEmailApiExample templateKey={codeEmail.key} /> },

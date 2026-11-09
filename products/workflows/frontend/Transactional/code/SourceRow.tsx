@@ -9,7 +9,7 @@ import { codeEmailLogic } from './codeEmailLogic'
 import { DetectedSourceTag } from './DetectedSourceTag'
 import { FindInGitHubButton } from './FindInGitHubButton'
 import { SourceEditor } from './SourceEditor'
-import { displayRef, parseSourceFile, repoUrl } from './sourceFile'
+import { parseSourceFile, repoUrl } from './sourceFile'
 
 /** The file in your repository that sends this email, or a way to link it. */
 export function SourceRow(): JSX.Element | null {
@@ -19,7 +19,7 @@ export function SourceRow(): JSX.Element | null {
         return null
     }
     const file = codeEmail.source_url ? parseSourceFile(codeEmail.source_url) : null
-    const [repo, ref] = file ? [repoUrl(file), displayRef(file.ref)] : [null, '']
+    const repo = file ? repoUrl(file) : null
     return (
         <LemonDropdown
             visible={sourceFormOpen && !editDisabledReason}
@@ -46,21 +46,15 @@ export function SourceRow(): JSX.Element | null {
                     </>
                 ) : repo ? (
                     <>
-                        <Link to={file.url} target="_blank" className="font-mono truncate max-w-full">
-                            {file.path}
+                        <Link to={file.url} target="_blank" className="font-mono truncate max-w-full" title={file.url}>
+                            {file.path.split('/').pop()}
                         </Link>
                         <span className="whitespace-nowrap">
                             in{' '}
                             <Link to={repo} target="_blank">
                                 {file.repo}
                             </Link>
-                            {ref ? ',' : ''}
                         </span>
-                        {ref ? (
-                            <span className="whitespace-nowrap">
-                                on <span className="font-mono">{ref}</span>
-                            </span>
-                        ) : null}
                         <DetectedSourceTag />
                     </>
                 ) : (

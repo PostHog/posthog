@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, _Call, call, patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
@@ -609,14 +609,19 @@ class TestTransactionalEmail(APIBaseTest):
         self._cdp_accepts(mock_post)
         psak = self._psak_client(["hog_flow:write"])
 
+        def detection_checks() -> list[_Call]:
+            return [check for check in flag.call_args_list if check.args[0] == SOURCE_DETECTION_FLAG]
+
         with patch.object(detect_code_email_source_task, "apply_async", side_effect=queue_error) as queue:
             with self.captureOnCommitCallbacks(execute=True):
                 first = psak.post(self.send_email_url, self._code_send(), format="json")
                 assert queue.call_count == 0
+                assert detection_checks() == []
             with self.captureOnCommitCallbacks(execute=True):
                 second = psak.post(self.send_email_url, self._code_send(), format="json")
 
         assert first.status_code == second.status_code == status.HTTP_202_ACCEPTED, first.json()
+        assert [check.kwargs["only_evaluate_locally"] for check in detection_checks()] == [True]
         key = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome")
         assert queue.call_args_list == ([call(args=(self.team.id, str(key.id)), retry=False)] if detection_on else [])
 
