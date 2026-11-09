@@ -84,13 +84,11 @@ export function McpSharedFilters({
                             {activeFilters.length > 0 && (
                                 <Button
                                     variant="outline"
-                                    size="icon"
-                                    aria-label="Clear property filters"
-                                    tooltip="Clear property filters"
                                     onClick={clearFilters}
                                     data-attr={`${dataAttrPrefix}-clear-filters`}
                                 >
                                     <IconX />
+                                    Clear filters
                                 </Button>
                             )}
                             <div className="ml-auto flex items-center gap-2">
