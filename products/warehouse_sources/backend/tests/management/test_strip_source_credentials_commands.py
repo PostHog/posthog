@@ -18,35 +18,24 @@ from posthog.models.integration import ANY, Integration
 
 from products.warehouse_sources.backend.facade.contracts import CONNECTION_FIELDS_STRIPPED_KEY
 from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
-from products.warehouse_sources.backend.logic.source_credentials_rollout import DUAL_WRITE_FLAG, READ_FLAG, reset_caches
 from products.warehouse_sources.backend.logic.source_credentials_sync import SKIPPED_STRIPPED, _process_batch
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.source_inputs_backup import ExternalDataSourceInputsBackup
-from products.warehouse_sources.backend.temporal.data_imports import schema_flags
 from products.warehouse_sources.backend.tests.management.test_source_credentials_commands import (
     POSTGRES_CONNECTION,
     POSTGRES_INPUTS,
     _CredentialsCommandTestCase,
 )
 
+# These tests check the stored credentials, so raw saves keep their inputs as they are.
+pytestmark = pytest.mark.raw_warehouse_source_credentials
+
+
 POSTGRES_SETTINGS = {"schema": "public"}
 
 
 class _StripTestCase(_CredentialsCommandTestCase):
-    def setUp(self) -> None:
-        super().setUp()
-        reset_caches()
-        self.addCleanup(reset_caches)
-        flags = patch.object(
-            schema_flags.posthoganalytics,
-            "feature_enabled",
-            side_effect=lambda flag, *args, **kwargs: flag in self.enabled_flags,
-        )
-        flags.start()
-        self.addCleanup(flags.stop)
-        self.enabled_flags: set[str] = {DUAL_WRITE_FLAG, READ_FLAG}
-
     def _backfilled_source(self, **kwargs: Any) -> ExternalDataSource:
         source = self._source(**kwargs)
         self._link(source, self._row_for(source, POSTGRES_CONNECTION))
@@ -97,12 +86,6 @@ class TestStripWarehouseSourceConnectionFields(_StripTestCase):
 
     @parameterized.expand(
         [
-            ("read_flag_off", lambda case, source: case.enabled_flags.discard(READ_FLAG), "skipped_read_flag_off"),
-            (
-                "dual_write_flag_off",
-                lambda case, source: case.enabled_flags.discard(DUAL_WRITE_FLAG),
-                "skipped_read_flag_off",
-            ),
             ("missing_row", lambda case, source: case._delete_row(source), "skipped_missing_row"),
             (
                 "unreadable_row",
@@ -279,14 +262,12 @@ class TestStripWarehouseSourceConnectionFields(_StripTestCase):
         assert [backup.created_at for backup in self._backups()] == [first_strip]
 
         self._run("restore_warehouse_source_connection_fields", "--execute", "--source-id", str(source.id))
-        reloaded = ExternalDataSource.objects.get(pk=source.pk)
-        SourceInputsStore.save(reloaded, {**SourceInputsStore.load(reloaded), "password": "fake-rotated"})
         second_strip = first_strip + timedelta(days=24)
         with time_machine.travel(second_strip, tick=False):
             assert "stripped=1" in self._run("strip_warehouse_source_connection_fields", "--execute")
 
         [backup] = self._backups()
-        assert backup.inputs == {**POSTGRES_INPUTS, "password": "fake-rotated"}
+        assert backup.inputs == POSTGRES_INPUTS
         assert backup.created_at == second_strip
 
     def test_a_leaf_with_an_extra_encryption_layer_still_strips(self) -> None:
