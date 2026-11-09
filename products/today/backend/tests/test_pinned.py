@@ -82,33 +82,50 @@ class TestPinnedNumbers(BaseTest):
 
     @parameterized.expand(
         [
-            ("a cached insight", [PinnedNumber("insight:ready")], None, [], [("insight:ready", None)]),
-            ("an insight with no cached result", [PinnedNumber("insight:cold")], None, [], [("insight:cold", None)]),
-            ("an insight whose query fails", [PinnedNumber("insight:broken")], None, [], []),
+            ("a cached insight", [PinnedNumber("insight:ready")], None, [], [("insight:ready", None)], False),
+            (
+                "an insight with no cached result",
+                [PinnedNumber("insight:cold")],
+                None,
+                [],
+                [("insight:cold", None)],
+                False,
+            ),
+            ("an insight whose query fails", [PinnedNumber("insight:broken")], None, [], [], True),
             (
                 "a tile pinned from a dashboard",
                 [PinnedNumber("insight:ready", dashboard_id=7)],
                 None,
                 [],
                 [("insight:ready", "/dashboard/7")],
+                False,
             ),
-            ("a tile removed from its dashboard", [PinnedNumber("insight:ready", dashboard_id=8)], None, [], []),
+            ("a tile removed from its dashboard", [PinnedNumber("insight:ready", dashboard_id=8)], None, [], [], False),
             (
                 "a key metric with no events in either week",
                 [PinnedNumber("quiet")],
                 None,
                 [key_metric("quiet", 0, 0)],
                 [("quiet", None)],
+                False,
             ),
-            ("key metrics still being calculated", [PinnedNumber("quiet")], None, None, []),
-            ("key metrics that fail to load", [PinnedNumber("quiet")], None, ValueError("down"), []),
-            ("a key without insight access", [PinnedNumber("insight:ready")], ["customer_analytics:read"], [], []),
+            ("key metrics still being calculated", [PinnedNumber("quiet")], None, None, [], True),
+            ("key metrics that fail to load", [PinnedNumber("quiet")], None, ValueError("down"), [], True),
+            (
+                "a key without insight access",
+                [PinnedNumber("insight:ready")],
+                ["customer_analytics:read"],
+                [],
+                [],
+                False,
+            ),
             (
                 "a dashboard tile without dashboard access",
                 [PinnedNumber("insight:ready", dashboard_id=7)],
                 ["insight:read"],
                 [],
                 [],
+                False,
             ),
         ]
     )
@@ -119,6 +136,7 @@ class TestPinnedNumbers(BaseTest):
         scopes: list[str] | None,
         key_metrics: list[KeyMetric] | Exception | None,
         resolved: list[tuple[str, str | None]],
+        failed: bool,
     ) -> None:
         def series(**kwargs: Any) -> InsightSeries | None:
             if kwargs["short_id"] == "cold" and not kwargs.get("blocking"):
@@ -166,9 +184,29 @@ class TestPinnedNumbers(BaseTest):
             )
 
         self.assertEqual(
-            [
-                (metric.key, metric.url if metric.dashboard_id else None)
-                for metric in METRICS.validate_json(result.found)
-            ],
-            resolved,
+            (
+                [
+                    (metric.key, metric.url if metric.dashboard_id else None)
+                    for metric in METRICS.validate_json(result.found)
+                ],
+                result.failed,
+            ),
+            (resolved, failed),
         )
+
+    def test_a_pin_after_the_deadline_is_skipped_and_marks_the_result_failed(self) -> None:
+        with (
+            patch.object(pinned, "PIN_SECONDS", 0),
+            patch.object(routine, "get_insight_series") as series,
+        ):
+            result = pinned.resolve_pins(
+                ResolvePinsInputs(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    local_day=TODAY.isoformat(),
+                    scopes=None,
+                    pins=[PinnedNumber("insight:ready")],
+                )
+            )
+
+        self.assertEqual((METRICS.validate_json(result.found), result.failed, series.called), ([], True, False))

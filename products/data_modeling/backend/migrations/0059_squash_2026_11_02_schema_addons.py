@@ -34,6 +34,7 @@ class Migration(migrations.Migration):
         ("customer_analytics", "0064_squash_2026_11_02_finalize_fks"),
         ("dashboards", "0029_squash_2026_11_02_finalize_fks"),
         ("data_catalog", "0001_squash_2026_11_02_initial"),
+        ("data_modeling", "0058_copy_node_descriptions_to_annotations"),
         ("data_modeling", "0058_squash_2026_11_02_finalize_fks"),
         ("data_quality", "0001_squash_2026_11_02_initial"),
         ("data_tools", "0001_squash_2026_11_02_initial"),

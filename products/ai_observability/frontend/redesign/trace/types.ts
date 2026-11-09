@@ -15,8 +15,6 @@ export type TraceNodeKind = TraceNodeApi['kind']
 export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
 export type TraceOpeningMode = 'summary' | null
 
-export type TraceViewChoice = 'new' | 'legacy'
-
 export type NodeDetailTab = 'messages' | 'details' | 'evals' | 'raw'
 
 export type LoadFailure = 'not_found' | 'failed'
@@ -76,6 +74,8 @@ export type NodeContent =
     | { kind: 'io'; input: unknown; output: unknown }
     | { kind: 'loading' }
     | { kind: 'error'; message: string }
+
+export type LoadedNodeContent = Extract<NodeContent, { kind: 'messages' | 'io' }>
 
 export interface NodeProperties {
     timestamp: string | null

@@ -7,12 +7,12 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { visionDocsUrl } from '../../components/DocsLink'
 import { highlightPicksLogic } from '../highlightPicksLogic'
 import { highlightPicksStarterLogic } from '../highlightPicksStarterLogic'
-import { HighlightPicksScanningState } from './HighlightPicksScanningState'
-import { HighlightPicksStarterStatus } from './HighlightPicksStarterStatus'
 import { QuillHighlightPickRow } from './QuillHighlightPickRow'
 import { QuillHighlightPicksEmptyState } from './QuillHighlightPicksEmptyState'
 import { QuillHighlightPicksExtraRows } from './QuillHighlightPicksExtraRows'
+import { QuillHighlightPicksScanningState } from './QuillHighlightPicksScanningState'
 import { QuillHighlightPicksStaleBanner } from './QuillHighlightPicksStaleBanner'
+import { QuillHighlightPicksStarterStatus } from './QuillHighlightPicksStarterStatus'
 
 const LIST_TOP_COUNT = 5
 
@@ -56,10 +56,10 @@ export function QuillHighlightPicksList(): JSX.Element {
                     </div>
                 ) : !picks || picks.length === 0 ? (
                     startedScanner && !burstDone ? (
-                        <HighlightPicksScanningState size="small" />
+                        <QuillHighlightPicksScanningState size="small" />
                     ) : startedScanner ? (
                         <>
-                            <HighlightPicksStarterStatus />
+                            <QuillHighlightPicksStarterStatus />
                             <QuillHighlightPicksExtraRows />
                         </>
                     ) : (
@@ -67,7 +67,7 @@ export function QuillHighlightPicksList(): JSX.Element {
                     )
                 ) : (
                     <>
-                        {burstActive ? <HighlightPicksStarterStatus /> : <QuillHighlightPicksStaleBanner />}
+                        {burstActive ? <QuillHighlightPicksStarterStatus /> : <QuillHighlightPicksStaleBanner />}
                         <div className="flex flex-col gap-0.5 p-1">
                             {picks.map((item, index) => (
                                 <QuillHighlightPickRow

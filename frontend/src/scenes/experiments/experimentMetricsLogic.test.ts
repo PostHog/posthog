@@ -589,9 +589,9 @@ describe('experimentMetricsLogic', () => {
             jest.useRealTimers()
         })
 
-        it('stops polling a run older than the staleness window instead of polling it forever', async () => {
+        it('stops polling a run older than the queued-run ceiling instead of polling it forever', async () => {
             // A worker that dies mid-run leaves the row in_progress permanently; the poll loop must give up
-            // once the run passes the backend's staleness threshold rather than hitting the by-id endpoint
+            // once the run passes the backend's 1-hour ceiling rather than hitting the by-id endpoint
             // (and its live-progress query) every tick until the tab closes.
             const retrieveMock = jest.fn(() => [200, { ...pendingRecalculation, status: 'in_progress' }])
             useMocks({
@@ -610,7 +610,7 @@ describe('experimentMetricsLogic', () => {
             expect(retrieveMock).toHaveBeenCalled()
 
             // Age the run past the cap: polling must stop and the in-flight tags must clear.
-            logic.cache.recalcStartMs = Date.now() - 31 * 60 * 1000
+            logic.cache.recalcStartMs = Date.now() - 61 * 60 * 1000
             await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
             retrieveMock.mockClear()
             await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 5)
@@ -619,6 +619,47 @@ describe('experimentMetricsLogic', () => {
             // The run's status is still in_progress, but the page must not keep showing it as loading.
             expect(logic.values.isRecalculating).toBe(false)
             expect(logic.values.recalculationDisplayState).toBe('resting')
+            jest.useRealTimers()
+        })
+
+        it.each([
+            // A page reload while the run waits in a queue: the server still reports it as the active run.
+            ['reloaded while queued', 40],
+            // A tab that stays open while the run crosses the backend's 30-minute staleness threshold.
+            ['open across the staleness threshold', 29],
+        ])('keeps polling a run that waits past 30 minutes until it completes (%s)', async (_, ageMinutes) => {
+            jest.useFakeTimers()
+            const startedAt = new Date(Date.now() - ageMinutes * 60 * 1000).toISOString()
+            const queuedRun = { ...inProgressRecalculation, created_at: startedAt, started_at: startedAt }
+            let completed = false
+            const retrieveMock = jest.fn(() => [200, completed ? completedRecalculation2 : queuedRun])
+            const createMock = jest.fn(() => [201, { ...manualPending, id: 'recalc-3' }])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        { ...completedRecalculation, active_run: { id: 'recalc-2', status: 'in_progress' } },
+                    ],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': retrieveMock,
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['loadLatestRecalculation', 'pollRecalculation'])
+            logic.actions.setQueuedRerun('manual')
+
+            // Wait 20 minutes in the queue: the run passes 30 minutes, polling backs off and does not give up.
+            await jest.advanceTimersByTimeAsync(20 * 60 * 1000)
+            expect(logic.values.currentRecalculation?.status).toBe('in_progress')
+            expect(logic.values.isRecalculating).toBe(true)
+            expect(logic.values.queuedRerun).toBe('manual')
+            expect(retrieveMock.mock.calls.length).toBeLessThan(120)
+
+            completed = true
+            await jest.advanceTimersByTimeAsync(60 * 1000)
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            // The rerun queued during the wait fires once the run ends.
+            expect(createMock).toHaveBeenCalledTimes(1)
             jest.useRealTimers()
         })
 

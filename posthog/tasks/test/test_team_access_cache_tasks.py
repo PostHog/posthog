@@ -2,8 +2,12 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase
 
+from celery import Task
+from parameterized import parameterized
+
 from posthog.tasks.team_access_cache_tasks import (
     AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER,
+    invalidate_team_tokens_task,
     invalidate_token_cache_task,
     invalidate_token_sync,
     invalidate_user_tokens_sync,
@@ -55,14 +59,22 @@ class TestInvalidateUserTokensTask(SimpleTestCase):
         with self.assertRaises(Exception):
             invalidate_user_tokens_task(user_id=42)
 
+    @parameterized.expand(
+        [
+            ("user_tokens", invalidate_user_tokens_task, "invalidate_user_tokens", {"user_id": 42}),
+            ("team_tokens", invalidate_team_tokens_task, "invalidate_team_tokens", {"team_id": 7}),
+        ]
+    )
     @patch("posthog.tasks.team_access_cache_tasks.token_auth_cache")
-    def test_user_tokens_task_retries_on_transient_failure(self, mock_cache: MagicMock) -> None:
+    def test_tokens_task_retries_on_transient_failure(
+        self, _name: str, task: Task, cache_method: str, kwargs: dict, mock_cache: MagicMock
+    ) -> None:
         error = Exception("Redis down")
-        mock_cache.invalidate_user_tokens.side_effect = error
+        getattr(mock_cache, cache_method).side_effect = error
 
-        with patch.object(invalidate_user_tokens_task, "retry", side_effect=error) as mock_retry:
+        with patch.object(task, "retry", side_effect=error) as mock_retry:
             with self.assertRaises(Exception):
-                invalidate_user_tokens_task(user_id=42)
+                task(**kwargs)
 
         mock_retry.assert_called_once_with(exc=error)
 
@@ -157,18 +169,26 @@ class TestInvalidationFailureMetrics(SimpleTestCase):
         after = self._get_counter_value("token")
         assert after > before
 
+    @parameterized.expand(
+        [
+            ("user_tokens", invalidate_user_tokens_task, "invalidate_user_tokens", {"user_id": 42}),
+            ("team_tokens", invalidate_team_tokens_task, "invalidate_team_tokens", {"team_id": 7}),
+        ]
+    )
     @patch("posthog.tasks.team_access_cache_tasks.token_auth_cache")
-    def test_user_tokens_task_increments_counter_on_max_retries(self, mock_cache: MagicMock) -> None:
-        mock_cache.invalidate_user_tokens.side_effect = Exception("Redis down")
-        before = self._get_counter_value("user_tokens")
+    def test_tokens_task_increments_counter_on_max_retries(
+        self, label: str, task: Task, cache_method: str, kwargs: dict, mock_cache: MagicMock
+    ) -> None:
+        getattr(mock_cache, cache_method).side_effect = Exception("Redis down")
+        before = self._get_counter_value(label)
 
         from celery.exceptions import MaxRetriesExceededError
 
-        with patch.object(invalidate_user_tokens_task, "retry", side_effect=MaxRetriesExceededError()):
+        with patch.object(task, "retry", side_effect=MaxRetriesExceededError()):
             with self.assertRaises(MaxRetriesExceededError):
-                invalidate_user_tokens_task(user_id=42)
+                task(**kwargs)
 
-        after = self._get_counter_value("user_tokens")
+        after = self._get_counter_value(label)
         assert after > before
 
     @patch("posthog.tasks.team_access_cache_tasks.invalidate_token_cache_task")

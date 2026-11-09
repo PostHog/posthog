@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
         ("context_layer", "0001_squash_2026_11_02_initial"),
         ("conversations", "0001_squash_2026_11_02_initial"),
         ("cross_project_dashboards", "0001_squash_2026_11_02_initial"),
-        ("customer_analytics", "0063_teamcustomeranalyticsconfig_properties"),
+        ("customer_analytics", "0064_custompropertyvalue_active_sort_indexes"),
         ("customer_analytics", "0064_squash_2026_11_02_finalize_fks"),
         ("dashboards", "0029_squash_2026_11_02_finalize_fks"),
         ("data_catalog", "0001_squash_2026_11_02_initial"),

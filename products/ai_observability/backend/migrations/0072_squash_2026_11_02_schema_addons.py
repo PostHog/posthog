@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
         ("actions", "0001_squash_2026_11_02_initial"),
         ("aeo", "0001_squash_2026_11_02_initial"),
         ("ai_gateway", "0001_squash_2026_11_02_initial"),
-        ("ai_observability", "0070_offline_payload_expiry_indexes"),
+        ("ai_observability", "0074_release_expired_dataset_names"),
         ("ai_observability", "0071_squash_2026_11_02_finalize_fks"),
         ("ai_training", "0001_squash_2026_11_02_initial"),
         ("alerts", "0016_squash_2026_11_02_finalize_fks"),

@@ -90,6 +90,18 @@ tools:
             `InsightVizNode`.
 
 
+            For a PromQL metrics insight, set `language` to `promql`, put the expression in `promql`, and send `clauses`
+            as an empty list. When query-metrics accepts a `promql` field, test the expression with it first:
+
+
+            ```json
+
+            { "name": "Request rate", "query": { "kind": "MetricsQuery", "language": "promql", "promql":
+            "sum(rate(http_requests_total[5m]))", "clauses": [], "dateRange": { "date_from": "-24h" } } }
+
+            ```
+
+
             Choose the TrendsQuery `trendsFilter.display` from the question the insight answers:
 
             - Change over time: `ActionsLineGraph` (default), `ActionsAreaGraph`, or `ActionsBar`.

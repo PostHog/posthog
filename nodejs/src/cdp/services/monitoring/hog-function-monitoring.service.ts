@@ -6,8 +6,10 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
-import type { InternalLogsProducer } from '~/logs/internal-logs-producer'
+import type { TeamManager } from '~/common/utils/team-manager'
+import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
 
+import type { CdpConfig } from '../../config'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
@@ -72,6 +74,36 @@ export const isHogFlowResult = (
 
 // Bounded so that shutdown still fits inside the pod's termination grace period.
 const INTERNAL_LOGS_DRAIN_TIMEOUT_MS = 10_000
+
+// A switch token of its own, so ingestion turns on apart from the CDP workers that `hog_function` covers.
+const HOG_FUNCTION_TRANSFORMATIONS_SWITCH = 'hog_function_transformations'
+
+export function parseInternalLogsSources(value: string): Set<string> {
+    return new Set(
+        value
+            .split(',')
+            .map((source) => source.trim())
+            .filter(Boolean)
+    )
+}
+
+export type TransformationsMonitoringConfig = Pick<CdpConfig, 'CDP_INTERNAL_LOGS_SOURCES'> & InternalLogsProducerConfig
+
+/** Monitoring for hog transformations. Their logs are stored under the `hog_function` source. */
+export function createTransformationsMonitoringService(
+    outputs: IngestionOutputs<MonitoringOutput>,
+    config: TransformationsMonitoringConfig,
+    teamManager: Pick<TeamManager, 'getTeam'>
+): HogFunctionMonitoringService {
+    const enabled = parseInternalLogsSources(config.CDP_INTERNAL_LOGS_SOURCES).has(HOG_FUNCTION_TRANSFORMATIONS_SWITCH)
+    return enabled
+        ? new HogFunctionMonitoringService(
+              outputs,
+              new InternalLogsProducer(config, teamManager),
+              new Set(['hog_function'])
+          )
+        : new HogFunctionMonitoringService(outputs)
+}
 
 export class HogFunctionMonitoringService {
     queuedLogMessages: LogEntrySerialized[] = []
@@ -166,7 +198,8 @@ export class HogFunctionMonitoringService {
         metrics.forEach((metric) => this.queueAppMetric(metric, source))
     }
 
-    queueLogs(logEntries: LogEntry[], source: MetricLogSource) {
+    /** Set `aboutInternalLogs` for logs about a batch that came from the internal producer, so they never go back to it and loop. */
+    queueLogs(logEntries: LogEntry[], source: MetricLogSource, { aboutInternalLogs = false } = {}) {
         const sourcedLogEntries = logEntries.map((logEntry) => ({
             ...logEntry,
             log_source: source,
@@ -179,7 +212,12 @@ export class HogFunctionMonitoringService {
         })
         hogFunctionMonitoringPendingMessages.set(this.queuedLogMessages.length)
 
-        if (this.internalLogsSources.has(source)) {
+        if (!this.internalLogsSources.has(source)) {
+            return
+        }
+        if (aboutInternalLogs) {
+            this.internalLogsProducer?.skipLooping(source, sourcedLogEntries)
+        } else {
             this.internalLogsProducer?.enqueue(source, sourcedLogEntries)
         }
     }
@@ -192,8 +230,7 @@ export class HogFunctionMonitoringService {
                 : result.invocation.functionId
             // Stamped here rather than at each of the ~10 sites that push onto `result.metrics`
             // (executor, action handlers, billing). The workflow is re-read from the manager on every
-            // dequeue, so this is the version that actually executed the step — a run started on v2
-            // that reaches its email step after v3 is published attributes that step to v3.
+            // dequeue, so this is the version that actually executed the step.
             const appSourceVersion = isHogFlowResult(result)
                 ? { id: result.invocation.hogFlow.id, version: result.invocation.hogFlow.version }
                 : undefined

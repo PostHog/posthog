@@ -50,6 +50,8 @@ export const manifest: ProductManifest = {
             intent,
             format,
             properties,
+            key,
+            variants,
         }: {
             type?: 'boolean' | 'multivariate' | 'remote_config'
             sourceId?: number | string | null
@@ -58,6 +60,9 @@ export const manifest: ProductManifest = {
             format?: 'rules_v2'
             /** Release condition properties for a single condition set rolled out to 100%. */
             properties?: AnyPropertyFilter[]
+            key?: string
+            /** Variant keys for a multivariate flag, split evenly. Only used with `type: 'multivariate'`. */
+            variants?: string[]
         }): string => {
             const params = new URLSearchParams()
             if (type) {
@@ -77,6 +82,12 @@ export const manifest: ProductManifest = {
             }
             if (properties?.length) {
                 params.set('properties', JSON.stringify(properties))
+            }
+            if (key) {
+                params.set('key', key)
+            }
+            if (variants?.length) {
+                params.set('variants', variants.join(','))
             }
             return `/feature-flags/new?${params.toString()}`
         },

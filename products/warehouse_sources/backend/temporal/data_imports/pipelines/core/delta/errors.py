@@ -80,6 +80,20 @@ def _is_oss_internal_error(error: BaseException) -> bool:
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and _OSS_INTERNAL_ERROR_NEEDLE in str(error)
 
 
+# delta-rs's Rust `object_store` crate raises this for a failure to even build the HTTP client —
+# e.g. "URL scheme is not allowed" when the endpoint is `http://` and `AWS_ALLOW_HTTP` isn't set,
+# or any other invalid builder config. Unlike every blip above, the client is rebuilt fresh from
+# the same storage options on every call, so a builder error is deterministic and can never clear
+# on retry.
+_OBJECT_STORE_BUILDER_ERROR_NEEDLE = "builder error"
+
+
+def _is_object_store_builder_error(error: BaseException) -> bool:
+    return isinstance(error, OSError | deltalake.exceptions.DeltaError) and _OBJECT_STORE_BUILDER_ERROR_NEEDLE in str(
+        error
+    )
+
+
 class TransientObjectStoreError(NonReportableError):
     """A known-transient object-store blip (see is_transient_object_store_error), re-raised as this
     type instead of the original OSError/DeltaError. Skipping the inline capture_exception call
@@ -146,6 +160,14 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     OSS-specific error shape (see `_is_oss_internal_error`), already marked "(temporary)" by delta-rs's
     object-store layer before this classifier even runs.
 
+    Checked and excluded before the broad needle match: a failed client *construction* (see
+    `_is_object_store_builder_error`) is also prefixed "Generic S3 error" by delta-rs, but it is a
+    static config problem (e.g. a plain `http://` endpoint without `AWS_ALLOW_HTTP`), not a blip —
+    the same client is rebuilt from the same options on every retry, so it fails the identical way
+    forever. Same reasoning as the permission-denied carve-out `_capture_unless_transient` checks
+    ahead of this function: a definitive failure arriving under the shared "Generic S3 error" prefix
+    must not be hidden behind Temporal's retry policy.
+
     Deliberately does not cover `ensure_bucket_exists`'s own exhausted `HeadBucket` 403 retry (see
     `_is_exhausted_head_bucket_forbidden` below) — that check only runs under `USE_LOCAL_SETUP`,
     where the bucket credentials are operator-configured rather than our own IAM instance role, so an
@@ -174,6 +196,15 @@ def is_transient_object_store_error(error: BaseException) -> bool:
         return True
     if _is_oss_internal_error(error):
         return True
+    if _is_object_store_builder_error(error):
+        # Checked before the broad needle match below: delta-rs prefixes a failed *client
+        # construction* with the same "Generic S3 error" text the blips above use, so the needle
+        # would otherwise call this transient too. A builder error (e.g. "URL scheme is not
+        # allowed" for an http:// endpoint without AWS_ALLOW_HTTP) means the client itself is
+        # misconfigured — every retry builds the identical client and fails the identical way, so
+        # folding it into the blip list would retry it forever without ever telling anyone, same as
+        # the permission-denied refusal carved out above it in `_capture_unless_transient`.
+        return False
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
     )

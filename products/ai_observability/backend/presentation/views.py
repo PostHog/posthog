@@ -51,6 +51,22 @@ class TraceQuerySerializer(serializers.Serializer):
         return value
 
 
+class TraceAvailabilityRequestSerializer(serializers.Serializer):
+    trace_ids = serializers.ListField(
+        child=serializers.CharField(max_length=255, trim_whitespace=False),
+        min_length=1,
+        max_length=2,
+        help_text="Application and evaluator trace IDs to check without loading trace contents.",
+    )
+
+
+class TraceAvailabilitySerializer(serializers.Serializer):
+    available_trace_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Requested trace IDs readable from AI events or the shared events table.",
+    )
+
+
 class TraceClustersQuerySerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(
         help_text="When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read."
@@ -130,10 +146,12 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_analytics"
     scope_object_read_actions = [
         "retrieve",
+        "availability",
         "node",
         "evaluations",
         "clusters",
         "feedback",
+        "review",
         "search",
         "summary",
         "exports",
@@ -153,6 +171,19 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         user = request.user if isinstance(request.user, User) else None
         with query_concurrency_slots(self.team):
             return read(user, request.validated_query_data.get("timestamp_hint"))
+
+    @validated_request(
+        request_serializer=TraceAvailabilityRequestSerializer,
+        responses={200: TraceAvailabilitySerializer, 429: THROTTLED_RESPONSE},
+        operation_id="ai_observability_traces_availability_create",
+    )
+    @action(detail=False, methods=["POST"])
+    def availability(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        trace_ids = self._read(
+            request,
+            lambda user, _hint: api.get_available_trace_ids(self.team, user, request.validated_data["trace_ids"]),
+        )
+        return Response(TraceAvailabilitySerializer(instance={"available_trace_ids": trace_ids}).data)
 
     @validated_request(
         query_serializer=TraceQuerySerializer,
@@ -276,6 +307,25 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             lambda user, hint: api.get_trace_feedback(self.team, user, trace_id, hint, include_surveys=include_surveys),
         )
         return Response(feedback.model_dump(mode="json", by_alias=True))
+
+    @validated_request(
+        parameters=[TRACE_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=contracts.TraceReviewStatus),
+            400: OpenApiResponse(description="The encoded trace id is malformed."),
+        },
+        operation_id="ai_observability_traces_review_retrieve",
+    )
+    @action(detail=True, methods=["GET"], url_path="review")
+    def review(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        """The trace's human review with its scores ready to render, and the review queue the trace waits in."""
+        try:
+            trace_id = decode_trace_id_segment(pk)
+        except MalformedTraceIdSegmentError:
+            return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            api.get_trace_review_status(self.team, _user(request), trace_id).model_dump(mode="json", by_alias=True)
+        )
 
     @validated_request(
         query_serializer=TraceSearchQuerySerializer,

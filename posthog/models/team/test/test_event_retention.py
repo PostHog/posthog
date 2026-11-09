@@ -87,19 +87,21 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
 class TestEventsRetentionMonthsForTeam(BaseTest):
     @parameterized.expand(
         [
-            ("plan_window_only", None, 24),
-            ("shorter_set_window", 12, 12),
-            ("set_window_longer_than_a_downgraded_plan", 36, 24),
+            ("plan_period_only", 24, None, 24),
+            ("shorter_set_period", 24, 12, 12),
+            ("set_period_longer_than_a_downgraded_plan", 24, 36, 24),
+            ("set_period_on_a_plan_past_the_standard_default", 84, 36, 36),
         ]
     )
     def test_takes_the_shorter_of_the_plan_and_the_set_window(
-        self, _name: str, set_months: int | None, expected: int
+        self, _name: str, plan_months: int, set_months: int | None, expected: int
     ) -> None:
-        self.team.event_retention_months = 24
+        self.team.event_retention_months = plan_months
         self.team.save()
         if set_months is not None:
             TeamEventsRetentionConfig.objects.create(team=self.team, events_retention_months=set_months)
 
-        assert events_retention_months_for_team(self.team, self.team.id) == expected
+        with self.assertNumQueries(1):
+            assert events_retention_months_for_team(self.team, self.team.id) == expected
         with self.assertNumQueries(0):
             assert events_retention_months_for_team(self.team, self.team.id) == expected

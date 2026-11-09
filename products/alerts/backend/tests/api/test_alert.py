@@ -2,6 +2,7 @@ import json
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
@@ -23,6 +24,7 @@ from posthog.errors import CHQueryErrorNoCommonType
 from posthog.models import User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -33,6 +35,7 @@ from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert import AlertSerializer
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.cdp.backend.facade.models import HogFunction
@@ -784,7 +787,14 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert serialized["deliveries"] == expected_deliveries
         assert serialized["targets_notified"] is expected_targets_notified
 
-    def test_alert_limit(self) -> None:
+    @parameterized.expand(
+        [
+            ("first_alert_on_insight", "insight", "invalid_input"),
+            ("first_alert_only_on_the_platform", "platform_only", "invalid_input"),
+            ("copy_of_a_deleted_alert", "copy_of_a_deleted_row", None),
+        ]
+    )
+    def test_alert_limit(self, _name: str, first: str, refused_code: str | None) -> None:
         with mock.patch(
             "products.alerts.backend.presentation.views.alert.AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER"
         ) as alert_limit:
@@ -800,11 +810,23 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
                 "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
                 "name": "alert name",
             }
-            self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+            if first == "insight":
+                self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+            else:
+                with team_scope(self.team.id):
+                    platform_testing.create_configuration(
+                        team_id=self.team.id,
+                        name="alert name",
+                        source_kind="insight",
+                        source_config={},
+                        check_interval_minutes=60,
+                        owner="platform" if first == "platform_only" else "source",
+                        legacy_configuration_id=uuid4() if first == "copy_of_a_deleted_row" else None,
+                    )
 
             alert_2 = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
 
-            assert alert_2["code"] == "invalid_input"
+            assert alert_2.get("code") == refused_code
 
     def test_alert_is_deleted_on_insight_update(self) -> None:
         another_insight = self.client.post(

@@ -45,7 +45,7 @@ class Migration(migrations.Migration):
         ("event_definitions", "0001_squash_2026_11_02_initial"),
         ("experiments", "0049_squash_2026_11_02_finalize_fks"),
         ("exports", "0001_squash_2026_11_02_initial"),
-        ("feature_flags", "0023_teamfeatureflagpolicyconfig_blocked_hosts_and_ips"),
+        ("feature_flags", "0024_featureflagcodeanalysis"),
         ("feature_flags", "0024_squash_2026_11_02_finalize_fks"),
         ("field_notes", "0001_squash_2026_11_02_initial"),
         ("growth", "0001_squash_2026_11_02_initial"),

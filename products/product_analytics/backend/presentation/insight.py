@@ -38,7 +38,13 @@ from rest_framework.settings import api_settings
 from rest_framework.utils.urls import replace_query_param
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning, ProductKey, QueryStatus
+from posthog.schema import (
+    AccessControlFilterWarning,
+    BreakdownNotAppliedWarning,
+    DataWarehouseSyncWarning,
+    ProductKey,
+    QueryStatus,
+)
 
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
@@ -521,6 +527,18 @@ class _InsightQuerySchema(RootModel):
     ) = PydanticField(discriminator="kind")
 
 
+_METRICS_QUERY_KINDS = frozenset({"MetricsQuery", "MetricsHistogramQuery"})
+METRICS_VARIABLE_VALUES_MESSAGE = (
+    "A saved metrics insight can't store variable values. Keep the $name references in the query, "
+    "and set the values with a dashboard variable or on the alert."
+)
+
+
+def _reject_metrics_variable_values(query: Any) -> None:
+    if isinstance(query, dict) and query.get("kind") in _METRICS_QUERY_KINDS and query.get("variables"):
+        raise ValidationError({"query": [METRICS_VARIABLE_VALUES_MESSAGE]})
+
+
 @extend_schema_field(_InsightQuerySchema)  # type: ignore[arg-type]
 class QueryFieldSerializer(serializers.Serializer):
     def to_representation(self, value):
@@ -572,7 +590,7 @@ class InsightFilterOverrideContext(BaseModel):
 class _InsightResultWarnings(RootModel):
     """Warnings attached to the query response that produced an insight's results."""
 
-    root: list[DataWarehouseSyncWarning | AccessControlFilterWarning]
+    root: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning]
 
 
 RESOLVED_DATE_RANGE_SCHEMA = {
@@ -723,6 +741,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         query = attrs.get("query") if "query" in attrs else None
+        _reject_metrics_variable_values(query)
         # `filters` is read-only, so DRF drops it before validation. The raw payload is the only
         # place a legacy write still shows up, and it has to be answered rather than ignored.
         sent_filters = self.initial_data.get("filters")
@@ -1546,6 +1565,10 @@ class InsightSerializer(InsightBasicSerializer):
         return dashboard_tile
 
 
+def _pydantic_error_details(exc: PydanticValidationError) -> str:
+    return "; ".join(f"{'.'.join(str(part) for part in e['loc'])}: {e['msg']}" for e in exc.errors())
+
+
 class MCPInsightSerializer(InsightSerializer):
     """Serializer for MCP insight create/update requests.
 
@@ -1610,11 +1633,20 @@ class MCPInsightSerializer(InsightSerializer):
                 pass
 
         # A metrics insight saves its query bare, as the metrics editor and the metrics dashboard builders do
-        for metrics_cls in (schema.MetricsQuery, schema.MetricsHistogramQuery):
+        metrics_classes: dict[str, type[schema.MetricsQuery] | type[schema.MetricsHistogramQuery]] = {
+            "MetricsQuery": schema.MetricsQuery,
+            "MetricsHistogramQuery": schema.MetricsHistogramQuery,
+        }
+        kind = value.get("kind") if value is not None else None
+        metrics_cls = metrics_classes.get(kind) if isinstance(kind, str) else None
+        if value is not None and metrics_cls is not None:
+            if value.get("language") in ("promql", "sql"):
+                # A PromQL or SQL metrics query has no builder clauses, but the schema still requires the field.
+                value = {**value, "clauses": value.get("clauses") or []}
             try:
                 return metrics_cls.model_validate(value).model_dump(exclude_none=True, mode="json", by_alias=True)
-            except PydanticValidationError:
-                pass
+            except PydanticValidationError as exc:
+                raise serializers.ValidationError(f"This query can't be saved: {_pydantic_error_details(exc)}")
 
         # Raw product analytics query → InsightVizNode
         try:
@@ -1622,8 +1654,7 @@ class MCPInsightSerializer(InsightSerializer):
                 exclude_none=True, mode="json", by_alias=True
             )
         except PydanticValidationError as exc:
-            details = "; ".join(f"{'.'.join(str(part) for part in e['loc'])}: {e['msg']}" for e in exc.errors())
-            raise serializers.ValidationError(f"This query can't be saved: {details}")
+            raise serializers.ValidationError(f"This query can't be saved: {_pydantic_error_details(exc)}")
 
 
 # Insights can be looked up by either the numeric primary key or the 8-character `short_id`

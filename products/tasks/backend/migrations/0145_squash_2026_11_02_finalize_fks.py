@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("signals", "0001_squash_2026_11_02_initial"),
         ("tasks", "0001_squash_2026_11_02_initial"),
-        ("tasks", "0144_task_options"),
+        ("tasks", "0151_taskrun_warm_pool_idx"),
     ]
 
     operations = [

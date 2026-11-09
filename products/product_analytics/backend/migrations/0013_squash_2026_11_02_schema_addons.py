@@ -63,6 +63,7 @@ class Migration(migrations.Migration):
         ("posthog", "1419_squash_2026_11_02_finalize_fks"),
         ("posthog_ai", "0001_squash_2026_11_02_initial"),
         ("product_analytics", "0001_squash_2026_11_02_initial"),
+        ("product_analytics", "0012_insight_explanation"),
         ("product_tours", "0001_squash_2026_11_02_initial"),
         ("pulse", "0001_squash_2026_11_02_initial"),
         ("reminders", "0001_squash_2026_11_02_initial"),
