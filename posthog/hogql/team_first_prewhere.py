@@ -1,12 +1,14 @@
+import threading
 from datetime import timedelta
 
 from django.utils.timezone import now
+
+from cachetools import TTLCache, cached
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.team.team_event_volume import TeamEventVolume
@@ -16,8 +18,10 @@ TEAM_FIRST_PREWHERE_FLAG = "hogql-team-first-prewhere"
 TEAM_FIRST_PREWHERE_MAX_EVENTS_LAST_YEAR = 100_000_000
 TEAM_EVENT_VOLUME_MAX_AGE = timedelta(days=3)
 
+_events_last_year_cache: TTLCache[int, int | None] = TTLCache(maxsize=10_000, ttl=timedelta(minutes=10).total_seconds())
 
-@cache_for(timedelta(minutes=10))
+
+@cached(_events_last_year_cache, lock=threading.Lock())
 def _recent_events_last_year(team_id: int) -> int | None:
     return (
         TeamEventVolume.objects.for_team(team_id)

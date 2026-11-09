@@ -12,7 +12,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_ast_for_printing
 from posthog.hogql.query import HogQLQueryExecutor
-from posthog.hogql.team_first_prewhere import should_check_team_first_in_prewhere
+from posthog.hogql.team_first_prewhere import _events_last_year_cache, should_check_team_first_in_prewhere
 
 from posthog.models.team.team_event_volume import TeamEventVolume
 
@@ -22,6 +22,10 @@ ERROR_REPORT = "posthog.hogql.team_first_prewhere.capture_exception"
 
 
 class TestShouldCheckTeamFirstInPrewhere(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        _events_last_year_cache.clear()
+
     def _add_volume(self, events_last_year: int, age: timedelta = timedelta()) -> None:
         TeamEventVolume.objects.unscoped().create(
             team=self.team, events_last_year=events_last_year, computed_at=timezone.now() - age
