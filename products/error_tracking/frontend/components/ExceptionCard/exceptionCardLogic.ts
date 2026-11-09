@@ -12,6 +12,7 @@ export type ExceptionCardLogicProps = {
     loading: boolean
     logicKey?: string
     onShowOnlyWithRecording?: () => void
+    onSetUpVisionScanner?: () => void
 }
 
 export type ExceptionCardTab = 'stack_trace' | 'properties' | 'timeline' | 'recording' | 'logs' | 'trace'
@@ -27,6 +28,7 @@ export interface exceptionCardLogicValues {
     loading: boolean
     logsEnabled: boolean
     logsScope: ExceptionLogsScope
+    onSetUpVisionScanner: (() => void) | null
     onShowOnlyWithRecording: (() => void) | null
     propertyNameFilter: string
     showJSONProperties: boolean
@@ -65,6 +67,7 @@ export interface exceptionCardLogicMeta {
         traceTabEnabled: (logsEnabled: boolean) => boolean
         loading: (loading: boolean) => boolean
         onShowOnlyWithRecording: (arg: any) => (() => void) | null
+        onSetUpVisionScanner: (arg: any) => (() => void) | null
     }
 }
 
@@ -153,6 +156,10 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
         onShowOnlyWithRecording: [
             () => [(_, props) => props.onShowOnlyWithRecording],
             (onShowOnlyWithRecording: (() => void) | undefined): (() => void) | null => onShowOnlyWithRecording ?? null,
+        ],
+        onSetUpVisionScanner: [
+            () => [(_, props) => props.onSetUpVisionScanner],
+            (onSetUpVisionScanner: (() => void) | undefined): (() => void) | null => onSetUpVisionScanner ?? null,
         ],
     }),
 

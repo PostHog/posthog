@@ -38,6 +38,7 @@ export interface ExceptionCardProps extends ExceptionCardContentProps {
     loading: boolean
     logicKey?: string
     onShowOnlyWithRecording?: () => void
+    onSetUpVisionScanner?: () => void
 }
 
 export function ExceptionCard({
@@ -47,11 +48,12 @@ export function ExceptionCard({
     loading,
     logicKey,
     onShowOnlyWithRecording,
+    onSetUpVisionScanner,
     ...contentProps
 }: ExceptionCardProps): JSX.Element {
     const cardLogicProps = useMemo(
-        () => ({ issueId, loading, logicKey, onShowOnlyWithRecording }),
-        [issueId, loading, logicKey, onShowOnlyWithRecording]
+        () => ({ issueId, loading, logicKey, onShowOnlyWithRecording, onSetUpVisionScanner }),
+        [issueId, loading, logicKey, onShowOnlyWithRecording, onSetUpVisionScanner]
     )
 
     const eventProps = useMemo<ErrorPropertiesLogicProps>(

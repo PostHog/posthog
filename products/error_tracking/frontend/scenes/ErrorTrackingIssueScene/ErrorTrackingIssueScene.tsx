@@ -234,7 +234,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                                     data-attr="error-tracking-scan-with-vision"
                                                                 >
                                                                     <IconSparkles className="text-ai" />
-                                                                    Set up a scanner to watch these
+                                                                    Watch every new session with this error
                                                                 </DropdownMenuItem>
                                                                 {emailInOverflow &&
                                                                     !messageAudienceAccessDisabledReason() && (
@@ -316,6 +316,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             isMobile={isMobile}
                                             isOpen={mobileDetailOpen}
                                             onClose={() => setMobileDetailOpen(false)}
+                                            onSetUpVisionScanner={issue.name ? setUpVisionScanner : undefined}
                                         />
                                     </div>
                                 </div>
@@ -332,10 +333,12 @@ const RightHandColumn = ({
     isMobile,
     isOpen,
     onClose,
+    onSetUpVisionScanner,
 }: {
     isMobile: boolean
     isOpen: boolean
     onClose: () => void
+    onSetUpVisionScanner?: () => void
 }): JSX.Element | null => {
     const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
@@ -372,6 +375,7 @@ const RightHandColumn = ({
                     loading={issueLoading || initialEventLoading}
                     event={detailEvent ?? undefined}
                     onShowOnlyWithRecording={showOnlyWithRecording}
+                    onSetUpVisionScanner={onSetUpVisionScanner}
                     eventMarkerColor={
                         detailEvent
                             ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)
