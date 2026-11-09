@@ -909,13 +909,9 @@ class InsightSerializer(InsightBasicSerializer):
     @transaction.atomic()
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
-        # The view loaded `instance` before this transaction started, and `save()` writes every
-        # field. Applied to that copy, a PATCH that sends only `name` would also write back the
-        # `description` (or any other field) it read, and undo a concurrent request that changed it.
-        # Lock the row and reload it, so this request changes only the fields it sent.
-        # A no-key lock is enough to serialize writers, and unlike FOR UPDATE it does not block inserts
-        # of rows that reference this insight, such as views, tiles and alerts. `of` keeps the joined
-        # team and user rows unlocked.
+        # `instance` was read before this transaction and save() writes every field, so a PATCH applied
+        # to it would write back stale values of fields it did not send. A no-key lock serializes writers
+        # without blocking inserts of rows that reference the insight.
         try:
             instance.refresh_from_db(
                 from_queryset=Insight.objects_including_soft_deleted.select_related(
@@ -924,13 +920,10 @@ class InsightSerializer(InsightBasicSerializer):
             )
         except Insight.DoesNotExist:
             raise NotFound()
-        # The view excludes deleted insights unless the request restores one. A delete that committed
-        # while this request waited for the lock must not let it edit the deleted insight, or add a
-        # tile after the delete hid the others.
+        # A delete can commit while this request waits for the lock.
         if instance.deleted and validated_data.get("deleted") is not False:
             raise NotFound()
-        # refresh_from_db() empties the prefetch cache. Reload the tiles with their dashboards in one
-        # query, so the reads below and the response do not load each dashboard separately.
+        # refresh_from_db() empties the prefetch cache, so reload the tiles with their dashboards.
         prefetch_related_objects([instance], tile_permissions_prefetch())
 
         # since it is possible to be restoring a soft deleted insight

@@ -1912,8 +1912,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         insight = Insight.objects.get(pk=insight_id)
         assert insight.name == "renamed"
         assert insight.description == "written by another request"
-        # A reload without the row lock passes the assertions above, but two requests that both
-        # reload before either saves would still overwrite each other.
+        # The assertions above also pass without the lock, which truly concurrent requests need.
         assert any('FOR NO KEY UPDATE OF "posthog_dashboarditem"' in query["sql"] for query in queries.captured_queries)
 
     def test_patch_after_a_concurrent_delete_returns_404_without_adding_a_tile(self) -> None:
