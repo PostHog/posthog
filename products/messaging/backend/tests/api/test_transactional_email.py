@@ -882,15 +882,30 @@ class TestTransactionalEmail(APIBaseTest):
         assert capture.call_args.kwargs["properties"]["error_code"] == "sender_not_verified"
         mock_post.assert_not_called()
 
-    def test_a_code_send_the_pipeline_does_not_confirm_warns_it_may_still_go_out(self, mock_post, _flag, _capture):
-        mock_post.side_effect = requests.ReadTimeout()
+    @parameterized.expand(
+        [
+            ("timeout", {}, {"side_effect": requests.ReadTimeout()}),
+            (
+                "file_storage_down",
+                {"attachments": TWO_FILES},
+                {"return_value": MagicMock(status_code=503, json=lambda: {"error": "delivery_unavailable"})},
+            ),
+        ]
+    )
+    def test_a_code_send_the_pipeline_does_not_confirm_warns_it_may_still_go_out(
+        self, mock_post, _flag, _capture, _name, fields, pipeline
+    ):
+        mock_post.configure_mock(**pipeline)
 
-        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.json()["code"] == "delivery_unavailable"
         assert "may still go out" in response.json()["detail"]
         assert "within 24 hours with the same Idempotency-Key" in response.json()["detail"]
+        assert "same `Idempotency-Key`" in response.json()["fix"]
 
     def test_the_send_schema_gives_a_template_send_no_code_only_field(self, _mock_post, _flag, _capture):
         schema = self.client.get("/api/schema/").data

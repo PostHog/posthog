@@ -682,11 +682,15 @@ class TransactionalEmailUnavailable(exceptions.APIException):
     default_code = "delivery_unavailable"
 
 
-class UnconfirmedEmailSend(TransactionalEmailUnavailable):
-    default_detail = (
+def unconfirmed_email_send() -> ExplainedRefusal:
+    return ExplainedRefusal(
         "The email pipeline did not confirm the send, so the email may still go out. To retry, send it again "
         "within 24 hours with the same Idempotency-Key, so it goes out once. A retry without that key, or after "
-        "that time, may send it twice."
+        "that time, may send it twice.",
+        code="delivery_unavailable",
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        why="PostHog's email pipeline or its file storage didn't confirm that the email was queued.",
+        fix="Send it again within 24 hours with the same `Idempotency-Key`, so it goes out once.",
     )
 
 
@@ -904,7 +908,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         send: Callable[[str | None], QueuedEmail],
         *,
         addressed: dict[str, str],
-        unavailable: type[TransactionalEmailUnavailable] = TransactionalEmailUnavailable,
+        unavailable: Callable[[], exceptions.APIException] = TransactionalEmailUnavailable,
     ) -> Response:
         idempotency_key = request.headers.get("Idempotency-Key")
         attachments = request.validated_data.get("attachments") or []
@@ -1406,7 +1410,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 idempotency_key=idempotency_key,
             ),
             addressed={"addressed_by": "template_key"},
-            unavailable=UnconfirmedEmailSend,
+            unavailable=unconfirmed_email_send,
         )
 
 
