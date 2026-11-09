@@ -36,6 +36,7 @@ export interface messageTemplateTestSendLogicValues {
     integrationsLoading: boolean // integrationsLogic
     ownEmailIntegrations: IntegrationType[] // integrationsLogic
     sandboxEmailSender: IntegrationType | null // integrationsLogic
+    sandboxEmailSenderEnabled: boolean // integrationsLogic
     meFirstMembers: OrganizationMemberType[] // membersLogic
     members: OrganizationMemberType[] | null // membersLogic
     membersLoading: boolean // membersLogic
@@ -49,6 +50,7 @@ export interface messageTemplateTestSendLogicValues {
     recipientIsUnverifiedSelf: boolean
     recipientNotSuggested: boolean
     recipientSuggestions: string[]
+    sandboxSenderRuledOut: boolean
     sendDisabledReason: string | undefined
     senderIntegrationId: number | null
     senderIntegrationIdOverride: number | null
@@ -144,6 +146,11 @@ export interface messageTemplateTestSendLogicMeta {
             senderIntegrationId: number | null,
             sandboxEmailSender: IntegrationType | null
         ) => boolean
+        sandboxSenderRuledOut: (
+            sandboxEmailSenderEnabled: boolean,
+            integrations: IntegrationType[] | null,
+            isSandboxSenderSelected: boolean
+        ) => boolean
         recipientSuggestions: (meFirstMembers: OrganizationMemberType[], user: UserType | null) => string[]
         recipientIsUnverifiedSelf: (
             isSandboxSenderSelected: boolean,
@@ -186,7 +193,13 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
             teamLogic,
             ['currentTeamId'],
             integrationsLogic,
-            ['integrations', 'integrationsLoading', 'ownEmailIntegrations', 'sandboxEmailSender'],
+            [
+                'integrations',
+                'integrationsLoading',
+                'ownEmailIntegrations',
+                'sandboxEmailSender',
+                'sandboxEmailSenderEnabled',
+            ],
             membersLogic,
             ['members', 'membersLoading', 'meFirstMembers'],
         ],
@@ -315,6 +328,14 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
             (senderIntegrationId: number | null, sandboxEmailSender: IntegrationType | null): boolean =>
                 sandboxEmailSender !== null && senderIntegrationId === sandboxEmailSender.id,
         ],
+        sandboxSenderRuledOut: [
+            (s) => [s.sandboxEmailSenderEnabled, s.integrations, s.isSandboxSenderSelected],
+            (
+                sandboxEmailSenderEnabled: boolean,
+                integrations: IntegrationType[] | null,
+                isSandboxSenderSelected: boolean
+            ): boolean => !sandboxEmailSenderEnabled || (integrations !== null && !isSandboxSenderSelected),
+        ],
         recipientSuggestions: [
             (s) => [s.meFirstMembers, s.user],
             (meFirstMembers: OrganizationMemberType[], user: UserType | null): string[] => {
@@ -389,9 +410,10 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                 actions.loadAllMembers()
             }
         }
-        // Only a selected own sender prefills, because the sandbox sender sends only to the members it suggests.
+        // The sandbox sender sends only to the members it suggests, so the user's own email prefills only
+        // once the sandbox sender is ruled out.
         const prefillRecipient = (): void => {
-            if (!values.isSandboxSenderSelected && !values.recipientEmail && values.user?.email) {
+            if (values.sandboxSenderRuledOut && !values.recipientEmail && values.user?.email) {
                 actions.setRecipientEmail(values.user.email)
             }
         }
@@ -404,14 +426,16 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                 if (values.sandboxEmailSender) {
                     actions.loadAllMembers()
                 }
-                if (values.integrations !== null) {
-                    prefillRecipient()
-                }
+                prefillRecipient()
             },
             setFeatureFlags: (_, __, ___, previousState) => followSandboxSender(previousState),
             loadIntegrationsSuccess: (_, __, ___, previousState) => {
                 followSandboxSender(previousState)
-                if (values.isModalOpen && integrationsLogic.selectors.integrations(previousState) === null) {
+                if (
+                    values.isModalOpen &&
+                    values.sandboxEmailSenderEnabled &&
+                    integrationsLogic.selectors.integrations(previousState) === null
+                ) {
                     prefillRecipient()
                 }
             },

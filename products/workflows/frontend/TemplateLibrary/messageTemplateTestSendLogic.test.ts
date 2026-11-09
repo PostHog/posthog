@@ -102,10 +102,17 @@ describe('messageTemplateTestSendLogic', () => {
         templateLogic?.unmount()
     })
 
-    it('prefills the recipient with the current user email when the modal opens', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setModalOpen(true)
-        }).toMatchValues({ recipientEmail: 'john.doe@posthog.com' })
+    it.each([
+        { description: 'once the senders have loaded', sendersLoaded: true },
+        { description: 'before the senders load, while the sandbox flag is off', sendersLoaded: false },
+    ])('prefills the recipient with the current user email when the modal opens $description', ({ sendersLoaded }) => {
+        if (!sendersLoaded) {
+            integrationsLogic.actions.clearIntegrations()
+        }
+
+        logic.actions.setModalOpen(true)
+
+        expect(logic.values.recipientEmail).toBe('john.doe@posthog.com')
     })
 
     it('defaults the sender to the first verified email integration, excluding unverified, sandbox and non-email kinds', async () => {
