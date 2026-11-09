@@ -507,6 +507,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
         type BatchOptions = {
             stopConsuming?: () => Promise<void>
             disconnect?: () => Promise<void>
+            disconnectProducer?: () => Promise<void>
             jobs?: CyclotronV2DequeuedJob[]
         }
 
@@ -516,6 +517,10 @@ describe('CyclotronJobQueuePostgresV2', () => {
         ): Promise<{ queue: any; steps: string[] }> {
             const { queue } = createQueue()
             const steps: string[] = []
+            ;(queue as any).manager.disconnect = async () => {
+                steps.push('close producer pool')
+                await options.disconnectProducer?.()
+            }
             let consume: (jobs: CyclotronV2DequeuedJob[]) => Promise<void> = () => Promise.resolve()
             jest.spyOn(queue as any, 'createWorker').mockReturnValue({
                 connect: (fn: typeof consume) => {
@@ -575,6 +580,11 @@ describe('CyclotronJobQueuePostgresV2', () => {
                 () => Promise.resolve(),
                 { disconnect: () => new Promise<void>(() => {}) },
             ],
+            [
+                'closing the producer pool hangs on a blocked insert',
+                () => Promise.resolve(),
+                { disconnectProducer: () => new Promise<void>(() => {}) },
+            ],
         ])(
             'returns at the stop deadline, counted from the start of the stop, when %s',
             async (_name, write, options) => {
@@ -583,13 +593,16 @@ describe('CyclotronJobQueuePostgresV2', () => {
                     const { queue, steps } = await consumeOneBatch(write, options)
                     let returned = false
 
-                    const stopped = queue.stopConsumer().then(() => (returned = true))
+                    const stopped = queue
+                        .stopConsumer()
+                        .then(() => queue.stopProducer())
+                        .then(() => (returned = true))
                     await jest.advanceTimersByTimeAsync(CONSUMER_STOP_DEADLINE_MS - 1)
                     expect(returned).toBe(false)
                     await jest.advanceTimersByTimeAsync(1)
                     await stopped
 
-                    expect(steps).toEqual(['stop dequeuing', 'close pool'])
+                    expect(steps).toEqual(['stop dequeuing', 'close pool', 'close producer pool'])
                 } finally {
                     jest.useRealTimers()
                 }
