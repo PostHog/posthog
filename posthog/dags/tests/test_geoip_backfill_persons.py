@@ -7,11 +7,12 @@ import pytest
 
 import dagster
 
-from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole
+from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole, Query
 from posthog.dags.geoip_backfill import GeoipStagingTable
 from posthog.dags.geoip_backfill_persons import (
     INITIAL_GEOIP_KEYS,
     GeoipPersonsConfig,
+    GeoipPersonsLog,
     geoip_backfill_persons_job,
     staged_person_events,
 )
@@ -39,6 +40,17 @@ def test_staged_person_events_merges_the_earliest_and_last_event_across_shards()
     assert merged.initial_geoip["$initial_geoip_country_code"] == "US"
     assert merged.latest_geoip["$geoip_country_code"] == "FR"
     assert merged.last_written_at == start + timedelta(minutes=10)
+
+
+def written_persons(cluster: ClickhouseCluster, run_id: str) -> dict[int, tuple[dict, dict, dict]]:
+    rows = cluster.any_host_by_role(
+        Query(
+            f"""SELECT person_id, set_once_properties, set_properties, previous_properties
+            FROM {GeoipPersonsLog(id=UUID(run_id)).qualified_name}"""
+        ),
+        NodeRole.DATA,
+    ).result()
+    return {row[0]: (json.loads(row[1]), json.loads(row[2]), json.loads(row[3])) for row in rows}
 
 
 @pytest.mark.django_db
@@ -86,6 +98,7 @@ def test_persons_get_missing_geoip_once(
     ]
     seed(cluster, now, events)
     staging_run_id = run_staging(cluster, now, tmp_path).dagster_run.run_id
+    persons_run_ids: list[str] = []
     try:
         with fake_personhog_client() as fake:
             fake.add_person(
@@ -106,7 +119,7 @@ def test_persons_get_missing_geoip_once(
             )
 
             for _ in range(2):
-                geoip_backfill_persons_job.execute_in_process(
+                result = geoip_backfill_persons_job.execute_in_process(
                     run_config=dagster.RunConfig(
                         ops={
                             "repair_geoip_persons": GeoipPersonsConfig(
@@ -117,12 +130,20 @@ def test_persons_get_missing_geoip_once(
                     resources={"cluster": cluster},
                     instance=dagster.DagsterInstance.ephemeral(),
                 )
+                persons_run_ids.append(result.dagster_run.run_id)
 
             new = json.loads(fake.stored_person(with_geoip, str(new_person)).properties)
             earlier = json.loads(fake.stored_person(with_geoip, str(earlier_person)).properties)
             later = json.loads(fake.stored_person(with_geoip, str(located_later)).properties)
             updates = [call for call in fake.calls if call.method == "update_person_properties"]
             assert later == located_later_properties
+            first_log, second_log = (written_persons(cluster, run_id) for run_id in persons_run_ids)
+            assert set(first_log) == {1, 2}
+            set_once, set_properties, previous = first_log[2]
+            assert set_once["$initial_geoip_country_code"] == "US"
+            assert set_properties["$geoip_country_code"] == "US"
+            assert previous == {"$initial_geoip_country_code": "FR", "$geoip_country_code": "FR"}
+            assert set(second_log) == (set() if not dry_run else {1, 2})
             if dry_run:
                 assert new == {"email": "a@example.com"}
                 assert earlier == {"$initial_geoip_country_code": "FR", "$geoip_country_code": "FR"}
@@ -139,3 +160,5 @@ def test_persons_get_missing_geoip_once(
                 assert len(updates) == 2
     finally:
         cluster.map_hosts_by_role(GeoipStagingTable(id=UUID(staging_run_id)).drop, NodeRole.DATA).result()
+        for run_id in persons_run_ids:
+            cluster.map_hosts_by_role(GeoipPersonsLog(id=UUID(run_id)).drop, NodeRole.DATA).result()

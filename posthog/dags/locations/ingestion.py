@@ -22,6 +22,7 @@ defs = dagster.Definitions(
         geoip_backfill_resend.geoip_backfill_resend_job,
         geoip_backfill_verify.geoip_backfill_verify_job,
         geoip_backfill_persons.geoip_backfill_persons_job,
+        geoip_backfill_persons.cleanup_geoip_backfill_persons,
     ],
     schedules=[
         distinct_id_usage.distinct_id_usage_monitoring_schedule,

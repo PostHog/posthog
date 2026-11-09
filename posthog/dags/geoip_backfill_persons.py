@@ -11,6 +11,9 @@ for a person that no event set `$geoip_*` for after that one. Such a person stil
 an event from before the incident, or none at all. This write is a plain `$set`, so an event that sets
 `$geoip_*` between the job's check and its write is overwritten with the older location.
 
+Every run logs each person it writes, or would write in a dry run, to a table of its own: the keys, the
+values sent, and the values those keys held before. A rollback reads that table.
+
 The write goes through `UpdatePersonProperties` on the personhog leader. Where the leader path is not
 configured, the first write fails the job. A dry run only reads, so it works without the leader.
 """
@@ -19,8 +22,11 @@ import json
 import time
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any
+
+from django.conf import settings
 
 import dagster
 import pydantic
@@ -31,6 +37,7 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.execute import ClickHouseExternalTable
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import DagsterTags
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.dags.common import dagster_tags
 from posthog.dags.flag_evaluations_backfill import shard_workload
 from posthog.dags.geoip_backfill import OWNER_TAG, GeoipStagingTable, tagged
@@ -187,6 +194,66 @@ def plan_person_repair(
     )
 
 
+@frozen
+class GeoipPersonsLog:
+    """The persons one run writes, on every data host, kept after the run for a rollback.
+
+    A rollback restores `previous_properties` for the keys whose value still equals the one sent.
+    """
+
+    id: uuid.UUID
+
+    @property
+    def name(self) -> str:
+        # Matches the "tmp_*" glob in posthog/clickhouse/hcl/exclude.hcl.
+        return f"tmp_geoip_backfill_persons_{self.id.hex}"
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
+
+    def create(self, client: Client) -> None:
+        engine = MergeTreeEngine(self.name, replication_scheme=ReplicationScheme.REPLICATED)
+        client.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self.qualified_name} (
+                team_id Int64,
+                person_id Int64,
+                person_uuid UUID,
+                set_once_properties String,
+                set_properties String,
+                previous_properties String,
+                logged_at DateTime
+            )
+            ENGINE = {engine}
+            ORDER BY (team_id, person_id)
+            """
+        )
+
+    def insert(self, repairs: Sequence[PersonRepair], client: Client) -> None:
+        logged_at = datetime.now(UTC)
+        client.execute(
+            f"""INSERT INTO {self.qualified_name}
+            (team_id, person_id, person_uuid, set_once_properties, set_properties, previous_properties, logged_at)
+            VALUES""",
+            [
+                (
+                    repair.team_id,
+                    repair.person_id,
+                    uuid.UUID(repair.person_uuid),
+                    json.dumps(repair.set_once),
+                    json.dumps(repair.set),
+                    json.dumps(repair.previous),
+                    logged_at,
+                )
+                for repair in repairs
+            ],
+        )
+
+    def drop(self, client: Client) -> None:
+        client.execute(f"DROP TABLE IF EXISTS {self.qualified_name} SYNC")
+
+
 def _pick(values: Mapping[str, Any], names: Sequence[str]) -> dict[str, Any]:
     return {name: values.get(name) for name in names}
 
@@ -243,6 +310,7 @@ def later_geoip_query(table: GeoipStagingTable) -> str:
 class PersonsRepair:
     cluster: ClickhouseCluster
     table: GeoipStagingTable
+    written_persons: GeoipPersonsLog
     config: GeoipPersonsConfig
     log: dagster.DagsterLogManager
     query_tags: DagsterTags
@@ -259,6 +327,11 @@ class PersonsRepair:
         current = self._persons_with_later_geoip(team_ids, events) if self.config.repair_latest_geoip else set()
         repairs, not_found = self._plan(client, events, current)
         to_write = [repair for repair in repairs if repair.writes]
+        if to_write:
+            # Logged before the writes, so a run that fails part way through still lists every person it wrote.
+            self.cluster.any_host_by_role(
+                tagged(self.query_tags, partial(self.written_persons.insert, to_write)), NodeRole.DATA
+            ).result()
         written = 0 if self.config.dry_run else self._write(client, to_write)
         action = "would write" if self.config.dry_run else "wrote"
         self.log.info(f"{len(team_ids)} team(s): {len(events)} person(s), {action} {len(to_write)}")
@@ -301,7 +374,7 @@ class PersonsRepair:
         }
         query = later_geoip_query(self.table)
         workload, _ = shard_workload()
-        settings = {
+        query_settings = {
             "max_execution_time": self.config.max_execution_time_seconds,
             "max_memory_usage": self.config.max_memory_usage_bytes,
         }
@@ -310,7 +383,7 @@ class PersonsRepair:
             return sync_execute(
                 query,
                 args,
-                settings=settings,
+                settings=query_settings,
                 workload=workload,
                 sync_client=client,
                 flush=False,
@@ -394,11 +467,20 @@ def repair_geoip_persons(
     }
     if config.team_ids:
         team_ids &= set(config.team_ids)
+    written_persons = GeoipPersonsLog(id=uuid.UUID(context.run_id))
+    cluster.map_hosts_by_role(written_persons.create, NodeRole.DATA).result()
     totals = PersonsRepair(
-        cluster=cluster, table=table, config=config, log=context.log, query_tags=dagster_tags(context)
+        cluster=cluster,
+        table=table,
+        written_persons=written_persons,
+        config=config,
+        log=context.log,
+        query_tags=dagster_tags(context),
     ).run(sorted(team_ids))
+    context.log.info(f"{written_persons.qualified_name} lists the persons this run wrote or would write")
     context.add_output_metadata(
         {
+            "written_persons_table": dagster.MetadataValue.text(written_persons.qualified_name),
             "teams": dagster.MetadataValue.int(len(team_ids)),
             "persons": dagster.MetadataValue.int(totals.persons),
             "not_found": dagster.MetadataValue.int(totals.not_found),
@@ -419,3 +501,18 @@ def geoip_backfill_persons_job() -> None:
     and a `$geoip_*` write is skipped for a person that already holds the staged values.
     """
     repair_geoip_persons()
+
+
+class PersonsRunConfig(dagster.Config):
+    persons_run_id: str = pydantic.Field(description="The ID of the geoip_backfill_persons_job run.")
+
+
+@dagster.op(tags=OWNER_TAG)
+def drop_written_persons(cluster: dagster.ResourceParam[ClickhouseCluster], config: PersonsRunConfig) -> None:
+    cluster.map_hosts_by_role(GeoipPersonsLog(id=uuid.UUID(config.persons_run_id)).drop, NodeRole.DATA).result()
+
+
+@dagster.job(tags=OWNER_TAG)
+def cleanup_geoip_backfill_persons() -> None:
+    """Drop the written-persons table of a geoip_backfill_persons_job run, once a rollback is ruled out."""
+    drop_written_persons()
