@@ -3,6 +3,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { MessageRejected, SESv2Client, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { createHash, randomBytes } from 'node:crypto'
+import { Readable } from 'node:stream'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -238,6 +239,12 @@ const sesRequestHandler = (handle: (options?: { abortSignal?: AbortSignal }) => 
     updateHttpClientConfig: () => {},
     httpHandlerConfigs: () => ({}),
 })
+
+const bodyThatStallsUntil = (signal: AbortSignal): Readable => {
+    const body = new Readable({ read: () => {} })
+    signal.addEventListener('abort', () => body.destroy())
+    return body
+}
 
 const sesThrottleAnswer = (): Promise<unknown> =>
     Promise.resolve({
@@ -1830,6 +1837,24 @@ describe('EmailService', () => {
                     () => {
                         service.sesV2Client = sesClientWith({
                             requestHandler: sesRequestHandler((options) => rejectOnAbort(options!.abortSignal!)),
+                        })
+                    },
+                    sesMayHaveSent,
+                ],
+                [
+                    'SES answers 200 and its body stalls',
+                    'fails the send without a retry, because SES accepted it',
+                    () => {
+                        service.sesV2Client = sesClientWith({
+                            requestHandler: sesRequestHandler((options) =>
+                                Promise.resolve({
+                                    response: {
+                                        statusCode: 200,
+                                        headers: { 'content-type': 'application/json' },
+                                        body: bodyThatStallsUntil(options!.abortSignal!),
+                                    },
+                                })
+                            ),
                         })
                     },
                     sesMayHaveSent,
