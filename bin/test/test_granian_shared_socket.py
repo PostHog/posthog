@@ -92,7 +92,7 @@ class TestGranianSharedSocket(unittest.TestCase):
             if cls.server.poll() is not None or time.monotonic() > deadline:
                 cls.tearDownClass()
                 raise RuntimeError("granian did not start")
-            time.sleep(0.2)  # noqa: TID251  # Worker readiness is observed through HTTP and marker files.
+            time.sleep(0.2)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -111,7 +111,7 @@ class TestGranianSharedSocket(unittest.TestCase):
         threading.Thread(target=get, args=(self.port, "/slow", 30), daemon=True).start()
         deadline = time.monotonic() + 10
         while not self.slow_marker.exists() and time.monotonic() < deadline:
-            time.sleep(0.05)  # noqa: TID251  # Worker readiness is observed through HTTP and marker files.
+            time.sleep(0.05)
         self.assertTrue(self.slow_marker.exists(), "the /slow request never reached a worker")
         # With per-worker sockets about a quarter of these land on the busy worker and time out.
         statuses = [get(self.port, "/", timeout=2) for _ in range(20)]

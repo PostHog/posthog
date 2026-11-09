@@ -65,7 +65,7 @@ def _prepare(method: str) -> bool:
             process.wait()
         if attempt < ATTEMPTS:
             delay = RETRY_BASE_DELAY_SECONDS * 2 ** (attempt - 1)
-            time.sleep(random.uniform(delay, 2 * delay))  # noqa: TID251  # Failed server downloads need retry backoff.
+            time.sleep(random.uniform(delay, 2 * delay))
     return False
 
 

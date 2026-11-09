@@ -8,7 +8,7 @@ from google.auth.credentials import CredentialsWithRegionalAccessBoundary
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import isolated_job_context
 
-_real_sleep = time.sleep  # noqa: TID251  # Cap production retry delays within source tests.
+_real_sleep = time.sleep
 
 
 def _capped_sleep(seconds: SupportsIndex | float, /) -> None:
@@ -44,8 +44,8 @@ def _cap_backoff_sleeps() -> Generator[None]:
     A plain attribute swap rather than mock.patch: this runs for every test in the
     sources tree, and MagicMock construction is measurable at that volume.
     """
-    time.sleep = _capped_sleep  # ty: ignore[invalid-assignment]  # noqa: TID251  # Cap production retry delays within source tests.
+    time.sleep = _capped_sleep  # ty: ignore[invalid-assignment]
     try:
         yield
     finally:
-        time.sleep = _real_sleep  # noqa: TID251  # Cap production retry delays within source tests.
+        time.sleep = _real_sleep

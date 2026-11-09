@@ -106,7 +106,7 @@ class _TrickleResponse:
 
     def iter_content(self, chunk_size: int = 1) -> Any:
         while not self._closed:
-            time.sleep(0.02)  # noqa: TID251  # Trickled bytes keep the socket active while the request deadline expires.
+            time.sleep(0.02)
             yield b"x" * 8
         raise OSError("connection closed")
 
@@ -143,7 +143,7 @@ class _PartialHeaderServer:
             conn.sendall(b"HTTP/1.1 200 OK\r\n")  # status line only — headers never terminated
             while True:
                 conn.sendall(b"X-Trickle: 1\r\n")  # keep dribbling headers, never the blank line
-                time.sleep(0.02)  # noqa: TID251  # Trickled bytes keep the socket active while the request deadline expires.
+                time.sleep(0.02)
         except OSError:
             # sendall raises once the client force-closes its socket at the deadline.
             self.client_closed.set()

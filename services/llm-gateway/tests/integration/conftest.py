@@ -198,7 +198,7 @@ def run_gateway_server(configure_all_providers: bool = False, bedrock_region_nam
                     while not server.started:
                         assert thread.is_alive(), "the gateway server exited"
                         assert time.monotonic() < deadline, "the gateway server never started"
-                        time.sleep(0.01)  # noqa: TID251  # Uvicorn reports readiness from its server thread.
+                        time.sleep(0.01)
                     yield f"http://127.0.0.1:{port}"
                 finally:
                     server.should_exit = True

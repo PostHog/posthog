@@ -76,7 +76,7 @@ def assert_sandbox_shutdown():
         deadline = time.monotonic() + timeout_seconds
         while Sandbox.get_by_id(sandbox_id).is_running():
             assert time.monotonic() < deadline, f"sandbox {sandbox_id} still running after {timeout_seconds}s"
-            time.sleep(1)  # noqa: TID251  # Modal termination is asynchronous.
+            time.sleep(1)
 
     return _assert_sandbox_shutdown
 

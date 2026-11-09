@@ -84,7 +84,7 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
 
     def test_tiles_that_miss_the_cache_at_once_run_the_options_query_once(self) -> None:
         def slow_options(*args: Any, **kwargs: Any) -> list[str]:
-            time.sleep(0.3)  # noqa: TID251  # Keep the query in flight while concurrent tiles request its result.
+            time.sleep(0.3)
             return ["api", "worker"]
 
         date_to = timezone.now()

@@ -194,7 +194,7 @@ class TestPagedRows:
         full_page = self._page(PAGE_SIZE, page=1, total_hits=10**9)
 
         def slow_page(_request: RecordedRequest) -> ScriptedResponse:
-            time.sleep(2)  # noqa: TID251  # Simulate a slow vendor that exhausts the pagination time budget.
+            time.sleep(2)
             return ScriptedResponse(json=full_page)
 
         with mock.patch.object(inst, "MAX_CATALOG_WALK_SECONDS", 5):

@@ -58,7 +58,7 @@ class ThreadedWorker(Worker):
                     raise RuntimeError("Temporal test worker thread exited before it started running")
                 if time.monotonic() >= deadline:
                     raise TimeoutError(f"Temporal test worker did not start within {startup_timeout:g}s")
-                time.sleep(0.1)  # noqa: TID251  # Worker startup is reported from its background thread.
+                time.sleep(0.1)
             yield
         finally:
             try:

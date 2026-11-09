@@ -1305,7 +1305,7 @@ def test_the_sweep_waits_for_an_executing_drain_before_it_touches_anything(
     drain_run = instance.create_run_for_job(
         job_def=person_pg_cleanup_drain_job, status=dagster.DagsterRunStatus.STARTED
     )
-    real_sleep = time.sleep  # noqa: TID251  # Unrelated callers must retain real sleep while the drain loop is patched.
+    real_sleep = time.sleep
     seen_while_draining: list[tuple[int, list[tuple]]] = []
 
     def stop_the_drain(seconds: float) -> None:

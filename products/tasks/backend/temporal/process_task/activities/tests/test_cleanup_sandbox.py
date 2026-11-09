@@ -1,7 +1,6 @@
 import os
 import time
 import uuid
-import threading
 from contextlib import nullcontext
 from datetime import timedelta
 
@@ -13,8 +12,6 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from pytest_mock import MockerFixture
-
-from posthog.test.waiting import wait_until
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade.billing import get_task_run_cost
@@ -421,36 +418,15 @@ class TestCleanupSandboxActivity:
             metadata={"test_tag": test_tag},
         )
 
-        sandbox = Sandbox.create(config)
-        sandbox_id = sandbox.id
+        with Sandbox.create(config) as sandbox:
+            sandbox_id = sandbox.id
+            command = sandbox.execute_stream("echo started; exec sleep 30", timeout_seconds=60)
+            output = iter(command.iter_stdout())
+            assert next(output).strip() == "started"
 
-        def run_long_command():
-            try:
-                sandbox.execute("touch /tmp/long-command-started && sleep 30", timeout_seconds=60)
-            except Exception:
-                pass
+            assert Sandbox.get_by_id(sandbox_id).is_running()
 
-        long_task = threading.Thread(target=run_long_command)
-        long_task.start()
+            input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
+            async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
-        def long_command_started() -> bool:
-            try:
-                return sandbox.execute("test -f /tmp/long-command-started", timeout_seconds=10).exit_code == 0
-            except Exception:
-                return False
-
-        wait_until(
-            long_command_started,
-            timeout=30,
-            interval=0.5,
-            message="the long command never started",
-        )
-
-        assert Sandbox.get_by_id(sandbox_id).is_running()
-
-        input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
-        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
-
-        long_task.join(timeout=5)
-
-        assert_sandbox_shutdown(sandbox_id)
+            assert_sandbox_shutdown(sandbox_id)

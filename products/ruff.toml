@@ -4,7 +4,7 @@ src = [".."]
 [lint]
 extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 
-[lint.extend-per-file-ignores]
+[lint.per-file-ignores]
 "**/tests/**" = ["ANN"]
 "**/test_*" = ["ANN"]
 "**/migrations/**" = ["ANN"]

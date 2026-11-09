@@ -34,7 +34,7 @@ def wait_for_backfill_creation(client: HttpClient, team_id: int, batch_export_id
         response = list_batch_export_backfills_ok(client, team_id, batch_export_id)
         backfills = response["results"]
         if len(backfills) == 0:
-            time.sleep(POLL_INTERVAL)  # noqa: TID251  # Temporal creates backfills and their runs asynchronously.
+            time.sleep(POLL_INTERVAL)
             total += POLL_INTERVAL
         else:
             return backfills[0]
@@ -48,7 +48,7 @@ def wait_for_backfill_runs(backfill_id: str, timeout: int = 120) -> list[BatchEx
         runs = list(BatchExportRun.objects.filter(backfill_id=backfill_id))
         if runs:
             return runs
-        time.sleep(POLL_INTERVAL)  # noqa: TID251  # Temporal creates backfills and their runs asynchronously.
+        time.sleep(POLL_INTERVAL)
         total += POLL_INTERVAL
 
     raise Exception("No runs found for backfill")

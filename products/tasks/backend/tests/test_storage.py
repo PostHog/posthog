@@ -97,7 +97,7 @@ class TestAppendJsonlObject(SimpleTestCase):
 
         def _read(key: str, missing_ok: bool = False) -> str:
             snapshot = stored
-            time.sleep(0.005)  # noqa: TID251  # Expose competing appends that read the same stored contents.
+            time.sleep(0.005)
             return snapshot
 
         def _write(key: str, content: str) -> None:

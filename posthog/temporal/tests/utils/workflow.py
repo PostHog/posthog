@@ -91,7 +91,7 @@ class Waiter:
 
                 if inputs.raise_on_shutdown:
                     self.shutdown_monitor.raise_if_is_worker_shutdown()
-                time.sleep(0.1)  # noqa: TID251  # The fake activity must keep heartbeating until shutdown.
+                time.sleep(0.1)
 
 
 @workflow.defn(name="wait")

@@ -791,7 +791,7 @@ class PostHogTestCase(SimpleTestCase):
             except AssertionError:
                 if attempt == max_retries - 1:
                     raise  # On last attempt, re-raise the assertion error
-                time.sleep(delay)  # noqa: TID251  # Background work can make the assertion pass on a later attempt.
+                time.sleep(delay)  # Otherwise, wait before retrying
 
     def assertNumQueries(self, num, func=None, *args, using="__all__", **kwargs):
         """
@@ -2063,7 +2063,7 @@ def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
             except TooManyConnections:
                 if attempt + 1 == max_attempts:
                     raise
-                time.sleep(0.1 * (2**attempt))  # noqa: TID251  # Concurrent DDL can exhaust the ClickHouse connection limit.
+                time.sleep(0.1 * (2**attempt))
 
     with ThreadPoolExecutor(max_workers=settings.CLICKHOUSE_CONN_POOL_MAX) as pool:
         futures = [pool.submit(_execute_with_retry, stmt) for stmt in statements]

@@ -431,7 +431,6 @@ select = [
     "RUF019",
     "T100",
     "T2",
-    "TID251",
     "TID253",
     "TRY201",
     "TRY400",
@@ -452,11 +451,6 @@ select = [
 # Not portable to explicit re-exports without losing the settings-loading semantics.
 "posthog/settings/**" = ["F403", "F405"]
 
-# Restrict this ban to test code so production retry backoff is unaffected.
-"!{**/test_*.py,**/*_test.py,**/conftest.py,**/test/**,**/tests/**}" = ["TID251"]
-# The standalone Rust crash-injection harness manages its own process timing.
-"rust/deltalite/python/tests/test_crash_redelivery.py" = ["TID251"]
-
 # PLC0415 exemptions. products/ and services/llm-gateway/ have their own ruff configs.
 # Run `ruff check <path> --select PLC0415 --statistics` before removing an entry.
 ".github/**" = ["PLC0415"]
@@ -475,9 +469,6 @@ select = [
 # Only modules with a single, already-lazy call site are listed — vendor source/destination
 # leaf modules legitimately import their own SDK at module level and are loaded on demand.
 banned-module-level-imports = ["elevenlabs", "matplotlib", "trafilatura"]
-
-[tool.ruff.lint.flake8-tidy-imports.banned-api]
-"time.sleep".msg = "Wait on a condition or control the clock in tests. See /writing-tests."
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10

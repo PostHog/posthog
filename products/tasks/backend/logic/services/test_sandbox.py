@@ -24,7 +24,7 @@ def _wait_for_status(
     while time.monotonic() < deadline:
         if sandbox.get_status() == expected:
             return
-        time.sleep(interval)  # noqa: TID251  # Modal reports status transitions asynchronously.
+        time.sleep(interval)
     # A genuinely stuck sandbox still fails here with a clear assertion.
     assert sandbox.get_status() == expected
 

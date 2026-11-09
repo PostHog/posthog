@@ -590,7 +590,7 @@ class TestQueryRunner(BaseTest):
             build_count += 1
             # Holds the first build open past the second thread's None check, so an
             # implementation without the lock deterministically builds twice.
-            time.sleep(0.05)  # noqa: TID251  # Keep the first build in flight while the competing thread starts.
+            time.sleep(0.05)
             return mock.MagicMock()
 
         barrier = threading.Barrier(2)

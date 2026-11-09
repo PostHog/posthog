@@ -444,7 +444,7 @@ def _wait_for_events_in_clickhouse(team_id: int, expected_count: int, timeout_se
         count = _count_events_in_clickhouse(team_id)
         if count >= expected_count:
             return
-        time.sleep(0.5)  # noqa: TID251  # Kafka ingestion updates the event count asynchronously.
+        time.sleep(0.5)
     raise TimeoutError(
         f"Expected {expected_count} events in ClickHouse for team {team_id}, "
         f"but only found {count} after {timeout_seconds}s"

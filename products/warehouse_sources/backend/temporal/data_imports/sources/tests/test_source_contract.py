@@ -181,7 +181,7 @@ def _bespoke(
                     continue
                 if response.status_code == 429 and honor_retry_after:
                     # The harness replaces `time.sleep` with its fake clock.
-                    time.sleep(float(response.headers["Retry-After"]))  # noqa: TID251  # The fake network installs a controlled clock for retry waits.
+                    time.sleep(float(response.headers["Retry-After"]))
                     continue
                 return response
             raise RuntimeError("no attempt is left")
@@ -237,8 +237,8 @@ def test_retry_waits_reach_the_fake_clock_after_a_test_replaced_them(monkeypatch
     controller = cast(Any, _retried_call).retry
     monkeypatch.setattr(controller, "sleep", lambda *_: None)
     with fake_environment(ScenarioResponder(Scenario(mode="stall"))):
-        assert controller.sleep is time.sleep  # noqa: TID251  # The fake network installs a controlled clock for retry waits.
-    assert controller.sleep is not time.sleep  # noqa: TID251  # The fake network installs a controlled clock for retry waits.
+        assert controller.sleep is time.sleep
+    assert controller.sleep is not time.sleep
 
 
 def read_baseline() -> dict[str, str]:
