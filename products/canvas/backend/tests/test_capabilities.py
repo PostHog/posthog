@@ -94,6 +94,8 @@ class TestAssertMaySetCapabilities(TestCase):
             ("no_acting_user", 1, None, BASE, WIDER, True, STANDARD),
             ("missing_baseline_counts_as_empty", 1, 2, None, BASE, True, STANDARD),
             ("missing_baseline_and_empty_after", 1, 2, None, {}, False, STANDARD),
+            ("unknown_target_needs_the_creator", 1, 2, BASE, None, True, STANDARD),
+            ("unknown_target_for_the_creator", 1, 1, BASE, None, False, STANDARD),
             ("notebook_widget_is_exempt", 1, 2, BASE, WIDER, False, Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET),
         ]
     )
@@ -103,7 +105,7 @@ class TestAssertMaySetCapabilities(TestCase):
         creator_id: int | None,
         user_id: int | None,
         before: dict | None,
-        after: dict,
+        after: dict | None,
         denied: bool,
         source_policy: str,
     ) -> None:

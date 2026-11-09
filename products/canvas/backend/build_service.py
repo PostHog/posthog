@@ -49,6 +49,7 @@ from products.canvas.backend import error_reports
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
 from products.canvas.backend.facade.contracts import CanvasBuildCapacityExceeded, CanvasVersionConflict
+from products.canvas.backend.layout import default_layout, pinned_component_versions
 from products.canvas.backend.logic.capability_policy import assert_may_set_capabilities
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import (
@@ -695,6 +696,17 @@ def publish_source_project(
     was_impersonated: bool = False,
 ) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild, bool]:
     """Upload and publish a validated project as the canvas's new head version."""
+    # Lock-free fail-fast so a refused widening uploads nothing. The commit
+    # re-checks against the head it claims under the lock.
+    with team_scope(canvas.team_id):
+        head_id = (
+            Canvas.objects.for_team(canvas.team_id)
+            .values_list("current_source_version_id", flat=True)
+            .get(pk=canvas.pk)
+        )
+        assert_may_set_capabilities(
+            canvas, created_by, _version_capabilities(canvas.team_id, head_id), project.get("capabilities") or {}
+        )
     prepared = prepare_source_project_publish(
         canvas,
         project=project,
@@ -746,6 +758,19 @@ def publish_grid_layout(
             expected = str(expected_version_id) if expected_version_id else None
             if current_id != expected:
                 raise CanvasVersionConflict(current_id)
+    # The pin check reads the head layout from storage, so it runs before the
+    # head lock and runs again under the lock only when the head moved meanwhile.
+    with team_scope(canvas.team_id):
+        checked_head_id = (
+            expected_version_id
+            if has_expected_version
+            else Canvas.objects.for_team(canvas.team_id)
+            .values_list("current_source_version_id", flat=True)
+            .get(pk=canvas.pk)
+        )
+        _assert_pinned_components_not_wider(
+            canvas.team_id, created_by, layout, _grid_layout_at(canvas, checked_head_id)
+        )
     source_upload = upload_source_project(canvas.team_id, canvas.id, layout)
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(
@@ -754,7 +779,10 @@ def publish_grid_layout(
             expected_version_id=expected_version_id,
             check_capacity=False,
         )
-        _assert_pinned_components_not_wider(canvas.team_id, created_by, layout)
+        if str(canvas.current_source_version_id or "") != str(checked_head_id or ""):
+            _assert_pinned_components_not_wider(
+                canvas.team_id, created_by, layout, _grid_layout_at(canvas, canvas.current_source_version_id)
+            )
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
             canvas=canvas,
@@ -778,29 +806,59 @@ def publish_grid_layout(
     return canvas, version
 
 
-def _assert_pinned_components_not_wider(team_id: int, user: User | None, layout: dict[str, Any]) -> None:
-    """Refuse a layout that pins a component version declaring more than that component's head.
+def _assert_pinned_components_not_wider(
+    team_id: int, user: User | None, layout: dict[str, Any], previous_layout: dict[str, Any]
+) -> None:
+    """Refuse a layout that newly pins a component version declaring more than that component's head.
 
     A placement that follows the latest version only ever runs what the component's creator
     published. A pinned placement can name an older version, so it must not bring back
     capabilities the component has since dropped unless the user created that component.
+    A pin that `previous_layout` already holds was accepted when it was added, so it is not
+    checked again.
     """
-    pinned_ids = {
-        str(placement["version"])
-        for placement in layout.get("placements", [])
-        if isinstance(placement, dict) and placement.get("version") not in (None, "latest")
-    }
-    if not pinned_ids:
+    new_pins = pinned_component_versions(layout) - pinned_component_versions(previous_layout)
+    if not new_pins:
         return
-    for version in (
-        CanvasSourceVersion.objects.for_team(team_id).filter(id__in=pinned_ids, draft=False).select_related("canvas")
-    ):
+    versions = (
+        CanvasSourceVersion.objects.for_team(team_id)
+        .filter(id__in={version_id for _, version_id in new_pins}, draft=False)
+        .select_related("canvas", "canvas__current_source_version")
+    )
+    for version in versions:
+        # Only the (component, version) pair a placement names is compared, so a version
+        # id under some other component reports nothing about that version.
+        if (str(version.canvas_id), str(version.id)) not in new_pins:
+            continue
+        head = version.canvas.current_source_version
         assert_may_set_capabilities(
-            version.canvas,
-            user,
-            _version_capabilities(team_id, version.canvas.current_source_version_id),
-            version.capabilities,
+            version.canvas, user, head.capabilities if head else None, _resolved_capabilities(version)
         )
+
+
+def _grid_layout_at(canvas: Canvas, version_id: str | UUID | None) -> dict[str, Any]:
+    """The layout stored for one of the grid's versions, or the default empty layout when
+    there is no such version. The empty layout makes every pin count as new, and the head
+    claim then refuses a version id that is not the head. Raises ObjectStorageError when
+    storage is unavailable."""
+    version = (
+        CanvasSourceVersion.objects.for_team(canvas.team_id).filter(pk=version_id, canvas_id=canvas.id).first()
+        if version_id
+        else None
+    )
+    return read_source_project(version) if version is not None else default_layout()
+
+
+def _resolved_capabilities(version: CanvasSourceVersion) -> dict | None:
+    """The version's declared capabilities, read from its stored source when the version
+    predates the capabilities snapshot. None when that source cannot be read, which
+    assert_may_set_capabilities treats as unknown."""
+    if version.capabilities is not None:
+        return version.capabilities
+    try:
+        return read_source_project(version).get("capabilities") or {}
+    except object_storage.ObjectStorageError:
+        return None
 
 
 def publish_current_source_version(
@@ -848,16 +906,31 @@ def revert_to_version(
     promote_draft_version, which surfaces its capability widening first.
     Raises CanvasSourceVersion.DoesNotExist for a version that isn't one of this
     canvas's published versions, and CanvasBuildCapacityExceeded when the team
-    cap is reached.
+    cap is reached. Raises ObjectStorageError when a grid canvas's layouts cannot be read.
     """
-    with transaction.atomic(), team_scope(canvas.team_id):
-        canvas = _claim_canvas_head(canvas, has_expected_version=True, expected_version_id=expected_current_version_id)
-        previous_head_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
+    # A published version never changes, so it and its stored source are read
+    # before the head lock. The claim below guarantees the head it replaces is
+    # expected_current_version_id, which the grid pin check compares against.
+    with team_scope(canvas.team_id):
         version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(
             pk=version_id, canvas_id=canvas.id, draft=False
         )
+        if canvas.kind == Canvas.KIND_GRID:
+            _assert_pinned_components_not_wider(
+                canvas.team_id,
+                user,
+                read_source_project(version),
+                _grid_layout_at(canvas, expected_current_version_id),
+            )
+            # A layout declares no capabilities of its own.
+            target_capabilities: dict | None = {}
+        else:
+            target_capabilities = _resolved_capabilities(version)
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = _claim_canvas_head(canvas, has_expected_version=True, expected_version_id=expected_current_version_id)
+        previous_head_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
         assert_may_set_capabilities(
-            canvas, user, _version_capabilities(canvas.team_id, previous_head_id), version.capabilities
+            canvas, user, _version_capabilities(canvas.team_id, previous_head_id), target_capabilities
         )
         canvas.current_source_version = version
         canvas.save(update_fields=["current_source_version", "updated_at"])
@@ -959,6 +1032,10 @@ def promote_draft_version(
     CanvasSourceVersion.DoesNotExist for a version that isn't one of this canvas's
     drafts, CanvasVersionConflict, and CanvasBuildCapacityExceeded (rebuilds only).
     """
+    with team_scope(canvas.team_id):
+        target_capabilities = _resolved_capabilities(
+            CanvasSourceVersion.objects.for_team(canvas.team_id).get(pk=version_id, canvas_id=canvas.id, draft=True)
+        )
     with transaction.atomic(), team_scope(canvas.team_id):
         # Same head guard as revert; capacity is only enforced on the rebuild
         # path below, so adopting a surviving build can't hit the cap.
@@ -970,7 +1047,7 @@ def promote_draft_version(
             pk=version_id, canvas_id=canvas.id, draft=True
         )
         assert_may_set_capabilities(
-            canvas, user, _version_capabilities(canvas.team_id, previous_head_id), version.capabilities
+            canvas, user, _version_capabilities(canvas.team_id, previous_head_id), target_capabilities
         )
         version.draft = False
         version.save(update_fields=["draft"])

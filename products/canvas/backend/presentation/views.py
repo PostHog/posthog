@@ -1217,6 +1217,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 description="The change adds capabilities and the caller is not the canvas creator.",
             ),
             429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
+            503: OpenApiResponse(description="Canvas source storage is temporarily unavailable."),
         },
     )
     @action(methods=["POST"], detail=True)
@@ -1242,6 +1243,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             return _capacity_response()
         except CanvasVersionNotFoundError:
             return Response({"detail": "Version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
+        except ObjectStorageError:
+            return Response(
+                {"detail": "Canvas source storage is temporarily unavailable; the canvas was not reverted."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         self._report_canvas_action(
             "canvas reverted", moved.canvas, version_id=str(payload.validated_data["version_id"])
         )

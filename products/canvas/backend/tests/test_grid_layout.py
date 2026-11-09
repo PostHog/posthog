@@ -413,24 +413,57 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         response = self._publish_layout(grid_id, doc)
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-    @parameterized.expand([("component_creator", True, status.HTTP_200_OK), ("other_member", False, 403)])
+    @parameterized.expand(
+        [
+            ("component_creator_pins", "publish", True, status.HTTP_200_OK),
+            ("other_member_pins", "publish", False, status.HTTP_403_FORBIDDEN),
+            ("other_member_reverts_to_a_layout_with_the_pin", "revert", False, status.HTTP_403_FORBIDDEN),
+            ("other_member_moves_another_tile_beside_the_pin", "patch", False, status.HTTP_200_OK),
+            ("other_member_names_the_version_without_its_component", "unattached", False, status.HTTP_200_OK),
+        ]
+    )
     def test_pinning_an_older_wider_component_version_needs_the_component_creator(
-        self, _name: str, as_creator: bool, expected_status: int
+        self, _name: str, action: str, as_creator: bool, expected_status: int
     ) -> None:
         component_id = self._create_component()
         wide = self._project(component=COMPONENT_META, capabilities=WIDE_CAPABILITIES)
         wide_version = self._publish(component_id, wide).json()["current_version_id"]
         assert self._publish(component_id, self._project(component=COMPONENT_META)).status_code == 200
         grid_id = self._create_grid()
+        pinned = placement(status="generating", component=component_id, version=wide_version)
+        other = placement(id="p2", x=2)
+        head_id: str | None = None
+        if action in ("revert", "patch"):
+            head_id = self._publish_layout(grid_id, layout(placements=[pinned, other])).json()["current_version_id"]
+        pinned_layout_id = head_id
+        if action == "revert":
+            head_id = self._publish_layout(
+                grid_id, layout(placements=[other]), expected_current_version_id=head_id
+            ).json()["current_version_id"]
         if not as_creator:
             self.client.force_login(self._create_user("grid-member@example.com"))
-        doc = layout(placements=[placement(status="generating", component=component_id, version=wide_version)])
 
-        response = self._publish_layout(grid_id, doc)
+        if action == "publish":
+            response = self._publish_layout(grid_id, layout(placements=[pinned]))
+        elif action == "unattached":
+            response = self._publish_layout(grid_id, layout(placements=[placement(version=wide_version)]))
+        elif action == "revert":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/canvases/{grid_id}/revert/",
+                {"version_id": pinned_layout_id, "expected_current_version_id": head_id},
+                format="json",
+            )
+        else:
+            response = self._patch_layout(
+                grid_id, [{"op": "update_placement", "id": "p2", "changes": {"x": 4}}], expected=head_id
+            )
 
         assert response.status_code == expected_status, response.json()
-        if not as_creator:
+        if expected_status == status.HTTP_403_FORBIDDEN:
             assert response.json()["code"] == "capability_widening_requires_creator"
+            assert response.json()["capability_widening"]["insights_added"] == ["abc123"]
+        else:
+            assert "capability_widening" not in response.json()
 
     def test_live_placement_pinned_to_a_version_without_a_ready_build_rejected(self):
         grid_id = self._create_grid()

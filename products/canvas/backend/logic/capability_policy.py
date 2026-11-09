@@ -1,5 +1,7 @@
 """Who may widen a canvas's declared capabilities."""
 
+import dataclasses
+
 from posthog.models.user import User
 
 from products.canvas.backend.capabilities import capability_widening
@@ -13,7 +15,8 @@ def assert_may_set_capabilities(canvas: Canvas, user: User | None, before: dict 
 
     A canvas whose creator is gone (`created_by` is null) cannot be widened by anyone.
     A `before` of None counts as empty, so a head that predates the capabilities snapshot
-    refuses a non-creator's first declaration.
+    refuses a non-creator's first declaration. An `after` of None means the target's
+    capabilities are unknown, so only the creator may set it.
 
     Notebook widget canvases are exempt: the notebook that owns one authors its source on every
     save, and the notebook's own permissions decide who may do that.
@@ -21,8 +24,9 @@ def assert_may_set_capabilities(canvas: Canvas, user: User | None, before: dict 
     if canvas.source_policy != Canvas.SOURCE_POLICY_STANDARD:
         return
     widening = capability_widening(before, after)
-    if not widening.widens:
+    if after is not None and not widening.widens:
         return
     if user is not None and canvas.created_by_id is not None and canvas.created_by_id == user.id:
         return
-    raise CanvasCapabilityWideningDenied(widening_record(widening))
+    record = widening_record(widening)
+    raise CanvasCapabilityWideningDenied(record if after is not None else dataclasses.replace(record, widens=True))

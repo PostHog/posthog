@@ -1107,26 +1107,29 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         [
             (f"{caller}_{action}", caller == "sandbox", action)
             for caller in ("member", "sandbox")
-            for action in ("publish", "edit", "promote", "revert")
+            for action in ("publish", "edit", "promote", "revert", "revert_without_snapshot")
         ]
     )
     def test_only_the_creator_can_add_capabilities(self, _name: str, sandbox: bool, action: str) -> None:
         base = f"/api/projects/{self.team.id}/canvases"
         canvas_id = self._create_canvas()
         # Revert needs an older version that declares more than the head does.
-        first_capabilities = WIDE_CAPABILITIES if action == "revert" else NARROW_CAPABILITIES
+        reverting = action.startswith("revert")
+        first_capabilities = WIDE_CAPABILITIES if reverting else NARROW_CAPABILITIES
         first = self._publish(
             canvas_id, self._project(capabilities=first_capabilities), expected_current_version_id=None
         )
         assert first.status_code == status.HTTP_200_OK, first.json()
         head_id = first.json()["current_version_id"]
-        if action == "revert":
+        if reverting:
             second = self._publish(
                 canvas_id,
                 self._project("export default function C() { return 2 }"),
                 expected_current_version_id=head_id,
             )
             old_wide_id, head_id = head_id, second.json()["current_version_id"]
+        if action == "revert_without_snapshot":
+            CanvasSourceVersion.objects.unscoped().filter(id=old_wide_id).update(capabilities=None)
         self._act_as_other_member(sandbox)
 
         if action == "publish":
