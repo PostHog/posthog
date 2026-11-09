@@ -66,7 +66,8 @@ class UnconnectedTeamTool:
 
     template_id: str
     name: str
-    # Only an OAuth server connects from a link. An API key server needs the form on the MCP servers page.
+    # Only an OAuth server with a shared client connects from a link. An API key server needs the form on the MCP
+    # servers page, and a server that registers a client for each person needs the install flow there.
     connects_with_oauth: bool
 
 

@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 from django.core import signing
 
 import structlog
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import SlackIntegration
 from posthog.utils import absolute_uri
@@ -28,12 +29,13 @@ logger = structlog.get_logger(__name__)
 
 CONNECT_TOOL_SKIP_ACTION_ID = "slack_app_connect_tool:skip"
 CONNECTED_PATH = "/complete/slack-tool-connected/"
+# Login-gated, because the MCP store API answers 401 to a browser without a PostHog session.
+CONNECT_PATH = "/complete/slack-tool-connect/"
 # pinned: analytics event name, renaming breaks dashboards
 CONNECT_OFFERED_EVENT = "slack app connect tool offered"
 _STATE_SALT = "slack_app_connect_tool"
 # Longer than the mention workflow waits, so a slow OAuth screen still resumes a run that waits.
 _STATE_MAX_AGE_SECONDS = 60 * 60
-MAX_OFFERED_TOOLS = 3
 
 
 def tools_named_in(text: str, tools: list[UnconnectedTeamTool]) -> list[UnconnectedTeamTool]:
@@ -53,57 +55,66 @@ def offer_tool_connections(
     """Returns whether the offer went out, so the workflow knows to wait."""
     if not is_slack_app_connect_tool_from_chat_enabled(integration):
         return False
-    tools = [
-        tool
-        for tool in tools_named_in(text, team_tools_not_connected(integration.team_id, user_id))
-        if tool.connects_with_oauth
-    ][:MAX_OFFERED_TOOLS]
-    if not tools:
+    # One tool at a time: the first connection resumes the task, and its sandbox mounts its tools when it starts.
+    tool = next(
+        (
+            tool
+            for tool in tools_named_in(text, team_tools_not_connected(integration.team_id, user_id))
+            if tool.connects_with_oauth
+        ),
+        None,
+    )
+    if tool is None:
         return False
+    slack = SlackIntegration(integration)
     state = signing.dumps(
-        {"workflow_id": workflow_id, "slack_team_id": integration.integration_id, "channel": channel},
+        {
+            "workflow_id": workflow_id,
+            "slack_team_id": integration.integration_id,
+            "channel": channel,
+            "return_url": _thread_link(slack, channel, thread_ts),
+            "team_id": integration.team_id,
+            "template_id": tool.template_id,
+        },
         salt=_STATE_SALT,
     )
-    names = ", ".join(tool.name for tool in tools)
-    pronoun = "it" if len(tools) == 1 else "them"
     buttons: list[dict[str, Any]] = [
         {
             "type": "button",
             "text": {"type": "plain_text", "text": f"Connect {tool.name}"[:75]},
-            "url": _connect_url(integration.team_id, tool, state),
-        }
-        for tool in tools
-    ]
-    buttons.append(
+            "url": absolute_uri(f"{CONNECT_PATH}?{urlencode({'state': state})}"),
+        },
         {
             "type": "button",
-            "text": {"type": "plain_text", "text": f"Continue without {pronoun}"},
+            "text": {"type": "plain_text", "text": "Continue without it"},
             "action_id": CONNECT_TOOL_SKIP_ACTION_ID,
             "value": json.dumps({"integration_id": integration.id, "workflow_id": workflow_id}, separators=(",", ":")),
-        }
-    )
+        },
+    ]
     text_line = (
-        f"This task can use {names}, but you haven't connected {pronoun} yet. "
-        f"Connect {pronoun} and I start the task with {pronoun}, or continue without {pronoun}."
+        f"This task can use {tool.name}, but you haven't connected it yet. "
+        "Connect it and I start the task with it, or continue without it."
     )
-    SlackIntegration(integration).client.chat_postEphemeral(
+    slack.client.chat_postEphemeral(
         channel=channel,
         user=slack_user_id,
         thread_ts=thread_ts,
         text=text_line,
         blocks=[section_block(text_line), {"type": "actions", "elements": buttons}],
     )
-    capture_slack_event(integration, CONNECT_OFFERED_EVENT, slack_user_id=slack_user_id, tool_count=len(tools))
+    capture_slack_event(integration, CONNECT_OFFERED_EVENT, slack_user_id=slack_user_id, tool_count=1)
     return True
 
 
-def _connect_url(team_id: int, tool: UnconnectedTeamTool, state: str) -> str:
-    return_path = f"{CONNECTED_PATH}?{urlencode({'state': state})}"
-    query = urlencode({"template_id": tool.template_id, "return_path": return_path})
-    return absolute_uri(f"/api/projects/{team_id}/mcp_server_installations/authorize/?{query}")
+def _thread_link(slack: SlackIntegration, channel: str, thread_ts: str) -> str | None:
+    try:
+        permalink = slack.client.chat_getPermalink(channel=channel, message_ts=thread_ts).get("permalink")
+    except SlackApiError:
+        return None
+    return permalink if isinstance(permalink, str) and permalink.startswith("https://") else None
 
 
-def read_connected_state(state: str) -> dict[str, str] | None:
+def read_connected_state(state: str) -> dict[str, Any] | None:
     try:
         payload = signing.loads(state, salt=_STATE_SALT, max_age=_STATE_MAX_AGE_SECONDS)
     except (signing.BadSignature, signing.SignatureExpired):
@@ -113,6 +124,24 @@ def read_connected_state(state: str) -> dict[str, str] | None:
     ):
         return None
     return payload
+
+
+def authorize_url(state_token: str, state: dict[str, Any]) -> str | None:
+    """The MCP store's OAuth start for the offered tool, which returns to the connected page with the same state."""
+    team_id = state.get("team_id")
+    template_id = state.get("template_id")
+    if not isinstance(team_id, int) or not isinstance(template_id, str):
+        return None
+    return_path = f"{CONNECTED_PATH}?{urlencode({'state': state_token})}"
+    query = urlencode({"template_id": template_id, "return_path": return_path})
+    return f"/api/projects/{team_id}/mcp_server_installations/authorize/?{query}"
+
+
+def return_to_slack_url(state: dict[str, Any]) -> str:
+    return_url = state.get("return_url")
+    if isinstance(return_url, str) and return_url.startswith("https://") and ".slack.com/" in return_url:
+        return return_url
+    return f"https://slack.com/app_redirect?{urlencode({'team': state['slack_team_id'], 'channel': state['channel']})}"
 
 
 def resume_mention_workflow(workflow_id: str) -> None:
