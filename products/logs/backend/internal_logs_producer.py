@@ -218,6 +218,10 @@ class InternalLogsProducer:
         self._buffered_bytes -= request.byte_count
         self._pump()
 
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
     def _has_stopped(self) -> bool:
         return self._stopped
 
