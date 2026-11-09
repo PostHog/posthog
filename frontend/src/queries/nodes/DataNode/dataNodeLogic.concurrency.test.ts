@@ -24,8 +24,8 @@ describe('dataNodeLogic concurrency', () => {
         initKeaTests()
     })
 
-    it.each([Scene.SavedInsights, Scene.AnalyticsProductHome])(
-        'starts six Home queries before starting a seventh in %s',
+    it.each([Scene.SavedInsights, Scene.AnalyticsProductHome, Scene.MCPAnalytics, Scene.MCPAnalyticsToolDetail])(
+        'starts six queries before starting a seventh in %s',
         async (scene) => {
             sceneLogic.mount()
             sceneLogic.actions.setScene(scene, undefined, { params: {}, searchParams: {}, hashParams: {} })
@@ -42,7 +42,7 @@ describe('dataNodeLogic concurrency', () => {
             })
             const logics = pendingResponses.map((_, index) =>
                 dataNodeLogic({
-                    key: `home-${index}`,
+                    key: `scene-${index}`,
                     query: { kind: NodeKind.HogQLQuery, query: `SELECT ${index}` },
                     loadPriority: index,
                 })
