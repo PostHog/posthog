@@ -5076,14 +5076,15 @@ describe('dashboardLogic', () => {
                     logic.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
                 }).toFinishAllListeners()
 
-                expect(reportTimeToSeeData).toHaveBeenCalledWith(
+                const successReports = reportTimeToSeeData.mock.calls
+                    .map(([payload]) => payload)
+                    .filter((payload) => payload.type === 'dashboard_load' && payload.status === 'success')
+                expect(successReports).toEqual([
                     expect.objectContaining({
-                        type: 'dashboard_load',
-                        status: 'success',
                         action: DashboardLoadAction.InitialLoad,
                         insights_fetched: staleCount,
-                    })
-                )
+                    }),
+                ])
                 reportTimeToSeeData.mockRestore()
             })
         })
