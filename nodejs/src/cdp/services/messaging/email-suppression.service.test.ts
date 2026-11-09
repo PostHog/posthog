@@ -636,4 +636,49 @@ describe('EmailSuppressionService', () => {
             }
         )
     })
+
+    describe('write failures', () => {
+        type WriteCall = (svc: EmailSuppressionService, throwOnFailure?: boolean) => Promise<void>
+        const writes: [string, WriteCall][] = [
+            [
+                'recordTransientBounces',
+                (svc, t) => svc.recordTransientBounces(team.id, ['a@example.com'], undefined, { throwOnFailure: t }),
+            ],
+            [
+                'recordHardBounces',
+                (svc, t) => svc.recordHardBounces(team.id, ['a@example.com'], undefined, { throwOnFailure: t }),
+            ],
+            [
+                'recordGlobalHardBounces',
+                (svc, t) => svc.recordGlobalHardBounces(['a@example.com'], undefined, { throwOnFailure: t }),
+            ],
+            [
+                'recordComplaints',
+                (svc, t) => svc.recordComplaints(team.id, ['a@example.com'], undefined, { throwOnFailure: t }),
+            ],
+            [
+                'recordDeliveries',
+                (svc, t) =>
+                    svc.recordDeliveries(team.id, ['a@example.com'], '2024-01-01T00:00:00Z', { throwOnFailure: t }),
+            ],
+            [
+                'recordDeliveries clearing the global list',
+                async (svc, t) => {
+                    jest.spyOn(hub.postgres, 'query').mockResolvedValueOnce({ rows: [], rowCount: 0 } as any)
+                    await svc.recordDeliveries(team.id, ['a@example.com'], '2024-01-01T00:00:00Z', {
+                        clearGlobal: true,
+                        throwOnFailure: t,
+                    })
+                },
+            ],
+        ]
+
+        it.each(writes)('%s rejects on a failed write only when asked to', async (_name, write) => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            jest.spyOn(hub.postgres, 'query').mockRejectedValue(new Error('database unavailable'))
+
+            await expect(write(svc)).resolves.toBeUndefined()
+            await expect(write(svc, true)).rejects.toThrow('database unavailable')
+        })
+    })
 })
