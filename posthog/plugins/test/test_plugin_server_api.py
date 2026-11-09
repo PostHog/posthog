@@ -7,7 +7,9 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 from posthog.plugins.plugin_server_api import (
+    WORKFLOWS_MANUAL_RUN_JWT_PURPOSE,
     WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE,
+    create_hog_flow_manual_invocation,
     send_accepted_transactional_email,
     send_transactional_email,
     validate_messaging_preferences_token,
@@ -73,3 +75,18 @@ class TestTransactionalEmailTokens(SimpleTestCase):
         body = mock_internal_requests.post.call_args.kwargs["data"]
         self.assertEqual(json.loads(body), payload)
         self.assertIn("<p>注文 🎉</p>".encode(), body)
+
+
+@override_settings(WORKFLOWS_CANCEL_JWT_SECRETS=["test-manual-run-key"])
+class TestManualRunToken(SimpleTestCase):
+    @patch("posthog.plugins.plugin_server_api.internal_requests")
+    def test_mints_a_token_bound_to_the_user_it_runs_for(self, mock_internal_requests):
+        create_hog_flow_manual_invocation(7, "flow-1", "user@example.com", {"name": "Ada"})
+
+        url, kwargs = mock_internal_requests.post.call_args.args[0], mock_internal_requests.post.call_args.kwargs
+        claims = WORKFLOWS_MANUAL_RUN_JWT_PURPOSE.verify(kwargs["headers"]["Authorization"].removeprefix("Bearer "))
+        self.assertTrue(url.endswith("/api/projects/7/hog_flows/flow-1/manual_invocations"))
+        self.assertEqual(
+            (claims["team_id"], claims["hog_flow_id"], claims["user_id"]), (7, "flow-1", "user@example.com")
+        )
+        self.assertEqual(kwargs["json"], {"user_id": "user@example.com", "variables": {"name": "Ada"}})
