@@ -87,8 +87,7 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
     }
 
     const resultCount = response && 'results' in response ? (response.results?.length ?? 0) : 0
-    const isSingleEntry = resultCount === 1
-    const showFirstPrefix = hasMoreData && resultCount > 1
+    const rowCountText = resultCount === 1 ? 'one row' : `${humanFriendlyNumber(resultCount)} rows`
 
     const lastRefreshTimeUtc: string | null | undefined =
         response && 'last_refresh' in response ? response['last_refresh'] : null
@@ -96,8 +95,7 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
     return (
         <>
             <span>
-                {showFirstPrefix ? 'Limited to the first ' : 'Showing '}
-                {isSingleEntry ? 'one row' : `${resultCount} rows`}
+                {hasMoreData && resultCount > 1 ? `${rowCountText} loaded, more available` : `Showing ${rowCountText}`}
             </span>
             {lastRefreshTimeUtc && (
                 <>
