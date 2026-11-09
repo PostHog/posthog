@@ -26,6 +26,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.facade.enums import RecalculationStartOutcome, TerminalMarkOutcome
 from products.experiments.backend.legacy_migration import migrate_experiment, migrate_saved_metric
+from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_events import _default_metric_title
 from products.experiments.backend.metric_resolution import build_metric, scheduled_metric_definitions
 from products.experiments.backend.models.experiment import (
@@ -38,7 +39,6 @@ from products.experiments.backend.recalculation import (
     _derive_counters,
     cancel_recalculation_workflow,
     get_latest_recalculation,
-    get_run_results,
     metrics_recalculation_workflow_id,
     request_recalculation_without_age_limit,
     start_metrics_recalculation_workflow,
@@ -225,11 +225,19 @@ def _resolve_failures(recalc: ExperimentMetricsRecalculation, results: list[dict
     return failures
 
 
+def _run_result_statuses(recalc: ExperimentMetricsRecalculation) -> list[dict]:
+    """The run's result rows in the shape of get_run_results, without `result`. The staff views show only
+    counts and errors, and `result` holds the sessions of each step for a funnel, so the run page that
+    refreshes while the run goes would load it again on every refresh."""
+    rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc, with_result=False)
+    return [{"metric_uuid": row.metric_uuid, "status": row.status, "error_message": row.error_message} for row in rows]
+
+
 def _to_staff_recalculation(recalc: ExperimentMetricsRecalculation, *, with_results: bool) -> StaffRecalculation:
     completed_metrics = failed_metrics = None
     failures: list[StaffRecalculationFailure] = []
     if with_results:
-        results = get_run_results(recalc)
+        results = _run_result_statuses(recalc)
         completed_metrics, failed_metrics = _derive_counters(recalc, results=results)
         failures = _resolve_failures(recalc, results)
     return StaffRecalculation(
