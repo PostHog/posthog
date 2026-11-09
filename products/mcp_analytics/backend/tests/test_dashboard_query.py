@@ -39,6 +39,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.warehouse_warnings import record_warnings
@@ -328,6 +329,29 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         assert list(batch.results) == [section.value for section in sections]
         for section in sections:
             assert self._rows(batch, section) == self._rows(self._run([section]), section), section
+
+    @parameterized.expand(
+        [
+            (f"{entry_point}_{name}", entry_point, sections)
+            for entry_point in ("run", "calculate")
+            for name, sections in (
+                ("hogql_section", [MCPDashboardSection.KPIS]),
+                ("typed_section", [MCPDashboardSection.HARNESS_ROWS]),
+                ("batch", list(MCPDashboardSection)),
+            )
+        ]
+    )
+    def test_a_query_builds_one_database_for_all_its_sections(
+        self, _name: str, entry_point: str, sections: list[MCPDashboardSection]
+    ) -> None:
+        self._seed()
+        create_for = Database.create_for
+        runner = self._runner(sections)
+
+        with patch.object(Database, "create_for", side_effect=create_for) as build:
+            self._run(sections, runner) if entry_point == "run" else runner.calculate()
+
+        assert build.call_count == 1
 
     def test_a_failed_section_leaves_the_others_and_stays_uncached(self) -> None:
         self._seed()
