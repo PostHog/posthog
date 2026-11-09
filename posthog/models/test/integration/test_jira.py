@@ -128,6 +128,30 @@ class TestJiraIntegrationModel:
                 ],
             ),
             (
+                "markdown_around_url_stays_outside_link",
+                "Bold **https://example.com/a**, code `https://example.com/b`",
+                [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "Bold **"},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/a",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/a"}}],
+                            },
+                            {"type": "text", "text": "**, code `"},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/b",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/b"}}],
+                            },
+                            {"type": "text", "text": "`"},
+                        ],
+                    }
+                ],
+            ),
+            (
                 "fence_becomes_code_block",
                 'Checkout failed\n\n```\nTypeError: boom\n  File "app.js", line: 3\n```\n\nPostHog issue: https://example.com/issue/1',
                 [
@@ -202,6 +226,9 @@ class TestJiraIntegrationModel:
             ("long_punctuation_run", "https://example.com/a" + "." * 1_000_000, "https://example.com/a"),
             ("long_unmatched_parentheses", "https://example.com/a" + ")." * 500_000, "https://example.com/a"),
             ("matched_parenthesis_kept", "https://example.com/c_(x))).", "https://example.com/c_(x)"),
+            ("bold_markers_dropped", "https://example.com/a**.", "https://example.com/a"),
+            ("italic_and_strike_markers_dropped", "https://example.com/a_~~", "https://example.com/a"),
+            ("emphasis_after_parenthesis_dropped", "https://example.com/c_(x))**", "https://example.com/c_(x)"),
         ]
     )
     def test_trim_url(self, _name, url, expected):
