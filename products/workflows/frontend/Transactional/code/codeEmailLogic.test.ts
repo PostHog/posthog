@@ -227,6 +227,7 @@ describe('codeEmailLogic', () => {
                 },
             },
         })
+        const capture = jest.spyOn(posthog, 'capture')
         logic = codeEmailLogic({ id: 'email-id' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -239,10 +240,13 @@ describe('codeEmailLogic', () => {
         releaseFirst.resolve()
         await expectLogic(logic).toDispatchActions(['updateCodeEmailSuccess'])
         expect(logic.values.sourceFormOpen).toBe(true)
+        expect(capture).not.toHaveBeenCalledWith('code email source file linked', expect.anything())
         await expectLogic(logic).toFinishAllListeners()
 
         expect(writes).toEqual([{ description: 'Sent after a payment' }, { source_url: link }])
         expect(logic.values.sourceFormOpen).toBe(false)
+        expect(capture).toHaveBeenCalledWith('code email source file linked', { changed: false, host: 'github' })
+        capture.mockRestore()
     })
 
     it('keeps the source form open on the stored link when the link fails to save and to read back', async () => {
@@ -251,6 +255,7 @@ describe('codeEmailLogic', () => {
             get: { [EMAIL_URL]: () => (++gets === 1 ? [200, stored()] : [500, {}]) },
             patch: { [EMAIL_URL]: () => [500, {}] },
         })
+        const capture = jest.spyOn(posthog, 'capture')
         logic = codeEmailLogic({ id: 'email-id' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -261,6 +266,8 @@ describe('codeEmailLogic', () => {
 
         expect(logic.values.sourceFormOpen).toBe(true)
         expect(logic.values.codeEmail?.source_url).toBeNull()
+        expect(capture).not.toHaveBeenCalledWith('code email source file linked', expect.anything())
+        capture.mockRestore()
     })
 
     describe('copying the agent prompt', () => {
