@@ -10,7 +10,6 @@ import dataclasses
 from typing import Union, cast
 
 from django.db import transaction
-from django.db.models import Max
 
 import structlog
 from rest_framework.exceptions import APIException, ValidationError
@@ -236,30 +235,27 @@ class EndpointCrudService:
                 # Activation affects throttle classification — force a lazy re-check.
                 clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
 
-            step = "versioning"
-            query_change = self._apply_query_change(endpoint, data, target_version, was_materialized)
-            target_version = query_change.target_version
+            # A refused cadence carry rolls back the new version with everything else, so no request
+            # ever sees a version whose update returned a 400.
+            with transaction.atomic():
+                step = "versioning"
+                query_change = self._apply_query_change(endpoint, data, target_version, was_materialized)
+                target_version = query_change.target_version
 
-            try:
-                # A rejected enable must also roll back changes to the direct query cache duration.
-                with transaction.atomic():
-                    step = "version_fields"
-                    self._apply_version_field_updates(endpoint, target_version, data, raw_data, version_targeted)
+                step = "version_fields"
+                self._apply_version_field_updates(endpoint, target_version, data, raw_data, version_targeted)
 
-                    step = "materialization"
-                    materialization_error = self._reconcile_materialization(
-                        endpoint,
-                        data,
-                        raw_data,
-                        target_version,
-                        version_targeted,
-                        was_materialized=was_materialized,
-                        version_was_created=query_change.version_was_created,
-                        replaced_version=query_change.replaced_version,
-                    )
-            except CadenceCarryRefusedError:
-                self._discard_refused_version(endpoint, target_version)
-                raise
+                step = "materialization"
+                materialization_error = self._reconcile_materialization(
+                    endpoint,
+                    data,
+                    raw_data,
+                    target_version,
+                    version_targeted,
+                    was_materialized=was_materialized,
+                    version_was_created=query_change.version_was_created,
+                    replaced_version=query_change.replaced_version,
+                )
 
             step = "tags_and_activity"
             apply_tags(endpoint, data.tags)
@@ -387,22 +383,13 @@ class EndpointCrudService:
 
         new_version = endpoint.create_new_version(query=new_query_dict, user=self.user)
         # The "current" version changed — its cached throttle readiness no longer applies.
-        clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
+        team_id, endpoint_name = self.team.pk, endpoint.name
+        transaction.on_commit(lambda: clear_endpoint_materialization_cache(team_id, endpoint_name))
         return _QueryChange(
             target_version=new_version,
             version_was_created=True,
             replaced_version=target_version if was_materialized else None,
         )
-
-    def _discard_refused_version(self, endpoint: Endpoint, version: EndpointVersion) -> None:
-        """Remove a version whose cadence was refused, so the version it would replace keeps serving."""
-        with transaction.atomic():
-            locked_endpoint = Endpoint.objects.select_for_update().get(pk=endpoint.pk, team_id=self.team.pk)
-            version.delete()
-            locked_endpoint.current_version = locked_endpoint.versions.aggregate(latest=Max("version"))["latest"]
-            locked_endpoint.save(update_fields=["current_version", "updated_at"])
-        endpoint.current_version = locked_endpoint.current_version
-        clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
 
     def _apply_version_field_updates(
         self,
@@ -456,9 +443,9 @@ class EndpointCrudService:
     ) -> str | None:
         """Bring the target version's materialization in line with the request.
 
-        Returns a materialization error message when enabling failed after a new
-        version was already committed (the update itself still succeeds). A refused
-        cadence raises instead, so `update` can discard the new version.
+        Returns a materialization error message when enabling a new version failed
+        (the update itself still succeeds and keeps the version). A refused cadence
+        raises instead, which rolls the new version back.
         """
         requested_freshness = (
             (data.data_freshness_seconds if data.data_freshness_seconds is not None else DEFAULT_DATA_FRESHNESS_SECONDS)
@@ -533,7 +520,7 @@ class EndpointCrudService:
         except Exception as e:
             if not version_was_created:
                 raise
-            # The new version was already committed — don't fail the whole update.
+            # Keep the new version and don't fail the whole update.
             # Materialization can be retried via a subsequent update.
             logger.exception(
                 "Materialization failed after version creation",
