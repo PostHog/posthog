@@ -55,8 +55,8 @@ class GitHubExactCodeSearch:
         "nowhere" from "not found in what was searched".
         Raises ``GitHubEgressBudgetExhausted`` when the egress lane sheds a request.
         """
-        if not literal.strip() or len(literal) > MAX_LITERAL_LENGTH:
-            raise ValueError(f"literal must hold 1 to {MAX_LITERAL_LENGTH} characters")
+        if not literal.strip() or len(literal) > MAX_LITERAL_LENGTH or literal.splitlines() != [literal]:
+            raise ValueError(f"literal must be one line of 1 to {MAX_LITERAL_LENGTH} characters")
         body = self._search(literal)
         candidates = body.get("items") or []
         complete = not body.get("incomplete_results") and body.get("total_count", 0) <= len(candidates)

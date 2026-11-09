@@ -142,7 +142,7 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
             with self.assertRaises(GitHubIntegrationError):
                 GitHubExactCodeSearch(github).find("welcome")
 
-    @parameterized.expand([("blank", "  "), ("over_github_query_limit", "k" * 255)])
+    @parameterized.expand([("blank", "  "), ("over_github_query_limit", "k" * 255), ("two_lines", "pass\nword")])
     def test_rejects_a_literal_github_cannot_search(self, _name: str, literal: str) -> None:
         github = _github()
         with patch.object(github, "api_request") as api_request:
