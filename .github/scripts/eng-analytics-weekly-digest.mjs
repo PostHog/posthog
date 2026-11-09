@@ -118,14 +118,21 @@ function isThisRepository(name) {
 
 // GetUsage runs out of processing time on a week of our Depot CI usage and answers 500 or 429, so
 // every read asks for one UTC day at a time. Past the time budget, the digest posts without spend
-// rather than letting the job limit stop it before it posts anything.
+// rather than letting the job limit stop it before it posts anything. The contract range includes
+// both weeks, so a day is requested once per run and reused after that.
+const dayReads = new Map()
+
 async function spend(startAt, endAt) {
     const sum = { runners: 0, repoRunners: 0, depotCi: 0, repoDepotCi: 0, containerBuilds: 0 }
     for (const [from, to] of utcDays(startAt, endAt)) {
-        if (performance.now() - STARTED_AT > DEPOT_TIME_BUDGET_MS) {
-            throw new Error('Depot GetUsage reads ran past their time budget')
+        const range = `${from.toISOString()}/${to.toISOString()}`
+        if (!dayReads.has(range)) {
+            if (performance.now() - STARTED_AT > DEPOT_TIME_BUDGET_MS) {
+                throw new Error('Depot GetUsage reads ran past their time budget')
+            }
+            dayReads.set(range, withRetry(() => depotUsageSpend(from, to)))
         }
-        const day = await withRetry(() => depotUsageSpend(from, to))
+        const day = await dayReads.get(range)
         for (const key of Object.keys(sum)) {
             sum[key] += day[key]
         }
@@ -133,14 +140,12 @@ async function spend(startAt, endAt) {
     return { ...sum, total: sum.runners + sum.depotCi + sum.containerBuilds }
 }
 
-function utcDays(startAt, endAt) {
-    const days = []
+function* utcDays(startAt, endAt) {
     for (let from = startAt; from < endAt; ) {
         const to = new Date(Math.min(from.getTime() + DAY_MS, endAt.getTime()))
-        days.push([from, to])
+        yield [from, to]
         from = to
     }
-    return days
 }
 
 function contractDates(weekEnd) {
@@ -175,18 +180,17 @@ async function readSpend(weekStart, weekEnd) {
     if (!contract) {
         console.warn('Depot contract variables missing or invalid. Posting without the contract sentence.')
     }
-    const priorWeekStart = new Date(weekStart.getTime() - WEEK_MS)
     const lastWeek = await spend(weekStart, weekEnd).catch(unavailable('Spend'))
-    const priorWeek = lastWeek && (await spend(priorWeekStart, weekStart).catch(unavailable('Spend')))
+    const priorWeek =
+        lastWeek && (await spend(new Date(weekStart.getTime() - WEEK_MS), weekStart).catch(unavailable('Spend')))
     if (!priorWeek) {
         return null
     }
-    // Reuse the two weeks already read, unless the contract starts inside them.
-    const contractTotal = () =>
-        contract.start <= priorWeekStart
-            ? spend(contract.start, priorWeekStart).then((earlier) => earlier.total + priorWeek.total + lastWeek.total)
-            : spend(contract.start, weekEnd).then((usage) => usage.total)
-    const used = contract && (await contractTotal().catch(unavailable('Contract spend')))
+    const used =
+        contract &&
+        (await spend(contract.start, weekEnd)
+            .then((usage) => usage.total)
+            .catch(unavailable('Contract spend')))
     return { lastWeek, priorWeek, contract: used == null ? null : { ...contract, used } }
 }
 
