@@ -125,6 +125,7 @@ export function TransactionalEmailsTable(): JSX.Element {
             <LemonTable<TransactionalEmailRow>
                 dataSource={filteredTransactionalEmails}
                 loading={templatesLoading || codeEmailsLoading}
+                pagination={{ pageSize: 50, hideOnSinglePage: true }}
                 rowKey="id"
                 data-attr="transactional-emails-table"
                 columns={[

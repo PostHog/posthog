@@ -7,7 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { objectsEqual } from 'lib/utils/objects'
-import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -40,7 +40,7 @@ export interface transactionalEmailsLogicValues {
     tags: string[] // messageTemplatesLogic
     templatesLoading: boolean // messageTemplatesLogic
     transactionalTemplates: MessageTemplate[] // messageTemplatesLogic
-    currentProjectId: number | null // projectLogic
+    currentTeamId: number | null // teamLogic
     codeEmails: CodeEmailApi[] | null
     codeEmailsLoading: boolean
     filteredTransactionalEmails: TransactionalEmailRow[]
@@ -123,8 +123,8 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
         values: [
             messageTemplatesLogic,
             ['transactionalTemplates', 'templatesLoading', 'tags'],
-            projectLogic,
-            ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
         ],
         actions: [messageTemplatesLogic, ['loadTagsIfNeeded', 'loadTemplates', 'templateTagsSaved']],
     })),
@@ -141,7 +141,7 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
             {
                 loadCodeEmails: async () => {
                     try {
-                        return await transactionalCodeEmailsList(String(values.currentProjectId))
+                        return await transactionalCodeEmailsList(String(values.currentTeamId))
                     } catch (error) {
                         // The endpoint answers 404 while the project can't send email from code yet.
                         if (error instanceof ApiError && error.status === 404) {
@@ -207,12 +207,24 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
             } else {
                 actions.templateTagsSaved({ ...row.template, tags })
             }
+            const edit = (latestTagEdits.get(row.id) ?? 0) + 1
+            latestTagEdits.set(row.id, edit)
             try {
-                await saveTagsAfterPause(row.id, () =>
-                    row.source === 'code'
-                        ? saveCodeEmailTags(String(values.currentProjectId), row.codeEmail, tags)
-                        : saveTemplateTags(row.template, tags)
-                )
+                await saveTagsAfterPause(row.id, async () => {
+                    if (row.source !== 'code') {
+                        return saveTemplateTags(row.template, tags)
+                    }
+                    const updated = await transactionalCodeEmailsPartialUpdate(
+                        String(values.currentTeamId),
+                        row.codeEmail.id,
+                        { tags }
+                    )
+                    // A newer edit on this row already shows its tags, so this older answer must not replace them.
+                    if (latestTagEdits.get(row.id) === edit) {
+                        transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(updated)
+                    }
+                    tagsModel.findMounted()?.actions.loadTags()
+                })
             } catch (error: any) {
                 lemonToast.error(`Couldn't save tags: ${error?.detail || error?.message || 'unknown error'}`)
                 // The row is showing tags that were never stored, so the stored ones are read back.
@@ -277,11 +289,8 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
     }),
 ])
 
-async function saveCodeEmailTags(projectId: string, codeEmail: CodeEmailApi, tags: string[]): Promise<void> {
-    const updated = await transactionalCodeEmailsPartialUpdate(projectId, codeEmail.id, { tags })
-    transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(updated)
-    tagsModel.findMounted()?.actions.loadTags()
-}
+// The newest tag edit made on each row, so a save can tell when a later edit has replaced its tags.
+const latestTagEdits = new Map<string, number>()
 
 // Tag writes waiting out their pause, keyed by row. They are held here rather than behind a
 // listener breakpoint, which would also cancel them when another row is edited or the list unmounts.
