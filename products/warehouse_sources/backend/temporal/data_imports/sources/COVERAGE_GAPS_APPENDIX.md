@@ -11167,14 +11167,14 @@ Note: Used the official index, then parsed OpenAPI blocks in its linked referenc
 
 ## SimpleCast — **thin**
 
-Today (1): `podcasts`
+Today (6): `downloads`, `episode_downloads`, `episode_listeners`, `episodes`, `listeners`, `podcasts`
 
 Diffed against: <https://apidocs.simplecast.com/api/collections/10068189/T1DsAGJy?environment=8772875-0af62042-2b99-470c-8cdc-df8cd9c2cead&segregateAuth=true&versionTag=latest>
 
-- [ ] `podcasts/{podcast_id}/episodes (GET)` — the core entity — a podcasts-only table has one row per show and nothing to analyze (high)
-- [ ] `analytics/downloads (GET)` — downloads over time, the headline metric of the entire product (high)
-- [ ] `analytics/episodes (GET, plus /average_downloads, /hours_listened, /listeners, /top_10)` — per-episode download and listening figures — the grain every podcast analysis starts from (high)
-- [ ] `analytics/listeners (GET, plus /last_7 and analytics/podcasts/listeners)` — unique listener counts, the audience-size metric distinct from downloads (high)
+- [x] `podcasts/{podcast_id}/episodes (GET)` — the core entity — a podcasts-only table has one row per show and nothing to analyze (high)
+- [x] `analytics/downloads (GET)` — downloads over time, the headline metric of the entire product (high)
+- [x] `analytics/episodes (GET, plus /average_downloads, /hours_listened, /listeners, /top_10)` — per-episode download and listening figures — the grain every podcast analysis starts from (high)
+- [x] `analytics/listeners (GET, plus /last_7 and analytics/podcasts/listeners)` — unique listener counts, the audience-size metric distinct from downloads (high)
 - [ ] `podcasts/{podcast_id}/seasons (GET) and seasons/{season_id}/episodes (GET)` — lookup resolving the season an episode belongs to, needed for any season-over-season comparison (medium)
 - [ ] `analytics/technology/* (GET: applications, browsers, devices, device_class, listening_methods, network_types, operating_systems, providers, web_players)` — listening-platform breakdown dimensions — which apps and devices the audience uses (medium)
 - [ ] `analytics/location (GET)` — geographic breakdown of the audience (medium)
@@ -11230,10 +11230,10 @@ Today (8): `addresses`, `customers`, `order_line_items`, `orders`, `product_vari
 
 Diffed against: <https://code.skio.com>
 
-- [ ] `Policies (GraphQL query Policies)` — resolve billingPolicyId and deliveryPolicyId to subscription intervals and cycle limits (high)
-- [ ] `SellingPlan (GraphQL SubscriptionLines { OriginalSellingPlan })` — resolve sellingPlanId on subscription lines to plan names, intervals, and pricing rules (high)
-- [ ] `AuditLogs (GraphQL Subscriptions { AuditLogs })` — track subscription changes and measure pauses, skips, and other lifecycle actions (high)
-- [ ] `CancelFlowV2Sessions and CancelFlowV3Sessions (GraphQL Subscriptions { CancelFlowV2Sessions CancelFlowV3Sessions })` — analyze cancellation reasons, retention offers, and outcomes beyond current subscription status (high)
+- [x] `Policies (GraphQL query Policies)` — resolve billingPolicyId and deliveryPolicyId to subscription intervals and cycle limits (high) → `policies` (incremental)
+- [x] `SellingPlan (GraphQL SubscriptionLines { OriginalSellingPlan })` — resolve sellingPlanId on subscription lines to plan names, intervals, and pricing rules (high) → `selling_plans` (incremental, read through `Policies { SellingPlansByBillingPolicy }` so each plan appears once)
+- [x] `AuditLogs (GraphQL Subscriptions { AuditLogs })` — track subscription changes and measure pauses, skips, and other lifecycle actions (high) → `audit_logs` (incremental, fan-out over `Subscriptions`)
+- [x] `CancelFlowV2Sessions and CancelFlowV3Sessions (GraphQL Subscriptions { CancelFlowV2Sessions CancelFlowV3Sessions })` — analyze cancellation reasons, retention offers, and outcomes beyond current subscription status (high) → `cancel_flow_v2_sessions`, `cancel_flow_v3_sessions` (incremental, fan-out over `Subscriptions`)
 - [ ] `Discounts (GraphQL Subscriptions { Discounts })` — compare discounts with subscription revenue and retention (medium)
 - [ ] `PricingPolicies (GraphQL query PricingPolicies)` — analyze fixed prices and percentage discounts that change after specified billing cycles (medium)
 - [ ] `RewardCreditHistories (GraphQL StorefrontUsers { RewardCreditHistories })` — track customer credit grants and redemptions for loyalty analysis (medium)
@@ -11319,26 +11319,26 @@ Today (7): `campaign_analytics`, `campaign_leads`, `campaign_sequences`, `campai
 Diffed against: <https://api.smartlead.ai/llms-full.txt>
 
 - [x] `Get Lead Categories (GET /api/v1/leads/fetch-categories)` — resolve lead_category_id in campaign leads to meaningful sales outcome labels (high)
-- [ ] `Get Lead Message History (GET /api/v1/campaigns/{campaign_id}/leads/{lead_id}/message-history)` — analyze complete conversations, including replies absent from sent email statistics (high)
+- [ ] `Get Lead Message History (GET /api/v1/campaigns/{campaign_id}/leads/{lead_id}/message-history)` — analyze complete conversations, including replies absent from sent email statistics (high); skipped: it needs a request per lead in each campaign on every sync against a 1,000-requests-per-hour plan limit, its documented response shape contradicts the vendor's webhook docs, and `all_leads_activities` already syncs replies and thread replies
 - [x] `Get All Leads Activities (GET /api/v1/campaigns/all-leads-activities)` — analyze engagement events over time rather than the current state of each sent email (high)
 - [x] `Get Warmup Statistics (GET /api/v1/email-accounts/{email_account_id}/warmup-stats)` — measure mailbox reputation, spam placement, and warmup performance (medium)
 - [ ] `Get Campaign Email Accounts (GET /api/v1/campaigns/{campaign_id}/email-accounts)` — join campaigns to rotating sender accounts for mailbox performance analysis (medium)
-- [ ] `Get Day-wise Overall Stats (GET /api/v1/analytics/day-wise-overall-stats)` — track daily engagement totals and compare outreach performance over time (medium)
-- [ ] `Get Lead Notes (GET /api/v1/crm/leads/notes/{lead_id})` — analyze sales context and follow-up information attached to prospects (medium)
-- [ ] `Get Lead Tasks (GET /api/v1/crm/leads/tasks/{lead_id})` — measure follow-up workload and task completion across prospects (medium)
+- [x] `Get Day-wise Overall Stats (GET /api/v1/analytics/day-wise-overall-stats)` — track daily engagement totals and compare outreach performance over time (medium)
+- [ ] `Get Lead Notes (GET /api/v1/crm/leads/notes/{lead_id})` — analyze sales context and follow-up information attached to prospects (medium); skipped: there is no account-wide list, so it needs a request per lead on every sync against a 1,000-requests-per-hour plan limit
+- [ ] `Get Lead Tasks (GET /api/v1/crm/leads/tasks/{lead_id})` — measure follow-up workload and task completion across prospects (medium); skipped: there is no account-wide list, so it needs a request per lead on every sync against a 1,000-requests-per-hour plan limit
 
 Note: Read the full official reference and checked methods, request examples, and responses on the corresponding individual pages. Existing statistics cover sent emails; leads, sequences, and aggregate analytics already use requests for each campaign. Message history requires campaign and lead identifiers, while warmup history covers only the latest seven days. Excluded webhooks, credentials, mutations, and duplicate inbox list filters.
 
 ## Smartreach — gaps
 
-Today (2): `campaigns`, `prospects`
+Today (6): `campaign_prospects`, `campaign_stats`, `campaigns`, `prospects`, `teams`, `users`
 
 Diffed against: <https://help.smartreach.io/llms.txt>
 
-- [ ] `GET /campaigns/{campaign_id}/prospects` — campaign-to-prospect membership plus per-campaign prospect status - the join table between the two tables we already sync (high)
-- [ ] `GET /campaigns/{campaign_id}/stats` — the vendor's headline campaign metrics (sends, opens, replies, bounces) (high)
-- [ ] `GET /teams` — lookup table for the team id that scopes every campaign and prospect (high)
-- [ ] `GET /teams/{team_id}/users` — lookup resolving the owner/user ids carried on campaigns and prospects (high)
+- [x] `GET /campaigns/{campaign_id}/prospects` — campaign-to-prospect membership plus per-campaign prospect status - the join table between the two tables we already sync (high)
+- [x] `GET /campaigns/{campaign_id}/stats` — the vendor's headline campaign metrics (sends, opens, replies, bounces) (high)
+- [x] `GET /teams` — lookup table for the team id that scopes every campaign and prospect (high)
+- [x] `GET /teams/{team_id}/users` — lookup resolving the owner/user ids carried on campaigns and prospects (high) (the v3 route is `GET /users?team_id=...`)
 - [ ] `GET /email_settings (and /email_settings/{id})` — sending mailbox lookup - resolves which inbox a campaign sends from (medium)
 - [ ] `GET /do_not_contact` — suppression list, needed to reconcile deliverable vs excluded prospects (medium)
 - [ ] `GET /campaigns/{campaign_id}/settings (channel settings)` — multichannel step configuration per campaign (low)
@@ -11405,13 +11405,13 @@ Today (4): `issues`, `organizations`, `projects`, `targets`
 Diffed against: <https://api.snyk.io/rest/openapi/2026-03-25>
 
 - [x] `GET /orgs/{org_id}/memberships` — user-to-org membership with role - the lookup that resolves who owns the projects and issues we sync (high)
-- [ ] `GET /groups and GET /groups/{group_id}/orgs` — group is the parent of every org; without it multi-org rollups have no hierarchy to aggregate on (high)
+- [x] `GET /groups and GET /groups/{group_id}/orgs` — group is the parent of every org; without it multi-org rollups have no hierarchy to aggregate on (high). Added as `group_organizations` (fan-out over the groups of the synced orgs). `GET /groups` skipped: it is beta only, and the source calls GA versions.
 - [x] `GET /groups/{group_id}/memberships and /org_memberships` — group-level membership and role assignment across all orgs (medium)
 - [x] `GET /orgs/{org_id}/collections and /collections/{collection_id}/relationships/projects` — collection membership - the standard breakdown dimension for grouping projects in reporting (medium)
 - [ ] `GET /orgs/{org_id}/policies and GET /orgs/{org_id}/policies/{policy_id}/events` — ignore/severity policies plus their event log explain why issues we sync are suppressed or re-rated (medium)
-- [ ] `GET /orgs/{org_id}/container_images (and /relationships/image_target_refs)` — container image inventory joining images to the targets already synced (medium)
-- [ ] `GET /orgs/{org_id}/audit_logs/search (and group-level equivalent)` — state/transition history for org and project changes (medium)
-- [ ] `GET /orgs/{org_id}/inventory/assets (plus /relationships/projects and /relationships/targets)` — the AppRisk asset inventory and its mapping onto projects/targets we already sync (medium)
+- [x] `GET /orgs/{org_id}/container_images (and /relationships/image_target_refs)` — container image inventory joining images to the targets already synced (medium). Added as `container_images` and `container_image_target_refs` (fan-out over `container_images`).
+- [x] `GET /orgs/{org_id}/audit_logs/search (and group-level equivalent)` — state/transition history for org and project changes (medium). Added as `org_audit_logs` and `group_audit_logs`, incremental on `created` (Snyk keeps 90 days).
+- [ ] `GET /orgs/{org_id}/inventory/assets (plus /relationships/projects and /relationships/targets)` — the AppRisk asset inventory and its mapping onto projects/targets we already sync (medium); skipped: every inventory/assets path is beta only (2024-10-15~beta), and the source calls GA versions
 - [ ] `GET /orgs/{org_id}/tests/{test_id}/findings` — individual findings per test run, finer grained than the issue rollup (low)
 - [ ] `GET /orgs/{org_id}/cloud/resources, /cloud/environments, /cloud/scans` — cloud posture resources and scan history for IaC customers (low)
 - [ ] `GET /tenants/{tenant_id}/roles` — role lookup that resolves the role ids on membership records (low)
@@ -11482,10 +11482,10 @@ Today (5): `issues`, `metrics`, `projects`, `rules`, `users`
 
 Diffed against: <https://next.sonarqube.com/sonarqube/api/webservices/list>
 
-- [ ] `measures/component_tree` — actual metric values per component - today only metric definitions are synced, so no measurements reach the warehouse (high)
-- [ ] `measures/search_history` — metric history over time; needed for coverage, duplication and tech-debt trends (high)
-- [ ] `qualitygates/list + qualitygates/project_status` — quality gate status per project is the headline pass/fail metric and is missing entirely (the SonarCloud source already has it) (high)
-- [ ] `hotspots/search` — security hotspots are a distinct finding class not covered by issues (high)
+- [x] `measures/component_tree` — actual metric values per component - today only metric definitions are synced, so no measurements reach the warehouse (high)
+- [x] `measures/search_history` — metric history over time; needed for coverage, duplication and tech-debt trends (high)
+- [x] `qualitygates/list + qualitygates/project_status` — quality gate status per project is the headline pass/fail metric and is missing entirely (the SonarCloud source already has it) (high)
+- [x] `hotspots/search` — security hotspots are a distinct finding class not covered by issues (high)
 - [ ] `issues/changelog` — issue transition history for time-to-remediate and reopen analysis (high)
 - [ ] `project_analyses/search` — analysis records with version/event markers; join key for measures history and release comparison (medium)
 - [ ] `project_branches/list` — branch-level gate status and last analysis date (medium)
@@ -11671,15 +11671,15 @@ Today (9): `escalation_policies`, `incidents`, `postmortems`, `runbooks`, `sched
 
 Diffed against: <https://developers.incidents.cloud.solarwinds.com/llms.txt>
 
-- [ ] `incidents/{incidentID}/events (Get Incident Events)` — the incident timeline - acknowledge/reassign/resolve state transitions behind MTTA and MTTR (high)
+- [ ] `incidents/{incidentID}/events (Get Incident Events)` — the incident timeline - acknowledge/reassign/resolve state transitions behind MTTA and MTTR (high); skipped: the call returns the raw alert events grouped into an incident, not the state timeline (the `incidents` export already carries `logs`, `tta` and `ttr`), its event schema has no unique id, and it returns at most 10 rows per page per incident
 - [x] `squads` — lookup plus membership table resolving squad ids on incidents, services and escalation policies (high)
 - [x] `schedules/{scheduleID}/rotations and .../rotations/{id}/participants` — on-call rotations and who is in them; schedules are synced but are meaningless without rotations (high)
-- [ ] `analytics (org-level and team-level)` — the vendor's headline MTTA/MTTR/incident-volume metrics (high)
-- [ ] `incidents/tags` — incident tag values, the primary breakdown dimension for incident reporting (medium)
+- [ ] `analytics (org-level and team-level)` — the vendor's headline MTTA/MTTR/incident-volume metrics (high); skipped: `/v3/analyticsv2/organization` and `/v3/analyticsv2/team` return one `{mtta, mttr}` aggregate for a requested date range, not records, and both values derive from the synced `incidents` table
+- [ ] `incidents/tags` — incident tag values, the primary breakdown dimension for incident reporting (medium); skipped: the API documents only `PUT` and `PATCH` on `/v3/incidents/{IncidentId}/tags`, so there is no list call, and the `incidents` export already carries each incident's `tags`
 - [ ] `incidents/{incidentID}/notes` — responder commentary attached to incidents (medium)
 - [ ] `incidents/additional-responders` — who else was pulled into an incident beyond the primary assignee (medium)
 - [ ] `schedules/{scheduleID}/overrides` — on-call override history, needed for accurate coverage analysis (medium)
-- [ ] `audit-logs` — configuration change history across the org (medium)
+- [x] `audit-logs` — configuration change history across the org (medium). Added as `audit_logs` (incremental on `timestamp`).
 - [ ] `services/dependencies` — service dependency graph for blast-radius analysis on the services we already sync (medium)
 - [ ] `status-pages/issues` — customer-facing issue records with their own lifecycle (low)
 - [ ] `status-pages/maintenances` — planned maintenance windows to exclude from incident stats (low)
