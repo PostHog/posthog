@@ -28,12 +28,40 @@ def test_keeps_timestamps_as_text_like_the_frontend_parser(source: str, expected
 
 @pytest.mark.parametrize(
     "source",
-    ["a: 1\na: 2\n", "rules: [\n", "n: " + "9" * 5000 + "\n", "? [[a]]\n: 1\n"],
-    ids=["duplicate key", "broken syntax", "oversized integer", "unhashable key"],
+    [
+        "a: 1\na: 2\n",
+        "rules: [\n",
+        "n: " + "9" * 5000 + "\n",
+        "n: 0x" + "f" * 4000 + "\n",
+        "? [[a]]\n: 1\n",
+        "%YAML 1.0\n---\nrules: []\n",
+        "%YAML 1.3\n---\nrules: []\n",
+        "a: !!bool invalid\n",
+        'a: !!float ""\n',
+    ],
+    ids=[
+        "duplicate key",
+        "broken syntax",
+        "oversized integer",
+        "oversized hex integer",
+        "unhashable key",
+        "YAML 1.0 directive",
+        "YAML 1.3 directive",
+        "malformed bool tag",
+        "malformed float tag",
+    ],
 )
 def test_rejects_sources_that_cannot_load(source: str) -> None:
     with pytest.raises(RecipeCompileError):
         load_recipe_yaml(source)
+
+
+def test_a_duplicate_key_error_does_not_render_aliased_values() -> None:
+    lines = ["a0: &a0 [x, x]"] + [f"a{i}: &a{i} [*a{i - 1}, *a{i - 1}]" for i in range(1, 16)]
+    source = "\n".join(lines) + "\nd: {k: *a15, k: *a15}\n"
+    with pytest.raises(RecipeCompileError, match='duplicate key "k"') as error:
+        load_recipe_yaml(source)
+    assert len(str(error.value)) < 1_000
 
 
 @pytest.mark.parametrize(

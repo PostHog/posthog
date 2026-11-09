@@ -115,10 +115,33 @@ def test_prefixes_rule_errors_with_the_recipe_and_rule() -> None:
         compile_recipe({"id": "t", "rules": [{"on": {}, "emit": {}}, {"on": "nope", "emit": {}}]})
 
 
-@parameterized.expand([("a compiled value", "content: *a29"), ("a literal payload", "content: {literal: *a29}")])
-def test_rejects_an_alias_bomb_quickly(_name: str, emit: str) -> None:
+def doubling_aliases(emit: str) -> str:
     lines = ["a0: &a0 [x, x]"] + [f"a{i}: &a{i} [*a{i - 1}, *a{i - 1}]" for i in range(1, 30)]
-    source = "\n".join(lines) + f"\nrules:\n  - on: {{}}\n    emit: {{{emit}}}\n"
+    return "\n".join(lines) + f"\nrules:\n  - on: {{}}\n    emit: {{{emit}}}\n"
+
+
+def repeated(alias: str, times: int) -> str:
+    return "[" + ", ".join([f"*{alias}"] * times) + "]"
+
+
+def aliased_content(text: str, times: int) -> str:
+    return f"s: &s '{text}'\nrules:\n  - on: {{}}\n    emit: {{content: {repeated('s', times)}}}\n"
+
+
+@parameterized.expand(
+    [
+        ("a compiled value", doubling_aliases("content: *a29")),
+        ("a literal payload", doubling_aliases("content: {literal: *a29}")),
+        (
+            "followups that compile no value",
+            f"f: &f {{role: user}}\nfs: &fs {repeated('f', 400)}\n"
+            f"r: &r {{on: {{}}, emit: {{}}, followups: *fs}}\nrules: {repeated('r', 400)}\n",
+        ),
+        ("interpolated paths", aliased_content(" ".join(["$.a"] * 1_000), 201)),
+        ("path segments", aliased_content("$." + ".".join(["a"] * 6_000), 600)),
+    ]
+)
+def test_rejects_an_alias_bomb_quickly(_name: str, source: str) -> None:
     started = time.monotonic()
     with pytest.raises(RecipeCompileError, match="compiles to more than"):
         compile_recipe(load_recipe_yaml(source), "bomb")
