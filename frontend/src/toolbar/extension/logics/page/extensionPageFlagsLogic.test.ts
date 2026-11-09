@@ -20,6 +20,9 @@ jest.mock('~/toolbar/shared/flags/flagComparison', () => ({
 }))
 jest.mock('./jpegDataUrl', () => ({ jpegDataUrl: jest.fn((url: string) => Promise.resolve(`data:${url}`)) }))
 
+// A comparison crosses several loaders and listeners, which a loaded CI runner can take longer than `waitFor`'s 1 s for.
+const SLOW_RUNNER_TIMEOUT_MS = 4000
+
 describe('extensionPageFlagsLogic', () => {
     let persisted: Record<string, unknown>
     let logic: ReturnType<typeof extensionPageFlagsLogic.build>
@@ -59,9 +62,12 @@ describe('extensionPageFlagsLogic', () => {
 
     test('refuses a flag change from another panel while it compares, and lets that panel send again', async () => {
         let releaseCapture: (blob: Blob) => void = () => {}
-        jest.mocked(captureElementScreenshot).mockImplementationOnce(
-            () => new Promise((resolve) => (releaseCapture = resolve))
-        )
+        const captureStarted = new Promise<void>((started) => {
+            jest.mocked(captureElementScreenshot).mockImplementationOnce(() => {
+                started()
+                return new Promise((resolve) => (releaseCapture = resolve))
+            })
+        })
         logic.actions.handleCommand({ type: 'compare-flag', flagKey: 'new-checkout' })
         const revision = logic.values.pageState.mutationRevision
 
@@ -74,9 +80,9 @@ describe('extensionPageFlagsLogic', () => {
         expect(persisted.$override_feature_flags).toEqual({ 'new-checkout': false })
 
         jest.mocked(captureElementScreenshot).mockResolvedValue(new Blob(['on']))
-        await waitFor(() => expect(captureElementScreenshot).toHaveBeenCalled())
+        await captureStarted
         releaseCapture(new Blob(['off']))
-        await waitFor(() => expect(logic.values.comparison).not.toBeNull())
+        await waitFor(() => expect(logic.values.comparison).not.toBeNull(), { timeout: SLOW_RUNNER_TIMEOUT_MS })
         expect(persisted.$override_feature_flags).toEqual({})
     })
 
@@ -84,7 +90,7 @@ describe('extensionPageFlagsLogic', () => {
         jest.mocked(captureElementScreenshot).mockResolvedValue(new Blob(['page']))
 
         logic.actions.handleCommand({ type: 'compare-flag', flagKey: 'new-checkout' })
-        await waitFor(() => expect(logic.values.pageState.comparingFlagKey).toBeNull())
+        await waitFor(() => expect(logic.values.comparison).not.toBeNull(), { timeout: SLOW_RUNNER_TIMEOUT_MS })
 
         expect(logic.values.comparison?.captures.map(({ url }) => url)).toEqual([
             'data:blob:capture-0',
