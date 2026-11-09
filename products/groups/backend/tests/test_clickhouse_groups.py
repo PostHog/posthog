@@ -538,6 +538,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             self.assertIsNone(result["detail"]["changes"][0]["before"])
             prop_name = result["detail"]["name"]
             self.assertEqual(result["detail"]["changes"][0]["after"], group_properties[prop_name])
+            self.assertEqual(result["detail"]["context"], {"group_type_index": 0})
 
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_create_group_duplicated_group_key(self, mock_capture):
@@ -749,6 +750,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "created")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], None)
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
+        self.assertEqual(response.json()["results"][0]["detail"]["context"], {"group_type_index": 0})
 
     @time_machine.travel("2021-05-02", tick=False)
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
@@ -831,6 +833,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
+        self.assertEqual(response.json()["results"][0]["detail"]["context"], {"group_type_index": 0})
 
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_group_property_update_reuses_definition_from_another_environment(self, mock_capture):
@@ -991,6 +994,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "deleted")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], None)
+        self.assertEqual(response.json()["results"][0]["detail"]["context"], {"group_type_index": 0})
 
     @time_machine.travel("2021-05-02", tick=False)
     def test_group_property_crud_delete_missing_key(self):

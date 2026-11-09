@@ -36,6 +36,7 @@ from posthog.helpers.dashboard_templates import create_group_type_mapping_detail
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.models.activity_logging.property_value_visibility import GroupActivityContext
 from posthog.models.group import Group
 from posthog.models.group.util import (
     GroupAlreadyExistsError,
@@ -578,6 +579,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                         after=value,
                     )
                 ],
+                context=GroupActivityContext(group_type_index=group.group_type_index),
             )
             for name, value in group.group_properties.items()
         ]
@@ -727,6 +729,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                             after=property_value,
                         )
                     ],
+                    context=GroupActivityContext(group_type_index=group.group_type_index),
                 ),
             )
             return response.Response(self.get_serializer(group).data)
@@ -832,6 +835,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 detail=Detail(
                     name=str(property_key),
                     changes=[Change(type="Group", action="deleted", before=original_value)],
+                    context=GroupActivityContext(group_type_index=group.group_type_index),
                 ),
             )
             return response.Response(self.get_serializer(group).data)
