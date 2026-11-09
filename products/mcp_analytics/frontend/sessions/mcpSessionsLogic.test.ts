@@ -219,6 +219,25 @@ describe('mcpSessionsLogic', () => {
         expect(toolCallsMock).toHaveBeenCalledTimes(refetches)
     })
 
+    it('keeps the selected session cached when a background page evicts the oldest', async () => {
+        toolCallsMock.mockResolvedValue({ results: [toolCall('call')], has_next: false })
+        for (let i = 0; i < MAX_CACHED_SESSIONS; i++) {
+            await expectLogic(logic, () => logic.actions.selectSession(`s${i}`)).toDispatchActions([
+                'loadToolCallsSuccess',
+            ])
+        }
+        let resolveNewest: (value: any) => void = () => {}
+        toolCallsMock.mockImplementationOnce(() => new Promise((resolve) => (resolveNewest = resolve)))
+        logic.actions.selectSession('newest')
+        logic.actions.selectSession('s0')
+
+        await expectLogic(logic, () => resolveNewest({ results: [], has_next: false })).toDispatchActions([
+            'loadToolCallsSuccess',
+        ])
+
+        expect(logic.values.selectedSessionToolCalls).toMatchObject({ loading: false, calls: [toolCall('call')] })
+    })
+
     describe('with session A on screen and more calls to load', () => {
         const pending = (): Promise<never> => new Promise(() => {})
 
@@ -312,6 +331,25 @@ describe('mcpSessionsLogic', () => {
                 calls: [toolCall('filtered')],
                 loadingMore: false,
             })
+        })
+
+        it("keeps A's newer load more spinning when an obsolete one fails", async () => {
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+            let rejectObsolete: (e: Error) => void = () => {}
+            toolCallsMock.mockImplementationOnce(() => new Promise((_, reject) => (rejectObsolete = reject)))
+            logic.actions.loadMoreToolCalls('A')
+            toolCallsMock.mockResolvedValueOnce({ results: [toolCall('filtered')], has_next: true })
+            await expectLogic(logic, () =>
+                mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER])
+            ).toDispatchActions(['loadToolCallsSuccess'])
+            toolCallsMock.mockImplementationOnce(pending)
+            logic.actions.loadMoreToolCalls('A')
+
+            rejectObsolete(new Error('Unavailable'))
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.selectedSessionToolCalls.loadingMore).toBe(true)
+            consoleErrorSpy.mockRestore()
         })
 
         it('keeps the cached calls when a refetch fails', async () => {

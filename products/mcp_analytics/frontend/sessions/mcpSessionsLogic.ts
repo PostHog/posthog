@@ -78,11 +78,6 @@ export interface SessionToolCalls {
     hasNext: boolean
 }
 
-function without(sessionIds: Record<string, true>, sessionId: string): Record<string, true> {
-    const { [sessionId]: _, ...rest } = sessionIds
-    return rest
-}
-
 export interface ToolCallsRequest {
     sessionId: string | null
     failed: boolean
@@ -121,7 +116,7 @@ export interface mcpSessionsLogicValues {
     hasNext: boolean
     intentOverrides: Record<string, string>
     isSelectedSessionGenerating: boolean
-    loadingMoreSessionIds: Record<string, true>
+    loadingMoreEntries: SessionToolCalls[]
     refreshCount: number
     selectedSession: MCPSessionApi | null
     selectedSessionId: string | null
@@ -156,8 +151,11 @@ export interface mcpSessionsLogicActions {
     setPropertyFilters: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
     } // mcpAnalyticsFiltersLogic
-    clearLoadingMore: (sessionId: string) => {
-        sessionId: string
+    finishLoadingMore: (entry: SessionToolCalls) => {
+        entry: SessionToolCalls
+    }
+    startLoadingMore: (entry: SessionToolCalls) => {
+        entry: SessionToolCalls
     }
     generateIntent: (sessionId: string) => string
     generateIntentFailure: (
@@ -300,7 +298,7 @@ export interface mcpSessionsLogicMeta {
         selectedSessionToolCalls: (
             toolCallsBySession: Record<string, SessionToolCalls>,
             selectedSessionId: string | null,
-            loadingMoreSessionIds: Record<string, true>,
+            loadingMoreEntries: SessionToolCalls[],
             sharedQueryFilters: Required<
                 Pick<import('~/queries/schema').HogQLFilters, 'filterTestAccounts' | 'properties'>
             >,
@@ -335,7 +333,8 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         loadSessions: true,
         loadMoreSessions: true,
         loadMoreToolCalls: (sessionId: string) => ({ sessionId }),
-        clearLoadingMore: (sessionId: string) => ({ sessionId }),
+        startLoadingMore: (entry: SessionToolCalls) => ({ entry }),
+        finishLoadingMore: (entry: SessionToolCalls) => ({ entry }),
         refreshSessions: true,
         setFilters: (filters: Partial<MCPSessionsFilters>) => ({ filters }),
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -427,9 +426,13 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                         throw error
                     })
                     breakpoint()
-                    const kept = Object.entries(values.toolCallsBySession)
-                        .filter(([id, entry]) => id !== sessionId && entry.filters === filters)
-                        .slice(1 - MAX_CACHED_SESSIONS)
+                    const others = Object.entries(values.toolCallsBySession).filter(
+                        ([id, entry]) => id !== sessionId && entry.filters === filters
+                    )
+                    const isSelected = ([id]: [string, SessionToolCalls]): boolean => id === values.selectedSessionId
+                    const kept = [...others.filter((other) => !isSelected(other)), ...others.filter(isSelected)].slice(
+                        1 - MAX_CACHED_SESSIONS
+                    )
                     return {
                         ...Object.fromEntries(kept),
                         [sessionId]: { filters, refreshCount, sessionStart, ...page },
@@ -441,16 +444,14 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId || !entry) {
                         return values.toolCallsBySession
                     }
+                    actions.startLoadingMore(entry)
                     const page = await fetchToolCallsPage(
                         values.currentProjectId,
                         sessionId,
                         entry.sessionStart,
                         entry.calls.length,
                         entry.filters
-                    ).catch((error) => {
-                        actions.clearLoadingMore(sessionId)
-                        throw error
-                    })
+                    ).finally(() => actions.finishLoadingMore(entry))
                     // If the user switched sessions or changed the shared filters while this page
                     // was loading, drop it: appending one set's calls onto another's would show the
                     // wrong data. The backend orders by (timestamp, event_id), so pages that do
@@ -494,13 +495,11 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 loadToolCallsFailure: (state) => ({ ...state, failed: true }),
             },
         ],
-        loadingMoreSessionIds: [
-            {} as Record<string, true>,
+        loadingMoreEntries: [
+            [] as SessionToolCalls[],
             {
-                loadMoreToolCalls: (state, { sessionId }) => ({ ...state, [sessionId]: true as const }),
-                loadMoreToolCallsSuccess: (state, { payload }) => (payload ? without(state, payload.sessionId) : state),
-                loadToolCallsSuccess: (state, { payload }) => (payload ? without(state, payload) : state),
-                clearLoadingMore: (state, { sessionId }) => without(state, sessionId),
+                startLoadingMore: (state, { entry }) => [...state, entry],
+                finishLoadingMore: (state, { entry }) => state.filter((loading) => loading !== entry),
             },
         ],
         refreshCount: [
@@ -614,14 +613,14 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             (s) => [
                 s.toolCallsBySession,
                 s.selectedSessionId,
-                s.loadingMoreSessionIds,
+                s.loadingMoreEntries,
                 s.sharedQueryFilters,
                 s.toolCallsRequest,
             ],
             (
                 toolCallsBySession: Record<string, SessionToolCalls>,
                 selectedSessionId: string | null,
-                loadingMoreSessionIds: Record<string, true>,
+                loadingMoreEntries: SessionToolCalls[],
                 sharedQueryFilters: MCPSharedQueryFilters,
                 toolCallsRequest: ToolCallsRequest
             ): {
@@ -641,7 +640,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     loading: selectedSessionId !== null && !matchesFilters && !failed,
                     error: selectedSessionId !== null && failed && !matchesFilters,
                     // A "Load more" append is in flight for the session already on screen.
-                    loadingMore: matchesFilters && !!selectedSessionId && !!loadingMoreSessionIds[selectedSessionId],
+                    loadingMore: matchesFilters && loadingMoreEntries.includes(entry),
                 }
             },
         ],
