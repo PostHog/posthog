@@ -4,6 +4,7 @@ import json
 import time
 import random
 import asyncio
+import functools
 import dataclasses
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime
@@ -208,11 +209,11 @@ class InternalLogsProducer:
                 self._waiting[key] = batch
             task = asyncio.get_running_loop().create_task(self._deliver(request))
             # A callback, not a `finally`, because a task cancelled before it starts never runs its body.
-            task.add_done_callback(lambda _task, request=request: self._release(request))
+            task.add_done_callback(functools.partial(self._release, request))
             self._in_flight[request] = task
         self._report()
 
-    def _release(self, request: _Request) -> None:
+    def _release(self, request: _Request, _task: "asyncio.Task[None]") -> None:
         self._in_flight.pop(request, None)
         self._buffered_bytes -= request.byte_count
         self._pump()
