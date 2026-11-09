@@ -226,7 +226,7 @@ export interface navProductsTabLogicMeta {
             appRecommendationQuery: string,
             appRecommendationsEnabled: boolean
         ) => AppMatchGroups | null
-        allItems: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => FileSystemImport[]
+        allItems: (featureFlags: FeatureFlagsSet) => FileSystemImport[]
         pinnedItems: (allItems: FileSystemImport[], search: string) => FileSystemImport[]
         groupedItems: (allItems: FileSystemImport[], search: string) => ProductsItemGroup[]
         configurableProducts: (allItems: FileSystemImport[]) => FileSystemImport[]
@@ -475,9 +475,8 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                     : null,
         ],
         allItems: [
-            (s) => [s.featureFlags, s.currentTeam],
-            (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null): FileSystemImport[] =>
-                getNavProductItems(featureFlags, currentTeam?.created_at),
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): FileSystemImport[] => getNavProductItems(featureFlags),
         ],
         pinnedItems: [
             (s) => [s.allItems, s.search],

@@ -4,8 +4,6 @@ import { Button } from '@posthog/quill'
 
 import { pluralize } from 'lib/utils/strings'
 
-import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
-
 import { canCertify } from '../catalogTableRows'
 import { TablesBulkAction, catalogTablesLogic } from '../catalogTablesLogic'
 import { CatalogBulkBar } from '../components/CatalogBulkBar'
@@ -25,11 +23,9 @@ function disabledReasonFor(
 
 export function CatalogTablesBulkBar(): JSX.Element {
     const { selectedRows, selectedProposalRows, bulkActionInFlight } = useValues(catalogTablesLogic)
-    const { reviewProposals, certifyRows, runSelectedChecks, clearSelection } = useActions(catalogTablesLogic)
-    const { startingRun, isRunning } = useValues(dataQualityOverviewLogic)
+    const { reviewProposals, certifyRows, clearSelection } = useActions(catalogTablesLogic)
     const proposalKeys = selectedProposalRows.map((row) => row.key)
     const certifiableKeys = selectedRows.filter(canCertify).map((row) => row.key)
-    const withChecks = selectedRows.filter((row) => row.checkGroup).length
 
     return (
         <CatalogBulkBar
@@ -71,21 +67,6 @@ export function CatalogTablesBulkBar(): JSX.Element {
                     Reject
                 </Button>
             </CatalogReviewAccess>
-            <Button
-                variant="outline"
-                size="sm"
-                disabledReason={
-                    withChecks === 0
-                        ? 'No selected table has checks'
-                        : startingRun || isRunning
-                          ? 'Checks are already running'
-                          : undefined
-                }
-                onClick={runSelectedChecks}
-                data-attr="data-catalog-tables-bulk-run-checks"
-            >
-                Run checks
-            </Button>
             <CatalogReviewAccess>
                 <Button
                     variant="outline"

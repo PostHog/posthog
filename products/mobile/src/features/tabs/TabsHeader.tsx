@@ -1,7 +1,6 @@
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
 import type { PostHogStatus } from '@/features/status/usePostHogStatus'
-import { INBOX_PANE_WIDTH } from '@/ui/adaptiveLayout'
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
 import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
@@ -50,6 +49,7 @@ interface TabsHeaderProps {
     slot: TabHeaderSlot | null
     status: PostHogStatus
     onMore: () => void
+    nativeRail?: boolean
 }
 
 /**
@@ -62,11 +62,12 @@ export function TabsHeader({
     slot,
     status: { summary: statusUpdate, indicatorColor },
     onMore,
+    nativeRail = false,
 }: TabsHeaderProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
-    const { paired } = useAppLayout()
+    const { paired, inboxExtent, paneAxis } = useAppLayout()
     const editing = slot?.editing ?? null
     const status = slot?.status ?? null
     const hint = editing ? null : (slot?.hint ?? null)
@@ -80,7 +81,7 @@ export function TabsHeader({
                 {
                     paddingTop: topOffset(insets, HEADER_TOP),
                     paddingBottom: withStatus ? STATUS_PADDING : HEADER_FADE,
-                    maxWidth: tab === 'inbox' && paired ? INBOX_PANE_WIDTH : undefined,
+                    maxWidth: tab === 'inbox' && paired && paneAxis === 'row' ? inboxExtent : undefined,
                 },
             ]}
         >
@@ -109,7 +110,7 @@ export function TabsHeader({
                     </Text>
                 ) : null}
             </View>
-            {editing ? (
+            {nativeRail ? null : editing ? (
                 <Pressable44
                     onPress={editing.onDone}
                     accessibilityLabel="Done"

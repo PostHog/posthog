@@ -111,6 +111,7 @@ export interface traceViewModelLogicValues {
     canViewInThread: boolean
     clustersChip: TraceClustersChipProps | null
     datasetItemSource: ReturnType<typeof toDatasetItemSource>
+    datasetsEnabled: boolean
     detailData: NodeDetailData | null
     evalOutcomesByNode: Record<string, EvalRollupOutcome>
     evalsChip: EvalsChipData | null
@@ -124,6 +125,7 @@ export interface traceViewModelLogicValues {
     highlightQuery: string | null
     matchStepCount: number
     matchingNodeIds: ReadonlySet<string> | null
+    nodeIdToRead: string | null
     readySearchResults: TraceSearchResultsApi | null
     searchBox: TraceSearchBoxData
     selectedNodeId: string
@@ -247,6 +249,7 @@ export interface traceViewModelLogicMeta {
             nodeIdsByAlias: Record<string, string>,
             traceId: string
         ) => string
+        nodeIdToRead: (status: TraceViewStatus, requestedStepId: string | null, selectedNodeId: string) => string | null
         selectedTreeNode: (tree: TraceNodeApi[], selectedNodeId: string) => TraceNodeApi | null
         selectedNodeLoad: (selectedNodeId: string, nodes: Record<string, NodeLoad>) => NodeLoad
         threadNodeLoad: (threadNodeIds: string[], nodes: Record<string, NodeLoad>) => NodeLoad | null
@@ -262,8 +265,9 @@ export interface traceViewModelLogicMeta {
             createdAt: string | null,
             sessionId: string | null
         ) => NodeDetailData | null
+        datasetsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         datasetItemSource: (
-            featureFlags: FeatureFlagsSet,
+            datasetsEnabled: boolean,
             selectedNodeLoad: NodeLoad,
             createdAt: string | null,
             traceId: string
@@ -448,6 +452,12 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                 return nodeIdsByAlias[requestedStepId] ?? traceId
             },
         ],
+        // Until the trace names its default step, only a step the URL asks for is worth reading.
+        nodeIdToRead: [
+            (s) => [s.status, s.requestedStepId, s.selectedNodeId],
+            (status: TraceViewStatus, requestedStepId: string | null, selectedNodeId: string): string | null =>
+                status === 'ready' || requestedStepId ? selectedNodeId : null,
+        ],
         selectedTreeNode: [
             (s) => [s.tree, s.selectedNodeId],
             (tree: TraceNodeApi[], selectedNodeId: string): TraceNodeApi | null => findTreeNode(tree, selectedNodeId),
@@ -505,17 +515,19 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                       })
                     : null,
         ],
+        datasetsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS],
+        ],
         datasetItemSource: [
-            (s, p) => [s.featureFlags, s.selectedNodeLoad, s.createdAt, p.traceId],
+            (s, p) => [s.datasetsEnabled, s.selectedNodeLoad, s.createdAt, p.traceId],
             (
-                featureFlags: FeatureFlagsSet,
+                datasetsEnabled: boolean,
                 load: NodeLoad,
                 createdAt: string | null,
                 traceId: string
             ): ReturnType<typeof toDatasetItemSource> =>
-                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] && createdAt
-                    ? toDatasetItemSource({ traceId, createdAt, load })
-                    : null,
+                datasetsEnabled && createdAt ? toDatasetItemSource({ traceId, createdAt, load }) : null,
         ],
         thread: [
             (s, p) => [s.status, s.threadNodeLoad, s.createdAt, s.currentTeamId, p.traceId],
@@ -633,7 +645,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => {
-        // The click's read starts before the selection moves, so the selectedNodeId subscription's navigation read
+        // The click's read starts before the selection moves, so the nodeIdToRead subscription's navigation read
         // for the same id is deduped and the load event reports a click. Selecting the node that is already
         // selected changes no value and the subscription does not fire, so this read also retries a failed node.
         const select = ({ id }: { id: string }): void => {
@@ -711,12 +723,15 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         }
     }),
     subscriptions(({ actions, props, values }) => ({
-        selectedNodeId: (selectedNodeId: string) => {
+        nodeIdToRead: (nodeIdToRead: string | null) => {
             // A drawer requests the next trace's step before this view unmounts. That step is not a node of this trace.
-            if (values.requestedTraceId !== null && values.requestedTraceId !== props.traceId) {
+            if (
+                nodeIdToRead === null ||
+                (values.requestedTraceId !== null && values.requestedTraceId !== props.traceId)
+            ) {
                 return
             }
-            actions.loadNode(selectedNodeId, 'navigation')
+            actions.loadNode(nodeIdToRead, 'navigation')
         },
         mode: (mode: TraceMode) => {
             if (mode === 'summary' && !values.summaryIsOpen) {

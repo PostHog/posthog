@@ -25,19 +25,12 @@ describe('shortcutInputFor', () => {
             { kind: 'insight', shortId: 'xY12', name: 'Revenue', queryKind: 'BIVisualizationNode' },
             { path: 'Revenue', type: 'insight', ref: 'xY12', href: '/bi/xY12' },
         ],
-        [
-            'web analytics',
-            { kind: 'web_analytics' },
-            { path: 'Web analytics', type: 'web_analytics', ref: null, href: '/web' },
-        ],
     ])('writes the web row for %s', (_name, target, expected) => {
         const input = shortcutInputFor(target)
 
         expect(input).toEqual(expected)
-        if (target.kind !== 'web_analytics') {
-            expect(shortcutName(input.path)).toBe(
-                target.name || ('derivedName' in target && target.derivedName) || 'Untitled'
-            )
-        }
+        expect(shortcutName(input.path)).toBe(
+            target.name || ('derivedName' in target && target.derivedName) || 'Untitled'
+        )
     })
 })

@@ -32,6 +32,7 @@ from products.wizard.backend.logic.workers.config import (
 )
 from products.wizard.backend.logic.workers.contracts import RepositoryPullRequest
 from products.wizard.backend.logic.workers.errors import InvalidWizardProgramCommandError, InvalidWizardVersionError
+from products.wizard.backend.logic.workers.repository_publisher import RepositoryPublishingError
 from products.wizard.backend.logic.workers.service import (
     GitRepositoryCloneRequest,
     GitRepositoryHandoffRequest,
@@ -557,6 +558,36 @@ def test_git_repository_handoff_uses_generic_body_when_handoff_is_unavailable(
         "This pull request contains changes created by Wizard, PostHog's setup agent."
     )
     handoff_body_fallback.assert_called_once_with(request.team_id, request.run_id)
+
+
+@pytest.mark.parametrize("retryable", [True, False])
+@patch("products.wizard.backend.logic.workers.service.stage_publishable_changes")
+@patch("products.wizard.backend.logic.workers.service.create_signed_commit")
+@patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
+def test_git_repository_handoff_keeps_publishing_failures_retryable_only_when_transient(
+    get_sandbox_class: MagicMock,
+    create_signed_commit: MagicMock,
+    _stage_publishable_changes: MagicMock,
+    retryable: bool,
+) -> None:
+    request = GitRepositoryHandoffRequest(
+        team_id=7,
+        run_id=uuid4(),
+        sandbox_id="worker-id",
+        workspace_path="/tmp/workspace/repos/posthog/posthog",
+        github_integration_id=17,
+        repository="PostHog/PostHog",
+    )
+    get_sandbox_class.return_value.get_by_id.return_value.execute.return_value = _execution_result(
+        stdout="diff --git a/a b/a\n"
+    )
+    create_signed_commit.side_effect = RepositoryPublishingError("GitHub failed.", retryable=retryable)
+
+    with pytest.raises(WizardWorkerExecutionError) as error:
+        create_git_repository_handoff(request)
+
+    assert error.value.stage == "publishing"
+    assert error.value.retryable is retryable
 
 
 @patch("products.wizard.backend.logic.workers.service.stage_publishable_changes")

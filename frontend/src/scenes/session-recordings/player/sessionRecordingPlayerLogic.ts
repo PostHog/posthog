@@ -34,6 +34,7 @@ import {
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { preloadRichContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -2687,6 +2688,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setIsCommenting: ({ isCommenting }) => {
             if (isCommenting) {
+                preloadRichContent()
                 actions.setPause()
             } else {
                 actions.setPlay()

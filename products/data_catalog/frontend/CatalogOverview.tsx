@@ -5,11 +5,11 @@ import { WarehouseAccessGate } from './WarehouseAccessGate'
 
 export function CatalogOverview(): JSX.Element {
     return (
-        <div data-quill className="flex flex-col gap-6">
-            <WarehouseAccessGate>
+        <WarehouseAccessGate>
+            <div data-quill className="flex flex-col gap-6">
                 <ModelsOverviewTab />
-            </WarehouseAccessGate>
-            <CatalogToReview />
-        </div>
+                <CatalogToReview />
+            </div>
+        </WarehouseAccessGate>
     )
 }

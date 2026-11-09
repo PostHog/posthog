@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.property import action_to_expr
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, get_action_bytecode
 
 from common.hogvm.python.operation import (
     HOGQL_BYTECODE_IDENTIFIER as _H,
@@ -14,7 +14,7 @@ from common.hogvm.python.operation import (
 
 class TestActionBytecode(BaseTest):
     def test_bytecode_for_hogql_step_property(self):
-        action1 = Action.objects.create(
+        action1 = create_action(
             team=self.team,
             name="action1",
             steps_json=[
@@ -25,9 +25,10 @@ class TestActionBytecode(BaseTest):
             ],
         )
 
-        self.assertEqual(action1.bytecode, create_bytecode(action_to_expr(action1)).bytecode)
+        bytecode = get_action_bytecode(action1).bytecode
+        self.assertEqual(bytecode, create_bytecode(action_to_expr(action1)).bytecode)
         self.assertEqual(
-            action1.bytecode,
+            bytecode,
             [
                 _H,
                 HOGQL_BYTECODE_VERSION,

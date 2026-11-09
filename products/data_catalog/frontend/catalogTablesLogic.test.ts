@@ -1,12 +1,17 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import type { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 
 import { TABLES_PAGE_SIZE, catalogTablesLogic } from './catalogTablesLogic'
+import { catalogDataQualityLogic } from './dataQuality/catalogDataQualityLogic'
 
 type MockGetHandler = Mocks['get'] extends Record<string, infer Handler> | undefined ? Handler : never
 
@@ -261,15 +266,25 @@ describe('catalogTablesLogic', () => {
             expect(reviewRequests.sort()).toEqual(['certify:cert-charges', 'deprecate:cert-refunds'])
         })
 
-        it('expands a row with checks and leaves a row without checks collapsed', async () => {
-            const rowByKey = (key: string): (typeof logic.values.rows)[number] =>
-                logic.values.rows.find((row) => row.key === key)!
-            await waitFor(() => expect(rowByKey('table:table-charges').checkGroup).not.toBeNull())
+        it('opens the table when its row is clicked', () => {
+            const charges = logic.values.rows.find((row) => row.key === 'table:table-charges')!
 
-            logic.actions.toggleRowExpanded(rowByKey('table:table-customers'))
-            logic.actions.toggleRowExpanded(rowByKey('table:table-charges'))
+            logic.actions.openRow(charges)
 
-            expect(logic.values.expandedRowKeys).toEqual(['table:table-charges'])
+            expect(router.values.location.pathname).toEqual(`/project/${MOCK_TEAM_ID}${charges.detailUrl}`)
+        })
+
+        it.each([
+            [undefined, ['stripe.charges']],
+            ['stripe.customers', ['stripe.customers']],
+        ])('the data quality section filtered to table %s lists %j', async (table, expectedNames) => {
+            router.actions.push(urls.dataCatalog(), { tab: 'data-quality', table })
+            const qualityLogic = catalogDataQualityLogic()
+            qualityLogic.mount()
+
+            await waitFor(() => expect(qualityLogic.values.checkedRows.map((row) => row.name)).toEqual(expectedNames))
+            expect(router.values.searchParams.table).toEqual(table)
+            qualityLogic.unmount()
         })
     })
 })

@@ -39,7 +39,7 @@ import { RecipientPreferencesService } from '../messaging/recipient-preferences.
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
-import { AcceptedSend } from './transactional-email'
+import { QueuedSend } from './transactional-email'
 
 // Mock before importing fetch
 jest.mock('~/common/utils/request', () => {
@@ -450,6 +450,35 @@ describe('Hogflow Executor', () => {
                     },
                 ],
             })
+        })
+
+        it.each([
+            ['keeps the version a step rendered under', true, 2],
+            ['uses the live version for a step saved before the rendered version was stored', false, 3],
+        ])('%s when the workflow is republished before it sends', async (_name, storesRenderedVersion, expected) => {
+            await insertHogFunctionTemplate(hub.postgres, customerTaskTemplate)
+            const config = { template_id: customerTaskTemplate.id, inputs: { name: { value: 'Follow up' } } }
+            const renderedFlow = { ...hogFlow, version: 2 }
+            const invocation = createExampleHogFlowInvocation(renderedFlow, {
+                currentAction: { id: 'function_id_1', startedAtTimestamp: Date.now() },
+            })
+            const hogFunction = await hogFlowFunctionsService.buildHogFunction(renderedFlow, config)
+            const rendered = await hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
+                event: invocation.state.event,
+                person: invocation.person,
+            })
+            const { renderedWorkflowVersion, ...legacyState } = rendered.state
+            invocation.state.currentAction!.hogFunctionState = parseJSON(
+                JSON.stringify(storesRenderedVersion ? { ...legacyState, renderedWorkflowVersion } : legacyState)
+            )
+
+            invocation.hogFlow = { ...renderedFlow, version: 3 }
+            const resumed = await hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
+                event: invocation.state.event,
+                person: invocation.person,
+            })
+
+            expect(resumed.state.renderedWorkflowVersion).toBe(expected)
         })
 
         it.each([false, true])('keeps legacy task keys with saved function state: %s', async (hasSavedState) => {
@@ -3358,12 +3387,21 @@ describe('Hogflow Executor', () => {
             html: '',
         })
 
-        const codeSend = (): AcceptedSend => ({
+        const codeSend = (): QueuedSend => ({
             content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
             from: { integrationId, email: 'security@posthog.com', name: 'Security' },
             replyTo: ['help@example.com', 'support@example.com'],
+            cc: ['manager@example.com', 'team@example.com'],
+            bcc: ['audit@example.com'],
             tracking: { captureEngagement: true },
         })
+
+        const attachmentFile = {
+            filename: 'report.pdf',
+            contentType: 'application/pdf',
+            sizeBytes: 11,
+            sha256: 'a1b2c3',
+        }
 
         it('should route email actions to the email queue', async () => {
             await insertEmailSetup('maildev')
@@ -3556,7 +3594,7 @@ if (not res.success) { throw Error(res.error) }`,
             expect(mockPushProviderFetch).toHaveBeenCalledTimes(4)
         })
 
-        it('keeps the team cap label on the delayed email only, not on the email after it', async () => {
+        it('keeps the team cap label and the suppression tries on the delayed email only, not on the email after it', async () => {
             await insertEmailSetup('ses')
             const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
             sesSend
@@ -3587,8 +3625,12 @@ if (not res.success) { throw Error(res.error) }`,
             })
 
             const routed = await executor.execute(invocation)
-            // As if the team sending cap had delayed email_1 on the email queue.
-            routed.invocation.queueMetadata = { ...routed.invocation.queueMetadata, teamCapped: true }
+            // As if the team sending cap and an unread suppression list had delayed email_1 on the email queue.
+            routed.invocation.queueMetadata = {
+                ...routed.invocation.queueMetadata,
+                teamCapped: true,
+                suppressionLookupAttempts: 7,
+            }
 
             const result = await executor.execute(routed.invocation)
 
@@ -3600,30 +3642,43 @@ if (not res.success) { throw Error(res.error) }`,
             {
                 name: 'a template send as the step renders it',
                 step: storedStep,
-                send: (): AcceptedSend | undefined => undefined,
+                send: (): QueuedSend | undefined => undefined,
                 expected: () => ({ type: 'email', ...storedStep() }),
             },
             {
                 name: 'a code send for a local template as the step renders it',
                 step: storedStep,
-                send: (): AcceptedSend => ({ tracking: { captureEngagement: false } }),
+                send: (): QueuedSend => ({ tracking: { captureEngagement: false } }),
                 expected: () => ({ type: 'email', ...storedStep() }),
             },
             {
-                name: "a code send with the caller's content, sender and reply-to over the step",
+                name: "a code send with the caller's content, sender, reply-to and copies over the step",
                 step: codeKeyStep,
                 send: codeSend,
                 expected: () => ({
                     type: 'email',
                     to: { email: 'recipient@example.com', name: 'Recipient' },
                     from: { integrationId, email: 'security@posthog.com', name: 'Security' },
-                    cc: 'cc@example.com',
+                    cc: 'manager@example.com, team@example.com',
+                    bcc: 'audit@example.com',
                     replyTo: 'help@example.com, support@example.com',
                     subject: 'Reset your password',
                     preheader: '',
                     text: 'Hi',
                     html: '<p>Hi {{ variables.name }}</p>',
                 }),
+            },
+            {
+                name: 'a code send with the metadata of its files, which the email worker loads by job id',
+                step: storedStep,
+                send: (): QueuedSend => ({ tracking: { captureEngagement: false }, attachments: [attachmentFile] }),
+                expected: () => ({ type: 'email', ...storedStep(), attachments: [attachmentFile] }),
+            },
+            {
+                name: 'a step whose own email input lists files without them, because only an accepted send has files',
+                step: () => ({ ...storedStep(), attachments: [attachmentFile] }),
+                send: (): QueuedSend | undefined => undefined,
+                expected: () => ({ type: 'email', ...storedStep() }),
             },
         ])('hands the email queue $name', async ({ step, send, expected }) => {
             await insertEmailSetup('ses')
@@ -3639,7 +3694,7 @@ if (not res.success) { throw Error(res.error) }`,
         it.each([
             {
                 name: 'fails a code-key step without an accepted send',
-                send: (): AcceptedSend | undefined => undefined,
+                send: (): QueuedSend | undefined => undefined,
                 sent: 0,
             },
             { name: 'delivers a code-key step with an accepted send', send: codeSend, sent: 1 },

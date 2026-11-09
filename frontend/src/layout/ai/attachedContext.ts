@@ -13,6 +13,11 @@ export interface AttachedContextItem {
     type: string
     /** Resource identifier — entity id, short_id, $ai_trace_id, … */
     key?: string | number
+    /**
+     * The id in the item's page URL, when it differs from `key` (a flag's context key is its name, and its page
+     * takes the numeric id). Null means the item has no page. Undefined means `key` is the page id.
+     */
+    pageId?: string | number | null
     /** Optional human-readable label. */
     label?: string
     /**
@@ -36,6 +41,9 @@ export interface AttachedContextItem {
      */
     dismissGroup?: string
 }
+
+/** A new chat's picks live under this key until its first send delivers them to the created task. */
+export const NEW_CHAT_KEY = ''
 
 /** Stable dedupe key for an attached context item: `${type}:${key ?? value}`. */
 export function attachedContextItemKey(item: AttachedContextItem): string {

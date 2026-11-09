@@ -14,7 +14,7 @@ import {
 } from '../generated/api'
 import type { QuarantinedIdentifierEntryApi, RepoApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
 import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
-import { resolveRepoId } from '../lib/repoIds'
+import { resolveRepoId, resolveRepoIdOrNull } from '../lib/repoIds'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 
 export interface VisualReviewSnapshotHistorySceneLogicProps {
@@ -210,7 +210,10 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
             {
                 loadHistory: async () => {
                     const projectId = String(values.currentProjectId)
-                    const repoId = await resolveRepoId(projectId, props.repoFullName)
+                    const repoId = await resolveRepoIdOrNull(projectId, props.repoFullName)
+                    if (!repoId) {
+                        return []
+                    }
                     const response = await visualReviewReposSnapshotsList(
                         projectId,
                         repoId,
@@ -232,7 +235,10 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                     }
                     const partner = `${stem}--${theme === 'light' ? 'dark' : 'light'}`
                     const projectId = String(values.currentProjectId)
-                    const repoId = await resolveRepoId(projectId, props.repoFullName)
+                    const repoId = await resolveRepoIdOrNull(projectId, props.repoFullName)
+                    if (!repoId) {
+                        return []
+                    }
                     const response = await visualReviewReposSnapshotsList(
                         projectId,
                         repoId,
@@ -249,7 +255,10 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
             {
                 loadQuarantineEntry: async () => {
                     const projectId = String(values.currentProjectId)
-                    const repoId = await resolveRepoId(projectId, props.repoFullName)
+                    const repoId = await resolveRepoIdOrNull(projectId, props.repoFullName)
+                    if (!repoId) {
+                        return null
+                    }
                     const response = await visualReviewReposQuarantineList(projectId, repoId, {
                         identifier: props.identifier,
                         run_type: props.runType,
@@ -277,7 +286,10 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                         return null
                     }
                     const projectId = String(values.currentProjectId)
-                    const repoId = await resolveRepoId(projectId, props.repoFullName)
+                    const repoId = await resolveRepoIdOrNull(projectId, props.repoFullName)
+                    if (!repoId) {
+                        return null
+                    }
                     const response = await visualReviewReposQuarantineList(projectId, repoId, {
                         identifier: sibling,
                         run_type: props.runType,

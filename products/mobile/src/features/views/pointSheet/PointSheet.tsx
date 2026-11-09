@@ -2,7 +2,7 @@ import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { Gesture, GestureDetector, type NativeGesture } from 'react-native-gesture-handler'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { ACTORS_LIMIT } from '@/api/actors'
 import { safeHttpsUrl } from '@/lib/urls'
 import type { ActorRow, InsightSnapshot } from '@/model/views'
@@ -10,6 +10,7 @@ import { BottomSheet } from '@/ui/BottomSheet'
 import { formatAxisDate, formatChange, formatTooltipDate } from '@/ui/chart/chartMath'
 import { tooltipContent } from '@/ui/chart/chartSeries'
 import type { ChartTooltipPoint, ChartTooltipRow } from '@/ui/chart/types'
+import type { NativeGesture } from '@/ui/gestureTypes'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
@@ -131,7 +132,7 @@ function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: Point
         setPage(includeRecordings ? 'recordings' : 'people')
         void actors.load(input)
     }
-    const title = formatTooltipDate(point.at, point.interval)
+    const title = point.label ?? formatTooltipDate(point.at, point.interval)
     const maxHeight = Math.round(height * 0.7)
 
     return (
@@ -245,7 +246,7 @@ function SeriesRows({ point, formatValue, selectable, selectedKey, onSelect }: S
                             {selectable && selected ? <CheckIcon size={16} color={colors.ink} /> : null}
                         </View>
                         <Text style={selectable ? styles.rowValueSmall : styles.rowValue}>
-                            {formatValue(row.value)}
+                            {row.formattedValue ?? formatValue(row.value)}
                         </Text>
                         {row.previous ? (
                             <Text style={styles.compare}>{compareText(row, point, formatValue)}</Text>
@@ -395,7 +396,7 @@ function CopyValueChip({
             icon={copied ? <CheckIcon size={16} /> : <CopyIcon size={16} />}
             label={copied ? 'Copied' : 'Copy value'}
             onPress={() => {
-                void Clipboard.setStringAsync(formatValue(top.value)).then(() => setCopied(true))
+                void Clipboard.setStringAsync(top.formattedValue ?? formatValue(top.value)).then(() => setCopied(true))
             }}
             testID="point-copy"
         />

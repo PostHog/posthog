@@ -129,6 +129,7 @@ def enrich_reviewer_dicts_with_org_members(
     uuid_to_user: Mapping[str, User] | None = None,
     scout_display_names: Mapping[str, str] | None = None,
     manual_adders: Sequence[User | None] | None = None,
+    user_authored: bool = False,
 ) -> list[dict]:
     """Enrich reviewer dicts (from artefact content) with fresh PostHog user info.
 
@@ -179,7 +180,11 @@ def enrich_reviewer_dicts_with_org_members(
             user = resolved_map.get(login.strip().lower())
         enriched.append(
             _with_reviewer_presentation(
-                r, user, scout_display_names, manual_adders[index] if manual_adders is not None else None
+                r,
+                user,
+                scout_display_names,
+                manual_adders[index] if manual_adders is not None else None,
+                user_authored=user_authored,
             )
         )
 
@@ -282,7 +287,12 @@ def _commit_explanation(commits: list[object]) -> str:
 
 
 def _with_reviewer_presentation(
-    reviewer: dict, user: User | None, scout_display_names: Mapping[str, str], manual_adder: User | None
+    reviewer: dict,
+    user: User | None,
+    scout_display_names: Mapping[str, str],
+    manual_adder: User | None,
+    *,
+    user_authored: bool = False,
 ) -> dict:
     commits = reviewer.get("relevant_commits")
     commit_list: list[object] = commits if isinstance(commits, list) else []
@@ -312,6 +322,10 @@ def _with_reviewer_presentation(
         source_label = "Added by teammate"
         name = manual_adder.get_full_name().strip() or manual_adder.email if manual_adder else None
         explanation = f"Added by {name}" if name else None
+    elif user_authored:
+        # The member who filed the report named this reviewer, so no agent suggested them.
+        source_label = "Added by teammate"
+        explanation = safe_reason
     else:
         source_label = "Agent suggestion"
         explanation = safe_reason

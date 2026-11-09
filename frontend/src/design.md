@@ -61,7 +61,7 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 - Dialog (Trigger, Content, Header, Title, Description, Body, Footer, Close, Overlay, Portal)
 - Dot
 - Drawer (Trigger, Content, Header, Title, Description, Footer, Close, Handle, Backdrop, Portal)
-- DropdownMenu (Trigger, Content, Item, CheckboxItem, RadioGroup, RadioItem, SelectAll, Label, Separator, Shortcut, Group, Sub, SubTrigger, SubContent, Portal; useDropdownMenuSelectAll)
+- DropdownMenu (Trigger, Content, Item, CheckboxItem, RadioGroup, RadioItem, SelectAll, Label, Separator, Shortcut, Group, Sub, SubTrigger, SubContent, Portal, FilterProvider, Input, Empty, List; useDropdownMenuSelectAll)
 - Empty (Header, Media, Title, Description, Content)
 - IconStack (Item)
 - Field (Label, Description, Error, Group, Set, Legend, Separator, Content, Title)
@@ -121,7 +121,6 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 - Read `packages/quill/packages/charts/AGENTS.md` ("Choosing a chart") before using
 - LineChart, BarChart, ScatterChart, ComboChart, FunnelChart, Sparkline
 - TimeSeriesLineChart, TimeSeriesBarChart, TimeSeriesComboChart
-- MetricCard
 
 ### Blocks
 
@@ -150,6 +149,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 - `success` vs `completed`: success = positive outcome ("saved", "passed"); completed = final state ("merged", "done")
 - Other surfaces:
   - `chrome`: toolbars, menubars, nav
+  - Inverted surface: a floating bar that must stand out from the page, such as a bulk selection bar, takes `data-quill-inverted` with `bg-background text-foreground`. Quill components inside it switch to the opposite theme, so do not recolor them by hand.
 - Text:
   - `subtle-foreground`: tertiary meta text, one step quieter than `muted-foreground`
   - `primary-on-foreground`: brand text, such as a link, on an inverted surface that uses `foreground` as its background (tooltips). It swaps to the other mode's brand: yellow on a dark tooltip in light mode, orange on a light tooltip in dark mode. Plain `primary` fades on those surfaces.
@@ -198,6 +198,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Combobox: one or many values from a long or async list, filterable; multi-select shows chips; no free text
   - Actions in a Combobox (settings, "New …") are list items, never footer buttons. See section 8
   - Autocomplete: free text with optional suggestions; search, command pickers
+  - Filterable DropdownMenu (`DropdownMenuFilterProvider`, `DropdownMenuInput`, `DropdownMenuEmpty`, `DropdownMenuList`): search the rows of a menu or submenu that is already open, such as a list's filter menu. Use Combobox instead when the control is a field that holds a value, needs chips, or lists more than about 1,000 options, because a filterable menu keeps every row mounted
 - Picking an action:
   - DropdownMenu: click-triggered list of actions
   - ContextMenu: right-click only; never the only path to an action
