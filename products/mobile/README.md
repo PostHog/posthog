@@ -126,14 +126,14 @@ The app icon, adaptive icon and favicon use the PostHog Desktop mobile host's lo
 The iOS `app.icon` bundle uses the transparent color logomark from MobileHog and the
 monochrome logomark from PostHog Desktop for Clear and Tinted. Its Dark layer uses the white
 logomark from `@posthog/brand` on the official square canvas. With `rsvg-convert` installed,
-run `pnpm brand:generate icon` from `products/mobile` to refresh the production, Dev, and Preview Dark layers.
+run `pnpm brand:generate icon` from `products/mobile` to refresh the production Dark layer.
 `splash-icon.png` is the gradient logomark from [brand.posthog.com](https://brand.posthog.com/logo),
 rendered from `frontend/src/assets/posthog-icon.svg` with `rsvg-convert -w 1040`.
-The in-app logomark and landscape lockup (`src/ui/icons/PostHogLogomark.tsx`, `PostHogLogo.tsx`)
-are the same brand geometry ported to `react-native-svg`.
+See [Splash and in-app branding](docs/DESIGN.md#splash-and-in-app-branding) for how to refresh
+the dark splash and in-app logos.
 `icon-dev.png`, `icon-preview.png` and their `adaptive-icon-*` copies add a DEV or PREVIEW band to the icon.
 The iOS `app-dev.icon` and `app-preview.icon` bundles add the same bands as separate layers.
-Regenerate the variant icons after editing the production icons with
+After generating or editing the production icons, update both variants with
 `uv run --with pillow python scripts/make_variant_icons.py`.
 
 ## Docs
