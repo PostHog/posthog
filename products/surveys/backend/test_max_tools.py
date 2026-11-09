@@ -26,6 +26,10 @@ async def create_test_team(organization: Organization, name: str) -> Team:
     return await Team.objects.acreate(id=project.id, project=project, organization=organization, name=name)
 
 
+FIXED_REPEATS = {"schedule": "recurring", "iteration_count": 3, "iteration_frequency_days": 30}
+OPEN_ENDED = {"schedule": "recurring", "repeat_until_stopped": True, "iteration_frequency_days": 30}
+
+
 class TestSurveyCreatorTool(BaseTest):
     def setUp(self):
         super().setUp()
@@ -53,6 +57,13 @@ class TestSurveyCreatorTool(BaseTest):
         assert "appearance" in config
         assert "default_settings" in config
         assert config["default_settings"]["type"] == "popover"
+
+    def test_build_appearance_sanitizes_team_html(self):
+        from products.surveys.backend.max_tools import _build_appearance
+
+        self.team.survey_config = {"appearance": {"thankYouMessageHeader": "<script>alert(1)</script>Thanks"}}
+
+        assert _build_appearance(self.team)["thankYouMessageHeader"] == "Thanks"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -1048,26 +1059,30 @@ class TestEditSurveyTool(BaseTest):
 
     @parameterized.expand(
         [
-            ("recurring_to_always", {"schedule": "always"}, "always", None, None),
-            ("recurring_to_once", {"schedule": "once"}, "once", None, None),
-            ("change_count_only", {"iteration_count": 5}, "recurring", 5, 30),
-            ("count_below_current_iteration", {"iteration_count": 1}, "recurring", 3, 30),
+            ("recurring_to_always", FIXED_REPEATS, {"schedule": "always"}, ("always", None, None, False)),
+            ("recurring_to_once", FIXED_REPEATS, {"schedule": "once"}, ("once", None, None, False)),
+            ("change_count_only", FIXED_REPEATS, {"iteration_count": 5}, ("recurring", 5, 30, False)),
+            ("count_below_current_iteration", FIXED_REPEATS, {"iteration_count": 1}, ("recurring", 3, 30, False)),
+            ("open_ended_to_once", OPEN_ENDED, {"schedule": "once"}, ("once", None, None, False)),
+            ("open_ended_frequency_only", OPEN_ENDED, {"iteration_frequency_days": 14}, ("recurring", None, 14, True)),
+            ("open_ended_to_fixed_count", OPEN_ENDED, {"iteration_count": 5}, ("recurring", 5, 30, False)),
         ]
     )
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_edit_survey_schedule(self, _name, kwargs, expected_schedule, expected_count, expected_frequency):
+    async def test_edit_survey_schedule(self, _name, initial_schedule, kwargs, expected):
         tool = self._setup_tool()
-        survey = await self._create_test_survey(
-            schedule="recurring", iteration_count=3, iteration_frequency_days=30, current_iteration=2
-        )
+        survey = await self._create_test_survey(**initial_schedule, current_iteration=2)
 
         await tool._arun_impl(survey_id=str(survey.id), **kwargs)
 
         updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
-        assert updated_survey.schedule == expected_schedule
-        assert updated_survey.iteration_count == expected_count
-        assert updated_survey.iteration_frequency_days == expected_frequency
+        assert (
+            updated_survey.schedule,
+            updated_survey.iteration_count,
+            updated_survey.iteration_frequency_days,
+            updated_survey.repeat_until_stopped,
+        ) == expected
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

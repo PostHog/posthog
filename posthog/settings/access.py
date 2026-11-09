@@ -35,7 +35,8 @@ CSRF_TRUSTED_ORIGINS = (
 CSRF_TRUSTED_ORIGINS += get_list(os.getenv("EXTRA_CSRF_TRUSTED_ORIGINS", ""))
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
-TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
+# The local Docker proxy reaches the host backend over loopback on macOS.
+TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1" if DEBUG and not TEST else None)
 TRUST_ALL_PROXIES = get_from_env("TRUST_ALL_PROXIES", False, type_cast=str_to_bool)
 
 # Keys the managed reverse proxy uses to sign the client IP it forwards (ManagedProxyClientIPMiddleware).
@@ -45,6 +46,8 @@ MANAGED_PROXY_SIGNING_KEYS: list[str] = get_list(os.getenv("MANAGED_PROXY_SIGNIN
 
 # Keys the MCP server signs the end user IP with (ActivityLoggingMiddleware). Empty means never trusted.
 MCP_CLIENT_IP_SIGNING_KEYS: list[str] = get_list(os.getenv("MCP_CLIENT_IP_SIGNING_KEYS", ""))
+
+LIVESTREAM_AUTHORIZATION_SIGNING_KEYS: list[str] = get_list(os.getenv("LIVESTREAM_AUTHORIZATION_SIGNING_KEYS", ""))
 
 
 if IS_BEHIND_PROXY:

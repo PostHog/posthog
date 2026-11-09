@@ -16,6 +16,7 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.tasks.alerts.detector import llm_detector_lookback
 
 from products.alerts.backend.judge import (
     EarlierFlag,
@@ -248,12 +249,14 @@ class TestLLMJudgePrompt:
         [
             (
                 "hourly",
-                # Fri 2026-10-30 04:00 to Fri 2026-11-06 03:00. The 03:00 points hold the day of the month.
-                [datetime(2026, 10, 30, 4) + timedelta(hours=i) for i in range(168)],
+                # Fri 2026-10-30 03:00 to Fri 2026-11-06 03:00, the hourly lookback. The 03:00 points hold
+                # the day of the month. A Friday dip compared only with pooled weekdays reads as a drop.
+                [datetime(2026, 10, 30, 3) + timedelta(hours=i) for i in range(llm_detector_lookback("hour"))],
                 "hour",
                 "\nFri 2026-11-06 03:00\t6\t0\tcurrent",
-                "Comparable points: the current point is 03:00 on a weekday. Values at 03:00 on earlier "
-                "weekdays in the window, oldest first: 2, 3, 4, 5. On earlier weekend days: 31, 1.",
+                "Comparable points: the current point is 03:00 on a Friday. Values at 03:00 on earlier "
+                "Fridays in the window, oldest first: 30. On all earlier weekdays: 30, 2, 3, 4, 5. "
+                "On earlier weekend days: 31, 1.",
             ),
             (
                 "daily",
@@ -433,17 +436,36 @@ def test_an_organization_without_ai_credits_makes_no_model_call(
 
 
 @pytest.mark.parametrize(
-    "error_type,status_code",
-    [(anthropic.AuthenticationError, 401), (anthropic.PermissionDeniedError, 403), (anthropic.BadRequestError, 400)],
+    "error_type,status_code,headers,expected_error,expected_message",
+    [
+        (anthropic.AuthenticationError, 401, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (anthropic.PermissionDeniedError, 403, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (anthropic.BadRequestError, 400, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (anthropic.APIStatusError, 402, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (
+            anthropic.APIStatusError,
+            402,
+            {"X-PostHog-Denial": "insufficient_credits"},
+            LLMDetectorPausedError,
+            LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE,
+        ),
+    ],
 )
 def test_provider_rejections_do_not_disable_an_alert(
-    error_type: type[anthropic.APIStatusError], status_code: int
+    error_type: type[anthropic.APIStatusError],
+    status_code: int,
+    headers: dict[str, str],
+    expected_error: type[Exception],
+    expected_message: str,
 ) -> None:
-    response = httpx.Response(status_code, request=httpx.Request("POST", "https://example.com/messages"))
+    response = httpx.Response(
+        status_code, headers=headers, request=httpx.Request("POST", "https://example.com/messages")
+    )
     with _mocked_model(_verdict()) as invoke:
         invoke.side_effect = error_type("Provider unavailable", response=response, body={})
-        with pytest.raises(LLMDetectorUnavailableError):
+        with pytest.raises(expected_error) as raised:
             LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=_attribution())
+    assert expected_message in str(raised.value)
 
 
 @pytest.mark.parametrize(

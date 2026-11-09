@@ -2320,6 +2320,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
  * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+ * * `unserved_variant_exposures` - Unserved Variant Exposures
  * * `forced_variant_release_condition` - Forced Variant Release Condition
  * * `flag_variants_mismatch` - Flag Variants Mismatch
  * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2350,6 +2351,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
     TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+    UnservedVariantExposures: 'unserved_variant_exposures',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
     FlagVariantsMismatch: 'flag_variants_mismatch',
     SplitChangedMidRun: 'split_changed_mid_run',
@@ -2421,6 +2423,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `zero_exposures` - Zero Exposures
  * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
  * * `srm` - Srm
+ * * `unserved_variant_exposures` - Unserved Variant Exposures
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
  * * `multiple_variants_share` - Multiple Variants Share
  */
@@ -2449,6 +2452,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     ZeroExposures: 'zero_exposures',
     TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     Srm: 'srm',
+    UnservedVariantExposures: 'unserved_variant_exposures',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
     MultipleVariantsShare: 'multiple_variants_share',
 } as const
@@ -2477,6 +2481,7 @@ export interface ExperimentHealthFindingApi {
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2539,6 +2544,7 @@ export interface ExperimentHealthFindingApi {
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share */
     check: ExperimentHealthCheckKeyEnumApi
@@ -2570,6 +2576,8 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `since_launch_hours` - Hours since launch
  * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
  * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+ * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+ * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
  * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
  * * `primary_metric_count` - Primary metrics that the calculation computes
  * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -2595,6 +2603,8 @@ export const ExperimentHealthValueKeyEnumApi = {
     SinceLaunchHours: 'since_launch_hours',
     ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
     KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
+    UnservedExposedCount: 'unserved_exposed_count',
+    UnservedExposedPercentage: 'unserved_exposed_percentage',
     OnlyCountMaturedUsers: 'only_count_matured_users',
     PrimaryMetricCount: 'primary_metric_count',
     WaitingMetricCount: 'waiting_metric_count',
@@ -2642,6 +2652,8 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `since_launch_hours` - Hours since launch
      * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
      * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+     * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
      * * `primary_metric_count` - Primary metrics that the calculation computes
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -2670,6 +2682,8 @@ export interface ExperimentHealthCheckRuleApi {
      * * `since_launch_hours` - Hours since launch
      * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
      * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+     * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
      * * `primary_metric_count` - Primary metrics that the calculation computes
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -2726,6 +2740,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share */
     key: ExperimentHealthCheckKeyEnumApi
@@ -2751,11 +2766,52 @@ export interface ExperimentHealthCheckResultApi {
     rule: ExperimentHealthCheckRuleApi | null
 }
 
+export interface ExperimentHealthReleaseConditionApi {
+    /** The share of the users matching the condition set's filters who get the flag, from 0 to 100. */
+    rollout_percentage: number
+    /** The number of filters a user must match, such as properties and cohorts. 0 matches all users. */
+    property_count: number
+    /**
+     * The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when it assigns them by user.
+     * @nullable
+     */
+    aggregation_group_type_index: number | null
+}
+
+export interface ExperimentHealthSetupApi {
+    /** The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a request depends on the sets before it and on `early_exit`. */
+    release_conditions: ExperimentHealthReleaseConditionApi[]
+    /** Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the user out. Otherwise such a user goes on to the next set. */
+    early_exit: boolean
+    /** The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
+    bucketing_identifier: BucketingIdentifierEnumApi
+    /**
+     * The flag's own group type, which the exposure counts and the results use. A condition set can override it. Null for users.
+     * @nullable
+     */
+    aggregation_group_type_index: number | null
+    /** The flag's `evaluation_runtime`. Null on the flag reads as all.
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
+    evaluation_runtime: EvaluationRuntimeEnumApi
+    /** The names of the flag's evaluation contexts. When PostHog evaluates the flag, an SDK that sends evaluation contexts gets it only when it sends one of these, and an SDK that sends none gets it. Empty when the flag has none. */
+    evaluation_contexts: string[]
+    /** The flag's 'Persist flag across authentication steps' setting. */
+    ensure_experience_continuity: boolean
+}
+
 export interface ExperimentHealthApi {
     /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`. */
     findings: ExperimentHealthFindingApi[]
     /** The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`. */
     checks: ExperimentHealthCheckResultApi[]
+    /** The settings of the experiment's flag that decide which variant a user gets. Null when the experiment has no flag. */
+    setup?: ExperimentHealthSetupApi | null
 }
 
 /**

@@ -43,6 +43,15 @@ export function parseHost(raw: unknown, failure?: Partial<ParseFailure>): Host {
     return parseOrThrow(HostSchema, raw, { code: 'invalid_host', ...failure })
 }
 
+export const REGIONS = { us: parseHost('https://us.posthog.com'), eu: parseHost('https://eu.posthog.com') }
+
+// A posthog.json comes with the repository, so it only picks between the PostHog Cloud regions. Any
+// other host needs --host or HOG_HOST, so a repository can't send a person's login or a CI job's
+// token elsewhere.
+export function cloudRegion(host: Host | undefined): Host | undefined {
+    return host && Object.values(REGIONS).find((region) => hostKey(region) === hostKey(host))
+}
+
 // The origin of a host, without its path: its scheme, host name and port. Every map of logins is
 // keyed by it. Only `hostKey` makes one.
 export type HostKey = string & z.$brand<'HostKey'>

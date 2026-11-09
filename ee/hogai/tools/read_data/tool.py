@@ -44,6 +44,7 @@ from products.business_knowledge.backend.constants import BK_DRILLDOWN_DEFAULT_R
 from products.business_knowledge.backend.logic import get_document_window, has_ready_sources
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.posthog_ai.backend.models.assistant import AgentArtifact
+from products.warehouse_sources.backend.facade.api import column_sensitivity, column_sensitivity_enabled
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
 from ee.hogai.artifacts.types import ModelArtifactResult
@@ -640,12 +641,18 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         lines = [f"{header} with fields:"]
 
         rendered_column_description = False
+        rendered_sensitivity = False
+        tag_sensitivity = table.type == "data_warehouse" and column_sensitivity_enabled(self._team.pk)
         for field in table.fields.values():
             line = self._format_schema_field(field, raw_fields.get(field.name))
             resolved_column = descriptions.for_column(raw_table, field.name, raw_fields.get(field.name))
             if resolved_column:
                 line += f" — {_sanitize_semantic_text(resolved_column)}"
                 rendered_column_description = True
+            sensitivity = column_sensitivity(field.name, field.type) if tag_sensitivity else None
+            if sensitivity:
+                line += f" [sensitive: {sensitivity}]"
+                rendered_sensitivity = True
             lines.append(line)
 
         foreign_keys = semantics.get("foreign_keys")
@@ -668,6 +675,13 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 lines.append("")
                 lines.append("Foreign keys (use these to join related tables):")
                 lines.extend(fk_lines)
+
+        if rendered_sensitivity:
+            lines.append("")
+            lines.append(
+                "Columns marked [sensitive: ...] likely hold personal or secret data. Leave them out of queries "
+                "unless the question needs them."
+            )
 
         if table_description or rendered_column_description:
             lines.append("")

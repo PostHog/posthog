@@ -60,10 +60,10 @@ class TestRebuildRequestContextCarriesTraceparent:
         request = SimpleNamespace(headers={"traceparent": VALID_TRACEPARENT})
         apply_posthog_context_from_headers(request)
 
-        rebuild_request_context("llm_gateway")
+        rebuild_request_context("django")
 
         assert get_traceparent_trace_id() == VALID_TRACE_UUID
 
-        rebuild_request_context("llm_gateway")
+        rebuild_request_context("django")
 
         assert get_traceparent_trace_id() == VALID_TRACE_UUID
