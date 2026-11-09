@@ -138,6 +138,18 @@ class TestNewsAgentOutput(SimpleTestCase):
         assert agent.stored_edition(quiet, ()) is None
 
     @parameterized.expand(
+        [
+            ("unused lists", ("stories",), None),
+            ("a line chart without items or unit", ("lead", "chart", "items"), None),
+            ("a brief without a series", ("briefs", 0, "series"), None),
+        ]
+    )
+    def test_a_null_for_an_unused_field_counts_as_unset(
+        self, _name: str, path: tuple[str | int, ...], value: Any
+    ) -> None:
+        NewsAgentOutput.model_validate(reply(path, value))
+
+    @parameterized.expand(
         [("some withheld surveys", ("survey-1", "it's"), "('survey-1', 'it\\'s')"), ("none", (), "('')")]
     )
     def test_the_prompt_keeps_earlier_text_as_data_and_withholds_surveys_in_the_query(
@@ -224,6 +236,25 @@ class TestNewsAPI(TodayTeamScopedTestMixin, APIBaseTest):
         ):
             async_to_sync(runner.write_edition)(inputs)
         return capture
+
+    @parameterized.expand(
+        [
+            ("no survey restricted since", (), set(), True),
+            ("a survey restricted since", (), {"survey-9"}, False),
+            ("a survey already withheld", ("survey-9",), {"survey-9"}, True),
+        ]
+    )
+    def test_the_next_run_reads_the_earlier_edition_only_when_no_survey_was_restricted_since(
+        self, _name: str, withheld: tuple[str, ...], restricted: set[str], kept: bool
+    ) -> None:
+        self._earlier_edition(withheld=withheld)
+        inputs = self._open()
+
+        with patch.object(editions, "_restricted_surveys", return_value=restricted):
+            assignment = editions.assignment(inputs)
+
+        assert assignment is not None
+        assert (assignment.earlier is not None) == kept
 
     def test_home_load_starts_nothing_and_opening_starts_one_run_per_day(self) -> None:
         earlier = self._earlier_edition()

@@ -270,15 +270,16 @@ def assignment(inputs: WriteNewsInputs) -> NewsAssignment | None:
     if blocked is not None:
         _claimed(inputs).update(status=NewsStatus.SKIPPED, skip_reason=blocked, ready_at=timezone.now())
         return None
-    earlier = _earlier_row(team.id, row.period_start)
     withheld = _restricted_surveys(team.id)
+    earlier_row = _earlier_row(team.id, row.period_start)
+    earlier = STORED_EDITION.validate_python(earlier_row.content) if earlier_row is not None else None
     return NewsAssignment(
         team_id=team.id,
         day=row.period_start,
         end=row.created_at.astimezone(UTC).replace(microsecond=0),
         timezone=team.timezone,
-        earlier=EarlierEdition(day=earlier.period_start, edition=STORED_EDITION.validate_python(earlier.content))
-        if earlier is not None
+        earlier=EarlierEdition(day=earlier_row.period_start, edition=earlier)
+        if earlier_row is not None and earlier is not None and withheld <= set(earlier.withheld_surveys)
         else None,
         withheld_surveys=tuple(sorted(withheld)),
     )

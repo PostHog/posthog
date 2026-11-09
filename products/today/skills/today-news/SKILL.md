@@ -85,10 +85,10 @@ SELECT tool, [countIf(d = 0), countIf(d = 1), countIf(d = 2), countIf(d = 3), co
 
 ### 8. MCP missing capabilities
 
-Requests AI agents could not do, per intent. Section `mcp`.
+Up to 100 requests from the last 3 days that AI agents could not do, each with its day. Agents describe a request in their own words, so group the requests that ask for the same thing before you count them. Section `mcp`.
 
 ```sql
-SELECT intent, [countIf(d = 0), countIf(d = 1), countIf(d = 2), countIf(d = 3), countIf(d = 4), countIf(d = 5), countIf(d = 6), countIf(d = 7), countIf(d = 8), countIf(d = 9), countIf(d = 10), countIf(d = 11), countIf(d = 12), countIf(d = 13), countIf(d = 14), countIf(d = 15), countIf(d = 16), countIf(d = 17), countIf(d = 18), countIf(d = 19), countIf(d = 20), countIf(d = 21)] AS requests FROM (SELECT substringUTF8(toString(properties.$mcp_intent), 1, 120) AS intent, intDiv(dateDiff('second', timestamp, toDateTime('<end>', 'UTC')), 86400) AS d FROM events WHERE event = '$mcp_missing_capability' AND timestamp > toDateTime('<end>', 'UTC') - INTERVAL 22 DAY AND timestamp <= toDateTime('<end>', 'UTC')) GROUP BY intent HAVING countIf(d < 3) >= 3 ORDER BY countIf(d = 0) DESC LIMIT 10
+SELECT d, intent FROM (SELECT substringUTF8(toString(properties.$mcp_intent), 1, 120) AS intent, intDiv(dateDiff('second', timestamp, toDateTime('<end>', 'UTC')), 86400) AS d FROM events WHERE event = '$mcp_missing_capability' AND timestamp > toDateTime('<end>', 'UTC') - INTERVAL 3 DAY AND timestamp <= toDateTime('<end>', 'UTC')) WHERE intent != '' ORDER BY d LIMIT 100
 ```
 
 ## What is news
@@ -115,7 +115,7 @@ SELECT intent, [countIf(d = 0), countIf(d = 1), countIf(d = 2), countIf(d = 3), 
 
 - `lead`: the most important story. Give it a line chart when you can, or `grouped_bars` when it groups several errors.
 - `stories`: up to 4 more stories, most important first.
-- `ongoing`: up to 4 stories from the last edition that still matter. `day` is the edition count: a story that was the lead or a story in the last edition is on day 2, and an ongoing story on day N is now on day N + 1. `status` is `worse`, `better`, `same` (within 10% of the last edition), or `ended` (back near its usual level, or below half of the last edition).
+- `ongoing`: up to 4 stories from the last edition that still matter. `day` is the edition count: a story that was the lead or a story in the last edition is on day 2, and an ongoing story on day N is now on day N + 1. `status` is `worse`, `better`, `same` (within 10% of the last edition), or `ended`. Judge it in the direction of the story: for a rise in errors or cost, lower is better, and for a drop in sign-ups or traffic, higher is better. `ended` means the number is back near its usual level. A number that improved but is still far from its usual level is `better`, not `ended`.
 - `this_week`: up to 3 trends of the week, such as the weekly action trend or a number that rose for 14 days.
 - `briefs`: up to 3 small items that are news but did not make a story.
 - Each item appears in one place only. A story from the last edition that runs again as the lead or a story is not also in `ongoing`.

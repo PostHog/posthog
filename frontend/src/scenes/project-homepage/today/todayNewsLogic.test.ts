@@ -1,4 +1,8 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { NEW_CHAT_KEY } from '~/layout/ai/attachedContext'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
@@ -8,7 +12,7 @@ import { initKeaTests } from '~/test/init'
 import type { TodayNewsApi } from 'products/today/frontend/generated/api.schemas'
 
 import { todayHomeComposerLogic } from './todayHomeComposerLogic'
-import { NEWS_POLL_MS, todayNewsLogic } from './todayNewsLogic'
+import { NEWS_POLL_MS, NEWS_REFRESH_MS, todayNewsLogic } from './todayNewsLogic'
 import { NEWS_EDITION, NEWS_FRONT_PAGE_EDITION } from './todayTestFixtures'
 
 const COMPUTING: TodayNewsApi = { status: 'computing', skip_reason: null, edition: null }
@@ -163,6 +167,33 @@ describe('todayNewsLogic', () => {
         expect(logic.values.newsStatus).toBe('failed')
 
         logic.actions.closeNews()
+        logic.actions.openNews()
+        await expectLogic(logic).toDispatchActions(['writeNews', 'writeNewsSuccess'])
+        expect(writeCalls).toBe(2)
+    })
+
+    it('writes again when the project day turns over before the browser day', async () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date('2026-11-09T14:00:00Z'))
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, timezone: 'Asia/Tokyo' })
+        responses = [NOT_STARTED, READY, NOT_STARTED]
+        writeResponse = WRITING
+        const logic = todayNewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadNewsSuccess'])
+        logic.actions.openNews()
+        await expectLogic(logic).toDispatchActions(['writeNewsSuccess'])
+
+        jest.advanceTimersByTime(NEWS_POLL_MS)
+        await expectLogic(logic).toDispatchActions(['loadNews', 'loadNewsSuccess'])
+        expect(logic.values.newsStatus).toBe('ready')
+        logic.actions.closeNews()
+
+        jest.advanceTimersByTime(NEWS_REFRESH_MS)
+        await expectLogic(logic).toDispatchActions(['loadNews', 'loadNewsSuccess'])
+        expect(logic.values.newsStatus).toBe('not_started')
+        expect(new Date().toISOString().slice(0, 10)).toBe('2026-11-09')
+
         logic.actions.openNews()
         await expectLogic(logic).toDispatchActions(['writeNews', 'writeNewsSuccess'])
         expect(writeCalls).toBe(2)

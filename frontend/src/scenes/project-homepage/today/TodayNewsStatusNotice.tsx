@@ -7,7 +7,7 @@ import { ElapsedTime } from 'scenes/experiments/MetricsView/new/ElapsedTime'
 import { todayNewsLogic } from './todayNewsLogic'
 
 export function TodayNewsStatusNotice(): JSX.Element | null {
-    const { newsStatus, edition, writingSince, isWriteUnavailable } = useValues(todayNewsLogic)
+    const { newsStatus, newsSkipReason, edition, writingSince, isWriteUnavailable } = useValues(todayNewsLogic)
 
     if (newsStatus === 'computing') {
         return (
@@ -36,6 +36,19 @@ export function TodayNewsStatusNotice(): JSX.Element | null {
                     {edition
                         ? "Couldn't write today's news. Here is the latest edition."
                         : "Couldn't write today's news. Check back later."}
+                </Text>
+            </div>
+        )
+    }
+    if (newsStatus === 'skipped') {
+        return (
+            <div role="status" className="border-b px-4 py-3">
+                <Text size="xs" render={<p />} className="m-0">
+                    {newsSkipReason !== 'quiet'
+                        ? "The news isn't available for this project."
+                        : edition
+                          ? 'No news today. Here is the latest edition.'
+                          : 'No news today. Check back tomorrow.'}
                 </Text>
             </div>
         )

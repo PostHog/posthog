@@ -153,8 +153,24 @@ Change = Annotated[FiniteFloat | None, AfterValidator(_plausible_change)]
 Unit = Annotated[str, AfterValidator(lambda value: sanitize_user_text(value, 30).strip())]
 
 
+@functools.cache
+def _defaulted(model: type[BaseModel]) -> frozenset[str]:
+    return frozenset(
+        name
+        for name, field in model.model_fields.items()
+        if not field.is_required() and field.get_default(call_default_factory=True) is not None
+    )
+
+
 class _Reply(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_unset_nulls(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        return {key: value for key, value in data.items() if value is not None or key not in _defaulted(cls)}
 
 
 class _Series(_Reply):
