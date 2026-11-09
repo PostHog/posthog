@@ -18,6 +18,7 @@ from posthog.api.product_enablement import ProductEnablementViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_health import SdkHealthViewSet
+from posthog.api.ssf import SSFConfigurationViewSet, SSFConnectionViewSet, SSFStreamViewSet
 from posthog.api.wizard import http as wizard
 from posthog.products import load_product_modules
 from posthog.settings import EE_AVAILABLE
@@ -288,6 +289,11 @@ organizations_router = routers.add(
     "organizations", router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 )
 organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
+organizations_router.register(r"ssf", SSFConfigurationViewSet, "organization_ssf", ["organization_id"])
+organizations_router.register(
+    r"ssf/connections", SSFConnectionViewSet, "organization_ssf_connections", ["organization_id"]
+)
+organizations_router.register(r"ssf/streams", SSFStreamViewSet, "organization_ssf_streams", ["organization_id"])
 
 organizations_router.register(
     r"notification_locks",
