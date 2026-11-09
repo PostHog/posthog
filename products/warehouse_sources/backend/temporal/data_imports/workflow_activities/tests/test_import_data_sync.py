@@ -817,6 +817,13 @@ async def test_proxy_auth_failure_is_still_reported():
             "404 Client Error: Not Found for url: https://api.example.com/export",
             response=mock.MagicMock(status_code=404),
         ),
+        # The REST engine compiles JSONPath fields at sync time, and jsonpath_ng's messages vary by failure shape,
+        # so a malformed path is honored by type.
+        JsonPathParserError("Parse error at 1:0 near token . (.)"),
+        # Raised in shared pipeline code and listed in the shared Any_Source_Errors, so every source stops on them:
+        # a keyless table syncing incrementally, and an object storage endpoint botocore rejects.
+        Exception("Primary key required for incremental syncs"),
+        Exception("Invalid endpoint: http://posthog_objectstorage:19000"),
     ],
 )
 async def test_deterministic_errors_route_through_handler_without_source_opt_in(error: Exception):
@@ -1148,76 +1155,6 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
 
     # autospec enforces handle_non_retryable_error's real signature, so a call with the wrong
     # positional args (as this branch once had) fails here instead of only at runtime.
-    with (
-        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
-        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
-    ):
-        handle_mock.side_effect = NonRetryableException()
-        with pytest.raises(NonRetryableException):
-            await module._handle_import_error(mock.MagicMock(), logger, error)
-
-    handle_mock.assert_awaited_once()
-    assert handle_mock.await_args is not None
-    assert handle_mock.await_args.args[5] is error
-    logger.aexception.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_jsonpath_error_routes_through_handler_without_source_opt_in():
-    # The shared REST engine compiles data_selector/cursor_path/resolve-param fields as JSONPath at
-    # sync time, not manifest-validation time — a malformed path (e.g. a typo'd data_selector) raises
-    # jsonpath_ng's JSONPathError deep in shared code. It's a fixed string, so it fails identically on
-    # every retry regardless of source. It must be non-retryable by type, since jsonpath_ng's error
-    # messages vary across parse/lex failure shapes and can't be matched via get_non_retryable_errors.
-    error = JsonPathParserError("Parse error at 1:0 near token . (.)")
-    source = mock.MagicMock(spec=SimpleSource)
-    source.get_non_retryable_errors.return_value = {}
-    source.get_retryable_errors.return_value = set()
-
-    logger = mock.MagicMock()
-    logger.awarning = mock.AsyncMock()
-    logger.aexception = mock.AsyncMock()
-    logger.adebug = mock.AsyncMock()
-
-    with (
-        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
-        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
-    ):
-        handle_mock.side_effect = NonRetryableException()
-        with pytest.raises(NonRetryableException):
-            await module._handle_import_error(mock.MagicMock(), logger, error)
-
-    handle_mock.assert_awaited_once()
-    assert handle_mock.await_args is not None
-    assert handle_mock.await_args.args[5] is error
-    logger.aexception.assert_not_awaited()
-
-
-@parameterized.expand(
-    [
-        # Raised in shared pipeline code (delta merge) when a keyless table syncs incrementally.
-        ("primary_key", "Primary key required for incremental syncs"),
-        # Raised by botocore when the object storage endpoint hostname is one it rejects (e.g. an
-        # underscore in a self-hosted OBJECT_STORAGE_ENDPOINT). Deterministic for the deployment, so
-        # it must stop retrying instead of looping the activity's budget and reporting every attempt.
-        ("invalid_endpoint", "Invalid endpoint: http://posthog_objectstorage:19000"),
-    ]
-)
-@pytest.mark.asyncio
-async def test_shared_non_retryable_error_routes_through_handler_without_source_opt_in(_name: str, message: str):
-    # These messages are raised in shared pipeline code, not any one source, and live in the shared
-    # Any_Source_Errors dict. Each must be non-retryable in this in-activity handler for every source,
-    # not just those that duplicate the message into their own get_non_retryable_errors.
-    error = Exception(message)
-    source = mock.MagicMock(spec=SimpleSource)
-    source.get_non_retryable_errors.return_value = {}
-    source.get_retryable_errors.return_value = set()
-
-    logger = mock.MagicMock()
-    logger.awarning = mock.AsyncMock()
-    logger.aexception = mock.AsyncMock()
-    logger.adebug = mock.AsyncMock()
-
     with (
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
         mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
