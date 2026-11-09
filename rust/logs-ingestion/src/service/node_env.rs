@@ -110,6 +110,46 @@ pub fn get_bool(config: &JsObject, key: &str) -> bool {
     matches!(config.get(key), Some(JsValue::Bool(true)))
 }
 
+/// The `getDefaultCommonConfig` keys that `buildPosthogDatabaseUrl` reads besides `DATABASE_URL`.
+pub fn posthog_database_defaults() -> Vec<(&'static str, JsValue)> {
+    vec![
+        ("POSTHOG_DB_NAME", JsValue::Null),
+        ("POSTHOG_DB_USER", JsValue::string("postgres")),
+        ("POSTHOG_DB_PASSWORD", JsValue::string("")),
+        ("POSTHOG_POSTGRES_HOST", JsValue::string("localhost")),
+        ("POSTHOG_POSTGRES_PORT", JsValue::Number(5432.0)),
+    ]
+}
+
+/// `encodeURIComponent` for a well-formed string.
+fn encode_uri_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// `buildPosthogDatabaseUrl` as `overrideWithEnv` applies it. Empty when neither `DATABASE_URL` nor `POSTHOG_DB_NAME` is set.
+pub fn posthog_database_url(config: &JsObject) -> String {
+    let url = get_string(config, "DATABASE_URL");
+    let name = get_string(config, "POSTHOG_DB_NAME");
+    if !url.is_empty() || name.is_empty() {
+        return url;
+    }
+    format!(
+        "postgres://{}:{}@{}:{}/{name}",
+        encode_uri_component(&get_string(config, "POSTHOG_DB_USER")),
+        encode_uri_component(&get_string(config, "POSTHOG_DB_PASSWORD")),
+        get_string(config, "POSTHOG_POSTGRES_HOST"),
+        get_string(config, "POSTHOG_POSTGRES_PORT"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,6 +176,30 @@ mod tests {
         assert_eq!(o.get("D"), Some(&JsValue::Number(2.0)));
         let o = override_with_env(&defaults, &env(&[("N", ".5")]));
         assert!(matches!(o.get("N"), Some(JsValue::Number(n)) if n.is_nan()));
+    }
+
+    #[test]
+    fn database_url_falls_back_to_the_posthog_db_options() {
+        let mut defaults = posthog_database_defaults();
+        defaults.push(("DATABASE_URL", JsValue::string("")));
+        let url = |pairs: &[(&str, &str)]| {
+            posthog_database_url(&override_with_env(&defaults, &env(pairs)))
+        };
+        assert_eq!(url(&[]), "");
+        assert_eq!(
+            url(&[
+                ("POSTHOG_DB_NAME", "posthog"),
+                ("POSTHOG_DB_PASSWORD", "p@ss/w:rd!")
+            ]),
+            "postgres://postgres:p%40ss%2Fw%3Ard!@localhost:5432/posthog"
+        );
+        assert_eq!(
+            url(&[
+                ("POSTHOG_DB_NAME", "posthog"),
+                ("DATABASE_URL", "postgres://set")
+            ]),
+            "postgres://set"
+        );
     }
 
     #[test]

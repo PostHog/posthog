@@ -11,7 +11,7 @@ use logs_ingestion::service::config::{
 };
 use logs_ingestion::service::node_env::{
     determine_node_env, get_bool, get_number, get_string, kafka_topic, override_with_env,
-    rdkafka_from_env, Env, NodeEnv,
+    posthog_database_defaults, posthog_database_url, rdkafka_from_env, Env, NodeEnv,
 };
 
 use crate::pipeline::{MetricsLimiterConfig, METRICS_OUTPUT};
@@ -149,7 +149,11 @@ fn node_defaults(env: &Env) -> Vec<(String, JsValue)> {
         ("HTTP_SERVER_PORT", n(6738.0)),
         ("KAFKA_CLIENT_RACK", s("")),
     ];
-    let mut d: Vec<(String, JsValue)> = d.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    let mut d: Vec<(String, JsValue)> = d
+        .into_iter()
+        .chain(posthog_database_defaults())
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
     for prefix in [
         "KAFKA_WARPSTREAM_METRICS_PRODUCER_",
         "KAFKA_WARPSTREAM_INGESTION_PRODUCER_",
@@ -298,7 +302,7 @@ impl ServiceConfig {
             None,
             Some("POSTHOG_REDIS_PASSWORD"),
         );
-        let database_url = get_string(&node, "DATABASE_URL").trim().to_string();
+        let database_url = posthog_database_url(&node).trim().to_string();
         let readonly_url = get_string(&node, "DATABASE_READONLY_URL")
             .trim()
             .to_string();
@@ -436,6 +440,17 @@ mod tests {
         assert_eq!(
             run_mode(&env(&[(SHADOW_MODE_KEY, "fals")])),
             Err(ConfigError::ShadowMode("fals".into()))
+        );
+        let from_options = ServiceConfig::from_env(&env(&[
+            ("PLUGIN_SERVER_MODE", "ingestion-metrics"),
+            (SHADOW_MODE_KEY, "false"),
+            ("POSTHOG_DB_NAME", "posthog"),
+            ("POSTHOG_POSTGRES_HOST", "pg"),
+        ]))
+        .unwrap();
+        assert_eq!(
+            from_options.database_writer_url.as_deref(),
+            Some("postgres://postgres:@pg:5432/posthog")
         );
         assert_eq!(
             ServiceConfig::from_env(&env(&[("PLUGIN_SERVER_MODE", "ingestion-logs")])).unwrap_err(),
