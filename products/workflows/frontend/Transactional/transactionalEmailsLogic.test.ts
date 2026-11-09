@@ -170,18 +170,23 @@ describe('transactionalEmailsLogic', () => {
     })
 
     it.each([
-        ['a template', 'Password reset'],
-        ['an email sent from code', 'password-changed'],
-    ])('stores every tag when edits on %s are made while earlier ones save', async (_source, name) => {
+        ['a template', 'answers', 'Password reset'],
+        ['a template', 'fails', 'Password reset'],
+        ['an email sent from code', 'answers', 'password-changed'],
+        ['an email sent from code', 'fails', 'password-changed'],
+    ])('stores every tag when edits on %s are made while the first save %s', async (_source, first, name) => {
         jest.useFakeTimers()
         try {
             let stored = ['auth']
             const held: (() => void)[] = []
-            const save = async (request: Request, path: string): Promise<string[]> => {
+            const save = async (request: Request, path: string): Promise<string[] | null> => {
                 const { tags } = (await request.json()) as { tags: string[] }
-                writes.push({ path, tags })
-                if (writes.length <= 2) {
+                const write = writes.push({ path, tags })
+                if (write <= 2) {
                     await new Promise<void>((resolve) => held.push(resolve))
+                }
+                if (write === 1 && first === 'fails') {
+                    return null
                 }
                 stored = tags
                 return tags
@@ -190,11 +195,15 @@ describe('transactionalEmailsLogic', () => {
                 patch: {
                     '/api/projects/:team_id/messaging_templates/:id/': async ({ request, params }) => {
                         const tags = await save(request, `messaging_templates/${String(params.id)}`)
-                        return [200, { ...template(String(params.id), 'Password reset', [], 1), tags }]
+                        return tags
+                            ? [200, { ...template(String(params.id), 'Password reset', [], 1), tags }]
+                            : [500, { detail: 'Unavailable' }]
                     },
                     [`${CODE_EMAILS}:id/`]: async ({ request, params }) => {
                         const tags = await save(request, `transactional_code_emails/${String(params.id)}`)
-                        return [200, codeEmail(String(params.id), 'password-changed', tags)]
+                        return tags
+                            ? [200, codeEmail(String(params.id), 'password-changed', tags)]
+                            : [500, { detail: 'Unavailable' }]
                     },
                 },
                 get: {
@@ -213,7 +222,10 @@ describe('transactionalEmailsLogic', () => {
             await jest.advanceTimersByTimeAsync(300)
             expect(writes).toHaveLength(1)
             held[0]()
-            await jest.advanceTimersByTimeAsync(0)
+            while (held.length < 2) {
+                await jest.advanceTimersByTimeAsync(10)
+            }
+            await jest.advanceTimersByTimeAsync(100)
             logic.actions.saveTransactionalTags(row(), [...row().tags, 'later'])
             await jest.advanceTimersByTimeAsync(300)
             held[1]()
