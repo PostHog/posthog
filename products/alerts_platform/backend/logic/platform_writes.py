@@ -163,9 +163,11 @@ def update_configuration(
     source_kinds: Sequence[str],
     configuration_id: UUID,
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+    snooze_until: datetime | None = None,
+    snooze_changed: bool = False,
 ) -> PlatformAlertConfigurationView | None:
     """Applies `change` to the configuration's current settings under its row lock, and mirrors the
-    result onto the source's own row.
+    result onto the source's own row. With `snooze_changed`, `snooze_until` becomes the whole alert's mute.
 
     None when the configuration does not exist or its kind is not among `source_kinds`. Taking a
     function rather than the new settings lets a partial update merge with what is stored inside
@@ -179,6 +181,9 @@ def update_configuration(
         if found is None:
             return None
         source_kind, legacy_configuration_id = found
+        if snooze_changed and legacy_configuration_id is not None:
+            # The source row keeps the snooze too, and no mirror carries one, so the two would disagree.
+            raise InvalidPlatformAlertEdit("snooze_until", f"Snooze this alert in the {source_kind} product.")
         spec = source_configs.spec(SourceKind(source_kind))
         mirror = spec.mirror if spec is not None else None
         write_source = (
@@ -189,7 +194,12 @@ def update_configuration(
         configuration = readable.select_for_update().first()
         if configuration is None:
             return None
-        edit, pending = _apply(configuration, change, now=django_timezone.now(), admit=True)
+        now = django_timezone.now()
+        # A snooze ends the firing, as `update_owned_copy` does for a copy.
+        snoozing = snooze_changed and snooze_until is not None and snooze_until > now
+        edit, pending = _apply(configuration, change, now=now, snoozing=snoozing, admit=True)
+        if snooze_changed:
+            platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)
@@ -212,7 +222,7 @@ def create_configuration(
     if spec is None or not spec.creatable:
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
     validated = _validated(source_kind, None, edit, team_id=team_id)
-    if spec.native is not None:
+    if spec.native is not None and spec.creates_natively():
         with transaction.atomic():
             _admit(
                 team_id=team_id,
@@ -399,7 +409,7 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     if owner != PlatformAlertOwner.PLATFORM:
         raise PlatformAlertNotEditable(f"This alert is managed by the {source_kind} product. Delete it there.")
     spec = source_configs.spec(SourceKind(source_kind))
-    if spec is not None and spec.native is not None:
+    if spec is not None and spec.native is not None and legacy_configuration_id is None:
         _delete_native(team_id, configuration_id, spec.native)
     elif spec is not None and spec.delete is not None and legacy_configuration_id is not None:
         spec.delete(team_id=team_id, legacy_configuration_id=legacy_configuration_id)

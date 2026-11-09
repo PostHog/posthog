@@ -66,6 +66,9 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     # `posthog_user`, and creating that constraint locks a table every request writes.
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # When the alert was first turned on. Null means it is still a draft. Kept for an alert with no
+    # source row, because the source's pages show it.
+    first_enabled_at = models.DateTimeField(null=True, blank=True)
 
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True, db_default=True)

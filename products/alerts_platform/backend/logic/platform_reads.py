@@ -82,6 +82,7 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         alerts=tuple(instance_view(alert, configuration) for alert in configuration.alerts.all()),
         labels=configuration.labels,
         annotations=configuration.annotations,
+        first_enabled_at=configuration.first_enabled_at,
     )
 
 
@@ -125,6 +126,15 @@ def list_configurations(
         configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
         total=readable.count(),
     )
+
+
+def native_configuration_keys(*, team_id: int, source_kind: str) -> tuple[tuple[datetime, UUID], ...]:
+    """`(created_at, id)` of every configuration of a kind with no source row, newest first, without
+    loading the rest of each row."""
+    rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind=source_kind, legacy_configuration_id__isnull=True
+    )
+    return tuple(rows.order_by("-created_at", "-id").values_list("created_at", "id"))
 
 
 def count_configurations(
