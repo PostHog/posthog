@@ -6,11 +6,14 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { useMocks } from '~/mocks/jest'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { SidePanelTab } from '~/types'
 
 import { SidebarAgentListener } from 'products/ui_customization/frontend/SidebarAgentListener'
 import { SidebarButton } from 'products/ui_customization/frontend/SidebarButton'
@@ -55,6 +58,22 @@ describe('Analytics sidebar options', () => {
         expect(container.querySelector('[data-attr="analytics-sidebar-reset"]')).toBeNull()
         expect(container.querySelector('[data-attr="analytics-sidebar-retry"]')).toBeNull()
         expect(SidebarAgentListener).not.toHaveBeenCalled()
+    })
+
+    it('opens PostHog AI in the side panel, so the sidebar stays in view while it changes', () => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.UI_CUSTOMIZATION]: true,
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
+        })
+        sidePanelStateLogic.mount()
+        router.actions.push(urls.analyticsList())
+        const { container } = render(<TodayAnalyticsSidebar />)
+
+        fireEvent.click(container.querySelector('[data-attr="analytics-sidebar-customize"]')!)
+
+        expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+        expect(sidePanelStateLogic.values.selectedTabOptions).toMatch(/^!Help me personalize my Analytics sidebar/)
+        expect(router.values.location.pathname).toContain(urls.analyticsList())
     })
 
     it('keeps a pending metric insight available as a link and keyboard option', () => {
