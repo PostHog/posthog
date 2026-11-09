@@ -1170,10 +1170,10 @@ def _patch_organization_usage_jsonb(
         batch.patch(organization, ops)
         return
 
-    Organization.objects.filter(id=organization.id).update(usage=_usage_patch_expression(ops))
+    Organization.objects.filter(id=organization.id).update(usage=usage_patch_expression(ops))
 
 
-def _usage_patch_expression(ops: Sequence[tuple[list[str], Any]]) -> RawSQL:
+def usage_patch_expression(ops: Sequence[tuple[list[str], Any]]) -> RawSQL:
     sql_expr = "usage"
     params: list[Any] = []
     for path, value in ops:
