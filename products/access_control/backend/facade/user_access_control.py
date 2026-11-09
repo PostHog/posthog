@@ -1471,16 +1471,21 @@ class UserAccessControl:
         if include_all_if_admin and self.is_organization_admin:
             return None
 
-        filters = self._access_controls_filters_for_queryset(resource)
-        access_controls = self._get_access_controls(filters)
-
-        decision = self._blocked_and_allowed_object_ids(resource, access_controls)
+        decision = self.queryset_object_decision(resource)
 
         return ListAccessFilter(
             only_allowed=not self.has_resource_access(resource),
             allowed_ids=decision.allowed_ids,
             blocked_ids=decision.blocked_ids,
         )
+
+    def queryset_object_decision(self, resource: APIScopeObject) -> ObjectAccessDecision:
+        """The objects of `resource` that `filter_queryset_by_access_level` blocks or allows by their own rules.
+
+        The authorization SDK lists object ids from this, so its lists and this filter cannot disagree.
+        """
+        filters = self._access_controls_filters_for_queryset(resource)
+        return self._blocked_and_allowed_object_ids(resource, self._get_access_controls(filters))
 
     def _blocked_and_allowed_object_ids(
         self, resource: APIScopeObject, access_controls: list[_AccessControl]
