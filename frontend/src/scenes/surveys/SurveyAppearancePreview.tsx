@@ -48,7 +48,7 @@ export function SurveyAppearancePreview({
         })
         // posthog-js spreads the appearance over its defaults, so an unset color must be absent, not undefined,
         // or the preview draws a transparent survey that a site never shows.
-        return { ...sanitized, appearance: sanitized.appearance && objectClean(sanitized.appearance) }
+        return { ...sanitized, appearance: sanitized.appearance && objectClean({ ...sanitized.appearance }) }
     }, [survey])
 
     useEffect(() => {
