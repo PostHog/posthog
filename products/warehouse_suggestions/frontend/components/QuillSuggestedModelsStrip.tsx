@@ -47,8 +47,10 @@ function QuillSuggestionsBanner(): JSX.Element {
             >
                 {iconForType('data_modeling')}
             </ItemMedia>
-            <ItemContent className="min-w-0 text-sm">
-                <SavingsBannerMessage summary={savingsSummary} unusedViews={unusedViewCount} />
+            <ItemContent className="min-w-0">
+                <Text size="sm" render={<span />}>
+                    <SavingsBannerMessage summary={savingsSummary} unusedViews={unusedViewCount} />
+                </Text>
             </ItemContent>
             <ItemActions>
                 <Button variant="primary" onClick={() => openReview()} data-attr="warehouse-suggestions-review">
