@@ -1,6 +1,8 @@
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import time_machine
@@ -61,12 +63,41 @@ COMPARISON = MCPDashboardComparison(dateFrom="2026-07-09T07:00:00.000Z", current
 PROPERTIES = [EventPropertyFilter(key="$mcp_client_name", value=["excluded-client"], operator=PropertyOperator.IS_NOT)]
 DASHBOARD_RUNNER = "products.mcp_analytics.backend.hogql_queries.dashboard_query"
 
-# The browser's queries before the server owned them, as mcpDashboardOverviewLogic.ts built them for a day interval.
+# The browser's queries before the server owned them, as mcpDashboardOverviewLogic.ts and
+# mcpLeaderboardHomeLogic.ts built them for a day interval.
 BUCKET = "toString(dateTrunc('day', timestamp))"
 WHERE = """event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
     AND {filters}"""
+
+
+def label_of(value_sql: str) -> str:
+    return f"coalesce(nullIf(trim({value_sql}), ''), 'Unknown')"
+
+
+MODEL_LABEL = label_of("toString(properties.$mcp_llm_model)")
+TOOL_LABEL = label_of("""coalesce(
+    nullIf(toString(properties.$mcp_exec_tool_call_name), ''),
+    if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call',
+       nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL),
+    toString(properties.$mcp_tool_name)
+)""")
+LAB_PATTERNS = json.loads((Path(__file__).parents[2] / "shared" / "ai_labs.json").read_text())
+LAB_SQL = (
+    f"multiIf({MODEL_LABEL} = 'Unknown', 'Unknown', "
+    + ", ".join(f"match(lower({MODEL_LABEL}), '{p['pattern']}'), '{p['lab']}'" for p in LAB_PATTERNS)
+    + ", 'Other')"
+)
+
+
+def bucketed_facet(label: str) -> str:
+    return f"SELECT {BUCKET} AS bucket, {label} AS label, count() AS calls FROM events WHERE {WHERE} GROUP BY bucket, label ORDER BY bucket LIMIT 10000"
+
+
+def window_facet(label: str, only_errors: str = "") -> str:
+    return f"""SELECT {label} AS label, count() AS calls, uniq(distinct_id) AS users, countIf(toBool(properties.$mcp_is_error)) AS errors
+FROM events WHERE {WHERE} {only_errors} GROUP BY label ORDER BY calls DESC LIMIT 1000"""
 
 
 CURRENT_START = f"toDateTime('{COMPARISON.currentStartBucket}', '{TIMEZONE}')"
@@ -107,6 +138,35 @@ FROM events
 WHERE event = '$mcp_tool_call' AND $session_id != '' AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != '' AND {filters}
 GROUP BY session_id HAVING tool_calls >= 1 ORDER BY tool_calls DESC LIMIT 500""",
+        False,
+    ),
+    (MCPDashboardSection.MODEL, bucketed_facet(MODEL_LABEL), False),
+    (
+        MCPDashboardSection.PROTOCOL_VERSION,
+        bucketed_facet(label_of("JSONExtractString(properties, '$mcp_protocol_version')")),
+        False,
+    ),
+    (MCPDashboardSection.TOOL, window_facet(TOOL_LABEL), False),
+    (
+        MCPDashboardSection.ERROR_TYPE,
+        window_facet(label_of("toString(properties.$mcp_error_type)"), "AND toBool(properties.$mcp_is_error)"),
+        False,
+    ),
+    (
+        MCPDashboardSection.LAB_USERS,
+        f"SELECT {LAB_SQL} AS lab, uniq(distinct_id) AS users FROM events WHERE {WHERE} GROUP BY lab",
+        False,
+    ),
+    (
+        MCPDashboardSection.NAMED_MODEL_USERS,
+        f"SELECT uniqIf(distinct_id, {MODEL_LABEL} != 'Unknown') AS users FROM events WHERE {WHERE}",
+        False,
+    ),
+    (
+        MCPDashboardSection.RELIABILITY,
+        f"""SELECT {BUCKET} AS bucket, count() AS calls, countIf(toBool(properties.$mcp_is_error)) AS errors,
+    round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50, round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
+FROM events WHERE {WHERE} GROUP BY bucket ORDER BY bucket LIMIT 10000""",
         False,
     ),
 ]

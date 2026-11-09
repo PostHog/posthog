@@ -1,7 +1,10 @@
+import json
 import contextvars
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cached_property, partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
@@ -39,7 +42,11 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMo
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
-from products.mcp_analytics.backend.hogql_queries.base import HarnessLabelQueryRunner, validate_mcp_analytics_access
+from products.mcp_analytics.backend.hogql_queries.base import (
+    EFFECTIVE_TOOL_SQL,
+    HarnessLabelQueryRunner,
+    validate_mcp_analytics_access,
+)
 from products.mcp_analytics.backend.hogql_queries.dashboard_series import (
     MCPToolCallBreakdownQueryRunner,
     MCPToolCallsAndErrorsQueryRunner,
@@ -53,6 +60,11 @@ from products.mcp_analytics.backend.hogql_queries.protocol_version_breakdown imp
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
     from posthog.models.user import User
+
+LAB_PATTERNS: list[tuple[str, str]] = [
+    (entry["lab"], entry["pattern"])
+    for entry in json.loads((Path(__file__).parents[2] / "shared" / "ai_labs.json").read_text())
+]
 
 # Key on the canonical event only. Also matching the legacy `mcp_tool_call` alias would double-count.
 KPI_SQL = """
@@ -125,16 +137,108 @@ ORDER BY total_calls DESC
 LIMIT 50
 """
 
+TOOL_CALL_WHERE = """event = '$mcp_tool_call'
+    AND properties.$mcp_tool_name IS NOT NULL
+    AND properties.$mcp_tool_name != ''
+    AND {filters}"""
+
+BUCKETED_FACET_SQL = f"""
+SELECT {{bucket}} AS bucket, {{label}} AS label, count() AS calls
+FROM events
+WHERE {TOOL_CALL_WHERE}
+GROUP BY bucket, label
+ORDER BY bucket
+LIMIT 10000
+"""
+
+WINDOW_FACET_SQL = f"""
+SELECT
+    {{label}} AS label,
+    count() AS calls,
+    uniq(distinct_id) AS users,
+    countIf(toBool(properties.$mcp_is_error)) AS errors
+FROM events
+WHERE {TOOL_CALL_WHERE}
+    AND {{error_filter}}
+GROUP BY label
+ORDER BY calls DESC
+LIMIT 1000
+"""
+
+LAB_USERS_SQL = f"""
+SELECT {{lab}} AS lab, uniq(distinct_id) AS users
+FROM events
+WHERE {TOOL_CALL_WHERE}
+GROUP BY lab
+"""
+
+NAMED_MODEL_USERS_SQL = f"""
+SELECT uniqIf(distinct_id, {{model}} != 'Unknown') AS users
+FROM events
+WHERE {TOOL_CALL_WHERE}
+"""
+
+RELIABILITY_SQL = f"""
+SELECT
+    {{bucket}} AS bucket,
+    count() AS calls,
+    countIf(toBool(properties.$mcp_is_error)) AS errors,
+    round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50,
+    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
+FROM events
+WHERE {TOOL_CALL_WHERE}
+GROUP BY bucket
+ORDER BY bucket
+LIMIT 10000
+"""
+
 # toString() is load-bearing: a bare dateTrunc returns a DateTime that the API serializes with the
 # project's UTC offset, which the client reads back as an instant and shifts off its wall-clock bucket keys.
 BUCKET_SQL = "toString(dateTrunc({interval}, timestamp))"
 
 
+def label_of(value_sql: str) -> str:
+    return f"coalesce(nullIf(trim({value_sql}), ''), 'Unknown')"
+
+
+MODEL_LABEL_SQL = label_of("toString(properties.$mcp_llm_model)")
+# The protocol version can be inferred as a DateTime property, so read the raw string like
+# MCPProtocolVersionBreakdownQueryRunner does.
+PROTOCOL_VERSION_LABEL_SQL = label_of("JSONExtractString(properties, '$mcp_protocol_version')")
+TOOL_LABEL_SQL = label_of(EFFECTIVE_TOOL_SQL)
+ERROR_TYPE_LABEL_SQL = label_of("toString(properties.$mcp_error_type)")
+
+
+def lab_expr() -> ast.Expr:
+    """The lab a model belongs to: the first pattern in shared/ai_labs.json that matches, as the client's modelLab."""
+    args: list[ast.Expr] = [
+        parse_expr("{model} = 'Unknown'", placeholders={"model": parse_expr(MODEL_LABEL_SQL)}),
+        ast.Constant(value="Unknown"),
+    ]
+    for lab, pattern in LAB_PATTERNS:
+        lowered_model = ast.Call(name="lower", args=[parse_expr(MODEL_LABEL_SQL)])
+        args += [ast.Call(name="match", args=[lowered_model, ast.Constant(value=pattern)]), ast.Constant(value=lab)]
+    return ast.Call(name="multiIf", args=[*args, ast.Constant(value="Other")])
+
+
 @dataclass(frozen=True)
 class HogQLSection:
     sql: str
+    # Placeholders that do not depend on the request. Built per run so that two queries never share an AST node.
+    expressions: Mapping[str, Callable[[], ast.Expr]] = field(default_factory=dict)
     # The KPI tiles read the selected period and the one before it in one query.
     spans_comparison_window: bool = False
+
+
+def _bucketed_facet(label_sql: str) -> HogQLSection:
+    return HogQLSection(BUCKETED_FACET_SQL, {"label": partial(parse_expr, label_sql)})
+
+
+def _window_facet(label_sql: str, error_filter_sql: str = "true") -> HogQLSection:
+    return HogQLSection(
+        WINDOW_FACET_SQL,
+        {"label": partial(parse_expr, label_sql), "error_filter": partial(parse_expr, error_filter_sql)},
+    )
 
 
 HOGQL_SECTIONS: dict[MCPDashboardSection, HogQLSection] = {
@@ -142,6 +246,15 @@ HOGQL_SECTIONS: dict[MCPDashboardSection, HogQLSection] = {
     MCPDashboardSection.PERIOD_TOTALS: HogQLSection(PERIOD_TOTALS_SQL, spans_comparison_window=True),
     MCPDashboardSection.TOOL_ROWS: HogQLSection(TOOL_ROWS_SQL),
     MCPDashboardSection.SESSION_ROWS: HogQLSection(SESSION_ROWS_SQL),
+    MCPDashboardSection.MODEL: _bucketed_facet(MODEL_LABEL_SQL),
+    MCPDashboardSection.PROTOCOL_VERSION: _bucketed_facet(PROTOCOL_VERSION_LABEL_SQL),
+    MCPDashboardSection.TOOL: _window_facet(TOOL_LABEL_SQL),
+    MCPDashboardSection.ERROR_TYPE: _window_facet(ERROR_TYPE_LABEL_SQL, "toBool(properties.$mcp_is_error)"),
+    MCPDashboardSection.LAB_USERS: HogQLSection(LAB_USERS_SQL, {"lab": lab_expr}),
+    MCPDashboardSection.NAMED_MODEL_USERS: HogQLSection(
+        NAMED_MODEL_USERS_SQL, {"model": partial(parse_expr, MODEL_LABEL_SQL)}
+    ),
+    MCPDashboardSection.RELIABILITY: HogQLSection(RELIABILITY_SQL),
 }
 
 
@@ -466,6 +579,7 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
                     ast.Constant(value=self.team.timezone),
                 ],
             ),
+            **{name: build() for name, build in hogql.expressions.items()},
         }
         response = execute_hogql_query(
             query=hogql.sql,

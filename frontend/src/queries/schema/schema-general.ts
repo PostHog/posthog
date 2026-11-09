@@ -3789,6 +3789,13 @@ export enum MCPDashboardSection {
     ProtocolVersionRows = 'protocolVersionRows',
     ActivityRows = 'activityRows',
     ToolDailyRows = 'toolDailyRows',
+    Model = 'model',
+    ProtocolVersion = 'protocolVersion',
+    Tool = 'tool',
+    ErrorType = 'errorType',
+    LabUsers = 'labUsers',
+    NamedModelUsers = 'namedModelUsers',
+    Reliability = 'reliability',
 }
 
 /** The doubled window the KPI tiles compare the selected period against. */

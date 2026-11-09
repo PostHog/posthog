@@ -58631,6 +58631,13 @@ export namespace Schemas {
       ProtocolVersionRows: 'protocolVersionRows',
       ActivityRows: 'activityRows',
       ToolDailyRows: 'toolDailyRows',
+      Model: 'model',
+      ProtocolVersion: 'protocolVersion',
+      Tool: 'tool',
+      ErrorType: 'errorType',
+      LabUsers: 'labUsers',
+      NamedModelUsers: 'namedModelUsers',
+      Reliability: 'reliability',
     } as const;
 
     export interface MCPDashboardQuery {

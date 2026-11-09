@@ -62,7 +62,7 @@ export interface DateFilter {
 
 const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 
-export const MCP_DASHBOARD_DATA_COLLECTION_ID = pageCollectionId('mcp-analytics-dashboard')
+const MCP_DASHBOARD_DATA_COLLECTION_ID = pageCollectionId('mcp-analytics-dashboard')
 const DASHBOARD_TILE_ID = 'mcp-dashboard'
 
 export type DashboardLayout = 'overview' | 'leaderboard'
@@ -77,11 +77,20 @@ const SHARED_SECTIONS: MCPDashboardSection[] = [
     MCPDashboardSection.ActivityRows,
 ]
 
-// The leaderboard loads its facets itself and draws protocol versions from them. It keeps modelRows as the
-// model chart's fallback when the model facet fails.
+// The leaderboard draws protocol versions and tools from its own facets. It keeps modelRows as the model
+// chart's fallback when the model facet fails.
 const LAYOUT_SECTIONS: Record<DashboardLayout, readonly MCPDashboardSection[]> = {
     overview: [...SHARED_SECTIONS, MCPDashboardSection.ProtocolVersionRows, MCPDashboardSection.ToolDailyRows],
-    leaderboard: SHARED_SECTIONS,
+    leaderboard: [
+        ...SHARED_SECTIONS,
+        MCPDashboardSection.Model,
+        MCPDashboardSection.ProtocolVersion,
+        MCPDashboardSection.Tool,
+        MCPDashboardSection.ErrorType,
+        MCPDashboardSection.LabUsers,
+        MCPDashboardSection.NamedModelUsers,
+        MCPDashboardSection.Reliability,
+    ],
 }
 
 // These cards hide when they have no rows, so a failure would read as no data without a toast.
@@ -96,7 +105,7 @@ export type SectionResults = Partial<Record<MCPDashboardSection, LoadedSection>>
 
 export type SectionFlags = Partial<Record<MCPDashboardSection, boolean>>
 
-function sectionRows<T>(sections: SectionResults, section: MCPDashboardSection): T[] {
+export function sectionRows<T>(sections: SectionResults, section: MCPDashboardSection): T[] {
     return (sections[section]?.results as T[] | undefined) ?? []
 }
 
@@ -146,14 +155,6 @@ function reportFailures({ results, requestError }: SectionsResponse, owned: MCPD
         )
     }
 }
-
-// The `__BUCKET__` expression the KPI query is built with. toString() is load-bearing: a bare
-// dateTrunc returns a typed DateTime that the query API serializes with the project's UTC offset
-// attached (2026-07-21T00:00:00-07:00), which the client then reads back as an instant and
-// converts, shifting every bucket away from the wall-clock keys it joins and compares against.
-// Rendering it server-side leaves a plain string with nothing left to reinterpret, matching the
-// backend runners (dashboard_series.py, tool_quality_tables.py, tool_tables.py).
-export const bucketExpr = (interval: IntervalType): string => `toString(dateTrunc('${interval}', timestamp))`
 
 export interface BucketRow {
     bucket: string
