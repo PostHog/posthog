@@ -12,7 +12,7 @@ import { PlatformAlertRoutesTable } from './PlatformAlertRoutesTable'
 import { platformAlertRoutingLogic } from './platformAlertRoutingLogic'
 
 export function PlatformAlertRouting(): JSX.Element {
-    const { receivers, receiversError, routesError } = useValues(platformAlertRoutingLogic)
+    const { receivers, receiversError, routesError, editDisabledReason } = useValues(platformAlertRoutingLogic)
     const { openReceiverModal, openRouteModal, loadReceivers, loadRoutes } = useActions(platformAlertRoutingLogic)
 
     return (
@@ -26,6 +26,7 @@ export function PlatformAlertRouting(): JSX.Element {
                         size="small"
                         icon={<IconPlus />}
                         onClick={() => openReceiverModal(null)}
+                        disabledReason={editDisabledReason}
                         data-attr="platform-alert-receiver-new"
                     >
                         New receiver
@@ -56,7 +57,7 @@ export function PlatformAlertRouting(): JSX.Element {
                         size="small"
                         icon={<IconPlus />}
                         onClick={() => openRouteModal(null)}
-                        disabledReason={receivers?.length ? undefined : 'Add a receiver first'}
+                        disabledReason={editDisabledReason ?? (receivers?.length ? undefined : 'Add a receiver first')}
                         data-attr="platform-alert-route-new"
                     >
                         New route

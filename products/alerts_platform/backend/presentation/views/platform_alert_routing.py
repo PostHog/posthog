@@ -68,16 +68,18 @@ class PlatformAlertRoutingFlagPermission(BasePermission):
 
 
 class PlatformAlertRoutingSourceAccessPermission(BasePermission):
-    """A route can send any alert on the project to its receiver, so editing routing needs edit access to every
-    source's alerts, and reading it needs view access to them. Insight alerts count by project-level insight access,
-    because this product cannot check access to one insight."""
+    """A route can send any alert on the project to its receiver, so changing routing needs an organization admin,
+    the only role that object-level access rules (such as a deny on one insight) never restrict. Reading routing shows
+    no alert data, so it needs view access to every alert source. A token also needs the scope for every source."""
 
-    message = "Routing sends alerts from every source to its receivers, so it needs access to every alert source."
+    message = "Only organization admins can change alert routing. Reading it needs access to every alert source."
     _RESOURCES: tuple[APIScopeObject, ...] = (*sorted(set(SOURCE_KIND_RESOURCE.values())), "insight")
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         assert isinstance(view, TeamAndOrgViewSetMixin)
         reads = request.method in SAFE_METHODS
+        if not reads and not view.user_access_control.is_organization_admin:
+            return False
         return all(
             resource_permitted(
                 request,

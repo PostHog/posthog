@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog.models import Team
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.logic.alert_routes import routed_receivers
@@ -22,6 +23,8 @@ class TestPlatformAlertRouting(APIBaseTest):
         self.flag_patch = self.enterContext(
             patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
         )
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.receivers_url = f"/api/projects/{self.team.id}/platform_alert_receivers/"
         self.routes_url = f"/api/projects/{self.team.id}/platform_alert_routes/"
 
@@ -72,6 +75,7 @@ class TestPlatformAlertRouting(APIBaseTest):
     @parameterized.expand(
         [
             ("routing_flag_off", None, False, status.HTTP_403_FORBIDDEN),
+            ("member_who_is_not_an_org_admin", None, True, status.HTTP_403_FORBIDDEN),
             ("key_without_source_scopes", ["alert:read", "alert:write"], True, status.HTTP_403_FORBIDDEN),
             (
                 "key_with_every_source_scope",
@@ -81,9 +85,12 @@ class TestPlatformAlertRouting(APIBaseTest):
             ),
         ]
     )
-    def test_writing_routing_needs_the_flag_and_every_source(
+    def test_writing_routing_needs_the_flag_an_org_admin_and_every_source(
         self, _name: str, key_scopes: list[str] | None, flag_on: bool, expected: int
     ) -> None:
+        if _name == "member_who_is_not_an_org_admin":
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
         if not flag_on:
             self.flag_patch.side_effect = lambda flag, *args, **kwargs: flag != "platform-alerts-routing"
         if key_scopes is not None:

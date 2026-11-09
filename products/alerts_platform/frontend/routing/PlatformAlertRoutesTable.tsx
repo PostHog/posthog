@@ -10,7 +10,8 @@ import { ALL_ROUTE_EVENT_KINDS, ROUTE_EVENT_KIND_OPTIONS } from './platformAlert
 import { platformAlertRoutingLogic } from './platformAlertRoutingLogic'
 
 export function PlatformAlertRoutesTable(): JSX.Element {
-    const { routes, routesLoading, receivers, receiversById, togglingIds } = useValues(platformAlertRoutingLogic)
+    const { routes, routesLoading, receivers, receiversById, togglingIds, editDisabledReason } =
+        useValues(platformAlertRoutingLogic)
     const { openRouteModal, deleteRoute, setRouteEnabled } = useActions(platformAlertRoutingLogic)
 
     const columns: LemonTableColumns<AlertRouteApi> = [
@@ -51,7 +52,7 @@ export function PlatformAlertRoutesTable(): JSX.Element {
                 <LemonSwitch
                     checked={route.enabled}
                     onChange={(enabled) => setRouteEnabled(route, enabled)}
-                    disabled={togglingIds.includes(route.id)}
+                    disabledReason={editDisabledReason ?? (togglingIds.includes(route.id) ? 'Saving…' : null)}
                     data-attr="platform-alert-route-enabled"
                 />
             ),
@@ -63,8 +64,17 @@ export function PlatformAlertRoutesTable(): JSX.Element {
                     overlay={
                         <LemonMenuOverlay
                             items={[
-                                { label: 'Edit', onClick: () => openRouteModal(route) },
-                                { label: 'Delete', status: 'danger', onClick: () => deleteRoute(route) },
+                                {
+                                    label: 'Edit',
+                                    onClick: () => openRouteModal(route),
+                                    disabledReason: editDisabledReason,
+                                },
+                                {
+                                    label: 'Delete',
+                                    status: 'danger',
+                                    onClick: () => deleteRoute(route),
+                                    disabledReason: editDisabledReason,
+                                },
                             ]}
                         />
                     }
