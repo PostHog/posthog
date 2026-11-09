@@ -90,15 +90,14 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     }
 
     private async runSendWithFiles(invocation: CyclotronJobInvocation): Promise<void> {
-        const admitted = withoutDeferralCount(invocation)
-        const stopHeartbeat = this.startPeriodicHeartbeat([admitted])
-        try {
-            const results = await this.processInvocations([admitted])
-            await callsSettledWithin(CALLS_SETTLE_BEFORE_WRITE_MS)
-            await this.runBackgroundTasks(results)
-        } finally {
-            stopHeartbeat()
-        }
+        const { backgroundTask } = await super.processBatch([withoutDeferralCount(invocation)])
+        await backgroundTask
+    }
+
+    // Only a send with files has calls to wait for, so a plain batch writes at once.
+    protected override async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
+        await callsSettledWithin(CALLS_SETTLE_BEFORE_WRITE_MS)
+        await super.queueInvocationResults(results)
     }
 }
 

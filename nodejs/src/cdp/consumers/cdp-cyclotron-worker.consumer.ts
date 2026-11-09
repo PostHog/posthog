@@ -243,7 +243,7 @@ export class CdpCyclotronWorker<
     }
 
     @instrumented({ key: 'cdpConsumer.backgroundTask', timeoutMs: 30_000, sendException: false })
-    protected async runBackgroundTasks(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
+    private async runBackgroundTasks(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         await this.queueInvocationResults(invocationResults)
 
         // After this point we parallelize and any issues are logged rather than thrown
