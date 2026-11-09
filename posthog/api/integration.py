@@ -3095,6 +3095,15 @@ class IntegrationViewSet(
         config = request.validated_data["config"]
         if email_from_code_enabled(self.team, cast(User, request.user)):
             email.reject_address_change(config["email"])
+        current_mail_from = email.integration.config.get("mail_from_subdomain", "feedback")
+        if (
+            get_authenticator_scopes(request.successful_authenticator) is not None
+            and config.get("mail_from_subdomain", current_mail_from) != current_mail_from
+            and email.shares_domain_with_other_projects()
+        ):
+            raise PermissionDenied(
+                "Other projects send from this domain, so change its MAIL FROM subdomain in PostHog."
+            )
         email.update_native_integration(config, email.integration.team_id)
         return Response(IntegrationSerializer(email.integration).data)
 

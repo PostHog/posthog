@@ -172,6 +172,13 @@ class EmailIntegration:
 
         return self.integration
 
+    def shares_domain_with_other_projects(self) -> bool:
+        return (
+            model.Integration.objects.filter(kind="email", config__domain=self.integration.config.get("domain"))
+            .exclude(team_id=self.integration.team_id)
+            .exists()
+        )
+
     def reject_address_change(self, email_address: str) -> None:
         if email_address.lower() != self.integration.config.get("email", "").lower():
             raise ValidationError(f"The sender address cannot change. Create a new sender for {email_address} instead.")

@@ -2493,6 +2493,55 @@ class TestIntegrationAPIKeyAccess:
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["config"]["email"] == stored_email
 
+    @pytest.mark.parametrize(
+        "use_session,changes,expected_status",
+        [
+            (False, {"mail_from_subdomain": "bounce"}, 403),
+            (False, {"name": "Acme Billing"}, 200),
+            (True, {"mail_from_subdomain": "bounce"}, 200),
+        ],
+    )
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    def test_email_update_with_api_key_cannot_move_mail_from_shared_with_another_project(
+        self,
+        mock_update: MagicMock,
+        use_session: bool,
+        changes: dict[str, str],
+        expected_status: int,
+        client: HttpClient,
+    ) -> None:
+        OrganizationMembership.objects.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+        email_integration = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@mail.example.com", config=EMAIL_CONFIG
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        Integration.objects.create(
+            team=other_team,
+            kind="email",
+            integration_id="news@mail.example.com",
+            config={**EMAIL_CONFIG, "email": "news@mail.example.com"},
+        )
+        key_value = "test_key_email_domain"
+        PersonalAPIKey.objects.create(
+            label="Test Key", user=self.user, secure_value=hash_key_value(key_value), scopes=["integration:write"]
+        )
+        if use_session:
+            client.force_login(self.user)
+        auth_headers: dict[str, Any] = {} if use_session else {"HTTP_AUTHORIZATION": f"Bearer {key_value}"}
+
+        with patch_email_from_code_flag(True):
+            response = client.patch(
+                f"/api/environments/{self.team.pk}/integrations/{email_integration.id}/email/",
+                data=json.dumps(
+                    {"config": {"email": "hello@mail.example.com", "name": "Acme", "provider": "ses", **changes}}
+                ),
+                content_type="application/json",
+                **auth_headers,
+            )
+
+        assert response.status_code == expected_status, response.json()
+        assert mock_update.called == (expected_status == 200 and "mail_from_subdomain" in changes)
+
     @patch("posthog.models.integration.github.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
         mock_list_repos.return_value = (
