@@ -184,3 +184,23 @@ async def test_producer_signs_each_retry_again() -> None:
         sign_internal_logs("k1", "hog_flow", 1, signed_at),
         sign_internal_logs("k1", "hog_flow", 1, signed_at + timedelta(minutes=10)),
     ]
+
+
+@pytest.mark.parametrize(
+    "retry_timeout_ms, expected_seconds",
+    [
+        pytest.param(300_000, 30, id="30 seconds, like a Kafka request"),
+        pytest.param(2_000, 2, id="ends with the retry window"),
+    ],
+)
+async def test_the_timeout_of_one_attempt(retry_timeout_ms: int, expected_seconds: float) -> None:
+    producer = _producer(retry_timeout_ms=retry_timeout_ms)
+
+    with aioresponses() as mocked:
+        mocked.post(URL, status=200)
+        producer.enqueue("hog_flow", [_entry()])
+        producer.flush()
+        await producer.drain(timeout_seconds=5)
+
+    [call] = [call for url_calls in mocked.requests.values() for call in url_calls]
+    assert call.kwargs["timeout"].total == pytest.approx(expected_seconds, abs=0.01)
