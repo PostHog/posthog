@@ -104,11 +104,13 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             if missing:
                 # Campaign and search term CPAs feed each other, so the account falls back as a whole.
                 actions = None
-            data_gaps.extend(self._data_gaps(source, actions, missing))
+            campaigns = tuple(self._campaigns(source, actions))
+            has_performance_max = any(campaign.channel_type == "PERFORMANCE_MAX" for campaign in campaigns)
+            data_gaps.extend(self._data_gaps(source, actions, missing, has_performance_max))
             results.extend(
                 recommend(
                     RecommendationInputs(
-                        campaigns=tuple(self._campaigns(source, actions)),
+                        campaigns=campaigns,
                         search_terms=tuple(self._search_terms(source, actions)),
                         organic_queries=organic_queries,
                         site_urls=site_urls,
@@ -323,7 +325,11 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         return missing
 
     def _data_gaps(
-        self, source: MarketingAnalyticsRecommendationsSource, actions: list[str] | None, missing: list[str]
+        self,
+        source: MarketingAnalyticsRecommendationsSource,
+        actions: list[str] | None,
+        missing: list[str],
+        has_performance_max: bool,
     ) -> list[MarketingAnalyticsRecommendationsDataGap]:
         if missing:
             tables = " and ".join(missing)
@@ -333,7 +339,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 f"Sync {pronoun} to count only the selected conversion actions."
             )
             kind = MarketingAnalyticsRecommendationsDataGapKind.CONVERSION_ACTION_TABLES_NOT_SYNCED
-        elif actions and self._readable(source.performanceMaxSearchTermTable):
+        elif actions and has_performance_max and self._readable(source.performanceMaxSearchTermTable):
             message = PERFORMANCE_MAX_GAP
             kind = MarketingAnalyticsRecommendationsDataGapKind.PERFORMANCE_MAX_SEARCH_TERMS_COUNT_PRIMARY_CONVERSIONS
         else:

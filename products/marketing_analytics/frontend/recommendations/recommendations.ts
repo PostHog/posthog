@@ -48,7 +48,7 @@ export const BENCHMARK_SOURCE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendat
     target_cpa: 'The target CPA this campaign bids to in Google Ads.',
     campaign: 'This campaign has enough conversions in the selected dates to compare its search terms with it.',
     account:
-        'The cost per conversion of the campaigns that are not about your brand. Brand searches cost less, so they are left out.',
+        'The cost per conversion of your non-brand Search campaigns, or of every non-brand campaign if you have no Search campaigns. Brand searches cost less, so they are left out.',
 }
 
 export type RecommendationCategory = 'waste' | 'grow' | 'organic' | 'fix'

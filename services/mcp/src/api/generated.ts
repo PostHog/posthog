@@ -55813,7 +55813,7 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationCpa {
-      /** The CPA the rule compares the subject with. Null when the account has no non-brand conversions. */
+      /** CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for context. Null when the account has no non-brand conversions. */
       benchmark: number | null;
       /** Where the benchmark comes from. Null when there is no benchmark. */
       benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | null;

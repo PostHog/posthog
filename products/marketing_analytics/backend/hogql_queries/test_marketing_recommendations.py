@@ -304,15 +304,18 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("another_ad_often_shows_above", 0.6, "keep", "Keep the ad"),
             ("ad_owns_the_top_spot", 0.95, "save", "Test pausing"),
             ("top_spot_not_measured", None, "save", "Check whether other ads show above yours"),
+            ("account_without_conversions", 0.6, "keep", "Keep the ad", 0),
         ]
     )
     def test_brand_overlap_keeps_the_ad_when_another_ad_shows_above(
-        self, _name: str, absolute_top: float | None, direction: str, action_start: str
+        self, _name: str, absolute_top: float | None, direction: str, action_start: str, conversions: float = 5
     ) -> None:
         brand = _campaign(id="brand", name="Brand")
         terms = (
-            replace(_term("example", "brand", cost=1000, conversions=5), absolute_top_percentage=absolute_top),
-            _term("analytics", "brand", cost=100, conversions=5),
+            replace(
+                _term("example", "brand", cost=1000, conversions=conversions), absolute_top_percentage=absolute_top
+            ),
+            _term("analytics", "brand", cost=100, conversions=conversions),
         )
         organic = (OrganicQueryStats(query="example", clicks=500, impressions=1000, position=1.0),)
 

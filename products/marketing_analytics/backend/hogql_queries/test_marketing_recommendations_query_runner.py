@@ -137,6 +137,15 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 [],
             ),
             ("manager_account_action", [MANAGER_SIGNUP], BOTH_SPLITS, "beta", 200.0, "account", [], MANAGER_SIGNUP),
+            (
+                "performance_max_terms_without_performance_max_campaigns",
+                [SIGNUP],
+                (*BOTH_SPLITS, "performance_max"),
+                "beta",
+                200.0,
+                "account",
+                [],
+            ),
         ]
     )
     def test_counts_only_the_selected_conversion_actions(
@@ -213,6 +222,19 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 term_action_columns,
                 ",".join(term_action_columns)
                 + f"\nbeta,1,2026-01-15,{PURCHASE},10,10\nalpha,1,2026-01-15,{signup},0,5\n",
+            )
+        if "performance_max" in split_tables:
+            pmax_columns = {
+                "campaign_search_term_view_search_term": "String",
+                "campaign_id": "Int64",
+                "segments_date": "Date",
+                "metrics_clicks": "Int64",
+                "metrics_impressions": "Int64",
+                "metrics_cost_micros": "Int64",
+                "metrics_conversions": "Float64",
+            }
+            source.performanceMaxSearchTermTable = self._table(
+                "performance_max_search_term_stats", pmax_columns, ",".join(pmax_columns) + "\n"
             )
 
         response = MarketingAnalyticsRecommendationsQueryRunner(

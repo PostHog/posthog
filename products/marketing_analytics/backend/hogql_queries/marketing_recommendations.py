@@ -1152,8 +1152,7 @@ class _Recommender:
         return self._cpa(self._compared_cpa(campaign, benchmark), benchmark)
 
     def _account_nonbrand_cpa(self) -> float | None:
-        # Search campaigns set the bar when the account has them. An account without them, such as one that only
-        # runs Performance Max, falls back to every campaign that is not about the brand.
+        # An account without Search campaigns, such as one that only runs Performance Max, still needs a benchmark.
         campaigns = self.search_campaigns or [
             campaign for campaign in self.campaigns.values() if not self._is_brand_campaign(campaign, self.brand_spend)
         ]

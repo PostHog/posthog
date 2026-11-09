@@ -7000,7 +7000,11 @@ class MarketingAnalyticsRecommendationCpa(BaseModel):
     )
     benchmark: float | None = Field(
         ...,
-        description=("The CPA the rule compares the subject with. Null when the account has no non-brand conversions."),
+        description=(
+            "CPA benchmark for the subject. Rules that judge a CPA compare it with this"
+            " value, and other rules show it for context. Null when the account has no"
+            " non-brand conversions."
+        ),
     )
     benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | None = Field(
         ...,
