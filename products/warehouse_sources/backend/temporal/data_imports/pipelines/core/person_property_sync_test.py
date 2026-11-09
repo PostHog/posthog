@@ -1,6 +1,7 @@
 import io
 import json
 import threading
+import contextlib
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -203,8 +204,7 @@ class TestRunOrchestration:
         assert write_chunk.await_args.args[3].startswith("job-1-")
         assert set(write_chunk.await_args.args[4]) == {"a", "b"}
         assert compact.await_args is not None
-        assert compact.await_args.args[3] == "job-1"
-        assert set(compact.await_args.args[4]) == {"a", "b"}
+        assert compact.await_args.args[3:] == ("job-1", {})
 
         existing.assert_called_once()
         reconcile.assert_called_once()
@@ -418,17 +418,10 @@ class TestRunOrchestration:
             patch(f"{_MODULE}._produce_intents") as produce,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as compact,
         ):
-            result = await pps._process_source_bundles(
-                team_id=1,
-                project_id=7,
-                binding=_SCHEMA,
-                team_api_token="tok",
-                team_uuid="team-uuid",
-                source=source,
-                bundles=[("a", {"plan_tier": "pro"})],
-                rows_read=1,
-                run_token="job-1",
+            run = pps._RunContext(
+                team_id=1, project_id=7, binding=_SCHEMA, team_api_token="tok", team_uuid="team-uuid", run_token="job-1"
             )
+            result = await pps._process_source_bundles(run, source, [("a", {"plan_tier": "pro"})], 1)
 
         reconcile.assert_called_once_with(1, 7, _SCHEMA, source, ["plan_tier"])
         existing.assert_not_called()
@@ -437,142 +430,134 @@ class TestRunOrchestration:
         assert result.changed == 0 and result.produced == 0
 
 
-class TestReadDeltaBundles:
-    """The backfill's Delta reader accumulates last-write-wins per source, scoped to each source's map."""
-
-    def _dataset(self, rows, columns):
-        import pyarrow as pa  # local import, mirrors the module's optional-dep handling
-
-        batch = pa.RecordBatch.from_pylist(rows)
-        dataset = MagicMock()
-        dataset.schema.names = columns
-        dataset.to_batches.return_value = [batch]
-        return dataset
-
-    def test_accumulates_per_source_last_write_wins(self):
-        rows = [
-            {"distinct_id": "a", "plan": "free"},
-            {"distinct_id": "a", "plan": "pro"},  # later row wins
-            {"distinct_id": "b", "plan": "team"},
-        ]
-        sources = [
-            PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"}),
-            PersonPropertySyncSource("s2", "d2", "distinct_id", {"plan": "tier"}),
-        ]
-        fake_dt = MagicMock()
-        fake_dt.to_pyarrow_dataset.return_value = self._dataset(rows, ["distinct_id", "plan"])
-        with patch("deltalake.DeltaTable") as dt_cls:
-            dt_cls.is_deltatable.return_value = True
-            dt_cls.return_value = fake_dt
-            read = pps._read_delta_bundles("s3://uri", {}, sources)
-
-        assert read.rows_read == 3 and read.sources_missing_key_column == frozenset()
-        assert read.bundles_by_source["s1"] == {"a": {"plan_tier": "pro"}, "b": {"plan_tier": "team"}}
-        assert read.bundles_by_source["s2"] == {"a": {"tier": "pro"}, "b": {"tier": "team"}}
-
-    def test_reports_a_source_whose_key_column_the_table_lacks(self):
-        # The key column is what every row is matched on, so its absence produces nothing at all —
-        # the reader has to say so, or the backfill can't tell this apart from an idle table.
-        sources = [
-            PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"}),
-            PersonPropertySyncSource("s2", "d2", "computed_key", {"plan": "tier"}),
-        ]
-        fake_dt = MagicMock()
-        fake_dt.to_pyarrow_dataset.return_value = self._dataset(
-            [{"distinct_id": "a", "plan": "free"}], ["distinct_id", "plan"]
-        )
-        with patch("deltalake.DeltaTable") as dt_cls:
-            dt_cls.is_deltatable.return_value = True
-            dt_cls.return_value = fake_dt
-            read = pps._read_delta_bundles("s3://uri", {}, sources)
-
-        assert read.sources_missing_key_column == frozenset({"s2"})
-        assert read.bundles_by_source["s1"] == {"a": {"plan_tier": "free"}}
-        assert read.bundles_by_source["s2"] == {}
-        assert read.rows_read == 1
-
-    def test_missing_table_returns_empty(self):
-        sources = [PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})]
-        with patch("deltalake.DeltaTable") as dt_cls:
-            dt_cls.is_deltatable.return_value = False
-            read = pps._read_delta_bundles("s3://uri", {}, sources)
-        assert read.bundles_by_source == {"s1": {}} and read.rows_read == 0
-        assert read.sources_missing_key_column == frozenset()
-
-
 class TestBackfillOrchestration:
     """One backfill reads the table once and upserts every enabled person source on the schema."""
 
     @pytest.mark.asyncio
-    async def test_reads_once_and_produces_per_source(self):
-        team = MagicMock(api_token="tok", project_id=7)
-        schema = MagicMock()
-        schema.folder_path.return_value = "team_1_stripe_schema-1"
-        # The backfill resolves the Delta folder from the loader's actual folder name, not normalized_name.
-        schema.resolved_s3_folder_name = "charges"
-        schema.name = "charges"
+    async def test_reads_once_and_produces_per_source_batch_by_batch(self):
         sources = [
             PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"}),
             PersonPropertySyncSource("s2", "d2", "distinct_id", {"plan": "tier"}),
         ]
-        accumulated = {"s1": {"a": {"plan_tier": "pro"}}, "s2": {"a": {"tier": "pro"}}}
+        batches = [
+            [
+                {"distinct_id": "a", "plan": "free"},
+                {"distinct_id": "a", "plan": "pro"},
+                {"distinct_id": "b", "plan": "team"},
+            ],
+            # b repeats unchanged and is skipped; a changes again and is re-sent.
+            [{"distinct_id": "b", "plan": "team"}, {"distinct_id": "a", "plan": "enterprise"}],
+        ]
+        fake = _FakeS3()
         with (
+            _fake_s3_patch(fake),
+            _delta_table_patch(batches) as dt_cls,
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=sources),
-            patch(f"{_MODULE}._get_schema", return_value=schema),
-            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._delta_uri_for_binding", return_value="s3://bucket/table"),
             patch(f"{_MODULE}.delta_storage_options", return_value={}),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._filter_existing_ids", side_effect=lambda _team_id, _source, ids: set(ids)),
             patch(
-                f"{_MODULE}._read_delta_bundles",
-                return_value=pps.DeltaBundleRead(
-                    bundles_by_source=accumulated, rows_read=5, sources_missing_key_column=frozenset()
-                ),
-            ) as read_delta,
-            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
-            patch(f"{_MODULE}._filter_existing_ids", return_value={"a"}),
-            patch(f"{_MODULE}._produce_intents", return_value={"a"}) as produce,
-            patch(f"{_MODULE}._write_snapshot_chunk", new=AsyncMock()),
-            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
+                f"{_MODULE}._produce_intents",
+                side_effect=lambda _team_id, _token, _source, items, **_kwargs: {key for key, _ in items},
+            ) as produce,
             patch(f"{_MODULE}._reconcile_property_definitions"),
         ):
-            team_cls.objects.get.return_value = team
+            team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7)
             result = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="manual")
+            snapshots = {
+                source_id: (
+                    await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, _SCHEMA, source_id)),
+                    await pps._read_snapshot_hashes(1, _SCHEMA, source_id),
+                )
+                for source_id in ("s1", "s2")
+            }
 
         # The table is read exactly once, though two sources map it.
-        read_delta.assert_called_once()
-        assert result.sources == 2
-        assert result.rows_read == 5
-        assert result.produced == 2  # one produced per source
-        assert sorted(ps.source_id for ps in result.per_source) == ["s1", "s2"]
-        # Both sources compact their snapshot into the shared backfill run token's file.
-        assert write_snapshot.await_count == 2
-        assert all(call.args[3] == pps.BACKFILL_RUN_TOKEN for call in write_snapshot.await_args_list)
-        assert produce.call_count == 2
+        dt_cls.return_value.to_pyarrow_dataset.return_value.to_batches.assert_called_once()
+        assert [(call.args[2].source_id, call.args[3]) for call in produce.call_args_list] == [
+            ("s1", [("a", {"plan_tier": "pro"}), ("b", {"plan_tier": "team"})]),
+            ("s2", [("a", {"tier": "pro"}), ("b", {"tier": "team"})]),
+            ("s1", [("a", {"plan_tier": "enterprise"})]),
+            ("s2", [("a", {"tier": "enterprise"})]),
+        ]
+        assert (result.sources, result.rows_read, result.changed, result.produced) == (2, 5, 6, 6)
+        assert [(ps.source_id, ps.rows_read) for ps in result.per_source] == [("s1", 5), ("s2", 5)]
+        # Each source's chunk files compact into the shared backfill file, holding the last value sent.
+        for source_id, prop in (("s1", "plan_tier"), ("s2", "tier")):
+            files, hashes = snapshots[source_id]
+            prefix = pps._snapshot_prefix(1, _SCHEMA, source_id)
+            assert [pps._s3_key(key) for key in files] == [f"{prefix}/{pps.BACKFILL_RUN_TOKEN}.parquet"]
+            assert hashes == {"a": pps.bundle_hash({prop: "enterprise"}), "b": pps.bundle_hash({prop: "team"})}
+
+    @pytest.mark.asyncio
+    async def test_a_backfill_killed_mid_table_keeps_what_it_delivered_and_the_next_one_resumes(self):
+        source = PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})
+        batches = [
+            [{"distinct_id": "p0", "plan": "free"}, {"distinct_id": "p1", "plan": "free"}],
+            [{"distinct_id": "p2", "plan": "pro"}, {"distinct_id": "p3", "plan": "pro"}],
+            [{"distinct_id": "p4", "plan": "team"}],
+        ]
+        sent: list[str] = []
+        kill_at_batch: int | None = 2
+
+        def _to_batches(**_kwargs):
+            for index, rows in enumerate(batches):
+                if index == kill_at_batch:
+                    raise MemoryError("worker OOM-killed")
+                yield pa.RecordBatch.from_pylist(rows)
+
+        def _produce(_team_id, _token, _source, items, **_kwargs):
+            sent.extend(key for key, _ in items)
+            return {key for key, _ in items}
+
+        dataset = MagicMock()
+        dataset.schema.names = ["distinct_id", "plan"]
+        dataset.to_batches.side_effect = _to_batches
+        fake = _FakeS3()
+        with (
+            _fake_s3_patch(fake),
+            patch("deltalake.DeltaTable") as dt_cls,
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+            patch(f"{_MODULE}._delta_uri_for_binding", return_value="s3://bucket/table"),
+            patch(f"{_MODULE}.delta_storage_options", return_value={}),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._filter_existing_ids", side_effect=lambda _team_id, _source, ids: set(ids)),
+            patch(f"{_MODULE}._produce_intents", side_effect=_produce),
+            patch(f"{_MODULE}._reconcile_property_definitions"),
+        ):
+            dt_cls.is_deltatable.return_value = True
+            dt_cls.return_value.to_pyarrow_dataset.return_value = dataset
+            team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7)
+
+            with pytest.raises(MemoryError):
+                await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="backfill")
+            assert sorted(sent) == ["p0", "p1", "p2", "p3"]
+            assert set(await pps._read_snapshot_hashes(1, _SCHEMA, "s1")) == {"p0", "p1", "p2", "p3"}
+
+            sent.clear()
+            kill_at_batch = None
+            result = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="backfill")
+
+        assert sent == ["p4"]
+        assert (result.rows_read, result.changed, result.produced) == (5, 1, 1)
 
     @pytest.mark.asyncio
     async def test_source_without_its_key_column_fails_instead_of_producing_nothing(self):
         # Previously this completed clean with produced=0, which cleared the source's last error and
         # read as a healthy sync — the mapping stays broken until someone changes the key column.
-        team = MagicMock(api_token="tok", project_id=7)
-        schema = MagicMock()
-        schema.folder_path.return_value = "team_1_source_schema-1"
-        schema.resolved_s3_folder_name = "orders"
-        schema.name = "orders"
         sources = [PersonPropertySyncSource("s1", "d1", "computed_key", {"plan": "plan_tier"})]
+        batches = [[{"distinct_id": "a", "plan": "pro"}] * 5, [{"distinct_id": "b", "plan": "pro"}] * 3]
         with (
+            _delta_table_patch(batches),
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=sources),
-            patch(f"{_MODULE}._get_schema", return_value=schema),
+            patch(f"{_MODULE}._delta_uri_for_binding", return_value="s3://bucket/table"),
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}.delta_storage_options", return_value={}),
-            patch(
-                f"{_MODULE}._read_delta_bundles",
-                return_value=pps.DeltaBundleRead(
-                    bundles_by_source={"s1": {}}, rows_read=8, sources_missing_key_column=frozenset({"s1"})
-                ),
-            ),
             patch(f"{_MODULE}._produce_intents") as produce,
             patch(f"{_MODULE}._reconcile_property_definitions") as reconcile,
         ):
-            team_cls.objects.get.return_value = team
+            team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7)
             result = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="backfill")
 
         (ps,) = result.per_source
@@ -614,12 +599,12 @@ class TestBackfillOrchestration:
         with (
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=sources),
             patch(f"{_MODULE}._delta_uri_for_binding", return_value=None),
-            patch(f"{_MODULE}._read_delta_bundles") as read_delta,
+            _delta_table_patch([]) as dt_cls,
         ):
             result = await pps.run_person_property_backfill(team_id=1, binding=binding, trigger="backfill")
 
         assert result.sources == 0
-        read_delta.assert_not_called()
+        dt_cls.is_deltatable.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_view_binding_reads_the_model_table_uri(self):
@@ -635,12 +620,7 @@ class TestBackfillOrchestration:
                 "products.data_modeling.backend.facade.api.get_materialized_table_uri",
                 return_value="s3://bucket/team_1_model_abc/modeling/enriched_users",
             ) as model_uri,
-            patch(
-                f"{_MODULE}._read_delta_bundles",
-                return_value=pps.DeltaBundleRead(
-                    bundles_by_source={"s1": {}}, rows_read=0, sources_missing_key_column=frozenset()
-                ),
-            ) as read_delta,
+            _delta_table_patch([]) as dt_cls,
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
             patch(f"{_MODULE}._reconcile_property_definitions"),
@@ -649,7 +629,7 @@ class TestBackfillOrchestration:
             await pps.run_person_property_backfill(team_id=1, binding=_VIEW, trigger="manual")
 
         model_uri.assert_called_once_with(1, _VIEW.id)
-        assert read_delta.call_args.args[0] == "s3://bucket/team_1_model_abc/modeling/enriched_users"
+        assert dt_cls.is_deltatable.call_args.args[0] == "s3://bucket/team_1_model_abc/modeling/enriched_users"
 
 
 class _FakeS3:
@@ -709,6 +689,17 @@ def _fake_s3_patch(fake):
     stack.enter_context(patch(f"{_MODULE}.aget_s3_client", lambda: _cm()))
     stack.enter_context(patch(f"{_MODULE}.get_s3_client", lambda: fake))
     return stack
+
+
+@contextlib.contextmanager
+def _delta_table_patch(batches, columns=("distinct_id", "plan")):
+    """Patch ``deltalake.DeltaTable`` with a table that yields ``batches`` (lists of row dicts)."""
+    with patch("deltalake.DeltaTable") as dt_cls:
+        dt_cls.is_deltatable.return_value = True
+        dataset = dt_cls.return_value.to_pyarrow_dataset.return_value
+        dataset.schema.names = list(columns)
+        dataset.to_batches.side_effect = lambda **_kwargs: (pa.RecordBatch.from_pylist(rows) for rows in batches)
+        yield dt_cls
 
 
 def _stage(fake, name, rows, job_id="job-1"):
