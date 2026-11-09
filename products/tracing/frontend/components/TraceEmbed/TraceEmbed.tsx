@@ -15,18 +15,16 @@ import { type TraceViewSurface, traceViewLogic } from '../TraceView/traceViewLog
 import { traceEmbedLogic } from './traceEmbedLogic'
 
 export interface TraceEmbedProps {
-    /** Keys the view's state, so two embeds on one page stay apart. */
     viewId: string
     trace: TraceLinkParams
     surface: TraceViewSurface
     'data-attr': string
 }
 
-/** One trace's span tree and inspector, inline in another page rather than in the trace dialog. */
 export function TraceEmbed({ viewId, trace, surface, 'data-attr': dataAttr }: TraceEmbedProps): JSX.Element {
-    const logic = traceEmbedLogic({ viewId, trace })
+    const logic = traceEmbedLogic({ viewId, trace, surface })
     const { traceSpans, traceSpansLoading, traceSpansFailed, inspectorOpen } = useValues(logic)
-    const { loadTraceSpans, toggleInspector } = useActions(logic)
+    const { loadTraceSpans, toggleInspector, openInTracing } = useActions(logic)
     const { summary, timeline } = useValues(traceViewLogic({ id: viewId }))
 
     return (
@@ -61,6 +59,7 @@ export function TraceEmbed({ viewId, trace, surface, 'data-attr': dataAttr }: Tr
                             type="secondary"
                             icon={<IconExternal />}
                             to={traceUrl(trace)}
+                            onClick={openInTracing}
                             data-attr={`${dataAttr}-open-in-tracing`}
                         >
                             Open in Tracing

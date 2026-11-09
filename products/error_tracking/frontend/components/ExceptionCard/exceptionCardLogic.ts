@@ -133,6 +133,9 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
     }),
 
     listeners(({ props }) => ({
+        setCurrentTab: ({ tab }) => {
+            posthog.capture('error_tracking_exception_tab_changed', { issue_id: props.issueId, tab })
+        },
         setFrameExpanded: ({ expanded }) => {
             if (expanded) {
                 posthog.capture('error_tracking_stacktrace_explored', { issue_id: props.issueId })

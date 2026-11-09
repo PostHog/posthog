@@ -7,10 +7,16 @@ import { LemonCard } from '@posthog/lemon-ui'
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import type { TimelineMarkerColor } from 'lib/components/SessionTimeline/SessionTimeline'
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
+import { ViewTraceButton } from 'lib/components/ViewTraceButton/ViewTraceButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 import { ExceptionCardFooter } from './ExceptionCardFooter'
 import { exceptionCardLogic } from './exceptionCardLogic'
@@ -86,9 +92,15 @@ function ExceptionCardContent({
     label,
 }: ExceptionCardContentProps): JSX.Element {
     const { currentTab } = useValues(exceptionCardLogic)
-    const { sessionId } = useValues(errorPropertiesLogic)
+    const { sessionId, spanId, traceId } = useValues(errorPropertiesLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
     const logsEnabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
+    // Hidden without Tracing access, as ViewTraceButton is.
+    const traceTabEnabled =
+        logsEnabled && !getAccessControlDisabledReason(AccessControlResourceType.Tracing, AccessControlLevel.Viewer)
+    const openTraceDialog = useOpenTraceDialog()
+    const usableTraceId = usableId(traceId)
+    const usableSpanId = usableId(spanId)
     const headerRef = useRef<HTMLDivElement>(null)
 
     // Base UI scrolls the active tab into view on mount and on keyboard navigation, but not when the
@@ -193,15 +205,33 @@ function ExceptionCardContent({
                                     Logs
                                 </TabsTrigger>
                             )}
-                            <TabsTrigger
-                                value="trace"
-                                className="text-sm"
-                                style={{ '--background': 'transparent' } as CSSProperties}
-                            >
-                                Trace
-                            </TabsTrigger>
+                            {traceTabEnabled && (
+                                <TabsTrigger
+                                    value="trace"
+                                    className="text-sm"
+                                    style={{ '--background': 'transparent' } as CSSProperties}
+                                >
+                                    Trace
+                                </TabsTrigger>
+                            )}
                         </TabsList>
                         <div className="flex justify-end gap-1">
+                            {!logsEnabled && usableTraceId && (
+                                <ViewTraceButton
+                                    traceId={usableTraceId}
+                                    spanId={usableSpanId}
+                                    timestamp={timestamp}
+                                    size="xsmall"
+                                    data-attr="error-tracking-view-trace"
+                                    onClick={(event) =>
+                                        openTraceDialog(
+                                            event,
+                                            { traceId: usableTraceId, spanId: usableSpanId, ts: timestamp },
+                                            { entryPoint: 'exception_card' }
+                                        )
+                                    }
+                                />
+                            )}
                             {sessionId && (currentTab === 'timeline' || currentTab === 'recording') ? (
                                 <ViewLogsButton
                                     sessionId={sessionId}
@@ -218,7 +248,7 @@ function ExceptionCardContent({
                 <PropertiesTab value="properties" className="flex-1 min-h-0" />
                 <SessionTab timestamp={timestamp} eventMarkerColor={eventMarkerColor} />
                 {logsEnabled && <LogsTab timestamp={timestamp} />}
-                <TraceTab eventId={eventId} timestamp={timestamp} />
+                {traceTabEnabled && <TraceTab eventId={eventId} timestamp={timestamp} />}
                 <ExceptionCardFooter eventId={eventId} fingerprint={fingerprint} label={label} timestamp={timestamp} />
             </Tabs>
         </LemonCard>

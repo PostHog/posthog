@@ -13,10 +13,6 @@ export interface TraceSpanPages {
     truncated: boolean
 }
 
-/**
- * Loads a trace's spans for a view that cannot page in on scroll. `breakpoint` is the kea loader's,
- * and `keepPaging` runs between pages so a view that closed stops fetching.
- */
 export async function loadTraceSpanPages(
     trace: TraceLinkParams,
     breakpoint: () => void,
