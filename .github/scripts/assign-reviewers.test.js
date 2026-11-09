@@ -177,42 +177,6 @@ test('computeOwnerFootprints: skips resolutions with generated/vendored status',
     assertMatchObject(footprints[1], { owner: '@PostHog/team-devex', fileCount: 1, lines: 3 })
 })
 
-test('computeOwnerFootprints: a test file counts only toward an owner its source brought in, unless only tests changed', () => {
-    const resolution = {
-        'posthog/api/survey.py': resolved(['team-surveys'], 'products/surveys/product.yaml'),
-        'products/surveys/backend/test/test_survey_api.py': resolved(['team-surveys'], 'products/surveys/product.yaml'),
-        'posthog/api/test/test_survey.py': resolved(['team-growth'], 'posthog/api/owners.yaml'),
-        'frontend/src/scenes/toolbar-launch/toolbarLogic.test.ts': resolved(
-            ['team-growth'],
-            'frontend/src/scenes/owners.yaml'
-        ),
-        'posthog/test/repo_invariants/test_guard.py': { ...resolved(['team-devex'], 'owners.yaml'), sensitive: true },
-    }
-    const files = Object.keys(resolution).map((path) => file(path, 40))
-
-    const footprints = computeOwnerFootprints(resolution, files)
-    const sensitiveOwners = computeSensitiveOwners(resolution, files)
-
-    assert.deepEqual(
-        footprints.map(({ owner, fileCount, lines }) => ({ owner, fileCount, lines })),
-        [{ owner: '@PostHog/team-surveys', fileCount: 2, lines: 80 }]
-    )
-    assert.deepEqual(
-        sensitiveOwners.map((entry) => entry.owner),
-        ['@PostHog/team-devex']
-    )
-
-    const testFiles = files.filter(({ filename }) => filename !== 'posthog/api/survey.py')
-    assert.deepEqual(
-        computeOwnerFootprints(resolution, testFiles).map(({ owner, fileCount }) => ({ owner, fileCount })),
-        [
-            { owner: '@PostHog/team-surveys', fileCount: 1 },
-            { owner: '@PostHog/team-growth', fileCount: 2 },
-            { owner: '@PostHog/team-devex', fileCount: 1 },
-        ]
-    )
-})
-
 test('computeOwnerFootprints: accumulates files and sources per owner, and requests @handle individuals as users', () => {
     const resolution = {
         'posthog/hogql/printer.py': resolved(['team-data-tools'], 'posthog/hogql/owners.yaml'),

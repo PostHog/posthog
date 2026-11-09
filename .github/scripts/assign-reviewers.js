@@ -203,15 +203,6 @@ function isGeneratedOrVendored(filename, resolution) {
     )
 }
 
-// computeOwnerFootprints applies the test-file rule from `find_candidates` in
-// products/stamphog/backend/logic/routing/candidates.py.
-// Keep in step with runner_for_path in packages/owners-yaml/owners_yaml/census.py.
-const TEST_FILE = /(^|\/)test_[^/]*\.py$|_test\.py$|\.(test|spec)\.[jt]sx?$/
-
-function isTestFile(filename) {
-    return TEST_FILE.test(filename)
-}
-
 // Build a footprint per owner from the resolver's per-file result: which
 // owners.yaml/product.yaml sources pulled them in, which (non-excluded) files
 // they own in this diff, and the total lines changed across those files. Pure
@@ -219,15 +210,9 @@ function isTestFile(filename) {
 // trivially testable. `resolutionByPath` maps filename -> {owners, source, ...}.
 function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG) {
     const relevantFiles = changedFiles.filter((file) => !isExcludedFile(file.filename, config.excludedPatterns))
-    const sourceFilesFirst = relevantFiles.toSorted((a, b) => isTestFile(a.filename) - isTestFile(b.filename))
     const footprints = new Map()
-    let testsJoinOnly = null
 
-    for (const file of sourceFilesFirst) {
-        const isTest = isTestFile(file.filename)
-        if (isTest && testsJoinOnly === null) {
-            testsJoinOnly = footprints.size > 0
-        }
+    for (const file of relevantFiles) {
         const resolution = resolutionByPath[file.filename]
         if (isGeneratedOrVendored(file.filename, resolution)) {
             continue
@@ -249,9 +234,6 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
 
             let footprint = footprints.get(resolved.owner)
             if (!footprint) {
-                if (isTest && testsJoinOnly) {
-                    continue
-                }
                 footprint = {
                     owner: resolved.owner,
                     type: resolved.type,

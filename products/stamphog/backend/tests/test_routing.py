@@ -122,54 +122,6 @@ class TestFindCandidates:
         if "team-other" in candidates:
             assert not candidates["team-other"].is_pinned
 
-    @parameterized.expand(
-        [
-            (
-                "pytest",
-                {"posthog/api/test/test_team.py": "team-tests", "posthog/api/survey.py": "team-other"},
-                (),
-                {"team-other": 1},
-            ),
-            (
-                "jest",
-                {
-                    "frontend/src/scenes/toolbar-launch/toolbarLogic.test.ts": "team-tests",
-                    "posthog/api/survey.py": "team-other",
-                },
-                (),
-                {"team-other": 1},
-            ),
-            (
-                "sensitive_test",
-                {"posthog/test/repo_invariants/test_guard.py": "team-tests", "posthog/api/survey.py": "team-other"},
-                ("posthog/test/repo_invariants/test_guard.py",),
-                {"team-tests": 1, "team-other": 1},
-            ),
-            (
-                "test_listed_before_its_source",
-                {"posthog/api/test/test_team.py": "team-tests", "posthog/api/team.py": "team-tests"},
-                (),
-                {"team-tests": 2},
-            ),
-            (
-                "only_tests_changed",
-                {"posthog/api/test/test_team.py": "team-tests", "frontend/src/lib/utils.test.ts": "team-frontend"},
-                (),
-                {"team-tests": 1, "team-frontend": 1},
-            ),
-        ]
-    )
-    def test_a_test_file_makes_its_owner_a_candidate_with_its_source_when_sensitive_or_alone(
-        self, _name: str, owner_by_path: dict[str, str], sensitive: tuple[str, ...], expected: dict[str, int]
-    ) -> None:
-        resolutions = {
-            path: _resolution(path, [owner], sensitive=path in sensitive) for path, owner in owner_by_path.items()
-        }
-
-        candidates = find_candidates([_file(path) for path in owner_by_path], resolutions)
-
-        assert {candidate.owner: len(candidate.files) for candidate in candidates} == expected
-
     @parameterized.expand([("added", True), ("renamed", True), ("copied", True), ("modified", False)])
     def test_addition_pins_owners_of_additions(self, status: str, expect_pin: bool) -> None:
         path = "products/new_thing/backend/api.py"
