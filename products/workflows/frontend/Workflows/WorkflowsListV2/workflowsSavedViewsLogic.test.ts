@@ -316,6 +316,13 @@ describe('workflowsSavedViewsLogic', () => {
         applyViewById('drafts')
         expect(workflowsListV2Logic.values.value.filters).toEqual([status('draft'), eventTrigger])
         expect(router.values.searchParams.q).toBe('status:draft trigger:event')
+
+        const hideArchive: FacetFilter = { facet: 'in', value: 'Archive', negated: true }
+        workflowsListV2Logic.actions.setValue({ filters: [inBilling, hideArchive, eventTrigger], text: '' })
+        await logic.asyncActions.saveViewAs('Not archived')
+        expect(writes).toEqual([
+            expect.objectContaining({ state: expect.objectContaining({ filters: [hideArchive, eventTrigger] }) }),
+        ])
     })
 
     it('withholds health view counts when run metrics are unavailable', async () => {
@@ -1177,12 +1184,18 @@ describe('workflowsSavedViewsLogic', () => {
         const start = (mutation: string): Promise<void> =>
             mutation === 'restore' ? logic.asyncActions.restoreMyWorkflows() : logic.asyncActions.saveViewAs('Mine')
 
+        workflowsListV2Logic.actions.setValue({ filters: [eventTrigger], text: '' })
+
         const done = [start(first), start(second)]
+        workflowsListV2Logic.actions.setValue({ filters: [eventTrigger, adaOwns], text: '' })
         release()
         await Promise.all(done)
 
         expect(restores).toEqual(1)
-        expect(writes).toHaveLength(1)
+        expect(writes).toEqual([
+            expect.objectContaining({ state: expect.objectContaining({ filters: [eventTrigger] }) }),
+        ])
+        expect(logic.values.addedFilters).toEqual([adaOwns])
         expect(logic.values.myWorkflowsDeleted).toBe(false)
         expect(logic.values.views.map((view) => view.name)).toContain('Mine')
         expect(logic.values.saving).toBe(false)

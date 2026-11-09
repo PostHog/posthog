@@ -98,8 +98,9 @@ export function savedViewChanges(
 
 export function workflowViewState(value: FacetSearchValue, columns: OptionalColumn[]): WorkflowViewStateApi {
     const allowed = Object.values(WorkflowViewFacetEnumApi)
-    const filters = value.filters.filter((filter): filter is FacetFilter & { facet: WorkflowViewFilterApi['facet'] } =>
-        allowed.some((facet) => facet === filter.facet)
+    const filters = withoutFolderScope(value.filters).filter(
+        (filter): filter is FacetFilter & { facet: WorkflowViewFilterApi['facet'] } =>
+            allowed.some((facet) => facet === filter.facet)
     )
     return { filters, text: value.text.trim(), columns }
 }

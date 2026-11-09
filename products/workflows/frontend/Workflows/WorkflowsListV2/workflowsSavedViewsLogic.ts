@@ -541,20 +541,28 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 throw error
             }
         }
-        const rememberFiltersAddedWhileSaving = (previous: FacetFilter[], next: FacetFilter[]): void => {
+        // Each pending save keeps the keys of the filters added after its submit, including while it waits its turn.
+        const additionTrackers = (): Set<Set<string>> => (cache.additionTrackers ??= new Set<Set<string>>())
+        const trackAdditions = (): Set<string> => {
+            const added = new Set<string>()
+            additionTrackers().add(added)
+            return added
+        }
+        const rememberAddedFilters = (previous: FacetFilter[], next: FacetFilter[]): void => {
             const previousKeys = new Set(previous.map((filter) => facetFilterKey(filter)))
             for (const filter of next) {
                 if (!previousKeys.has(facetFilterKey(filter))) {
-                    cache.filterKeysAddedWhileSaving?.add(facetFilterKey(filter))
+                    for (const added of additionTrackers()) {
+                        added.add(facetFilterKey(filter))
+                    }
                 }
             }
         }
-        const keepAdditionsMadeWhileSaving = (saved: WorkflowViewApi): void => {
-            const addedWhileSaving: Set<string> = cache.filterKeysAddedWhileSaving ?? new Set()
+        const keepAdditionsMadeSinceSubmit = (saved: WorkflowViewApi, added: Set<string>): void => {
             actions.setAddedFilters(
                 addedFiltersAfterEdit(
                     workflowViewValue(saved.state).filters,
-                    values.value.filters.filter((filter) => addedWhileSaving.has(facetFilterKey(filter))),
+                    values.value.filters.filter((filter) => added.has(facetFilterKey(filter))),
                     values.value.filters
                 )
             )
@@ -603,7 +611,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 return
             }
             actions.setPendingAction(action)
-            cache.filterKeysAddedWhileSaving = new Set<string>()
             try {
                 await run(stillCurrent)
             } catch (error) {
@@ -691,9 +698,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         actions.setAddedFilters(
                             addedFiltersAfterEdit(previousFilters, values.addedFilters, value.filters)
                         )
-                        if (values.saving) {
-                            rememberFiltersAddedWhileSaving(previousFilters, value.filters)
-                        }
+                        rememberAddedFilters(previousFilters, value.filters)
                     }
                     writeUrl()
                 }
@@ -857,54 +862,69 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     }
                 }
             },
-            saveViewAs: async ({ name, onFailure }) =>
-                await runMutation(
-                    'save-as',
-                    name.trim(),
-                    async (stillCurrent) => {
-                        const sourceViewId = values.activeViewId
-                        const view = await api.workflowViewsCreate(String(values.currentTeamId), {
-                            name: name.trim(),
-                            state: workflowViewState(values.value, values.shownColumns),
-                        })
-                        if (!stillCurrent()) {
-                            return
-                        }
-                        actions.upsertSavedView(view)
-                        if (values.activeViewId === sourceViewId) {
-                            keepAdditionsMadeWhileSaving(view)
-                            actions.setActiveViewId(view.id)
-                        }
-                        lemonToast.success(`Saved ${view.name} as a new view`)
-                    },
-                    undefined,
-                    onFailure
-                ),
+            saveViewAs: async ({ name, onFailure }) => {
+                // A save that waits its turn sends what the list showed at submit, not edits made while it waited.
+                const sourceViewId = values.activeViewId
+                const state = workflowViewState(values.value, values.shownColumns)
+                const added = trackAdditions()
+                try {
+                    await runMutation(
+                        'save-as',
+                        name.trim(),
+                        async (stillCurrent) => {
+                            const view = await api.workflowViewsCreate(String(values.currentTeamId), {
+                                name: name.trim(),
+                                state,
+                            })
+                            if (!stillCurrent()) {
+                                return
+                            }
+                            actions.upsertSavedView(view)
+                            if (values.activeViewId === sourceViewId) {
+                                keepAdditionsMadeSinceSubmit(view, added)
+                                actions.setActiveViewId(view.id)
+                            }
+                            lemonToast.success(`Saved ${view.name} as a new view`)
+                        },
+                        undefined,
+                        onFailure
+                    )
+                } finally {
+                    additionTrackers().delete(added)
+                }
+            },
             updateActiveView: async () => {
                 const current = values.activeView
                 if (current.builtIn || values.sharedSaveDisabledReason) {
                     return
                 }
-                await runMutation(
-                    'update',
-                    current.id,
-                    async (stillCurrent) => {
-                        const view = await api.workflowViewsPartialUpdate(String(values.currentTeamId), current.id, {
-                            version: latestVersion(current),
-                            state: workflowViewState(values.value, values.shownColumns),
-                        })
-                        if (!stillCurrent()) {
-                            return
-                        }
-                        actions.upsertSavedView(view)
-                        if (values.activeViewId === current.id) {
-                            keepAdditionsMadeWhileSaving(view)
-                            writeUrl()
-                        }
-                        lemonToast.success(`Updated ${view.name} for everyone`)
-                    },
-                    current
-                )
+                const state = workflowViewState(values.value, values.shownColumns)
+                const added = trackAdditions()
+                try {
+                    await runMutation(
+                        'update',
+                        current.id,
+                        async (stillCurrent) => {
+                            const view = await api.workflowViewsPartialUpdate(
+                                String(values.currentTeamId),
+                                current.id,
+                                { version: latestVersion(current), state }
+                            )
+                            if (!stillCurrent()) {
+                                return
+                            }
+                            actions.upsertSavedView(view)
+                            if (values.activeViewId === current.id) {
+                                keepAdditionsMadeSinceSubmit(view, added)
+                                writeUrl()
+                            }
+                            lemonToast.success(`Updated ${view.name} for everyone`)
+                        },
+                        current
+                    )
+                } finally {
+                    additionTrackers().delete(added)
+                }
             },
             renameView: async ({ id, name, onFailure }) => {
                 const current = values.views.find((view) => view.id === id)

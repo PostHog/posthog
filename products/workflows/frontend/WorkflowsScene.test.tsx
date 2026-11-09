@@ -88,7 +88,8 @@ describe('WorkflowsScene', () => {
         expect(
             await screen.findByText("Built-in views can't be changed. Save as a new view instead.")
         ).toBeInTheDocument()
-        await user.click(document.querySelector('[aria-label="Remove filter Status: Draft"]')!)
+        await user.click(screen.getByLabelText('Remove view filter Status: Draft'))
+        expect(screen.queryByText('Status: Draft')).not.toBeInTheDocument()
         expect(document.querySelector('[data-attr="workflows-combined-view-modified"]')).not.toBeNull()
         await user.click(
             Array.from(document.querySelectorAll('[role="tab"]')).find((tab) => tab.textContent?.startsWith('All'))!
