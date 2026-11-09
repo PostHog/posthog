@@ -157,7 +157,7 @@ Django must be up at that moment.
 > once. It needs the Temporal worker running. The thread checks each step again before it shows it,
 > so a person who already linked their account or chose a model sees that step as already set.
 > To see the thread again in a dev workspace, clear the `onboarding` field of your row in
-> `slack_app_slacksettings`. The
+> `slack_app_slacksettings`. That also lets the work focus DM run again the next time you link your account. The
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). With the `slack-app-link-search-scopes` flag on, the
 > link asks for the `search:read.*` and `users:read*` user scopes at `oauth.v2.authorize` instead, so the
