@@ -99,6 +99,36 @@ class RecipientUnreachable(TransactionalEmailError):
     code = "recipient_unreachable"
 
 
+class RecipientOptedOut(TransactionalEmailError):
+    code = "recipient_opted_out"
+
+
+class UnknownCategory(TransactionalEmailError):
+    code = "unknown_category"
+    attr = "category"
+
+    def __init__(self, key: str) -> None:
+        super().__init__(
+            f"This project has no marketing message category with the key `{key}`. Send the key of one of its "
+            "marketing categories, or `transactional`."
+        )
+
+
+class CategoryMismatch(TransactionalEmailError):
+    code = "category_mismatch"
+    attr = "category"
+
+    def __init__(self, template_category: str) -> None:
+        super().__init__(
+            f"This template sends in the category `{template_category}`. Leave `category` out, or send "
+            f"`{template_category}`."
+        )
+
+
+class UnsubscribeLinkRequired(TransactionalEmailError):
+    code = "unsubscribe_link_required"
+
+
 class SenderNotVerified(TransactionalEmailError):
     code = "sender_not_verified"
 
@@ -151,6 +181,8 @@ class CodeEmail:
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
+    # A marketing send in this category. Without one, the send is transactional.
+    message_category_id: UUID | None = None
 
 
 class DeliveryUnavailable(Exception):

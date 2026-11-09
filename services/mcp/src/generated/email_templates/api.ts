@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. A code send with a marketing `category` goes out as a marketing email in that category: it skips recipients who opted out and needs `{{ unsubscribe_url }}` in its body. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
 export const MessagingSendEmailCreateParams = () => zod.object({
@@ -29,6 +29,8 @@ export const MessagingSendEmailCreateHeader = () => zod.object({
         ),
 })
 
+export const messagingSendEmailCreateBodyCategoryMax = 64
+
 export const messagingSendEmailCreateBodyTemplateKeyMax = 400
 
 export const messagingSendEmailCreateBodyTemplateKeyRegExp = new RegExp('^[a-zA-Z0-9_-]+$')
@@ -40,6 +42,13 @@ export const messagingSendEmailCreateBodyFromMax = 1024
 
 export const MessagingSendEmailCreateBody = () => zod.strictObject({
     to: zod.email().describe('Email address of the recipient.'),
+    category: zod
+        .string()
+        .max(messagingSendEmailCreateBodyCategoryMax)
+        .nullish()
+        .describe(
+            "Message category of the email. Leave it out or send `transactional` for a transactional email, which skips opt-outs. Send the `key` of one of the project's marketing message categories, such as `newsletter`, for a marketing email in that category: it skips recipients who opted out of the category or of all marketing, and gets unsubscribe headers. Its `html`, or `text` when it has no `html`, must hold `{{ unsubscribe_url }}`, which PostHog replaces with the recipient's unsubscribe link. A send with `template_id` follows the template's category, so leave it out there or send the template's own."
+        ),
     template_key: zod
         .string()
         .max(messagingSendEmailCreateBodyTemplateKeyMax)

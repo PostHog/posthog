@@ -6,6 +6,18 @@
             "description": "Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.",
             "type": "boolean"
         },
+        "category": {
+            "anyOf": [
+                {
+                    "maxLength": 64,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Message category of the email. Leave it out or send `transactional` for a transactional email, which skips opt-outs. Send the `key` of one of the project's marketing message categories, such as `newsletter`, for a marketing email in that category: it skips recipients who opted out of the category or of all marketing, and gets unsubscribe headers. Its `html`, or `text` when it has no `html`, must hold `{{ unsubscribe_url }}`, which PostHog replaces with the recipient's unsubscribe link. A send with `template_id` follows the template's category, so leave it out there or send the template's own."
+        },
         "distinct_id": {
             "anyOf": [
                 {

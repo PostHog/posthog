@@ -113,6 +113,12 @@ export interface SendEmailApi {
     to: string
     /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
     message_data?: SendEmailApiMessageData
+    /**
+     * Message category of the email. Leave it out or send `transactional` for a transactional email, which skips opt-outs. Send the `key` of one of the project's marketing message categories, such as `newsletter`, for a marketing email in that category: it skips recipients who opted out of the category or of all marketing, and gets unsubscribe headers. Its `html`, or `text` when it has no `html`, must hold `{{ unsubscribe_url }}`, which PostHog replaces with the recipient's unsubscribe link. A send with `template_id` follows the template's category, so leave it out there or send the template's own.
+     * @maxLength 64
+     * @nullable
+     */
+    category?: string | null
     /** ID of the email template to send. The template must be made transactional first. Send either `template_id` or `template_key`. */
     template_id?: string
     /**
@@ -1020,6 +1026,12 @@ export interface SendTransactionalEmailApi {
     to: string
     /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
     message_data?: SendTransactionalEmailApiMessageData
+    /**
+     * Message category of the email. Leave it out or send `transactional` for a transactional email, which skips opt-outs. Send the `key` of one of the project's marketing message categories, such as `newsletter`, for a marketing email in that category: it skips recipients who opted out of the category or of all marketing, and gets unsubscribe headers. Its `html`, or `text` when it has no `html`, must hold `{{ unsubscribe_url }}`, which PostHog replaces with the recipient's unsubscribe link. A send with `template_id` follows the template's category, so leave it out there or send the template's own.
+     * @maxLength 64
+     * @nullable
+     */
+    category?: string | null
     /** Who the email is for, used to attribute engagement events. */
     identifiers?: TransactionalEmailIdentifiersApi
 }

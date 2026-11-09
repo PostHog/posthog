@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from email.utils import parseaddr
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -25,6 +25,7 @@ from posthog.plugins.plugin_server_api import (
 )
 
 from products.messaging.backend.facade.contracts import (
+    CategoryMismatch,
     CodeEmail,
     ContentTooLarge,
     DeliveryUnavailable,
@@ -39,6 +40,7 @@ from products.messaging.backend.facade.contracts import (
     NamedSenderNotVerified,
     QueuedEmail,
     QuotaLimited,
+    RecipientOptedOut,
     RecipientSuppressed,
     RecipientUnreachable,
     SenderNotVerified,
@@ -51,6 +53,8 @@ from products.messaging.backend.facade.contracts import (
     TooManyKeys,
     TransactionalEmailError,
     TransactionalEmailPaused,
+    UnknownCategory,
+    UnsubscribeLinkRequired,
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
@@ -166,6 +170,10 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         "The recipient is on this project's suppression list after a hard bounce or a spam complaint, so the "
         "email can't be sent. Remove the address from the suppression list if it can receive email again.",
     ),
+    "recipient_opted_out": (
+        RecipientOptedOut,
+        "The recipient opted out of this message category or of all marketing email, so the email can't be sent.",
+    ),
     "recipient_unreachable": (
         RecipientUnreachable,
         "The recipient's address can't receive email: it isn't a valid address, or its domain has no mail servers, "
@@ -180,6 +188,9 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
 }
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
+
+TRANSACTIONAL_CATEGORY = "transactional"
+UNSUBSCRIBE_PLACEHOLDER = re.compile(r"\{\{\s*unsubscribe_url\s*\}\}")
 
 TRANSACTIONAL_EMAIL_KEY_LIMIT = 1000
 TRANSACTIONAL_EMAIL_KEY_LOCK = "transactional-email-keys"
@@ -488,6 +499,43 @@ def require_code_email_access(
         require_workflow_create()
 
 
+def is_marketing_category(category: str | None) -> bool:
+    return category is not None and category != TRANSACTIONAL_CATEGORY
+
+
+def code_send_category_id(team_id: int, category: str | None) -> UUID | None:
+    """The marketing category a code send names by key, or None for a transactional send."""
+    if not is_marketing_category(category):
+        return None
+    assert category is not None
+    category_id = (
+        MessageCategory.objects.filter(
+            team_id=team_id, key=category, deleted=False, category_type=MessageCategoryType.MARKETING
+        )
+        .values_list("id", flat=True)
+        .first()
+    )
+    if category_id is None:
+        raise UnknownCategory(category)
+    return category_id
+
+
+def _template_category(team_id: int, template: TransactionalTemplate) -> str:
+    if template.message_category_id:
+        category = MessageCategory.objects.filter(team_id=team_id, id=template.message_category_id).first()
+        if category and category.category_type == MessageCategoryType.MARKETING:
+            return category.key
+    return TRANSACTIONAL_CATEGORY
+
+
+def _require_template_category(team_id: int, template: TransactionalTemplate, category: str | None) -> None:
+    if category is None:
+        return
+    template_category = _template_category(team_id, template)
+    if category != template_category:
+        raise CategoryMismatch(template_category)
+
+
 def send_transactional_email(
     team: Team,
     template: UUID | TransactionalTemplate,
@@ -496,16 +544,19 @@ def send_transactional_email(
     distinct_id: str | None,
     message_data: dict[str, Any],
     idempotency_key: str | None = None,
+    category: str | None = None,
     timeout: float = 10,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key)
     with transactional_email_stage("workflow_lookup"):
         # A template passed in must be one of the team's templates that is not deleted, as this lookup returns.
-        if isinstance(template, UUID):
-            model = MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False)
-            hog_flow_id = _transactional_workflow_id(team.id, model)
-        else:
-            hog_flow_id = _transactional_workflow_id(team.id, template)
+        sent: TransactionalTemplate = (
+            cast(TransactionalTemplate, MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False))
+            if isinstance(template, UUID)
+            else template
+        )
+        hog_flow_id = _transactional_workflow_id(team.id, sent)
+        _require_template_category(team.id, sent, category)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 
@@ -519,6 +570,11 @@ def send_code_email(
     idempotency_key: str | None = None,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
+    if email.message_category_id and not _has_unsubscribe_link(email):
+        raise UnsubscribeLinkRequired(
+            "A marketing email needs an unsubscribe link. Put `{{ unsubscribe_url }}` where the link goes, such as "
+            '`<a href="{{ unsubscribe_url }}">Unsubscribe</a>`, and PostHog fills in the recipient\'s link.'
+        )
     with transactional_email_stage("workflow_lookup"):
         accepted_send = _accepted_send(team.id, email)
         hog_flow_id = _code_email_workflow_id(team.id, email.key)
@@ -553,6 +609,10 @@ def _send_payload(
     return payload
 
 
+def _has_unsubscribe_link(email: CodeEmail) -> bool:
+    return bool(UNSUBSCRIBE_PLACEHOLDER.search(email.html or email.text))
+
+
 def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
     accepted: dict[str, Any] = {
         "content": _without_empty(
@@ -569,6 +629,8 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
         accepted["bcc"] = list(email.bcc)
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
+    if email.message_category_id:
+        accepted["messageCategoryId"] = str(email.message_category_id)
     return accepted
 
 

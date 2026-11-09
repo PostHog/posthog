@@ -9,6 +9,7 @@ from products.messaging.backend.facade.contracts import (
     FieldNotAccepted,
     QueuedEmail,
     TransactionalEmailError,
+    UnknownCategory,
 )
 from products.messaging.backend.services.transactional_email import (
     PIPELINE_ADDRESS_PATTERN,
@@ -16,6 +17,8 @@ from products.messaging.backend.services.transactional_email import (
     SENDER_ADDRESS_PATTERN,
     TransactionalEmailStage,
     check_transactional_update,
+    code_send_category_id,
+    is_marketing_category,
     lock_transactional_workflow_id,
     make_transactional,
     observe_transactional_email_stage,
@@ -42,7 +45,10 @@ __all__ = [
     "QueuedEmail",
     "TransactionalEmailError",
     "TransactionalEmailStage",
+    "UnknownCategory",
     "check_transactional_update",
+    "code_send_category_id",
+    "is_marketing_category",
     "get_email_status",
     "lock_transactional_workflow_id",
     "make_transactional",

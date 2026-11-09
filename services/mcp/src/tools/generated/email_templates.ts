@@ -302,6 +302,9 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
         if (params.to !== undefined) {
             body['to'] = params.to
         }
+        if (params.category !== undefined) {
+            body['category'] = params.category
+        }
         if (params.template_key !== undefined) {
             body['template_key'] = params.template_key
         }
