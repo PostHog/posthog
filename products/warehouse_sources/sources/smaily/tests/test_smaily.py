@@ -275,7 +275,8 @@ class TestActionLogs:
             {"since_seq_id": ("0",), "limit": (str(page_size),)},
             {"since_seq_id": (str(page_size),), "limit": (str(page_size),)},
         ]
-        assert [s.since_seq_id for s in result.saved_states] == [page_size]
+        # The short final page is checkpointed too, so a resume after it fetches no rows again.
+        assert [s.since_seq_id for s in result.saved_states] == [page_size, page_size + 1]
 
     @parameterized.expand(
         [

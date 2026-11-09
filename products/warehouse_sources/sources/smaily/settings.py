@@ -1,6 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 SEGMENT_SUBSCRIBERS = "segment_subscribers"
 CAMPAIGN_STATISTICS = "campaign_statistics"
@@ -11,7 +11,7 @@ MESSAGE_ACTIONS = "message_actions"
 SEQ_ID_FIELD = "seq_id"
 
 
-@dataclass
+@frozen
 class SmailyEndpointConfig:
     name: str
     path: str

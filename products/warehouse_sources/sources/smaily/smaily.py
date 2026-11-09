@@ -350,12 +350,11 @@ def _action_log_rows(
         if last_seq_id <= since_seq_id:
             raise ValueError(f"Smaily {config.name}: since_seq_id={since_seq_id} returned no newer actions")
 
-        has_next_page = len(rows) >= config.page_size
-        if has_next_page:
-            manager.save_state(SmailyResumeConfig(since_seq_id=last_seq_id))
+        # Checkpoint the final page too: an append resume must not fetch its rows again.
+        manager.save_state(SmailyResumeConfig(since_seq_id=last_seq_id))
         yield rows
 
-        if not has_next_page:
+        if len(rows) < config.page_size:
             return
         since_seq_id = last_seq_id
 
