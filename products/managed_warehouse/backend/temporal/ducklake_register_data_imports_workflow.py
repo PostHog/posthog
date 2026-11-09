@@ -72,7 +72,7 @@ from products.managed_warehouse.backend.temporal.metrics import (
     record_ducklake_register_data_imports_stage_duration,
 )
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
-from products.managed_warehouse.backend.trino_compiler import get_ready_trino_catalog_name
+from products.managed_warehouse.backend.trino_compiler import get_trino_target_readiness
 from products.warehouse_sources.backend.facade.ducklake import query_folder_publishing_job_id
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
@@ -317,9 +317,14 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
     else:
         trino_flag = await asyncio.to_thread(data_imports_trino_flag, organization_id)
     if trino_flag is True:
+        readiness = await asyncio.to_thread(get_trino_target_readiness, organization_id)
+        if readiness.lookup_failed:
+            raise ApplicationError(
+                f"The Trino target readiness check failed for team {inputs.team_id}", non_retryable=False
+            )
         # A warehouse on the Trino path may have no duckgres, so a Trino target that is not ready skips the run
         # instead of falling back to duckgres. The next completed sync starts registration again.
-        if await asyncio.to_thread(get_ready_trino_catalog_name, organization_id) is None:
+        if readiness.catalog_name is None:
             await logger.ainfo("Trino target is not ready; skipping DuckLake data imports registration through Trino")
             get_ducklake_register_data_imports_skipped_metric(team_id=inputs.team_id, reason="trino_not_ready").add(1)
             return False
@@ -384,9 +389,10 @@ async def prepare_ducklake_data_imports_registration_activity(
         prepared_source_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{inputs.prepared_queryable_folder}"
         ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
         ducklake_table_name = await database_sync_to_async(duckgres_data_imports_table_name)(schema)
-        engine = await database_sync_to_async(_registration_engine_for_team)(
-            inputs.team_id, inputs.register_through_trino
-        )
+        # Database lookups use the shared database thread, and network calls run in their own threads, so a slow
+        # flags service or control plane cannot block other activities' database calls.
+        organization_id = str(await database_sync_to_async(_get_org_id_for_team)(inputs.team_id))
+        engine = await _registration_engine_for_team(inputs.team_id, organization_id, inputs.register_through_trino)
         trino_canary = inputs.use_trino_canary and engine == ENGINE_TRINO
         await logger.ainfo(
             "Chose the DuckLake data imports registration engine",
@@ -395,7 +401,8 @@ async def prepare_ducklake_data_imports_registration_activity(
             trino_canary=trino_canary,
         )
         if engine == ENGINE_TRINO:
-            landing_uri = await database_sync_to_async(_resolve_trino_landing_uri)(
+            landing_uri = _trino_landing_uri(
+                await asyncio.to_thread(get_control_plane_data_path, organization_id),
                 team_id=inputs.team_id,
                 ducklake_schema_name=ducklake_schema_name,
                 ducklake_table_name=ducklake_table_name,
@@ -504,15 +511,14 @@ def _record_registration_metrics(
     get_ducklake_register_data_imports_bytes_metric(team_id=team_id, schema_id=schema_id).record(float(copied_bytes))
 
 
-def _registration_engine_for_team(team_id: int, register_through_trino: bool | None) -> str:
+async def _registration_engine_for_team(team_id: int, organization_id: str, register_through_trino: bool | None) -> str:
     if register_through_trino is not None:
         return ENGINE_TRINO if register_through_trino else ENGINE_DUCKGRES
-    organization_id = str(_get_org_id_for_team(team_id))
-    if data_imports_through_trino(organization_id):
+    if await asyncio.to_thread(data_imports_through_trino, organization_id):
         return ENGINE_TRINO
     # data_imports_through_trino returns False when the flag evaluation fails, so an org without a duckgres server
     # must retry instead of falling back to an engine it cannot use.
-    if not is_dev_mode() and get_duckgres_server_by_team_org(team_id) is None:
+    if not is_dev_mode() and await database_sync_to_async(get_duckgres_server_by_team_org)(team_id) is None:
         raise ApplicationError(
             f"The Trino engine could not be confirmed for team {team_id} and its organization has no duckgres server",
             non_retryable=False,
@@ -520,7 +526,8 @@ def _registration_engine_for_team(team_id: int, register_through_trino: bool | N
     return ENGINE_DUCKGRES
 
 
-def _resolve_trino_landing_uri(
+def _trino_landing_uri(
+    data_path: str | None,
     *,
     team_id: int,
     ducklake_schema_name: str,
@@ -529,7 +536,6 @@ def _resolve_trino_landing_uri(
     job_id: str,
     prepared_queryable_folder: str,
 ) -> str:
-    data_path = get_control_plane_data_path(str(_get_org_id_for_team(team_id)))
     if not data_path:
         # The control plane returns no path both when it is unreachable and when it names no bucket. The gate
         # already found the Trino target ready, so the prepare activity retries.

@@ -42,6 +42,7 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
     ducklake_register_data_imports_gate_activity,
     prepare_ducklake_data_imports_registration_activity,
 )
+from products.managed_warehouse.backend.trino_compiler import TrinoTargetReadiness
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -1983,11 +1984,11 @@ def test_trino_cleanup_activity_dispatches_on_the_engine(trino_canary: bool, mon
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("trino_ready", [True, False])
+@pytest.mark.parametrize("readiness_state", ["ready", "not_ready", "lookup_failed"])
 @pytest.mark.parametrize("server_provisioned", [True, False])
 @pytest.mark.parametrize("flag_enabled, override", [(True, None), (False, True)])
 async def test_registration_gate_requires_a_ready_trino_target_and_ignores_the_duckgres_server(
-    monkeypatch, server_provisioned, trino_ready, flag_enabled, override
+    monkeypatch, server_provisioned, readiness_state, flag_enabled, override
 ) -> None:
     team = MagicMock(organization_id=uuid.UUID(int=9))
     monkeypatch.setattr(registration_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
@@ -2002,30 +2003,38 @@ async def test_registration_gate_requires_a_ready_trino_target_and_ignores_the_d
         "get_duckgres_server_by_team_org",
         lambda team_id: MagicMock() if server_provisioned else None,
     )
-    trino_catalog = MagicMock(return_value="tenant_catalog" if trino_ready else None)
-    monkeypatch.setattr(registration_module, "get_ready_trino_catalog_name", trino_catalog)
+    readiness = MagicMock(
+        return_value=TrinoTargetReadiness(
+            catalog_name="tenant_catalog" if readiness_state == "ready" else None,
+            lookup_failed=readiness_state == "lookup_failed",
+        )
+    )
+    monkeypatch.setattr(registration_module, "get_trino_target_readiness", readiness)
     skipped_counter = MagicMock()
     skipped_metric = MagicMock(return_value=skipped_counter)
     monkeypatch.setattr(registration_module, "get_ducklake_register_data_imports_skipped_metric", skipped_metric)
 
-    result = await ducklake_register_data_imports_gate_activity(
+    gate = ducklake_register_data_imports_gate_activity(
         DuckLakeRegisterDataImportsGateInputs(team_id=1, register_through_trino=override)
     )
 
-    assert result is trino_ready
-    trino_catalog.assert_called_once_with(str(uuid.UUID(int=9)))
-    if trino_ready:
-        skipped_metric.assert_not_called()
+    if readiness_state == "lookup_failed":
+        with pytest.raises(ApplicationError, match="readiness check failed") as error:
+            await gate
+        assert error.value.non_retryable is False
     else:
+        assert await gate is (readiness_state == "ready")
+    readiness.assert_called_once_with(str(uuid.UUID(int=9)))
+    if readiness_state == "not_ready":
         skipped_metric.assert_called_once_with(team_id=1, reason="trino_not_ready")
         skipped_counter.add.assert_called_once_with(1)
+    else:
+        skipped_metric.assert_not_called()
 
 
-def test_trino_landing_uri_sits_under_the_data_path_with_the_job_and_generation(monkeypatch) -> None:
-    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
-    monkeypatch.setattr(registration_module, "get_control_plane_data_path", lambda organization_id: "s3://bucket/lake/")
-
-    landing_uri = registration_module._resolve_trino_landing_uri(
+def test_trino_landing_uri_sits_under_the_data_path_with_the_job_and_generation() -> None:
+    landing_uri = registration_module._trino_landing_uri(
+        "s3://bucket/lake/",
         team_id=1,
         ducklake_schema_name="schema_a",
         ducklake_table_name="table_a",
@@ -2036,9 +2045,9 @@ def test_trino_landing_uri_sits_under_the_data_path_with_the_job_and_generation(
 
     assert landing_uri == "s3://bucket/lake/_ph_imports/schema_a/table_a/schema-id/job_1/1234567890_abcdef12"
 
-    monkeypatch.setattr(registration_module, "get_control_plane_data_path", lambda organization_id: None)
     with pytest.raises(ApplicationError) as error:
-        registration_module._resolve_trino_landing_uri(
+        registration_module._trino_landing_uri(
+            None,
             team_id=1,
             ducklake_schema_name="schema_a",
             ducklake_table_name="table_a",
@@ -2172,7 +2181,8 @@ async def test_workflow_mints_time_stamped_staging_names_for_trino(monkeypatch) 
         ("override_duckgres_with_flag_and_server", True, False, MagicMock(), False, ENGINE_DUCKGRES),
     ],
 )
-def test_registration_engine_retries_instead_of_falling_back_for_an_org_without_a_server(
+@pytest.mark.asyncio
+async def test_registration_engine_retries_instead_of_falling_back_for_an_org_without_a_server(
     _name: str,
     trino_flag: bool,
     dev_mode: bool,
@@ -2181,17 +2191,16 @@ def test_registration_engine_retries_instead_of_falling_back_for_an_org_without_
     expected: str | None,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
     monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: trino_flag)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: dev_mode)
     monkeypatch.setattr(registration_module, "get_duckgres_server_by_team_org", lambda team_id: server)
 
     if expected is None:
         with pytest.raises(ApplicationError, match="could not be confirmed") as error:
-            registration_module._registration_engine_for_team(1, override)
+            await registration_module._registration_engine_for_team(1, "org", override)
         assert error.value.non_retryable is False
     else:
-        assert registration_module._registration_engine_for_team(1, override) == expected
+        assert await registration_module._registration_engine_for_team(1, "org", override) == expected
 
 
 @pytest.mark.asyncio
