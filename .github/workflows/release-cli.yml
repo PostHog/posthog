@@ -693,7 +693,10 @@ jobs:
             # - N "local" tasks that build each platform's binaries and platform-specific installers
             matrix: ${{ fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix }}
         runs-on: ${{ matrix.runner }}
-        timeout-minutes: 30
+        # Sized for a slow x86_64-apple-darwin run, not a typical one. That runner
+        # can take twice as long for the same build, and a job that reaches this
+        # limit is cancelled, which skips every publish job.
+        timeout-minutes: 40
         container: ${{ matrix.container && matrix.container.image || null }}
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
