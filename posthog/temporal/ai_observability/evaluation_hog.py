@@ -173,7 +173,8 @@ class _BoundedOutput(list[str]):
             return
         line = line[: MAX_HOG_OUTPUT_CHARS - self.chars]
         super().append(line)
-        self.chars += len(line)
+        # The newline that joins the lines counts too, so empty prints also use up the cap.
+        self.chars += len(line) + 1
 
 
 def execute_hog_eval_bytecode(
