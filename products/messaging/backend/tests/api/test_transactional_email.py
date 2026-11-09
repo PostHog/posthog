@@ -731,6 +731,17 @@ class TestTransactionalEmail(APIBaseTest):
         reported = capture.call_args.kwargs["properties"]
         assert reported["track_opens_and_clicks"] == fields.get("track_opens_and_clicks", True)
 
+    def test_a_form_encoded_code_send_without_the_field_keeps_open_and_click_tracking(self, mock_post, _flag, capture):
+        self._cdp_accepts(mock_post)
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(), format="multipart"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert "trackOpensAndClicks" not in json.loads(mock_post.call_args.kwargs["data"])["send"]["tracking"]
+        assert capture.call_args.kwargs["properties"]["track_opens_and_clicks"] is True
+
     @parameterized.expand(
         [
             ("no_subject", {"subject": ""}, "subject"),
@@ -937,19 +948,37 @@ class TestTransactionalEmail(APIBaseTest):
         else:
             assert response.json() == {"message_id": "first-send", "replayed": True}
 
-    def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
-        issues = [{"code": "unrecognized_keys", "keys": ["attachments"], "path": ["send"], "message": "Unrecognized"}]
+    @parameterized.expand(
+        [
+            (
+                "attachments",
+                {"attachments": [{"filename": "receipt.pdf", "content": "JVBERg=="}]},
+                "attachments",
+                ["send"],
+                "attachments",
+            ),
+            (
+                "untracked",
+                {"track_opens_and_clicks": False},
+                "trackOpensAndClicks",
+                ["send", "tracking"],
+                "track_opens_and_clicks",
+            ),
+        ]
+    )
+    def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(
+        self, mock_post, _flag, capture, _name, fields, refused_key, refused_path, field
+    ):
+        issues = [{"code": "unrecognized_keys", "keys": [refused_key], "path": refused_path, "message": "Unrecognized"}]
         mock_post.return_value = MagicMock(status_code=400, json=lambda: {"error": json.dumps(issues)})
 
         response = self._psak_client(["hog_flow:write"]).post(
-            self.send_email_url,
-            self._code_send(attachments=[{"filename": "receipt.pdf", "content": "JVBERg=="}]),
-            format="json",
+            self.send_email_url, self._code_send(**fields), format="json"
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         body = response.json()
-        assert (body["code"], body["attr"]) == ("invalid_request", "attachments")
+        assert (body["code"], body["attr"]) == ("invalid_request", field)
         assert body["why"] and body["fix"]
         assert capture.call_args.kwargs["properties"]["error_code"] == "field_not_accepted"
 

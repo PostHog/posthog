@@ -28,6 +28,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
+from posthog.api.fields import OmittableBooleanField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -545,7 +546,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         "rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned "
         "engagement capture off captures nothing, whatever the send says.",
     )
-    track_opens_and_clicks = serializers.BooleanField(
+    track_opens_and_clicks = OmittableBooleanField(
         required=False,
         help_text="Whether the email your code rendered carries open and click tracking: a tracking pixel, and links "
         "rewritten to count clicks. Defaults to true. With false, the email goes out without either, so PostHog "
@@ -842,7 +843,7 @@ class TransactionalEmailSendMixin:
                 idempotency_key=idempotency_key,
             ),
             route=route,
-            addressed={"template_id": str(template.id)},
+            usage_properties={"template_id": str(template.id)},
         )
 
     def _queue_send(
@@ -851,8 +852,7 @@ class TransactionalEmailSendMixin:
         send: Callable[[str | None], QueuedEmail],
         *,
         route: str,
-        addressed: dict[str, str],
-        usage: Mapping[str, Any] | None = None,
+        usage_properties: Mapping[str, Any],
         unavailable: type[TransactionalEmailUnavailable] = TransactionalEmailUnavailable,
     ) -> Response:
         idempotency_key = request.headers.get("Idempotency-Key")
@@ -875,9 +875,11 @@ class TransactionalEmailSendMixin:
             raise unavailable() from None
         finally:
             with transactional_email_stage("usage_event"):
-                self._report_transactional_email_send(request, {**addressed, **(usage or {}), **outcome})
+                self._report_transactional_email_send(request, {**usage_properties, **outcome})
         if not queued.replayed:
-            self._report_first_code_send_after_commit(request, route, addressed.get("addressed_by", "template_id"))
+            self._report_first_code_send_after_commit(
+                request, route, usage_properties.get("addressed_by", "template_id")
+            )
         return Response(
             SendTransactionalEmailResponseSerializer(queued).data,
             status=status.HTTP_202_ACCEPTED,
@@ -1347,8 +1349,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 idempotency_key=idempotency_key,
             ),
             route="send_email",
-            addressed={"addressed_by": "template_key"},
-            usage={"track_opens_and_clicks": email.track_opens_and_clicks},
+            usage_properties={"addressed_by": "template_key", "track_opens_and_clicks": email.track_opens_and_clicks},
             unavailable=UnconfirmedEmailSend,
         )
 

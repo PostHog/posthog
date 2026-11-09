@@ -669,16 +669,23 @@ def _queue(
     return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
 
 
+_SEND_FIELD_OF_PIPELINE_KEY = {"trackOpensAndClicks": "track_opens_and_clicks"}
+
+
 def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
     try:
         issues = json.loads(error or "")
     except ValueError:
         return None
     for issue in issues if isinstance(issues, list) else []:
-        if isinstance(issue, dict) and issue.get("code") == "unrecognized_keys" and issue.get("path") == ["send"]:
+        if (
+            isinstance(issue, dict)
+            and issue.get("code") == "unrecognized_keys"
+            and issue.get("path") in (["send"], ["send", "tracking"])
+        ):
             keys = issue.get("keys")
             if isinstance(keys, list) and keys and isinstance(keys[0], str):
-                return keys[0]
+                return _SEND_FIELD_OF_PIPELINE_KEY.get(keys[0], keys[0])
     return None
 
 
