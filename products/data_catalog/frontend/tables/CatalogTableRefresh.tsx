@@ -5,8 +5,6 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { DataModelingJobStatus } from '~/types'
 
-import { subjectSince } from 'products/data_modeling/frontend/overviewIssueCopy'
-
 import { CatalogTableRow, TableKind } from '../catalogTableRows'
 import { MutedCellText } from './MutedCellText'
 
@@ -50,16 +48,21 @@ function RunDots({ row }: { row: CatalogTableRow }): JSX.Element | null {
 }
 
 function RefreshTime({ row }: { row: CatalogTableRow }): JSX.Element {
-    const since = row.health.materialization?.kind === 'behind' ? subjectSince(row.health) : null
+    const { since } = row.attention
+    if (since?.kind === 'behind') {
+        return <MutedCellText>{since.label}</MutedCellText>
+    }
+    if (row.problems.includes('failed') && since?.label) {
+        return (
+            <MutedCellText>
+                {`${since.label} `}
+                <TZLabel time={since.time} />
+            </MutedCellText>
+        )
+    }
     return (
         <MutedCellText>
-            {since?.kind === 'overdue' ? (
-                since.label
-            ) : row.refreshedAt ? (
-                <TZLabel time={row.refreshedAt} />
-            ) : (
-                NO_REFRESH_LABELS[row.kind]
-            )}
+            {row.refreshedAt ? <TZLabel time={row.refreshedAt} /> : NO_REFRESH_LABELS[row.kind]}
         </MutedCellText>
     )
 }

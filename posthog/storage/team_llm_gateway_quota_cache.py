@@ -134,6 +134,13 @@ def deactivated_teams_needing_a_blob() -> QuerySet[Team]:
     )
 
 
+def team_ai_credit_limited_until(team: Team) -> dict[str, float]:
+    """When each AI credit bucket the team is limited on opens again, as epoch seconds. Open buckets are absent."""
+    from ee.billing.quota_limiting import get_team_limited_until  # noqa: PLC0415
+
+    return get_team_limited_until(team.api_token, AI_GATEWAY_QUOTA_BUCKETS)
+
+
 def _derive_blobs(teams: list[Team], now: datetime) -> dict[int, dict[str, Any] | None]:
     from ee.billing.quota_limiting import get_teams_limited_until  # noqa: PLC0415
 

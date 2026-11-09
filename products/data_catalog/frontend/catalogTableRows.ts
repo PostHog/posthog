@@ -12,11 +12,11 @@ import {
 import type { DataModelingNode } from '~/types'
 
 import {
-    AttentionSubject,
+    AttentionRow,
     MaterializationProblem,
+    buildAttentionRow,
     isFailingCheck,
     problemNode,
-    subjectIssueKinds,
 } from 'products/data_modeling/frontend/modelsOverviewLogic'
 import { ISSUE_KIND_ORDER, type IssueKind } from 'products/data_modeling/frontend/overviewIssueCopy'
 import type { DataQualitySubjectRef } from 'products/data_quality/frontend/checksApi'
@@ -81,7 +81,7 @@ export interface CatalogTableRow {
     subject: DataQualitySubjectRef | null
     checkGroup: SubjectGroup | null
     checkCounts: CheckCounts
-    health: AttentionSubject
+    attention: AttentionRow
     problems: IssueKind[]
     savedQuery: DataWarehouseSavedQuerySummary | null
     certification: DataCatalogCertificationApi | null
@@ -101,10 +101,11 @@ export interface CatalogTableSources {
     certifications: DataCatalogCertificationApi[]
     nodes: DataModelingNode[]
     materializationProblems: MaterializationProblem[]
+    refreshRequests: Record<string, number>
     posthogTableSubjectIds: Record<string, string>
 }
 
-type RowBase = Omit<CatalogTableRow, 'health' | 'problems' | 'certification' | 'subtitle' | 'checkCounts'> & {
+type RowBase = Omit<CatalogTableRow, 'attention' | 'problems' | 'certification' | 'subtitle' | 'checkCounts'> & {
     origin: string
     node: DataModelingNode | null
 }
@@ -165,12 +166,16 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
     }
     const rowFor = ({ origin, node, ...row }: RowBase, certificationLookupKey: string | null): CatalogTableRow => {
         const failingChecks = row.checkGroup?.checks.filter(isFailingCheck) ?? []
-        const health: AttentionSubject = {
-            key: row.key,
-            node,
-            materialization: node ? (problemsByNodeId.get(node.id) ?? null) : null,
-            failingChecks,
-        }
+        const attention = buildAttentionRow(
+            {
+                key: row.key,
+                node,
+                materialization: node ? (problemsByNodeId.get(node.id) ?? null) : null,
+                failingChecks,
+            },
+            sources.healthBySubjectKey,
+            sources.refreshRequests
+        )
         const subjectHealth = row.subject
             ? sources.healthBySubjectKey[subjectKeyOf(row.subject.subjectType, row.subject.subjectId)]
             : undefined
@@ -181,8 +186,8 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
                 total: Math.max(subjectHealth?.checks_total ?? 0, row.checkGroup?.checks.length ?? 0),
                 failing: Math.max(subjectHealth?.checks_failing ?? 0, failingChecks.length),
             },
-            health,
-            problems: subjectIssueKinds(health),
+            attention,
+            problems: attention.issueKinds,
             certification: certificationLookupKey ? (certificationsByKey.get(certificationLookupKey) ?? null) : null,
         }
     }

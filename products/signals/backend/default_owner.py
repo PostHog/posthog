@@ -188,7 +188,7 @@ def _reviewers_were_curated(team_id: int, report_id: str) -> bool:
 
 
 def assign_default_owner(team: Team, report_id: str) -> bool:
-    """Route a report that has no reviewers to its default owner. Returns whether it wrote one."""
+    """Route an unaddressed report with no reviewers to its default owner. Returns whether it wrote one."""
     if not default_owner_fallback_enabled(team.id):
         return False
     # Where a repository is in reach, commit history names a relevant reviewer often enough that
@@ -205,9 +205,9 @@ def assign_default_owner(team: Team, report_id: str) -> bool:
         # while this transaction holds the report row, which is the same row `append_status` locks
         # and so costs nothing extra. Without it a person's edit that commits in between is lost.
         with transaction.atomic():
-            SignalReport.objects.select_for_update().get(team_id=team.id, id=report_id)
+            report = SignalReport.objects.select_for_update().get(team_id=team.id, id=report_id)
             snapshot = ReviewerRules.read_for_report(team_id=team.id, report_id=report_id)
-            if snapshot.reviewers or snapshot.invalid_reviewers:
+            if report.latest_already_addressed is True or snapshot.reviewers or snapshot.invalid_reviewers:
                 return False
             if _reviewers_were_curated(team.id, report_id):
                 return False

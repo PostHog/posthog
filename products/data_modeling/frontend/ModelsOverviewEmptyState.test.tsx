@@ -3,9 +3,8 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-import { OverviewChecksStatus } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
-
-import { ModelsOverviewEmptyState } from './ModelsOverviewEmptyState'
+import { ChecksHealth } from './healthyMessage'
+import { ModelsOverviewFirstView } from './ModelsOverviewEmptyState'
 
 describe('ModelsOverviewEmptyState', () => {
     let priorAppContext: AppContext | undefined
@@ -32,7 +31,7 @@ describe('ModelsOverviewEmptyState', () => {
     })
 
     it('invites the first view and sends each action to the surface it names', () => {
-        render(<ModelsOverviewEmptyState variant="first-view" checksStatus="all-passed" />)
+        render(<ModelsOverviewFirstView checksHealth="all-passed" />)
 
         expect(screen.getByText('Create your first view')).toBeTruthy()
         expect(screen.getByTestId('models-overview-create-view').getAttribute('href')).toContain('source=view')
@@ -43,8 +42,8 @@ describe('ModelsOverviewEmptyState', () => {
         ['none' as const, 'Set up checks'],
         ['all-passed' as const, 'View checks'],
         ['some-not-passed' as const, 'View checks'],
-    ])('offers %s checks as %s', (checksStatus: OverviewChecksStatus, label: string) => {
-        render(<ModelsOverviewEmptyState variant="first-view" checksStatus={checksStatus} />)
+    ])('offers %s checks as %s', (checksHealth: ChecksHealth, label: string) => {
+        render(<ModelsOverviewFirstView checksHealth={checksHealth} />)
 
         expect(screen.queryByTestId('models-overview-checks')?.textContent).toEqual(label)
     })
@@ -55,7 +54,7 @@ describe('ModelsOverviewEmptyState', () => {
     ])('renders create view for a %s as disabled=%s', (level: AccessControlLevel, disabled: boolean) => {
         setWarehouseAccess(level)
 
-        render(<ModelsOverviewEmptyState variant="first-view" checksStatus="none" />)
+        render(<ModelsOverviewFirstView checksHealth="none" />)
 
         expect(screen.getByTestId('models-overview-create-view').getAttribute('aria-disabled') === 'true').toBe(
             disabled

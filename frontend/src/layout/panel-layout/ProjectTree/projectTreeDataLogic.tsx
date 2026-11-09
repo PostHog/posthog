@@ -31,6 +31,8 @@ import {
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
+    hiddenProductHrefs,
+    isHiddenProductShortcut,
     withProductShortcutHref,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { RecentResults, SearchResults, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -1633,22 +1635,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
                 // Hide a starred product while its flag is off, but keep the star so it comes back with the flag.
-                const productIsEnabled = (product: FileSystemImport): boolean =>
-                    isFileSystemImportShown(product, featureFlags)
-                const products = getDefaultTreeProducts()
-                const enabledProductHrefs = new Set(products.filter(productIsEnabled).map((product) => product.href))
-                const hiddenProductHrefs = new Set(
-                    products
-                        .filter((product) => product.href && !enabledProductHrefs.has(product.href))
-                        .map((product) => product.href)
-                )
+                const hiddenHrefs = hiddenProductHrefs(featureFlags)
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const newShortcutData = []
                     for (const shortcut of shortcutData.filter(
                         (shortcut) =>
                             // only remove shortcuts that are group view shortcuts when CRM iteration one is enabled
                             !(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && isGroupViewShortcut(shortcut)) &&
-                            !(shortcut.type !== 'folder' && !shortcut.ref && hiddenProductHrefs.has(shortcut.href))
+                            !isHiddenProductShortcut(shortcut, hiddenHrefs)
                     )) {
                         const shortcutTreeItem = convertFileSystemEntryToTreeDataItem({
                             root: 'shortcuts://',

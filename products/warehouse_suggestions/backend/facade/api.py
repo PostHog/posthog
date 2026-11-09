@@ -36,6 +36,7 @@ from .enums import (
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
+    WarehouseSuggestionSurface,
 )
 
 if TYPE_CHECKING:
@@ -116,6 +117,7 @@ def dismiss_suggestion(
     reason: WarehouseSuggestionDismissalReason,
     note: str | None,
     subject_kinds: SubjectKinds,
+    surface: WarehouseSuggestionSurface | None = None,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
     dismissed = suggestions.transition_to(
@@ -127,7 +129,7 @@ def dismiss_suggestion(
         note=note,
         transitions=suggestions.HUMAN_TRANSITIONS,
     )
-    report_outcomes(SuggestionOutcome.DISMISSED, [dismissed], team=team, user=user)
+    report_outcomes(SuggestionOutcome.DISMISSED, [dismissed], team=team, user=user, properties={"surface": surface})
     return _single_contract(team.pk, user_access_control, dismissed, access)
 
 
@@ -178,9 +180,11 @@ def accept_suggestion(
     options: AcceptOptions,
     was_impersonated: bool,
     subject_kinds: SubjectKinds,
+    surface: WarehouseSuggestionSurface | None = None,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
-    _require_catalog_edit_access(row, user_access_control)
+    if not options.delete_view:
+        _require_catalog_edit_access(row, user_access_control)
     outcome = accept.accept(
         team.pk,
         row.id,
@@ -192,7 +196,7 @@ def accept_suggestion(
             [outcome.suggestion],
             team=team,
             user=user,
-            properties={"changed_fields": list(outcome.changed_fields), **asdict(outcome.savings)},
+            properties={"changed_fields": list(outcome.changed_fields), "surface": surface, **asdict(outcome.savings)},
         )
     return _single_contract(team.pk, user_access_control, outcome.suggestion, access)
 

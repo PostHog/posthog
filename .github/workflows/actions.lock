@@ -68,7 +68,7 @@ workflows:
         - 'actions/checkout@v6.0.2'
     '.github/workflows/ci-dev-setup.yml':
         - 'actions/checkout@v6.0.2'
-        - 'flox/install-flox-action@v2.4.0'
+        - 'flox/install-flox-action@v2.7.0'
     '.github/workflows/ci-duplication.yml':
         - 'actions/checkout@v6.0.2'
         - 'actions/setup-node@v6.2.0'
@@ -424,9 +424,9 @@ dependencies:
         commit: 'sha1-eab7a230208c952974db8c3245cfd78402c7b385'
         owner_id: 12504344
         repo_id: 161909611
-    'flox/install-flox-action@v2.4.0':
-        ref: 'v2.4.0'
-        commit: 'sha1-c94e7e1ab56ae14fe98bae4fd84384fd135f0c2a'
+    'flox/install-flox-action@v2.7.0':
+        ref: 'v2.7.0'
+        commit: 'sha1-5bb9eaaffbeaa699a8251a1ae21ecf4c8e0e37d4'
         owner_id: 72631827
         repo_id: 533711082
     'fpicalausa/remove-stale-branches@v2.6.1':

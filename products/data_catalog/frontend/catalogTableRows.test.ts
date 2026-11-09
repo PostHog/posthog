@@ -111,6 +111,7 @@ function buildRows(overrides: Partial<CatalogTableSources> = {}): CatalogTableRo
         ] as DataCatalogCertificationApi[],
         nodes: [revenueNode],
         materializationProblems: [revenueSuspended],
+        refreshRequests: {},
         posthogTableSubjectIds: { events: 'events-uuid' },
         managedViews: [],
         healthBySubjectKey: {},

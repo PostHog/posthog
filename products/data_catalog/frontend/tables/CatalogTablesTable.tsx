@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { MouseEvent, useRef } from 'react'
+import { MouseEvent } from 'react'
 
 import { IconCheckCircle, IconChevronRight } from '@posthog/icons'
 import {
@@ -26,7 +26,6 @@ import {
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { ModelsOverviewProblemBadges } from 'products/data_modeling/frontend/ModelsOverviewProblemBadges'
-import { useHoldTallestHeight } from 'products/data_modeling/frontend/useHoldTallestHeight'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
 import { CatalogTableRow, passingChecks, rowIsExpandable } from '../catalogTableRows'
@@ -97,7 +96,7 @@ function ChecksToggle({ row, expanded }: { row: CatalogTableRow; expanded: boole
 
 function StatusBadges({ row }: { row: CatalogTableRow }): JSX.Element {
     if (row.problems.length > 0) {
-        return <ModelsOverviewProblemBadges subject={row.health} />
+        return <ModelsOverviewProblemBadges statuses={row.attention.statuses} />
     }
     return (
         <Badge variant="success">
@@ -236,66 +235,55 @@ export function CatalogTablesTable(): JSX.Element {
     const { visibleRows, filteredRows, currentPage, pageCount, expandedRowKeys, selectedRowKeys } =
         useValues(catalogTablesLogic)
     const { setPage, setRowsSelected } = useActions(catalogTablesLogic)
-    const containerRef = useRef<HTMLDivElement>(null)
-    const contentRef = useRef<HTMLDivElement>(null)
-    const anyExpanded = visibleRows.some((row) => expandedRowKeys.includes(row.key))
-    useHoldTallestHeight(containerRef, contentRef, pageCount > 1 && !anyExpanded)
-
     return (
-        <div ref={containerRef} data-attr="data-catalog-tables-table">
-            <div ref={contentRef}>
-                <Table fullWidth size="sm">
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead className="w-0 pr-0">
-                                <PageSelectionCheckbox
-                                    label="Select all tables on this page"
-                                    pageIds={visibleRows.map((row) => row.key)}
-                                    selectedIds={selectedRowKeys}
-                                    onChange={setRowsSelected}
-                                />
-                            </TableHead>
-                            <CatalogTablesSortableHead column="name" label="Name" expand />
-                            <CatalogTablesSortableHead column="status" label="Status" className={WIDE_ONLY_CELL} />
-                            <CatalogTablesSortableHead column="checks" label="Checks" className={WIDE_ONLY_CELL} />
-                            <CatalogTablesSortableHead column="trust" label="Trust" className={WIDE_ONLY_CELL} />
-                            <CatalogTablesSortableHead
-                                column="refresh"
-                                label="Last refresh"
-                                className={WIDE_ONLY_CELL}
+        <div data-attr="data-catalog-tables-table">
+            <Table fullWidth size="sm">
+                <TableHeader>
+                    <TableRow>
+                        <TableHead className="w-0 pr-0">
+                            <PageSelectionCheckbox
+                                label="Select all tables on this page"
+                                pageIds={visibleRows.map((row) => row.key)}
+                                selectedIds={selectedRowKeys}
+                                onChange={setRowsSelected}
                             />
-                            <TableHead className="w-0">
-                                <span className="sr-only">Actions</span>
-                            </TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    {visibleRows.length === 0 ? (
-                        <TableEmpty>
-                            <NoMatches />
-                        </TableEmpty>
-                    ) : (
-                        <TableBody>
-                            {visibleRows.map((row) => (
-                                <TableRows
-                                    key={row.key}
-                                    row={row}
-                                    expanded={expandedRowKeys.includes(row.key)}
-                                    selected={selectedRowKeys.includes(row.key)}
-                                />
-                            ))}
-                        </TableBody>
-                    )}
-                </Table>
-                {pageCount > 1 && (
-                    <CatalogTablesPagination
-                        currentPage={currentPage}
-                        pageCount={pageCount}
-                        pageSize={TABLES_PAGE_SIZE}
-                        total={filteredRows.length}
-                        onPageChange={setPage}
-                    />
+                        </TableHead>
+                        <CatalogTablesSortableHead column="name" label="Name" expand />
+                        <CatalogTablesSortableHead column="status" label="Status" className={WIDE_ONLY_CELL} />
+                        <CatalogTablesSortableHead column="checks" label="Checks" className={WIDE_ONLY_CELL} />
+                        <CatalogTablesSortableHead column="trust" label="Trust" className={WIDE_ONLY_CELL} />
+                        <CatalogTablesSortableHead column="refresh" label="Last refresh" className={WIDE_ONLY_CELL} />
+                        <TableHead className="w-0">
+                            <span className="sr-only">Actions</span>
+                        </TableHead>
+                    </TableRow>
+                </TableHeader>
+                {visibleRows.length === 0 ? (
+                    <TableEmpty>
+                        <NoMatches />
+                    </TableEmpty>
+                ) : (
+                    <TableBody>
+                        {visibleRows.map((row) => (
+                            <TableRows
+                                key={row.key}
+                                row={row}
+                                expanded={expandedRowKeys.includes(row.key)}
+                                selected={selectedRowKeys.includes(row.key)}
+                            />
+                        ))}
+                    </TableBody>
                 )}
-            </div>
+            </Table>
+            {pageCount > 1 && (
+                <CatalogTablesPagination
+                    currentPage={currentPage}
+                    pageCount={pageCount}
+                    pageSize={TABLES_PAGE_SIZE}
+                    total={filteredRows.length}
+                    onPageChange={setPage}
+                />
+            )}
         </div>
     )
 }

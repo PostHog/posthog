@@ -120,6 +120,7 @@ export interface catalogTablesLogicValues {
     nodes: DataModelingNode[] // lineageDataLogic
     materializationProblems: MaterializationProblem[] // modelsOverviewLogic
     modelsFirstLoading: boolean // modelsOverviewLogic
+    refreshRequests: Record<string, number> // modelsOverviewLogic
     enrichedViews: DataWarehouseSavedQuerySummary[] // viewsTabLogic
     bulkActionInFlight: TablesBulkAction | null
     currentPage: number
@@ -286,6 +287,7 @@ export interface catalogTablesLogicMeta {
             certifications: DataCatalogCertificationApi[],
             nodes: DataModelingNode[],
             materializationProblems: MaterializationProblem[],
+            refreshRequests: Record<string, number>,
             posthogTableSubjectIds: Record<string, string>
         ) => CatalogTableRow[]
         rowsLoaded: (
@@ -332,7 +334,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
             lineageDataLogic,
             ['nodes'],
             modelsOverviewLogic,
-            ['materializationProblems', 'modelsFirstLoading'],
+            ['materializationProblems', 'modelsFirstLoading', 'refreshRequests'],
             viewsTabLogic,
             ['enrichedViews'],
         ],
@@ -479,6 +481,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
                 s.certifications,
                 s.nodes,
                 s.materializationProblems,
+                s.refreshRequests,
                 s.posthogTableSubjectIds,
             ],
             (
@@ -492,6 +495,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
                 certifications: DataCatalogCertificationApi[],
                 nodes: DataModelingNode[],
                 materializationProblems: MaterializationProblem[],
+                refreshRequests: Record<string, number>,
                 posthogTableSubjectIds: Record<string, string>
             ): CatalogTableRow[] =>
                 buildCatalogTableRows({
@@ -505,6 +509,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
                     certifications,
                     nodes,
                     materializationProblems,
+                    refreshRequests,
                     posthogTableSubjectIds,
                 }),
         ],

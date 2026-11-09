@@ -18,7 +18,7 @@ import { navigateToHref } from 'lib/utils/navigateToHref'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { modelsOverviewLogic } from 'products/data_modeling/frontend/modelsOverviewLogic'
-import { subjectNextStep } from 'products/data_modeling/frontend/subjectNextStep'
+import { REFRESHING_LABEL, REFRESH_LABEL } from 'products/data_modeling/frontend/overviewIssueCopy'
 import { deleteDisabledReason, viewsTabLogic } from 'products/data_modeling/frontend/viewsTabLogic'
 import { dataQualityCheckEditorLogic } from 'products/data_quality/frontend/dataQualityCheckEditorLogic'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
@@ -30,7 +30,8 @@ import { confirmRevokeCertification } from '../confirmRevokeCertification'
 import { CatalogReviewAccess } from './CatalogReviewAccess'
 
 const CHECKS_RUNNING_REASON = 'Checks are already running'
-const SYNC_RUNNING_REASON = 'Materialization is already running'
+const REFRESH_RUNNING_REASON = 'This view is already refreshing'
+const RUNNING_STATUS = 'Running'
 const CERTIFICATION_WORKING_REASON = 'Saving the last change'
 
 const REMOVE_LABELS: Record<string, string> = {
@@ -38,35 +39,50 @@ const REMOVE_LABELS: Record<string, string> = {
     deprecated: 'Remove deprecation',
 }
 
-function NextStepItem({ row }: { row: CatalogTableRow }): JSX.Element | null {
-    const { startedRefreshSavedQueryIds } = useValues(modelsOverviewLogic)
-    const { runDataWarehouseSavedQuery } = useActions(modelsOverviewLogic)
-    const nextStep = row.problems.length > 0 ? subjectNextStep(row.health) : null
-    if (!nextStep) {
-        return null
-    }
-    if (nextStep.kind === 'link') {
-        return (
-            <DropdownMenuItem onClick={() => navigateToHref(nextStep.href)} data-attr="data-catalog-tables-next-step">
-                {nextStep.label}
-            </DropdownMenuItem>
-        )
-    }
+function RefreshItem({
+    savedQueryId,
+    refreshing,
+    dataAttr,
+}: {
+    savedQueryId: string
+    refreshing: boolean
+    dataAttr: string
+}): JSX.Element {
+    const { requestRefresh } = useActions(modelsOverviewLogic)
     return (
         <AccessControlAction
             resourceType={AccessControlResourceType.WarehouseObjects}
             minAccessLevel={AccessControlLevel.Editor}
         >
             <DropdownMenuItem
-                onClick={() => runDataWarehouseSavedQuery(nextStep.savedQueryId)}
-                disabledReason={
-                    startedRefreshSavedQueryIds.includes(nextStep.savedQueryId) ? 'Refresh started' : undefined
-                }
-                data-attr="data-catalog-tables-next-step"
+                onClick={() => requestRefresh(savedQueryId)}
+                disabledReason={refreshing ? REFRESH_RUNNING_REASON : undefined}
+                data-attr={dataAttr}
             >
-                {nextStep.label}
+                {refreshing ? REFRESHING_LABEL : REFRESH_LABEL}
             </DropdownMenuItem>
         </AccessControlAction>
+    )
+}
+
+function NextStepItem({ row }: { row: CatalogTableRow }): JSX.Element | null {
+    const nextStep = row.problems.length > 0 ? row.attention.nextStep : null
+    if (!nextStep) {
+        return null
+    }
+    if (nextStep.kind === 'refresh') {
+        return (
+            <RefreshItem
+                savedQueryId={nextStep.savedQueryId}
+                refreshing={nextStep.refreshing}
+                dataAttr="data-catalog-tables-next-step"
+            />
+        )
+    }
+    return (
+        <DropdownMenuItem onClick={() => navigateToHref(nextStep.href)} data-attr="data-catalog-tables-next-step">
+            {nextStep.label}
+        </DropdownMenuItem>
     )
 }
 
@@ -103,27 +119,18 @@ function ChecksItem({ row }: { row: CatalogTableRow }): JSX.Element | null {
     )
 }
 
-function SyncNowItem({ row }: { row: CatalogTableRow }): JSX.Element | null {
-    const { startedRefreshSavedQueryIds } = useValues(modelsOverviewLogic)
-    const { runMaterialization } = useActions(viewsTabLogic)
+function RefreshViewItem({ row }: { row: CatalogTableRow }): JSX.Element | null {
+    const { refreshRequests } = useValues(modelsOverviewLogic)
     const savedQuery = row.savedQuery
     if (!savedQuery?.is_materialized || row.problems.length > 0) {
         return null
     }
-    const running = savedQuery.status === 'Running' || startedRefreshSavedQueryIds.includes(savedQuery.id)
     return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.WarehouseObjects}
-            minAccessLevel={AccessControlLevel.Editor}
-        >
-            <DropdownMenuItem
-                onClick={() => runMaterialization(savedQuery.id)}
-                disabledReason={running ? SYNC_RUNNING_REASON : undefined}
-                data-attr="data-catalog-tables-sync-now"
-            >
-                Sync now
-            </DropdownMenuItem>
-        </AccessControlAction>
+        <RefreshItem
+            savedQueryId={savedQuery.id}
+            refreshing={savedQuery.status === RUNNING_STATUS || savedQuery.id in refreshRequests}
+            dataAttr="data-catalog-tables-sync-now"
+        />
     )
 }
 
@@ -279,7 +286,7 @@ export function CatalogTableRowMenu({ row }: { row: CatalogTableRow }): JSX.Elem
             <DropdownMenuContent align="end" className="min-w-48">
                 <NextStepItem row={row} />
                 <ChecksItem row={row} />
-                <SyncNowItem row={row} />
+                <RefreshViewItem row={row} />
                 <TrustItems row={row} />
                 <AccessControlItem row={row} />
                 <DestructiveItems row={row} />

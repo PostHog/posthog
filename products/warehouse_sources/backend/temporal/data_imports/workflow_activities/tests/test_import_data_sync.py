@@ -36,13 +36,15 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    IMPORT_NON_RETRYABLE_ERROR_TYPES,
     NEW_TABLE_NOT_READY_MESSAGE,
+    Any_Source_Errors,
     _transient_error_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
-    IMPORT_RIDE_OUT_FLAG,
     DurableProgress,
     RideOutConfig,
 )
@@ -57,6 +59,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ResumableSource,
     SimpleSource,
     SourceExtractionNotImplementedError,
+    error_message_matches,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
@@ -521,6 +524,29 @@ async def test_schema_deleted_mid_sync_routes_through_handler():
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args.args[5] is error
     source.parse_config.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_refused_self_managed_adoption_stops_the_run_before_extraction():
+    message = f"{ADOPTION_ACCESS_ERROR} 'orders', because the access rules of the table or of its source changed"
+    source = _make_source(AssertionError("must not extract"), {})
+
+    with (
+        _patched_activity(source) as handle_mock,
+        mock.patch.object(module, "self_managed_adoption_error", return_value=message),
+    ):
+        with pytest.raises(NonRetryableException, match="access rules of the table") as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    source.parse_config.assert_not_called()
+    source.source_for_pipeline.assert_not_called()
+    handle_mock.assert_not_awaited()
+    # Temporal doesn't retry the activity, and the job's finalizer pauses the schema with the message.
+    assert type(exc_info.value).__name__ in IMPORT_NON_RETRYABLE_ERROR_TYPES
+    assert error_message_matches(str(exc_info.value), Any_Source_Errors.keys())
+    assert Any_Source_Errors[ADOPTION_ACCESS_ERROR] is None
+    # The workflow records `e.cause.cause` as the job's error, so the refusal must be the cause.
+    assert str(exc_info.value.__cause__) == message
 
 
 @pytest.mark.asyncio
@@ -1255,7 +1281,6 @@ def _patched_activity_reaching_run(source_mock, schema, api_version=None, workfl
         mock.patch.object(module, "bind_job_context"),
         mock.patch.object(module, "trim_source_job_inputs", new=mock.AsyncMock()),
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
-        mock.patch.object(module, "is_schema_flag_enabled", return_value=False),
         mock.patch.object(module.SourceRegistry, "is_registered", return_value=True),
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source_mock),
         mock.patch.object(
@@ -2199,24 +2224,20 @@ async def test_the_pipeline_preempts_only_with_the_setting_on_and_free_handoffs(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "flag_enabled,handoffs_are_free,grace,shutdown_grace,expected",
+    "handoffs_are_free,grace,shutdown_grace,expected",
     [
-        pytest.param(True, True, 7200, 0.0, RideOutConfig(grace_seconds=7200.0, max_seconds=1800.0), id="on"),
+        pytest.param(True, 7200, 0.0, RideOutConfig(grace_seconds=7200.0, max_seconds=1800.0), id="on"),
         # The ride-out starts when the shutdown grace ends, so its deadline leaves that time out.
         pytest.param(
-            True, True, 7200, 60.0, RideOutConfig(grace_seconds=7140.0, max_seconds=1800.0), id="after_shutdown_grace"
+            True, 7200, 60.0, RideOutConfig(grace_seconds=7140.0, max_seconds=1800.0), id="after_shutdown_grace"
         ),
         # The worker falls back to a five-minute graceful shutdown when the setting is unset.
-        pytest.param(
-            True, True, None, 0.0, RideOutConfig(grace_seconds=300.0, max_seconds=1800.0), id="no_grace_period"
-        ),
+        pytest.param(True, None, 0.0, RideOutConfig(grace_seconds=300.0, max_seconds=1800.0), id="no_grace_period"),
         # Holding the worker past the deadline on the retry path would cost an attempt at the hand-off.
-        pytest.param(True, False, 7200, 0.0, None, id="off_when_a_handoff_uses_a_retry_attempt"),
-        pytest.param(False, True, 7200, 0.0, None, id="off_when_the_flag_is_off"),
+        pytest.param(False, 7200, 0.0, None, id="off_when_a_handoff_uses_a_retry_attempt"),
     ],
 )
-async def test_the_pipeline_rides_out_only_with_the_flag_on_and_free_handoffs(
-    flag_enabled: bool,
+async def test_the_pipeline_rides_out_only_with_free_handoffs(
     handoffs_are_free: bool,
     grace: int | None,
     shutdown_grace: float,
@@ -2231,15 +2252,10 @@ async def test_the_pipeline_rides_out_only_with_the_flag_on_and_free_handoffs(
     source.source_for_pipeline.return_value = mock.MagicMock()
     schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
 
-    with (
-        _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1") as run_mock,
-        mock.patch.object(module, "is_schema_flag_enabled", return_value=flag_enabled) as flag_check,
-    ):
+    with _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1") as run_mock:
         await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free))
 
     assert run_mock.await_args.kwargs["ride_out"] == expected
-    if handoffs_are_free:
-        flag_check.assert_called_once_with(schema, IMPORT_RIDE_OUT_FLAG)
     assert isinstance(run_mock.await_args.kwargs["progress"], DurableProgress)
 
 

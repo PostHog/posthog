@@ -1,7 +1,18 @@
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
-import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import { CyclotronInvocationQueueParametersEmailType, EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
+
+export const MAX_COPY_RECIPIENTS = 10
+
+export const RECIPIENT_ADDRESS_PATTERN =
+    /^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
+
+const CopyRecipientsSchema = z
+    .array(z.string().email({ pattern: RECIPIENT_ADDRESS_PATTERN }))
+    .max(MAX_COPY_RECIPIENTS)
+    .readonly()
+    .optional()
 
 export const AcceptedSendSchema = z
     .object({
@@ -25,6 +36,8 @@ export const AcceptedSendSchema = z
             .readonly()
             .optional(),
         replyTo: z.array(z.string()).readonly().optional(),
+        cc: CopyRecipientsSchema,
+        bcc: CopyRecipientsSchema,
         tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
     })
     .strict()
@@ -32,8 +45,10 @@ export const AcceptedSendSchema = z
 
 export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
 
+export type QueuedSend = AcceptedSend & { attachments?: readonly EmailAttachmentMetadata[] }
+
 export const acceptedSendEmailFields = (
-    send: AcceptedSend | undefined
+    send: QueuedSend | undefined
 ): Partial<CyclotronInvocationQueueParametersEmailType> => ({
     ...(send?.content && {
         subject: send.content.subject,
@@ -43,10 +58,10 @@ export const acceptedSendEmailFields = (
     }),
     ...(send?.from && { from: { ...send.from } }),
     ...(send?.replyTo && { replyTo: send.replyTo.join(', ') }),
+    ...(send?.cc && { cc: send.cc.join(', ') }),
+    ...(send?.bcc && { bcc: send.bcc.join(', ') }),
+    ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
 })
-
-export const RECIPIENT_ADDRESS_PATTERN =
-    /^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
 
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({
@@ -65,6 +80,16 @@ export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }
 export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })
 
 export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema> & { send?: AcceptedSend }
+
+export const transactionalEmailRecipients = ({ to, send }: TransactionalEmailRequest): string[] => [
+    to,
+    ...(send?.cc ?? []),
+    ...(send?.bcc ?? []),
+]
+
+export const isRecipientFormatIssue = (issue: z.core.$ZodIssue): boolean =>
+    issue.code === 'invalid_format' &&
+    (issue.path[0] === 'to' || (issue.path[0] === 'send' && (issue.path[1] === 'cc' || issue.path[1] === 'bcc')))
 
 export type TransactionalEmailOutcome =
     | 'queued'
