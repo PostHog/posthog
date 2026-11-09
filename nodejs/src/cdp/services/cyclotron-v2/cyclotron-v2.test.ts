@@ -131,6 +131,30 @@ async function jobIsDue(id: string): Promise<boolean> {
     return res.rows[0].due
 }
 
+async function makeHeartbeatStale(id: string): Promise<void> {
+    await assertPool.query(`UPDATE cyclotron_jobs SET last_heartbeat = NOW() - INTERVAL '1 minute' WHERE id = $1`, [id])
+}
+
+async function heartbeatIsFresh(id: string): Promise<boolean> {
+    const res = await assertPool.query<{ fresh: boolean }>(
+        `SELECT last_heartbeat > NOW() - INTERVAL '10 seconds' AS fresh FROM cyclotron_jobs WHERE id = $1`,
+        [id]
+    )
+    return res.rows[0].fresh
+}
+
+async function settlesWithin(work: Promise<unknown>, guardMs: number): Promise<boolean> {
+    let guard: NodeJS.Timeout | undefined
+    const guardElapsed = new Promise<false>((resolve) => {
+        guard = setTimeout(() => resolve(false), guardMs)
+    })
+    try {
+        return await Promise.race([work.then(() => true), guardElapsed])
+    } finally {
+        clearTimeout(guard)
+    }
+}
+
 async function countByStatus(status: string): Promise<number> {
     const res = await assertPool.query('SELECT COUNT(*)::int AS c FROM cyclotron_jobs WHERE status = $1', [status])
     return res.rows[0].c
@@ -1816,19 +1840,6 @@ describe('Cyclotron V2', () => {
             const releaseWriteHeartbeatLimitMs = 5_000
             const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
             const [job] = await dequeueOneBatch(createWorker(QUEUE, { releaseWriteHeartbeatLimitMs }))
-            const staleHeartbeat = async (): Promise<void> => {
-                await assertPool.query(
-                    `UPDATE cyclotron_jobs SET last_heartbeat = NOW() - INTERVAL '1 minute' WHERE id = $1`,
-                    [id]
-                )
-            }
-            const heartbeatIsFresh = async (): Promise<boolean> => {
-                const res = await assertPool.query<{ fresh: boolean }>(
-                    `SELECT last_heartbeat > NOW() - INTERVAL '10 seconds' AS fresh FROM cyclotron_jobs WHERE id = $1`,
-                    [id]
-                )
-                return res.rows[0].fresh
-            }
 
             const blocker = await assertPool.connect()
             jest.useFakeTimers({
@@ -1842,14 +1853,14 @@ describe('Cyclotron V2', () => {
                 )
                 const rescheduled = job.reschedule({ queueName: 'email' })
 
-                await staleHeartbeat()
+                await makeHeartbeatStale(id)
                 await job.heartbeat()
-                expect(await heartbeatIsFresh()).toBe(true)
+                expect(await heartbeatIsFresh(id)).toBe(true)
 
-                await staleHeartbeat()
+                await makeHeartbeatStale(id)
                 jest.setSystemTime(Date.now() + releaseWriteHeartbeatLimitMs + 1)
                 await expect(job.heartbeat()).rejects.toThrow('already released')
-                expect(await heartbeatIsFresh()).toBe(false)
+                expect(await heartbeatIsFresh(id)).toBe(false)
 
                 jest.useRealTimers()
                 await blocker.query('COMMIT')
@@ -1864,19 +1875,28 @@ describe('Cyclotron V2', () => {
             expect((await queryJob(id)).status).toBe('available')
         })
 
-        it('heartbeat() extends last_heartbeat', async () => {
+        it('heartbeat() skips without waiting while another client holds the job row, then renews once it is free', async () => {
             const { id, job } = await seedAndDequeue()
+            await makeHeartbeatStale(id)
 
-            const rowBefore = await queryJob(id)
-            await new Promise((r) => setTimeout(r, 50))
+            const rowHolder = await assertPool.connect()
+            try {
+                await rowHolder.query('BEGIN')
+                await rowHolder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+
+                await expect(settlesWithin(job.heartbeat(), 2_000)).resolves.toBe(true)
+                expect(await heartbeatIsFresh(id)).toBe(false)
+
+                await rowHolder.query('COMMIT')
+            } finally {
+                await rowHolder.query('ROLLBACK')
+                rowHolder.release()
+            }
+
             await job.heartbeat()
-
-            const rowAfter = await queryJob(id)
-            expect(new Date(rowAfter.last_heartbeat!).getTime()).toBeGreaterThanOrEqual(
-                new Date(rowBefore.last_heartbeat!).getTime()
-            )
-            expect(rowAfter.status).toBe('running')
-        })
+            expect(await heartbeatIsFresh(id)).toBe(true)
+            expect((await queryJob(id)).status).toBe('running')
+        }, 10_000)
 
         it('double-release throws on second ack method call', async () => {
             const { job } = await seedAndDequeue()
