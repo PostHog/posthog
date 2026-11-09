@@ -1,0 +1,73 @@
+import { logger } from '~/common/utils/logger'
+
+import { MessageOptOutRecord } from '../../../types'
+import { RecipientsManagerService } from '../../managers/recipients-manager.service'
+import { EmailSuppressionService } from '../email-suppression.service'
+import { FrequencyCapCheck } from '../recipient-preferences.service'
+
+export type SandboxRecipientCheckDependencies = {
+    suppression: Pick<EmailSuppressionService, 'isSuppressed'>
+    recipients: Pick<RecipientsManagerService, 'get' | 'getPreference' | 'getAllMarketingMessagingPreference'>
+}
+
+export type SandboxRecipientCheckRequest = {
+    teamId: number
+    address: string
+    categoryId?: string
+    categoryType?: 'marketing' | 'transactional'
+    optOuts: MessageOptOutRecord[]
+    isTest: boolean
+    frequencyCap: () => Promise<FrequencyCapCheck>
+}
+
+export type SandboxRecipientCheck =
+    | { ok: true }
+    | { ok: false; reason: 'suppressed' | 'opted_out' | 'frequency_capped' }
+
+export async function checkSandboxRecipient(
+    { suppression, recipients }: SandboxRecipientCheckDependencies,
+    { teamId, address, categoryId, categoryType, optOuts, isTest, frequencyCap }: SandboxRecipientCheckRequest
+): Promise<SandboxRecipientCheck> {
+    const transactional = categoryType === 'transactional'
+    if (await suppression.isSuppressed(teamId, address, { transactional })) {
+        return { ok: false, reason: 'suppressed' }
+    }
+    if (transactional) {
+        return { ok: true }
+    }
+    if (await isOptedOut(recipients, { teamId, address, categoryId: categoryId || '$all', optOuts })) {
+        return { ok: false, reason: 'opted_out' }
+    }
+    if (!isTest && (await frequencyCap()).capped) {
+        return { ok: false, reason: 'frequency_capped' }
+    }
+    return { ok: true }
+}
+
+async function isOptedOut(
+    recipients: SandboxRecipientCheckDependencies['recipients'],
+    {
+        teamId,
+        address,
+        categoryId,
+        optOuts,
+    }: { teamId: number; address: string; categoryId: string; optOuts: MessageOptOutRecord[] }
+): Promise<boolean> {
+    const identifier = address.trim()
+    if (
+        optOuts.some((optOut) => optOut.identifier === identifier && [categoryId, '$all'].includes(optOut.categoryId))
+    ) {
+        return true
+    }
+    try {
+        const recipient = await recipients.get({ teamId, identifier: address })
+        return (
+            !!recipient &&
+            (recipients.getPreference(recipient, categoryId) === 'OPTED_OUT' ||
+                recipients.getAllMarketingMessagingPreference(recipient) === 'OPTED_OUT')
+        )
+    } catch (error) {
+        logger.error('Failed to read sandbox recipient preferences', { teamId, error })
+        return false
+    }
+}
