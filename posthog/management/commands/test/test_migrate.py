@@ -53,7 +53,11 @@ class TestFindUnsafeFallback(SimpleTestCase):
             ],
         }
     )
-    DEPENDENTS = [("a", "0002_edited"), ("a", "0003_squash_2026_09_07_schema_addons"), ("a", "0004_edited")]
+    REMOVED = [
+        (("a", "0002_edited"), ("b", "0001_z")),
+        (("a", "0003_squash_2026_09_07_schema_addons"), ("b", "0001_z")),
+        (("a", "0004_edited"), ("b", "0002_z")),
+    ]
     EVERYTHING = {
         ("a", "0001_x"),
         ("a", "0002_edited"),
@@ -80,6 +84,12 @@ class TestFindUnsafeFallback(SimpleTestCase):
                 ["a.0002_edited", "a.0003_squash_2026_09_07_schema_addons", "a.0004_edited"],
             ),
             (
+                "inside_the_older_squash_with_the_prerequisites_applied",
+                {("a", "0001_x"), ("b", "0001_z"), ("b", "0002_z")},
+                None,
+                [],
+            ),
+            (
                 "fresh_with_a_replaced_target",
                 set(),
                 ("a", "0001_x"),
@@ -88,7 +98,7 @@ class TestFindUnsafeFallback(SimpleTestCase):
         ]
     )
     def test_flags_only_edited_files_that_would_run(self, _name, applied, target, expected):
-        assert find_unsafe_fallback(self.REPLACED, self.DEPENDENTS, applied, target) == expected
+        assert find_unsafe_fallback(self.REPLACED, self.REMOVED, applied, target) == expected
 
 
 class TestResolveTarget(SimpleTestCase):
