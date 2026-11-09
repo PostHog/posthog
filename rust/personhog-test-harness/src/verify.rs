@@ -33,6 +33,7 @@ pub async fn verify_postgres(
     team_id: i64,
     journal: &HashMap<i64, ExpectedPerson>,
     merged: &HashMap<i64, MergedSource>,
+    properties: bool,
 ) -> Result<Vec<ConsistencyViolation>> {
     let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
     let person_ids: Vec<i64> = journal.keys().copied().collect();
@@ -94,11 +95,13 @@ pub async fn verify_postgres(
         for (person_id, expected) in journal {
             match by_id.get(person_id) {
                 Some((props, version)) => {
-                    violations.extend(verify_properties(
-                        *person_id,
-                        &expected.written_properties,
-                        props,
-                    ));
+                    if properties {
+                        violations.extend(verify_properties(
+                            *person_id,
+                            &expected.written_properties,
+                            props,
+                        ));
+                    }
                     // The highest acked version is a floor, not an exact
                     // target: a write that produced its record but lost the
                     // response (a drain, a client timeout) is unacked yet

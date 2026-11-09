@@ -16,6 +16,8 @@ mod process;
 
 use process::ServiceProcess;
 
+use crate::cli::PropertyStorage;
+
 /// Ports sit in their own range so a harness stack can run alongside the
 /// dev stack (gRPC 50051-50054, metrics 9100-9105) without collisions.
 /// Routers occupy base..base+3 and leaders start at base+6, which caps the
@@ -39,6 +41,7 @@ const WRITER_CONSUMER_GROUP: &str = "personhog-test-harness-writer";
 const LEADER_METRICS_BASE_PORT: u16 = 24160;
 /// Above the leader range, which grows with every scale-up.
 const PUBLISHER_METRICS_BASE_PORT: u16 = 24200;
+const EXTRA_WRITER_METRICS_BASE_PORT: u16 = 24250;
 /// Above the publishers, whose count is a flag.
 const MONITOR_PORT: u16 = 24300;
 /// Short, because a fixture's run ends with a wait for the last entries to
@@ -62,6 +65,8 @@ pub struct StackConfig {
     /// Directory containing the service binaries (the cargo target dir).
     pub bin_dir: PathBuf,
     pub leaders: u32,
+    pub writers: u32,
+    pub property_storage: PropertyStorage,
     pub routers: u32,
     pub partitions: u32,
     pub kafka_hosts: String,
@@ -148,6 +153,8 @@ pub struct Stack {
     writer_rebinds: usize,
     /// Old generations awaiting the writer's drain and the retire op, with the saga's end.
     pending_retire: Vec<(String, Instant)>,
+    slatedb_from: Option<u32>,
+    replaced_leader_metrics: Vec<(String, bool, String)>,
     pub router_url: String,
     /// Set when the stack spawned a personhog-identity service: the traffic
     /// router's URL, which proxies identity RPCs to it.
@@ -186,7 +193,12 @@ impl Stack {
         }
     }
 
-    pub async fn up(config: StackConfig) -> Result<Self> {
+    pub async fn up(mut config: StackConfig) -> Result<Self> {
+        if config.property_storage == PropertyStorage::Slatedb {
+            config
+                .extra_leader_env
+                .push(("PROPERTY_SOURCE".to_string(), "slatedb".to_string()));
+        }
         if config.routers == 0 || config.routers > MAX_ROUTERS {
             bail!("--routers must be between 1 and {MAX_ROUTERS}");
         }
@@ -258,36 +270,64 @@ impl Stack {
 
         let mut infra = Vec::new();
 
+        for i in 0..config.writers.max(1) {
+            let (name, metrics_port) = match i {
+                0 => ("writer".to_string(), WRITER_METRICS_PORT),
+                _ => (
+                    format!("writer-{i}"),
+                    EXTRA_WRITER_METRICS_BASE_PORT + i as u16,
+                ),
+            };
+            infra.push(ServiceProcess::spawn(
+                &name,
+                &config.bin_dir.join("personhog-writer"),
+                &[
+                    ("DATABASE_URL", config.persons_db_url.clone()),
+                    ("KAFKA_HOSTS", config.kafka_hosts.clone()),
+                    ("ETCD_ENDPOINTS", config.etcd_endpoints.clone()),
+                    ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
+                    ("KAFKA_CONSUMER_GROUP", WRITER_CONSUMER_GROUP.to_string()),
+                    (
+                        "PROPERTY_STORAGE_MODE",
+                        config.property_storage.as_env().to_string(),
+                    ),
+                    ("PG_TARGET_TABLE", config.pg_target_table.clone()),
+                    (
+                        "FLUSH_INTERVAL_MS",
+                        config.writer_flush_interval_ms.to_string(),
+                    ),
+                    ("METRICS_PORT", metrics_port.to_string()),
+                ],
+                &log_dir,
+            )?);
+        }
+
+        // The replica checks the store layout a writer registers, so in slatedb mode it starts
+        // once one has.
+        let mut replica_env = vec![
+            ("GRPC_ADDRESS", format!("127.0.0.1:{REPLICA_GRPC_PORT}")),
+            ("PRIMARY_DATABASE_URL", config.persons_db_url.clone()),
+            ("METRICS_PORT", REPLICA_METRICS_PORT.to_string()),
+            ("ETCD_ENDPOINTS", config.etcd_endpoints.clone()),
+            ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
+        ];
+        if config.property_storage == PropertyStorage::Slatedb {
+            replica_env.push(("PROPERTY_SOURCE", "slatedb".to_string()));
+            let mut polls = 0;
+            while store.get_property_store_layout().await?.is_none() {
+                polls += 1;
+                if polls > 150 {
+                    bail!("no writer registered the property store layout within 30s");
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
         infra.push(ServiceProcess::spawn(
             "replica",
             &config.bin_dir.join("personhog-replica"),
-            &[
-                ("GRPC_ADDRESS", format!("127.0.0.1:{REPLICA_GRPC_PORT}")),
-                ("PRIMARY_DATABASE_URL", config.persons_db_url.clone()),
-                ("METRICS_PORT", REPLICA_METRICS_PORT.to_string()),
-            ],
+            &replica_env,
             &log_dir,
         )?);
-
-        infra.push(ServiceProcess::spawn(
-            "writer",
-            &config.bin_dir.join("personhog-writer"),
-            &[
-                ("DATABASE_URL", config.persons_db_url.clone()),
-                ("KAFKA_HOSTS", config.kafka_hosts.clone()),
-                ("ETCD_ENDPOINTS", config.etcd_endpoints.clone()),
-                ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
-                ("KAFKA_CONSUMER_GROUP", WRITER_CONSUMER_GROUP.to_string()),
-                ("PG_TARGET_TABLE", config.pg_target_table.clone()),
-                (
-                    "FLUSH_INTERVAL_MS",
-                    config.writer_flush_interval_ms.to_string(),
-                ),
-                ("METRICS_PORT", WRITER_METRICS_PORT.to_string()),
-            ],
-            &log_dir,
-        )?);
-
         // The first router must win the coordinator election so bring-up
         // is deterministic: spawn it alone, wait for it to acquire
         // leadership, then bring up the rest. With two or more routers,
@@ -476,6 +516,7 @@ impl Stack {
             _ => None,
         };
 
+        let slatedb_from = (config.property_storage == PropertyStorage::Slatedb).then_some(0);
         let mut stack = Self {
             config,
             infra,
@@ -490,6 +531,8 @@ impl Stack {
             secondary_topics: HashSet::new(),
             writer_rebinds: 0,
             pending_retire: Vec::new(),
+            slatedb_from,
+            replaced_leader_metrics: Vec::new(),
             router_url,
             identity_url,
             publish_topics,
@@ -591,12 +634,77 @@ impl Stack {
     /// exits on its own while traffic continues.
     pub async fn shutdown_leader(&mut self) -> Result<String> {
         let victim = self.busiest_leader().await?;
-        let (pod_name, proc) = self.remove_leader(&victim)?;
+        self.shutdown_named_leader(&victim)
+    }
+
+    fn shutdown_named_leader(&mut self, victim: &str) -> Result<String> {
+        let (pod_name, proc) = self.remove_leader(victim)?;
 
         proc.sigterm();
         tracing::info!(pod = %pod_name, "requested graceful shutdown");
         self.retired.push(proc);
         Ok(pod_name)
+    }
+
+    pub async fn roll_leaders_to_slatedb(&mut self, step_deadline: Duration) -> Result<()> {
+        self.config
+            .extra_leader_env
+            .push(("PROPERTY_SOURCE".to_string(), "slatedb".to_string()));
+        self.slatedb_from = Some(self.next_leader_index);
+        let old: Vec<String> = self.leaders.iter().map(|(name, _)| name.clone()).collect();
+        for victim in old {
+            let surged = self.spawn_leader()?;
+            let started = Instant::now();
+            while !self
+                .store
+                .list_assignments()
+                .await?
+                .iter()
+                .any(|a| a.owner == surged)
+            {
+                ensure!(
+                    started.elapsed() < step_deadline,
+                    "{surged} took no partition within {step_deadline:?}"
+                );
+                self.check_alive()?;
+                tokio::time::sleep(MIGRATION_POLL).await;
+            }
+            self.wait_converged(step_deadline).await?;
+            let page = self.scrape_leader(&victim).await?;
+            self.replaced_leader_metrics.push(page);
+            self.shutdown_named_leader(&victim)?;
+            self.wait_converged(step_deadline).await?;
+            println!("Rollout: {victim} replaced by SlateDB leader {surged}");
+        }
+        Ok(())
+    }
+
+    pub async fn leader_metrics(&self) -> Result<Vec<(String, bool, String)>> {
+        let mut pages = self.replaced_leader_metrics.clone();
+        for (name, _) in &self.leaders {
+            pages.push(self.scrape_leader(name).await?);
+        }
+        Ok(pages)
+    }
+
+    async fn scrape_leader(&self, name: &str) -> Result<(String, bool, String)> {
+        let index: u32 = name
+            .rsplit('-')
+            .next()
+            .and_then(|i| i.parse().ok())
+            .with_context(|| format!("leader name {name} carries no index"))?;
+        let url = format!(
+            "http://127.0.0.1:{}/metrics",
+            LEADER_METRICS_BASE_PORT + index as u16
+        );
+        let page = reqwest::get(&url)
+            .await
+            .and_then(reqwest::Response::error_for_status)
+            .with_context(|| format!("scraping {name}"))?
+            .text()
+            .await?;
+        let slatedb = self.slatedb_from.is_some_and(|from| index >= from);
+        Ok((name.to_string(), slatedb, page))
     }
 
     /// Crash-restart the busiest leader under the same identity: SIGKILL,
