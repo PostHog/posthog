@@ -836,6 +836,42 @@ def test_masking_a_table_with_a_history_table_empties_it_only_when_asked(
     assert (schema.masked_columns or []) == (["email"] if expected_status == 200 else [])
 
 
+def test_a_mask_whose_history_delete_is_refused_is_not_saved(team, user, client: HttpClient):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    config = {
+        **schema.sync_type_config,
+        "schema_metadata": {
+            "columns": [
+                {"name": name, "data_type": "text", "is_nullable": True} for name in ("id", "email", "updated_at")
+            ]
+        },
+    }
+    ExternalDataSchema.objects.filter(id=schema.id).update(sync_type_config=config)
+    history = _history_table(schema)
+    client.force_login(user)
+    s3 = mock.MagicMock(**{"ls.return_value": [f"bucket/{schema.folder_path()}/orders_cdc"]})
+
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks():
+            stack.enter_context(patcher)
+        stack.enter_context(mock.patch(_GET_S3_CLIENT, return_value=s3))
+        # A sync starts between the check before the save and the delete.
+        stack.enter_context(mock.patch(_PATCH_TARGETS["has_queued_batches"], side_effect=[False, True]))
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"masked_columns": ["email"], "drop_history_table": True},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 400, response.content
+    assert "drop_history_table" in response.json()["attr"]
+    schema.refresh_from_db()
+    history.refresh_from_db()
+    assert not schema.masked_columns
+    assert not history.deleted
+    s3.rm.assert_not_called()
+
+
 @pytest.mark.parametrize(("mode", "expected_status"), [("consolidated", 204), ("both", 400)])
 def test_the_history_table_action_deletes_only_a_table_the_schema_no_longer_writes(
     team, user, client: HttpClient, mode, expected_status

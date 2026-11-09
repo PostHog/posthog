@@ -2220,6 +2220,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # on again without the copy does.
             stage_access_rules_copy(instance, None, keeps_history=resulting_keeps_history)
 
+        if history_table_to_drop is not None and masks_rebuild_history:
+            self._empty_history_table_for_mask(instance)
+
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(
@@ -2228,10 +2231,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if publication_removal is not None:
             self._run_temporal_side_effect(publication_removal)
         # Ahead of the side effects below, because a sync they start would block the drop.
-        if history_table_to_drop is not None:
-            self._run_temporal_side_effect(
-                lambda: self._drop_history_table_after_mode_change(updated_instance, rebuilding=masks_rebuild_history)
-            )
+        if history_table_to_drop is not None and not masks_rebuild_history:
+            self._run_temporal_side_effect(lambda: self._drop_history_table_after_mode_change(updated_instance))
 
         if masked_columns_changed:
             # Profiles computed before the mask hold plaintext bounds, and the profiler recomputes them only daily.
@@ -2403,9 +2404,32 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             raise ValidationError({"drop_history_table": str(e)})
         return table
 
-    def _drop_history_table_after_mode_change(self, schema: ExternalDataSchema, *, rebuilding: bool = False) -> None:
+    def _empty_history_table_for_mask(self, instance: ExternalDataSchema) -> None:
+        """Empty the history table before the mask saves, so a refused delete fails the save.
+
+        After the save the record stays either way, so nothing could tell the requester that the unmasked
+        values are still there. A fresh copy of the schema keeps the delete off this request's unsaved config.
+        """
         try:
-            dropped = drop_history_table(schema, rebuilding=rebuilding)
+            drop_history_table(
+                ExternalDataSchema.objects.get(id=instance.id, team_id=instance.team_id), rebuilding=True
+            )
+        except HistoryTableDropRefusedError as e:
+            raise ValidationError({"drop_history_table": str(e)})
+        except Exception as e:
+            capture_exception(e)
+            raise ValidationError(
+                {
+                    "drop_history_table": "Couldn't delete the history table's contents, so the mask wasn't saved. Try again."
+                }
+            )
+        request = self.context.get("request")
+        if request is not None:
+            report_history_table_deleted(request.user, instance, trigger="mask", request=request)
+
+    def _drop_history_table_after_mode_change(self, schema: ExternalDataSchema) -> None:
+        try:
+            dropped = drop_history_table(schema)
         except HistoryTableDropRefusedError:
             # A sync started after the check above. The table stays, and the later delete can remove it.
             logger.warning("history_table_drop_refused_after_mode_change", schema_id=str(schema.id), exc_info=True)
