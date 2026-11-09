@@ -337,7 +337,7 @@ export class CdpApi {
             deps.idempotencyValkey ?? null,
             'transactional-email'
         )
-        this.attachmentUploads = new AttachmentUploads(services.attachmentStore, services.redis, {
+        this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.idempotencyValkey ?? null, {
             teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
             maxBytesPerTeamDay: config.CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY,
         })

@@ -3539,9 +3539,9 @@ describe('CDP API', () => {
             {
                 maxBytesPerTeamDay = LARGE_DAILY_CAP,
                 attachmentStore = store as S3AttachmentStore | null,
-                quota = redis,
+                counter = redis as RedisV2 | null,
             } = {}
-        ): AttachmentUploads => new AttachmentUploads(attachmentStore, quota, { teams, maxBytesPerTeamDay })
+        ): AttachmentUploads => new AttachmentUploads(attachmentStore, counter, { teams, maxBytesPerTeamDay })
 
         const putBytes = async (slot: Record<string, any>, f: TestFile): Promise<number> =>
             (
@@ -3557,16 +3557,7 @@ describe('CDP API', () => {
                 ...getDefaultCdpConfig(),
                 CDP_EMAIL_ATTACHMENTS_S3_PREFIX: `attachments-api-test/${Date.now()}`,
             })!
-            redis = createRedisV2PoolFromConfig({
-                connection: hub.CDP_REDIS_HOST
-                    ? {
-                          url: hub.CDP_REDIS_HOST,
-                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                      }
-                    : { url: hub.REDIS_URL },
-                poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-            })
+            redis = createIdempotencyValkeyPool(hub)!
         })
 
         beforeEach(async () => {
@@ -3636,6 +3627,10 @@ describe('CDP API', () => {
             ['a hash that is not 64 lowercase hex characters', { files: [{ sha256: 'A'.repeat(64), size: 1 }] }],
             ['a size of zero', sized(0)],
             ['a size that is not a whole number', sized(1.5)],
+            [
+                'one hash listed with two sizes',
+                { files: [1_000_000, 1].map((size) => ({ sha256: 'a'.repeat(64), size })) },
+            ],
         ])('refuses a request with %s', async (_name, body) => {
             const res = await requestUploads(team.id, body)
 
@@ -3711,11 +3706,16 @@ describe('CDP API', () => {
                         }),
                     }),
             ],
+            ['no upload counter is configured', () => uploadsFor(`${team.id}`, { counter: null })],
             [
-                'the upload counter cannot be read',
+                'the upload counter does not answer',
                 () =>
                     uploadsFor(`${team.id}`, {
-                        quota: { useClient: () => Promise.reject(new Error('down')) } as unknown as RedisV2,
+                        counter: createIdempotencyValkeyPool({
+                            ...hub,
+                            CDP_IDEMPOTENCY_VALKEY_HOST: '127.0.0.1',
+                            CDP_IDEMPOTENCY_VALKEY_PORT: 9,
+                        }),
                     }),
             ],
         ])('answers 503 delivery_unavailable when %s', async (_name, uploads) => {

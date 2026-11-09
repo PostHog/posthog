@@ -11,6 +11,15 @@ import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 export const ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX = 'cdp-email-attachments-upload-bytes'
 // A day's counter outlives its UTC day, so a request just after midnight still reads the right one.
 const QUOTA_KEY_TTL_SECONDS = 2 * 24 * 60 * 60
+// One script, so two requests at once cannot both pass the check, and a refused request adds nothing.
+const CHARGE_SCRIPT = `
+local total = tonumber(redis.call('GET', KEYS[1]) or '0') + tonumber(ARGV[1])
+if total > tonumber(ARGV[2]) then
+    return 0
+end
+redis.call('SET', KEYS[1], total, 'EX', ARGV[3])
+return 1
+`
 
 // Unknown keys are dropped rather than refused, so Django can add a field before every cdp-api pod reads it.
 const UploadsRequestSchema = z.object({
@@ -36,7 +45,8 @@ export class AttachmentUploads {
 
     constructor(
         private readonly store: AttachmentStore | null,
-        private readonly redis: RedisV2,
+        // The idempotency Valkey of transactional email. Its pool bounds every wait, so an outage answers 503.
+        private readonly counter: RedisV2 | null,
         private readonly settings: AttachmentUploadsSettings,
         private readonly now: () => Date = () => new Date()
     ) {
@@ -58,6 +68,11 @@ export class AttachmentUploads {
             return { status: 400, body: { error: 'invalid_request', detail: parsed.error.message } }
         }
         const files = parsed.data.files
+        // Each upload URL is signed for its size, so one hash with two sizes would get a URL the cap never counted.
+        const sizeOf = new Map(files.map((file) => [file.sha256, file.size]))
+        if (files.some((file) => sizeOf.get(file.sha256) !== file.size)) {
+            return { status: 400, body: { error: 'invalid_request', detail: 'One sha256 is listed with two sizes' } }
+        }
         const messageBytes = estimateMessageBytes(files.map((file) => file.size))
         if (messageBytes > MESSAGE_MAX_BYTES) {
             const largest = files.reduce((a, b) => (b.size > a.size ? b : a))
@@ -71,7 +86,7 @@ export class AttachmentUploads {
                 },
             }
         }
-        if (!this.store) {
+        if (!this.store || !this.counter) {
             return DELIVERY_UNAVAILABLE
         }
 
@@ -86,13 +101,12 @@ export class AttachmentUploads {
         }
 
         // A file named twice in one request is uploaded once.
-        const sizeOf = new Map(files.map((file) => [file.sha256, file.size]))
         const toUpload = new Set(slots.filter((slot) => slot.status === 'upload').map((slot) => slot.sha256))
         const uploadBytes = [...toUpload].reduce((total, sha256) => total + sizeOf.get(sha256)!, 0)
         if (uploadBytes > 0) {
             let charged: boolean
             try {
-                charged = await this.charge(teamId, uploadBytes)
+                charged = await this.charge(this.counter, teamId, uploadBytes)
             } catch (error) {
                 logger.warn('⚠️', 'Could not count the upload bytes of a team', {
                     team_id: teamId,
@@ -110,20 +124,13 @@ export class AttachmentUploads {
         return { status: 200, body: { files: slots.map(toAnswer) } }
     }
 
-    // Counts the bytes of the upload slots a team gets per UTC day. A refused request gives its bytes back, so it
-    // does not use up the rest of the team's day.
-    private async charge(teamId: number, bytes: number): Promise<boolean> {
+    // Counts the bytes of the upload slots a team gets per UTC day.
+    private async charge(counter: RedisV2, teamId: number, bytes: number): Promise<boolean> {
         const key = `${ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX}:${teamId}:${this.now().toISOString().slice(0, 10)}`
-        const charged = await this.redis.useClient({ name: 'email-attachments-upload-quota' }, async (client) => {
-            const total = await client.incrby(key, bytes)
-            await client.expire(key, QUOTA_KEY_TTL_SECONDS)
-            if (total <= this.settings.maxBytesPerTeamDay) {
-                return true
-            }
-            await client.decrby(key, bytes)
-            return false
-        })
-        return charged === true
+        const charged = await counter.useClient({ name: 'email-attachments-upload-quota' }, (client) =>
+            client.eval(CHARGE_SCRIPT, 1, key, bytes, this.settings.maxBytesPerTeamDay, QUOTA_KEY_TTL_SECONDS)
+        )
+        return charged === 1
     }
 }
 
