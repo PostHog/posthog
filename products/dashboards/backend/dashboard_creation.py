@@ -12,92 +12,24 @@ from typing import Any
 
 from django.db import transaction
 
-from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.facade.contracts import (
+    CreatedDashboard,
+    DashboardCreationDenied,
+    DashboardTileSnapshot,
+    NewDashboard,
+    NewInsightTile,
+    TileLayout,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.api import get_or_create_saved_insight
 
-GRID_COLUMNS = 12
 MAX_DASHBOARD_NAME_LENGTH = 400
-MAX_TEXT_TILE_LENGTH = 4000
-
-
-class DashboardCreationDenied(Exception):
-    """The user cannot create a dashboard or its insights in this project. The message is safe to show."""
-
-
-@frozen
-class TileLayout:
-    """A tile box on the 12-column desktop grid."""
-
-    x: int
-    y: int
-    w: int
-    h: int
-
-    def __post_init__(self) -> None:
-        if self.x < 0 or self.y < 0 or self.w < 1 or self.h < 1 or self.x + self.w > GRID_COLUMNS:
-            raise ValueError(f"The tile box {self} does not fit the {GRID_COLUMNS}-column grid.")
-
-
-@frozen
-class NewInsightTile:
-    name: str
-    description: str
-    query: dict[str, Any]
-    layout: TileLayout
-    show_description: bool | None = None
-
-
-@frozen
-class NewTextTile:
-    body: str
-    layout: TileLayout
-
-    def __post_init__(self) -> None:
-        if len(self.body) > MAX_TEXT_TILE_LENGTH:
-            raise ValueError(f"A text tile can hold at most {MAX_TEXT_TILE_LENGTH} characters.")
-
-
-@frozen
-class NewDashboard:
-    name: str
-    description: str
-    tiles: tuple[NewInsightTile | NewTextTile, ...]
-    # Seeds the insight short ids. A second creation with the same key collides on them and rolls back,
-    # so a retried job cannot leave two copies of the same dashboard.
-    idempotency_key: str
-    date_from: str | None = None
-    # An unlisted dashboard stays out of the dashboard list, and its insights stay out of the saved insights list.
-    # The product that created it opens it by id.
-    unlisted: bool = False
-    filters: dict[str, Any] | None = None
-
-
-@frozen
-class CreatedDashboard:
-    id: int
-    insight_count: int
-    text_tile_count: int
-    # In the order of `NewDashboard.tiles`.
-    tile_ids: tuple[int, ...] = ()
-
-
-@frozen
-class DashboardTileSnapshot:
-    """One live tile of a dashboard: an insight tile has a query, a text tile has a body."""
-
-    tile_id: int
-    layout: TileLayout | None
-    name: str = ""
-    description: str = ""
-    query: dict[str, Any] | None = None
-    body: str | None = None
 
 
 def _insight_short_id(idempotency_key: str, index: int) -> str:

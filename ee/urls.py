@@ -66,13 +66,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
-    from posthog.admin.admins.notebook_markdown_migration_admin import (
-        notebook_markdown_migration_run_view,
-        notebook_markdown_migration_stats_view,
-        notebook_markdown_migration_view,
-    )
-    from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
     from posthog.admin.console.urls import urlpatterns as console_urlpatterns
 
     admin_urlpatterns = [
@@ -91,7 +84,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/distinct-id-usage/",
-            admin.site.admin_view(distinct_id_usage_view),
+            MovedToConsole.page_redirect("Distinct ID usage", "/admin/console/tools/distinct-id-usage/"),
             name="distinct-id-usage",
         ),
         path(
@@ -101,12 +94,12 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/tophog/",
-            admin.site.admin_view(tophog_dashboard_view),
+            MovedToConsole.page_redirect("TopHog", "/admin/console/tools/tophog/"),
             name="tophog-dashboard",
         ),
         path(
             "admin/tophog/restrictions/",
-            admin.site.admin_view(tophog_restrictions_view),
+            MovedToConsole.page_redirect("TopHog restrictions", "/admin/console/tools/tophog/"),
             name="tophog-restrictions",
         ),
         path(
@@ -126,18 +119,23 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/notebook-markdown-migration/",
-            admin.site.admin_view(notebook_markdown_migration_view),
+            MovedToConsole.page_redirect(
+                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
+            ),
             name="notebook-markdown-migration",
         ),
+        # The old page fetched these JSON endpoints itself, so a bookmark of one lands on the tool page.
         path(
             "admin/notebook-markdown-migration/stats/",
-            admin.site.admin_view(notebook_markdown_migration_stats_view),
-            name="notebook-markdown-migration-stats",
+            MovedToConsole.page_redirect(
+                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
+            ),
         ),
         path(
             "admin/notebook-markdown-migration/run/",
-            admin.site.admin_view(notebook_markdown_migration_run_view),
-            name="notebook-markdown-migration-run",
+            MovedToConsole.page_redirect(
+                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
+            ),
         ),
         path(
             "admin/logout/",

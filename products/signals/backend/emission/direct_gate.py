@@ -43,6 +43,7 @@ from products.signals.backend.emission.steering import (
     steering_from_config,
 )
 from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
+from products.signals.backend.trial.policy import TrialRefused
 
 logger = structlog.get_logger(__name__)
 
@@ -131,6 +132,8 @@ async def steering_filters_signal(
                 ),
                 timeout=GATE_TIMEOUT_SECONDS,
             )
+    except TrialRefused:
+        return True
     except Exception:
         logger.exception(
             "Source steering gate failed, keeping signal",
