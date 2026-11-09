@@ -154,7 +154,7 @@ export type SendEmailApiMessageData = { [key: string]: unknown }
 
 export interface EmailAttachmentApi {
     /**
-     * SHA-256 of a file uploaded through `POST /api/environments/{project_id}/messaging/attachments/uploads/`, as 64 lowercase hex characters.
+     * SHA-256 of a file uploaded through `POST /api/projects/{project_id}/messaging/attachments/uploads/`, as 64 lowercase hex characters.
      * @pattern ^[0-9a-f]{64}$
      */
     sha256: string
@@ -210,7 +210,7 @@ export interface SendEmailApi {
     /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
     bcc?: string | string[] | null
     /**
-     * Files attached to the email your code rendered: up to 10, each uploaded first through `POST /api/environments/{project_id}/messaging/attachments/uploads/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
+     * Files attached to the email your code rendered: up to 10, each uploaded first through `POST /api/projects/{project_id}/messaging/attachments/uploads/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
      * @maxItems 10
      * @nullable
      */
