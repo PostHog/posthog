@@ -1856,6 +1856,7 @@ describe('Cyclotron V2', () => {
                 await rescheduled
             } finally {
                 jest.useRealTimers()
+                await blocker.query('ROLLBACK')
                 blocker.release()
             }
 
