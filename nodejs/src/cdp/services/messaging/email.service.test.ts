@@ -14,7 +14,9 @@ import {
     CyclotronInvocationQueueParametersEmailType,
     EmailAttachmentMetadata,
 } from '~/cdp/schema/cyclotron'
+import { CyclotronV2DequeuedJob } from '~/cdp/services/cyclotron-v2/types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
+import { v2JobToInvocation } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -1114,8 +1116,35 @@ describe('EmailService', () => {
                 ['an SES throttle', { originQueue: 'hogflow', originPriority: 2 }],
             ])('charges and sends a job the previous release rescheduled after %s', async (_name, queueMetadata) => {
                 claimAllOrNothing.mockResolvedValue({ granted: true, retryAfterMs: null })
+                const storedByThePreviousRelease = Buffer.from(
+                    JSON.stringify({
+                        state: invocation.state,
+                        queueParameters: invocation.queueParameters,
+                        queueMetadata,
+                    })
+                )
+                const dequeued = v2JobToInvocation({
+                    id: invocation.id,
+                    teamId: invocation.teamId,
+                    functionId: invocation.functionId,
+                    queueName: 'email',
+                    priority: 0,
+                    scheduled: DateTime.now(),
+                    created: DateTime.now(),
+                    parentRunId: null,
+                    transitionCount: 1,
+                    state: storedByThePreviousRelease,
+                    distinctId: null,
+                    personId: null,
+                    actionId: null,
+                    cancelRequestedAt: null,
+                } as unknown as CyclotronV2DequeuedJob)
 
-                const result = await cappedService.executeSendEmail({ ...invocation, queueMetadata })
+                const result = await cappedService.executeSendEmail({
+                    ...invocation,
+                    queueParameters: dequeued.queueParameters as CyclotronJobInvocationHogFunction['queueParameters'],
+                    queueMetadata: dequeued.queueMetadata,
+                })
 
                 expect(result.finished).toBe(true)
                 expect(result.error).toBeUndefined()
@@ -1676,7 +1705,7 @@ describe('EmailService', () => {
                     },
                 ],
             ])('when %s past the deadline, %s', async (_name, _outcome, hang, expected) => {
-                service['sesConfig'].attachmentSendDeadlineMs = 100
+                service['sesConfig'].attachmentSendDeadlineMs = 1000
                 hang()
 
                 const result = await service.executeSendEmail(invocation)
