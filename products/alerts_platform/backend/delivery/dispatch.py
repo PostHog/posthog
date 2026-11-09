@@ -198,8 +198,7 @@ def _current_state_line(team_id: int, key: ThreadKey) -> str | None:
     return state_line(snapshot, episode_started_at=key.episode_started_at, as_of=timezone.now())
 
 
-# The claim's key while a late image edits a conversation. Only the claim carries it, so it never
-# enters the conversation's delivered evaluations.
+# Only the claim carries this key, so it never enters the conversation's delivered evaluations.
 LATE_IMAGE_KEY_PREFIX = "late-image:"
 
 

@@ -436,13 +436,11 @@ async def test_a_slow_check_does_not_hold_back_the_record_of_a_check_that_finish
             "rendered",
             False,
         ),
-        # No slot freed within the firing's one-render budget, so the firing goes out without a chart,
-        # and the chart renders again once it has.
-        (None, _CHART, {"alert_id": "legacy-alert"}, "timed_out", True),
-        # No chart applies, so there is nothing to render later either.
-        (0, None, {"alert_id": "legacy-alert"}, "no_chart", False),
-        # The export failed, which a second render inside the firing's budget could not fix.
-        (0, _FAILED_RENDER, {"alert_id": "legacy-alert"}, "no_chart", True),
+        pytest.param(None, _CHART, {"alert_id": "legacy-alert"}, "timed_out", True, id="no_slot_renders_late"),
+        pytest.param(0, None, {"alert_id": "legacy-alert"}, "no_chart", False, id="no_chart_applies"),
+        pytest.param(
+            0, _FAILED_RENDER, {"alert_id": "legacy-alert"}, "no_chart", True, id="failed_export_renders_late"
+        ),
     ],
 )
 async def test_a_firing_records_the_chart_rendered_after_its_check(

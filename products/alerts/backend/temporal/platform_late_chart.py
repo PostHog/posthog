@@ -66,8 +66,7 @@ def add_late_platform_insight_chart_activity(inputs: AddLateChartInputs) -> int:
     parts = [replace(request, part=part) for request in inputs.deliveries for part in range(max(request.parts, 1))]
     result = sum((add_late_image(part, chart_detail(inputs.chart)) for part in parts), NO_LATE_IMAGE)
     edited, waiting = result.edited, result.waiting
-    # A destination the firing went to through a HogFunction never gets a message to edit, so it
-    # waits only while nothing is edited, and the window ends the wait for an alert that has only those.
+    # Wait only while nothing is edited, so one destination that never gets a message cannot hold back the rest.
     if not edited and waiting:
         raise ApplicationError(f"{waiting} Slack message(s) not sent yet", type=LATE_CHART_MESSAGE_PENDING)
     return edited

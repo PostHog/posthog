@@ -406,8 +406,7 @@ def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -
     if image is None:
         return NO_LATE_IMAGE
 
-    # A firing this alert already sent through its HogFunctions has no native message for an emitted-events
-    # destination to edit, so that destination does not wait for one.
+    # A firing already sent through HogFunctions has no native message for an emitted-events destination.
     @cache
     def natively_sent() -> tuple[AnnouncedTransition, ...]:
         return tuple(transition for transition in firings if not _sent_through_hog_functions(request, transition))

@@ -939,7 +939,6 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                 execution_timeout=LATE_CHART_EXECUTION_TIMEOUT,
             )
         except WorkflowAlreadyStartedError:
-            # A retried record starts the same late chart again.
             pass
 
     async def _start_investigation(self, start: InvestigationStart) -> None:

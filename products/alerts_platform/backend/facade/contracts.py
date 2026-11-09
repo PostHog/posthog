@@ -1470,8 +1470,7 @@ class MessageImage:
     alt_text: str
 
 
-# The `block_id` a source's Slack renderer puts on the block where its image goes, a placeholder when
-# the message went out without one. A chart that renders after the message lands replaces that block.
+# Marks the block where a source's image goes, so an image that renders after the message lands replaces it.
 SLACK_IMAGE_SLOT_BLOCK_ID: Final = "alert_image"
 
 

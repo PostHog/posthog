@@ -208,8 +208,7 @@ class DatabaseThreadStore:
             return Opening.WAITING
         delivered = thread.delivered_evaluation_keys or []
         if evaluation_key in delivered:
-            # The list keeps its oldest entry first, and a conversation opens with its first send.
-            # The cap only drops that entry after DELIVERED_KEYS_CAP sends, long after a late edit.
+            # Oldest first, so the first entry is the send that opened the conversation until the cap drops it.
             return Opening.ROOT if delivered[0] == evaluation_key and thread.external_ref else Opening.REPLY
         return Opening.WAITING
 

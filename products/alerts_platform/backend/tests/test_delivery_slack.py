@@ -320,12 +320,10 @@ class TestSlackLateImage(SimpleTestCase):
             if refusal:
                 with pytest.raises(DeliveryError):
                     add()
-                # Sending the card unchanged would only restamp the state line, so it is not retried without the image.
                 assert update.call_count == 1
                 return
             content = add()
         if not edited:
-            # A retried edit finds its image already in place and leaves the message as it is.
             assert content == (root.root_content if slot else None)
             update.assert_not_called()
             return

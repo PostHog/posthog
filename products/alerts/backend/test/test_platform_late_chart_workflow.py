@@ -43,14 +43,10 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
 @pytest.mark.parametrize(
     "renders, edits, expected_edited, expected_outcomes",
     [
-        # The export stalls past the window, so the firing keeps the message it went out with.
-        ("failed", None, 0, ["late_render_failed"]),
-        # A full pool, then a render: the chart reaches the message.
-        ("pool_full_once", 1, 1, ["added_late"]),
-        # No chart applies any more, so nothing is edited or counted.
-        ("none", None, 0, []),
-        # The firing never reached a native Slack message, such as one sent through a HogFunction.
-        ("rendered", "pending", 0, ["late_unsent"]),
+        pytest.param("failed", None, 0, ["late_render_failed"], id="export_stalls_past_the_window"),
+        pytest.param("pool_full_once", 1, 1, ["added_late"], id="pool_frees_then_chart_lands"),
+        pytest.param("none", None, 0, [], id="no_chart_applies_any_more"),
+        pytest.param("rendered", "pending", 0, ["late_unsent"], id="no_native_message_to_edit"),
     ],
 )
 async def test_a_late_chart_renders_again_and_reaches_the_firing_message(
