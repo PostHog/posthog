@@ -14,7 +14,6 @@ const RESERVED_BYTES_PER_FILE_BYTE = 5
 const HEAP_BYTES_PER_FILE_BYTE = 3
 const BYTES_PER_SEND = 2 * MIB
 const PLAIN_BATCH_ALLOWANCE_BYTES = 512 * MIB
-const ABANDONED_CALLS_MAX_WAIT_MS = 60_000
 const FIRST_DEFERRAL_MS = 5_000
 const LONGEST_DEFERRAL_MS = 120_000
 
@@ -92,15 +91,16 @@ export function deferralDelayMs(earlierDeferrals: number, random: () => number =
     return Math.max(FIRST_DEFERRAL_MS, ceiling / 2 + (random() * ceiling) / 2)
 }
 
-const abandonedCalls = new AsyncLocalStorage<Set<Promise<unknown>>>()
+const sendCalls = new AsyncLocalStorage<Set<Promise<unknown>>>()
 
-// A call that a send stopped waiting for still holds the send's bytes until it settles.
+// A send's call holds its bytes until it settles, even after the send stopped waiting for it on a deadline or on a
+// sibling call's failure.
 export function holdUntilSettled(call: Promise<unknown>): void {
-    abandonedCalls.getStore()?.add(call)
+    sendCalls.getStore()?.add(call)
 }
 
-export async function settleAbandonedCalls(): Promise<void> {
-    const calls = abandonedCalls.getStore()
+export async function callsSettledWithin(maxWaitMs: number): Promise<void> {
+    const calls = sendCalls.getStore()
     if (!calls?.size) {
         return
     }
@@ -108,11 +108,19 @@ export async function settleAbandonedCalls(): Promise<void> {
     await Promise.race([
         Promise.allSettled([...calls]),
         new Promise((resolve) => {
-            timer = setTimeout(resolve, ABANDONED_CALLS_MAX_WAIT_MS)
+            timer = setTimeout(resolve, maxWaitMs)
         }),
     ])
     clearTimeout(timer)
-    calls.clear()
+}
+
+async function everyCallSettled(): Promise<void> {
+    const calls = sendCalls.getStore()
+    while (calls?.size) {
+        const pending = [...calls]
+        await Promise.allSettled(pending)
+        pending.forEach((call) => calls.delete(call))
+    }
 }
 
 export class InFlightRegistry {
@@ -137,11 +145,11 @@ export class InFlightRegistry {
         }
         const estimate = estimateSend(fileBytes)
         this.hold(estimate, 1)
-        const started = abandonedCalls.run(new Set(), async () => {
+        const started = sendCalls.run(new Set(), async () => {
             try {
                 return await send()
             } finally {
-                await settleAbandonedCalls()
+                await everyCallSettled()
                 this.hold(estimate, -1)
             }
         })

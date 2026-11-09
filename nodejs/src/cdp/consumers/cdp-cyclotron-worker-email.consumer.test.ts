@@ -1,5 +1,7 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
+import { DateTime } from 'luxon'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -11,6 +13,7 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { settleBefore } from '../services/messaging/attachment-store'
 import { InFlightLimits, InFlightRegistry, estimateSend } from '../services/messaging/in-flight-registry'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
@@ -133,7 +136,7 @@ describe('CdpCyclotronWorkerEmail', () => {
             maxInFlight: 100,
         })
 
-        const workerWith = (limits: InFlightLimits, config: Partial<Hub> = {}) => {
+        const workerWith = (limits: InFlightLimits | null, config: Partial<Hub> = {}) => {
             const queue = createMockJobQueue()
             const worker = new CdpCyclotronWorkerEmail(
                 { ...hub, ...config },
@@ -216,6 +219,78 @@ describe('CdpCyclotronWorkerEmail', () => {
             await backgroundTask
 
             expect(queue.heartbeatInvocations).toHaveBeenLastCalledWith([send])
+        })
+
+        it.each([
+            ['a send with files fails while the plain sends still run', 'send'],
+            ['the plain sends fail while a send with files still runs', 'plain'],
+        ])('reports the failure only once both settled when %s', async (_, failing) => {
+            const { worker, queue } = workerWith(roomFor(1))
+            const [plain, send] = [job(), withFiles()]
+            let release!: () => void
+            const released = new Promise<void>((resolve) => (release = resolve))
+            jest.spyOn(worker, 'processInvocations').mockImplementation(async (invocations) => {
+                const failsNow = (invocations[0].id === send.id) === (failing === 'send')
+                if (failsNow) {
+                    throw new Error(`${failing} failed`)
+                }
+                await released
+                return resultsOf(invocations)
+            })
+
+            const batch = worker.processBatch([plain, send]).then(({ backgroundTask }) => backgroundTask)
+            let settled = false
+            void batch.catch(() => undefined).finally(() => (settled = true))
+            await new Promise(setImmediate)
+            expect(settled).toBe(false)
+            release()
+
+            await expect(batch).rejects.toThrow(`${failing} failed`)
+            expect(written(queue)).toEqual([failing === 'send' ? plain.id : send.id])
+        })
+
+        it('writes the result of a send whose abandoned call never settles, and keeps its reservation', async () => {
+            jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] })
+            try {
+                const { worker, queue } = workerWith(roomFor(1))
+                const send = withFiles()
+                let finishCall!: () => void
+                const call = new Promise<void>((resolve) => (finishCall = resolve))
+                jest.spyOn(worker, 'processInvocations').mockImplementation(async (invocations) => {
+                    const deadline = new AbortController()
+                    deadline.abort(new Error('deadline'))
+                    await settleBefore(deadline.signal, call).catch(() => undefined)
+                    return resultsOf(invocations)
+                })
+
+                const { backgroundTask } = await worker.processBatch([send])
+                await new Promise(setImmediate)
+                expect(written(queue)).toEqual([])
+                await jest.advanceTimersByTimeAsync(3_000)
+                expect(written(queue)).toEqual([send.id])
+                expect((await worker.processBatch([withFiles()])).invocationResults).toEqual([])
+                expect(queue.deferInvocations).toHaveBeenCalledTimes(1)
+
+                finishCall()
+                await backgroundTask
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('runs a canceled send with files on a worker that refuses files, so it ends instead of deferring', async () => {
+            const { worker, queue } = workerWith(null)
+            const canceled = withFiles({ cancelRequestedAt: DateTime.now() })
+            const ran = jest
+                .spyOn(worker, 'processInvocations')
+                .mockImplementation((invocations) => Promise.resolve(resultsOf(invocations)))
+
+            await (
+                await worker.processBatch([canceled])
+            ).backgroundTask
+
+            expect(ran).toHaveBeenCalledWith([canceled])
+            expect(queue.deferInvocations).not.toHaveBeenCalled()
         })
 
         it('holds no more than its budget under a burst, and sends every one without failing any', async () => {

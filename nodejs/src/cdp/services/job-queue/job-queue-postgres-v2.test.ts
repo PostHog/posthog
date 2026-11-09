@@ -78,6 +78,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             reschedule: jest.fn().mockResolvedValue(undefined),
             cancel: jest.fn().mockResolvedValue(undefined),
             heartbeat: jest.fn().mockResolvedValue(undefined),
+            defer: jest.fn().mockResolvedValue(undefined),
             ...overrides,
         }
     }
@@ -352,6 +353,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             return (
                 samples.find(
                     (sample) =>
+                        'metricName' in sample &&
                         sample.metricName === 'cdp_cyclotron_job_lateness_seconds_count' &&
                         sample.labels.queue === 'email' &&
                         sample.labels.wait === wait
@@ -369,7 +371,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
                 },
             })
             await queue.startAsConsumer('email', () => Promise.resolve({ backgroundTask: Promise.resolve() }))
-            const job = createDequeuedJob({ queueName: 'email', defer: jest.fn().mockResolvedValue(undefined) })
+            const job = createDequeuedJob({ queueName: 'email' })
             ;(queue as any).pendingJobs.set(job.id, job)
             const scheduledAt = new Date(Date.now() + 5_000)
 

@@ -49,23 +49,40 @@ describe('InFlightRegistry', () => {
         expect(new InFlightRegistry(null).tryStart(1, () => Promise.resolve())).toEqual({ deferred: 'refused' })
     })
 
-    it('keeps the reservation of a send whose deadline passed until its abandoned call settles', async () => {
-        const registry = new InFlightRegistry(roomFor(1, MIB))
-        const sesCall = pending()
-        const deadline = new AbortController()
+    it.each([
+        [
+            'its deadline passed',
+            (deadline: AbortController, call: Promise<void>): Promise<unknown> => {
+                const loading = settleBefore(deadline.signal, call)
+                deadline.abort(new Error('deadline'))
+                return loading
+            },
+        ],
+        [
+            'another file of the send failed',
+            (deadline: AbortController, call: Promise<void>): Promise<unknown> =>
+                Promise.all([
+                    settleBefore(deadline.signal, call),
+                    settleBefore(deadline.signal, Promise.reject(new Error('missing'))),
+                ]),
+        ],
+    ])(
+        'keeps the reservation of a send that stopped waiting because %s, until the call settles',
+        async (_, abandon) => {
+            const registry = new InFlightRegistry(roomFor(1, MIB))
+            const download = pending()
 
-        const { started } = registry.tryStart(MIB, async () => {
-            const call = settleBefore(deadline.signal, sesCall.promise)
-            deadline.abort(new Error('deadline'))
-            await call.catch(() => {})
-        }) as { started: Promise<void> }
-        await new Promise(setImmediate)
+            const { started } = registry.tryStart(MIB, () =>
+                abandon(new AbortController(), download.promise).catch(() => undefined)
+            ) as { started: Promise<unknown> }
+            await new Promise(setImmediate)
 
-        expect(registry.tryStart(MIB, () => Promise.resolve())).toEqual({ deferred: 'over_budget' })
-        sesCall.resolve()
-        await started
-        expect(registry.tryStart(MIB, () => Promise.resolve())).toHaveProperty('started')
-    })
+            expect(registry.tryStart(MIB, () => Promise.resolve())).toEqual({ deferred: 'over_budget' })
+            download.resolve()
+            await started
+            expect(registry.tryStart(MIB, () => Promise.resolve())).toHaveProperty('started')
+        }
+    )
 })
 
 describe('inFlightLimitsFor', () => {
