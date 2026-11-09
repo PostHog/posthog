@@ -17,6 +17,7 @@ from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.backfill_candidates import BackfillScope
+from products.ai_observability.backend.eval_suggestions.client import TemporalUnreachable
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
     EvalSuggestionKind,
@@ -107,7 +108,7 @@ class TestEvalSuggestionsApi(APIBaseTest):
             "mean_input_tokens": 1000,
         }
         return EvalSuggestion.objects.for_team(self.team.pk).create(
-            team=self.team, run=self.suggestion_run, kind=kind, **{**defaults, **fields}
+            team=self.team, kind=kind, **{**defaults, "run": self.suggestion_run, **fields}
         )
 
     def _judge_key(self) -> None:
@@ -341,10 +342,17 @@ class TestEvalSuggestionsApi(APIBaseTest):
         assert [call.args[2]["suggestion_id"] for call in updated] == [str(fix.id)]
         assert updated[0].args[2]["changed_fields"] == ["conditions"]
 
-    @parameterized.expand([("starts", None, True), ("start_fails", RuntimeError("Temporal is down"), False)])
+    @parameterized.expand(
+        [
+            ("starts", None, True, True),
+            ("temporal_unreachable", TemporalUnreachable("connection refused"), False, False),
+            # The start may have reached Temporal, so the run stays and reads as pending.
+            ("start_outcome_unknown", RuntimeError("deadline exceeded"), False, True),
+        ]
+    )
     @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
     def test_first_visit_starts_one_run_a_day(
-        self, _name: str, start_error: Exception | None, pending: bool, _flag: MagicMock
+        self, _name: str, start_error: Exception | None, first_pending: bool, later_pending: bool, _flag: MagicMock
     ) -> None:
         self.suggestion_run.delete()
         with patch(
@@ -354,9 +362,23 @@ class TestEvalSuggestionsApi(APIBaseTest):
             first = self.client.get(f"{self.url}/").json()
             second = self.client.get(f"{self.url}/").json()
 
-        # A queued run stays pending until a worker finishes it, and a start that failed leaves nothing pending.
-        assert first["pending"] is second["pending"] is pending
+        assert (first["pending"], second["pending"]) == (first_pending, later_pending)
         assert start.await_count == 1
+
+    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    def test_dismissing_a_card_also_dismisses_its_replacement(self, _flag: MagicMock) -> None:
+        # A run published the replacement while the dismissal of the older card waited on its lock.
+        older = self._suggestion(status=EvalSuggestionStatus.EXPIRED)
+        newer_run = EvalSuggestionRun.objects.for_team(self.team.pk).create(
+            team=self.team, trigger="manual", status=EvalSuggestionRunStatus.COMPLETED, completed_at=timezone.now()
+        )
+        replacement = self._suggestion(run=newer_run)
+
+        self.client.post(f"{self.url}/{older.id}/dismiss/", {"reason": "too_noisy"}, format="json")
+
+        replacement.refresh_from_db()
+        assert replacement.status == EvalSuggestionStatus.DISMISSED
+        assert self.client.get(f"{self.url}/").json()["results"] == []
 
 
 class TestEvalSuggestionsAccessControl(APIBaseTest):

@@ -72,9 +72,16 @@ class TeamRunInputs:
     run_id: str = ""
 
 
+class TemporalUnreachable(Exception):
+    """Connecting failed, so no start request reached Temporal."""
+
+
 async def start_first_visit_run(team_id: int, run_id: str) -> None:
     """Start the free stages for one team. A run already in flight for the team absorbs the request."""
-    client = await async_connect()
+    try:
+        client = await async_connect()
+    except Exception as error:
+        raise TemporalUnreachable(str(error)) from error
     await client.start_workflow(
         TEAM_WORKFLOW_NAME,
         TeamRunInputs(team_id=team_id, trigger="first_visit", include_paid=False, run_id=run_id),

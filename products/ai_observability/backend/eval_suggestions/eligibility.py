@@ -18,7 +18,7 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionTeamState,
 )
 
-from .client import start_first_visit_run
+from .client import TemporalUnreachable, start_first_visit_run
 from .config import SuggestionSettings, is_enabled_for_organization
 from .queries import MAX_EXECUTION_TIME_SECONDS
 
@@ -74,9 +74,11 @@ def queue_first_visit_run(team: Team) -> None:
     run = EvalSuggestionRun.objects.for_team(team.pk).create(team=team, trigger="first_visit")
     try:
         async_to_sync(start_first_visit_run)(team.pk, str(run.id))
-    except Exception:
+    except TemporalUnreachable:
         run.delete()
         raise
+    # Any other error can come after Temporal accepted the start, and the worker may already have published
+    # cards on this row. It stays; a row no worker picks up stops counting as pending after TEAM_TIMEOUT.
 
 
 def steady_traffic_team_ids(team_ids: list[int], now: datetime) -> set[int]:

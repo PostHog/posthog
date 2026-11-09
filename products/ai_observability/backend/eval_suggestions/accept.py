@@ -251,10 +251,15 @@ def dismiss(suggestion_id: str, *, team: Team, reason: str | None) -> EvalSugges
         suggestion = EvalSuggestion.objects.for_team(team.pk).select_for_update().get(id=suggestion_id)
         if suggestion.status == EvalSuggestionStatus.ACCEPTED:
             raise ValidationError("This suggestion was already added. Disable the evaluation instead.")
+        now = timezone.now()
         suggestion.status = EvalSuggestionStatus.DISMISSED
         suggestion.dismiss_reason = reason
-        suggestion.decided_at = timezone.now()
+        suggestion.decided_at = now
         suggestion.save(update_fields=["status", "dismiss_reason", "decided_at", "updated_at"])
+        # A run can publish a replacement for this card while the lock above waits, so it goes too.
+        EvalSuggestion.objects.for_team(team.pk).filter(
+            dedupe_key=suggestion.dedupe_key, status=EvalSuggestionStatus.PROPOSED
+        ).update(status=EvalSuggestionStatus.DISMISSED, dismiss_reason=reason, decided_at=now, updated_at=now)
     return suggestion
 
 
