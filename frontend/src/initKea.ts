@@ -217,6 +217,9 @@ Every other failure on these actions still toasts and reports.
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
     setEnabled: 'scenes.subscriptions.subscriptionSceneLogic', // Toasts the refusal, or offers to take ownership
+    // Shows the rejected field under its input, or toasts the rejection
+    createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
 }
 
 /*
