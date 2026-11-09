@@ -1013,7 +1013,6 @@ class PlatformAlertConfigurationView:
     alerts: tuple[PlatformAlertSnapshot, ...]
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
-    created_by_id: int | None = None
     first_enabled_at: datetime | None = None
 
     @property
