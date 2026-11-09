@@ -182,6 +182,23 @@ describe('SandboxEmailActionHandler', () => {
         expect(result.invocation.state.currentAction?.id).toBe(expectedActionId)
     })
 
+    it.each([
+        ['abort', true, 'email', 'smtp down'],
+        ['continue', false, 'wait', undefined],
+    ] as const)(
+        'fails the job only by on_error %s when the send step throws on the sandbox queue',
+        async (onError, expectedFinished, expectedActionId, expectedError) => {
+            hogFlow.actions.find((action) => action.id === 'email')!.on_error = onError
+            const send = { send: jest.fn().mockRejectedValue(new Error('smtp down')) }
+
+            const result = await buildExecutor({ enabled: true, send }).execute(jobOnEmailStep('emailsandbox'))
+
+            expect(result.error).toBe(expectedError)
+            expect(result.finished).toBe(expectedFinished)
+            expect(result.invocation.state.currentAction?.id).toBe(expectedActionId)
+        }
+    )
+
     it.each<[string, HogExecutorExecuteAsyncOptions, SandboxEmailTestClient | null, object, string | undefined]>([
         [
             'a mocked test reports a send without calling out',
