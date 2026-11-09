@@ -211,7 +211,7 @@ const HogFlowStepConfigs: Partial<{
         color: () => '#2F80FA',
         getPreviews: (action) => [
             {
-                label: action.config.inputs.email.value.to.email
+                label: action.config.inputs.email.value.to?.email
                     ? `To ${action.config.inputs.email.value.to.email}`
                     : 'Email',
             },

@@ -428,7 +428,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 email: z.object({
                     templating: z.enum(['hog', 'liquid']).optional(),
                     value: z.object({
-                        to: z.object({ email: z.string(), name: z.string().optional() }),
+                        to: z.object({ email: z.string(), name: z.string().optional() }).optional(),
                         subject: z.string().optional(),
                         preheader: z.string().optional(),
                         text: z.string().optional(),

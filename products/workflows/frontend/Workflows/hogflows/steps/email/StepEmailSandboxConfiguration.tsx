@@ -55,7 +55,7 @@ export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmai
                 error={emailErrors?.to}
             >
                 <LemonInput
-                    value={email.value.to.email}
+                    value={email.value.to?.email ?? ''}
                     onChange={(value) => editEmail({ to: { ...email.value.to, email: value } })}
                     placeholder="{{ person.properties.email }}"
                     data-attr="workflow-sandbox-email-to"
@@ -65,7 +65,11 @@ export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmai
                 key={action.id}
                 type="native_email_template"
                 value={
-                    { ...email.value, to: email.value.to.email, from: '' } as Partial<EmailTemplate> as EmailTemplate
+                    {
+                        ...email.value,
+                        to: email.value.to?.email ?? '',
+                        from: '',
+                    } as Partial<EmailTemplate> as EmailTemplate
                 }
                 onChange={editEmail}
                 templating={email.templating}
