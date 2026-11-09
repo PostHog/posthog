@@ -205,13 +205,13 @@ def _bind_registration_activity_context(*, team_id: int, schema_id: str, job_id:
     bind_contextvars(**identifiers)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DuckLakeRegisterDataImportsGateInputs:
     team_id: int
     register_through_trino: bool | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DuckLakeRegisterDataImportsInputs:
     team_id: int
     job_id: str
