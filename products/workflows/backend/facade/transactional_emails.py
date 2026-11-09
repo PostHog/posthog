@@ -2,10 +2,12 @@
 
 from products.workflows.backend.facade.contracts import (
     EMAIL_FROM_CODE_FLAG,
+    TransactionalEmailCategoryType,
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
     TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
+    TransactionalEmailWorkflow,
     WorkflowNotFound,
 )
 from products.workflows.backend.services.transactional_email_workflows import (
@@ -19,10 +21,12 @@ from products.workflows.backend.services.transactional_email_workflows import (
 
 __all__ = [
     "EMAIL_FROM_CODE_FLAG",
+    "TransactionalEmailCategoryType",
     "TransactionalEmailContent",
     "TransactionalEmailContentInvalid",
     "TransactionalEmailSenderRequired",
     "TransactionalEmailSenderUnavailable",
+    "TransactionalEmailWorkflow",
     "WorkflowNotFound",
     "code_send_sender_id",
     "create_code_email_workflow",

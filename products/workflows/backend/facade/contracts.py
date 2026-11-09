@@ -700,6 +700,9 @@ EMAIL_FROM_CODE_FLAG: Final[str] = "workflows-email-from-code"
 TRANSACTIONAL_EMAIL_ACTION_ID: Final[str] = "transactional_email"
 
 
+TransactionalEmailCategoryType = Literal["marketing", "transactional"]
+
+
 @frozen
 class TransactionalEmailContent:
     """What a transactional email's workflow sends, taken from the message template it was made from."""
@@ -715,7 +718,7 @@ class TransactionalEmailContent:
     message_category_id: UUID | None
     # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
     sensitive: bool = False
-    message_category_type: Literal["marketing", "transactional"] = "transactional"
+    message_category_type: TransactionalEmailCategoryType = "transactional"
     # Empty values use the sender's own address, name and default reply-to.
     from_email: str = ""
     from_name: str = ""
@@ -727,8 +730,10 @@ class TransactionalEmailWorkflow:
     """What a send checks on a transactional email's workflow before it runs it."""
 
     status: str
-    # The type the email step sends as, or None when someone removed the step from the workflow.
+    # False when someone removed the email step from the workflow, so the send can't be checked.
+    has_email_step: bool
     message_category_type: str | None
+    message_category_id: str | None
 
 
 class TransactionalEmailSenderUnavailable(Exception):

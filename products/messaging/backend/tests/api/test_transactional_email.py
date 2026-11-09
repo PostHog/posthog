@@ -359,6 +359,8 @@ class TestTransactionalEmail(APIBaseTest):
             ("workflow_archived", "transactional_email_paused"),
             ("category_turned_marketing", "marketing_template"),
             ("category_turned_marketing_since_its_workflow_was_saved", "template_not_sendable"),
+            ("marketing_category_changed_since_its_workflow_was_saved", "template_not_sendable"),
+            ("marketing_email_step_removed", "template_not_sendable"),
             ("liquid_in_recipient", "invalid_recipient"),
             ("idempotency_key_with_spaces", "invalid_idempotency_key"),
             ("idempotency_key_too_long", "invalid_idempotency_key"),
@@ -381,6 +383,23 @@ class TestTransactionalEmail(APIBaseTest):
             )
             MessageTemplate.objects.filter(id=self.template.id).update(message_category=category)
             MessageCategory.objects.filter(id=category.id).update(category_type=MessageCategoryType.MARKETING)
+        elif case.startswith("marketing_"):
+            moved = self.client.patch(
+                f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+                {"message_category": str(self._newsletter().id)},
+                format="json",
+            )
+            assert moved.status_code == status.HTTP_200_OK, moved.json()
+            if case == "marketing_email_step_removed":
+                flow = HogFlow.objects.get(team=self.team, id=self.hog_flow_id)
+                HogFlow.objects.filter(id=flow.id).update(
+                    actions=[action for action in flow.actions if action["type"] != "function_email"]
+                )
+            else:
+                promos = MessageCategory.objects.create(
+                    team=self.team, key="promos", name="Promos", category_type=MessageCategoryType.MARKETING
+                )
+                MessageTemplate.objects.filter(id=self.template.id).update(message_category=promos)
         elif case == "liquid_in_recipient":
             body["to"] = "{{person.properties.email}}@example.com"
         elif case == "idempotency_key_with_spaces":

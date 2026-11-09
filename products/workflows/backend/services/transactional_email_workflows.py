@@ -39,10 +39,10 @@ def _template_provenance(content: TransactionalEmailContent) -> dict[str, str]:
 def transactional_email_actions(content: TransactionalEmailContent, from_integration_id: int) -> list[dict]:
     return _actions(
         name=content.name,
-        category_type=content.message_category_type,
         step_config={
             **_template_provenance(content),
             "message_category_id": str(content.message_category_id) if content.message_category_id else None,
+            "message_category_type": content.message_category_type,
             "sensitive": content.sensitive,
             # Sends from code don't count toward the frequency cap yet, so a template's sends don't either.
             **({"skip_frequency_cap": True} if content.message_category_type == "marketing" else {}),
@@ -65,8 +65,12 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
 def code_email_actions(key: str) -> list[dict]:
     return _actions(
         name=key,
-        category_type="transactional",
-        step_config={"template_key": key, "message_category_id": None, "sensitive": True},
+        step_config={
+            "template_key": key,
+            "message_category_id": None,
+            "message_category_type": "transactional",
+            "sensitive": True,
+        },
         email={
             "from": {"integrationId": None},
             "replyTo": "",
@@ -78,7 +82,7 @@ def code_email_actions(key: str) -> list[dict]:
     )
 
 
-def _actions(*, name: str, category_type: str, step_config: dict, email: dict) -> list[dict]:
+def _actions(*, name: str, step_config: dict, email: dict) -> list[dict]:
     return [
         {
             "id": TRIGGER_ACTION_ID,
@@ -97,8 +101,6 @@ def _actions(*, name: str, category_type: str, step_config: dict, email: dict) -
             "config": {
                 "template_id": "template-email",
                 **step_config,
-                # A transactional send takes the email queue's fast lane and skips marketing opt-outs.
-                "message_category_type": category_type,
                 "inputs": {
                     "email": {
                         "templating": "liquid",
@@ -212,10 +214,12 @@ def get_transactional_email_workflow(*, team_id: int, hog_flow_id: UUID) -> Tran
     row = HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).values("status", "actions").first()
     if row is None:
         raise WorkflowNotFound()
-    email = _email_step(row["actions"] or [])
+    config = (_email_step(row["actions"] or []) or {}).get("config")
     return TransactionalEmailWorkflow(
         status=row["status"],
-        message_category_type=email["config"].get("message_category_type") if email else None,
+        has_email_step=config is not None,
+        message_category_type=(config or {}).get("message_category_type"),
+        message_category_id=(config or {}).get("message_category_id"),
     )
 
 
