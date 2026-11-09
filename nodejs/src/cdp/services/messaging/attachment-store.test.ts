@@ -278,6 +278,17 @@ describe('S3AttachmentStore', () => {
             expect(selfCopiesOf(send, 1, f.sha256)).toBe(copies)
         })
 
+        it('keeps a fresh upload through the expiry that prepareUploads answered for it', async () => {
+            const f = file()
+            await upload(1, f)
+            const [present] = await store.prepareUploads(1, [{ sha256: f.sha256, size: f.bytes.length }])
+            const send = jest.spyOn(store.s3, 'send')
+
+            await use(store, f.sha256, (present as Extract<UploadSlot, { status: 'present' }>).expiresAt)
+
+            expect(selfCopiesOf(send, 1, f.sha256)).toBe(0)
+        })
+
         it('refuses a use that needs a file past what a copy now can keep', async () => {
             const f = file()
             await upload(1, f)
@@ -336,6 +347,38 @@ describe('S3AttachmentStore', () => {
             await expect(
                 store.load(1, [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }], signal())
             ).rejects.toThrow(error)
+        })
+    })
+
+    describe('when the bucket client never gets its credentials', () => {
+        const sha256 = file().sha256
+
+        it.each([
+            ['prepareUploads', (at: S3AttachmentStore) => at.prepareUploads(1, [{ sha256, size: 10 }])],
+            [
+                'acceptForSend',
+                (at: S3AttachmentStore) => at.acceptForSend(1, [{ sha256, filename: 'a.pdf' }], new Date()),
+            ],
+            ['extend', (at: S3AttachmentStore) => at.extend(1, [sha256], new Date())],
+            [
+                'load',
+                (at: S3AttachmentStore) =>
+                    at.load(1, [{ sha256, filename: 'a.pdf', sizeBytes: 10 }], AbortSignal.timeout(200)),
+            ],
+        ])('%s throws unavailable once its time is up', async (_, use) => {
+            const stalled = new S3Client({
+                region: 'us-east-1',
+                endpoint: config.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT,
+                forcePathStyle: true,
+                credentials: () => new Promise<never>(() => {}),
+            })
+            const at = new S3AttachmentStore(stalled, stalled, {
+                bucket: BUCKET,
+                prefix: config.CDP_EMAIL_ATTACHMENTS_S3_PREFIX,
+                timeoutMs: 200,
+            })
+
+            await expect(use(at)).rejects.toThrow(AttachmentStoreUnavailableError)
         })
     })
 })

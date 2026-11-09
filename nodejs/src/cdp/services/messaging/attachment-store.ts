@@ -132,9 +132,8 @@ export class S3AttachmentStore implements AttachmentStore {
         const checksum = Buffer.from(sha256, 'hex').toString('base64')
         const urlExpiresAt = new Date(this.now().getTime() + UPLOAD_URL_LIFETIME_MS)
         try {
-            // Signing takes no abort signal, and it can wait on a credential refresh over the network.
-            const url = await settleWithin(
-                this.config.timeoutMs,
+            const url = await settleBefore(
+                AbortSignal.timeout(this.config.timeoutMs),
                 getSignedUrl(
                     this.signer,
                     new PutObjectCommand({
@@ -171,17 +170,17 @@ export class S3AttachmentStore implements AttachmentStore {
         needsUntil: Date
     ): Promise<number | null> {
         const key = this.key(teamId, sha256)
-        if (needsUntil > this.latestKeepable()) {
-            throw new RangeError(
-                `A file can be kept until ${this.latestKeepable().toISOString()} at the latest, not ${needsUntil.toISOString()}`
-            )
-        }
         const head = await this.head(key)
         if (!head || (head.ChecksumSHA256 && head.ChecksumSHA256 !== Buffer.from(sha256, 'hex').toString('base64'))) {
             attachmentStoreFiles.labels({ operation, outcome: 'missing' }).inc()
             return null
         }
         if (expiryOf(head) < needsUntil) {
+            if (needsUntil > this.latestKeepable()) {
+                throw new RangeError(
+                    `A file can be kept until ${this.latestKeepable().toISOString()} at the latest, not ${needsUntil.toISOString()}`
+                )
+            }
             await this.copyOntoItself(key)
             attachmentStoreFiles.labels({ operation, outcome: 'copied' }).inc()
         } else {
@@ -203,10 +202,13 @@ export class S3AttachmentStore implements AttachmentStore {
     }
 
     private async head(key: string): Promise<HeadObjectCommandOutput | null> {
+        const signal = AbortSignal.timeout(this.config.timeoutMs)
         try {
-            return await this.s3.send(
-                new HeadObjectCommand({ Bucket: this.config.bucket, Key: key, ChecksumMode: 'ENABLED' }),
-                { abortSignal: AbortSignal.timeout(this.config.timeoutMs) }
+            return await settleBefore(
+                signal,
+                this.s3.send(new HeadObjectCommand({ Bucket: this.config.bucket, Key: key, ChecksumMode: 'ENABLED' }), {
+                    abortSignal: signal,
+                })
             )
         } catch (error) {
             if (error instanceof NotFound) {
@@ -218,18 +220,22 @@ export class S3AttachmentStore implements AttachmentStore {
 
     private async copyOntoItself(key: string): Promise<void> {
         const { bucket } = this.config
+        const signal = AbortSignal.timeout(this.config.timeoutMs)
         try {
-            await this.s3.send(
-                new CopyObjectCommand({
-                    Bucket: bucket,
-                    Key: key,
-                    // S3 URL-decodes CopySource, unlike Key.
-                    CopySource: `${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`,
-                    // S3 refuses a copy onto itself that changes nothing.
-                    MetadataDirective: 'REPLACE',
-                    ChecksumAlgorithm: 'SHA256',
-                }),
-                { abortSignal: AbortSignal.timeout(this.config.timeoutMs) }
+            await settleBefore(
+                signal,
+                this.s3.send(
+                    new CopyObjectCommand({
+                        Bucket: bucket,
+                        Key: key,
+                        // S3 URL-decodes CopySource, unlike Key.
+                        CopySource: `${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`,
+                        // S3 refuses a copy onto itself that changes nothing.
+                        MetadataDirective: 'REPLACE',
+                        ChecksumAlgorithm: 'SHA256',
+                    }),
+                    { abortSignal: signal }
+                )
             )
         } catch (error) {
             throw new AttachmentStoreUnavailableError(error)
@@ -238,10 +244,12 @@ export class S3AttachmentStore implements AttachmentStore {
 
     private async get(key: string, sha256: Sha256Hex, signal: AbortSignal): Promise<Uint8Array> {
         try {
-            const object = await this.s3.send(new GetObjectCommand({ Bucket: this.config.bucket, Key: key }), {
-                abortSignal: signal,
-            })
-            const bytes = await object.Body!.transformToByteArray()
+            const bytes = await settleBefore(
+                signal,
+                this.s3
+                    .send(new GetObjectCommand({ Bucket: this.config.bucket, Key: key }), { abortSignal: signal })
+                    .then((object) => object.Body!.transformToByteArray())
+            )
             attachmentStoreFiles.labels({ operation: 'load', outcome: 'loaded' }).inc()
             return bytes
         } catch (error) {
@@ -257,16 +265,18 @@ export class S3AttachmentStore implements AttachmentStore {
 const expiryOf = (head: HeadObjectCommandOutput): Date =>
     new Date((head.LastModified?.getTime() ?? 0) + ATTACHMENT_LIFETIME_MS)
 
-async function settleWithin<T>(timeoutMs: number, promise: Promise<T>): Promise<T> {
-    let timer: NodeJS.Timeout | undefined
-    const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`No answer within ${timeoutMs} ms`)), timeoutMs)
+// The SDK checks an abort signal only once a request goes out, so a credential refresh that stalls before it
+// would hold the call past its deadline. Signing takes no signal at all.
+function settleBefore<T>(signal: AbortSignal, promise: Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const abort = (): void => reject(signal.reason)
+        promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+        if (signal.aborted) {
+            abort()
+        } else {
+            signal.addEventListener('abort', abort, { once: true })
+        }
     })
-    try {
-        return await Promise.race([promise, timeout])
-    } finally {
-        clearTimeout(timer)
-    }
 }
 
 type AttachmentStoreSettings = Pick<
