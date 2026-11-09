@@ -237,7 +237,11 @@ export function CheckEditorModal(): JSX.Element {
                     <LemonTextArea placeholder="Every order has to belong to a customer" minRows={2} />
                 </LemonField>
 
-                <LemonField name="severity" label="Severity">
+                <LemonField
+                    name="severity"
+                    label="Severity"
+                    help="Errors notify you when the check starts failing, and block publishing when 'Block materialization on failing checks' is on. Warnings only show as a warning and never notify or block."
+                >
                     <LemonSegmentedButton
                         options={[
                             { value: DataQualityCheckSeverityEnumApi.Error, label: 'Error' },
