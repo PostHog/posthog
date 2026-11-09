@@ -1388,9 +1388,6 @@ export class CdpApi {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
                 const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow) : null
-                if (filesShape && 'refused' in filesShape) {
-                    return reply(filesShape.refused.error, 400, filesShape.refused)
-                }
 
                 stages.start('build')
                 const event: HogFunctionInvocationGlobals['event'] = {
@@ -1442,8 +1439,8 @@ export class CdpApi {
                     }
                 }
                 if (idempotencyKey) {
-                    // Checked before the quota, so a retry of a send that went out gets its answer even
-                    // when the team has hit its quota since.
+                    // Checked before the quota and the workflow's shape, so a retry of a send that went out
+                    // gets its answer even when the team has hit its quota or the workflow changed since.
                     stages.start('idempotency')
                     const reservation = await idempotencyKeys.reserve(
                         team.id,
@@ -1467,6 +1464,10 @@ export class CdpApi {
                         case 'unavailable':
                             return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
                     }
+                }
+                if (filesShape && 'refused' in filesShape) {
+                    await releaseKey()
+                    return reply(filesShape.refused.error, 400, filesShape.refused)
                 }
                 let attachmentTotals = NO_ATTACHMENTS
                 try {

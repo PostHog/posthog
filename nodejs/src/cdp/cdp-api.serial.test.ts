@@ -2915,7 +2915,7 @@ describe('CDP API', () => {
             const exit = { type: 'exit', config: {} } as const
             const step = (from: string, to: string) => ({ from, to, type: 'continue' as const })
 
-            it.each<[string, () => Promise<HogFlow>, string]>([
+            const shapesThatCannotCarryFiles: [string, () => Promise<HogFlow>, string][] = [
                 [
                     'a delay before its email step',
                     () => flowThrough({ delay }, [step('trigger', 'delay'), step('delay', 'email')]),
@@ -2926,13 +2926,16 @@ describe('CDP API', () => {
                     () => flowThrough({}, [step('trigger', 'email')], 'marketing'),
                     'workflow_can_wait',
                 ],
-            ])(
-                'refuses a send with files to a workflow with %s, before it reserves the key',
+            ]
+
+            it.each(shapesThatCannotCarryFiles)(
+                'refuses a send with files to a workflow with %s, and releases the key',
                 async (_name, arrange, code) => {
                     const flow = await arrange()
+                    const key = newKey()
                     const stagesBefore = await stageCounts()
 
-                    const res = await sendWithFiles(newKey(), [reference(invoice)], { flowId: flow.id })
+                    const res = await sendWithFiles(key, [reference(invoice)], { flowId: flow.id })
 
                     expect(res.status).toBe(400)
                     expect(res.body).toEqual({
@@ -2940,13 +2943,46 @@ describe('CDP API', () => {
                         reason: expect.any(String),
                         fix: expect.any(String),
                     })
+                    // The reserve and the release of the key count once, as one idempotency observation.
                     expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({
                         auth: 1,
                         validate: 1,
                         load: 1,
+                        build: 1,
+                        idempotency: 1,
                         total: 1,
                     })
                     expect(mockQueueInvocations).not.toHaveBeenCalled()
+
+                    const retry = await sendWithFiles(key, [reference(invoice)])
+
+                    expect(retry.status).toBe(202)
+                    expect(retry.body).toMatchObject({ replayed: false })
+                }
+            )
+
+            it.each(shapesThatCannotCarryFiles)(
+                'replays a keyed send with files after its workflow changed to %s',
+                async (_name, arrange) => {
+                    const flow = await flowThrough({ exit }, [step('trigger', 'email'), step('email', 'exit')])
+                    const key = newKey()
+                    const first = await sendWithFiles(key, [reference(invoice)], { flowId: flow.id })
+                    expect(first.status).toBe(202)
+                    const changed = await arrange()
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `UPDATE posthog_hogflow SET actions = changed.actions, edges = changed.edges
+                         FROM posthog_hogflow changed WHERE posthog_hogflow.id = $1 AND changed.id = $2`,
+                        [flow.id, changed.id],
+                        'change-workflow-shape'
+                    )
+                    api['hogFlowManager']['onHogFlowsReloaded'](team.id, [flow.id])
+
+                    const retry = await sendWithFiles(key, [reference(invoice)], { flowId: flow.id })
+
+                    expect(retry.status).toBe(202)
+                    expect(retry.body).toEqual({ ...first.body, replayed: true })
+                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
                 }
             )
 
