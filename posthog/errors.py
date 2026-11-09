@@ -466,12 +466,19 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     15: ErrorCodeMeta("DUPLICATE_COLUMN"),
     16: ErrorCodeMeta("NO_SUCH_COLUMN_IN_TABLE"),
     19: ErrorCodeMeta("SIZE_OF_FIXED_STRING_DOESNT_MATCH"),
-    20: ErrorCodeMeta("NUMBER_OF_COLUMNS_DOESNT_MATCH"),
+    20: ErrorCodeMeta(
+        "NUMBER_OF_COLUMNS_DOESNT_MATCH",
+        user_safe="The number of columns doesn't match. Make sure both sides of an IN, and each part of a UNION, "
+        "have the same number of columns.",
+    ),
     23: ErrorCodeMeta("CANNOT_READ_FROM_ISTREAM"),
     24: ErrorCodeMeta("CANNOT_WRITE_TO_OSTREAM"),
     25: ErrorCodeMeta("CANNOT_PARSE_ESCAPE_SEQUENCE"),
     26: ErrorCodeMeta("CANNOT_PARSE_QUOTED_STRING"),
-    27: ErrorCodeMeta("CANNOT_PARSE_INPUT_ASSERTION_FAILED"),
+    27: ErrorCodeMeta(
+        "CANNOT_PARSE_INPUT_ASSERTION_FAILED",
+        user_safe="Cannot parse a value in the expected format. Check the format of your data and your type conversions.",
+    ),
     28: ErrorCodeMeta("CANNOT_PRINT_FLOAT_OR_DOUBLE_NUMBER"),
     32: ErrorCodeMeta("ATTEMPT_TO_READ_AFTER_EOF"),
     33: ErrorCodeMeta("CANNOT_READ_ALL_DATA"),
@@ -648,7 +655,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES", user_safe=True, category=QueryErrorCategory.RATE_LIMITED),
     203: ErrorCodeMeta("NO_FREE_CONNECTION", category=QueryErrorCategory.RATE_LIMITED),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
-    206: ErrorCodeMeta("ALIAS_REQUIRED"),
+    206: ErrorCodeMeta(
+        "ALIAS_REQUIRED",
+        user_safe="A subquery or table function in a JOIN needs an alias. Add one, for example JOIN (SELECT ...) AS sub.",
+    ),
     207: ErrorCodeMeta("AMBIGUOUS_IDENTIFIER", user_safe=True),  # identifier resolves to multiple columns or aliases
     208: ErrorCodeMeta("EMPTY_NESTED_TABLE"),
     209: ErrorCodeMeta("SOCKET_TIMEOUT"),
@@ -891,7 +901,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     472: ErrorCodeMeta("READONLY_SETTING"),
     473: ErrorCodeMeta("DEADLOCK_AVOIDED"),
     474: ErrorCodeMeta("INVALID_TEMPLATE_FORMAT"),
-    475: ErrorCodeMeta("INVALID_WITH_FILL_EXPRESSION"),
+    475: ErrorCodeMeta(
+        "INVALID_WITH_FILL_EXPRESSION",
+        user_safe="Invalid WITH FILL expression. Use constant FROM, TO, and STEP values with the same type as the "
+        "column you order by.",
+    ),
     476: ErrorCodeMeta("WITH_TIES_WITHOUT_ORDER_BY", user_safe=True),
     477: ErrorCodeMeta("INVALID_USAGE_OF_INPUT"),
     478: ErrorCodeMeta("UNKNOWN_POLICY"),

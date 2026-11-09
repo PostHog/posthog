@@ -49,6 +49,17 @@ class TestWrapClickhouseQueryError:
                 "CANNOT_PARSE_TEXT",
                 "Cannot parse a value as the requested type. Check your input formats and type conversions.",
             ),
+            (
+                20,
+                "NUMBER_OF_COLUMNS_DOESNT_MATCH",
+                "The number of columns doesn't match. Make sure both sides of an IN, and each part of a UNION, "
+                "have the same number of columns.",
+            ),
+            (
+                27,
+                "CANNOT_PARSE_INPUT_ASSERTION_FAILED",
+                "Cannot parse a value in the expected format. Check the format of your data and your type conversions.",
+            ),
             (38, "CANNOT_PARSE_DATE", "Cannot parse a date. Check your date values and their format."),
             (41, "CANNOT_PARSE_DATETIME", "Cannot parse a date and time. Check your datetime values and their format."),
             (69, "ARGUMENT_OUT_OF_BOUND", "An argument is out of bounds."),
@@ -94,6 +105,11 @@ class TestWrapClickhouseQueryError:
                 "SIZES_OF_ARRAYS_DONT_MATCH",
                 "Array sizes do not match. Make sure arrays used together have the same number of elements.",
             ),
+            (
+                206,
+                "ALIAS_REQUIRED",
+                "A subquery or table function in a JOIN needs an alias. Add one, for example JOIN (SELECT ...) AS sub.",
+            ),
             (376, "CANNOT_PARSE_UUID", "Cannot parse a UUID. Check the format of the values converted to UUIDs."),
             (
                 403,
@@ -112,6 +128,12 @@ class TestWrapClickhouseQueryError:
                 "Invalid LIMIT or OFFSET expression. Use a constant number in the supported range.",
             ),
             (467, "CANNOT_PARSE_BOOL", "Cannot parse a boolean. Check for values other than true, false, 1, or 0."),
+            (
+                475,
+                "INVALID_WITH_FILL_EXPRESSION",
+                "Invalid WITH FILL expression. Use constant FROM, TO, and STEP values with the same type as the "
+                "column you order by.",
+            ),
             (
                 491,
                 "UNACCEPTABLE_URL",
@@ -271,10 +293,14 @@ class TestWrapClickhouseQueryError:
             # SYNTAX_ERROR (62) stays internal: HogQL validates syntax first, so a raw CH syntax error
             # signals a PostHog SQL-generation bug that belongs in error tracking.
             (62, "SYNTAX_ERROR"),
+            # NOT_FOUND_COLUMN_IN_BLOCK (10) comes from SQL that PostHog generates, so the user cannot fix it.
+            (10, "NOT_FOUND_COLUMN_IN_BLOCK"),
             (115, "UNKNOWN_SETTING"),
             (497, "ACCESS_DENIED"),
             (499, "S3_ERROR"),
             (516, "AUTHENTICATION_FAILED"),
+            # POSTGRESQL_CONNECTION_FAILURE (614) can name a database host in its raw message.
+            (614, "POSTGRESQL_CONNECTION_FAILURE"),
             (1000, "POCO_EXCEPTION"),
             (1001, "STD_EXCEPTION"),
             (9999, "FUTURE_ERROR"),
