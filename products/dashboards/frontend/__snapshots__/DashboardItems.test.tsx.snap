@@ -6,11 +6,17 @@ exports[`DashboardItems matches snapshot in edit mode with layout zoom enabled 1
 >
   <div
     class="relative"
+    data-dashboard-grid-frame="true"
   >
     <div
       data-attr="grid-background"
       data-margin="14.4,14.4"
       data-row-height="60"
+    />
+    <div
+      aria-hidden="true"
+      class="DashboardDragPreview"
+      hidden=""
     />
     <div
       data-attr="react-grid-layout"
