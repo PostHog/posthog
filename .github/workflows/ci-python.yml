@@ -358,12 +358,6 @@ jobs:
               run: |
                   echo "::add-matcher::.github/ty-problem-matcher.json"
 
-            - name: Check ty type checking
-              shell: bash
-              run: |
-                  echo "📊 Feedback welcome in #team-devex"
-                  UV_PROJECT_ENVIRONMENT="$pythonLocation" uv run --no-sync ty check --python "$pythonLocation"
-
             - name: Add mypy Problem Matcher
               shell: bash
               run: |
@@ -391,67 +385,37 @@ jobs:
                       ${{ steps.mypy-cache-key.outputs.prefix }}-
                       ${{ github.event_name == 'pull_request' && format('{0}-', steps.mypy-cache-key.outputs.toolchain_prefix) || '' }}
 
-            - name: Check static typing
-              shell: bash -e {0}
-              env:
-                  # Each worker holds its own copy of the build graph, so the worker count follows
-                  # the runner's memory. Keep this condition in sync with the job's runs-on: the
-                  # 8 GB depot-ubuntu-24.04 fits one worker on a cold cache, the 16 GB -4 fits two.
-                  MYPY_NUM_WORKERS: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 1 || 2 }}
-              run: mypy --version && mypy .
-
-            - name: Save mypy cache
-              if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .mypy_cache
-                  key: ${{ steps.mypy-cache.outputs.cache-primary-key }}
-
-            - name: Check if "schema.py" is up to date
-              if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'trunk-merge/') || needs.changes.outputs.schema_python != 'false'
-              shell: bash
-              run: |
-                  bash bin/build-schema-python.sh && git diff --exit-code
-
-            # Warn-only while the pre-existing violation backlog settles: findings annotate
-            # the diff and land in the shared CI report comment, never a job failure.
-            # Scoped to the PR's own diff because C901 stays off repo-wide. Skip on
-            # unrebased branches: the lint:complexity command may not be registered yet.
-            - name: Check cyclomatic complexity of changed files
-              if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
-              shell: bash
-              # A very large diff overflows the 128 KiB cap on a single environment entry, so the
-              # runner cannot start this step at all. The findings are warn-only, so losing them
-              # on such a PR is not worth failing the job for.
-              continue-on-error: true
-              env:
-                  # Space-separated, from paths-filter (list-files: escape) — the PR
-                  # files API, so no git-diff plumbing to drift from what the PR changed.
-                  CHANGED_FILES: ${{ needs.changes.outputs.complexity_files }}
-              run: |
-                  if [ ! -f tools/hogli-commands/hogli_commands/complexity_lint.py ]; then
-                      echo "hogli lint:complexity not present on this branch yet — skipping (rebase to pick it up)"
-                      exit 0
-                  fi
-                  # xargs re-parses the escape format, keeping escaped paths whole.
-                  printf '%s' "$CHANGED_FILES" | xargs -r ./bin/hogli lint:complexity --report complexity-findings-python.json
-
-            - name: Post CI report — complexity
-              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
-              env:
-                  GITHUB_TOKEN: ${{ github.token }}
-              run: |
-                  if [ -f .github/scripts/post-complexity-section.mjs ] && [ -f complexity-findings-python.json ]; then
-                      node .github/scripts/post-complexity-section.mjs python complexity-findings-python.json
-                  else
-                      echo "Skipping the complexity report section: script or findings not on this branch"
-                  fi
-
+            # Every static check in this job reads the tree and shares no state, but they used to
+            # run one after another, so the job wall was their sum. ty (49s), mypy (134s) and the
+            # projections check (18s) are the three that cost real time; they now overlap each
+            # other and the existing lint/pytest group, measured on 7 PR runs of this job at a
+            # 279s median. mypy is the long pole, so the wall becomes roughly mypy's own duration.
+            #
+            # Only `run:` steps are in here, never an action that writes $GITHUB_PATH or
+            # $GITHUB_ENV: those are the branches the runner's `parallel:` implementation races
+            # on (see "Put the setup actions in a `parallel:` block" in
+            # docs/internal/ci-things-already-tried.md).
             - parallel:
+                  - name: Check static typing
+                    shell: bash -e {0}
+                    env:
+                        # Each worker holds its own copy of the build graph, so the worker count
+                        # follows the runner's memory. Keep this condition in sync with the job's
+                        # runs-on: the 8 GB depot-ubuntu-24.04 fits one worker on a cold cache,
+                        # the 16 GB -4 fits two.
+                        MYPY_NUM_WORKERS: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 1 || 2 }}
+                    run: mypy --version && mypy .
+
+                  - name: Check ty type checking
+                    shell: bash
+                    run: |
+                        echo "📊 Feedback welcome in #team-devex"
+                        UV_PROJECT_ENVIRONMENT="$pythonLocation" uv run --no-sync ty check --python "$pythonLocation"
+
                   # Every projection renderer is Python, so this job needs neither pnpm nor
-                  # node_modules. Keep the step after "Install Python dependencies": the taxonomy
-                  # and object-tag renderers import posthog/__init__.py, which pulls in Django,
-                  # so they need the full synced dependency set, not just stdlib.
+                  # node_modules. The taxonomy and object-tag renderers import
+                  # posthog/__init__.py, which pulls in Django, so they need the full synced
+                  # dependency set, not just stdlib.
                   # Skip on unrebased branches: the build:projections command may not exist yet.
                   - name: Check if the generated projections are up to date
                     shell: bash
@@ -565,6 +529,53 @@ jobs:
                     run: |
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
                         pytest bin/test/test_granian_shared_socket.py -v --junitxml=junit-granian-shared-socket.xml
+
+            - name: Save mypy cache
+              if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .mypy_cache
+                  key: ${{ steps.mypy-cache.outputs.cache-primary-key }}
+
+            - name: Check if "schema.py" is up to date
+              if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'trunk-merge/') || needs.changes.outputs.schema_python != 'false'
+              shell: bash
+              run: |
+                  bash bin/build-schema-python.sh && git diff --exit-code
+
+            # Warn-only while the pre-existing violation backlog settles: findings annotate
+            # the diff and land in the shared CI report comment, never a job failure.
+            # Scoped to the PR's own diff because C901 stays off repo-wide. Skip on
+            # unrebased branches: the lint:complexity command may not be registered yet.
+            - name: Check cyclomatic complexity of changed files
+              if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
+              shell: bash
+              # A very large diff overflows the 128 KiB cap on a single environment entry, so the
+              # runner cannot start this step at all. The findings are warn-only, so losing them
+              # on such a PR is not worth failing the job for.
+              continue-on-error: true
+              env:
+                  # Space-separated, from paths-filter (list-files: escape) — the PR
+                  # files API, so no git-diff plumbing to drift from what the PR changed.
+                  CHANGED_FILES: ${{ needs.changes.outputs.complexity_files }}
+              run: |
+                  if [ ! -f tools/hogli-commands/hogli_commands/complexity_lint.py ]; then
+                      echo "hogli lint:complexity not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  # xargs re-parses the escape format, keeping escaped paths whole.
+                  printf '%s' "$CHANGED_FILES" | xargs -r ./bin/hogli lint:complexity --report complexity-findings-python.json
+
+            - name: Post CI report — complexity
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-complexity-section.mjs ] && [ -f complexity-findings-python.json ]; then
+                      node .github/scripts/post-complexity-section.mjs python complexity-findings-python.json
+                  else
+                      echo "Skipping the complexity report section: script or findings not on this branch"
+                  fi
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
