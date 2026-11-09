@@ -175,17 +175,18 @@ async function readSpend(weekStart, weekEnd) {
     if (!contract) {
         console.warn('Depot contract variables missing or invalid. Posting without the contract sentence.')
     }
+    const priorWeekStart = new Date(weekStart.getTime() - WEEK_MS)
     const lastWeek = await spend(weekStart, weekEnd).catch(unavailable('Spend'))
-    const priorWeek =
-        lastWeek && (await spend(new Date(weekStart.getTime() - WEEK_MS), weekStart).catch(unavailable('Spend')))
+    const priorWeek = lastWeek && (await spend(priorWeekStart, weekStart).catch(unavailable('Spend')))
     if (!priorWeek) {
         return null
     }
-    const used =
-        contract &&
-        (await spend(contract.start, weekEnd)
-            .then((usage) => usage.total)
-            .catch(unavailable('Contract spend')))
+    // Reuse the two weeks already read, unless the contract starts inside them.
+    const contractTotal = () =>
+        contract.start <= priorWeekStart
+            ? spend(contract.start, priorWeekStart).then((earlier) => earlier.total + priorWeek.total + lastWeek.total)
+            : spend(contract.start, weekEnd).then((usage) => usage.total)
+    const used = contract && (await contractTotal().catch(unavailable('Contract spend')))
     return { lastWeek, priorWeek, contract: used == null ? null : { ...contract, used } }
 }
 

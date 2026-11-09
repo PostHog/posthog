@@ -154,7 +154,7 @@ describe('weekly engineering analytics digest', () => {
             {
                 depotUsage: {
                     ...DEPOT_USAGE,
-                    [WEEK]: [new Response('', { status: 503 }), DEPOT_USAGE[WEEK], DEPOT_USAGE[WEEK]],
+                    [WEEK]: [new Response('', { status: 503 }), DEPOT_USAGE[WEEK]],
                 },
             },
         ],
@@ -167,8 +167,8 @@ describe('weekly engineering analytics digest', () => {
                 .map((request) => JSON.parse(request.body))
             assert.ok(depotRanges.every((range) => Date.parse(range.endAt) - Date.parse(range.startAt) === 86_400_000))
             const contractRanges = depotRanges.slice(depotRanges.findIndex((range) => range.startAt === CONTRACT))
-            assert.equal(contractRanges.length, 277)
-            assert.equal(contractRanges.at(-1).endAt, '2026-10-05T00:00:00.000Z')
+            assert.equal(contractRanges.length, 263)
+            assert.equal(contractRanges.at(-1).endAt, PRIOR_WEEK)
             const overviewUrl = new URL(requests.find((request) => request.url.includes('/repo_overview/')).url)
             assert.equal(overviewUrl.searchParams.get('date_from'), WEEK)
             assert.equal(overviewUrl.searchParams.get('date_to'), '2026-10-05T00:00:00.000Z')
@@ -221,12 +221,21 @@ describe('weekly engineering analytics digest', () => {
         })
     }
 
-    for (const [name, allowance, expected] of [
-        ['a used-up contract', '50000', /The contract is used up\.$/],
-        ['a contract that lasts', '1000000', /it lasts until the contract ends on 2027-01-01\.$/],
+    for (const [name, env, expected] of [
+        ['a used-up contract', { DEPOT_CONTRACT_USD: '50000' }, /The contract is used up\.$/],
+        [
+            'a contract that lasts',
+            { DEPOT_CONTRACT_USD: '1000000' },
+            /it lasts until the contract ends on 2027-01-01\.$/,
+        ],
+        [
+            'a contract that starts inside the prior week',
+            { DEPOT_CONTRACT_START: '2026-09-24' },
+            /^Depot contract: \$2,200 of \$60,000 used through 2026-10-04/,
+        ],
     ]) {
         it(`describes ${name}`, async (t) => {
-            const { blocks } = await runDigest(t, { env: { DEPOT_CONTRACT_USD: allowance } })
+            const { blocks } = await runDigest(t, { env })
             assert.match(blocks[2].text.text, expected)
         })
     }
