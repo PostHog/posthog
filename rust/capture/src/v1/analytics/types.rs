@@ -2,6 +2,7 @@ use std::io;
 use std::ops::Not;
 
 use chrono::{DateTime, SecondsFormat, Utc};
+use common_types::timestamp::CLIENT_CAPTURE_PROPERTY;
 use common_types::{CapturedEventHeaders, HasEventName};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -334,6 +335,8 @@ pub struct WrappedEvent {
     pub options: Options,
     // Post-skew-adjustment timestamp for Kafka export, None if event is malformed
     pub adjusted_timestamp: Option<DateTime<Utc>>,
+    /// The device's own clock reading at capture, before any correction or clamp.
+    pub client_capture: Option<DateTime<Utc>>,
     pub result: EventResult,
     pub details: Option<&'static str>,
     pub destination: Destination,
@@ -364,6 +367,7 @@ pub struct ValidatedEvent {
     pub uuid: Uuid,
     pub options: Options,
     pub adjusted_timestamp: Option<DateTime<Utc>>,
+    pub client_capture: Option<DateTime<Utc>>,
     pub result: EventResult,
     pub details: Option<&'static str>,
     pub force_disable_person_processing: bool,
@@ -376,6 +380,7 @@ impl ValidatedEvent {
             uuid: self.uuid,
             options: self.options,
             adjusted_timestamp: self.adjusted_timestamp,
+            client_capture: self.client_capture,
             result: self.result,
             details: self.details,
             destination,
@@ -585,6 +590,17 @@ impl WrappedEvent {
         }
         if let Some(ppp) = self.options.process_person_profile {
             inject!(buf, first, "$process_person_profile", &ppp);
+        }
+
+        // Written whatever `disable_skew_correction` says: opting out of the correction
+        // is not opting out of knowing when the device captured the event.
+        if let Some(captured_at) = self.client_capture {
+            inject!(
+                buf,
+                first,
+                CLIENT_CAPTURE_PROPERTY,
+                &captured_at.to_rfc3339_opts(SecondsFormat::AutoSi, true)
+            );
         }
 
         // Materialize $lib/$lib_version from the required PostHog-Sdk-Info
@@ -1700,6 +1716,7 @@ mod tests {
                 process_person_profile: Some(true),
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -1883,6 +1900,7 @@ mod tests {
                 process_person_profile: Some(false),
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -1926,6 +1944,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -1968,6 +1987,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -1978,11 +1998,70 @@ mod tests {
 
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
-        // $lib/$lib_version always materialize from the (valid) Sdk-Info header.
+        // $lib/$lib_version always materialize from the (valid) Sdk-Info header, and the
+        // client timestamp always materializes as the device's capture instant.
         let props = &data.properties;
         assert_eq!(props["$lib"], "posthog-rs");
         assert_eq!(props["$lib_version"], "1.0.0");
-        assert_eq!(props.len(), 2);
+        assert_eq!(props["$client_capture_time"], "2026-03-19T14:29:58.123Z");
+        assert_eq!(props.len(), 3);
+    }
+
+    #[test]
+    fn serialize_client_capture_overrides_a_client_supplied_value() {
+        // v1 never parses properties, so capture's value follows the client's copy and
+        // wins under last-key-wins parsing, like `$lib`. Ingestion re-serializes, so one
+        // copy remains downstream.
+        let mut wrapped = pageview_event();
+        wrapped.event.properties = raw_obj(r#"{"$client_capture_time":"1999-12-31T23:59:59Z"}"#);
+
+        let buf = wrapped
+            .serialize(&serialize_ctx())
+            .expect("serialize failed");
+        let captured: CapturedEvent = serde_json::from_slice(&buf).unwrap();
+        let client = captured
+            .data
+            .find(r#""$client_capture_time":"1999-12-31T23:59:59Z""#)
+            .unwrap();
+        let ours = captured
+            .data
+            .find(r#""$client_capture_time":"2026-03-19T14:29:58.123Z""#)
+            .unwrap();
+        assert!(
+            client < ours,
+            "capture's value must come last: {}",
+            captured.data
+        );
+
+        let data: RawEvent = serde_json::from_str(&captured.data).unwrap();
+        assert_eq!(
+            data.properties["$client_capture_time"],
+            "2026-03-19T14:29:58.123Z"
+        );
+    }
+
+    #[test]
+    fn serialize_client_capture_keeps_sub_millisecond_digits() {
+        // The property feeds an ordering key, so it is only as fine as the instant it
+        // carries. Fixed-millisecond formatting truncated a device reporting microseconds.
+        let cases = [
+            ("2026-03-19T14:29:58Z", "2026-03-19T14:29:58Z"),
+            ("2026-03-19T14:29:58.123Z", "2026-03-19T14:29:58.123Z"),
+            ("2026-03-19T14:29:58.123456Z", "2026-03-19T14:29:58.123456Z"),
+        ];
+
+        for (capture, expected) in cases {
+            let mut wrapped = pageview_event();
+            wrapped.event.timestamp = capture.to_string();
+            wrapped.client_capture = Some(dt(capture));
+
+            let ctx = serialize_ctx();
+            let (_, data) = serialize_and_parse(&wrapped, &ctx);
+            assert_eq!(
+                data.properties["$client_capture_time"], expected,
+                "{capture}"
+            );
+        }
     }
 
     #[test]
@@ -2007,6 +2086,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -2022,7 +2102,8 @@ mod tests {
         assert_eq!(props["$cookieless_mode"], true);
         assert_eq!(props["$lib"], "posthog-rs");
         assert_eq!(props["$lib_version"], "1.0.0");
-        assert_eq!(props.len(), 4);
+        assert!(props.contains_key("$client_capture_time"));
+        assert_eq!(props.len(), 5);
     }
 
     #[test]
@@ -2049,6 +2130,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -2188,6 +2270,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -2232,6 +2315,7 @@ mod tests {
                 process_person_profile: Some(true),
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:55.000Z")),
+            client_capture: Some(dt("2026-03-19T14:30:00.000Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -2274,6 +2358,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -2312,6 +2397,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -2325,7 +2411,8 @@ mod tests {
         assert_eq!(data.properties["$session_id"], "sess-abc");
         assert_eq!(data.properties["$lib"], "posthog-rs");
         assert_eq!(data.properties["$lib_version"], "1.0.0");
-        assert_eq!(data.properties.len(), 3);
+        assert!(data.properties.contains_key("$client_capture_time"));
+        assert_eq!(data.properties.len(), 4);
     }
 
     // --- CapturedEvent round-trip parity using realistic fixtures ---
