@@ -740,6 +740,11 @@ class TestReadDataTool(BaseTest):
                     "clickhouse": "Nullable(String)",
                     "schema_valid": True,
                 },
+                "receipt_email": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                },
             },
         )
         await ExternalDataSchema.objects.acreate(
@@ -763,12 +768,18 @@ class TestReadDataTool(BaseTest):
             team=self.team, user=self.user, state=state, context_manager=context_manager
         )
 
-        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "stripe_charges"})
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == "warehouse-column-sensitivity",
+        ):
+            result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "stripe_charges"})
 
         assert "Could not serialize" not in result
         assert "Table `stripe_charges` — Stripe charges with fields:" in result
         assert "- amount (integer) — charge amount in cents" in result
         assert "- currency (string)" in result
+        assert "- receipt_email (string) [sensitive: email]" in result
+        assert "Columns marked [sensitive: ...] likely hold personal or secret data." in result
 
     async def test_table_annotation_description_wins_over_source_schema_description(self):
         credential = await DataWarehouseCredential.objects.acreate(
@@ -1680,7 +1691,7 @@ class TestReadDataTool(BaseTest):
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:
-            mock_uac.check_access_level_for_object.return_value = False
+            mock_uac.check_access_level_for_ref.return_value = False
 
             with pytest.raises(MaxToolAccessDeniedError):
                 await tool._arun_impl({"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False})
@@ -1699,7 +1710,7 @@ class TestReadDataTool(BaseTest):
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:
-            mock_uac.check_access_level_for_object.return_value = True
+            mock_uac.check_access_level_for_ref.return_value = True
 
             result, artifact = await tool._arun_impl(
                 {"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False}

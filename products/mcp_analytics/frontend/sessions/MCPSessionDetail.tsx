@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconClock, IconSparkles, IconUser, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { IconBolt, IconClock, IconSparkles, IconUser } from '@posthog/icons'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { Button, Spinner } from '@posthog/quill-primitives'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -12,7 +12,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT } from '../feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
-import { formatDuration, formatRelativeOffset, sessionDurationMs, shortenSessionId } from './utils'
+import { MCPToolCallRow } from './MCPToolCallRow'
+import { formatDuration, sessionDurationMs, shortenSessionId } from './utils'
 
 function MetaBadge({ icon, label }: { icon: React.ReactNode; label: React.ReactNode }): JSX.Element {
     return (
@@ -33,8 +34,13 @@ function IdTooltip({ label, value }: { label: string; value: string }): JSX.Elem
 }
 
 export function MCPSessionDetail(): JSX.Element {
-    const { selectedSession, selectedSessionToolCalls, selectedSessionIntent, isSelectedSessionGenerating } =
-        useValues(mcpSessionsLogic)
+    const {
+        selectedSession,
+        selectedSessionToolCalls,
+        selectedSessionIntent,
+        isSelectedSessionGenerating,
+        dateFilter,
+    } = useValues(mcpSessionsLogic)
     const { generateIntent, loadMoreToolCalls, loadToolCalls } = useActions(mcpSessionsLogic)
 
     if (!selectedSession) {
@@ -146,55 +152,13 @@ export function MCPSessionDetail(): JSX.Element {
                     <>
                         <ol className="flex flex-col gap-2 list-none pl-0">
                             {toolCalls.map((toolCall, idx) => (
-                                <li
+                                <MCPToolCallRow
                                     key={toolCall.event_id || `${toolCall.timestamp}-${idx}`}
-                                    className={`relative flex flex-col gap-1 rounded border bg-surface-primary px-2 py-1.5 transition-colors hover:bg-surface-secondary ${
-                                        toolCall.is_error
-                                            ? 'border-danger border-l-2'
-                                            : 'border-primary border-l-2 border-l-accent/60'
-                                    }`}
-                                >
-                                    <div className="flex items-center justify-between gap-2 text-xs">
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                            {toolCall.is_error ? (
-                                                <IconWarning className="text-danger shrink-0 text-xs" />
-                                            ) : (
-                                                <IconBolt className="text-accent shrink-0 text-xs" />
-                                            )}
-                                            <span className="font-mono font-semibold truncate">
-                                                {toolCall.tool_name || 'unknown'}
-                                            </span>
-                                            {toolCall.is_error ? (
-                                                <LemonTag type="danger" size="small">
-                                                    error
-                                                </LemonTag>
-                                            ) : null}
-                                        </div>
-                                        <div className="flex items-center gap-2 text-secondary whitespace-nowrap font-mono text-[11px]">
-                                            {toolCall.duration_ms != null ? (
-                                                <span>{formatDuration(toolCall.duration_ms)} ·</span>
-                                            ) : null}
-                                            <span>
-                                                {formatRelativeOffset(
-                                                    selectedSession.session_start,
-                                                    toolCall.timestamp
-                                                )}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <div className="text-xs leading-snug pl-5">
-                                        {toolCall.intent || (
-                                            <span className="text-secondary italic">No intent captured.</span>
-                                        )}
-                                    </div>
-
-                                    {toolCall.is_error && toolCall.error_message ? (
-                                        <div className="text-xs text-danger font-mono pl-5 break-all">
-                                            {toolCall.error_message}
-                                        </div>
-                                    ) : null}
-                                </li>
+                                    toolCall={toolCall}
+                                    sessionId={selectedSession.session_id}
+                                    sessionStart={selectedSession.session_start}
+                                    dateFilter={dateFilter}
+                                />
                             ))}
                         </ol>
                         {hasNext ? (

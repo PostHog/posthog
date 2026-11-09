@@ -1,6 +1,5 @@
 import json
 from dataclasses import asdict, fields, replace
-from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
@@ -13,6 +12,7 @@ from products.tasks.backend.contract_checks import contract_violation_refused
 from products.tasks.backend.facade.profiles import (
     ContractCheck,
     GithubAccess,
+    RunOptionsCaller,
     TaskProfile,
     TaskRunOptions,
     TaskRunOptionsError,
@@ -20,11 +20,6 @@ from products.tasks.backend.facade.profiles import (
 
 if TYPE_CHECKING:
     from posthog.temporal.oauth import PosthogMcpScopes
-
-
-class RunOptionsCaller(StrEnum):
-    SERVER = "server"
-    PUBLIC = "public"
 
 
 @frozen
@@ -113,6 +108,7 @@ def _run_state_from(options: TaskRunOptions) -> dict[str, Any]:
     return state
 
 
+_ALWAYS_ENFORCED_FOR_PUBLIC = frozenset({ContractCheck.PUBLIC_OPTIONS})
 _GITHUB_ACCESS_RANK = {GithubAccess.NONE: 0, GithubAccess.READ: 1, GithubAccess.WRITE: 2}
 
 
@@ -161,29 +157,38 @@ def _run_option_violations(
 
 
 def validate_run_options(
-    profile: TaskProfile | None,
+    profile: TaskProfile,
     options: TaskRunOptions | None,
     *,
     caller: RunOptionsCaller = RunOptionsCaller.SERVER,
 ) -> None:
-    if profile is None or options is None:
+    if options is None:
         return
+    enforced = _ALWAYS_ENFORCED_FOR_PUBLIC if caller == RunOptionsCaller.PUBLIC else frozenset()
     refusals = [
         detail
         for check, detail in _run_option_violations(profile, options, caller)
-        if contract_violation_refused(profile, check, detail)
+        if contract_violation_refused(profile, check, detail, enforced=enforced)
     ]
     if refusals:
         raise TaskRunOptionsError("; ".join(refusals))
+
+
+def run_only_option_names(options: TaskRunOptions) -> list[str]:
+    settings = _settings_from(options)
+    return sorted(
+        {
+            *(_OPTION_NAMES.get(name, name) for name in settings if name not in TASK_SETTINGS),
+            *_run_state_from(options),
+        }
+    )
 
 
 def apply_run_options(options: TaskRunOptions, given: RunSettings, *, creates_run: bool = True) -> RunSettings:
     settings = _settings_from(options)
     run_state = _run_state_from(options)
     if not creates_run:
-        run_only = sorted(
-            {*(_OPTION_NAMES.get(name, name) for name in settings if name not in TASK_SETTINGS), *run_state}
-        )
+        run_only = run_only_option_names(options)
         if run_only:
             raise TaskRunOptionsError(f"{', '.join(run_only)} only apply to a run. Pass them when the run is created")
     given_run_state = given.extra_run_state or {}
