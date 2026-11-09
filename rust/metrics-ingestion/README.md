@@ -11,7 +11,7 @@ The crate builds on `ingestion-framework` and reuses `logs-ingestion` for everyt
 `PLUGIN_SERVER_MODE` must be `ingestion-metrics`, as for the Node server. The consumer reads `METRICS_INGESTION_CONSUMER_CONSUME_TOPIC` with the group `METRICS_INGESTION_CONSUMER_GROUP_ID` (Node default `ingestion-metrics`).
 
 `METRICS_RUST_SHADOW_MODE` is the only setting the Node server does not have. It defaults to `true` (shadow mode), and only `false` (or `0`, `no`, `off`) selects primary mode. Any other value stops startup.
-The image is `metrics-ingestion-rust`, so a Node metrics deployment can switch to it with the same env.
+The binary reads the Node env unchanged, so a Node metrics deployment can switch to it with the same env.
 
 Every setting the Node server reads keeps its Node name, default and parse: the `METRICS_*` keys of `metrics/config.ts`, the `METRICS_INGESTION_OUTPUT_*` keys, `KAFKA_WARPSTREAM_METRICS_PRODUCER_*` and `KAFKA_WARPSTREAM_INGESTION_PRODUCER_*`, `KAFKA_CONSUMER_*` (rdkafka keys), `KAFKA_CLIENT_RACK`, `KAFKA_PREFIX`, `NODE_ENV`, `DATABASE_URL`, `DATABASE_READONLY_URL`, `POSTGRES_CONNECTION_POOL_SIZE`, `REDIS_URL`, `POSTHOG_REDIS_*`, `USAGE_INGESTION_*`, `CONSUMER_BATCH_SIZE`, `CONSUMER_MAX_BACKGROUND_TASKS`, `CONSUMER_BACKGROUND_TASK_TIMEOUT_MS` and `HTTP_SERVER_PORT` (default 6738).
 The defaults that depend on `NODE_ENV` (limiter allowlist, Redis TLS, `_test` topic suffix, the `phc_local` dev token) follow Node's `isProdEnv` and `isDevEnv`.
@@ -74,4 +74,5 @@ The Node side is `metrics-parity.serial.test.ts`. `METRICS_PARITY_RECORD=1` re-r
 docker build -f rust/Dockerfile --build-arg BIN=metrics-ingestion -t metrics-ingestion-rust rust
 ```
 
-CI builds it as the `metrics-ingestion-rust` image (`.github/rust-images.yml`).
+CI does not build an image yet. The `metrics-ingestion-rust` entry in `.github/rust-images.yml` and the deploy matrix land in a follow-up, after its shared-services ECR repository exists in posthog-cloud-infra.
+Until then `rust/affected-services` lists `metrics-ingestion` as non-deployable.

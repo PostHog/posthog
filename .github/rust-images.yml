@@ -108,13 +108,6 @@
   dockerfile: ./rust/Dockerfile
   project: mtvzx98zjn
 
-# rust/metrics-ingestion. Named apart from the Node ingestion-metrics release. It builds on
-# ingestion-framework and logs-ingestion, so it shares their Depot project.
-- image: metrics-ingestion-rust
-  bin: metrics-ingestion
-  dockerfile: ./rust/Dockerfile
-  project: mtvzx98zjn
-
 # Internal web tool for the ingestion team (lag analysis, consumer debug
 # visualizer).
 - image: ingestion-control-plane

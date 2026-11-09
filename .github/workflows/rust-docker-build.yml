@@ -169,9 +169,6 @@ jobs:
                     - release: logs-ingestion-rust
                       digest_key: logs-ingestion-rust
                       values_key: image
-                    - release: metrics-ingestion-rust
-                      digest_key: metrics-ingestion-rust
-                      values_key: image
                     - release: ingestion-control-plane
                       digest_key: ingestion-control-plane
                       values_key: image
