@@ -280,8 +280,6 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
             // advance even after the onboarding signal poll stops.
             mcpAnalyticsOnboardingLogic,
             ['loadSignals'],
-            mcpAnalyticsFiltersLogic,
-            ['hydrateFilters', 'setFilterTestAccounts', 'setPropertyFilters'],
             mcpAnalyticsNotificationsLogic,
             ['loadNotifications', 'loadNotificationsSuccess', 'loadNotificationsFailure'],
             mcpRecurringReportsLogic,

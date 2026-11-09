@@ -31,7 +31,11 @@ import {
 } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
-import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
+import {
+    type MCPSharedQueryFilters,
+    mcpAnalyticsFiltersLogic,
+    writeSharedFilterParams,
+} from './mcpAnalyticsFiltersLogic'
 
 export interface CategoryCount {
     category: string
@@ -695,6 +699,8 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             } else {
                 delete searchParams.interval
             }
+            // A shared filter change clears the selected tool before the filter logic writes its own URL params.
+            writeSharedFilterParams(searchParams, mcpAnalyticsFiltersLogic.values)
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
         return {

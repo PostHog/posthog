@@ -491,6 +491,33 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             }
         )
 
+        it.each([
+            [
+                'the test-account toggle',
+                () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true),
+                { filterTestAccounts: true, propertyFilters: [] },
+                { filter_test_accounts: true },
+            ],
+            [
+                'a property filter',
+                () => mcpAnalyticsFiltersLogic.actions.setPropertyFilters([EVENT_FILTER]),
+                { filterTestAccounts: false, propertyFilters: [EVENT_FILTER] },
+                { properties: [EVENT_FILTER] },
+            ],
+        ])('keeps %s and clears the selected tool', async (_label, change, expectedFilters, expectedParams) => {
+            router.actions.push(urls.mcpAnalyticsToolQuality())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.setSelectedTool('tool_a')).toFinishAllListeners()
+
+            await expectLogic(logic, change).toFinishAllListeners()
+
+            expect(logic.values.selectedTool).toBeNull()
+            expect(mcpAnalyticsFiltersLogic.values).toMatchObject(expectedFilters)
+            expect(router.values.searchParams).toMatchObject(expectedParams)
+            expect(router.values.searchParams.tool).toBeUndefined()
+        })
+
         it('reloads once when both shared filters hydrate from the URL', async () => {
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
