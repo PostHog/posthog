@@ -7326,8 +7326,16 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
+    list_v2_enabled = True
+
     def setUp(self):
         super().setUp()
+        flag_patch = patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: key == "workflows-list-v2" and self.list_v2_enabled,
+        )
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
         self.flow_a = HogFlow.objects.create(team=self.team, name="Flow A")
         self.flow_b = HogFlow.objects.create(team=self.team, name="Flow B")
 
@@ -7390,6 +7398,15 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         self._seed(self.flow_a.id, succeeded=50, instance_id="action_email", timestamp=before_mirroring, **legacy)
         rows = self._global().json()
         assert rows == [{"workflow_id": str(self.flow_a.id), "succeeded": 22, "failed": 9}]
+
+    @parameterized.expand([("list_v2_on", True, 3), ("list_v2_off", False, 5)])
+    def test_counts_runs_the_new_way_only_behind_the_list_flag(self, _name, enabled, succeeded):
+        self.list_v2_enabled = enabled
+        legacy = {"app_source": "hog_flow", "app_source_id": str(self.flow_a.id)}
+        self._seed(self.flow_a.id, succeeded=3, **legacy)
+        self._seed(self.flow_a.id, succeeded=2, instance_id="action_email", **legacy)
+        rows = self._global().json()
+        assert rows == [{"workflow_id": str(self.flow_a.id), "succeeded": succeeded, "failed": 0}]
 
     def test_time_window_filter(self):
         now = datetime.now(tz=UTC)
