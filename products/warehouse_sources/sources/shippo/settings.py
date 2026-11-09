@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 
 @dataclass(frozen=False)
@@ -17,6 +17,9 @@ class ShippoEndpointConfig:
     # filtering docs); every other list endpoint is page/results pagination only.
     supports_created_filter: bool = False
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    default_incremental_field: str | None = None
+    page_size: int = 100
+    fanout: DependentEndpointConfig | None = None
 
 
 # Shippo list endpoints all return {"next": url|null, "previous": url|null, "results": [...]}
@@ -79,6 +82,32 @@ SHIPPO_ENDPOINTS: dict[str, ShippoEndpointConfig] = {
     "customs_declarations": ShippoEndpointConfig(
         name="customs_declarations",
         path="/customs/declarations",
+        partition_key="object_created",
+    ),
+    "rates": ShippoEndpointConfig(
+        name="rates",
+        path="/shipments/{shipment_id}/rates/",
+        partition_key="object_created",
+        fanout=DependentEndpointConfig(
+            parent_name="shipments",
+            resolve_param="shipment_id",
+            resolve_field="object_id",
+            include_from_parent=[],
+        ),
+    ),
+    "manifests": ShippoEndpointConfig(
+        name="manifests",
+        path="/manifests",
+        partition_key="object_created",
+    ),
+    "tracks": ShippoEndpointConfig(
+        name="tracks",
+        path="/tracks/{carrier}/{tracking_number}",
+        primary_keys=["transaction"],
+    ),
+    "shippo_accounts": ShippoEndpointConfig(
+        name="shippo_accounts",
+        path="/shippo-accounts",
         partition_key="object_created",
     ),
 }

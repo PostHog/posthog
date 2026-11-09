@@ -35,6 +35,14 @@ class AccountUsersStrategy(PersonStrategy):
             paginator=self.paginator,
             query=self.query.model_copy(update={"search": None}),
         ).filter_conditions()
+        # Live ingestion admits any profile-backed event, so anonymous persons are dropped here.
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["persons", "is_identified"]),
+                right=ast.Constant(value=True),
+            )
+        )
         if self.query.search and self.query.search.strip():
             source = self.query.source
             assert isinstance(source, AccountUsersQuery)

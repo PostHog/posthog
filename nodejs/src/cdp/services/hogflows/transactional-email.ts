@@ -227,6 +227,13 @@ export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
 
 export type QueuedSend = Omit<AcceptedSend, 'attachments'> & { attachments?: readonly EmailAttachmentMetadata[] }
 
+// Django reads an `unrecognized_keys` issue on `send` as a field this pipeline doesn't take. It refuses the
+// send with that field named, so the caller sees which field to leave out.
+export const fieldNotAcceptedError = (field: string): string =>
+    JSON.stringify([
+        { code: 'unrecognized_keys', keys: [field], path: ['send'], message: `Unrecognized key: "${field}"` },
+    ])
+
 export type DecodedAttachment = EmailAttachmentMetadata & { content: Buffer }
 
 export const decodeAttachments = (send: AcceptedSend | undefined): DecodedAttachment[] =>

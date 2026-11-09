@@ -70,6 +70,7 @@ import {
 } from './sourceRecommendations'
 import {
     SOURCE_ALERT_SCOPE_KEY,
+    SOURCE_ISSUE_FILTERS_KEY,
     SOURCE_STEERING_KEY,
     SignalAlertScope,
     SignalSourceConfig,
@@ -115,7 +116,14 @@ function inheritedErrorTrackingConfig(configs: SignalSourceConfig[]): Record<str
     const steering = configs
         .map((config) => config.config[SOURCE_STEERING_KEY])
         .find((value) => typeof value === 'string' && value.trim())
-    return steering ? { [SOURCE_STEERING_KEY]: steering } : {}
+    // One filter covers the whole source, so a type turned on later must not admit what the others skip.
+    const issueFilters = configs
+        .map((config) => config.config[SOURCE_ISSUE_FILTERS_KEY])
+        .find((value) => !!value && typeof value === 'object')
+    return {
+        ...(steering ? { [SOURCE_STEERING_KEY]: steering } : {}),
+        ...(issueFilters ? { [SOURCE_ISSUE_FILTERS_KEY]: issueFilters } : {}),
+    }
 }
 
 /** Warehouse-backed signal sources, keyed by roster source id. */
@@ -2360,9 +2368,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     })
                     captureSignalSourceAlertScopeChanged({ alertScope, previousAlertScope, success: true })
                     lemonToast.success(
-                        alertScope === SignalAlertScope.AllFiringAlerts
-                            ? 'Product analytics now turns every firing alert into a signal.'
-                            : 'Product analytics now turns only investigated alerts into signals.'
+                        {
+                            [SignalAlertScope.AllFiringAlerts]:
+                                'Product analytics now turns every firing alert into a signal.',
+                            [SignalAlertScope.InvestigatedOnly]:
+                                'Product analytics now turns only investigated alerts into signals.',
+                            [SignalAlertScope.Off]: 'Product analytics no longer turns alerts into signals.',
+                        }[alertScope]
                     )
                 } catch (error: any) {
                     captureSignalSourceAlertScopeChanged({ alertScope, previousAlertScope, success: false })

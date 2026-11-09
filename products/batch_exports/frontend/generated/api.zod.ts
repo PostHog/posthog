@@ -400,24 +400,32 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                                 zod
                                                     .string()
                                                     .describe('ARN of an IAM role attached to the Redshift cluster.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
+                                                zod
+                                                    .object({
+                                                        aws_access_key_id: zod.string(),
+                                                        aws_secret_access_key: zod.string(),
+                                                    })
+                                                    .describe(
+                                                        'Legacy AWS access keys. Updates can keep this block unchanged. New or changed keys are rejected.'
+                                                    ),
                                             ])
                                             .describe(
-                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                                'Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.'
                                             ),
                                         bucket_credentials: zod
                                             .union([
                                                 zod.number().describe('ID of an aws-s3-kind Integration.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
+                                                zod
+                                                    .object({
+                                                        aws_access_key_id: zod.string(),
+                                                        aws_secret_access_key: zod.string(),
+                                                    })
+                                                    .describe(
+                                                        'Legacy AWS access keys. Updates can keep this block unchanged. New or changed keys are rejected.'
+                                                    ),
                                             ])
                                             .describe(
-                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                                'AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.'
                                             ),
                                     })
                                     .describe(
@@ -1386,24 +1394,32 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                                 zod
                                                     .string()
                                                     .describe('ARN of an IAM role attached to the Redshift cluster.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
+                                                zod
+                                                    .object({
+                                                        aws_access_key_id: zod.string(),
+                                                        aws_secret_access_key: zod.string(),
+                                                    })
+                                                    .describe(
+                                                        'Legacy AWS access keys. Updates can keep this block unchanged. New or changed keys are rejected.'
+                                                    ),
                                             ])
                                             .describe(
-                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                                'Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.'
                                             ),
                                         bucket_credentials: zod
                                             .union([
                                                 zod.number().describe('ID of an aws-s3-kind Integration.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
+                                                zod
+                                                    .object({
+                                                        aws_access_key_id: zod.string(),
+                                                        aws_secret_access_key: zod.string(),
+                                                    })
+                                                    .describe(
+                                                        'Legacy AWS access keys. Updates can keep this block unchanged. New or changed keys are rejected.'
+                                                    ),
                                             ])
                                             .describe(
-                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                                'AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.'
                                             ),
                                     })
                                     .describe(
@@ -2129,24 +2145,32 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod
                                                     .string()
                                                     .describe('ARN of an IAM role attached to the Redshift cluster.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
+                                                zod
+                                                    .object({
+                                                        aws_access_key_id: zod.string(),
+                                                        aws_secret_access_key: zod.string(),
+                                                    })
+                                                    .describe(
+                                                        'Legacy AWS access keys. Updates can keep this block unchanged. New or changed keys are rejected.'
+                                                    ),
                                             ])
                                             .describe(
-                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                                'Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.'
                                             ),
                                         bucket_credentials: zod
                                             .union([
                                                 zod.number().describe('ID of an aws-s3-kind Integration.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
+                                                zod
+                                                    .object({
+                                                        aws_access_key_id: zod.string(),
+                                                        aws_secret_access_key: zod.string(),
+                                                    })
+                                                    .describe(
+                                                        'Legacy AWS access keys. Updates can keep this block unchanged. New or changed keys are rejected.'
+                                                    ),
                                             ])
                                             .describe(
-                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                                'AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.'
                                             ),
                                     })
                                     .describe(
@@ -2837,24 +2861,32 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                                 zod
                                                     .string()
                                                     .describe('ARN of an IAM role attached to the Redshift cluster.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
+                                                zod
+                                                    .object({
+                                                        aws_access_key_id: zod.string(),
+                                                        aws_secret_access_key: zod.string(),
+                                                    })
+                                                    .describe(
+                                                        'Legacy AWS access keys. Updates can keep this block unchanged. New or changed keys are rejected.'
+                                                    ),
                                             ])
                                             .describe(
-                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                                'Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.'
                                             ),
                                         bucket_credentials: zod
                                             .union([
                                                 zod.number().describe('ID of an aws-s3-kind Integration.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
+                                                zod
+                                                    .object({
+                                                        aws_access_key_id: zod.string(),
+                                                        aws_secret_access_key: zod.string(),
+                                                    })
+                                                    .describe(
+                                                        'Legacy AWS access keys. Updates can keep this block unchanged. New or changed keys are rejected.'
+                                                    ),
                                             ])
                                             .describe(
-                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                                'AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.'
                                             ),
                                     })
                                     .describe(
@@ -3586,24 +3618,32 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                                 zod
                                                     .string()
                                                     .describe('ARN of an IAM role attached to the Redshift cluster.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
+                                                zod
+                                                    .object({
+                                                        aws_access_key_id: zod.string(),
+                                                        aws_secret_access_key: zod.string(),
+                                                    })
+                                                    .describe(
+                                                        'Legacy AWS access keys. Updates can keep this block unchanged. New or changed keys are rejected.'
+                                                    ),
                                             ])
                                             .describe(
-                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                                'Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.'
                                             ),
                                         bucket_credentials: zod
                                             .union([
                                                 zod.number().describe('ID of an aws-s3-kind Integration.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
+                                                zod
+                                                    .object({
+                                                        aws_access_key_id: zod.string(),
+                                                        aws_secret_access_key: zod.string(),
+                                                    })
+                                                    .describe(
+                                                        'Legacy AWS access keys. Updates can keep this block unchanged. New or changed keys are rejected.'
+                                                    ),
                                             ])
                                             .describe(
-                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                                'AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.'
                                             ),
                                     })
                                     .describe(

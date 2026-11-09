@@ -27,6 +27,7 @@ import {
     TransactionalEmailStageTimer,
     TransactionalSendRefusal,
     decodeAttachments,
+    fieldNotAcceptedError,
     queuedSend,
     transactionalEmailRecipients,
 } from './transactional-email'
@@ -73,11 +74,13 @@ export type TransactionalSendsDeps = {
     emailValidation: EmailValidationService
     quotaLimiting: QuotaLimiting
     emailAttachments: Pick<EmailAttachmentsService, 'store'>
+    attachmentsEnabled: boolean
 }
 
 export type TransactionalSendResult =
     | { outcome: 'queued' | 'replayed'; invocationId: string }
     | { outcome: TransactionalSendRefusal }
+    | { outcome: 'invalid_request'; error: string }
 
 export class TransactionalSends {
     constructor(private readonly deps: TransactionalSendsDeps) {}
@@ -89,7 +92,7 @@ export class TransactionalSends {
         stages: TransactionalEmailStageTimer
     ): Promise<TransactionalSendResult> {
         const { idempotencyKeys } = this.deps
-        const { idempotency_key: idempotencyKey } = request
+        const { to, idempotency_key: idempotencyKey } = request
 
         stages.start('build')
         const files = decodeAttachments(request.send)
@@ -113,6 +116,14 @@ export class TransactionalSends {
             }
         }
         try {
+            // After the idempotency check, so a retry of a send accepted with files still gets its answer.
+            if (request.send?.attachments !== undefined && !this.deps.attachmentsEnabled) {
+                if (idempotencyKey) {
+                    stages.start('idempotency')
+                    await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                }
+                return { outcome: 'invalid_request', error: fieldNotAcceptedError('attachments') }
+            }
             stages.start('checks')
             const refusal = await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request))
             if (refusal) {
@@ -148,7 +159,13 @@ export class TransactionalSends {
             await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
         }
         stages.start('metrics_flush')
-        this.deps.emailStatus.queue({ teamId: team.id, messageId: invocation.id, status: 'queued' })
+        this.deps.emailStatus.queue({
+            teamId: team.id,
+            messageId: invocation.id,
+            status: 'queued',
+            recipient: to,
+            functionId: hogFlow.id,
+        })
         // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
         const warnTelemetryFlushFailed = (error: unknown) =>
             logger.warn('⚠️', 'Transactional email telemetry flush failed', {
