@@ -110,6 +110,7 @@
     'posthog.tasks.remote_config.update_team_remote_config',
     'posthog.tasks.scim_request_log_cleanup.cleanup_old_scim_request_logs',
     'posthog.tasks.split_person.split_person',
+    'posthog.tasks.ssf.cleanup_ssf_events',
     'posthog.tasks.surveys.sync_all_surveys_cache',
     'posthog.tasks.surveys.update_team_surveys_cache',
     'posthog.tasks.sync_billing.sync_from_billing',

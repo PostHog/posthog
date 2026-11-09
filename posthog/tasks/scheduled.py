@@ -31,6 +31,7 @@ from posthog.tasks.remote_config import (
     refresh_expiring_remote_config_cache_entries,
     sync_all_remote_configs,
 )
+from posthog.tasks.ssf import cleanup_ssf_events
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
     calculate_cohort,
@@ -1005,6 +1006,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             cleanup_old_scim_request_logs.s(),
             name="clean up old SCIM request logs",
         )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="47"),
+        cleanup_ssf_events.s(),
+        name="clean up expired SSF events",
+    )
 
     # Check integrations to refresh every minute
     add_periodic_task_with_expiry(
