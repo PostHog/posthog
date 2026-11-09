@@ -62,9 +62,6 @@ class TestTrialConcurrency(NonAtomicBaseTest):
 
     def test_final_organization_claim_and_report_admission_are_atomic(self) -> None:
         with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
-            TrialPolicy(self.team).claim(user_id=self.user.pk)
-            second = Team.objects.create(organization=self.organization, name="Second")
-            TrialPolicy(second).claim(user_id=self.user.pk)
             contenders = [Team.objects.create(organization=self.organization, name=f"Project {i}") for i in range(2)]
             barrier = Barrier(2)
 
@@ -81,11 +78,12 @@ class TestTrialConcurrency(NonAtomicBaseTest):
 
             with ThreadPoolExecutor(max_workers=2) as pool:
                 assert sorted(pool.map(claim, contenders)) == [False, True]
-            assert TrialPolicy(self.team).organization_grants_claimed() == 3
-            policy = TrialPolicy(self.team)
+            assert TrialPolicy(self.team).organization_grants_claimed() == 1
+            winning_team = next(team for team in contenders if TrialPolicy(team).grant() is not None)
+            policy = TrialPolicy(winning_team)
 
             def publish() -> bool:
-                report = SignalReport.objects.create(team=self.team)
+                report = SignalReport.objects.create(team=winning_team)
                 try:
                     policy.admit(
                         report_id=report.id,

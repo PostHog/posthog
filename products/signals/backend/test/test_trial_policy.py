@@ -73,12 +73,13 @@ class TestTrialPolicy(BaseTest):
         grant.refresh_from_db()
         assert grant.organization_id == self.organization.id
 
-    def test_deleting_project_does_not_return_organization_slot(self) -> None:
-        projects = [Team.objects.create(organization=self.organization, name=f"Project {index}") for index in range(3)]
-        for team in projects:
-            TrialPolicy(team).claim(user_id=self.user.pk)
-        deleted_id = projects[0].pk
-        projects[0].delete()
+    def test_one_organization_claim_survives_project_deletion(self) -> None:
+        project = Team.objects.create(organization=self.organization, name="Trial project")
+        TrialPolicy(project).claim(user_id=self.user.pk)
+        with self.assertRaisesMessage(TrialRefused, "organization_limit"):
+            self.claim()
+        deleted_id = project.pk
+        project.delete()
         assert SignalTrialGrant.objects.for_team(deleted_id, canonical=True).exists()
         with self.assertRaisesMessage(TrialRefused, "organization_limit"):
             self.policy.claim(user_id=self.user.pk)

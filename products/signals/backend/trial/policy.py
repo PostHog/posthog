@@ -14,7 +14,7 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.signals.backend.trial.funding import TrialFunding
-from products.signals.backend.trial.limits import STANDARD_TRIAL_LIMITS, TrialLimits
+from products.signals.backend.trial.limits import MAX_TRIAL_GRANTS_PER_ORGANIZATION, STANDARD_TRIAL_LIMITS, TrialLimits
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.usage import trial_usage
 
@@ -105,7 +105,7 @@ class TrialPolicy:
             existing = self.grant()
             if existing is not None:
                 return existing
-            if self.organization_grants_claimed() >= 3:
+            if self.organization_grants_claimed() >= MAX_TRIAL_GRANTS_PER_ORGANIZATION:
                 raise TrialRefused("organization_limit")
             grant = SignalTrialGrant.objects.for_team(self.team_id, canonical=True).create(
                 team_id=self.team_id,

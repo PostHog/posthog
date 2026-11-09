@@ -1,5 +1,7 @@
 from posthog.dataclasses import frozen
 
+MAX_TRIAL_GRANTS_PER_ORGANIZATION = 1
+
 
 @frozen
 class TrialLimits:
