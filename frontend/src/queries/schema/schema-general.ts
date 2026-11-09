@@ -65,7 +65,7 @@ import {
 } from '~/types'
 
 import { BIVisualizationNode } from './schema-business-intelligence'
-import { integer, numerical_key, positive_integer } from './type-utils'
+import { integer, non_negative_integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
 // Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
@@ -188,6 +188,7 @@ export enum NodeKind {
     // AI queries
     SuggestedQuestionsQuery = 'SuggestedQuestionsQuery',
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
+    InboxUsageQuery = 'InboxUsageQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
@@ -294,6 +295,7 @@ export type AnyDataNode =
     | SessionQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
+    | InboxUsageQuery
     | UsageMetricsQuery
     | AccountsQuery
     | AccountsTableQuery
@@ -428,6 +430,7 @@ export type QuerySchema =
     | VectorSearchQuery
 
     // Customer analytics
+    | InboxUsageQuery
     | UsageMetricsQuery
     | AccountsQuery
     | AccountsTableQuery
@@ -628,6 +631,13 @@ export interface AccessControlFilterWarning {
     message: string
 }
 
+export interface BreakdownNotAppliedWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'breakdown_not_applied'
+    /** Human-readable warning shown to the user */
+    message: string
+}
+
 /**
  * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
  * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
@@ -751,6 +761,8 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     variables?: Record<string, HogQLVariable>
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
+    /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
+    offset?: non_negative_integer
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
     /** Client provided name of the query */
@@ -980,6 +992,8 @@ export interface HogQLMetadataColumn {
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
+    /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+    internalError?: boolean
     isUsingIndices?: QueryIndexUsage
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsage[]
@@ -1094,6 +1108,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     debug?: boolean
     /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
     indexUsage?: boolean
+    /** Validate on the Python validator with freshly fetched sources, the same sources query execution uses. Adds a sources fetch on every request, so only set it where the result blocks an action. */
+    freshSources?: boolean
     /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
     includeOutputTypes?: boolean
 }
@@ -2877,9 +2893,10 @@ export interface AnalyticsQueryResponseBase {
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
      * Accumulated across every HogQL execution that contributes to this response — so insights backed
      * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
-     * Also carries access control warnings when a system-table query filters out objects the user can't access.
+     * Also carries access control warnings when a system-table query filters out objects the user can't access,
+     * and a breakdown warning when the query ran without its requested breakdown.
      */
-    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[]
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsage[]
 }
@@ -3541,7 +3558,14 @@ export type WebAnalyticsSampling = {
     enabled?: boolean
     forceSamplingRate?: SamplingRate
 }
+export interface WebAnalyticsQueryModifiers {
+    /** Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise. */
+    useDimensionalTables?: boolean
+}
+
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiers
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
     conversionGoal?: WebAnalyticsConversionGoal | null
@@ -6575,6 +6599,7 @@ export type ExperimentExposureHealthFindingCode =
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
+    | 'unserved_variant_exposures'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -6614,6 +6639,7 @@ export type ExperimentExposureHealthCheckKey =
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
+    | 'unserved_variant_exposures'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
@@ -6628,6 +6654,8 @@ export type ExperimentExposureHealthValueKey =
     | 'since_launch_hours'
     | 'exposed_without_test_account_filter_count'
     | 'kept_by_test_account_filter_percentage'
+    | 'unserved_exposed_count'
+    | 'unserved_exposed_percentage'
 
 export type ExperimentExposureHealthRuleSide = 'above' | 'below'
 
@@ -6684,6 +6712,8 @@ export interface ExperimentExposureQueryResponse {
     health_findings?: ExperimentExposureHealthFinding[]
     /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
     health_checks?: ExperimentExposureHealthCheck[]
+    /** Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library. */
+    exposed_by_library?: Record<string, integer>
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }
@@ -7519,6 +7549,69 @@ export interface TeamTaxonomyItem {
 }
 
 export type TeamTaxonomyResponse = TeamTaxonomyItem[]
+
+export interface InboxUsageQuery extends DataNode<InboxUsageQueryResponse> {
+    kind: NodeKind.InboxUsageQuery
+    /** UTC date range. Use explicitDate for exact bounds; the end is exclusive. */
+    dateRange: DateRange
+}
+
+export interface InboxUsageCredits {
+    /** Recorded finalized credits, including exemptions. Decimal strings preserve fractional credits. */
+    total_credits: string
+    /** Billing-exempt subset of total_credits. */
+    exempt_credits: string
+    incomplete: boolean
+}
+
+export interface InboxUsageSource extends InboxUsageCredits {
+    source_product: string | null
+    source_type: string | null
+    processing_credits: string
+    research_credits: string
+    implementation_credits: string
+}
+
+export interface InboxUsageScout extends InboxUsageCredits {
+    scout_config_id: string | null
+    skill_name: string
+    display_name: string
+    run_count: integer
+    /** Distinct reports emitted by this scout; reports may be shared across scouts. */
+    reports_produced: integer
+}
+
+export interface InboxUsage extends InboxUsageCredits {
+    project_id: integer
+    /** @format date-time */
+    period_start: string
+    /** @format date-time */
+    period_end: string
+    /** @format date-time */
+    as_of: string
+    /** Unfinalized credits created in the selected range, excluded from total_credits. */
+    unsettled_credits: string
+    untracked_scout_run_count: integer
+    /** Missing source metadata is retained in a null-source bucket. */
+    attribution_incomplete: boolean
+    /** Processing, research and implementation. Excludes scout execution. */
+    sources: InboxUsageSource[]
+    /** Scout execution only. These totals and source totals sum to total_credits. */
+    scouts: InboxUsageScout[]
+    pricing: InboxUsagePricing
+}
+
+export interface InboxUsagePricing {
+    currency: 'USD'
+    /** Multiply credits by this value for recorded USD usage, before billing adjustments. */
+    usd_per_credit: string
+}
+
+export interface InboxUsageQueryResponse extends AnalyticsQueryResponseBase {
+    results: InboxUsage
+}
+
+export type CachedInboxUsageQueryResponse = CachedQueryResponse<InboxUsageQueryResponse>
 
 export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery
@@ -8629,6 +8722,10 @@ export interface MarketingAnalyticsRecommendationsSource {
     searchTermKeywordTable?: string
     /** Google Ads search term table for Performance Max campaigns. */
     performanceMaxSearchTermTable?: string
+    /** Google Ads daily campaign conversions split by conversion action. */
+    campaignConversionActionTable?: string
+    /** Google Ads daily search term conversions split by conversion action. */
+    searchTermConversionActionTable?: string
     /** Google Search Console table with one row per query, or per query and page. */
     queryTable?: string
     /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
@@ -8642,6 +8739,13 @@ export interface MarketingAnalyticsRecommendationsQuery extends DataNode<Marketi
     dateRange?: DateRange
     /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
     sources?: MarketingAnalyticsRecommendationsSource[]
+    /**
+     * Resource names of the Google Ads conversion actions that count as conversions, such as
+     * `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an
+     * account with none of them counts its primary actions. Selected actions count every conversion, including
+     * secondary actions and conversions outside campaign goals. Omit to count the primary actions only.
+     */
+    conversionActions?: string[]
 }
 
 export type MarketingAnalyticsRecommendationRule =
@@ -8672,6 +8776,46 @@ export interface MarketingAnalyticsRecommendationStep {
     linkText?: string | null
 }
 
+/**
+ * The benchmark a recommendation compares a CPA with, in this order of preference:
+ * - `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.
+ * - `campaign`: the campaign's own non-brand CPA, when it has enough conversions to be stable. Only search terms use
+ *   it, since a campaign is never compared with itself.
+ * - `account`: the non-brand CPA of the ad account. Brand searches convert cheaply, so they stay out of it.
+ */
+export type MarketingAnalyticsRecommendationCpaBenchmarkSource = 'target_cpa' | 'campaign' | 'account'
+
+export interface MarketingAnalyticsRecommendationCpa {
+    /**
+     * Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total
+     * CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no
+     * conversions or is not bought yet.
+     */
+    value: number | null
+    /**
+     * CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for
+     * context. Null when the account has no non-brand conversions.
+     */
+    benchmark: number | null
+    /** Where the benchmark comes from. Null when there is no benchmark. */
+    benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | null
+    /** Lowest non-brand CPA of a non-brand Search campaign in the same ad account. */
+    bestCampaign: number | null
+    /** Highest non-brand CPA of a non-brand Search campaign in the same ad account. */
+    worstCampaign: number | null
+}
+
+export type MarketingAnalyticsRecommendationsDataGapKind =
+    | 'conversion_action_tables_not_synced'
+    | 'performance_max_search_terms_count_primary_conversions'
+
+export interface MarketingAnalyticsRecommendationsDataGap {
+    kind: MarketingAnalyticsRecommendationsDataGapKind
+    /** Google Ads campaign table of the ad account the gap applies to. */
+    campaignTable?: string | null
+    message: string
+}
+
 export interface MarketingAnalyticsRecommendation {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendationLevel
@@ -8688,12 +8832,16 @@ export interface MarketingAnalyticsRecommendation {
     currency?: string | null
     /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
     steps?: MarketingAnalyticsRecommendationStep[]
+    /** CPA figures in the account currency. */
+    cpa?: MarketingAnalyticsRecommendationCpa | null
 }
 
 export interface MarketingAnalyticsRecommendationsQueryResponse extends AnalyticsQueryResponseBase {
     results: MarketingAnalyticsRecommendation[]
     /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
     disclaimer: string
+    /** Data the rules needed but could not read, so some figures use a fallback. */
+    dataGaps?: MarketingAnalyticsRecommendationsDataGap[]
 }
 
 export type CachedMarketingAnalyticsRecommendationsQueryResponse =
@@ -9573,6 +9721,12 @@ export interface AnalyticsListDisplayConfiguration {
     default_sort?: '-last_viewed_at' | '-created_at'
 }
 
+export interface TicketSidebarConfiguration {
+    /** Widget keys in display order. Typed as strings so a layout naming a removed widget still validates. */
+    order?: string[]
+    hidden?: string[]
+}
+
 export interface UserUIConfiguration {
     /**
      * Schema version of this configuration blob, for future format migrations.
@@ -9581,6 +9735,7 @@ export interface UserUIConfiguration {
     version: number
     sql_editor?: SQLEditorConfiguration
     analytics_list?: AnalyticsListDisplayConfiguration
+    ticket_sidebar?: TicketSidebarConfiguration
     [key: string]: unknown
 }
 

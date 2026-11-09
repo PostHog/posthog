@@ -788,8 +788,9 @@ class TestEmailIntegration:
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
     def test_email_verify_updates_all_other_integrations_with_same_domain(
-        self, mock_create_email_domain, mock_verify_email_domain, settings
+        self, _mock_get_mail_from, mock_create_email_domain, mock_verify_email_domain, settings
     ):
         settings.SES_ACCESS_KEY_ID = "test_access_key"
         settings.SES_SECRET_ACCESS_KEY = "test_secret_key"
@@ -808,7 +809,7 @@ class TestEmailIntegration:
             created_by=self.user,
         )
         integration2 = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"},
+            {**self.valid_config, "email": "second@posthog.com", "provider": "ses"},
             team_id=self.team.id,
             organization_id=self.organization.id,
             created_by=self.user,
@@ -972,6 +973,43 @@ class TestDatabricksIntegration:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == NOT_A_DATABRICKS_HOST_MESSAGE
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
+
+
+class TestGitLabIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_create_returns_400_when_the_host_does_not_return_json(
+        self, _mock_is_url_allowed, mock_request, client: HttpClient
+    ):
+        mock_request.return_value = MagicMock(
+            status_code=200, **{"json.side_effect": requests.JSONDecodeError("Expecting value", "", 0)}
+        )
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "gitlab",
+                "config": {
+                    "hostname": "https://gitlab.example.com",
+                    "project_id": "1",
+                    "project_access_token": "token123",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "isn't JSON" in response.json()["detail"]
+        assert not Integration.objects.filter(team=self.team, kind="gitlab").exists()
 
 
 class TestGoogleCloudServiceAccountIntegration:
@@ -8300,6 +8338,8 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert link.call_args.kwargs["installation_id_param"] is None
 
 
+# Sources here point at rows by hand, so a raw save keeps the reference that the test sets.
+@pytest.mark.raw_warehouse_source_credentials
 class TestWarehouseSourceIntegrationKind(APIBaseTest):
     def _credentials_row(self, kind: str, auth_type: str = "credentials") -> IntegrationRecord:
         rows = IntegrationManager.source(kind)

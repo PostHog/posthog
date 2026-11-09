@@ -85,6 +85,10 @@ const PANEL_WORKFLOW: HogFlow = {
                     url: { value: 'https://example.com/hooks/activation' },
                     method: { value: 'POST' },
                     body: { value: { account_id: '{person.id}', event: '{event.event}' }, templating: 'hog' },
+                    // The template's defaults, set here because the panel fills missing inputs in an effect after the
+                    // headers field has already read its value, so a story would race that fill.
+                    headers: { value: { 'Content-Type': 'application/json' }, templating: 'hog' },
+                    debug: { value: false },
                 },
             },
         },
@@ -234,7 +238,8 @@ function PanelStory({ mode, selectedNodeId }: PanelStoryProps): JSX.Element {
         <ReactFlowProvider>
             <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
                 <BindLogic logic={hogFlowEditorLogic} props={LOGIC_PROPS}>
-                    <div className="relative h-screen w-[37rem] overflow-hidden bg-surface-primary">
+                    <div className="@container/workflow-editor relative flex h-screen overflow-hidden">
+                        <div className="min-w-0 flex-1 bg-background" />
                         <HogFlowEditorPanel />
                     </div>
                 </BindLogic>

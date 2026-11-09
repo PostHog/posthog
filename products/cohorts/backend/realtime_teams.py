@@ -167,6 +167,37 @@ def backfill_triggers_suppressed() -> Iterator[None]:
         _backfill_triggers_suppressed.reset(token)
 
 
+def grantable_access_rows(
+    team_ids: list[int], purpose: RealtimeCohortAccessPurpose, access: QuerySet[RealtimeCohortTeamAccess]
+) -> dict[int, RealtimeCohortTeamAccess]:
+    """The teams' existing rows read from ``access``. Raises ``ValueError`` if a grant for ``purpose``
+    must not write a row for one of the teams."""
+    parent_by_team = dict(Team.objects.filter(id__in=team_ids).values_list("id", "parent_team_id"))
+    _refuse("No team with id", [team_id for team_id in team_ids if team_id not in parent_by_team])
+    # Cohorts live on the root team (`RootTeamMixin`), so a row on a child environment covers nothing.
+    _refuse("Not a root team", [team_id for team_id, parent_id in parent_by_team.items() if parent_id is not None])
+    # The env list makes a team `serving` whatever its row says, and `revoke` refuses a listed
+    # team. So a row here would change nothing, and would block `revoke --purpose` for every team.
+    _refuse(
+        "On REALTIME_COHORT_TEAM_ALLOWLIST",
+        [team_id for team_id in team_ids if realtime_allowlist_matches(team_id)],
+    )
+    rows = {row.team_id: row for row in access.filter(team_id__in=team_ids)}
+    # The Rust readers in rust/common/cohort-team-access treat `off` as final, so allowing this
+    # needs a change there first.
+    _refuse(
+        "Revoked, and its pipeline state was never purged",
+        [team_id for team_id, row in rows.items() if row.level == RealtimeCohortLevel.OFF],
+    )
+    # `revoke --purpose` selects by it, so a re-grant that relabels a pilot as a load test would
+    # put the pilot under the load test's stop command.
+    _refuse(
+        f"Granted for another purpose than {purpose.value}",
+        [team_id for team_id, row in rows.items() if row.purpose != purpose],
+    )
+    return rows
+
+
 def grant_realtime_cohort_access(
     team_ids: Iterable[int],
     *,
@@ -181,33 +212,7 @@ def grant_realtime_cohort_access(
     """
     requested = sorted(set(team_ids))
     with transaction.atomic():
-        parent_by_team = dict(Team.objects.filter(id__in=requested).values_list("id", "parent_team_id"))
-        _refuse("No team with id", [team_id for team_id in requested if team_id not in parent_by_team])
-        # Cohorts live on the root team (`RootTeamMixin`), so a row on a child environment covers nothing.
-        _refuse("Not a root team", [team_id for team_id, parent_id in parent_by_team.items() if parent_id is not None])
-        # The env list makes a team `serving` whatever its row says, and `revoke` refuses a listed
-        # team. So a row here would change nothing, and would block `revoke --purpose` for every team.
-        _refuse(
-            "On REALTIME_COHORT_TEAM_ALLOWLIST",
-            [team_id for team_id in requested if realtime_allowlist_matches(team_id)],
-        )
-        rows = {
-            row.team_id: row
-            for row in RealtimeCohortTeamAccess.objects.select_for_update().filter(team_id__in=requested)
-        }
-        # The Rust readers in rust/common/cohort-team-access treat `off` as final, so allowing this
-        # needs a change there first.
-        _refuse(
-            "Revoked, and its pipeline state was never purged",
-            [team_id for team_id, row in rows.items() if row.level == RealtimeCohortLevel.OFF],
-        )
-        # `revoke --purpose` selects by it, so a re-grant that relabels a pilot as a load test would
-        # put the pilot under the load test's stop command.
-        _refuse(
-            f"Granted for another purpose than {purpose.value}",
-            [team_id for team_id, row in rows.items() if row.purpose != purpose],
-        )
-
+        rows = grantable_access_rows(requested, purpose, RealtimeCohortTeamAccess.objects.select_for_update())
         now = timezone.now()
         for team_id in requested:
             row = rows.get(team_id) or RealtimeCohortTeamAccess(team_id=team_id, processing_since=now)

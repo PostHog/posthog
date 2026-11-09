@@ -49,6 +49,7 @@ export interface SessionUserItem {
 }
 
 export interface SessionAssistantItem {
+    projectUrl?: string
     kind: 'assistant'
     id: string
     text: string

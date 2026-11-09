@@ -23,7 +23,8 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.testing import create_action
 from products.approvals.backend.models import ChangeRequest
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cohorts.backend.models.cohort import Cohort
@@ -103,7 +104,7 @@ FILE_SYSTEM_ACTIVITY_CASES: list[tuple[str, FileSystemActivityCase]] = [
         FileSystemActivityCase(
             type_string="action",
             scope="Action",
-            create_instance=lambda test: Action.objects.create(
+            create_instance=lambda test: create_action(
                 team=test.team,
                 name="File system action",
                 created_by=test.user,
@@ -485,7 +486,8 @@ class TestLogApiFileSystemView(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.factory = APIRequestFactory()
-        self.action = Action.objects.create(team=self.team, name="Action", created_by=self.user)
+        # Any file-system-synced model serves; a flag is one this suite can create directly.
+        self.viewed = FeatureFlag.objects.create(team=self.team, key="viewed-flag", created_by=self.user)
 
     @parameterized.expand(
         [
@@ -503,7 +505,7 @@ class TestLogApiFileSystemView(APIBaseTest):
         if has_cookie:
             request.COOKIES[settings.SESSION_COOKIE_NAME] = "session-key"
 
-        log_api_file_system_view(request, self.action)
+        log_api_file_system_view(request, self.viewed)
 
         assert FileSystemViewLog.objects.count() == expected_count
 
@@ -514,7 +516,7 @@ class TestLogApiFileSystemView(APIBaseTest):
         request.COOKIES[settings.SESSION_COOKIE_NAME] = "session-key"
 
         with patch("posthog.api.file_system.file_system_logging.is_impersonated_session", return_value=True):
-            log_api_file_system_view(request, self.action)
+            log_api_file_system_view(request, self.viewed)
 
         assert FileSystemViewLog.objects.count() == 0
 
@@ -637,7 +639,7 @@ class TestFileSystemDeletion(APIBaseTest):
         assert flag.deleted is True
 
     def test_deleting_non_last_copy_only_removes_entry(self) -> None:
-        action = Action.objects.create(team=self.team, name="Delete action", created_by=self.user)
+        action = create_action(team=self.team, name="Delete action", created_by=self.user)
         primary_entry = FileSystem.objects.get(team=self.team, type="action", ref=str(action.id))
         duplicate_entry = FileSystem.objects.create(
             team=self.team,
@@ -655,8 +657,7 @@ class TestFileSystemDeletion(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert FileSystem.objects.filter(team=self.team, type="action", ref=str(action.id)).count() == 1
-        action.refresh_from_db()
-        assert action.deleted is False
+        assert get_action(action_id=action.id, team_id=self.team.id).deleted is False
         assert FileSystem.objects.filter(id=primary_entry.id).exists()
 
     def test_deleting_unknown_type_raises_error(self) -> None:

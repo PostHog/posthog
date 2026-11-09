@@ -17,10 +17,13 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.product_analytics.backend.facade.api import (
+    create_insight_explanation,
+    get_insight_explanation,
     insight_short_ids_built_by,
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
     record_insight_view,
+    update_insight_explanation,
     viewer_counts_by_insight,
 )
 from products.product_analytics.backend.facade.queries import run_cached_trends_query
@@ -132,6 +135,37 @@ class TestInsightReads(BaseTest):
         )
 
         assert counts == {viewed.pk: 2}
+
+
+class TestSaveInsightExplanation(BaseTest):
+    @parameterized.expand(
+        [
+            ("by_the_person_who_saved_it", True, True),
+            ("by_another_person", False, False),
+        ]
+    )
+    def test_only_the_person_who_saved_an_explanation_can_change_it(
+        self, _name: str, same_person: bool, changed: bool
+    ) -> None:
+        insight = Insight.objects.create(team=self.team, name="Pageviews")
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        first = create_insight_explanation(
+            team_id=self.team.id, insight_id=insight.id, user_id=self.user.id, data={"headline": "First."}
+        )
+
+        updated = update_insight_explanation(
+            team_id=self.team.id,
+            insight_id=insight.id,
+            explanation_id=first.id,
+            user_id=(self.user if same_person else other).id,
+            data={"headline": "Second."},
+        )
+
+        assert (updated is not None) == changed
+        stored = get_insight_explanation(team_id=self.team.id, insight_id=insight.id, explanation_id=first.id)
+        assert stored is not None
+        assert stored.data == {"headline": "Second." if changed else "First."}
+        assert stored.created_by is not None and stored.created_by.id == self.user.id
 
 
 class TestRunCachedTrendsQuery(BaseTest):

@@ -117,10 +117,12 @@ describe('reportListLogic', () => {
         const FIRST_PAGE = Array.from({ length: 10 }, (_, i) => makeReport(`page-1-${i}`))
         const SECOND_PAGE = [makeReport('page-2-0')]
         let requestedOffsets: (string | null)[]
+        let requestedRankingIds: (string | null)[]
         let logic: ReturnType<typeof reportListLogic.build>
 
         beforeEach(async () => {
             requestedOffsets = []
+            requestedRankingIds = []
             useMocks({
                 get: {
                     // Reviewer scope loads alongside the list; an empty map keeps it out of the way.
@@ -131,6 +133,7 @@ describe('reportListLogic', () => {
                         // The header count fires a separate count-only request; not a page.
                         if (searchParams.get('limit') !== '1') {
                             requestedOffsets.push(offset)
+                            requestedRankingIds.push(searchParams.get('ranking_id'))
                         }
                         const firstPage = offset === '0' || offset === null
                         return [
@@ -141,6 +144,7 @@ describe('reportListLogic', () => {
                                 next: firstPage ? 'http://localhost/api/projects/997/signals/reports/?offset=50' : null,
                                 previous: null,
                                 results: firstPage ? FIRST_PAGE : SECOND_PAGE,
+                                ranking_id: 'personal-ranking-1',
                             },
                         ]
                     },
@@ -177,12 +181,33 @@ describe('reportListLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
+            // A personal ranking rebuilt between pages must not reorder the rows already on screen.
+            expect(requestedRankingIds).toEqual([null, 'personal-ranking-1'])
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
 
             // The second page came back with `next: null`, so a further loadMore fires no request.
             logic.actions.loadMore()
             await expectLogic(logic).toFinishAllListeners()
             expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
+        })
+
+        // The flat list merges the states by merge key, so a state loaded after a rebuild must use the
+        // ranking of the states already on screen.
+        it('loads a later state from the personal ranking the loaded states use', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
+                [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
+            })
+            inboxFiltersLogic.actions.setSort('personal', 'asc')
+            await expectLogic(logic).toFinishAllListeners()
+            const laterLogic = reportListLogic(sectionListLogicProps('monitoring'))
+            laterLogic.mount()
+            requestedRankingIds = []
+
+            laterLogic.actions.ensureLoaded()
+            await expectLogic(laterLogic).toFinishAllListeners()
+
+            expect(requestedRankingIds).toEqual(['personal-ranking-1'])
+            laterLogic.unmount()
         })
 
         it.each([
@@ -340,27 +365,66 @@ describe('reportListLogic', () => {
             bulkLogic.unmount()
         })
 
-        it('keeps a claim made while the first page reloads, which the reload read before the claim saved', async () => {
-            let releasePage: () => void = () => {}
-            const heldPage = new Promise<void>((resolve) => {
-                releasePage = resolve
-            })
-            useMocks({
-                get: {
-                    [REPORTS_URL]: async () => {
-                        await heldPage
-                        return [200, { count: FIRST_PAGE.length, next: null, previous: null, results: FIRST_PAGE }]
-                    },
+        it.each(
+            [
+                { name: 'claim', scope: INBOX_SCOPE_ENTIRE_PROJECT, before: null, after: myClaim },
+                { name: 'release', scope: INBOX_SCOPE_ENTIRE_PROJECT, before: myClaim, after: null },
+                {
+                    name: 'release from Claimed by you',
+                    scope: INBOX_SCOPE_CLAIMED_BY_YOU,
+                    before: myClaim,
+                    after: null,
                 },
-            })
+            ].flatMap((testCase) => ['first', 'next'].map((page) => ({ ...testCase, page })))
+        )('keeps a $name while the $page page loads', async ({ scope, before, after, page }) => {
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+            try {
+                logic.actions.setScope(scope)
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.setReportAssignee(FIRST_PAGE[0].id, before)
+                const staleRows = page === 'first' ? logic.values.reportsResponse!.results : SECOND_PAGE
+                let releasePage: () => void = () => {}
+                const heldPage = new Promise<void>((resolve) => {
+                    releasePage = resolve
+                })
+                useMocks({
+                    get: {
+                        [REPORTS_URL]: async () => {
+                            await heldPage
+                            return [
+                                200,
+                                {
+                                    count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                    next: null,
+                                    previous: null,
+                                    results: staleRows,
+                                },
+                            ]
+                        },
+                    },
+                })
 
-            logic.actions.loadReports()
-            logic.actions.setReportAssignee(FIRST_PAGE[0].id, myClaim)
-            releasePage()
-            await expectLogic(logic).toFinishAllListeners()
+                if (page === 'first') {
+                    logic.actions.loadReports()
+                } else {
+                    logic.actions.loadMore()
+                }
+                bulkLogic.actions.reportClaimChanged(FIRST_PAGE[0].id, after)
+                const expectedRow = scope === INBOX_SCOPE_CLAIMED_BY_YOU ? undefined : { assignee: after }
+                if (expectedRow) {
+                    expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)).toMatchObject(expectedRow)
+                } else {
+                    expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)).toBeUndefined()
+                }
+                const rowsAfterWrite = logic.values.reports
+                releasePage()
+                await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)?.assignee).toEqual(myClaim)
-            expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[1].id)?.assignee).toBeUndefined()
+                expect(logic.values.reports).toEqual([...rowsAfterWrite, ...(page === 'next' ? SECOND_PAGE : [])])
+            } finally {
+                bulkLogic.unmount()
+            }
         })
 
         it('keeps a row removed while the next page is in flight out of the appended list', async () => {
@@ -378,7 +442,7 @@ describe('reportListLogic', () => {
                                 count: FIRST_PAGE.length + SECOND_PAGE.length,
                                 next: null,
                                 previous: null,
-                                results: SECOND_PAGE,
+                                results: [FIRST_PAGE[3], ...SECOND_PAGE],
                             },
                         ]
                     },

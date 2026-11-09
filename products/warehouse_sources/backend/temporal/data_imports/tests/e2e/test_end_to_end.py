@@ -1,6 +1,7 @@
 import re
 import json
 import uuid
+import asyncio
 import functools
 import contextlib
 from collections.abc import AsyncIterable, AsyncIterator
@@ -454,22 +455,21 @@ async def _execute_workflow(
         retry_policy=RetryPolicy(maximum_attempts=1),
     )
 
-    # The load-dependent post-import steps run in an abandoned child, so
-    # assertions on its side effects (e.g. storage_delta_mib) would race
-    # worker shutdown — await it before leaving the worker context. Absent
-    # on paths that never start it (V3 consumer-owned, non-completed jobs).
+    # Post-import and CDP run in abandoned children. Wait for their side effects
+    # before shutting down the worker; some import paths start neither child.
     job = await sync_to_async(
         ExternalDataJob.objects.filter(team_id=inputs.team_id, schema_id=inputs.external_data_schema_id)
         .order_by("-created_at")
         .first
     )()
     if job is not None:
-        handle = activity_environment.client.get_workflow_handle(build_post_import_workflow_id(str(job.id)))
-        try:
-            await handle.result()
-        except RPCError as e:
-            if e.status != RPCStatusCode.NOT_FOUND:
-                raise
+        for child_id in (build_post_import_workflow_id(str(job.id)), f"dwh-cdp-producer-job-{job.id}"):
+            handle = activity_environment.client.get_workflow_handle(child_id)
+            try:
+                await handle.result()
+            except RPCError as e:
+                if e.status != RPCStatusCode.NOT_FOUND:
+                    raise
 
 
 async def _execute_run(
@@ -3683,7 +3683,9 @@ async def test_cdp_producer_push_to_kafka(
     )
 
     mock_kafka_producer = mock.MagicMock()
-    mock_kafka_producer.produce = mock.AsyncMock()
+    acknowledged = asyncio.get_running_loop().create_future()
+    acknowledged.set_result(None)
+    mock_kafka_producer.produce = mock.AsyncMock(return_value=acknowledged)
     mock_kafka_producer.flush = mock.AsyncMock()
     mock_kafka_producer.close = mock.AsyncMock()
 

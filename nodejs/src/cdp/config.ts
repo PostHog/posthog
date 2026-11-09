@@ -56,6 +56,9 @@ export type CdpConfig = ClickhouseConfig & {
 
     CDP_EVENTS_CONSUMER_TOPIC: string
     CDP_EVENTS_CONSUMER_GROUP_ID: string
+    // Off until every produced event carries the event name header and
+    // cdp_events_unmatched_event_name_invoked stays at zero.
+    CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: boolean
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
@@ -199,6 +202,9 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated team ids, or "*", whose UTM link tagging runs the scanner in helpers/utm.ts.
     // Every other team runs the previous scanner in helpers/utm-legacy.ts.
     CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: string
+    // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
+    // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
+    CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -319,6 +325,7 @@ export function getDefaultCdpConfig(): CdpConfig {
 
         CDP_EVENTS_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_EVENTS_CONSUMER_GROUP_ID: 'cdp-processed-events-consumer',
+        CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: false,
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
@@ -438,6 +445,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
         CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
+        CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
