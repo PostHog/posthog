@@ -374,7 +374,6 @@ describe('CdpCyclotronWorkerEmail', () => {
             expect(queue.deferInvocations).not.toHaveBeenCalled()
         })
 
-        // Stored by the email queue before this worker admitted sends with files.
         const PREVIOUS_VERSION_JOB_STATE =
             '{"state":{"event":{"uuid":"uuid","event":"$pageview","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$lib_version":"1.2.3"},"timestamp":"2026-11-09T14:31:48.377Z"},"actionStepCount":0,"send":{"tracking":{"captureEngagement":false}}}}'
 
