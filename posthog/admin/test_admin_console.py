@@ -1005,6 +1005,16 @@ class TestAdminConsoleViews(BaseTest):
                 },
             ),
             ("filters_without_a_filter", "delete-by-filters", {"dry_run": "on"}, None, None, None),
+            (
+                "filters_with_a_person_uuid",
+                "delete-by-filters",
+                {"person_uuid": " 6B1E2C3D-4F5A-4B6C-8D7E-9F0A1B2C3D4E ", "dry_run": "on"},
+                None,
+                "delete-recordings-with-query",
+                {"query": "person_uuid=6b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e"},
+            ),
+            ("filters_with_null_as_the_person", "delete-by-filters", {"person_uuid": "null"}, None, None, None),
+            ("filters_with_quotes_as_the_person", "delete-by-filters", {"person_uuid": '""'}, None, None, None),
             ("all_without_the_typed_team_id", "delete-all", {"confirm_team_id": "0"}, None, None, None),
             (
                 "all_with_the_typed_team_id",
@@ -1021,6 +1031,14 @@ class TestAdminConsoleViews(BaseTest):
                 ("sessions.csv", b"session_id\nsession-a\nsession-b\nsession-a\n"),
                 "delete-recordings-with-session-ids",
                 {"total_session_ids": 2, "source_filename": "sessions.csv"},
+            ),
+            (
+                "session_ids_from_a_csv_with_a_field_over_the_size_limit",
+                "delete-by-session-ids",
+                {"dry_run": "on"},
+                ("sessions.csv", b"a" * 140_000 + b"\n"),
+                None,
+                None,
             ),
             (
                 "session_ids_from_a_file_that_is_not_csv",
@@ -1099,6 +1117,29 @@ class TestAdminConsoleViews(BaseTest):
         assert repeated.status_code == 302
         assert "started=" not in repeated["Location"]
         assert "No new deletion started" in " ".join(str(m) for m in get_messages(repeated.wsgi_request))
+
+    @patch("posthog.temporal.session_replay.delete_recordings.staff.discard_session_id_chunks")
+    @patch("posthog.temporal.session_replay.delete_recordings.staff.store_session_id_chunks")
+    @patch("posthog.temporal.session_replay.delete_recordings.staff.sync_connect")
+    def test_a_session_ids_start_that_temporal_refuses_discards_its_chunks(
+        self, sync_connect: MagicMock, store_chunks: MagicMock, discard_chunks: MagicMock
+    ) -> None:
+        sync_connect.return_value.start_workflow = AsyncMock(
+            side_effect=WorkflowAlreadyStartedError("delete-recordings", "delete-recordings-with-session-ids")
+        )
+        store_chunks.return_value = ("deletion-inputs/attempt/", 1)
+        url = f"/admin/console/teams/{self.team.pk}/recordings/delete-by-session-ids/"
+        form = {
+            "dry_run": "on",
+            "reason": "GDPR request",
+            "csv_file": SimpleUploadedFile("sessions.csv", b"session-a\n", "text/csv"),
+        }
+        preview = self.client.post(url, form)
+
+        repeated = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert repeated.status_code == 302
+        discard_chunks.assert_called_once_with("deletion-inputs/attempt/", 1)
 
     @patch("posthog.temporal.session_replay.delete_recordings.staff.sync_connect")
     def test_a_confirm_whose_cached_upload_expired_starts_nothing(self, sync_connect: MagicMock) -> None:

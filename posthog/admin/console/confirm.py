@@ -7,7 +7,11 @@ from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
 from django.http import HttpRequest, QueryDict
 from django.utils.datastructures import MultiValueDict
 
+import structlog
+
 from posthog.dataclasses import frozen
+
+logger = structlog.get_logger(__name__)
 
 # Long enough to read a preview, short enough that a forgotten tab cannot confirm a stale one tomorrow.
 MAX_AGE_SECONDS = 15 * 60
@@ -84,4 +88,8 @@ class ConfirmationToken:
 
     def discard_uploads(self) -> None:
         """Drops the cached files once the operation ran, so a confirmed upload does not wait out its expiry."""
-        cache.delete_many(self.upload_keys)
+        # The operation already ran and the files expire anyway, so a cache failure must not fail the request.
+        try:
+            cache.delete_many(self.upload_keys)
+        except Exception:
+            logger.warning("admin_console_confirm_uploads_not_discarded", exc_info=True)

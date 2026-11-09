@@ -1,3 +1,4 @@
+import csv
 import json
 import uuid
 from typing import Any, cast
@@ -88,7 +89,7 @@ class FilterDeletionForm(ConfirmTeamIdForm):
     duration_max = forms.IntegerField(
         required=False, min_value=0, label="Max duration (seconds)", help_text="Short sessions are often bots."
     )
-    person_uuid = forms.CharField(required=False, label="Person UUID")
+    person_uuid = forms.UUIDField(required=False, label="Person UUID")
     platform = forms.ChoiceField(required=False, choices=[("", "Any platform"), ("web", "Web"), ("mobile", "Mobile")])
     field_order = [
         "date_from",
@@ -114,7 +115,7 @@ class FilterDeletionForm(ConfirmTeamIdForm):
             date_to=self.cleaned_data.get("date_to", "").strip(),
             duration_min=self.cleaned_data.get("duration_min"),
             duration_max=self.cleaned_data.get("duration_max"),
-            person_uuid=self.cleaned_data.get("person_uuid", "").strip(),
+            person_uuid=str(self.cleaned_data["person_uuid"]) if self.cleaned_data.get("person_uuid") else "",
             platform=self.cleaned_data.get("platform", ""),
         )
 
@@ -140,7 +141,12 @@ class SessionIdsDeletionForm(DeletionForm):
             content = upload.read().decode("utf-8")
         except UnicodeDecodeError:
             raise forms.ValidationError("The file is not UTF-8 text. Save it as a UTF-8 CSV and upload it again.")
-        session_ids = session_ids_from_csv(content)
+        try:
+            session_ids = session_ids_from_csv(content)
+        except csv.Error:
+            raise forms.ValidationError(
+                "The file could not be read as a CSV. Check that it holds one session ID per line and upload it again."
+            )
         if not session_ids:
             raise forms.ValidationError("The file holds no session IDs.")
         if len(session_ids) > MAX_CSV_SESSION_IDS:

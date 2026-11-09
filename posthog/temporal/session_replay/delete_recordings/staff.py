@@ -17,14 +17,18 @@ from pydantic import BaseModel
 from temporalio import common
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.common import SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
-from posthog.temporal.session_replay.delete_recordings.object_storage import store_session_id_chunks
+from posthog.temporal.session_replay.delete_recordings.object_storage import (
+    discard_session_id_chunks,
+    store_session_id_chunks,
+)
 from posthog.temporal.session_replay.delete_recordings.types import (
     DeletionConfig,
     RecordingsWithPersonInput,
@@ -171,7 +175,8 @@ class RecordingDeletions:
         type_clauses = " OR ".join(f'WorkflowType = "{workflow_type}"' for workflow_type in WORKFLOW_TYPES)
         query = f"PostHogTeamId = {team_id} AND ({type_clauses})"
 
-        async def fetch(client: Client) -> list[DeletionRun]:
+        async def fetch() -> list[DeletionRun]:
+            client = await async_connect()
             runs: list[DeletionRun] = []
             async for workflow in client.list_workflows(query=query, rpc_timeout=TEMPORAL_READ_TIMEOUT):
                 runs.append(
@@ -189,8 +194,8 @@ class RecordingDeletions:
             return runs
 
         try:
-            # Connect before the event loop starts: sync_connect refuses to run inside one.
-            return asyncio.run(fetch(sync_connect()))
+            # rpc_timeout does not bound the connect, so one deadline covers the connect and the list.
+            return asyncio.run(asyncio.wait_for(fetch(), timeout=TEMPORAL_READ_TIMEOUT.total_seconds()))
         except Exception:
             logger.warning("recording_deletion_runs_unavailable", team_id=team_id, exc_info=True)
             return None
@@ -254,13 +259,22 @@ class RecordingDeletions:
             config=cls._config(request),
             source_filename=source_filename,
         )
-        cls._start(
-            request,
-            "session_ids",
-            "delete-recordings-with-session-ids",
-            workflow_input,
-            session_ids_count=len(session_ids),
-        )
+        try:
+            cls._start(
+                request,
+                "session_ids",
+                "delete-recordings-with-session-ids",
+                workflow_input,
+                session_ids_count=len(session_ids),
+            )
+        except WorkflowAlreadyStartedError:
+            # Temporal refused this attempt, so no workflow reads its prefix. Any other error leaves the chunks,
+            # because that start may have reached Temporal, and a running workflow would then read them.
+            try:
+                discard_session_id_chunks(s3_prefix, total_chunks)
+            except Exception:
+                logger.warning("recording_deletion_chunks_not_discarded", s3_prefix=s3_prefix, exc_info=True)
+            raise
 
     @staticmethod
     def _config(request: DeletionRequest) -> DeletionConfig:
