@@ -915,32 +915,29 @@ class BillingManager:
                 org_modified = True
 
         package = _billing_package(data)
-        package_changed = (
-            package is not None
-            and organization.usage is not None
-            and organization.usage.get(BILLING_PACKAGE_USAGE_KEY) != package
-        )
-        package_switched = package_changed and BILLING_PACKAGE_USAGE_KEY in organization.usage
-        if package_changed:
-            organization.usage[BILLING_PACKAGE_USAGE_KEY] = package
+        usage = organization.usage
+        package_changed = False
+        package_switched = False
+        if package is not None and usage is not None and usage.get(BILLING_PACKAGE_USAGE_KEY) != package:
+            package_switched = BILLING_PACKAGE_USAGE_KEY in usage
+            usage[BILLING_PACKAGE_USAGE_KEY] = package
+            package_changed = True
 
         # The stamp goes out only with a write that a change already needs. A save for the stamp
         # alone writes this in-memory copy back over counters and quota markers that the quota
         # run wrote in the meantime.
-        stamped = (org_modified or package_changed) and computed_at is not None and organization.usage is not None
-        if stamped:
-            organization.usage["billing_status_computed_at"] = computed_at.isoformat()
-            organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
+        patched_keys = [BILLING_PACKAGE_USAGE_KEY]
+        if (org_modified or package_changed) and computed_at is not None and usage is not None:
+            usage["billing_status_computed_at"] = computed_at.isoformat()
+            patched_keys.append("billing_status_computed_at")
+            if org_modified:
+                usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
         with transaction.atomic():
             if org_modified:
                 organization.save()
-            elif package_changed:
-                stamp_keys = BILLING_STATUS_STAMP_KEYS if stamped else ()
-                _patch_organization_usage_jsonb(
-                    organization,
-                    [([key], organization.usage[key]) for key in (BILLING_PACKAGE_USAGE_KEY, *stamp_keys)],
-                )
+            elif package_changed and usage is not None:
+                _patch_organization_usage_jsonb(organization, [([key], usage[key]) for key in patched_keys])
             if plan_changed or (package_switched and organization.billing_plan_label() == "paid"):
                 data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
 

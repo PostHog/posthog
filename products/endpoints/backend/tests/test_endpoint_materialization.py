@@ -34,6 +34,7 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node
 from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
+from products.endpoints.backend.logic.crud import EndpointCrudService
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.logic.materialization import (
     EndpointMaterializationService,
@@ -536,6 +537,22 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(endpoint.current_version, serving_version.version)
         self.assertEqual(endpoint.get_version().pk, serving_version.pk)
         self.assertIsNotNone(endpoint.get_version().saved_query_id)
+
+    def test_update_keeps_a_current_version_that_a_concurrent_discard_moved_back(self):
+        endpoint, url, edit_query = self._endpoint_with_a_cadence_below_the_floor("concurrent_discard")
+        self.assertEqual(edit_query("count()").status_code, status.HTTP_200_OK)
+
+        def discard_concurrently(*_args, **_kwargs):
+            Endpoint.objects.filter(pk=endpoint.pk).update(current_version=1)
+
+        with mock.patch.object(
+            EndpointCrudService, "_check_query_edit_keeps_cadence", side_effect=discard_concurrently
+        ):
+            response = self.client.patch(url, {"is_active": True}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertEqual(endpoint.current_version, 1)
 
     def test_query_edit_refuses_to_carry_a_cadence_while_the_plan_floor_is_unreadable(self):
         endpoint, _url, edit_query = self._endpoint_with_a_cadence_below_the_floor("unreadable_floor_edit")
