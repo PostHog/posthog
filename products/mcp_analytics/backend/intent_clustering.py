@@ -36,7 +36,6 @@ from typing import Any
 
 import numpy as np
 import structlog
-from sklearn.cluster import AgglomerativeClustering
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -997,6 +996,8 @@ def cluster_embeddings(
         return np.array([], dtype=np.int64)
     if n == 1:
         return np.array([0], dtype=np.int64)
+
+    from sklearn.cluster import AgglomerativeClustering  # noqa: PLC0415 - keeps sklearn off web startup
 
     clusterer = AgglomerativeClustering(
         metric="cosine",

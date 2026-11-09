@@ -25,7 +25,7 @@ This is the laziness Django already intends: the URLconf is the entry point, and
 
 Web is the exception and resolves it eagerly: `wsgi.py`/`asgi.py` build the URLconf at import, pre-fork, inside the GC window — because the k8s probes (`/_livez`, `/_readyz`) are served by short-circuiting middleware and never resolve URLs, each worker would otherwise build the router on its **first live request** (measured at multiple seconds per worker, after every deploy).
 Pre-building lands the router in the frozen heap at worker boot — exactly the pre-lazy-router behavior for web, while every other process keeps the win.
-`test_web_entrypoint_prebuilds_the_router` pins this; a prefork smoke (gunicorn `--preload`, 4 workers) verified workers inherit the built router and serve cold requests without it.
+`test_web_entrypoint_prebuilds_the_router_without_heavy_imports` pins this; a prefork smoke (gunicorn `--preload`, 4 workers) verified workers inherit the built router and serve cold requests without it.
 
 ### 2. Model registration
 
@@ -79,6 +79,12 @@ Removing an entry to make the test pass re-opens the door the guard exists to ke
 The list cuts both ways: when you _deliberately_ defer a significant heavy library off the startup path, **add it to `FORBIDDEN_AT_SETUP`** so the win can't silently regress.
 Removing an entry to dodge a failure weakens the guard; adding one to lock in a deferral strengthens it.
 Confirm the module is absent from a bare `django.setup()` first, then add it.
+
+**The web entrypoint has its own list.**
+`FORBIDDEN_AT_SETUP` checks a bare setup, so it cannot see a heavy package that only the URLconf build pulls in.
+Every web worker pays for those packages, and Celery usually loads the same product code through its task modules.
+`FORBIDDEN_AT_WEB_ENTRYPOINT` holds them, and `test_web_entrypoint_prebuilds_the_router_without_heavy_imports` checks it after it imports `posthog.wsgi`.
+When you defer a heavy package off the URLconf import path, add it to that list.
 
 **Never add a product facade or its contracts module to `FORBIDDEN_AT_SETUP`.**
 A facade is the sanctioned door of a product, and code imports it at module scope from anywhere, setup-path modules included.

@@ -58,6 +58,15 @@ FORBIDDEN_AT_SETUP = [
     "botocore",  # AWS SDK core — same door as boto3
 ]
 
+# Packages that must NOT be imported when a web worker boots. FORBIDDEN_AT_SETUP cannot catch
+# these, because the web entrypoint also builds the URLconf, which imports every viewset and all
+# that those import. A web worker keeps everything it imports in memory for its whole life, and
+# Celery loads much of the same product code through its task modules. When you defer a heavy
+# package off the URLconf import path, add it here so that the door stays closed.
+FORBIDDEN_AT_WEB_ENTRYPOINT = [
+    "sklearn",  # scikit-learn: only the trace and MCP intent clustering activities use it, at call time
+]
+
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot
 # inspect this process's sys.modules. A subprocess gives a faithful cold-start snapshot.
 _SNAPSHOT = """
@@ -484,7 +493,7 @@ def test_no_new_heavy_imports_at_setup() -> None:
 # pre-fork, so workers share it copy-on-write. Without this, each worker builds the router
 # on its first live request (k8s probes short-circuit in middleware and never warm it),
 # which measured at multiple seconds per worker after every deploy.
-def test_web_entrypoint_prebuilds_the_router() -> None:
+def test_web_entrypoint_prebuilds_the_router_without_heavy_imports() -> None:
     probe = """
 import os
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -494,6 +503,7 @@ assert "posthog.api.rest_router" in sys.modules, "wsgi import did not build the 
 from django.urls import get_resolver
 assert get_resolver()._populated or get_resolver().url_patterns, "URLconf not resolved"
 print("WSGI_PREBUILD_OK")
+print("\\n".join(sorted(sys.modules)))
 """
     result = subprocess.run(
         [sys.executable, "-c", probe],
@@ -503,3 +513,13 @@ print("WSGI_PREBUILD_OK")
     )
     assert result.returncode == 0, f"posthog.wsgi import failed:\n{result.stderr[-2000:]}"
     assert "WSGI_PREBUILD_OK" in result.stdout, result.stdout[-500:]
+
+    loaded = set(result.stdout.splitlines())
+    offenders = [mod for mod in FORBIDDEN_AT_WEB_ENTRYPOINT if mod in loaded]
+    assert not offenders, (
+        f"These heavy packages were imported when the web entrypoint built the URLconf: {offenders}. "
+        "Every web worker now holds them in memory for its whole life. A module-level import somewhere on a "
+        "viewset's import path pulls them in. Move that import into the function that uses it, with "
+        "`# noqa: PLC0415`, and use TYPE_CHECKING for type hints. To find the door, install a sys.meta_path "
+        "finder that prints the stack on the package's first import, then import posthog.wsgi."
+    )

@@ -20,14 +20,11 @@ if sys.platform == "linux" and platform.machine() == "x86_64":
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
-from sklearn.cluster import HDBSCAN, KMeans
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
-from sklearn.metrics import silhouette_score
 
 from posthog.temporal.ai_observability.trace_clustering.models import HDBSCANResult, KMeansResult
 
 if TYPE_CHECKING:
+    from sklearn.decomposition import PCA
     from umap import UMAP
 
 
@@ -66,6 +63,9 @@ def perform_kmeans_with_optimal_k(
 
     # Ensure we have a valid range
     effective_min_k = min(min_k, effective_max_k)
+
+    from sklearn.cluster import KMeans  # noqa: PLC0415 - keeps sklearn off web startup
+    from sklearn.metrics import silhouette_score  # noqa: PLC0415 - keeps sklearn off web startup
 
     best_score = -1.0
     best_kmeans = KMeans(n_clusters=effective_min_k, n_init=10)
@@ -137,6 +137,8 @@ def compute_2d_coordinates(
         return np.zeros((n_samples, 2)), np.zeros((n_clusters, 2))
 
     if method == "pca":
+        from sklearn.decomposition import PCA  # noqa: PLC0415 - keeps sklearn off web startup
+
         reducer = PCA(n_components=2, random_state=random_state)
         trace_coords = reducer.fit_transform(embeddings)
         if n_clusters == 0:
@@ -145,6 +147,8 @@ def compute_2d_coordinates(
             centroid_coords = reducer.transform(centroids)
 
     elif method == "tsne":
+        from sklearn.manifold import TSNE  # noqa: PLC0415 - keeps sklearn off web startup
+
         # t-SNE doesn't support transform(), so we need to fit on all points together
         if n_clusters == 0:
             # Adjust perplexity for small samples
@@ -239,7 +243,7 @@ def reduce_dimensions_pca(
     embeddings: np.ndarray,
     n_components: int = 100,
     random_state: int = 42,
-) -> tuple[np.ndarray, PCA | None]:
+) -> tuple[np.ndarray, "PCA | None"]:
     """
     Reduce high-dimensional embeddings using PCA for clustering.
 
@@ -261,6 +265,8 @@ def reduce_dimensions_pca(
 
     # PCA components cannot exceed min(n_samples, n_features)
     effective_n_components = min(n_components, n_samples, n_features)
+
+    from sklearn.decomposition import PCA  # noqa: PLC0415 - keeps sklearn off web startup
 
     reducer = PCA(
         n_components=effective_n_components,
@@ -311,6 +317,8 @@ def perform_hdbscan_clustering(
 
     # Adjust min_samples if needed
     effective_min_samples = min(min_samples, min_cluster_size)
+
+    from sklearn.cluster import HDBSCAN  # noqa: PLC0415 - keeps sklearn off web startup
 
     clusterer = HDBSCAN(
         min_cluster_size=min_cluster_size,
