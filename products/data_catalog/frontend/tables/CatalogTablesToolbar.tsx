@@ -5,7 +5,6 @@ import { InputGroup, InputGroupAddon, InputGroupInput, ToggleGroup, ToggleGroupI
 
 import { TableScope } from '../catalogTableRows'
 import { catalogTablesLogic } from '../catalogTablesLogic'
-import { CatalogTablesCheckActions } from './CatalogTablesCheckActions'
 import { CatalogTablesFilterMenu } from './CatalogTablesFilterMenu'
 
 const SCOPE_LABELS: Record<TableScope, string> = {
@@ -52,7 +51,6 @@ export function CatalogTablesToolbar(): JSX.Element {
                     </ToggleGroupItem>
                 ))}
             </ToggleGroup>
-            <CatalogTablesCheckActions />
         </div>
     )
 }

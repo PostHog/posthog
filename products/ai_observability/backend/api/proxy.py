@@ -333,6 +333,54 @@ def serialize_decision_answer(answer: Answer) -> dict[str, Any]:
     return body
 
 
+def provider_key_models(provider_key: LLMProviderKey) -> list[ModelInfo]:
+    """The models one provider key can run, as the model pickers list them."""
+    api_key = provider_key.encrypted_config.get("api_key")
+    # Cache per provider key — list_models hits the provider's API, and the model picker
+    # can open many times per session. TTL is short enough that newly-added deployments
+    # surface within a minute.
+    cache_key = models_cache_key(provider_key.id)
+    models = cache.get(cache_key)
+    if models is None:
+        models = Client.list_models(provider_key.provider, api_key, **provider_key.provider_extra_kwargs())
+        # Only cache non-empty results — `list_models` swallows transient errors and returns
+        # [], so caching that would persist a failure for the full TTL.
+        if models:
+            cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
+        else:
+            LLMA_PROXY_BYOK_EMPTY_MODEL_LISTS.labels(provider=provider_key.provider).inc()
+            logger.info(
+                "llma_proxy_byok_empty_model_list",
+                provider=provider_key.provider,
+                team_id=provider_key.team_id,
+                provider_key_id=str(provider_key.id),
+            )
+    recommended = Client.recommended_models(provider_key.provider)
+    provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
+    decision_models: frozenset[str] = frozenset()
+    non_chat_models: frozenset[str] = frozenset()
+    if provider_key.provider == LLMProvider.OPENROUTER:
+        decision_models = decision_model_ids() or frozenset()
+        non_chat_models = non_chat_model_ids() or frozenset()
+        models = list(dict.fromkeys([*models, *sorted(decision_models)]))
+    elif provider_key.provider == LLMProvider.OPENAI:
+        decision_models = OpenAIConfig.DECISION_MODELS
+        models = list(dict.fromkeys([*models, *sorted(decision_models)]))
+    return [
+        ModelInfo(
+            id=m,
+            name=m,
+            provider=provider_display,
+            description="",
+            is_recommended=m in recommended,
+            supports_decisions=provider_key.provider == LLMProvider.SYSTEM_ONE or m in decision_models,
+            supports_chat=provider_key.provider != LLMProvider.SYSTEM_ONE and m not in non_chat_models,
+            supports_reasoning=supports_reasoning_level(provider_key.provider, m),
+        )
+        for m in models
+    ]
+
+
 class PlaygroundAccessPermission(BasePermission):
     """Resource-level RBAC for the playground.
 
@@ -715,52 +763,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 return Response({"error": "Invalid provider key configuration"}, status=400)
 
             if provider_key:
-                api_key = provider_key.encrypted_config.get("api_key")
-                # Cache per provider key — list_models hits the provider's API, and the model picker
-                # can open many times per session. TTL is short enough that newly-added deployments
-                # surface within a minute.
-                cache_key = models_cache_key(provider_key.id)
-                models = cache.get(cache_key)
-                if models is None:
-                    models = Client.list_models(provider_key.provider, api_key, **provider_key.provider_extra_kwargs())
-                    # Only cache non-empty results — `list_models` swallows transient errors and returns
-                    # [], so caching that would persist a failure for the full TTL.
-                    if models:
-                        cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
-                    else:
-                        LLMA_PROXY_BYOK_EMPTY_MODEL_LISTS.labels(provider=provider_key.provider).inc()
-                        logger.info(
-                            "llma_proxy_byok_empty_model_list",
-                            provider=provider_key.provider,
-                            team_id=provider_key.team_id,
-                            provider_key_id=str(provider_key.id),
-                        )
-                recommended = Client.recommended_models(provider_key.provider)
-                provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
-                decision_models: frozenset[str] = frozenset()
-                non_chat_models: frozenset[str] = frozenset()
-                if provider_key.provider == LLMProvider.OPENROUTER:
-                    decision_models = decision_model_ids() or frozenset()
-                    non_chat_models = non_chat_model_ids() or frozenset()
-                    models = list(dict.fromkeys([*models, *sorted(decision_models)]))
-                elif provider_key.provider == LLMProvider.OPENAI:
-                    decision_models = OpenAIConfig.DECISION_MODELS
-                    models = list(dict.fromkeys([*models, *sorted(decision_models)]))
-                return Response(
-                    [
-                        ModelInfo(
-                            id=m,
-                            name=m,
-                            provider=provider_display,
-                            description="",
-                            is_recommended=m in recommended,
-                            supports_decisions=provider_key.provider == LLMProvider.SYSTEM_ONE or m in decision_models,
-                            supports_chat=provider_key.provider != LLMProvider.SYSTEM_ONE and m not in non_chat_models,
-                            supports_reasoning=supports_reasoning_level(provider_key.provider, m),
-                        )
-                        for m in models
-                    ]
-                )
+                return Response(provider_key_models(provider_key))
 
         # Default: return only playground-eligible models (PostHog pays for these)
         return Response(get_playground_models())

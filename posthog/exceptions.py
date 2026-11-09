@@ -85,9 +85,14 @@ class InsufficientScope(PermissionDenied):
     them with the scopes it holds, so a check that guards one extra scope can name only that scope.
     """
 
-    def __init__(self, required_scopes: Sequence[str], detail: str | None = None) -> None:
+    def __init__(
+        self, required_scopes: Sequence[str], detail: str | None = None, extra: dict[str, Any] | None = None
+    ) -> None:
         super().__init__(detail=detail or f"API key missing required scope '{required_scopes[0]}'")
         self.required_scopes = list(required_scopes)
+        # drf-exceptions-hog adds `extra` to the error body, for example the scopes a workload token misses.
+        if extra:
+            self.extra = extra
 
 
 class Conflict(APIException):
@@ -276,9 +281,15 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
 
 def _insufficient_scope_challenge(request: object, required_scopes: Sequence[str]) -> str | None:
     """Only tokens from step-up apps get the challenge. Every other caller gets the same 403 without it."""
-    from posthog.auth import OAuthAccessTokenAuthentication  # noqa: PLC0415 - posthog.auth needs the app registry
+    from posthog.auth import (  # noqa: PLC0415 - posthog.auth needs the app registry
+        OAuthAccessTokenAuthentication,
+        WorkloadAccessTokenAuthentication,
+    )
 
     authenticator = getattr(request, "successful_authenticator", None)
+    # hog reads the scopes from a workload token's challenge to tell the user what to add to the trust policy.
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        return f'Bearer error="insufficient_scope", scope="{" ".join(required_scopes)}"'
     if not isinstance(authenticator, OAuthAccessTokenAuthentication) or not authenticator.access_token.supports_step_up:
         return None
     # Internal scopes cannot be granted at consent, so a challenge naming one could never succeed.

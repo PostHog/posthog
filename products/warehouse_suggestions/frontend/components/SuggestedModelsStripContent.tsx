@@ -14,7 +14,7 @@ import { SuggestionsBanner } from './SuggestionsBanner'
 import { SuggestionsStatusNotice } from './SuggestionsStatusNotice'
 
 export function SuggestedModelsStripContent(): JSX.Element | null {
-    const { stripState, savingsSummary, status } = useValues(warehouseSuggestionsLogic)
+    const { stripState, savingsSummary, unusedViewCount, status } = useValues(warehouseSuggestionsLogic)
     const { reload } = useActions(warehouseSuggestionsLogic)
     const windowDays = status?.window_days ?? 0
 
@@ -65,7 +65,7 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
             {stripState === 'active' && (
                 <SuggestionsBanner
                     icon={iconForType('data_modeling')}
-                    message={<SavingsBannerMessage summary={savingsSummary} />}
+                    message={<SavingsBannerMessage summary={savingsSummary} unusedViews={unusedViewCount} />}
                 />
             )}
             <SuggestedModelsDialogs />

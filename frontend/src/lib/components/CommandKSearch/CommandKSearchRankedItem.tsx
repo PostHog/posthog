@@ -28,7 +28,9 @@ function rankedContext(
     ) : item.record?.created_at ? (
         <CommandKSearchTime time={String(item.record.created_at)} prefix="created" tooltipLabel="Created" />
     ) : null
-    const detail = [userFolder(item), showCreator ? item.createdByName : null].filter(Boolean).join(' · ')
+    const detail = [item.productCategory, userFolder(item), showCreator ? item.createdByName : null]
+        .filter(Boolean)
+        .join(' · ')
     return { detail: detail || null, tail: age }
 }
 

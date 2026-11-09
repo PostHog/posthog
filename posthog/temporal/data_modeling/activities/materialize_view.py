@@ -27,7 +27,6 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import ResolverFactory
@@ -69,6 +68,7 @@ from products.data_modeling.backend.facade.api import (
     WritePlan,
     clear_incremental_state,
     inject_incremental_filter,
+    parse_model_query,
     record_incremental_history,
     resolve_write_plan,
     set_incremental_state,
@@ -652,7 +652,7 @@ async def hogql_table(
     if window is not None:
         query_node = inject_incremental_filter(query, incremental_key=window.incremental_key, since=window.since)
     else:
-        query_node = parse_select(query)
+        query_node = parse_model_query(query)
     if query_node is None:
         raise ParsingError(f"Failed to parse query node from query, parse_select() returned None: query={query}")
 
@@ -1061,43 +1061,47 @@ async def _materialize_fully(
     # brief to_thread released between batches, never pins a worker thread for the whole
     # read — which is what starved the shared executor that heartbeats/db/logging use.
     batch_index = 0
-    async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
-        batch = _transform_unsupported_decimals(batch)
-        batch = _transform_date_and_datetimes(batch, ch_types)
-        batch = _transform_unsigned_integers(batch)
-        batch = _force_nullable(batch)
+    try:
+        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
+            batch = _transform_unsupported_decimals(batch)
+            batch = _transform_date_and_datetimes(batch, ch_types)
+            batch = _transform_unsigned_integers(batch)
+            batch = _force_nullable(batch)
+            if tracker is not None:
+                await asyncio.to_thread(tracker.check, batch)
+            await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
+            batch_index += 1
+            if delta_table is None:
+                pa_schema = batch.schema
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,
+                    table_or_uri=table_uri,
+                    data=batch,
+                    mode="overwrite",
+                    schema_mode="overwrite",
+                    storage_options=storage_options,
+                )
+                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+            else:
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,
+                    table_or_uri=delta_table,
+                    data=batch,
+                    mode="append",
+                    schema_mode="merge",
+                    storage_options=storage_options,
+                )
+            # Staged only once the batch is committed: a run that announces rows it then fails to write
+            # cannot take the announcement back.
+            await cdp_sink.stage(batch)
+            if plan.config is not None and plan.config.incremental_key in batch.schema.names:
+                watermark = max_of(batch, plan.config.incremental_key, watermark)
+            row_count = row_count + batch.num_rows
+            objects.job.rows_materialized = row_count
+            await database_sync_to_async_pool(objects.job.save)()
+    finally:
         if tracker is not None:
-            await asyncio.to_thread(tracker.check, batch)
-        await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
-        batch_index += 1
-        if delta_table is None:
-            pa_schema = batch.schema
-            await asyncio.to_thread(
-                deltalake.write_deltalake,
-                table_or_uri=table_uri,
-                data=batch,
-                mode="overwrite",
-                schema_mode="overwrite",
-                storage_options=storage_options,
-            )
-            delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
-        else:
-            await asyncio.to_thread(
-                deltalake.write_deltalake,
-                table_or_uri=delta_table,
-                data=batch,
-                mode="append",
-                schema_mode="merge",
-                storage_options=storage_options,
-            )
-        # Staged only once the batch is committed: a run that announces rows it then fails to write
-        # cannot take the announcement back.
-        await cdp_sink.stage(batch)
-        if plan.config is not None and plan.config.incremental_key in batch.schema.names:
-            watermark = max_of(batch, plan.config.incremental_key, watermark)
-        row_count = row_count + batch.num_rows
-        objects.job.rows_materialized = row_count
-        await database_sync_to_async_pool(objects.job.save)()
+            tracker.close()
 
     await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
     file_uris: list[str] = []
@@ -1197,6 +1201,8 @@ async def _materialize_incrementally(
         if isinstance(err, SchemaDriftError):
             await logger.awarning(f"Rebuilding after schema drift: {err}")
         raise
+    finally:
+        tracker.close()
 
     if watermark is not None:
         await database_sync_to_async_pool(set_incremental_state)(

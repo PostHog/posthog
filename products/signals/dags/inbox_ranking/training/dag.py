@@ -693,6 +693,7 @@ def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str,
 
     The promote job, the served pointer, the pins and the recent and challenger reads all pass this
     check, so an experiment family is refused here once for every path."""
+    # nosemgrep: email-domain-after-last-at -- a model@version key, not an email address
     model_name, model_version = key.split("@", 1)
     if model_name in experiment_names(MODEL_FAMILIES):
         return None, (

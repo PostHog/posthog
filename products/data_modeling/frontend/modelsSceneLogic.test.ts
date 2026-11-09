@@ -111,7 +111,7 @@ describe('modelsSceneLogic', () => {
     it.each([
         ['/models', {}],
         ['/models?tab=lineage&search=%2Borders%2B&node_id=n1', { tab: 'lineage', search: '+orders+', node_id: 'n1' }],
-        ['/models?tab=data-quality', { tab: 'tables' }],
+        ['/models?tab=data-quality', { tab: 'data-quality' }],
         ['/models?tab=models', { tab: 'tables' }],
     ])('with the catalog restructure on, %s opens the data catalog with %j', async (path, searchParams) => {
         featureFlagLogic.actions.setFeatureFlags([], {

@@ -49,6 +49,10 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     onMetadataLoading?: (loading: boolean) => void
     onFixWithAI?: (prompt: string) => void
     onError?: (error: string | null) => void
+    /** How long to wait after an edit before validating. Set it higher where an error interrupts the user. */
+    metadataDebounceMs?: number
+    /** Validate against freshly fetched sources. Set it where the result blocks an action, because it costs a fetch per validation. */
+    metadataFreshSources?: boolean
     /** Override the query sent for metadata validation (e.g. active query in multi-query mode) */
     metadataQuery?: string
     /** Character offset of metadataQuery within the full editor text, for correct marker positioning */
@@ -166,6 +170,8 @@ export function CodeEditor({
     onMetadata,
     onMetadataLoading,
     onFixWithAI,
+    metadataDebounceMs,
+    metadataFreshSources,
     metadataQuery,
     metadataQueryOffset,
     originalValue,
@@ -174,7 +180,9 @@ export function CodeEditor({
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const isDarkModeOn = useBodyIsDark()
-    const scrollbarRendering = !inStorybookTestRunner() ? 'auto' : 'hidden'
+    const inTestRunner = inStorybookTestRunner()
+    const scrollbarRendering = inTestRunner ? 'hidden' : 'auto'
+    const cursorBlinking = inTestRunner ? 'solid' : 'blink'
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
@@ -212,6 +220,8 @@ export function CodeEditor({
         onMetadata,
         onMetadataLoading,
         onFixWithAI,
+        metadataDebounceMs,
+        metadataFreshSources,
         metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
     })
     useMountedLogic(builtCodeEditorLogic)
@@ -452,6 +462,7 @@ export function CodeEditor({
             hideCursorInOverviewRuler: false,
             overviewRulerLanes: 3,
             overflowWidgetsDomNode: monacoRoot,
+            cursorBlinking,
             ...options,
             padding: { bottom: enableVimMode ? 28 : 8, top: 8 },
             scrollbar: {
@@ -461,7 +472,7 @@ export function CodeEditor({
                 ...options?.scrollbar,
             },
         }),
-        [options, enableVimMode, scrollbarRendering, monacoRoot]
+        [options, enableVimMode, scrollbarRendering, cursorBlinking, monacoRoot]
     )
     const diffEditorOptions = useMemo<editor.IStandaloneDiffEditorConstructionOptions>(
         () => ({

@@ -12,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { UserType } from '~/types'
 
-import { PROPOSED_TABLES_FILTER, ReviewSource, TABLES_FILTER_PARAM } from './catalogTableRows'
+import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
 import { existingMetricFromNameConflict, metricCount, metricDisplayName } from './common'
 import { createMetricAsUser, MetricSaveAction, toastCreatedMetric } from './createMetricAsUser'
 import {
@@ -39,6 +39,7 @@ export type MetricStageCounts = Record<MetricStage, number>
 export type MetricsLoadState = 'unknown' | 'loaded' | 'failed'
 
 export type BulkMetricAction = 'approve' | 'delete' | 'change_owner'
+export type MetricApprovalSource = 'menu' | 'inline'
 
 const METRICS_PAGE_SIZE = 100
 const METRIC_APPROVED_EVENT = 'data catalog metric approved'
@@ -119,10 +120,10 @@ export interface metricsLogicValues {
 export interface metricsLogicActions {
     approveMetric: (
         name: string,
-        source?: ReviewSource
+        source?: MetricApprovalSource
     ) => {
         name: string
-        source: ReviewSource
+        source: MetricApprovalSource
     }
     bulkApproveMetrics: (
         names: string[],
@@ -243,7 +244,7 @@ export const metricsLogic = kea<metricsLogicType>([
         setFilters: (filters: Partial<MetricsFilters>) => ({ filters }),
         toggleStage: (stage: MetricStage) => ({ stage }),
         setCreatingMetricAs: (creatingAs: MetricSaveAction | null) => ({ creatingAs }),
-        approveMetric: (name: string, source: ReviewSource = 'menu') => ({ name, source }),
+        approveMetric: (name: string, source: MetricApprovalSource = 'menu') => ({ name, source }),
         refreshMetricFromInsight: (name: string) => ({ name }),
         deleteMetric: (name: string) => ({ name }),
         setMetricOwner: (name: string, owner: string | null) => ({ name, owner }),

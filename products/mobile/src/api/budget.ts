@@ -62,6 +62,17 @@ export function canSpend(family: BudgetFamily, now: number = Date.now()): boolea
     return bucketsFor(family, now).every((bucket) => bucket.tokens >= 1)
 }
 
+/** Delay until a background read can leave half of every bucket for foreground requests. */
+export function backgroundReadDelay(family: BudgetFamily, now: number = Date.now()): number {
+    const state = bucketsFor(family, now)
+    return Math.max(
+        0,
+        ...BUDGETS[family].map((spec, index) =>
+            Math.ceil(((spec.capacity / 2 + 1 - (state[index]?.tokens ?? 0)) * spec.windowMs) / spec.capacity)
+        )
+    )
+}
+
 /** Takes one token from every bucket of the family, or none when any bucket is empty. */
 export function trySpend(family: BudgetFamily, now: number = Date.now()): boolean {
     const state = bucketsFor(family, now)

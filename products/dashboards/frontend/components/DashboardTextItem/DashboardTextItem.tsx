@@ -7,7 +7,6 @@ import {
     type DashboardWidgetPlacementMenusProps,
 } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
-import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
@@ -57,7 +56,7 @@ function DashboardTextItemInternal(
         })
     )
 
-    const image = tile.text ? getImageOnlyTextCardImage(textCardConverter, tile.text.body) : null
+    const image = tile.text ? getImageOnlyTextCardImage(tile.text.body) : null
     const tileType = image ? 'image' : 'text'
     const moreButtonOverlay = (
         <>

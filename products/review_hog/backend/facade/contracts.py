@@ -209,6 +209,10 @@ class PersonNotActiveMemberError(Exception):
     """The user to add to a people list is not an active member of the project's organization."""
 
 
+class AdminOnlyChangeError(Exception):
+    """A project member asked for a change that only project admins can make. The API answers 403."""
+
+
 @frozen
 class ProjectRef:
     """Another project, named only inside its own organization."""
@@ -269,6 +273,7 @@ class ReviewRepositorySettings:
     full_name: str
     selected: bool
     flash_for: AutomaticFlashFor | None
+    review_drafts: bool
     people: Sequence[ReviewRepositoryPersonEntry]
     created_by: ReviewUserRef | None
     created_at: datetime
@@ -352,6 +357,7 @@ class ReviewRepositoryOverviewEntry:
     selected: bool
     repository_id: UUID | None
     exception: ReviewRepositoryException | None
+    review_drafts: bool
     my_choice: ReviewUserRepositoryChoiceMode | None
     my_choice_id: UUID | None
     my_result: AutomaticReviewDecision
