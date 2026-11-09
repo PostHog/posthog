@@ -11,6 +11,7 @@ use rdkafka::message::Message as KafkaMessage;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
+use crate::backfill_mode::{owner, BackfillTopic};
 use crate::buffer::{BufferedPerson, PersonBuffer};
 use crate::kafka::{PersonConsumer, Source};
 
@@ -21,6 +22,7 @@ pub struct FlushBatch {
     /// Timestamp of the oldest Kafka message in this batch (millis since epoch).
     /// Used to compute end-to-end latency from ingestion to PG commit.
     pub oldest_message_ts_ms: Option<i64>,
+    pub generations: HashMap<Source, u64>,
 }
 
 /// Their offsets were never committed, so the new owner re-reads these rows;
@@ -64,6 +66,7 @@ pub struct ConsumerTask {
     handle: Handle,
     /// The last message's topic, shared by every row from it.
     topic: Arc<str>,
+    backfill: Option<BackfillTopic>,
 }
 
 impl ConsumerTask {
@@ -110,7 +113,13 @@ impl ConsumerTask {
             flush_buffer_size,
             handle,
             topic,
+            backfill: None,
         }
+    }
+
+    pub fn with_backfill(mut self, backfill: BackfillTopic) -> Self {
+        self.backfill = Some(backfill);
+        self
     }
 }
 
@@ -278,10 +287,22 @@ impl ConsumerTask {
         let total: usize = self.lanes.iter().map(|l| l.buffer.len()).sum();
         gauge!("personhog_writer_buffer_size").set(total as f64);
 
+        // Revokes were applied above, so every row left belongs to the current assignment.
+        // A backfill row also needs the generation of the changelog partition whose shards it writes.
+        let generations = batch
+            .offsets
+            .keys()
+            .flat_map(|source| [source.clone(), owner(self.backfill.as_ref(), source)])
+            .filter_map(|source| {
+                let generation = self.consumer.generation(&source)?;
+                Some((source, generation))
+            })
+            .collect();
         Some(FlushBatch {
             persons: batch.persons,
             offsets: batch.offsets,
             oldest_message_ts_ms: batch.oldest_message_ts_ms,
+            generations,
         })
     }
 

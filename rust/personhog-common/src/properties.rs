@@ -568,6 +568,29 @@ pub fn trim_properties_with_candidates(
     TrimResult::Trimmed(Value::Object(trimmed))
 }
 
+pub struct ParsedProperties {
+    pub value: Value,
+    pub rewritten: bool,
+}
+
+/// Parses a Postgres properties document strictly, falling back to the
+/// numeric rewrite so legacy rows with out-of-range numerics stay loadable.
+pub fn parse_stored_properties(text: &str) -> Result<ParsedProperties, String> {
+    match serde_json::from_str(text) {
+        Ok(value) => Ok(ParsedProperties {
+            value,
+            rewritten: false,
+        }),
+        Err(strict) => match serde_json::from_str(&rewrite_out_of_range_numbers(text)) {
+            Ok(value) => Ok(ParsedProperties {
+                value,
+                rewritten: true,
+            }),
+            Err(rewritten) => Err(format!("{strict}; after numeric rewrite: {rewritten}")),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

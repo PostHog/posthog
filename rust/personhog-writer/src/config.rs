@@ -1,16 +1,76 @@
+use std::str::FromStr;
 use std::time::Duration;
 
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 
+/// Where the writer puts properties. Every mode except `Backfill` writes the rest of the row to Postgres.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PropertyStorageMode {
+    Postgres,
+    Dual,
+    Slatedb,
+    Backfill,
+}
+
+impl PropertyStorageMode {
+    pub fn writes_slatedb(self) -> bool {
+        self != PropertyStorageMode::Postgres
+    }
+
+    pub fn writes_postgres(self) -> bool {
+        self != PropertyStorageMode::Backfill
+    }
+
+    pub fn writes_postgres_properties(self) -> bool {
+        matches!(
+            self,
+            PropertyStorageMode::Postgres | PropertyStorageMode::Dual
+        )
+    }
+}
+
+impl FromStr for PropertyStorageMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "postgres" => Ok(PropertyStorageMode::Postgres),
+            "dual" => Ok(PropertyStorageMode::Dual),
+            "slatedb" => Ok(PropertyStorageMode::Slatedb),
+            "backfill" => Ok(PropertyStorageMode::Backfill),
+            other => Err(format!(
+                "unknown property storage mode {other:?}; use postgres, dual, slatedb or backfill"
+            )),
+        }
+    }
+}
+
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(default = "postgres")]
+    pub property_storage_mode: PropertyStorageMode,
+
     // ── Kafka ────────────────────────────────────────────────────
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
     #[envconfig(default = "personhog-writer")]
     pub kafka_consumer_group: String,
+
+    #[envconfig(nested = true)]
+    pub property_store: personhog_property_store::PropertyStoreConfig,
+
+    /// Read in `backfill` mode next to the changelog; it must have the changelog's partition count.
+    #[envconfig(default = "")]
+    pub property_backfill_topic: String,
+
+    #[envconfig(default = "10000")]
+    pub property_backfill_max_live_lag: i64,
+
+    /// In `dual` mode, a new partition first replays the changelog from this group's committed offset.
+    #[envconfig(default = "")]
+    pub property_backfill_group: String,
 
     // ── Postgres ─────────────────────────────────────────────────
     pub database_url: String,
