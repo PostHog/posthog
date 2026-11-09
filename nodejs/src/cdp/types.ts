@@ -586,6 +586,8 @@ export type HogFlowInvocationContext = {
     // The time a transactional send was scheduled for. A throttled retry moves the job, so the email queue wait
     // reads this instead.
     scheduledAt?: string
+    // The time of the send's latest status row, so a reschedule timed by the database clock still writes after it.
+    statusAt?: string
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on

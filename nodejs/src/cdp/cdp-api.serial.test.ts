@@ -2591,6 +2591,7 @@ describe('CDP API', () => {
                             recipient: body.to,
                             function_id: hogFlow.id,
                             scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                            status_at: toClickHouseTime(new Date(invocation.state.statusAt)),
                         }),
                     ])
                 }

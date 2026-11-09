@@ -117,16 +117,16 @@ describe('job codec', () => {
     })
 
     it.each([
-        ['no earlier reschedule', undefined, '2026-11-09T10:00:00.000Z'],
+        ['no earlier status row', undefined, '2026-11-09T10:00:00.000Z'],
         ['an earlier one in the past', '2026-11-09T09:59:59.000Z', '2026-11-09T10:00:00.000Z'],
         ['an earlier one in the same millisecond', '2026-11-09T10:00:00.000Z', '2026-11-09T10:00:00.001Z'],
         ['an earlier one ahead of this clock', '2026-11-09T10:00:05.000Z', '2026-11-09T10:00:05.001Z'],
     ])('times a reschedule after %s', (_desc, previous, expected) => {
-        const stored = Buffer.from(JSON.stringify({ state: { scheduledAt: 'old', rescheduledAt: previous, x: 1 } }))
+        const stored = Buffer.from(JSON.stringify({ state: { scheduledAt: 'old', statusAt: previous, x: 1 } }))
 
         const { state, rescheduledAt } = withReschedule(stored, 'new', new Date('2026-11-09T10:00:00.000Z'))
 
         expect(rescheduledAt.toISOString()).toEqual(expected)
-        expect(parseJSON(state.toString())).toEqual({ state: { scheduledAt: 'new', rescheduledAt: expected, x: 1 } })
+        expect(parseJSON(state.toString())).toEqual({ state: { scheduledAt: 'new', statusAt: expected, x: 1 } })
     })
 })

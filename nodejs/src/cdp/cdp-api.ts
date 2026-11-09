@@ -309,7 +309,6 @@ export class CdpApi {
             PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
         )
-        // Team-only claims: the message id names the send, and every query scopes it to the team.
         this.manageTransactionalEmailJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''

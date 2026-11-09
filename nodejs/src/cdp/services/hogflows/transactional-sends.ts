@@ -169,6 +169,7 @@ export class TransactionalSends {
             invocation.queueScheduledAt = DateTime.fromJSDate(scheduledAt)
             invocation.state.scheduledAt = scheduledAt.toISOString()
         }
+        const statusAt = new Date()
         try {
             // After the idempotency check, so a retry of a send accepted with files still gets its answer.
             if (request.send?.attachments !== undefined && !this.deps.attachmentsEnabled) {
@@ -194,6 +195,7 @@ export class TransactionalSends {
                 await this.deps.emailAttachments.store(invocation.id, team.id, files)
             }
             stages.start('queue_insert')
+            invocation.state.statusAt = statusAt.toISOString()
             this.deps.invocationResultsRows.queueLifecycleRow(invocation, 'running')
             try {
                 await this.deps.queue.queueInvocations([invocation])
@@ -228,6 +230,7 @@ export class TransactionalSends {
             recipient: to,
             functionId: hogFlow.id,
             scheduledAt: scheduledAt ?? undefined,
+            statusAt,
         })
         // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
         const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
