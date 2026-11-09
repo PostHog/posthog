@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Iterator
 from typing import Any
 from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
@@ -10,6 +9,7 @@ from tenacity import retry_if_exception_type, stop_after_attempt
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    frozen,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -37,7 +37,7 @@ class SplitIoRetryableError(Exception):
         self.retry_after = retry_after
 
 
-@dataclasses.dataclass
+@frozen
 class SplitIoResumeConfig:
     # Full URL of the next page to fetch ("" once a resource is exhausted).
     next_url: str = ""
