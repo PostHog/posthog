@@ -245,19 +245,3 @@ export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, sit
         tagUrl: (url) => addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isOnSenderDomain),
     })
 }
-
-const LARGEST_ESCAPE_GROWTH = '&quot;'.length - 1
-const RUN_TAG_FIXED_GROWTH = `=""&amp;${WORKFLOW_RUN_PARAM}=`.length
-
-export const workflowRunTagGrowthBound = (html: string, runId: string): number => {
-    let bound = 0
-    addTagsToEmailLinks(html, {
-        isOptedOut: () => false,
-        tagUrl: (url) => {
-            bound +=
-                LARGEST_ESCAPE_GROWTH * Buffer.byteLength(url) + RUN_TAG_FIXED_GROWTH + encodeURIComponent(runId).length
-            return null
-        },
-    })
-    return bound
-}
