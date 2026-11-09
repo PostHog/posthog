@@ -73,7 +73,7 @@ import {
 } from './services/hogflows/transactional-email'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
-import { GroupsManagerService } from './services/managers/groups-manager.service'
+import { GroupsManagerService, GroupsMap } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
@@ -223,6 +223,8 @@ const transactionalEmailFingerprint = (
 }
 
 type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
+
+type WorkerRenderContext = { person: CyclotronPerson | undefined; groups: GroupsMap }
 
 const withSenderTheCallerChose = ({
     from,
@@ -1565,10 +1567,10 @@ export class CdpApi {
         emailStep: EmailStep,
         deadline: AbortSignal
     ): Promise<MessageBodySizing> {
-        const person = await this.recipientPerson(hogFlow, invocation)
+        const renderContext = await this.workerRenderContext(hogFlow, invocation)
         deadline.throwIfAborted()
         try {
-            return { bodyBytes: await this.emailStepBodyBytes(hogFlow, invocation, emailStep, person) }
+            return { bodyBytes: await this.emailStepBodyBytes(hogFlow, invocation, emailStep, renderContext) }
         } catch (error) {
             if (isHogLimitError(error)) {
                 return { refused: emailRenderLimitExceeded(emailStep) }
@@ -1585,6 +1587,21 @@ export class CdpApi {
         }
     }
 
+    private async workerRenderContext(
+        hogFlow: HogFlow,
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<WorkerRenderContext> {
+        const [person, groups] = await Promise.all([
+            this.recipientPerson(hogFlow, invocation),
+            this.groupsManager.getGroupsForEvent(
+                hogFlow.team_id,
+                invocation.state.event.properties ?? {},
+                `${this.config.SITE_URL}/project/${hogFlow.team_id}`
+            ),
+        ])
+        return { person, groups }
+    }
+
     private async recipientPerson(
         hogFlow: HogFlow,
         invocation: CyclotronJobInvocationHogFlow
@@ -1597,7 +1614,7 @@ export class CdpApi {
         hogFlow: HogFlow,
         invocation: CyclotronJobInvocationHogFlow,
         step: EmailStep,
-        person: CyclotronPerson | undefined
+        { person, groups }: WorkerRenderContext
     ): Promise<number[]> {
         const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, step.config, step.name)
         const atEmailStep = {
@@ -1607,7 +1624,7 @@ export class CdpApi {
         const rendered = await this.hogFlowFunctionsService.buildHogFunctionInvocation(atEmailStep, hogFunction, {
             event: invocation.state.event,
             person,
-            groups: invocation.groups,
+            groups,
             variables: invocation.state.variables,
         })
         const email = { ...rendered.state.globals.inputs?.email, ...acceptedSendEmailFields(invocation.state.send) }

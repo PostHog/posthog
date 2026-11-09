@@ -3357,6 +3357,14 @@ describe('CDP API', () => {
                     'a stored template whose body grows with the person it sends to',
                     storedTemplateThatGrowsWithThePerson,
                 ],
+                [
+                    'a stored template whose body renders only once the worker supplies its groups',
+                    () =>
+                        storedTemplateRendering(
+                            { html: '<p>Your report</p>{% if groups %}{{ variables.chunk }}{% endif %}' },
+                            bodyThatOverflows
+                        ),
+                ],
             ])(
                 'refuses a send with files and %s too large to fit beside them, and its key sends smaller files',
                 async (_name, arrange) => {
