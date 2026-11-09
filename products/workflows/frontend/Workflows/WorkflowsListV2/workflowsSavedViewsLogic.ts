@@ -864,11 +864,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         text: raw.has('text') ? (raw.get('text') ?? '') : (view?.state.text ?? ''),
                     }
                     actions.setValue(value)
-                    // A link this logic wrote marks typed text with `typed`. In an older link, text that differs from
-                    // the view counts as typed.
-                    const typed = raw.has('added')
-                        ? raw.get('typed') === '1'
-                        : value.text.trim() !== (view?.state.text ?? '').trim()
+                    // `typed` marks typed text that matches the view. Text that differs from the view is always typed,
+                    // which also covers links written before `typed` existed.
+                    const typed = raw.get('typed') === '1' || value.text.trim() !== (view?.state.text ?? '').trim()
                     actions.setAddedText(typed ? userText(value.text) : null)
                     const effectiveKeys = new Set(value.filters.map((filter) => facetFilterKey(filter)))
                     actions.setAddedFilters(

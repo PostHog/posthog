@@ -39,14 +39,27 @@ describe('saved workflow view actions', () => {
         expect(spinning).toEqual([startedBy])
     })
 
-    it('offers reset on an unchanged view that a teammate changed, so a failed rename or delete can be retried', async () => {
+    it.each([
+        [
+            'a teammate changed, so a failed rename or delete can be retried',
+            false,
+            true,
+            'Load the latest version of Active flows',
+        ],
+        [
+            'carries search text or filters from another view',
+            true,
+            false,
+            'Discard your changes and go back to Active flows',
+        ],
+    ])('offers reset on an unchanged view that %s', async (_, hasAdditions, activeViewConflicted, label) => {
         const onReset = jest.fn()
         render(
             <WorkflowSavedViewActions
                 activeView={{ ...BUILT_IN_WORKFLOW_VIEWS[1], id: 'shared', name: 'Active flows', builtIn: false }}
                 isModified={false}
-                hasAdditions={false}
-                activeViewConflicted
+                hasAdditions={hasAdditions}
+                activeViewConflicted={activeViewConflicted}
                 canUpdateActiveView
                 activeViewChanges={[]}
                 pendingAction={null}
@@ -57,7 +70,7 @@ describe('saved workflow view actions', () => {
                 onDelete={jest.fn()}
             />
         )
-        await userEvent.click(screen.getByLabelText('Load the latest version of Active flows'))
+        await userEvent.click(screen.getByLabelText(label))
         expect(onReset).toHaveBeenCalledTimes(1)
     })
 })

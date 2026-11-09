@@ -310,6 +310,15 @@ describe('workflowsSavedViewsLogic', () => {
         expect(workflowsListV2Logic.values.value.text).toEqual('')
         applyViewById('all')
         expect(workflowsListV2Logic.values.value).toEqual({ filters: [], text: '' })
+
+        router.actions.push(urls.workflows(), {
+            view: 'drafts',
+            q: 'status:draft trigger:event',
+            text: 'renewal',
+            added: 'trigger:event',
+        })
+        applyViewById('needs-attention')
+        expect(workflowsListV2Logic.values.value.text).toEqual('renewal')
     })
 
     it('treats an open folder as navigation, so it changes no view and picking a view leaves the folder', async () => {
