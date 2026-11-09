@@ -1,7 +1,7 @@
 """Find the file that sends a code email by searching the team's GitHub installations for its key.
 
 Detection links a key only when the strict search finds exactly one call site and every installation
-answered in full. Anything less leaves the key for a person to link.
+answered in full. Anything less leaves the key for a person to link, who can run the same search and pick a file.
 """
 
 import re
@@ -19,18 +19,25 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
-from posthog.integrations import IntegrationManager
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.integration.github import GitHubInstallationAccessFetchError
 from posthog.models.integration.github_code_search import (
     MAX_LITERAL_LENGTH,
+    ExactCodeMatch,
     ExactCodeSearchResult,
     GitHubExactCodeSearch,
+    MatchedLine,
 )
 from posthog.models.team import Team
 
-from products.messaging.backend.facade.contracts import CodeEmailSourceOrigin
+from products.messaging.backend.facade.contracts import (
+    CodeEmailSourceCandidate,
+    CodeEmailSourceCandidates,
+    CodeEmailSourceOrigin,
+    CodeEmailSourceSearchUnavailable,
+)
 from products.messaging.backend.models import TransactionalEmailKey
 
 logger = structlog.get_logger(__name__)
@@ -76,8 +83,20 @@ class CallSite:
 
     @property
     def url(self) -> str:
-        # GitHub resolves HEAD to the repository's default branch, which is the branch code search indexes.
-        return f"https://github.com/{self.repository}/blob/HEAD/{quote(self.path)}#L{self.line}"
+        return _file_url(self.repository, self.path, self.line)
+
+
+def _file_url(repository: str, path: str, line: int) -> str:
+    # GitHub resolves HEAD to the repository's default branch, which is the branch code search indexes.
+    return f"https://github.com/{repository}/blob/HEAD/{quote(path)}#L{line}"
+
+
+@frozen
+class _InstallationSearches:
+    # An installation that failed is in ``results`` as an empty, incomplete search. A shed one is left out.
+    results: list[ExactCodeSearchResult]
+    shed: bool
+    answered: int
 
 
 @frozen
@@ -93,12 +112,12 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], *, shed: bool) -> 
 
     ``shed`` is True when the egress budget refused an installation's search, so that installation has no result.
     """
-    candidates = [match for result in results for match in result.matches if not _is_skipped_path(match.path)]
+    candidates = _kept_matches(results)
     call_sites = [
         CallSite(repository=match.repository, path=match.path, line=line.number)
         for match in candidates
         for line in match.lines
-        if _SEND_CALL.search(line.context)
+        if _is_call_site(line)
     ]
     # The link names a file, so a key passed twice in one send block still has one source.
     if len({(site.repository, site.path) for site in call_sites}) > 1:
@@ -116,6 +135,14 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], *, shed: bool) -> 
     )
 
 
+def _kept_matches(results: Sequence[ExactCodeSearchResult]) -> list[ExactCodeMatch]:
+    return [match for result in results for match in result.matches if not _is_skipped_path(match.path)]
+
+
+def _is_call_site(line: MatchedLine) -> bool:
+    return bool(_SEND_CALL.search(line.context))
+
+
 def _is_skipped_path(path: str) -> bool:
     parts = PurePosixPath(path.lower()).parts
     return bool(_SKIPPED_DIRECTORIES.intersection(parts[:-1])) or any(
@@ -130,7 +157,7 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
     search, or the team has no GitHub installation.
     """
     team = Team.objects.filter(id=team_id).first()
-    if team is None or not _detection_enabled(team):
+    if team is None or not source_detection_enabled(team):
         return None
     keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True)
     key = keys.filter(id=key_id, source_url__isnull=True).values_list("key", flat=True).first()
@@ -140,12 +167,59 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
     if not integrations:
         return None
 
+    searches = _search_installations(team_id, integrations, key, priority=Priority.BATCH)
+    detection = rank_call_sites(searches.results, shed=searches.shed)
+    if detection.call_site is not None:
+        # A person may link the key while the search runs, and their link wins.
+        keys.filter(id=key_id, team_id=team_id, source_url__isnull=True).update(
+            source_url=detection.call_site.url, source_origin=CodeEmailSourceOrigin.DETECTED
+        )
+    _report(team, detection, attempt=attempt, installations=len(integrations))
+    return detection
+
+
+def find_source_candidates(team: Team, key: str) -> CodeEmailSourceCandidates:
+    """Search the team's GitHub installations for a key while a person waits, one candidate per file.
+
+    Files with a send call come first. Raises ``CodeEmailSourceSearchUnavailable`` when no installation answered,
+    and ``ValueError`` for a key GitHub can't search.
+    """
+    integrations = IntegrationManager.github.oauth.list(team.id)
+    if not integrations:
+        return CodeEmailSourceCandidates(candidates=(), complete=True)
+    searches = _search_installations(team.id, integrations, key, priority=Priority.NORMAL)
+    if not searches.answered:
+        raise CodeEmailSourceSearchUnavailable(shed=searches.shed)
+    candidates = [_candidate(match) for match in _kept_matches(searches.results)]
+    return CodeEmailSourceCandidates(
+        # sorted is stable, so each group keeps GitHub's order.
+        candidates=tuple(sorted(candidates, key=lambda candidate: not candidate.call_site)),
+        complete=not searches.shed and all(result.complete for result in searches.results),
+    )
+
+
+def _candidate(match: ExactCodeMatch) -> CodeEmailSourceCandidate:
+    line = next((line for line in match.lines if _is_call_site(line)), match.lines[0])
+    return CodeEmailSourceCandidate(
+        repository=match.repository,
+        path=match.path,
+        line=line.number,
+        url=_file_url(match.repository, match.path, line.number),
+        call_site=_is_call_site(line),
+    )
+
+
+def _search_installations(
+    team_id: int, integrations: Sequence[IntegrationRecord], key: str, *, priority: Priority
+) -> _InstallationSearches:
     results: list[ExactCodeSearchResult] = []
     shed = False
+    answered = 0
     for integration in integrations:
-        github = GitHubIntegration(integration, source="transactional_email_source", priority=Priority.BATCH)
+        github = GitHubIntegration(integration, source="transactional_email_source", priority=priority)
         try:
             results.append(GitHubExactCodeSearch(github).find(key))
+            answered += 1
         except GitHubEgressBudgetExhausted:
             shed = True
         except (
@@ -156,18 +230,10 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
         ) as error:
             logger.warning("code_email_source_search_failed", team_id=team_id, error=str(error))
             results.append(ExactCodeSearchResult(matches=[], complete=False))
-
-    detection = rank_call_sites(results, shed=shed)
-    if detection.call_site is not None:
-        # A person may link the key while the search runs, and their link wins.
-        keys.filter(id=key_id, team_id=team_id, source_url__isnull=True).update(
-            source_url=detection.call_site.url, source_origin=CodeEmailSourceOrigin.DETECTED
-        )
-    _report(team, detection, attempt=attempt, installations=len(integrations))
-    return detection
+    return _InstallationSearches(results=results, shed=shed, answered=answered)
 
 
-def _detection_enabled(team: Team) -> bool:
+def source_detection_enabled(team: Team) -> bool:
     return bool(
         posthoganalytics.feature_enabled(
             SOURCE_DETECTION_FLAG,

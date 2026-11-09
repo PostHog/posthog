@@ -6,7 +6,8 @@ from django.core.validators import URLValidator
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import exceptions, serializers, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -16,12 +17,15 @@ from posthog.models.tag import tagify
 
 from products.messaging.backend.facade.code_emails import (
     SOURCE_URL_MAX_LENGTH,
+    find_source_candidates,
     get_code_email,
     list_code_emails,
+    source_detection_enabled,
     update_code_email,
 )
 from products.messaging.backend.facade.contracts import (
     CodeEmailSourceOrigin,
+    CodeEmailSourceSearchUnavailable,
     CodeManagedEmail,
     CodeManagedEmailNotFound,
 )
@@ -89,9 +93,41 @@ class CodeEmailUpdateSerializer(serializers.Serializer):
         return tags
 
 
+class CodeEmailSourceCandidateSerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="The repository that holds the file, as `owner/name`.")
+    path = serializers.CharField(help_text="The file's path in the repository.")
+    line = serializers.IntegerField(
+        help_text="The line that holds the key: the first one next to an email send call, otherwise the first match."
+    )
+    url = serializers.CharField(
+        help_text="A link to that line on the repository's default branch. Send it as `source_url` to link the file."
+    )
+    call_site = serializers.BooleanField(
+        help_text="True when the key is within five lines of an email send call, so the file most likely sends it."
+    )
+
+
+class CodeEmailSourceCandidatesSerializer(serializers.Serializer):
+    candidates = CodeEmailSourceCandidateSerializer(
+        many=True,
+        help_text="One entry per file in the project's connected GitHub repositories that holds the key exactly, "
+        "files with a send call first. Test, fixture and build files are left out. Empty when nothing matched or the "
+        "project has no GitHub integration.",
+    )
+    complete = serializers.BooleanField(
+        help_text="False when part of the search did not finish, such as a repository GitHub could not search or a "
+        "file it could not read, so a file may be missing from `candidates`."
+    )
+
+
+class CodeEmailSourceSearchUnavailableError(exceptions.APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "source_search_unavailable"
+
+
 class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "source_candidates"]
     scope_object_write_actions = ["partial_update"]
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
@@ -154,6 +190,40 @@ class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except (CodeManagedEmailNotFound, WorkflowNotFound):
             raise exceptions.NotFound()
         return Response(CodeEmailSerializer(asdict(email)).data)
+
+    @extend_schema(
+        parameters=[CODE_EMAIL_ID_PARAMETER],
+        responses={
+            200: CodeEmailSourceCandidatesSerializer,
+            400: OpenApiResponse(description="The key is too long for GitHub to search."),
+            404: OpenApiResponse(description="No such code email in this project."),
+            503: OpenApiResponse(description="GitHub could not be searched right now. Try again in a minute."),
+        },
+        summary="Find the file that sends an email from code",
+        description="Search the project's connected GitHub repositories for files that use this email's key, so you "
+        "can pick one to link as its source file.",
+    )
+    @action(methods=["GET"], detail=True)
+    def source_candidates(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
+        if not source_detection_enabled(self.team):
+            raise exceptions.NotFound()
+        try:
+            email = get_code_email(
+                self.team_id, self._code_email_id(pk), viewable_workflow_ids=self._viewable_workflow_ids()
+            )
+        except CodeManagedEmailNotFound:
+            raise exceptions.NotFound()
+        try:
+            found = find_source_candidates(self.team, email.key)
+        except ValueError:
+            raise exceptions.ValidationError("This key is too long for GitHub to search.")
+        except CodeEmailSourceSearchUnavailable as error:
+            raise CodeEmailSourceSearchUnavailableError(
+                "GitHub is busy right now. Try again in a minute."
+                if error.shed
+                else "Couldn't search GitHub. Try again in a minute."
+            )
+        return Response(CodeEmailSourceCandidatesSerializer(asdict(found)).data)
 
     def _require_workflow_editor(self, email: CodeManagedEmail) -> None:
         try:
