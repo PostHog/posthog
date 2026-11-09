@@ -151,7 +151,7 @@ def _run_publish_workflow_inline(task_run_id, *, team_id: int) -> None:
 
 
 def _issued_branch(task_id) -> str:
-    issued = Task.objects.get(id=task_id).state[HEAD_BRANCH_STATE_KEY]
+    issued = (Task.objects.get(id=task_id).state or {}).get(HEAD_BRANCH_STATE_KEY)
     assert isinstance(issued, str)
     return issued
 
