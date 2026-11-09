@@ -13,7 +13,7 @@ import { folderNameError, workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
 
 export function WorkflowFolderActions({ path, count }: { path: string; count: number }): JSX.Element | null {
-    const { savedItems, folderPaths, folderActionPending } = useValues(workflowFoldersLogic)
+    const { savedItems, folderPaths, takenFolderPaths, folderActionPending } = useValues(workflowFoldersLogic)
     const { moveItem } = useActions(projectTreeDataLogic)
     const { moveFileToFolder } = useActions(workflowFoldersLogic)
     const entry = savedItems.find((item) => item.type === 'folder' && item.path === path)
@@ -38,6 +38,9 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
                     { label: 'Move to…', onClick: () => moveFileToFolder(entry) },
                     {
                         label: 'Rename…',
+                        disabledReason: takenFolderPaths
+                            ? undefined
+                            : 'Checking existing folder names. Try again in a moment.',
                         onClick: () =>
                             LemonDialog.openForm({
                                 title: `Rename ${name}`,
@@ -49,12 +52,7 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
                                 ),
                                 errors: {
                                     name: (next: string | undefined = '') =>
-                                        folderNameError(
-                                            next,
-                                            parentPath(path),
-                                            workflowFoldersLogic.values.takenFolderPaths,
-                                            path
-                                        ) ?? undefined,
+                                        folderNameError(next, parentPath(path), takenFolderPaths, path) ?? undefined,
                                 },
                                 onSubmit: ({ name: next }) =>
                                     moveItem(
