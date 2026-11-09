@@ -140,6 +140,20 @@ class TestAttachmentUploads(APIBaseTest):
                 None,
             ),
             (
+                "an_answer_with_headers_that_are_not_an_object",
+                _cdp_answers(200, {"files": [{**UPLOAD_INVOICE, "headers": []}, PRESENT_LOGO]}),
+                503,
+                "delivery_unavailable",
+                None,
+            ),
+            (
+                "an_answer_without_an_upload_url",
+                _cdp_answers(200, {"files": [{**UPLOAD_INVOICE, "url": None}, PRESENT_LOGO]}),
+                503,
+                "delivery_unavailable",
+                None,
+            ),
+            (
                 "an_answer_for_other_files",
                 _cdp_answers(200, {"files": [PRESENT_LOGO, UPLOAD_INVOICE]}),
                 503,
@@ -182,6 +196,7 @@ class TestAttachmentUploads(APIBaseTest):
                 1,
                 1,
             ),
+            ("a_list_instead_of_an_object", [{"sha256": INVOICE, "size": 1}], "invalid_request", None, None, None),
         ]
     )
     def test_refuses_a_malformed_request_before_asking_the_pipeline(

@@ -12,11 +12,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 
+from posthog.api.fields import LengthFirstListField
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.messaging.backend.facade.transactional_email import (
     AttachmentUploadRequest,
@@ -34,7 +36,6 @@ from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_SEND_SCOPE,
     require_email_from_code,
     transactional_email_authorized_by,
-    transactional_email_throttles,
 )
 from products.messaging.backend.presentation.views.refusals import ExplainedRefusal, RequestBodyCapMixin, request_cap
 
@@ -59,16 +60,8 @@ class AttachmentUploadFileSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
 
-class _ShortListField(serializers.ListField):
-    def to_internal_value(self, data: Any) -> list[Any]:
-        # DRF validates every item before it checks the length, so a long list of bad items costs one error per item.
-        if isinstance(data, list) and self.max_length is not None and len(data) > self.max_length:
-            self.fail("max_length", max_length=self.max_length)
-        return super().to_internal_value(data)
-
-
 class AttachmentUploadsRequestSerializer(serializers.Serializer):
-    files = _ShortListField(
+    files = LengthFirstListField(
         child=AttachmentUploadFileSerializer(),
         min_length=1,
         max_length=MAX_ATTACHMENTS,
@@ -127,6 +120,10 @@ _UNKNOWN_FILE_FIELD_REASON = Reason(
     why="A file is named by its SHA-256 and size. Its name and type go on the send.",
     fix="Send each file as `{sha256, size}`.",
 )
+_BODY_REASON = Reason(
+    why="The request body is a JSON object with a `files` list.",
+    fix='Send `{"files": [{"sha256": ..., "size": ...}]}`.',
+)
 _TOO_MANY_FILES_REASON = Reason(
     why=f"An email carries at most {MAX_ATTACHMENTS} files.",
     fix=f"Ask for at most {MAX_ATTACHMENTS} files, or link to the others from the email body.",
@@ -134,13 +131,15 @@ _TOO_MANY_FILES_REASON = Reason(
 
 
 def with_upload_reason(body: dict[str, Any]) -> dict[str, Any]:
-    path = (body.get("attr") or "").split("__")
-    if body.get("type") != "validation_error" or path[0] != "files":
-        return body
-    if path[-1] == api_settings.NON_FIELD_ERRORS_KEY:
+    path = [part for part in (body.get("attr") or "").split("__") if part]
+    if path and path[-1] == api_settings.NON_FIELD_ERRORS_KEY:
         path.pop()
+    if body.get("type") != "validation_error" or (path and path[0] != "files"):
+        return body
     code = "invalid_request"
-    if len(path) == 1 and body.get("code") == "max_length":
+    if not path:
+        reason = _BODY_REASON
+    elif len(path) == 1 and body.get("code") == "max_length":
         code, reason = "too_many_attachments", _TOO_MANY_FILES_REASON
     elif len(path) == 3:
         reason = _FILE_FIELD_REASONS.get(path[2], _UNKNOWN_FILE_FIELD_REASON)
@@ -150,7 +149,7 @@ def with_upload_reason(body: dict[str, Any]) -> dict[str, Any]:
         **body,
         "type": "invalid_request",
         "code": code,
-        "attr": "__".join(path),
+        "attr": "__".join(path) or None,
         "why": reason.why,
         "fix": reason.fix,
     }
@@ -205,6 +204,26 @@ def _upload_body_too_large() -> ExplainedRefusal:
     )
 
 
+class AttachmentUploadBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "transactional_email_attachment_upload_burst"
+    rate = "600/minute"
+
+
+class AttachmentUploadSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "transactional_email_attachment_upload_sustained"
+    rate = "20000/hour"
+
+
+class AttachmentUploadTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "transactional_email_attachment_upload_psak_team_burst"
+    rate = "600/minute"
+
+
+class AttachmentUploadTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "transactional_email_attachment_upload_psak_team_sustained"
+    rate = "20000/hour"
+
+
 class MessagingAttachmentsViewSet(RequestBodyCapMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
@@ -214,7 +233,12 @@ class MessagingAttachmentsViewSet(RequestBodyCapMixin, TeamAndOrgViewSetMixin, v
     _upload_reported = False
 
     def get_throttles(self):
-        return transactional_email_throttles()
+        return [
+            AttachmentUploadBurstThrottle(),
+            AttachmentUploadSustainedThrottle(),
+            AttachmentUploadTeamBurstThrottle(),
+            AttachmentUploadTeamSustainedThrottle(),
+        ]
 
     def body_too_large(self) -> ExplainedRefusal:
         return _upload_body_too_large()
@@ -269,7 +293,7 @@ class MessagingAttachmentsViewSet(RequestBodyCapMixin, TeamAndOrgViewSetMixin, v
         except FieldNotAccepted:
             raise _attachments_not_accepted() from None
         except MessageTooLarge as e:
-            raise _message_too_large(self._size_attr(files, e.sha256)) from None
+            raise _message_too_large(self._size_attr(files, e.largest_file_sha256)) from None
         except UploadQuotaExceeded:
             raise _upload_quota_exceeded() from None
         except DeliveryUnavailable:

@@ -118,10 +118,9 @@ class FieldNotAccepted(TransactionalEmailError):
 class MessageTooLarge(TransactionalEmailError):
     code = "message_too_large"
 
-    def __init__(self, sha256: str | None) -> None:
+    def __init__(self, largest_file_sha256: str | None) -> None:
         super().__init__("These files make the email larger than PostHog can send.")
-        # The largest file, which the pipeline names when it knows it.
-        self.sha256 = sha256
+        self.largest_file_sha256 = largest_file_sha256
 
 
 class UploadQuotaExceeded(TransactionalEmailError):

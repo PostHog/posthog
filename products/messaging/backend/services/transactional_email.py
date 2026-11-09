@@ -738,9 +738,23 @@ def _upload_slot(slot: dict[str, Any]) -> AttachmentUploadSlot:
     if slot["status"] != "upload":
         raise ValueError(f"Unknown attachment upload status: {slot['status']}")
     return AttachmentUploadTarget(
-        sha256=slot["sha256"],
-        url=slot["url"],
-        method=slot["method"],
-        headers=slot["headers"],
+        sha256=_text(slot, "sha256"),
+        url=_text(slot, "url"),
+        method=_text(slot, "method"),
+        headers=_text_map(slot, "headers"),
         url_expires_at=datetime.fromisoformat(slot["url_expires_at"]),
     )
+
+
+def _text(slot: dict[str, Any], key: str) -> str:
+    value = slot[key]
+    if not isinstance(value, str):
+        raise TypeError(f"Attachment upload `{key}` is not a string")
+    return value
+
+
+def _text_map(slot: dict[str, Any], key: str) -> dict[str, str]:
+    value = slot[key]
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        raise TypeError(f"Attachment upload `{key}` is not a map of strings")
+    return value
