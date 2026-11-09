@@ -31,6 +31,7 @@ from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 
 from posthog.cloud_utils import is_ci
+from posthog.dataclasses import frozen
 from posthog.management.migration_profiling.profiler import profile_migrations
 
 from common.migration_utils import (
@@ -238,19 +239,30 @@ MIGRATION_FLOOR_COMMIT = "c985c0dd7a7efeecfc9ef838e09303382261a23e"
 MigrationKey = tuple[str, str]
 
 
-def load_removed_dependencies() -> list[tuple[MigrationKey, MigrationKey]]:
-    """Return (dependent, prerequisite) pairs for the dependency entries the squash tool removed.
+@frozen
+class RemovedDependency:
+    """A dependency entry the squash tool removed: `dependent` no longer waits for `prerequisite`."""
+
+    dependent: MigrationKey
+    prerequisite: MigrationKey
+
+
+def load_removed_dependencies() -> list[RemovedDependency]:
+    """Return the dependency entries the squash tool removed.
 
     The squash tool removes cross-app entries from replaced files to break dependency
     cycles between squashes. For a `dependencies` entry the edited file is the side
     that lost its prerequisite. For a `run_before` entry the target is.
     """
     path = Path(settings.BASE_DIR) / str(settings.NEXTGENSQUASH["REMOVED_DEPENDENCIES_FILE"])
-    pairs = set()
+    edges = set()
     for removed in json.loads(path.read_text())["removed"]:
         file, entry = (removed["file"][0], removed["file"][1]), (removed["entry"][0], removed["entry"][1])
-        pairs.add((file, entry) if removed["attribute"] == "dependencies" else (entry, file))
-    return sorted(pairs)
+        if removed["attribute"] == "dependencies":
+            edges.add(RemovedDependency(dependent=file, prerequisite=entry))
+        else:
+            edges.add(RemovedDependency(dependent=entry, prerequisite=file))
+    return sorted(edges, key=lambda edge: (edge.dependent, edge.prerequisite))
 
 
 def resolve_replaced(
@@ -272,7 +284,7 @@ def resolve_replaced(
 
 def find_unsafe_fallback(
     replaced: Mapping[MigrationKey, set[MigrationKey]],
-    removed: Collection[tuple[MigrationKey, MigrationKey]],
+    removed: Collection[RemovedDependency],
     applied: Collection[MigrationKey],
     target: MigrationKey | None = None,
 ) -> list[str]:
@@ -287,7 +299,8 @@ def find_unsafe_fallback(
     applied = set(applied)
     targets_replaced = target is not None and any(target in members for members in replaced.values())
     unsafe = set()
-    for dependent, prerequisite in removed:
+    for edge in removed:
+        dependent, prerequisite = edge.dependent, edge.prerequisite
         if dependent in applied:
             continue
         if prerequisite in applied or replaced.get(prerequisite, {prerequisite}) <= applied:

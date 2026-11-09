@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.management.commands.migrate import (
     UNSUPPORTED_DATABASE_EXIT_CODE,
+    RemovedDependency,
     check_database_version,
     find_unsafe_fallback,
     resolve_replaced,
@@ -54,9 +55,9 @@ class TestFindUnsafeFallback(SimpleTestCase):
         }
     )
     REMOVED = [
-        (("a", "0002_edited"), ("b", "0001_z")),
-        (("a", "0003_squash_2026_09_07_schema_addons"), ("b", "0001_z")),
-        (("a", "0004_edited"), ("b", "0002_z")),
+        RemovedDependency(dependent=("a", "0002_edited"), prerequisite=("b", "0001_z")),
+        RemovedDependency(dependent=("a", "0003_squash_2026_09_07_schema_addons"), prerequisite=("b", "0001_z")),
+        RemovedDependency(dependent=("a", "0004_edited"), prerequisite=("b", "0002_z")),
     ]
     EVERYTHING = {
         ("a", "0001_x"),
