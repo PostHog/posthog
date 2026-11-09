@@ -9,6 +9,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, NotFound
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -18,12 +19,7 @@ from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_resp
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
-from posthog.permissions import (
-    FEATURE_FLAG_REQUIRED_ERROR_CODE,
-    PostHogFeatureFlagPermission,
-    get_authenticator_client,
-    posthog_feature_flag_enabled,
-)
+from posthog.permissions import FEATURE_FLAG_REQUIRED_ERROR_CODE, get_authenticator_client, posthog_feature_flag_enabled
 
 from products.workflows.backend.facade.contracts import WorkflowViewConflict, WorkflowViewNotFound, WorkflowViewState
 from products.workflows.backend.facade.workflow_views import (
@@ -76,6 +72,11 @@ class WorkflowViewStateSerializer(serializers.Serializer):
         max_length=6,
         help_text="Visible optional workflow columns in display order.",
     )
+
+    def validate_columns(self, columns: list[str]) -> list[str]:
+        if len(set(columns)) != len(columns):
+            raise serializers.ValidationError("Each column can appear only once.")
+        return columns
 
 
 class WorkflowViewSerializer(serializers.Serializer):
@@ -143,7 +144,7 @@ class WorkflowViewPagination(FacadeLimitOffsetPagination):
     max_limit = 100
 
 
-class WorkflowViewsFeatureFlagPermission(PostHogFeatureFlagPermission):
+class WorkflowViewsFeatureFlagPermission(BasePermission):
     message = "Workflow saved views are unavailable."
     code = FEATURE_FLAG_REQUIRED_ERROR_CODE
 
