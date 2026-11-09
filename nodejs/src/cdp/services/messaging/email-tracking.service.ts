@@ -160,19 +160,33 @@ export const resolveEmailTrackingDistinctId = (
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
 // percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
 // through `target=` as a literal `&amp;` and breaks the destination page's query string.
-const HTML_ENTITY_REGEX = /&(?:(amp|lt|gt|quot|apos)|#(\d+)|#x([0-9a-fA-F]+));/g
+const HTML_ENTITY_REGEX = /&(?:(amp|lt|gt|quot|apos|AMP|LT|GT|QUOT)|#(\d+)|#[xX]([0-9a-fA-F]+));/g
 const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 
 export const decodeHtmlEntitiesInHref = (value: string): string => {
     return value.replace(HTML_ENTITY_REGEX, (_match, named, dec, hex) => {
         if (named) {
-            return NAMED_ENTITIES[named]
+            return NAMED_ENTITIES[named.toLowerCase()]
         }
         const code = dec ? parseInt(dec, 10) : parseInt(hex, 16)
         // `String.fromCodePoint` throws RangeError above 0x10FFFF — `Number.isFinite` alone
         // wouldn't catch e.g. `&#x200000;` since `parseInt` happily returns a finite value.
-        return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : _match
+        if (code < 0 || code > 0x10ffff) {
+            return _match
+        }
+        // HTML decodes a surrogate to U+FFFD. A lone one makes `encodeURIComponent` throw and fails the send.
+        return code >= 0xd800 && code <= 0xdfff ? '\uFFFD' : String.fromCodePoint(code)
     })
+}
+
+// A browser drops tabs and newlines anywhere in a URL, and control characters before it, then reads the scheme.
+const isJavascriptHref = (href: string): boolean => {
+    const url = href.replace(/[\t\n\r]/g, '')
+    let start = 0
+    while (start < url.length && (url.charCodeAt(start) <= 0x20 || /\s/.test(url[start]))) {
+        start++
+    }
+    return url.slice(start, start + 'javascript:'.length).toLowerCase() === 'javascript:'
 }
 
 export const addTrackingToEmail = (
@@ -207,7 +221,7 @@ export const addTrackingToEmail = (
         const href = decodeHtmlEntitiesInHref(d || s || u || '')
         // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
         // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
-        if (/^\s*javascript:/i.test(href)) {
+        if (isJavascriptHref(href)) {
             return m
         }
         // Per-link opt-out. Leaves the href on its own domain so mobile universal links /

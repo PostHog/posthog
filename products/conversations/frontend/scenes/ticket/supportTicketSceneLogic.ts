@@ -40,6 +40,7 @@ import {
     ImpersonationTicketContext,
     impersonationNoticeLogic,
 } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
+import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeople'
 import api, { ApiConfig } from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
@@ -338,6 +339,7 @@ export interface supportTicketSceneLogicValues {
     ticketDeleting: boolean
     ticketLoading: boolean
     ticketUpdating: boolean
+    todayPeopleRecent: TodayPeopleRecent | null
     unsavedTicketChanges: string[]
 }
 
@@ -595,6 +597,7 @@ export interface supportTicketSceneLogicProps {
 export interface supportTicketSceneLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
+        todayPeopleRecent: (ticket: Ticket | null) => TodayPeopleRecent | null
         breadcrumbs: (id: number | string) => Breadcrumb[]
         emailReplyBlockedReason: (
             ticket: Ticket | null,
@@ -1058,6 +1061,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
+        [TODAY_PEOPLE_RECENT_KEY]: [
+            (s) => [s.ticket],
+            (ticket: Ticket | null): TodayPeopleRecent | null =>
+                ticket?.ticket_number
+                    ? {
+                          type: 'ticket',
+                          name: `Ticket #${ticket.ticket_number}`,
+                          href: urls.supportTicketDetail(ticket.ticket_number),
+                      }
+                    : null,
+        ],
         breadcrumbs: [
             (_, p) => [p.id],
             (id: number | string): Breadcrumb[] => {

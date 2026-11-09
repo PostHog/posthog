@@ -4,6 +4,7 @@ import { HogFunctionInvocationGlobalsWithInputs } from '~/cdp/types'
 import { LiquidRenderer } from '~/cdp/utils/liquid'
 
 import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
+import { escapeHtml } from './escape-html'
 import { WORKFLOW_RUN_PARAM, isNeverClickTracked, removeWorkflowRunTag } from './link-tags'
 import { addUtmTagsToEmailLegacy } from './utm-legacy'
 
@@ -176,9 +177,8 @@ const tagAnchor = (anchor: string, tagger: LinkTagger): string => {
         return anchor
     }
     const quote = href[3] !== undefined ? "'" : '"'
-    const encoded = tagged
-        .replace(/&/g, '&amp;')
-        .replace(quote === '"' ? /"/g : /'/g, quote === '"' ? '&quot;' : '&#39;')
+    // A raw `>` in the href would end the opening tag for SES tracking, which then writes its tag into the URL.
+    const encoded = escapeHtml(tagged)
     const start = href.index! + href[0].indexOf('=')
     return anchor.slice(0, start) + `=${quote}${encoded}${quote}` + anchor.slice(href.index! + href[0].length)
 }

@@ -35,7 +35,7 @@ from products.logs.backend.platform_cutover import CutoverSkip, RollbackSkip, cu
 
 NOW = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
 State = LogsAlertConfiguration.State
-LEGACY_BODY_FLAG = "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled"
+LEGACY_BODY_FLAG = "posthoganalytics.feature_enabled"
 STOCK_HOG = "return event"
 DESTINATION_DATA: dict[DestinationType, dict[str, Any]] = {
     DestinationType.SLACK: {"slack_workspace_id": 1, "slack_channel_id": "C-1"},
