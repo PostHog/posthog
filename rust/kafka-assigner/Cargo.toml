@@ -10,7 +10,7 @@ dashmap = { workspace = true }
 k8s-awareness = { path = "../common/k8s-awareness" }
 kube = { version = "0.98", features = ["client"] }
 envconfig = { workspace = true }
-etcd-client = "0.18"
+etcd-client = "0.21"
 kafka-assigner-proto = { path = "../kafka-assigner-proto" }
 prost = { workspace = true }
 rdkafka = { workspace = true }

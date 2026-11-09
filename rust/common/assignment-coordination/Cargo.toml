@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-etcd-client = "0.18"
+etcd-client = "0.21"
 h2 = "0.4"
 metrics = { workspace = true }
 serde = { workspace = true }
