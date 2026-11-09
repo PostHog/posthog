@@ -176,6 +176,21 @@ export type AnalyticsEvent =
     | 'mobile_replay_summary_ready'
     | 'mobile_replay_chat_opened'
     | 'mobile_replay_issue_opened'
+    | 'mobile_live_opened'
+    | 'mobile_live_opened_in_web'
+    | 'mobile_live_error_shown'
+    | 'mobile_live_refreshed'
+    | 'mobile_live_paused'
+    | 'mobile_live_resumed'
+    | 'mobile_live_breakdown_changed'
+    | 'mobile_live_event_sheet_opened'
+    | 'mobile_live_event_action_taken'
+    | 'mobile_web_analytics_metric_selected'
+    | 'mobile_web_analytics_breakdown_changed'
+    | 'mobile_web_analytics_filter_added'
+    | 'mobile_web_analytics_filter_removed'
+    | 'mobile_web_analytics_list_opened'
+    | 'mobile_web_analytics_web_tile_opened'
 
 export type AnalyticsProperties = Record<string, string | number | boolean | null | undefined>
 
