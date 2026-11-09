@@ -260,9 +260,11 @@ def test_run_check_maps_each_verdict(_name: str, source: str, failed: bool | Non
         ("function_call", [{"role": "assistant", "tool_calls": [{"function": {"name": "search"}}]}], True),
         ("otel_part", [{"role": "assistant", "parts": [{"type": "tool_call", "name": "search"}]}], True),
         ("schema_type_list", [{"role": "assistant", "content": "{}", "schema": {"type": ["string", "null"]}}], False),
+        ("too_deep_to_parse", "[" * 2000 + "]" * 2000, False),
+        ("too_deep_to_walk", "[" * 600 + "]" * 600, False),
     ]
 )
-def test_only_a_populated_tool_call_makes_a_generation_a_step(_name: str, output: list, expected: bool) -> None:
+def test_only_a_populated_tool_call_makes_a_generation_a_step(_name: str, output: list | str, expected: bool) -> None:
     event = LLMTraceEvent(
         id="e", event="$ai_generation", createdAt=AT.isoformat(), properties={"$ai_output_choices": output}
     )

@@ -258,12 +258,13 @@ def _has_tool_call(value: Any) -> bool:
 def _calls_tools(generation: LLMTraceEvent) -> bool:
     """Whether a generation's output asks for tools, which makes it a step of the turn and not its answer."""
     output = extract_event_io(generation.event, generation.properties).output_raw
-    if isinstance(output, str):
-        try:
+    try:
+        if isinstance(output, str):
             output = json.loads(output)
-        except ValueError:
-            return False
-    return _has_tool_call(output)
+        return _has_tool_call(output)
+    except (ValueError, RecursionError):
+        # Output nested too deep to parse or walk counts as an answer, so one odd trace can't fail the run.
+        return False
 
 
 def _tokens(value: Any) -> float:
