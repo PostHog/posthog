@@ -185,6 +185,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
     '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
+    '/data-warehouse/migrate/connect': ['DataWarehouseMigrationConnect', 'dataWarehouseMigrationConnect'],
     '/data-warehouse/connect-destination': ['WarehouseDestinationConnect', 'warehouseDestinationConnect'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
@@ -929,6 +930,7 @@ export const productConfiguration: Record<string, any> = {
     DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
     DataWarehouseSourceConnect: { projectBased: true, name: 'Connect data warehouse source' },
+    DataWarehouseMigrationConnect: { projectBased: true, name: 'Import from Fivetran' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
     WarehouseDestinations: {
         projectBased: true,
@@ -1616,6 +1618,7 @@ export const productUrls = {
         `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
     dataWarehouseSourceConnect: (kind?: string): string =>
         `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
+    dataWarehouseMigrationConnect: (): string => '/data-warehouse/migrate/connect',
     warehouseDestinationConnect: (kind?: string): string =>
         `/data-warehouse/connect-destination${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
@@ -2714,6 +2717,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
             'DataWarehouseSourceConnect',
+            'DataWarehouseMigrationConnect',
             'DataWarehouseSourceSchema',
             'WarehouseDestinations',
             'WarehouseDestinationConnect',
@@ -3643,6 +3647,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
             'DataWarehouseSourceConnect',
+            'DataWarehouseMigrationConnect',
             'DataWarehouseSourceSchema',
             'WarehouseDestinations',
             'WarehouseDestinationConnect',

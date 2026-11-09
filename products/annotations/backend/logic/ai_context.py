@@ -8,6 +8,7 @@ import structlog
 from posthog.models import Team
 from posthog.utils import relative_date_parse
 
+from products.annotations.backend.facade.enums import AnnotationScope
 from products.annotations.backend.models.annotation import Annotation
 
 logger = structlog.get_logger(__name__)
@@ -30,15 +31,15 @@ def get_annotations_for_ai_context(
     Also includes dashboard- or insight-scoped annotations attached to the given target.
     """
     visibility = Q(team_id=team.id) | Q(
-        scope=Annotation.Scope.ORGANIZATION,
+        scope=AnnotationScope.ORGANIZATION,
         organization_id=team.organization_id,
     )
 
-    scopes = Q(scope=Annotation.Scope.PROJECT) | Q(scope=Annotation.Scope.ORGANIZATION)
+    scopes = Q(scope=AnnotationScope.PROJECT) | Q(scope=AnnotationScope.ORGANIZATION)
     if dashboard_id is not None:
-        scopes |= Q(scope=Annotation.Scope.DASHBOARD, dashboard_id=dashboard_id)
+        scopes |= Q(scope=AnnotationScope.DASHBOARD, dashboard_id=dashboard_id)
     if insight_ids:
-        scopes |= Q(scope=Annotation.Scope.INSIGHT, dashboard_item_id__in=insight_ids)
+        scopes |= Q(scope=AnnotationScope.INSIGHT, dashboard_item_id__in=insight_ids)
 
     most_recent: list[dict[str, Any]] = [
         dict(row)
