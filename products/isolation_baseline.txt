@@ -21,7 +21,6 @@ actions
 ai_observability
 alerts
 analytics_platform
-annotations
 apm
 approvals
 batch_exports
