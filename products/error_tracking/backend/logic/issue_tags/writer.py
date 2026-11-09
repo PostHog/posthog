@@ -6,6 +6,7 @@ from django.utils import timezone
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.user import User
 
+from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
 from products.error_tracking.backend.logic.issue_tags.registry import get_issue_tag_definition
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag
@@ -14,7 +15,12 @@ from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrac
 def set_issue_tag(
     team_id: int, issue_id: UUID | str, key: str, answer: TagAnswer, source: ErrorTrackingIssueTag.Source
 ) -> bool:
-    """Store the answer unless a higher-ranked source answered the tag already. Return whether it was stored."""
+    """Store the answer unless issue tags are off for the team, or a higher-ranked source answered the tag already.
+
+    Return whether it was stored.
+    """
+    if not issue_tags_enabled(team_id):
+        return False
     sources_above = get_issue_tag_definition(key).sources_ranked_above(source)
     issue = ErrorTrackingIssue.objects.select_related("team").get(team_id=team_id, id=issue_id)
     tags = ErrorTrackingIssueTag.objects.for_team(issue.team.parent_team_id or issue.team_id, canonical=True)

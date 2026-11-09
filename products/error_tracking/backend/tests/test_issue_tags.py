@@ -13,7 +13,7 @@ from parameterized import parameterized
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.error_tracking.backend.logic.issue_tags import registry
+from products.error_tracking.backend.logic.issue_tags import registry, writer
 from products.error_tracking.backend.logic.issue_tags.registry import (
     ISSUE_TAG_DEFINITIONS,
     IssueTagDefinition,
@@ -70,6 +70,7 @@ class TestIssueTagStorage(BaseTest):
 
 
 @patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT,))
+@patch.object(writer, "issue_tags_enabled", new=lambda team_id: True)
 class TestSetIssueTag(BaseTest):
     @parameterized.expand(
         [
@@ -114,6 +115,18 @@ class TestSetIssueTag(BaseTest):
             )
 
         assert stored is True
+
+    def test_stores_nothing_while_issue_tags_are_off_for_the_team(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+
+        with patch.object(writer, "issue_tags_enabled", new=lambda team_id: False):
+            stored = set_issue_tag(
+                self.team.id, issue.id, "blocks_checkout", self._answer(Source.MANUAL, value=True), Source.MANUAL
+            )
+
+        assert stored is False
+        assert not ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).exists()
+        assert not self._issue_activity(issue).exists()
 
     def test_a_failed_activity_log_write_rolls_back_the_tag(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
