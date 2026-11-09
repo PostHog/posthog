@@ -150,10 +150,10 @@ export type IngestionConsumerConfig = {
     // A sub-batch in flight longer than this starts the stuck-batch shutdown:
     // readiness fails, the other sub-batches drain for up to
     // INGESTION_API_GRPC_STUCK_DRAIN_TIMEOUT_MS, then the worker exits. `0` disables it.
-    // Keep it above the consumer's INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS (60s),
-    // above the longest batch without a soft budget, and above librdkafka's
-    // message.timeout.ms (300s default, not set by the ingestion producers):
-    // at 300s a produce that is about to time out can still trip it.
+    // Keep it above the consumer's INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS (60s)
+    // and above the longest batch without a soft budget. librdkafka's
+    // message.timeout.ms is also 300s (the ingestion producers do not set it),
+    // so at the 300s default a produce that is about to time out can trip it.
     INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS: number
     // The consumer fences a sub-batch it has waited INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS
     // for, so an ack later than that is replayed anyway.

@@ -241,14 +241,12 @@ interface WorkerIngestServerDeps {
     onStuckDrained?: (error: Error) => void
 }
 
-/** A sub-batch the pipeline accepted, held until it settles. */
 interface FedBatch {
     accounting: AcceptedBatch
     streamId: number
     consumerId: string
     streamEpoch: string
     assignmentEpoch: string
-    /** `partition:minOffset-maxOffset`, comma-separated. */
     offsets: string
 }
 
@@ -430,7 +428,7 @@ export class WorkerIngestServer {
     private readonly stuckBatchTimeoutMs: number
     private readonly stuckDrainTimeoutMs: number
     private stuckBatchTimer: NodeJS.Timeout | null = null
-    /** Keys of the sub-batches that started the stuck-batch shutdown; set once. */
+    /** Null until the stuck-batch shutdown starts. A sub-batch that passes the deadline later is not added, so the drain waits for it. */
     private stuckKeys: Set<string> | null = null
     private stuckDrainDone = false
     private sessionCount = 0
@@ -586,7 +584,7 @@ export class WorkerIngestServer {
      */
     private async runPump(): Promise<void> {
         while (!this.stopped) {
-            // Not the streams' in-flight count: a batch whose stream died must still be collected.
+            // A batch whose stream died must still be collected.
             if (this.acceptedBatches.size === 0) {
                 await new Promise<void>((resolve) => {
                     this.wakePump = resolve
@@ -738,10 +736,10 @@ export class WorkerIngestServer {
     }
 
     /**
-     * Stuck-batch shutdown. A stuck sub-batch holds its slot forever, so the
-     * worker leaves the pool, lets the other sub-batches settle and ack, and
-     * then hands the exit to the owner. Failing every stream at once instead
-     * would make consumers replay healthy work.
+     * A stuck sub-batch holds its slot until the process exits, so the worker
+     * leaves the pool, lets the other sub-batches settle and ack, and then
+     * hands the exit to the owner. To fail every stream at once would make
+     * consumers replay healthy work.
      */
     private startStuckShutdown(stuck: [string, FedBatch][], now: number): void {
         grpcStuckBatches.inc()
