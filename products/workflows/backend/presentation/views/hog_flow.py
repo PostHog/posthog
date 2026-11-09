@@ -3789,6 +3789,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate__create_in_folder(self, value: str) -> str:
         return validate_file_system_path(value) if value else value
 
+    def validate_folder(self, value: str) -> str:
+        return validate_file_system_path(value) if value else value
+
     def validate_origin_product(self, value: str | None) -> str | None:
         if value == HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS:
             raise serializers.ValidationError("A code send key's workflow is made by its first send.")
