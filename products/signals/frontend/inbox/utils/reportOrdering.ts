@@ -1,6 +1,6 @@
 import type { ReportRankingPredictionApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { isRankingSortField, rankingScoreForField } from '../filterOptions'
+import { isMergeKeySortField, isRankingSortField, rankingScoreForField } from '../filterOptions'
 import type { InboxRankingSortField, InboxSortDirection, InboxSortField } from '../logics/inboxFiltersLogic'
 import { SignalReport, SignalReportStatus } from '../types'
 
@@ -59,6 +59,20 @@ export function rankingPrediction(
     return ranking?.predictions.find((prediction) => prediction.outcome === outcome)
 }
 
+type Ranking = NonNullable<SignalReport['ranking']>
+
+/** The served model's lift for one outcome, or null when it has no finite lift. */
+export function rankingLift(ranking: Ranking, outcome: string): number | null {
+    const lift = rankingPrediction(ranking, outcome)?.lift
+    return typeof lift === 'number' && Number.isFinite(lift) ? lift : null
+}
+
+/** The inbox shows raw probabilities and the model key to staff only. Other users see lifts alone. */
+export function rankingProbability(ranking: Ranking, outcome: string, isStaff: boolean): number | null {
+    const probability = isStaff ? rankingPrediction(ranking, outcome)?.probability : undefined
+    return typeof probability === 'number' ? probability : null
+}
+
 export interface RankingPillLifts {
     open: number | null
     action: number | null
@@ -88,7 +102,7 @@ export function rankingSortScore(report: SignalReport, field: InboxRankingSortFi
 }
 
 /**
- * The Recommended sort's comparator. The server gives each row a merge key that follows the ranker's
+ * The comparator of the Recommended and Personalized sorts. The server gives each row a merge key that follows the ranker's
  * order, so rows from several responses merge in one order. Rows with equal keys keep their input order.
  * A row without a key sorts last.
  */
@@ -114,7 +128,7 @@ export function compareSignalReports(
     field: InboxSortField,
     direction: InboxSortDirection
 ): (a: SignalReport, b: SignalReport) => number {
-    if (field === 'recommended') {
+    if (isMergeKeySortField(field)) {
         return compareInboxMergeKeys
     }
     const dir = direction === 'desc' ? -1 : 1

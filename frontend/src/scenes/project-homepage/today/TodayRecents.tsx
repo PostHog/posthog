@@ -3,6 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useId, useMemo } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -74,7 +75,10 @@ export function TodayRecents(): JSX.Element {
             <div className="TodayHome__headingRow">
                 <TodayHomeHeading id={titleId}>Jump back in</TodayHomeHeading>
                 {recentsHasLoaded && more.length > 0 && (
-                    <Collapsible.Trigger className="TodayHome__headingLink" data-attr="today-home-recent-more">
+                    <Collapsible.Trigger
+                        render={<Button variant="link-muted" size="sm" className="-mx-2 -my-1 text-[13px]" />}
+                        data-attr="today-home-recent-more"
+                    >
                         <span>{listExpanded.recents ? 'Less' : 'More'}</span>
                         <IconChevronDown className="TodayHome__headingChevron size-3" aria-hidden />
                     </Collapsible.Trigger>
