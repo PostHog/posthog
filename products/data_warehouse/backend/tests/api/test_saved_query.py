@@ -32,6 +32,7 @@ from posthog.models.scoping import team_scope
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
 from products.data_modeling.backend.facade.models import (
+    CONNECTION_SAVE_REASON,
     DAG,
     DataModelingJob,
     DataModelingJobEngine,
@@ -253,19 +254,59 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(engine["target"], "connection")
         self.assertFalse(engine["capabilities"]["materialize"]["available"])
 
-    def test_create_refuses_a_connection_the_team_does_not_have(self) -> None:
-        response = self.client.post(
+    @parameterized.expand(
+        [
+            ("hogql", "SELECT id FROM orders WHERE id > 1", False),
+            ("raw", "SELECT id FROM orders WHERE payload->>'kind' = 'paid'", True),
+        ]
+    )
+    def test_saving_a_view_on_a_direct_connection_is_refused(self, _name: str, sql: str, send_raw: bool) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="shop",
+            job_inputs={"host": "localhost", "port": 5432, "database": "shop", "user": "u", "schema": "shop"},
+        )
+        DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        query = {
+            "kind": "HogQLQuery",
+            "query": sql,
+            "connectionId": str(source.pk),
+            **({"sendRawQuery": True} if send_raw else {}),
+        }
+        existing = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="event_counts", query={"kind": "HogQLQuery", "query": "SELECT 1 AS x"}
+        )
+
+        create = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "hub_occupancy",
-                "query": {"kind": "HogQLQuery", "query": "SELECT 1 AS x", "connectionId": str(uuid.uuid4())},
-                "types": [["x", "Int64"]],
-            },
+            {"name": "paid_orders", "query": query, "types": [["id", "Int64"]]},
             format="json",
         )
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertIn("Invalid connectionId", response.json()["detail"])
-        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="hub_occupancy").exists())
+        update = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{existing.id}",
+            {"query": query, "types": [["id", "Int64"]]},
+            format="json",
+        )
+
+        for response in (create, update):
+            self.assertEqual(response.status_code, 400, response.content)
+            self.assertEqual(response.json()["detail"], CONNECTION_SAVE_REASON)
+        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="paid_orders").exists())
+        existing.refresh_from_db()
+        self.assertEqual(existing.query, {"kind": "HogQLQuery", "query": "SELECT 1 AS x"})
+        self.assertFalse(Node.objects.filter(team=self.team).exists())
 
     @parameterized.expand(
         [
