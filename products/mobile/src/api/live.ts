@@ -66,6 +66,8 @@ export interface LiveStatsApi {
 }
 
 const WHERE_WINDOW = 'timestamp >= toDateTime({dateFrom}) AND timestamp <= toDateTime({dateTo})'
+const WHERE_VISIBLE_MINUTES =
+    'timestamp >= toDateTime({dateFrom}) AND timestamp < toStartOfMinute(toDateTime({dateTo}))'
 
 function tags(name: string): Record<string, string> {
     return { productKey: 'web_analytics', scene: 'web-analytics-live', name }
@@ -75,29 +77,27 @@ function hogql(query: string, name: string, window: LiveWindow): Record<string, 
     return { kind: 'HogQLQuery', query, values: { dateFrom: window.dateFrom, dateTo: window.dateTo }, tags: tags(name) }
 }
 
-/** Distinct ids per device type or browser, per minute. Cookieless events count by IP and user agent. */
-function breakdownQuery(property: string, alias: string, name: string, window: LiveWindow): Record<string, unknown> {
+const DEVICE_ID = `if(
+    properties.$device_id IS NULL OR properties.$device_id = '$posthog_cookieless',
+    concat('cookieless_transform|||', ifNull(properties.$ip, ''), '|||', ifNull(properties.$raw_user_agent, '')),
+    properties.$device_id
+)`
+
+function breakdownQuery(
+    category: string,
+    id: string,
+    name: string,
+    window: LiveWindow,
+    where: string = WHERE_VISIBLE_MINUTES
+): Record<string, unknown> {
     return hogql(
-        `SELECT
-            minute_bucket,
-            mapFromArrays(groupArray(${alias}), groupArray(device_ids)) AS ids_by_type
+        `SELECT groupArray((category, visitor_count))
         FROM (
-            SELECT
-                toStartOfMinute(timestamp) AS minute_bucket,
-                ifNull(properties.${property}, 'Unknown') AS ${alias},
-                arrayDistinct(groupArray(
-                    if(
-                        properties.$device_id IS NULL OR properties.$device_id = '$posthog_cookieless',
-                        concat('cookieless_transform|||', ifNull(properties.$ip, ''), '|||', ifNull(properties.$raw_user_agent, '')),
-                        properties.$device_id
-                    )
-                )) AS device_ids
+            SELECT ${category} AS category, uniqExact(${id}) AS visitor_count
             FROM events
-            WHERE ${WHERE_WINDOW}
-            GROUP BY minute_bucket, ${alias}
-        )
-        GROUP BY minute_bucket
-        ORDER BY minute_bucket ASC`,
+            WHERE ${where}
+            GROUP BY category
+        )`,
         name,
         window
     )
@@ -113,20 +113,33 @@ export function liveQuery(key: LiveQueryKey, { window, pathCleaning }: LiveQuery
         case 'usersPageviews':
             return hogql(
                 `SELECT
-                    toStartOfMinute(timestamp) AS minute_bucket,
-                    arrayDistinct(groupArray(distinct_id)) AS distinct_ids,
-                    countIf(event = '$pageview') AS pageviews
-                FROM events
-                WHERE ${WHERE_WINDOW}
+                    toUnixTimestamp64Milli(toDateTime64(minute_bucket, 3)) AS minute_ms,
+                    count() AS users,
+                    countIf(minute_bucket = first_minute) AS new_users,
+                    sum(minute_pageviews) AS pageviews
+                FROM (
+                    SELECT
+                        toStartOfMinute(timestamp) AS minute_bucket,
+                        countIf(event = '$pageview') AS minute_pageviews,
+                        min(minute_bucket) OVER (PARTITION BY distinct_id) AS first_minute
+                    FROM events
+                    WHERE ${WHERE_VISIBLE_MINUTES}
+                    GROUP BY distinct_id, minute_bucket
+                )
                 GROUP BY minute_bucket
                 ORDER BY minute_bucket ASC`,
                 'live_users_pageviews',
                 window
             )
         case 'device':
-            return breakdownQuery('$device_type', 'device_type', 'live_device_breakdown', window)
+            return breakdownQuery(
+                "ifNull(properties.$device_type, 'Unknown')",
+                DEVICE_ID,
+                'live_device_breakdown',
+                window
+            )
         case 'browser':
-            return breakdownQuery('$browser', 'browser_type', 'live_browser_breakdown', window)
+            return breakdownQuery("ifNull(properties.$browser, 'Unknown')", DEVICE_ID, 'live_browser_breakdown', window)
         case 'paths':
             return {
                 kind: 'TrendsQuery',
@@ -159,25 +172,12 @@ export function liveQuery(key: LiveQueryKey, { window, pathCleaning }: LiveQuery
                 window
             )
         case 'geo':
-            return hogql(
-                `SELECT
-                    minute_bucket,
-                    mapFromArrays(groupArray(country_code), groupArray(distinct_ids)) AS ids_by_country
-                FROM (
-                    SELECT
-                        toStartOfMinute(timestamp) AS minute_bucket,
-                        properties.$geoip_country_code AS country_code,
-                        arrayDistinct(groupArray(distinct_id)) AS distinct_ids
-                    FROM events
-                    WHERE ${WHERE_WINDOW}
-                        AND properties.$geoip_country_code IS NOT NULL
-                        AND properties.$geoip_country_code != ''
-                    GROUP BY minute_bucket, country_code
-                )
-                GROUP BY minute_bucket
-                ORDER BY minute_bucket ASC`,
+            return breakdownQuery(
+                'properties.$geoip_country_code',
+                'distinct_id',
                 'live_geo',
-                window
+                window,
+                `${WHERE_VISIBLE_MINUTES} AND properties.$geoip_country_code IS NOT NULL AND properties.$geoip_country_code != ''`
             )
         case 'recentEvents':
             // Epoch milliseconds instead of the web's `toString(timestamp)`, which is wall-clock time in the project's

@@ -1,16 +1,10 @@
 import { useIsFocused } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import {
-    fetchLiveProject,
-    fetchLiveQuery,
-    fetchLiveStats,
-    type LiveProjectApi,
-    type LiveQueryKey,
-    liveStatsHost,
-} from '@/api/live'
+import { fetchLiveProject, fetchLiveQuery, fetchLiveStats, type LiveProjectApi, liveStatsHost } from '@/api/live'
 import type { ProjectScope } from '@/api/reports'
 import { addSessionEndTask } from '@/auth/authStore'
+import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { type DataMode, useDataMode } from '@/demo/demoMode'
 import { LIVE_DEMO_READ_MS, liveDemo } from '@/demo/live'
@@ -36,7 +30,7 @@ import {
     type LiveStatus,
     liveStatus,
 } from './liveController'
-import { readLiveSnapshot } from './liveRead'
+import { type LiveQueryRunner, readLiveSnapshot } from './liveRead'
 
 /** The web's HogQL reload interval. */
 const READ_INTERVAL_MS = 30_000
@@ -53,7 +47,7 @@ interface LiveProjectInfo {
 }
 
 interface LiveSource {
-    run: (key: LiveQueryKey, query: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>
+    run: LiveQueryRunner
     project: () => Promise<LiveProjectInfo | null>
     /** The live events service for users online, or null when the HogQL count stands in for it. */
     statsHost: string | null
@@ -64,7 +58,7 @@ const projects = new Map<string, Promise<LiveProjectInfo | null>>()
 addSessionEndTask(() => projects.clear())
 
 function projectInfo(scope: ProjectScope): Promise<LiveProjectInfo | null> {
-    const key = `${scope.host}|${scope.projectId}`
+    const key = `${sessionGeneration()}|${scope.host}|${scope.projectId}`
     let pending = projects.get(key)
     if (!pending) {
         pending = fetchLiveProject().then(
@@ -86,9 +80,9 @@ function projectInfo(scope: ProjectScope): Promise<LiveProjectInfo | null> {
 function sourceFor(mode: DataMode, scope: ProjectScope | null): LiveSource | null {
     if (mode === 'demo') {
         return {
-            run: async (key, _query, signal) => {
+            run: async (key, _query, signal, now) => {
                 await sleep(LIVE_DEMO_READ_MS, signal)
-                return liveDemo().respond(key, Date.now())
+                return liveDemo(now).respond(key, now)
             },
             project: () => Promise.resolve(null),
             statsHost: null,
@@ -182,7 +176,7 @@ export interface LiveFeed {
 
 /**
  * Polls the live queries while the screen is focused and the app is in the foreground. Mount it only when the session
- * has access, keyed by the data scope, so a project switch starts from an empty screen.
+ * has access, keyed by the session and project identity.
  */
 export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     const mode = useDataMode()

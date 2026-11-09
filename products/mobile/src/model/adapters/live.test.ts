@@ -26,10 +26,11 @@ describe('live adapters', () => {
         const activity = liveActivity(
             {
                 results: [
-                    [minute('20:44'), ['early'], 9],
-                    [minute('20:45'), ['a', 'b'], 3],
-                    [minute('20:50'), ['a', 'c'], 2],
-                    ['2026-11-05T16:14:00-05:00', ['c'], 1],
+                    [Date.parse(minute('20:44')), 1, 1, 9],
+                    [Date.parse(minute('20:45')), 2, 2, 3],
+                    [Date.parse(minute('20:50')), 2, 1, 2],
+                    [String(Date.parse(minute('21:14'))), '1', '0', '1'],
+                    [Date.parse(minute('21:15')), 1, 1, 9],
                 ],
             },
             NOW
@@ -102,28 +103,13 @@ describe('live adapters', () => {
         ['devices', 'unique devices', ['Mobile', 'Desktop', 'Tablet', 'TV', 'Watch', 'Car', 'Fridge'], 7],
         ['browsers', 'unique browsers', ['Chrome', 'Safari', 'Firefox', 'Edge', 'Brave', 'Opera', 'Arc', 'Vivaldi'], 7],
     ] as const)(
-        '%s count distinct ids per value, and only browsers fold the tail into Other',
+        '%s preserve exact counts and only browsers fold the tail into Other',
         (kind, statLabel, values, rows) => {
-            const idsByValue = Object.fromEntries(
-                values.map((value, index) => [
-                    value,
-                    Array.from({ length: values.length - index }, (_, id) => `${value}-${id}`),
-                ])
-            )
-            const breakdown = liveBreakdown(
-                {
-                    results: [
-                        [minute('21:00'), idsByValue],
-                        [minute('21:10'), { [values[0]]: [`${values[0]}-0`, 'returning-later'] }],
-                        [minute('20:00'), { [values[0]]: ['outside-the-window'] }],
-                    ],
-                },
-                kind,
-                NOW
-            )
+            const counts = values.map((value, index) => [value, index === 0 ? '200001' : values.length - index])
+            const breakdown = liveBreakdown({ results: [[counts]] }, kind)
             expect(breakdown.statLabel).toBe(statLabel)
             expect(breakdown.rows).toHaveLength(rows)
-            expect(breakdown.rows[0]).toMatchObject({ key: values[0], count: values.length + 1 })
+            expect(breakdown.rows[0]).toMatchObject({ key: values[0], count: 200_001 })
             expect(breakdown.total).toBe(breakdown.rows.reduce((sum, row) => sum + row.count, 0))
             if (kind === 'browsers') {
                 expect(breakdown.rows.at(-1)).toMatchObject({ key: 'Other', count: 3 })
@@ -133,9 +119,18 @@ describe('live adapters', () => {
 
     test('country rows show a flag and a name, and an unknown code stays a code', () => {
         const breakdown = liveBreakdown(
-            { results: [[minute('21:05'), { US: ['a', 'b', 'c'], GB: ['d'], XK: ['e'] }]] },
-            'countries',
-            NOW
+            {
+                results: [
+                    [
+                        [
+                            ['US', 3],
+                            ['GB', 1],
+                            ['XK', 1],
+                        ],
+                    ],
+                ],
+            },
+            'countries'
         )
         expect(breakdown.rows.map((row) => [row.label, row.flag, row.percent])).toEqual([
             ['United States', '🇺🇸', 60],

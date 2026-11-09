@@ -8,6 +8,7 @@ import type { LiveQueryKey } from '@/api/live'
 const SECOND = 1000
 const MINUTE = 60 * SECOND
 const WINDOW_MINUTES = 30
+const MAX_DEPARTED_VISITORS = 100
 /** A demo read takes this long, so the first load shows the skeleton. */
 export const LIVE_DEMO_READ_MS = 350
 
@@ -118,36 +119,25 @@ export class LiveDemo {
         const pageviews = inWindow.filter((event) => event.event === '$pageview')
         switch (key) {
             case 'usersPageviews':
-                return {
-                    results: this.byMinute(inWindow, (events) => [
-                        [...new Set(events.map((event) => event.person.distinctId))],
-                        events.filter((event) => event.event === '$pageview').length,
-                    ]),
-                }
+                return { results: this.activityRows(inWindow) }
             case 'device':
-                return {
-                    results: this.idsByMinute(
-                        inWindow,
-                        (p) => p.device,
-                        (p) => p.deviceId
-                    ),
-                }
+                return this.breakdown(
+                    inWindow,
+                    (p) => p.device,
+                    (p) => p.deviceId
+                )
             case 'browser':
-                return {
-                    results: this.idsByMinute(
-                        inWindow,
-                        (p) => p.browser,
-                        (p) => p.deviceId
-                    ),
-                }
+                return this.breakdown(
+                    inWindow,
+                    (p) => p.browser,
+                    (p) => p.deviceId
+                )
             case 'geo':
-                return {
-                    results: this.idsByMinute(
-                        inWindow,
-                        (p) => p.country,
-                        (p) => p.distinctId
-                    ),
-                }
+                return this.breakdown(
+                    inWindow,
+                    (p) => p.country,
+                    (p) => p.distinctId
+                )
             case 'referrer': {
                 const rows: unknown[][] = []
                 for (const [minute, events] of this.groupByMinute(pageviews)) {
@@ -216,27 +206,36 @@ export class LiveDemo {
         return groups
     }
 
-    private byMinute(events: DemoEvent[], row: (events: DemoEvent[]) => unknown[]): unknown[][] {
-        return [...this.groupByMinute(events)].map(([minute, group]) => [minute, ...row(group)])
+    private activityRows(events: DemoEvent[]): number[][] {
+        const seen = new Set<string>()
+        return [...this.groupByMinute(events)].map(([minute, group]) => {
+            const ids = new Set(group.map((event) => event.person.distinctId))
+            const before = seen.size
+            for (const id of ids) {
+                seen.add(id)
+            }
+            return [
+                Date.parse(minute),
+                ids.size,
+                seen.size - before,
+                group.filter((event) => event.event === '$pageview').length,
+            ]
+        })
     }
 
-    private idsByMinute(
+    private breakdown(
         events: DemoEvent[],
         labelOf: (person: DemoPerson) => string,
         idOf: (person: DemoPerson) => string
-    ): unknown[][] {
-        return this.byMinute(events, (group) => {
-            const ids: Record<string, string[]> = {}
-            for (const event of group) {
-                const value = labelOf(event.person)
-                const list = ids[value] ?? []
-                if (!list.includes(idOf(event.person))) {
-                    list.push(idOf(event.person))
-                }
-                ids[value] = list
-            }
-            return [ids]
-        })
+    ): { results: [string, number][][][] } {
+        const ids = new Map<string, Set<string>>()
+        for (const { person } of events) {
+            const label = labelOf(person)
+            const group = ids.get(label) ?? new Set<string>()
+            group.add(idOf(person))
+            ids.set(label, group)
+        }
+        return { results: [[Array.from(ids, ([label, group]) => [label, group.size])]] }
     }
 
     /** Writes the events up to `now`. After a long pause it starts at the window, so a resume never replays hours. */
@@ -270,6 +269,9 @@ export class LiveDemo {
         if (this.random() < 0.11) {
             const [gone] = this.active.splice(Math.floor(this.random() * this.active.length), 1)
             if (gone) {
+                if (this.left.length === MAX_DEPARTED_VISITORS) {
+                    this.left.shift()
+                }
                 this.left.push(gone)
             }
             const back = this.left.length > 0 && this.random() < 0.25

@@ -77,28 +77,36 @@ describe('LiveController', () => {
         expect(reads).toHaveLength(4)
     })
 
-    test('the background stops reads after the grace, and the foreground reads at once', async () => {
-        controller.setVisible(true)
-        await answer({ data: 'a', complete: true })
+    test.each(['timer fired', 'JavaScript suspended'])(
+        'the foreground reads at once after the background grace (%s)',
+        async (background) => {
+            controller.setVisible(true)
+            await answer({ data: 'a', complete: true })
 
-        controller.setForeground(false)
-        await jest.advanceTimersByTimeAsync(1000)
-        controller.setForeground(true)
-        expect(reads).toHaveLength(1)
-        await jest.advanceTimersByTimeAsync(29_000)
-        expect(reads).toHaveLength(2)
-        await answer({ data: 'b', complete: true })
+            controller.setForeground(false)
+            await jest.advanceTimersByTimeAsync(1000)
+            controller.setForeground(true)
+            expect(reads).toHaveLength(1)
+            await jest.advanceTimersByTimeAsync(29_000)
+            expect(reads).toHaveLength(2)
+            await answer({ data: 'b', complete: true })
 
-        controller.setForeground(false)
-        await jest.advanceTimersByTimeAsync(2000)
-        expect(events).toEqual(['background_stopped'])
-        await jest.advanceTimersByTimeAsync(10 * 60_000)
-        expect(reads).toHaveLength(2)
+            controller.setForeground(false)
+            if (background === 'timer fired') {
+                await jest.advanceTimersByTimeAsync(2000)
+                expect(events).toEqual(['background_stopped'])
+                await jest.advanceTimersByTimeAsync(10 * 60_000)
+            } else {
+                jest.setSystemTime(Date.now() + 2000)
+                expect(events).toEqual([])
+            }
+            expect(reads).toHaveLength(2)
 
-        controller.setForeground(true)
-        expect(events).toEqual(['background_stopped', 'foreground_resumed'])
-        expect(reads).toHaveLength(3)
-    })
+            controller.setForeground(true)
+            expect(events).toEqual(['background_stopped', 'foreground_resumed'])
+            expect(reads).toHaveLength(3)
+        }
+    )
 
     test('reads slow to once a minute after 10 minutes without a user action, and a pull resets them', async () => {
         controller.setVisible(true)

@@ -48,7 +48,7 @@ import { statusText } from './liveFormat'
 const TOAST_BOTTOM = 48
 
 export function LiveScreen({ from }: { from: ViewEntry }): ReactElement {
-    const { access, scope, dataScope } = useViewsContext()
+    const { access, scope, identity } = useViewsContext()
     const scrollTitle = useScrollTitle('Live')
     const back = useViewBack()
     const [menuOpen, setMenuOpen] = useState(false)
@@ -70,7 +70,7 @@ export function LiveScreen({ from }: { from: ViewEntry }): ReactElement {
             }
         >
             {allowed ? (
-                <LiveBody key={dataScope} scope={scope} scrollTitle={scrollTitle} />
+                <LiveBody key={identity} scope={scope} scrollTitle={scrollTitle} />
             ) : (
                 <ViewsReauthState access={access} />
             )}

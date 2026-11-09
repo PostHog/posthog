@@ -58,6 +58,7 @@ export class LiveController<T> {
     private visible = false
     private foreground = true
     private backgroundStopped = false
+    private backgroundSince = 0
     private disposed = false
     private timer: ReturnType<typeof setTimeout> | null = null
     private graceTimer: ReturnType<typeof setTimeout> | null = null
@@ -97,21 +98,20 @@ export class LiveController<T> {
         }
         this.foreground = active
         if (!active) {
+            this.backgroundSince = Date.now()
             this.graceTimer = setTimeout(() => {
                 this.graceTimer = null
-                const wasRunning = this.running
-                this.backgroundStopped = true
-                this.stop()
-                if (wasRunning) {
-                    this.options.onEvent?.('background_stopped')
-                }
+                this.stopForBackground()
             }, this.options.graceMs)
             return
         }
         if (this.graceTimer !== null) {
             clearTimeout(this.graceTimer)
             this.graceTimer = null
-            return
+            if (Date.now() - this.backgroundSince < this.options.graceMs) {
+                return
+            }
+            this.stopForBackground()
         }
         if (this.backgroundStopped) {
             this.backgroundStopped = false
@@ -161,6 +161,15 @@ export class LiveController<T> {
         if (this.running) {
             this.activeSince = Date.now()
             void this.readNow()
+        }
+    }
+
+    private stopForBackground(): void {
+        const wasRunning = this.running
+        this.backgroundStopped = true
+        this.stop()
+        if (wasRunning) {
+            this.options.onEvent?.('background_stopped')
         }
     }
 

@@ -30,7 +30,8 @@ const CONCURRENCY = 2
 export type LiveQueryRunner = (
     key: LiveQueryKey,
     query: Record<string, unknown>,
-    signal: AbortSignal
+    signal: AbortSignal,
+    now: number
 ) => Promise<unknown>
 
 export interface LiveReadInput {
@@ -82,7 +83,7 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
     const keys: LiveQueryKey[] = input.countUsersOnline ? [...JOBS, 'usersOnline'] : [...JOBS]
     const options = { window: liveWindow(now), pathCleaning: input.pathCleaning }
     const settled = await settleInTurn(
-        keys.map((key) => () => run(key, liveQuery(key, options), signal)),
+        keys.map((key) => () => run(key, liveQuery(key, options), signal, now)),
         signal
     )
     const answers = new Map<LiveQueryKey, unknown>()
@@ -119,9 +120,9 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
                 (answer) => ranked(liveReferrerCounts(answer), previous.topReferrers),
                 previous.topReferrers
             ),
-            devices: part('device', (answer) => liveBreakdown(answer, 'devices', now), previous.devices),
-            browsers: part('browser', (answer) => liveBreakdown(answer, 'browsers', now), previous.browsers),
-            countries: part('geo', (answer) => liveBreakdown(answer, 'countries', now), previous.countries),
+            devices: part('device', (answer) => liveBreakdown(answer, 'devices'), previous.devices),
+            browsers: part('browser', (answer) => liveBreakdown(answer, 'browsers'), previous.browsers),
+            countries: part('geo', (answer) => liveBreakdown(answer, 'countries'), previous.countries),
             events: part('recentEvents', liveEvents, previous.events),
             usersOnline: part('usersOnline', liveUsersOnlineFromQuery, previous.usersOnline),
         },

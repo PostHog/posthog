@@ -11,10 +11,6 @@ import type {
     LiveRankedRow,
 } from '@/model/live'
 
-// Live query responses -> Live view models. The rules follow the web's `LiveMetricsSlidingWindow`: a visitor is new in
-// the first minute of the window that shows them and returning after that, breakdown counts are distinct ids, and top
-// lists rank by views.
-
 const MINUTE_MS = 60_000
 export const LIVE_MINUTES = 30
 export const LIVE_TOP_ROWS = 10
@@ -41,52 +37,26 @@ function textOf(value: unknown): string | null {
     return typeof value === 'number' ? String(value) : null
 }
 
-function minuteOf(value: unknown): number {
-    const at = typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : Number.NaN
-    return Number.isFinite(at) ? Math.floor(at / MINUTE_MS) * MINUTE_MS : Number.NaN
-}
-
 export function liveMinuteStarts(now: number): number[] {
     const current = Math.floor(now / MINUTE_MS) * MINUTE_MS
     return Array.from({ length: LIVE_MINUTES }, (_, index) => current - (LIVE_MINUTES - 1 - index) * MINUTE_MS)
 }
 
-/** The chart and the totals from the `usersPageviews` rows `[minute, distinct ids, pageviews]`. */
+/** Chart rows are [epoch milliseconds, visitors, first-time-in-window visitors, pageviews]. */
 export function liveActivity(response: unknown, now: number): LiveActivity {
-    const byMinute = new Map<number, { ids: string[]; pageviews: number }>()
-    for (const row of rowsOf(response)) {
-        const at = minuteOf(row[0])
-        if (!Number.isFinite(at)) {
-            continue
-        }
-        const ids = Array.isArray(row[1]) ? row[1].filter((id): id is string => typeof id === 'string') : []
-        const bucket = byMinute.get(at) ?? { ids: [], pageviews: 0 }
-        bucket.ids.push(...ids)
-        bucket.pageviews += numberOf(row[2])
-        byMinute.set(at, bucket)
-    }
-    const seen = new Set<string>()
+    const byMinute = new Map(rowsOf(response).map((row) => [numberOf(row[0]), row]))
+    let uniqueVisitors = 0
     let pageviews = 0
     const minutes = liveMinuteStarts(now).map((at): LiveMinute => {
-        const bucket = byMinute.get(at)
-        const ids = new Set(bucket?.ids ?? [])
-        let newUsers = 0
-        for (const id of ids) {
-            if (!seen.has(id)) {
-                newUsers += 1
-                seen.add(id)
-            }
-        }
-        pageviews += bucket?.pageviews ?? 0
-        return {
-            at,
-            users: ids.size,
-            newUsers,
-            returningUsers: ids.size - newUsers,
-            pageviews: bucket?.pageviews ?? 0,
-        }
+        const [, userCount, newCount, pageviewCount] = byMinute.get(at) ?? []
+        const users = numberOf(userCount)
+        const newUsers = numberOf(newCount)
+        const views = numberOf(pageviewCount)
+        uniqueVisitors += newUsers
+        pageviews += views
+        return { at, users, newUsers, returningUsers: users - newUsers, pageviews: views }
     })
-    return { minutes, uniqueVisitors: seen.size, pageviews }
+    return { minutes, uniqueVisitors, pageviews }
 }
 
 export function livePathCounts(response: unknown): Map<string, number> {
@@ -150,29 +120,12 @@ const STAT_LABELS: Record<LiveBreakdownKind, string> = {
     countries: 'unique visitors',
 }
 
-/**
- * Distinct ids per device type, browser or country from the `[minute, {value: ids}]` rows of the minutes on screen.
- * Browsers and countries keep their top six and add the rest up as "Other", which always comes last.
- */
-export function liveBreakdown(response: unknown, kind: LiveBreakdownKind, now: number): LiveBreakdown {
-    const minutes = new Set(liveMinuteStarts(now))
-    const ids = new Map<string, Set<string>>()
-    for (const row of rowsOf(response)) {
-        if (!minutes.has(minuteOf(row[0])) || !isRecord(row[1])) {
-            continue
-        }
-        for (const [value, list] of Object.entries(row[1])) {
-            const set = ids.get(value) ?? new Set<string>()
-            for (const id of Array.isArray(list) ? list : []) {
-                if (typeof id === 'string') {
-                    set.add(id)
-                }
-            }
-            ids.set(value, set)
-        }
-    }
-    const counted = [...ids.entries()]
-        .map(([key, set]) => ({ key, count: set.size }))
+/** Browsers and countries keep their top six and add the rest up as "Other", which always comes last. */
+export function liveBreakdown(response: unknown, kind: LiveBreakdownKind): LiveBreakdown {
+    const counts = rowsOf(response)[0]?.[0]
+    const counted = (Array.isArray(counts) ? counts : [])
+        .filter((entry): entry is [string, unknown] => Array.isArray(entry) && typeof entry[0] === 'string')
+        .map(([key, count]) => ({ key, count: numberOf(count) }))
         .filter((entry) => entry.count > 0)
         .sort((a, b) => b.count - a.count || (a.key < b.key ? -1 : 1))
     const total = counted.reduce((sum, entry) => sum + entry.count, 0)

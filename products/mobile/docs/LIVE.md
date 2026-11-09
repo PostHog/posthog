@@ -28,16 +28,19 @@ The HogQL text follows `loadQueryData` in `frontend/src/scenes/web-analytics/Liv
 
 | Job              | Query                                                                     | Card                           |
 | ---------------- | ------------------------------------------------------------------------- | ------------------------------ |
-| `usersPageviews` | Distinct ids and pageviews per minute                                     | Stats, Active users per minute |
+| `usersPageviews` | Visitor, new visitor and pageview counts per minute                       | Stats, Active users per minute |
 | `paths`          | `TrendsQuery`, `$pageview` by `$pathname`, minute interval, top 10        | Top pages                      |
 | `referrer`       | Pageviews per referring domain per minute, `$direct` when empty           | Top referrers                  |
-| `device`         | Distinct device ids per `$device_type` per minute                         | Devices                        |
-| `browser`        | Distinct device ids per `$browser` per minute                             | Browsers                       |
-| `geo`            | Distinct ids per `$geoip_country_code` per minute                         | Countries                      |
+| `device`         | Unique device counts by `$device_type` across the window                  | Devices                        |
+| `browser`        | Unique device counts by `$browser` across the window                      | Browsers                       |
+| `geo`            | Unique visitor counts by `$geoip_country_code` across the window          | Countries                      |
 | `recentEvents`   | The newest 50 events                                                      | Live events                    |
 | `usersOnline`    | `uniq(distinct_id)` over the last minute, only when the stats read is off | Users online                   |
 
-The window starts at the first of the 30 minutes on screen and ends one minute after now, so no partial minute counts in the totals.
+The window starts at the first of the 30 minutes on screen and ends one minute after now to allow for clock skew.
+The activity chart and breakdown queries stop at the end of the current minute so totals cover the displayed buckets.
+HogQL counts visitors by their first minute in the window and deduplicates across the full window for each breakdown category.
+These jobs return counts to the app.
 The events query selects `toUnixTimestamp64Milli(timestamp)` instead of the web's `toString(timestamp)`, which is wall-clock time in the project's time zone with no offset.
 The `usersPageviews` query leaves out the web's bot column, because Live has no bot cards.
 `paths` sets `breakdown_path_cleaning` when the project has path cleaning rules, as the web does.
