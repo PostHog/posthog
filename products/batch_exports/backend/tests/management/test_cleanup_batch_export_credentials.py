@@ -356,8 +356,8 @@ class TestCleanupBatchExportCredentials(BaseTest):
         self.assertEqual(counts, _outcomes("Redshift", cleaned=1, copy_integration_reused=2))
         stored_copy = self._config(export)["copy_inputs"]
         assert isinstance(stored_copy, dict)
-        self.assertEqual(stored_copy["bucket_credentials"], first.id)
-        self.assertEqual(stored_copy["authorization"], second.id)
+        self.assertEqual(int(stored_copy["bucket_credentials"]), first.id)
+        self.assertEqual(int(stored_copy["authorization"]), second.id)
 
     @parameterized.expand([("ciphertext", "gAAAAAfake-undecryptable-ciphertext"), ("invalid_json", "{not json")])
     def test_redshift_unreadable_copy_inputs_are_unresolved(self, _name: str, raw_copy_inputs: str) -> None:
