@@ -11,10 +11,14 @@ from django.db.models.functions import Coalesce
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+import structlog
+
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.metrics import observe_task_status_outside_transitions
 from products.tasks.backend.models import Task, TaskRun, TaskStatusChange
+
+logger = structlog.get_logger(__name__)
 
 TRANSITIONS: dict[str, frozenset[str]] = {
     Task.Status.QUEUED: frozenset({Task.Status.RUNNING, Task.Status.IDLE, Task.Status.DONE}),
@@ -231,11 +235,19 @@ def sync_task_status_on_run(
 
 
 def collect_status_mismatches(*, limit: int = 10_000) -> list[StatusMismatch]:
-    live_task_ids = Task.objects.filter(status__in=_LIVE_TASK_STATUSES).order_by().values_list("id", flat=True)
-    open_run_task_ids = (
-        TaskRun.objects.filter(status__in=_OPEN_RUN_STATUSES).order_by().values_list("task_id", flat=True).distinct()
+    live_task_ids = list(
+        Task.objects.filter(status__in=_LIVE_TASK_STATUSES).order_by().values_list("id", flat=True)[:limit]
     )
-    candidates = {*live_task_ids[:limit], *open_run_task_ids[:limit]}
+    open_run_task_ids = list(
+        TaskRun.objects.filter(status__in=_OPEN_RUN_STATUSES)
+        .exclude(status=TaskRun.Status.NOT_STARTED, scheduled_at__isnull=False)
+        .order_by()
+        .values_list("task_id", flat=True)
+        .distinct()[:limit]
+    )
+    if len(live_task_ids) == limit or len(open_run_task_ids) == limit:
+        logger.warning("task_status_shadow_scan_truncated", limit=limit)
+    candidates = {*live_task_ids, *open_run_task_ids}
     stored: dict[UUID, str | None] = {}
     for chunk in _chunks(candidates):
         stored.update(Task.objects.filter(id__in=chunk).values_list("id", "status"))
