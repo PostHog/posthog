@@ -24,7 +24,10 @@ from products.notebooks.backend.models import Notebook
 from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.scout_harness.tool_catalogue import get_scout_tool_catalogue
 from products.signals.backend.scout_harness.tool_policy import SANDBOX_HARNESS_OPERATIONS
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.models import Task
+
+SCOUT_PROFILE = get_task_profile("signals.scout")
 
 DISPATCH = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 NOTES_ONLY = ["conversations-tickets-notes-create"]
@@ -73,7 +76,7 @@ class TestScoutToolPolicyAPI(APIBaseTest):
                 team=self.team,
                 title="Synthetic scout run",
                 description="Synthetic scout run",
-                origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+                profile=SCOUT_PROFILE,
                 user_id=self.user.id,
                 mcp_builtin_agent_key="scout",
                 mcp_tool_allowlist=allowlist if isinstance(allowlist, list) else None,
@@ -164,7 +167,7 @@ class TestScoutToolPolicyAPI(APIBaseTest):
                     team=self.team,
                     title="Other scout",
                     description="Other scout",
-                    origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+                    profile=SCOUT_PROFILE,
                     user_id=self.user.id,
                 )
             other_run = other_task.latest_run

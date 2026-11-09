@@ -25,6 +25,17 @@ on both members, never on the ensemble alone: see the first gotcha below. For ba
 configs and a detector-selection guide, read the `anomaly-alerts`, `signals-alerts`, and
 `llma-alerts` skills (via `/phs`).
 
+**Never simulate the AI detector (`llm`).**
+Alerts can also use `llm`, the AI detector, and you will see it in `detector_config.type` on some teams' alerts.
+It is not a scorer for this scout, so never pass it to `alert-simulate`:
+
+- Each simulate call with it makes a real model call, charged to the project's AI credits.
+- It needs the `alert:write` scope, which this scout does not hold, and it has its own per-project throttles.
+- It judges only the latest point and returns no scores (every per-point score is null), so it cannot scan history or set a baseline.
+
+Keep scoring on the statistical detectors above.
+What an existing AI alert concluded is the insight-alerts scout's ground, not this one's.
+
 **Gotchas that will bite (all learned in production):**
 
 - **Every sub-detector inside an `ensemble` needs an explicit `window`.** A null window on a

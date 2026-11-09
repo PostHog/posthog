@@ -68,6 +68,7 @@ rules:
                               |AccountView
                               |Action
                               |ActionSelectorMatchChange
+                              |AEOBrand
                               |AEOCitationCheck
                               |AEOPrompt
                               |AEOPromptVersion
@@ -147,6 +148,7 @@ rules:
                               |DAG
                               |TodayHighlights
                               |TodayPulsePins
+                              |UserInterfaceFragment
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -511,6 +513,8 @@ rules:
                               |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
+                              |WarehouseMigration
+                              |WarehouseMigrationItem
                               |WarehouseSuggestion
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
@@ -667,6 +671,7 @@ rules:
                         |DAG
                         |TodayHighlights
                         |TodayPulsePins
+                        |UserInterfaceFragment
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
@@ -1020,6 +1025,8 @@ rules:
                         |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
+                        |WarehouseMigration
+                        |WarehouseMigrationItem
                         |WarehouseSuggestion
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
@@ -1420,6 +1427,7 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationIPRestrictions
                               |OrganizationEventsRetentionConfig
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
@@ -1503,6 +1511,7 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationIPRestrictions
                         |OrganizationEventsRetentionConfig
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration

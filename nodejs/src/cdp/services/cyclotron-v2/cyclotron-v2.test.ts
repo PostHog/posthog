@@ -10,8 +10,8 @@ import {
     serializeResolverState,
 } from '../hogflows/batch-resolver.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import { CyclotronV2Janitor, EMAIL_ATTACHMENTS_MAX_AGE_MS, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager } from './manager'
+import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
+import { CyclotronV2Manager, assignEmailDequeueSeq } from './manager'
 import {
     CYCLOTRON_COUNTER_MAX,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
@@ -1930,22 +1930,38 @@ describe('Cyclotron V2', () => {
                 expect(await readTeamCounter(teamId)).toBe(3n)
             })
 
-            it("starts a new team's counter at the existing max (Hatchet p_max_assigned)", async () => {
-                // Without this, a brand-new tenant's burst would slot in at
-                // counter=1 and cut ahead of every established team's
-                // in-flight emails. Hatchet's pattern: first-ever insert for
-                // a team starts at `MAX(counter) + 1` across the table, so
-                // they line up *next to* existing teams instead of jumping
-                // the queue. Subsequent emails for that team keep
-                // incrementing normally.
-                await manager.bulkCreateJobs([{ teamId: 1, queueName: EMAIL_QUEUE }])
-                await manager.bulkCreateJobs([{ teamId: 1, queueName: EMAIL_QUEUE }])
-                // Team 2's first ever email → counter = max(2) + 1 = 3, not 1.
-                await manager.bulkCreateJobs([{ teamId: 2, queueName: EMAIL_QUEUE }])
+            it.each([
+                [
+                    'bulkCreateJobs',
+                    async (teamId: number): Promise<void> => {
+                        await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
+                    },
+                ],
+                [
+                    'assignEmailDequeueSeq (reschedule into email)',
+                    async (teamId: number): Promise<void> => {
+                        await assignEmailDequeueSeq(assertPool, teamId)
+                    },
+                ],
+            ])(
+                "starts a new team's counter at the existing max (Hatchet p_max_assigned) via %s",
+                async (_path, assignOne) => {
+                    // Without this, a brand-new tenant's burst would slot in at
+                    // counter=1 and cut ahead of every established team's
+                    // in-flight emails. Hatchet's pattern: first-ever insert for
+                    // a team starts at `MAX(counter) + 1` across the table, so
+                    // they line up *next to* existing teams instead of jumping
+                    // the queue. Subsequent emails for that team keep
+                    // incrementing normally.
+                    await assignOne(1)
+                    await assignOne(1)
+                    // Team 2's first ever email → counter = max(2) + 1 = 3, not 1.
+                    await assignOne(2)
 
-                expect(await readTeamCounter(1)).toBe(2n)
-                expect(await readTeamCounter(2)).toBe(3n)
-            })
+                    expect(await readTeamCounter(1)).toBe(2n)
+                    expect(await readTeamCounter(2)).toBe(3n)
+                }
+            )
 
             it("doesn't let a new team's batch cut ahead of an established team's in-flight email", async () => {
                 // The inversion scenario the Hatchet pattern is designed to fix:
@@ -2827,74 +2843,6 @@ describe('Cyclotron V2', () => {
                 [expired, live],
             ])
             expect(remaining.rows.map((r) => r.id)).toEqual([live])
-
-            await janitor.stop()
-        })
-
-        it('sweeps email attachment rows past the max age and keeps rows of jobs that still wait', async () => {
-            const insertAttachment = async (id: string, createdAt: Date): Promise<void> => {
-                await assertPool.query(
-                    `INSERT INTO cyclotron_email_attachments
-                     (id, job_id, team_id, position, filename, content, size_bytes, sha256, created_at)
-                     VALUES ($1, $2, 1, 0, 'report.pdf', 'bytes', 5, 'digest', $3)`,
-                    [id, uuidv7(), createdAt]
-                )
-            }
-            const abandoned = uuidv7()
-            const waiting = uuidv7()
-            await insertAttachment(abandoned, new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS - 60_000))
-            await insertAttachment(waiting, new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS + 3_600_000))
-
-            const janitor = createJanitor()
-            await janitor.runOnce()
-
-            const remaining = await assertPool.query(
-                `SELECT id FROM cyclotron_email_attachments WHERE id = ANY($1::uuid[])`,
-                [[abandoned, waiting]]
-            )
-            expect(remaining.rows.map((r) => r.id)).toEqual([waiting])
-
-            await janitor.stop()
-        })
-
-        it('sweeps expired email attachment rows around a row another sweep holds locked', async () => {
-            const expiredAt = new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS - 60_000)
-            const locked = uuidv7()
-            const free = uuidv7()
-            for (const id of [locked, free]) {
-                await assertPool.query(
-                    `INSERT INTO cyclotron_email_attachments
-                     (id, job_id, team_id, position, filename, content, size_bytes, sha256, created_at)
-                     VALUES ($1, $2, 1, 0, 'report.pdf', 'bytes', 5, 'digest', $3)`,
-                    [id, uuidv7(), expiredAt]
-                )
-            }
-            const remainingRows = async (): Promise<string[]> =>
-                (
-                    await assertPool.query(`SELECT id FROM cyclotron_email_attachments WHERE id = ANY($1::uuid[])`, [
-                        [locked, free],
-                    ])
-                ).rows.map((r) => r.id)
-
-            const janitor = createJanitor()
-            const holder = await assertPool.connect()
-            try {
-                await holder.query('BEGIN')
-                await holder.query('SELECT id FROM cyclotron_email_attachments WHERE id = $1 FOR UPDATE', [locked])
-
-                let timer: NodeJS.Timeout | undefined
-                const blocked = new Promise<never>((_, reject) => {
-                    timer = setTimeout(() => reject(new Error('the sweep waited on the locked row')), 5_000)
-                })
-                await Promise.race([janitor.sweepEmailAttachments(), blocked]).finally(() => clearTimeout(timer))
-                expect(await remainingRows()).toEqual([locked])
-            } finally {
-                await holder.query('ROLLBACK')
-                holder.release()
-            }
-
-            await janitor.sweepEmailAttachments()
-            expect(await remainingRows()).toEqual([])
 
             await janitor.stop()
         })

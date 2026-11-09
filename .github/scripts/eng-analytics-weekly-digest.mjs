@@ -413,7 +413,7 @@ function buildBlocks(weekStart, weekEnd, rows, notes) {
         {
             type: 'table',
             column_settings: [{ align: 'left' }, { align: 'right' }, { align: 'right' }, { align: 'right' }],
-            rows: [[cell(''), cell('last week'), cell('week before'), cell('change')], ...rows],
+            rows: [[cell('metric'), cell('last week'), cell('week before'), cell('change')], ...rows],
         },
     ]
     for (const note of notes) {

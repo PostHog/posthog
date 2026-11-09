@@ -94,10 +94,9 @@ def schedule_source_issue_writeback(*, team_id: int, report_id: str, signals: li
     """Queue the GitHub writeback for a READY report's source issues.
 
     Scout reports skip research, so the inbox notification workflow that comments for a researched
-    report never runs for them. A source issue only gets a comment once the GitHub source ingested
-    it, which often happens after the scout filed the report, so grouping calls this again with the
-    issue's signal when that signal joins the report. The task re-checks the team opt-in and the
-    report status itself.
+    report never runs for them. Grouping also calls this with the issue's signal when that signal
+    joins the report, and the per-issue claim in the writeback keeps that from posting a second
+    comment. The task re-checks the team opt-in and the report status itself.
     """
     if not SignalReport.objects.filter(team_id=team_id, id=report_id, status=SignalReport.Status.READY).exists():
         return
