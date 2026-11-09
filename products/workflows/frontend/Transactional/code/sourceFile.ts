@@ -5,15 +5,15 @@ export interface SourceFile {
     host: SourceFileHost
     /** Empty on another host, where the path carries the whole link. */
     repo: string
+    /** On a code host, a branch can contain "/" and end up in here, so only the file name at the end is certain. */
     path: string
-    ref: string
 }
 
 const GITHUB_FILE = /^\/([^/]+\/[^/]+)\/blob\/([^/]+)\/(.+)$/
 // GitLab groups nest, so the repository is everything before the `/-/blob/` marker.
 const GITLAB_FILE = /^\/(.+?)\/-\/blob\/([^/]+)\/(.+)$/
 
-/** Reads the repository, path and ref out of a GitHub or GitLab file link. */
+/** Reads the repository and path out of a GitHub or GitLab file link. */
 export function parseSourceFile(url: string): SourceFile {
     const parsed = safeUrl(url)
     const host = parsed?.hostname.replace(/^www\./, '')
@@ -28,21 +28,15 @@ export function parseSourceFile(url: string): SourceFile {
             url,
             host: host === 'github.com' ? 'github' : 'gitlab',
             repo: match[1],
-            ref: safeDecode(match[2]),
             path: safeDecode(match[3]),
         }
     }
     const path = parsed ? `${parsed.hostname}${parsed.pathname}`.replace(/\/$/, '') : url
-    return { url, host: 'other', repo: '', path, ref: '' }
+    return { url, host: 'other', repo: '', path }
 }
 
 export function repoUrl(file: SourceFile): string | null {
     return file.host === 'other' ? null : `https://${file.host}.com/${file.repo}`
-}
-
-/** A commit SHA is shortened the way the code hosts show it. */
-export function displayRef(ref: string): string {
-    return /^[0-9a-f]{7,40}$/i.test(ref) ? ref.slice(0, 7) : ref
 }
 
 // A stray `%` in a file name is not an escape, so text that fails to decode is shown as it was typed.
