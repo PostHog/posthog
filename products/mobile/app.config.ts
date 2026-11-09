@@ -35,10 +35,18 @@ function googleServicesFile(projectRoot: string): string | undefined {
     return existsSync(join(projectRoot, 'google-services.json')) ? './google-services.json' : undefined
 }
 
-const ICONS: Record<AppVariant, { png: string; adaptive: string }> = {
-    development: { png: './assets/icon-dev.png', adaptive: './assets/adaptive-icon-dev.png' },
-    preview: { png: './assets/icon-preview.png', adaptive: './assets/adaptive-icon-preview.png' },
-    production: { png: './assets/icon.png', adaptive: './assets/adaptive-icon.png' },
+const ICONS: Record<AppVariant, { png: string; adaptive: string; ios: string }> = {
+    development: {
+        png: './assets/icon-dev.png',
+        adaptive: './assets/adaptive-icon-dev.png',
+        ios: './assets/app-dev.icon',
+    },
+    preview: {
+        png: './assets/icon-preview.png',
+        adaptive: './assets/adaptive-icon-preview.png',
+        ios: './assets/app-preview.icon',
+    },
+    production: { png: './assets/icon.png', adaptive: './assets/adaptive-icon.png', ios: './assets/app.icon' },
 }
 
 export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
@@ -64,9 +72,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         userInterfaceStyle: 'automatic',
         icon: icons.png,
         ios: {
-            // The Icon Composer bundle draws the iOS 26 layered icon and has no badged copy, so the internal
-            // variants use their PNG, which keeps their band visible on the home screen.
-            icon: variant === 'production' ? './assets/app.icon' : icons.png,
+            icon: icons.ios,
             bundleIdentifier: appId,
             // Local device builds sign automatically with this team; EAS builds carry their own credentials.
             appleTeamId: process.env.APPLE_TEAM_ID,

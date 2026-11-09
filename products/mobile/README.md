@@ -122,14 +122,17 @@ It does not compare newer patch metadata from a remote service.
 
 ## Assets
 
-The app icon, adaptive icon, favicon and the iOS 26 `app.icon` bundle are copies of the
-PostHog Desktop mobile host's logomark assets.
+The app icon, adaptive icon and favicon use the PostHog Desktop mobile host's logomark assets.
+The iOS `app.icon` bundle uses the transparent color logomark from MobileHog and the
+monochrome logomark from PostHog Desktop.
 `splash-icon.png` is the gradient logomark from [brand.posthog.com](https://brand.posthog.com/logo),
 rendered from `frontend/src/assets/posthog-icon.svg` with `rsvg-convert -w 1040`.
 The in-app logomark and landscape lockup (`src/ui/icons/PostHogLogomark.tsx`, `PostHogLogo.tsx`)
 are the same brand geometry ported to `react-native-svg`.
 `icon-dev.png`, `icon-preview.png` and their `adaptive-icon-*` copies add a DEV or PREVIEW band to the icon.
-Regenerate them after an icon change with `uv run --with pillow python scripts/make_variant_icons.py`.
+The iOS `app-dev.icon` and `app-preview.icon` bundles add the same bands as separate layers.
+Regenerate the variant icons after editing the production icons with
+`uv run --with pillow python scripts/make_variant_icons.py`.
 
 ## Docs
 
