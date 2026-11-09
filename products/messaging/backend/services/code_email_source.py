@@ -27,11 +27,9 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.integration.github import GitHubInstallationAccessFetchError
 from posthog.models.integration.github_code_search import (
-    CONTEXT_LINES,
     MAX_LITERAL_LENGTH,
     ExactCodeSearchResult,
     GitHubExactCodeSearch,
-    MatchedLine,
 )
 from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
@@ -75,9 +73,6 @@ _SKIPPED_FILE_NAME_SUFFIXES = ("_spec.rb",)
 _SEND_CALL = re.compile(
     r"emails\.send|emails\(\)(?:\.|->)send|Emails\(\)\.Send|Emails\.SendAsync|Emails\.send|send/email"
 )
-# The matched line must pass the key as the template key. Without this, a key used for something else near a
-# send call, such as a subject string beside a send of another key, links that other email's file.
-_TEMPLATE_KEY_ARGUMENT = re.compile(r"template[_-]?key", re.IGNORECASE)
 
 
 _UNTOUCHED = Q(source_url__isnull=True, source_origin__isnull=True)
@@ -103,17 +98,20 @@ class SourceDetection:
     candidate_files: int
 
 
-def rank_call_sites(results: Sequence[ExactCodeSearchResult], *, shed: bool) -> SourceDetection:
+def rank_call_sites(results: Sequence[ExactCodeSearchResult], key: str, *, shed: bool) -> SourceDetection:
     """Pick the one call site to link from each installation's search.
 
     ``shed`` is True when the egress budget refused an installation's search, so that installation has no result.
     """
+    # The matched line must pass the key as the template key's value. Without this, a key used for something else
+    # near or inside a send call, such as the subject of a send of another key, links that other email's file.
+    key_argument = re.compile(rf"""(?i:template[_-]?key)['"]?\s*(?::|=>|=)\s*['"`]{re.escape(key)}['"`]""")
     candidates = [match for result in results for match in result.matches if not _is_skipped_path(match.path)]
     call_sites = [
         CallSite(repository=match.repository, path=match.path, line=line.number)
         for match in candidates
         for line in match.lines
-        if _TEMPLATE_KEY_ARGUMENT.search(_matched_text(line)) and _SEND_CALL.search(line.context)
+        if key_argument.search(line.text) and _SEND_CALL.search(line.context)
     ]
     # The link names a file, so a key passed twice in one send block still has one source.
     if len({(site.repository, site.path) for site in call_sites}) > 1:
@@ -129,12 +127,6 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], *, shed: bool) -> 
         call_site=call_sites[0] if outcome == "linked" else None,
         candidate_files=len(candidates),
     )
-
-
-def _matched_text(line: MatchedLine) -> str:
-    # The context starts CONTEXT_LINES above the matched line, or at the file's first line when the match is nearer
-    # the top than that.
-    return line.context.split("\n")[min(line.number - 1, CONTEXT_LINES)]
 
 
 def _is_skipped_path(path: str) -> bool:
@@ -181,7 +173,7 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
             logger.warning("code_email_source_search_failed", team_id=team_id, error=str(error))
             results.append(ExactCodeSearchResult(matches=[], complete=False))
 
-    detection = rank_call_sites(results, shed=shed)
+    detection = rank_call_sites(results, key, shed=shed)
     if detection.call_site is not None:
         # A person may link or unlink the key while the search runs, and their choice wins.
         written = keys.filter(_UNTOUCHED, id=key_id, team_id=team_id).update(

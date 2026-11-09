@@ -23,49 +23,30 @@ from products.messaging.backend.services.code_email_source import CallSite, Sour
 from products.messaging.backend.tasks.tasks import detect_code_email_source_task
 
 
-def _match(path: str, context: str, *, repository: str = "acme/web", line: int = 12) -> ExactCodeMatch:
-    return ExactCodeMatch(repository=repository, path=path, lines=(MatchedLine(number=line, context=context),))
+def _match(path: str, sent: tuple[str, str], *, repository: str = "acme/web", line: int = 12) -> ExactCodeMatch:
+    text, context = sent
+    return ExactCodeMatch(
+        repository=repository, path=path, lines=(MatchedLine(number=line, text=text, context=context),)
+    )
 
 
-# Each context is the matched line on line 12 with the five lines before and after it, as the search builds it.
-_SDK_SEND = "\n".join(
-    [
-        "import { posthog } from './posthog'",
-        "",
-        "export async function sendWelcome(user: User): Promise<void> {",
-        "    const to = user.email",
-        "    await posthog.emails.send({",
-        "        template_key: 'welcome',",
-        "        to,",
-        "    })",
-        "}",
-    ]
+_SDK_SEND = (
+    "    template_key: 'welcome',",
+    "await posthog.emails.send({\n    template_key: 'welcome',\n    to: user.email,\n})",
 )
-_RAW_SEND = "\n".join(
-    [
-        "import requests",
-        "",
-        "",
-        "def send_welcome(host: str, project: int, to: str) -> None:",
-        "    url = f'{host}/api/projects/{project}/messaging/send/email/'",
-        "    requests.post(url, json={'template_key': 'welcome', 'to': to})",
-    ]
+_RAW_SEND = (
+    "requests.post(url, json={'template_key': 'welcome', 'to': to})",
+    "url = f'{host}/api/projects/{project}/messaging/send/email/'\n"
+    "requests.post(url, json={'template_key': 'welcome', 'to': to})",
 )
-_KEY_ONLY = "\n".join(["", "", "", "", "", "WELCOME_KEY = 'welcome'"])
-_SUBJECT_BESIDE_ANOTHER_SEND = "\n".join(
-    [
-        "export async function sendReceipt(user: User): Promise<void> {",
-        "    // The subject line the welcome email uses too",
-        "    const intro = t('emails.subject')",
-        "    const legacy = intro",
-        "    const total = user.cart.total",
-        "    const subject = 'welcome'",
-        "    await posthog.emails.send({",
-        "        template_key: 'receipt',",
-        "        to: user.email,",
-        "    })",
-        "}",
-    ]
+_KEY_ONLY = ("WELCOME_KEY = 'welcome'", "WELCOME_KEY = 'welcome'")
+_SUBJECT_BESIDE_ANOTHER_SEND = (
+    "const subject = 'welcome'",
+    "const subject = 'welcome'\nawait posthog.emails.send({\n    template_key: 'receipt',\n    subject,\n})",
+)
+_SUBJECT_IN_ANOTHER_SEND = (
+    "await posthog.emails.send({ template_key: 'receipt', subject: 'welcome' })",
+    "await posthog.emails.send({ template_key: 'receipt', subject: 'welcome' })",
 )
 
 
@@ -91,8 +72,8 @@ class TestRankCallSites(SimpleTestCase):
                                 repository="acme/web",
                                 path="src/emails/welcome.ts",
                                 lines=(
-                                    MatchedLine(number=12, context=_SDK_SEND),
-                                    MatchedLine(number=14, context=_SDK_SEND),
+                                    MatchedLine(number=12, text=_SDK_SEND[0], context=_SDK_SEND[1]),
+                                    MatchedLine(number=14, text=_SDK_SEND[0], context=_SDK_SEND[1]),
                                 ),
                             )
                         ],
@@ -128,6 +109,16 @@ class TestRankCallSites(SimpleTestCase):
                 [
                     ExactCodeSearchResult(
                         matches=[_match("src/emails/receipt.ts", _SUBJECT_BESIDE_ANOTHER_SEND)], complete=True
+                    )
+                ],
+                False,
+                SourceDetection(outcome="none", call_site=None, candidate_files=1),
+            ),
+            (
+                "key_in_a_send_of_another_key",
+                [
+                    ExactCodeSearchResult(
+                        matches=[_match("src/emails/receipt.ts", _SUBJECT_IN_ANOTHER_SEND)], complete=True
                     )
                 ],
                 False,
@@ -175,7 +166,23 @@ class TestRankCallSites(SimpleTestCase):
     def test_links_only_a_single_call_site_from_complete_searches(
         self, _name: str, results: list[ExactCodeSearchResult], shed: bool, expected: SourceDetection
     ) -> None:
-        assert rank_call_sites(results, shed=shed) == expected
+        assert rank_call_sites(results, "welcome", shed=shed) == expected
+
+    @parameterized.expand(
+        [
+            ("node", "    templateKey: 'welcome',", "await posthog.emails.send({"),
+            ("python", "    template_key='welcome',", "posthog.emails.send("),
+            ("json", '  "template_key": "welcome",', "curl -X POST $HOST/api/projects/1/messaging/send/email/"),
+            ("php", "    'template_key' => 'welcome',", "$posthog->emails()->send(["),
+            ("go", '    TemplateKey: "welcome",', "client.Emails().Send(ctx, posthog.SendEmailRequest{"),
+            ("dotnet", '    TemplateKey = "welcome",', "await posthog.Emails.SendAsync(new SendEmailRequest {"),
+            ("ruby_or_elixir", '  template_key: "welcome",', "PostHog.Emails.send("),
+        ]
+    )
+    def test_links_the_template_key_as_each_sdk_spells_it(self, _name: str, text: str, send_call: str) -> None:
+        results = [ExactCodeSearchResult(matches=[_match("src/mail", (text, f"{send_call}\n{text}"))], complete=True)]
+
+        assert rank_call_sites(results, "welcome", shed=False).outcome == "linked"
 
     def test_a_detected_link_opens_the_line_on_the_default_branch(self) -> None:
         call_site = CallSite(repository="acme/web", path="src/emails/welcome email.ts", line=12)
@@ -185,9 +192,6 @@ class TestRankCallSites(SimpleTestCase):
 
 _ONE_CALL_SITE = ExactCodeSearchResult(matches=[_match("src/emails/welcome.ts", _SDK_SEND)], complete=True)
 _NOTHING = ExactCodeSearchResult(matches=[], complete=True)
-
-
-BROKER_VISIBILITY_TIMEOUT_SECONDS = 3600
 
 
 @patch("products.messaging.backend.services.code_email_source.ph_scoped_capture")
@@ -281,7 +285,6 @@ class TestDetectCodeEmailSource(BaseTest):
         assert retry.call_args_list == (
             [((), {"args": (self.team.id, str(self.key.id), 2), "countdown": 3000})] if retried else []
         )
-        assert all(call.kwargs["countdown"] < BROKER_VISIBILITY_TIMEOUT_SECONDS for call in retry.call_args_list)
         self.key.refresh_from_db()
         assert self.key.source_url is None
 
