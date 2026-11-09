@@ -2799,6 +2799,7 @@ describe('CDP API', () => {
                     'transactional_email/send',
                     newsletterSend,
                     newsletterId,
+                    'to',
                 ],
                 [
                     'a code send to a recipient opted out of all marketing',
@@ -2806,6 +2807,7 @@ describe('CDP API', () => {
                     'transactional_email/send',
                     newsletterSend,
                     '$all',
+                    'to',
                 ],
                 [
                     'a marketing email to a recipient opted out of its category',
@@ -2813,15 +2815,27 @@ describe('CDP API', () => {
                     'transactional_email',
                     undefined,
                     newsletterId,
+                    'to',
                 ],
-            ] as const)('refuses %s', async (_desc, category, route, acceptedSend, optedOutOf) => {
+                [
+                    'a code send with a bcc recipient opted out of its category',
+                    'transactional',
+                    'transactional_email/send',
+                    newsletterSend,
+                    newsletterId,
+                    'bcc',
+                ],
+            ] as const)('refuses %s', async (_desc, category, route, acceptedSend, optedOutOf, field) => {
                 const flow = await insertHogFlow(transactionalFlow('api', 'active', category, newsletterId))
                 const refusedBefore = await outcomeCount('recipient_opted_out')
+                const optedOut = await recipientOptedOutOf(optedOutOf)
                 const keyed = {
                     ...body,
-                    to: await recipientOptedOutOf(optedOutOf),
+                    ...(field === 'to' && { to: optedOut }),
                     idempotency_key: `key-${new UUIDT().toString()}`,
-                    ...(acceptedSend && { send: acceptedSend }),
+                    ...(acceptedSend && {
+                        send: field === 'bcc' ? { ...acceptedSend, bcc: [optedOut] } : acceptedSend,
+                    }),
                 }
                 const headers = { Authorization: `Bearer ${tokenFor(route, team.id, flow.id)}` }
 

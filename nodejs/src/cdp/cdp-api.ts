@@ -1405,7 +1405,7 @@ export class CdpApi {
                         team.id,
                         hogFlow,
                         transactionalEmailRecipients(parsed.data),
-                        marketingStep && { to, categoryId: marketingStep.config.message_category_id || '$all' }
+                        marketingStep && (marketingStep.config.message_category_id || '$all')
                     )
                     if (refusal) {
                         if (idempotencyKey) {
@@ -1472,7 +1472,8 @@ export class CdpApi {
         teamId: number,
         hogFlow: HogFlow,
         recipients: string[],
-        marketing: { to: string; categoryId: string } | undefined
+        // The category a marketing send's recipients must not have opted out of. Undefined for a transactional send.
+        marketingCategoryId: string | undefined
     ): Promise<{ outcome: TransactionalEmailOutcome; status: number } | null> {
         if (hogFlow.status !== 'active') {
             return { outcome: 'not_sendable', status: 400 }
@@ -1483,12 +1484,16 @@ export class CdpApi {
         const suspension = this.teamWorkflowsConfigService.getEmailSendingSuspension(teamId)
         const suppressed = Promise.all(
             recipients.map((email) =>
-                this.emailSuppressionService.isKnownSuppressed(teamId, email, { transactional: !marketing })
+                this.emailSuppressionService.isKnownSuppressed(teamId, email, { transactional: !marketingCategoryId })
             )
         )
-        const optedOut = marketing
-            ? this.recipientPreferencesService.isOptedOut(teamId, marketing.to, marketing.categoryId)
-            : Promise.resolve(false)
+        const optedOut = Promise.all(
+            marketingCategoryId
+                ? recipients.map((email) =>
+                      this.recipientPreferencesService.isOptedOut(teamId, email, marketingCategoryId)
+                  )
+                : []
+        )
         const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
         // A DNS failure lets the send through.
         const recipientSkipReasons = Promise.all(
@@ -1509,7 +1514,7 @@ export class CdpApi {
         if ((await suppressed).some(Boolean)) {
             return { outcome: 'recipient_suppressed', status: 422 }
         }
-        if (await optedOut) {
+        if ((await optedOut).some(Boolean)) {
             return { outcome: 'recipient_opted_out', status: 422 }
         }
         if ((await quota).isLimited) {

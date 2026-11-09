@@ -3822,20 +3822,27 @@ if (not res.success) { throw Error(res.error) }`,
                     optedOutOf: '$all',
                     sent: false,
                 },
-            ])('$name', async ({ category, optedOutOf, sent }) => {
+                {
+                    name: 'skips a code send with a bcc recipient opted out of its category',
+                    category: newsletterId,
+                    optedOutOf: newsletterId,
+                    bcc: 'reader@example.com',
+                    sent: false,
+                },
+            ])('$name', async ({ category, optedOutOf, bcc, sent }) => {
                 await insertEmailSetup('ses')
                 if (optedOutOf) {
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,
                         `INSERT INTO posthog_messagerecipientpreference
                             (id, team_id, identifier, preferences, created_at, updated_at, deleted)
-                         VALUES (gen_random_uuid(), $1, 'recipient@example.com', $2, NOW(), NOW(), false)`,
-                        [team.id, JSON.stringify({ [optedOutOf]: 'OPTED_OUT' })],
+                         VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
+                        [team.id, bcc ?? 'recipient@example.com', JSON.stringify({ [optedOutOf]: 'OPTED_OUT' })],
                         'test-insert-opt-out'
                     )
                 }
                 const invocation = flowInvocation(codeSendFlow())
-                invocation.state.send = unsubscribeSend(category)
+                invocation.state.send = { ...unsubscribeSend(category), ...(bcc && { bcc: [bcc] }) }
 
                 const sesSend = await sendThrough(executor, invocation)
 
