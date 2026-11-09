@@ -724,6 +724,7 @@ class TestExecuteSessionActivities:
             result = execute_session_llm_judge_activity(
                 ExecuteSessionEvaluationInputs(
                     evaluation={
+                        "team_id": 1,
                         "evaluation_type": "llm_judge",
                         "evaluation_config": {"prompt": "Did the user accomplish their goal?"},
                         "output_type": "boolean",
