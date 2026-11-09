@@ -155,7 +155,7 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
             false,
             {
                 setSourceFormOpen: (_, { open }) => open,
-                updateCodeEmailSuccess: () => false,
+                updateCodeEmailSuccess: (state, { fields }) => ('source_url' in fields ? false : state),
             },
         ],
     }),
