@@ -128,9 +128,9 @@ from products.cdp.backend.presentation.serializers import (
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
+    reject_new_non_email_senders,
     require_viewer_access_to_added_actions,
 )
-from products.cdp.backend.validation import reject_new_non_email_senders
 from products.cohorts.backend.facade.api import get_cohort_ref
 from products.messaging.backend.facade.categories import MessageCategoryMissing, get_category
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer

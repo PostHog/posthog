@@ -5,6 +5,7 @@ from django.utils import timezone
 from celery import shared_task
 from structlog import get_logger
 
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.workflows.backend.models import SandboxSenderTenantState
@@ -17,6 +18,7 @@ MISSING_TENANT_STATUS = "UNKNOWN"
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
 def sync_sandbox_sender_tenant_state() -> None:
     """Mirror the sandbox sender's SES tenant status, so the sandbox worker can read it without calling SES."""
     tenant_name = settings.SES_SANDBOX_TENANT_NAME
