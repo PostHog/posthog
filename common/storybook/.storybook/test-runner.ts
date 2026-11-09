@@ -418,11 +418,10 @@ async function expectStoryToMatchSnapshot(
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
-        // Use 'hidden' instead of 'detached' because some elements (like toasts) may remain in DOM but be invisible
         // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
         // to account for slower CI environments while still catching stuck elements
         const timeout = context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
+        await waitForEveryLoaderHidden(page, timeout)
     }
 
     if (typeof waitForSelector === 'string') {
@@ -439,6 +438,48 @@ async function expectStoryToMatchSnapshot(
     }
     if (!skipDarkMode) {
         await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    }
+}
+
+/**
+ * Wait until no loader on the page is visible.
+ *
+ * `page.waitForSelector(..., { state: 'hidden' })` checks only the first element that matches, so a
+ * page with two loaders was captured while the second one still showed. This checks every match.
+ * "Visible" follows Playwright's definition: a non-empty box and no `visibility: hidden`, because
+ * some loaders (like toasts) stay in the DOM after they hide.
+ */
+async function waitForEveryLoaderHidden(page: Page, timeout: number): Promise<void> {
+    const selector = LOADER_SELECTORS.join(',')
+    try {
+        await page.waitForFunction(
+            (loaderSelector) =>
+                Array.from(document.querySelectorAll(loaderSelector)).every((element) => {
+                    const box = element.getBoundingClientRect()
+                    return box.width === 0 || box.height === 0 || getComputedStyle(element).visibility === 'hidden'
+                }),
+            selector,
+            { timeout }
+        )
+    } catch (error) {
+        const visibleLoaders = await page
+            .evaluate((loaderSelector) => {
+                return Array.from(document.querySelectorAll(loaderSelector))
+                    .filter((element) => {
+                        const box = element.getBoundingClientRect()
+                        return box.width > 0 && box.height > 0 && getComputedStyle(element).visibility !== 'hidden'
+                    })
+                    .map((element) => element.outerHTML.slice(0, 120))
+            }, selector)
+            .catch(() => [])
+        if (visibleLoaders.length === 0) {
+            throw error
+        }
+        throw new Error(
+            `A loader was still visible after ${timeout}ms. Mock the request it waits for, or set ` +
+                `testOptions.waitForLoadersToDisappear: false if the story shows it on purpose:\n` +
+                visibleLoaders.join('\n')
+        )
     }
 }
 
