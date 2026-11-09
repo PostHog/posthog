@@ -421,12 +421,15 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replayVision())
     })
 
-    it('sends a self-hosted install from a cloud-only scene to the Move to PostHog Cloud page', async () => {
+    it.each([
+        ['sends a self-hosted install to the Move to PostHog Cloud page', false, urls.moveToPostHogCloud()],
+        ['keeps a cloud install on the scene', true, urls.replayVision()],
+    ])('cloud-only scene: %s', async (_, cloud, expectedPath) => {
         await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-        preflightLogic.actions.loadPreflightSuccess({ ...preflightJson, is_debug: false } as any)
+        preflightLogic.actions.loadPreflightSuccess({ ...preflightJson, cloud, is_debug: false } as any)
         router.actions.push(urls.replayVision())
         await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.moveToPostHogCloud())
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPath)
     })
 
     // ?review=<report id> is a permanent public contract baked into GitHub PR comments, and saved
