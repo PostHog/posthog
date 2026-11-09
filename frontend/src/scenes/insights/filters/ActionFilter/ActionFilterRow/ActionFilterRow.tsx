@@ -10,7 +10,7 @@ import { useCallback, useEffect } from 'react'
 
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
-import { Badge, Button } from '@posthog/quill'
+import { Button } from '@posthog/quill'
 
 import { DefinitionView } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -537,8 +537,7 @@ export function ActionFilterRow({
     const propertyFiltersButton = quillSurface ? (
         <Button
             key="property-filter"
-            size="icon"
-            className="relative"
+            size={propertyFilterCount > 0 ? 'default' : 'icon'}
             aria-label={propertyFiltersLabel}
             tooltip={propertyFiltersLabel}
             aria-expanded={propertyFiltersVisible}
@@ -547,11 +546,7 @@ export function ActionFilterRow({
             onClick={togglePropertyFilters}
         >
             <IconFilter />
-            {propertyFilterCount > 0 && (
-                <Badge aria-hidden className="absolute top-0 right-0">
-                    {propertyFilterCount}
-                </Badge>
-            )}
+            {propertyFilterCount > 0 && <span aria-hidden>{propertyFilterCount}</span>}
         </Button>
     ) : (
         <IconWithCount key="property-filter" count={propertyFilterCount} showZero={false}>
