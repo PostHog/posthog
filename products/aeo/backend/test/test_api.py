@@ -877,6 +877,51 @@ class TestAEOPromptAPI(APIBaseTest):
         competitors = self.client.get(f"{url}?kind=competitor").json()["results"]
         assert [brand["domain"] for brand in competitors] == ["amplitude.com"]
 
+    @parameterized.expand(
+        [
+            (
+                "url_becomes_registrable_domain",
+                {"domain": "https://Docs.Example.com/pricing", "kind": "own", "aliases": [" Example ", "Example"]},
+                status.HTTP_201_CREATED,
+                {"domain": "example.com", "name": "Example", "kind": "own", "aliases": ["Example"]},
+            ),
+            (
+                "bare_host_with_a_name",
+                {"domain": "rival.example.org", "kind": "competitor", "name": "Rival"},
+                status.HTTP_201_CREATED,
+                {"domain": "example.org", "name": "Rival", "kind": "competitor", "aliases": []},
+            ),
+            ("invalid_domain", {"domain": "not a domain", "kind": "own"}, status.HTTP_400_BAD_REQUEST, None),
+            ("missing_kind", {"domain": "example.com"}, status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    def test_brands_create(self, _name: str, body: dict, expected_status: int, expected: dict | None) -> None:
+        self._brand(self.team, "example.net")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        self._brand(other_team, "example.com")
+        self._brand(other_team, "example.org")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/aeo_brands/", body, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected is None:
+            assert AEOBrand.objects.for_team(self.team.id).count() == 1
+            return
+        brand = response.json()
+        assert {key: brand[key] for key in expected} == expected
+        assert (brand["status"], brand["source"]) == ("confirmed", "manual")
+        assert AEOBrand.objects.for_team(other_team.id).count() == 2
+
+    def test_brands_create_rejects_a_known_domain_with_a_pointer_to_update(self) -> None:
+        self._brand(self.team, "example.com")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/aeo_brands/", {"domain": "example.com", "kind": "own"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Update the existing brand" in json.dumps(response.json())
+
     @parameterized.expand([("get", None), ("patch", {"status": "ignored"})])
     def test_another_teams_brand_is_not_found(self, method: str, body: dict | None) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")

@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AEOBrandApi,
+    AEOBrandCreateRequestApi,
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
@@ -139,6 +140,27 @@ export const aeoBrandsList = async (
     return apiMutator<PaginatedAEOBrandListApi>(getAeoBrandsListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAeoBrandsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_brands/`
+}
+
+/**
+ * Adds a brand to the project's brand catalog by domain, confirmed. Add the project's own site with kind 'own' before the first daily run: only own brands count as the project in citations and mentions, and the run skips a project without one. Returns 400 when the catalog already has the domain; update that brand instead.
+ * @summary Add an AEO brand
+ */
+export const aeoBrandsCreate = async (
+    projectId: string,
+    aEOBrandCreateRequestApi: AEOBrandCreateRequestApi,
+    options?: RequestInit
+): Promise<AEOBrandApi> => {
+    return apiMutator<AEOBrandApi>(getAeoBrandsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOBrandCreateRequestApi),
     })
 }
 

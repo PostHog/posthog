@@ -388,6 +388,16 @@ class BrandUpdate:
 
 
 @frozen
+class BrandCreate:
+    """A brand a person adds to the catalog. `domain` may be a URL or a host; it is stored as its registrable domain."""
+
+    domain: str
+    kind: BrandKind
+    name: str | None = None
+    aliases: tuple[str, ...] = ()
+
+
+@frozen
 class BrandSyncResult:
     domains: int
     created: int
@@ -395,6 +405,10 @@ class BrandSyncResult:
 
 class BrandNotFoundError(Exception):
     pass
+
+
+class BrandCreateError(Exception):
+    """The brand cannot be added. The message is safe to show the user."""
 
 
 class PromptUpdateError(Exception):

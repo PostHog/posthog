@@ -91,6 +91,32 @@ export interface PaginatedAEOBrandListApi {
     results: AEOBrandApi[]
 }
 
+export interface AEOBrandCreateRequestApi {
+    /**
+     * The brand's domain or a URL on it, for example 'example.com'. Stored as its registrable domain, so citations on its subdomains count for the brand.
+     * @maxLength 253
+     */
+    domain: string
+    /**
+     * Brand name as people say it. Guessed from the domain when empty.
+     * @maxLength 200
+     */
+    name?: string
+    /** What the brand is to the project: 'own' (the project's site, counted as us in citations), 'competitor', 'publisher' or 'unknown'.
+     *
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown */
+    kind: BrandKindEnumApi
+    /**
+     * Other names for the brand, used to find it in answer text. Names are trimmed, and repeated names are dropped.
+     * @maxItems 20
+     * @items.maxLength 200
+     */
+    aliases?: string[]
+}
+
 export interface PatchedAEOBrandUpdateRequestApi {
     /**
      * Brand name as people say it.

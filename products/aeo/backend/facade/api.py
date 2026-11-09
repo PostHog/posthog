@@ -30,6 +30,8 @@ from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_
 from products.aeo.backend.facade.contracts import (
     PROMPT_TOPIC_MAX_LENGTH,
     Brand,
+    BrandCreate,
+    BrandCreateError,
     BrandKind,
     BrandNotFoundError,
     BrandSource,
@@ -619,6 +621,33 @@ def get_brand(team_id: int, brand_id: str) -> Brand:
     return _to_brand(_get_brand_row(team_id, brand_id))
 
 
+def create_brand(team_id: int, new: BrandCreate) -> Brand:
+    raw = new.domain.strip()
+    domain = catalog.registrable_domain(raw if "//" in raw else f"//{raw}")
+    if domain is None:
+        raise BrandCreateError(f"'{new.domain}' is not a valid domain. Use a domain such as example.com.")
+    duplicate = BrandCreateError(
+        f"The catalog already has {domain}. Update the existing brand instead of adding it again."
+    )
+    if AEOBrand.objects.for_team(team_id).filter(domain=domain).exists():
+        raise duplicate
+    try:
+        # A savepoint, so a concurrent add of the same domain surfaces as a duplicate, not a broken transaction.
+        with transaction.atomic():
+            brand = AEOBrand.objects.for_team(team_id).create(
+                team_id=resolve_effective_team_id(team_id),
+                name=new.name or catalog.placeholder_name(domain),
+                domain=domain,
+                kind=new.kind,
+                status=BrandStatus.CONFIRMED,
+                source=BrandSource.MANUAL,
+                aliases=_clean_aliases(new.aliases),
+            )
+    except IntegrityError as error:
+        raise duplicate from error
+    return _to_brand(brand)
+
+
 def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
     brand = _get_brand_row(team_id, brand_id)
     # Only the fields sent are written, so two people editing different fields do not undo each other.
@@ -633,12 +662,16 @@ def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
         brand.status = change.status
         changed.append("status")
     if change.aliases is not None:
-        # Order kept and duplicates dropped, so the mention regex gets each name once.
-        brand.aliases = list(dict.fromkeys(alias.strip() for alias in change.aliases if alias.strip()))
+        brand.aliases = _clean_aliases(change.aliases)
         changed.append("aliases")
     if changed:
         brand.save(update_fields=[*changed, "updated_at"])
     return _to_brand(brand)
+
+
+def _clean_aliases(aliases: tuple[str, ...]) -> list[str]:
+    # Order kept and duplicates dropped, so the mention regex gets each name once.
+    return list(dict.fromkeys(alias.strip() for alias in aliases if alias.strip()))
 
 
 def _get_brand_row(team_id: int, brand_id: str) -> AEOBrand:
