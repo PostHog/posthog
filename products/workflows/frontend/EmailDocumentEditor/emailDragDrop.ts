@@ -78,7 +78,8 @@ export function trackDrag(
 ): void {
     canvasOf(editor)?.classList.add(DRAGGING_CLASS)
     if (sourcePos !== null) {
-        setDragSource(editor, sourcePos)
+        // After the browser has taken its picture of the block, so the picture isn't dimmed too.
+        window.setTimeout(() => setDragSource(editor, sourcePos))
     }
     const end = (event: DragEvent): void => {
         window.removeEventListener('drop', end, true)

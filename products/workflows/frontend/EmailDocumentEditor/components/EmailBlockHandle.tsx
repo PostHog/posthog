@@ -104,9 +104,10 @@ export function EmailBlockHandle({
             return
         }
         const { view, state } = editor
-        const selection = NodeSelection.create(state.doc, block.pos)
-        view.dispatch(state.tr.setSelection(selection))
-        const slice = selection.content()
+        // Carried on the drag rather than selected, because selecting focuses the editor and that cancels a drag
+        // started before anyone has clicked into it.
+        const node = NodeSelection.create(state.doc, block.pos)
+        const slice = node.content()
         const { dom, text } = view.serializeForClipboard(slice)
         event.dataTransfer.clearData()
         event.dataTransfer.setData('text/html', dom.innerHTML)
@@ -117,7 +118,7 @@ export function EmailBlockHandle({
             const rect = blockDom.getBoundingClientRect()
             event.dataTransfer.setDragImage(blockDom, 0, Math.min(Math.max(event.clientY - rect.top, 0), rect.height))
         }
-        view.dragging = { slice, move: true }
+        view.dragging = { slice, move: true, node }
         trackDrag(editor, slice, block.pos)
     }
 
