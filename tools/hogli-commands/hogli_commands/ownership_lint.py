@@ -123,7 +123,7 @@ def check_test_owners(scope: Scope) -> Outcome:
     if not problems:
         return "pass", "every new test has a team owner"
     detail = " · ".join(problems[:3]) + (f" · and {len(problems) - 3} more" if len(problems) > 3 else "")
-    # Warn only: the baseline scan covers the whole tree, so a gap left on master would block every push.
+    # This only warns, because the baseline scan covers the whole tree and a gap left on master would block every push.
     return "warning", detail
 
 

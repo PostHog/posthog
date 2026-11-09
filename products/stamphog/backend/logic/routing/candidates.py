@@ -228,11 +228,11 @@ def find_candidates(files: Sequence[ChangedFile], resolutions: Mapping[str, Reso
 
     `resolutions` maps each path from `paths_to_resolve` to its resolution against the base tree.
 
-    A team owns a test so that the test's failures and flakes reach it, not so that it reviews every
-    change to the test. A test file therefore only adds to the part of an owner that a non-test file
-    already made a candidate. When no non-test file made any owner a candidate, as in a change of only
-    tests, the tests' owners become candidates so the change still reaches a reviewer. The owners of a
-    sensitive path and of an `additions` declaration are pinned either way.
+    A team owns a test so that the test's failures and flakes reach the team, not so that the team
+    reviews every change to the test. A test file therefore only adds to the part of an owner that a
+    non-test file already made a candidate. If no non-test file made any owner a candidate, for example
+    in a change of only tests, the owners of the test files become candidates, so the change still gets
+    a reviewer. `_collect_sensitive` and `_collect_additions` pin their owners in both cases.
     """
     collector = _CandidateCollector()
     tests = [file for file in files if runner_for_path(file.path) is not None]

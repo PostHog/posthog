@@ -203,7 +203,8 @@ function isGeneratedOrVendored(filename, resolution) {
     )
 }
 
-// Test files follow the rule in `find_candidates` in products/stamphog/backend/logic/routing/candidates.py.
+// computeOwnerFootprints applies the test-file rule from `find_candidates` in
+// products/stamphog/backend/logic/routing/candidates.py.
 // Keep in step with runner_for_path in packages/owners-yaml/owners_yaml/census.py.
 const TEST_FILE = /(^|\/)test_[^/]*\.py$|_test\.py$|\.(test|spec)\.[jt]sx?$/
 
