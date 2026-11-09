@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 import requests
@@ -19,7 +20,11 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 
 from products.access_control.backend.facade.testing import create_access_control
-from products.messaging.backend.presentation.views.attachment_uploads import AttachmentUploadsRequestSerializer
+from products.messaging.backend.presentation.views.attachment_uploads import (
+    AttachmentUploadsRequestSerializer,
+    AttachmentUploadTeamBurstThrottle,
+)
+from products.messaging.backend.presentation.views.message_templates import TransactionalEmailTeamBurstThrottle
 
 INVOICE = "a" * 64
 LOGO = "b" * 64
@@ -213,6 +218,19 @@ class TestAttachmentUploads(APIBaseTest):
             (properties["outcome"], properties["error_code"], properties["file_count"], properties["requested_bytes"])
             for properties in self._reported(capture)
         ] == [("rejected", code, file_count, requested_bytes)]
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", new=lambda _ttl: True)
+    @patch.object(TransactionalEmailTeamBurstThrottle, "rate", "0/minute")
+    @patch.object(AttachmentUploadTeamBurstThrottle, "rate", "1/minute")
+    def test_limits_uploads_apart_from_sends(self, mock_post, _flag, _capture):
+        cache.clear()
+        mock_post.configure_mock(**_cdp_answers(200, {"files": [UPLOAD_INVOICE, PRESENT_LOGO]}))
+
+        client = self._psak_client(["transactional_email:write"])
+
+        statuses = [client.post(self.url, TWO_FILES, format="json").status_code for _ in range(2)]
+
+        assert statuses == [status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
 
     def test_refuses_a_body_over_the_request_cap(self, mock_post, _flag, capture):
         response = self._upload({"files": [{"sha256": "a" * (settings.DATA_UPLOAD_MAX_MEMORY_SIZE + 1), "size": 1}]})
