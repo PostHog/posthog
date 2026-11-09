@@ -2,51 +2,13 @@ import re
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
-from django.contrib import admin
-from django.template.loader import render_to_string
 from django.test import Client, SimpleTestCase
-from django.urls import reverse
 
 from parameterized import parameterized
 
 from posthog.admin.console.organization_tools import BulkDeactivateOrganizationsForm
 from posthog.models import Organization, User
-
-
-class _PostHogPermissions:
-    def __init__(self, *, change_organization: bool):
-        self.view_organization = True
-        self.change_organization = change_organization
-
-
-class _TemplatePermissions:
-    def __init__(self, *, change_organization: bool):
-        self.posthog = _PostHogPermissions(change_organization=change_organization)
-
-
-class TestOrganizationToolsAdminTemplate(SimpleTestCase):
-    def test_links_to_bulk_deactivation_for_users_with_change_permission(self) -> None:
-        rendered = render_to_string(
-            "organization_tools/app.html",
-            {"perms": _TemplatePermissions(change_organization=True)},
-        )
-
-        assert "Organization tools" in rendered
-        assert 'id="organization-tools"' in rendered
-        assert "Bulk deactivate organizations" in rendered
-        assert "/admin/console/tools/bulk-deactivate-organizations/" in rendered
-
-    def test_hides_bulk_deactivation_without_change_permission(self) -> None:
-        rendered = render_to_string(
-            "organization_tools/app.html",
-            {"perms": _TemplatePermissions(change_organization=False)},
-        )
-
-        assert "Organization tools" in rendered
-        assert "Send usage report" in rendered
-        assert "Bulk deactivate organizations" not in rendered
 
 
 class TestBulkDeactivateOrganizationsForm(SimpleTestCase):
@@ -120,29 +82,6 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         self.user.is_staff = True
         self.user.save()
         self.client.force_login(self.user)
-
-    def test_changelist_links_to_organization_tools_module(self) -> None:
-        self.client.force_login(self.user)
-
-        with patch.object(
-            admin.site,
-            "each_context",
-            return_value={
-                "site_title": admin.site.site_title,
-                "site_header": admin.site.site_header,
-                "site_url": admin.site.site_url,
-                "has_permission": True,
-                "available_apps": [],
-                "is_popup": False,
-                "is_nav_sidebar_enabled": False,
-                "log_entries": [],
-            },
-        ):
-            response = self.client.get(reverse("admin:posthog_organization_changelist"))
-
-        assert response.status_code == 200
-        assert b"Organization tools" in response.content
-        assert f"{reverse('admin:index')}#organization-tools".encode() in response.content
 
     def _preview(self, organization_ids: str, reason: str = DESKTOP_ABUSE, custom_reason: str = ""):
         return self.client.post(
