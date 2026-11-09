@@ -536,6 +536,12 @@ class WorkloadTrustPolicyRequestSustainedThrottle(_WorkloadTrustPolicyRequestThr
     rate = "30/day"
 
 
+# Each lookup calls the workload provider's API, often on a budget shared with the team's integration.
+class WorkloadSubjectLookupThrottle(UserRateThrottle):
+    scope = "workload_subject_lookup"
+    rate = "30/minute"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project

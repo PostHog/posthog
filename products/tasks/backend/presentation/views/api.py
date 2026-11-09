@@ -2,6 +2,7 @@ import os
 import re
 import json
 import asyncio
+import dataclasses
 from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from time import perf_counter
@@ -1669,13 +1670,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result.error is not None:
             return self._task_error_response(result.error)
-        if (
-            not result.run_error
-            and result.run_id is not None
-            and request.headers.get("X-PostHog-Client-Platform") == "mobile"
-        ):
-            tasks_facade.record_task_mobile_pickup(task_id=str(pk), team_id=self.team_id, user_id=self._user_id())
-        response_data = TaskSerializer(result.task).data
+        task = result.task
+        if not result.run_error and result.run_id is not None:
+            if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+                tasks_facade.record_task_mobile_pickup(task_id=str(pk), team_id=self.team_id, user_id=self._user_id())
+            if request.validated_data.get("pending_user_message") or request.validated_data.get(
+                "pending_user_artifact_ids"
+            ):
+                client = get_task_client_provenance(request)
+                recorded_at = tasks_facade.record_task_client(task_id=str(pk), team_id=self.team_id, client=client)
+                if task is not None and recorded_at is not None:
+                    task = dataclasses.replace(task, last_client=client, last_client_at=recorded_at)
+        response_data = TaskSerializer(task).data
         if result.run_error:
             response_data["run_error"] = result.run_error
         response_data["run"] = self._created_run_payload(result, response_data, task_id=pk)
@@ -3853,8 +3859,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_409_CONFLICT,
                 )
 
-            if request.headers.get("X-PostHog-Client-Platform") == "mobile":
-                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+            self._record_person_turn(request, task_id)
 
             # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
             # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
@@ -4010,12 +4015,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tasks_facade.capture_relay_command_telemetry(
                 pk, task_id, self.team_id, method=method, params=params, success=success
             )
-            if (
-                success
-                and method == "permission_response"
-                and request.headers.get("X-PostHog-Client-Platform") == "mobile"
+            if (success and method == "permission_response") or (
+                agent_response.ok and self._is_pi_person_answer(method, params, response_data)
             ):
-                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+                self._record_person_turn(request, task_id)
             if agent_response.ok:
                 tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
                 return Response(response_data)
@@ -4071,6 +4074,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+    @staticmethod
+    def _is_pi_person_answer(method: str, params: object, response_data: object) -> bool:
+        command = params.get("command") if method == "pi/rpc" and isinstance(params, dict) else None
+        if not isinstance(command, dict) or not isinstance(response_data, dict) or "error" in response_data:
+            return False
+        if command.get("type") == "mcp_permission_response":
+            return True
+        return command.get("type") == "extension_ui_response" and ("confirmed" in command or "value" in command)
+
+    def _record_person_turn(self, request: Request, task_id: str) -> None:
+        if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+            tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+        tasks_facade.record_task_client(
+            task_id=task_id, team_id=self.team_id, client=get_task_client_provenance(request)
+        )
 
     @staticmethod
     def _is_valid_sandbox_url(url: str) -> bool:

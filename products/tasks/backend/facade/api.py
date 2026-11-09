@@ -191,6 +191,7 @@ from products.tasks.backend.models import (
     Task,
     TaskActivity,
     TaskArtifact,
+    TaskClient,
     TaskClientProvenance,
     TaskCommentActivity,
     TaskOwnershipChangedError,
@@ -1128,6 +1129,8 @@ def _task_detail_to_dto(
         slack_thread_references=_task_slack_thread_references(task),
         origin_key=None if task.is_scout_experiment else task.stored_idempotency_key,
         client_provenance=task.client_provenance,
+        last_client=task.last_client,
+        last_client_at=task.last_client_at,
     )
 
 
@@ -8139,6 +8142,8 @@ def create_task(
 
     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
+        implementation_access_instruction,
+        implementation_access_repositories,
         is_pull_request_run_request,
         record_report_task,
     )
@@ -8343,6 +8348,10 @@ def create_task(
             if channel is not None and warm_task.channel_id != channel.id:
                 warm_task.channel = channel
                 update_fields.append("channel")
+            if client_provenance is not None:
+                warm_task.last_client = client_provenance
+                warm_task.last_client_at = django_timezone.now()
+                update_fields += ["last_client", "last_client_at"]
             if update_fields:
                 warm_task.save(update_fields=[*update_fields, "updated_at"])
             if should_set_client_provenance:
@@ -8511,6 +8520,16 @@ def create_task(
                     }
                 )
             validated_data["github_integration"] = pilot_integration
+
+    if signal_report_id and signal_report_task_relationship in (None, "implementation"):
+        if repository := validated_data.get("repository"):
+            # Tells the agent about the repositories `run_task` adds to its token, as auto-start does.
+            validated_data["description"] = (validated_data.get("description") or "") + (
+                implementation_access_instruction(
+                    repository=repository,
+                    access_repositories=implementation_access_repositories(team_id=team_id, repository=repository),
+                )
+            )
 
     if report_ref:
         validated_data["source_kind"] = SourceKind.SIGNAL_REPORT.value
@@ -9876,6 +9895,7 @@ def run_task(
     """
     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
+        implementation_access_repositories,
         is_report_implementation_task,
     )
     from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
@@ -10270,6 +10290,15 @@ def run_task(
         run_state_values.pop("provider")
     extra_state = extra_state or {}
     extra_state["pr_base_branch"] = branch
+    # Auto-start stamps the project's extra repositories at task creation. A task started from the
+    # inbox gets them here, because the key is PATCH-protected and a client cannot send it.
+    if is_implementation and task.repository and "github_access_repositories" not in extra_state:
+        access_repositories = implementation_access_repositories(team_id=team_id, repository=task.repository)
+        if access_repositories:
+            cloned_repositories = [name.lower() for name in (task.repositories or [task.repository])]
+            extra_state["github_access_repositories"] = list(
+                dict.fromkeys([*cloned_repositories, *access_repositories])
+            )
     for key, value in run_state_values.items():
         if value is not None:
             extra_state[key] = value.value if hasattr(value, "value") else value
@@ -12993,6 +13022,20 @@ def is_current_task_run_actor(team_id: int, run_id: UUID, user_id: int) -> bool:
     run = TaskRun.objects.select_related("task__created_by", "team__organization").get(id=run_id, team_id=team_id)
     actor = get_task_run_actor_user(run.task, run.state, allow_task_creator_fallback=False)
     return actor is not None and actor.id == user_id and user_has_current_team_access(actor, run.team)
+
+
+def record_task_client(
+    *, task_id: str, team_id: int, client: TaskClient | TaskClientProvenance | None
+) -> datetime | None:
+    if client is None:
+        return None
+    recorded_at = django_timezone.now()
+    try:
+        Task.objects.filter(id=task_id, team_id=team_id).update(last_client=client, last_client_at=recorded_at)
+    except Exception:
+        logger.warning("Failed to record the last client for task %s", task_id, exc_info=True)
+        return None
+    return recorded_at
 
 
 def record_task_mobile_pickup(*, task_id: str, team_id: int, user_id: int | None) -> None:
