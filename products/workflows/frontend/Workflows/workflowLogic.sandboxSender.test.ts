@@ -1,4 +1,8 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -57,18 +61,24 @@ const sandboxStatus = (overrides: Record<string, unknown> = {}): Record<string, 
 
 describe('workflowLogic first-run email sender', () => {
     let provisionCalls = 0
+    let sandboxTeamIds: string[] = []
 
     function useSenderMocks(integrations: unknown[], status: Record<string, unknown>, provisionStatus = 200): void {
         provisionCalls = 0
+        sandboxTeamIds = []
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flow_templates/:id/': template,
                 '/api/environments/:team_id/integrations/': { results: integrations },
-                '/api/projects/:team_id/workflow_email_sandbox/status/': status,
+                '/api/projects/:team_id/workflow_email_sandbox/status/': (req: any) => {
+                    sandboxTeamIds.push(String(req.params.team_id))
+                    return [200, status]
+                },
             },
             post: {
-                '/api/projects/:team_id/workflow_email_sandbox/provision/': () => {
+                '/api/projects/:team_id/workflow_email_sandbox/provision/': (req: any) => {
                     provisionCalls += 1
+                    sandboxTeamIds.push(String(req.params.team_id))
                     return provisionStatus === 200
                         ? [200, { integration_id: 11 }]
                         : [provisionStatus, { detail: "This organization can't use the sandbox sender." }]
@@ -77,8 +87,11 @@ describe('workflowLogic first-run email sender', () => {
         })
     }
 
-    async function openTemplate(): Promise<HogFlowAction | undefined> {
+    async function openTemplate(environmentId?: number): Promise<HogFlowAction | undefined> {
         initKeaTests()
+        if (environmentId) {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: environmentId })
+        }
         const logic = workflowLogic({ id: 'new', templateId: template.id })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
@@ -112,6 +125,16 @@ describe('workflowLogic first-run email sender', () => {
             html: '<p>Hello</p>',
         })
         expect(provisionCalls).toEqual(expectedProvisions)
+    })
+
+    it('sets up the sandbox sender in the selected environment rather than its project', async () => {
+        const environmentId = MOCK_DEFAULT_TEAM.id + 1
+        useSenderMocks([], sandboxStatus({ integration_id: null }))
+
+        const email = await openTemplate(environmentId)
+
+        expect(email?.type).toEqual('email_sandbox')
+        expect(sandboxTeamIds).toEqual([String(environmentId), String(environmentId)])
     })
 
     it.each([
