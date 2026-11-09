@@ -4643,9 +4643,15 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-def _work_focus_click(
-    payload: dict, action_id: str
-) -> tuple[WorkspaceIntegration, User, WorkFocusChoice, dict[str, Any]] | None:
+@frozen
+class _WorkFocusClick:
+    integration: WorkspaceIntegration
+    posthog_user: User
+    choice: WorkFocusChoice
+    action: dict[str, Any]
+
+
+def _work_focus_click(payload: dict, action_id: str) -> _WorkFocusClick | None:
     """The integration, clicker and choice behind a work focus button, or None when the click must do nothing."""
     slack_team_id = payload.get("team", {}).get("id", "")
     slack_user_id = payload.get("user", {}).get("id", "")
@@ -4666,7 +4672,7 @@ def _work_focus_click(
             "Ask an admin of your PostHog organization for access.",
         )
         return None
-    return integration, posthog_user, choice, action
+    return _WorkFocusClick(integration=integration, posthog_user=posthog_user, choice=choice, action=action)
 
 
 def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
@@ -4674,7 +4680,12 @@ def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
     clicked = _work_focus_click(payload, WORK_FOCUS_TASK_ACTION_ID)
     if clicked is None:
         return HttpResponse(status=200)
-    integration, posthog_user, choice, action = clicked
+    integration, posthog_user, choice, action = (
+        clicked.integration,
+        clicked.posthog_user,
+        clicked.choice,
+        clicked.action,
+    )
     slack_user_id = payload["user"]["id"]
     container = payload.get("container") or {}
     message_ts = container.get("message_ts")
@@ -4728,7 +4739,7 @@ def _handle_work_focus_start_click(payload: dict) -> HttpResponse:
     message_ts = container.get("message_ts")
     if clicked is None or not (isinstance(channel, str) and isinstance(message_ts, str)):
         return HttpResponse(status=200)
-    integration, posthog_user, choice, _ = clicked
+    integration, posthog_user, choice = clicked.integration, clicked.posthog_user, clicked.choice
     slack_user_id = payload["user"]["id"]
     claim_key = f"slack_app_work_focus_start:{integration.id}:{channel}:{message_ts}"
     if not cache.add(claim_key, slack_user_id, timeout=24 * 60 * 60):

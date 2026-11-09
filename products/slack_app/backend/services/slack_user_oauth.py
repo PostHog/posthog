@@ -21,6 +21,7 @@ resulting credential on a ``UserIntegration(kind="slack")`` row in symmetry
 with the GitHub personal integration.
 """
 
+from dataclasses import field
 from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
@@ -61,7 +62,7 @@ def granted_user_scopes(user_scopes: str) -> frozenset[str]:
 
 @frozen
 class LinkedUserToken:
-    access_token: str
+    access_token: str = field(repr=False)
     scopes: frozenset[str]
 
 
