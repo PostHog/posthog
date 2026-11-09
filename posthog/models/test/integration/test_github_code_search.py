@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
-from posthog.models.integration.github_code_search import ExactCodeMatch, GitHubExactCodeSearch
+from posthog.models.integration.github_code_search import ExactCodeMatch, GitHubExactCodeSearch, MatchedLine
 
 
 def _github(account_type: str = "Organization") -> GitHubIntegration:
@@ -53,17 +53,15 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
         return result, requests_made
 
     def test_keeps_only_files_with_the_exact_literal(self) -> None:
-        sender = "\n".join(
-            [
-                "import { posthog } from './posthog'",
-                "// sends password reset mail",
-                "await posthog.emails.send({",
-                "  templateKey: 'password-reset',",
-                "})",
-                "const legacy = 'password-reset-v2'",
-                'const other = "password-reset"',
-            ]
-        )
+        sender_lines = [
+            "import { posthog } from './posthog'",
+            "// sends password reset mail",
+            "await posthog.emails.send({",
+            "  templateKey: 'password-reset',",
+            "})",
+            "const legacy = 'password-reset-v2'",
+            'const other = "password-reset"',
+        ]
         near_misses = "\n".join(["PASSWORD-RESET", "password_reset", "password reset", "xpassword-reset"])
         result, requests_made = self._search(
             _github(),
@@ -74,13 +72,20 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
                 "items": [_search_item("acme/web", "src/send.ts"), _search_item("acme/web", "docs/notes.md")],
             },
             {
-                "/repos/acme/web/contents/src/send.ts": _contents(sender, "sha-send"),
+                "/repos/acme/web/contents/src/send.ts": _contents("\n".join(sender_lines), "sha-send"),
                 "/repos/acme/web/contents/docs/notes.md": _contents(near_misses, "sha-notes"),
             },
         )
 
         assert result.matches == [
-            ExactCodeMatch(repository="acme/web", path="src/send.ts", blob_sha="sha-send", line_numbers=(4, 7))
+            ExactCodeMatch(
+                repository="acme/web",
+                path="src/send.ts",
+                lines=(
+                    MatchedLine(number=4, context="\n".join(sender_lines)),
+                    MatchedLine(number=7, context="\n".join(sender_lines[1:])),
+                ),
+            )
         ]
         assert result.complete is True
         assert requests_made[0]["params"]["q"] == '"password-reset" org:acme'
@@ -116,3 +121,11 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
         with patch.object(github, "api_request", return_value=MagicMock(status_code=403, text="forbidden")):
             with self.assertRaises(GitHubIntegrationError):
                 GitHubExactCodeSearch(github).find("welcome")
+
+    @parameterized.expand([("blank", "  "), ("over_github_query_limit", "k" * 255)])
+    def test_rejects_a_literal_github_cannot_search(self, _name: str, literal: str) -> None:
+        github = _github()
+        with patch.object(github, "api_request") as api_request:
+            with self.assertRaises(ValueError):
+                GitHubExactCodeSearch(github).find(literal)
+        api_request.assert_not_called()

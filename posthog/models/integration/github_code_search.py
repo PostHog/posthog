@@ -12,16 +12,24 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration.github import GitHubIntegration
 
 MAX_CANDIDATE_FILES = 20
+CONTEXT_LINES = 5
+# GitHub caps search text at 256 characters, and the literal goes in quotes.
+MAX_LITERAL_LENGTH = 254
 _IDENTIFIER_CHARACTER = r"[A-Za-z0-9_-]"
 _IGNORED_BY_GITHUB = re.compile(r'["\\]')
+
+
+@frozen
+class MatchedLine:
+    number: int
+    context: str
 
 
 @frozen
 class ExactCodeMatch:
     repository: str
     path: str
-    blob_sha: str
-    line_numbers: tuple[int, ...]
+    lines: tuple[MatchedLine, ...]
 
 
 @frozen
@@ -35,15 +43,16 @@ class GitHubExactCodeSearch:
         self.github = github
 
     def find(self, literal: str) -> ExactCodeSearchResult:
-        """Find the files on each repository's default branch that hold ``literal`` exactly.
+        """Find the files in GitHub's index of each default branch that hold ``literal`` exactly.
 
-        ``literal`` must not sit inside a longer run of letters, digits, ``_`` or ``-``.
+        ``literal`` must not sit inside a longer run of letters, digits, ``_`` or ``-``. Each
+        matched line comes with up to ``CONTEXT_LINES`` lines on either side.
         ``complete`` is False when GitHub did not return every candidate or a candidate could not
         be read, so a caller can tell "nowhere" from "not found in what was searched".
         Raises ``GitHubEgressBudgetExhausted`` when the egress lane sheds a request.
         """
-        if not literal.strip():
-            raise ValueError("literal must not be blank")
+        if not literal.strip() or len(literal) > MAX_LITERAL_LENGTH:
+            raise ValueError(f"literal must hold 1 to {MAX_LITERAL_LENGTH} characters")
         body = self._search(literal)
         candidates = body.get("items") or []
         complete = not body.get("incomplete_results") and body.get("total_count", 0) <= len(candidates)
@@ -60,13 +69,9 @@ class GitHubExactCodeSearch:
             if file is None:
                 complete = False
                 continue
-            line_numbers = tuple(
-                number for number, line in enumerate(file["content"].splitlines(), start=1) if pattern.search(line)
-            )
-            if line_numbers:
-                matches.append(
-                    ExactCodeMatch(repository=repository, path=path, blob_sha=file["sha"], line_numbers=line_numbers)
-                )
+            lines = self._matched_lines(file["content"].splitlines(), pattern)
+            if lines:
+                matches.append(ExactCodeMatch(repository=repository, path=path, lines=lines))
         return ExactCodeSearchResult(matches=matches, complete=complete)
 
     def _search(self, literal: str) -> dict:
@@ -89,3 +94,14 @@ class GitHubExactCodeSearch:
         account_type = self.github.integration.config.get("account", {}).get("type")
         qualifier = "org" if account_type == "Organization" else "user"
         return f"{qualifier}:{self.github.organization()}"
+
+    @staticmethod
+    def _matched_lines(file_lines: list[str], pattern: re.Pattern[str]) -> tuple[MatchedLine, ...]:
+        return tuple(
+            MatchedLine(
+                number=index + 1,
+                context="\n".join(file_lines[max(0, index - CONTEXT_LINES) : index + CONTEXT_LINES + 1]),
+            )
+            for index, line in enumerate(file_lines)
+            if pattern.search(line)
+        )
