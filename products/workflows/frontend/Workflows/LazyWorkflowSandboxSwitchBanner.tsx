@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 import { Suspense } from 'react'
 
+import { PostHogErrorBoundary } from '@posthog/react'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -27,9 +29,12 @@ export function LazyWorkflowSandboxSwitchBanner({
     ) {
         return null
     }
+    // Not the scene's ChunkLoadErrorBoundary: a banner that fails to load must not reload the workflow editor.
     return (
-        <Suspense fallback={null}>
-            <WorkflowSandboxSwitchBanner {...props} />
-        </Suspense>
+        <PostHogErrorBoundary fallback={<></>}>
+            <Suspense fallback={null}>
+                <WorkflowSandboxSwitchBanner {...props} />
+            </Suspense>
+        </PostHogErrorBoundary>
     )
 }

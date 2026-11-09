@@ -1,11 +1,14 @@
+import { render, waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import { createElement } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -14,8 +17,17 @@ import { AccessControlLevel } from '~/types'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import { HogFlow, HogFlowAction } from './hogflows/types'
+import { LazyWorkflowSandboxSwitchBanner } from './LazyWorkflowSandboxSwitchBanner'
 import { workflowLogic } from './workflowLogic'
 import { sandboxSwitchDismissKey, workflowSandboxSwitchBannerLogic } from './workflowSandboxSwitchBannerLogic'
+
+jest.mock('./WorkflowSandboxSwitchBanner', () => ({
+    WorkflowSandboxSwitchBanner: () => {
+        const error = new Error('Loading chunk WorkflowSandboxSwitchBanner failed')
+        error.name = 'ChunkLoadError'
+        throw error
+    },
+}))
 
 const WORKFLOW_ID = 'wf-sandbox-switch-1'
 const SANDBOX_SENDER_ID = 7
@@ -444,6 +456,29 @@ describe('workflowSandboxSwitchBannerLogic', () => {
         expect(senderOf(workflowLogic({ id: WORKFLOW_ID }).values.workflow, 'email_1')).toEqual({
             integrationId: SANDBOX_SENDER_ID,
         })
+    })
+
+    it('leaves the workflow editor in place when the banner chunk fails to load', async () => {
+        featureFlagLogic.mount()
+        setSandboxFlag(true)
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+        const reload = jest.fn()
+
+        const { container } = render(
+            createElement(ChunkLoadErrorBoundary, {
+                reload,
+                children: createElement(LazyWorkflowSandboxSwitchBanner, {
+                    id: WORKFLOW_ID,
+                    isSavedWorkflow: true,
+                    activeTab: 'workflow',
+                }),
+            })
+        )
+
+        await waitFor(() => expect(consoleError).toHaveBeenCalled())
+        expect(reload).not.toHaveBeenCalled()
+        expect(container.innerHTML).toBe('')
+        consoleError.mockRestore()
     })
 
     it.each([UNVERIFIED_OWN_SENDER.id, SANDBOX_SENDER_ID, 999])(

@@ -5974,6 +5974,9 @@ importers:
       '@posthog/quill-primitives':
         specifier: workspace:*
         version: link:../../packages/quill/packages/primitives
+      '@posthog/react':
+        specifier: 'catalog:'
+        version: 1.11.3(@types/react@18.3.27)(posthog-js@1.447.1(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
