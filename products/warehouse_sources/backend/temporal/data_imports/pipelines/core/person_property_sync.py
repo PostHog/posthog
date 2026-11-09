@@ -614,7 +614,7 @@ class _RunContext:
     team_id: int
     project_id: int
     binding: WarehouseBinding
-    team_api_token: str
+    team_api_token: str = dataclasses.field(repr=False)
     team_uuid: str
     run_token: str
     on_progress: ProgressCallback | None = None

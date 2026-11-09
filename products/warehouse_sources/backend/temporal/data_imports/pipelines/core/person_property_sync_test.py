@@ -444,7 +444,7 @@ class TestBackfillOrchestration:
         ]
         # a and b repeat across batches, a also inside a batch, b's last row maps nothing, and ghost is no
         # person at all.
-        batches = [
+        batches: list[list[dict[str, str | None]]] = [
             [
                 {"distinct_id": "a", "plan": "free"},
                 {"distinct_id": "a", "plan": "pro"},
