@@ -4,7 +4,12 @@ import { checkAuthStatus } from '@/posthog/auth-status'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import type { CredentialSource } from '@/posthog/credentials'
 
-function sourceLabel(source: CredentialSource, store: StoreChoice | null, path: string | null): string {
+function sourceLabel(
+    source: CredentialSource,
+    store: StoreChoice | null,
+    path: string | null,
+    provider: string | null
+): string {
     switch (source) {
         case 'env':
             return 'the HOG_PERSONAL_API_KEY environment variable'
@@ -12,6 +17,8 @@ function sourceLabel(source: CredentialSource, store: StoreChoice | null, path: 
             return `HOG_PERSONAL_API_KEY in ${path}`
         case 'store':
             return store === 'keychain' ? 'the system keychain' : `${path}`
+        case 'workload':
+            return `this job's ${provider} OIDC token`
     }
 }
 
@@ -25,7 +32,7 @@ export default defineCommand({
     human({ result, out }) {
         if (!result.authenticated) {
             out.line(out.style(result.error ? `Not logged in: ${result.error}` : 'Not logged in.', 'yellow', 'bold'))
-            out.line(`Run ${out.style(result.next, 'bold')} to log in.`)
+            out.line(`Run ${out.style(result.next, 'bold')} next.`)
             return
         }
         // The email and project name come from PostHog, and anyone who can rename the project sets the name.
@@ -33,8 +40,9 @@ export default defineCommand({
         out.line(`${out.style('Logged in', 'green', 'bold')} to ${escapeControls(result.host)}${who}.`)
         const name = result.projectName ? escapeControls(result.projectName) : null
         out.line(`Project: ${name ? `${name} (${result.projectId})` : result.projectId}`)
-        const what = result.kind === 'oauth' ? 'Token' : 'Personal API key'
-        out.line(out.style(`${what} from ${sourceLabel(result.source, result.store, result.credentialsPath)}`, 'dim'))
+        const what = { oauth: 'Token', personal_api_key: 'Personal API key', workload: 'Workload token' }[result.kind]
+        const source = sourceLabel(result.source, result.store, result.credentialsPath, result.provider)
+        out.line(out.style(`${what} from ${source}`, 'dim'))
         if (result.scopes) {
             out.line(out.style(`Scopes: ${result.scopes.join(', ')}`, 'dim'))
         }

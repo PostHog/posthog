@@ -412,7 +412,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         // windowed. Everything else is.
         setWindow: () => {
             actions.loadJobStats()
-            actions.loadDestinationRowSeries()
+            if (values.destinations !== null && values.sources !== null) {
+                actions.loadDestinationRowSeries()
+            }
             actions.loadRecentRuns()
         },
         refresh: () => actions.loadEverything(),

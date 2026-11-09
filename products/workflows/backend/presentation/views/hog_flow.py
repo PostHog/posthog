@@ -152,6 +152,8 @@ from products.workflows.backend.facade.activity import (
     bulk_delete_archived_workflows,
     log_workflow_activity,
     log_workflow_schedule_activity,
+    log_workflow_test_run,
+    record_workflow_test_run_origins,
     resume_workflow_email_sending,
 )
 from products.workflows.backend.facade.api import (
@@ -6642,10 +6644,19 @@ class HogFlowViewSet(
                 draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)
             payload["configuration"] = draft
 
+        test_run_row = None
         if not payload.get("mock_async_functions", True):
             configuration = payload.get("configuration") or {}
-            self._require_replay_vision_caller_access(
-                request, configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
+            # The worker runs `{...stored, ...configuration}`, so a field the request omits runs as stored.
+            actions = configuration["actions"] if "actions" in configuration else (hog_flow.actions if hog_flow else [])
+            self._require_replay_vision_caller_access(request, actions)
+            test_run_row = log_workflow_test_run(
+                actor=self._activity_actor(),
+                workflow_id=hog_flow.id if hog_flow else None,
+                name=configuration.get("name") or (hog_flow.name if hog_flow else None),
+                actions=actions,
+                current_action_id=payload.get("current_action_id"),
+                encrypted_inputs=hog_flow.encrypted_inputs if hog_flow and "actions" not in configuration else None,
             )
 
         res = create_hog_flow_invocation_test(
@@ -6653,11 +6664,19 @@ class HogFlowViewSet(
             hog_flow_id=str(hog_flow.id) if hog_flow else "new",
             payload=payload,
         )
+        record_workflow_test_run_origins(
+            test_run_row,
+            res,
+            secret_inputs=[hog_flow.encrypted_inputs, hog_flow.draft_encrypted_inputs] if hog_flow else None,
+        )
 
         if res.status_code != 200:
             return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)
 
-        return Response(res.json())
+        body = res.json()
+        # A reported host can hold a stored secret. The audit row keeps the redacted origins.
+        body.pop("request_origins", None)
+        return Response(body)
 
     @extend_schema(request=ApplyUtmDefaultsRequestSerializer, responses=ApplyUtmDefaultsResponseSerializer)
     @action(methods=["POST"], detail=False)
