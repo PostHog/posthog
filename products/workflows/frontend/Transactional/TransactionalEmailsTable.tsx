@@ -148,7 +148,7 @@ export function TransactionalEmailsTable(): JSX.Element {
                                             <Link
                                                 subtle
                                                 to={urls.transactionalCodeEmail(row.id)}
-                                                className="font-mono"
+                                                className="font-mono break-all"
                                                 data-attr="transactional-code-email-link"
                                             >
                                                 {row.name}

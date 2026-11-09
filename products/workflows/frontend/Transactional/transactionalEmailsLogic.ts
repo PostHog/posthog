@@ -262,14 +262,14 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
                             }
                             return row.source === 'code'
                                 ? saveCodeEmailTags(row.codeEmail, tags, isLatestEdit)
-                                : saveTemplateTags(row.template, tags)
+                                : saveTemplateTags(row.template, tags, isLatestEdit)
                         })
                     )
                 } catch (error: any) {
                     lemonToast.error(`Couldn't save tags: ${error?.detail || error?.message || 'unknown error'}`)
                     if (row.source === 'code') {
                         await recoverCodeEmailTags(row.codeEmail, isLatestEdit)
-                    } else {
+                    } else if (isLatestEdit()) {
                         actions.loadTemplates()
                     }
                 } finally {

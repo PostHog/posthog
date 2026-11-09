@@ -19,7 +19,15 @@ import { workflowLogic } from './workflowLogic'
  * The flat view passes the workflow-aware log renderer so event/person/action tokens in
  * the per-run logs become links, matching the standalone Logs tab.
  */
-export function WorkflowInvocations({ id, linkSteps }: { id: string; linkSteps?: boolean }): JSX.Element | null {
+export function WorkflowInvocations({
+    id,
+    linkSteps,
+    rerunDisabledReason,
+}: {
+    id: string
+    linkSteps?: boolean
+    rerunDisabledReason?: string
+}): JSX.Element | null {
     const { workflow } = useValues(workflowLogic)
 
     if (workflow?.trigger?.type === 'batch') {
@@ -30,6 +38,7 @@ export function WorkflowInvocations({ id, linkSteps }: { id: string; linkSteps?:
         <HogInvocations
             id={id}
             functionKind="hog_flow"
+            rerunDisabledReason={rerunDisabledReason}
             renderLogMessage={workflow ? (m) => renderWorkflowLogMessage(workflow, m, { linkSteps }) : undefined}
         />
     )
