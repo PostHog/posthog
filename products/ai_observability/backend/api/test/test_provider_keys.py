@@ -1459,6 +1459,8 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
             evaluation_config={"prompt": "Is this good?"},
             output_type="boolean",
             model_configuration=model_config,
+            enabled=False,
+            status_reason="provider_key_quota_exceeded",
         )
 
         response = self.client.get(
@@ -1468,6 +1470,9 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.assertEqual(len(response.data["evaluations"]), 1)
         self.assertEqual(response.data["evaluations"][0]["id"], str(evaluation.id))
         self.assertEqual(response.data["evaluations"][0]["name"], "Test Evaluation")
+        # The settings page offers to turn back on the evaluations this key's problem turned off.
+        self.assertEqual(response.data["evaluations"][0]["enabled"], False)
+        self.assertEqual(response.data["evaluations"][0]["status_reason"], "provider_key_quota_exceeded")
 
     def test_dependent_configs_excludes_deleted_evaluations(self):
         key = LLMProviderKey.objects.create(

@@ -3,8 +3,10 @@ import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { evaluationsPartialUpdate } from '../generated/api'
 import type { LLMProviderEnumApi, LLMProviderKeyApi } from '../generated/api.schemas'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
@@ -226,6 +228,19 @@ export interface DependentEvaluation {
     id: string
     name: string
     model_configuration_id: string
+    enabled: boolean
+    status_reason: string | null
+}
+
+/** Evaluations a provider key problem turned off, offered back once the key works again. */
+export interface TurnedOffEvaluations {
+    keyId: string
+    evaluations: DependentEvaluation[]
+}
+
+/** Whether an evaluation is off because of its provider key, as opposed to a person turning it off. */
+export function turnedOffByKey(evaluation: DependentEvaluation): boolean {
+    return !evaluation.enabled && !!evaluation.status_reason?.startsWith('provider_key')
 }
 
 export interface AlternativeKey {
@@ -257,6 +272,8 @@ export interface llmProviderKeysLogicValues {
     requiresProviderKey: boolean
     systemOneBaseUrl: string
     systemOneModel: string
+    turnedOffEvaluations: TurnedOffEvaluations | null
+    turnedOffEvaluationsLoading: boolean
     validatingKeyId: string | null
 }
 
@@ -364,6 +381,27 @@ export interface llmProviderKeysLogicActions {
         providerKeys: LLMProviderKey[]
         payload?: any
     }
+    loadTurnedOffEvaluations: ({ keyId }: { keyId: string }) => {
+        keyId: string
+    }
+    loadTurnedOffEvaluationsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadTurnedOffEvaluationsSuccess: (
+        turnedOffEvaluations: TurnedOffEvaluations | null,
+        payload?: {
+            keyId: string
+        }
+    ) => {
+        turnedOffEvaluations: TurnedOffEvaluations | null
+        payload?: {
+            keyId: string
+        }
+    }
     preValidateKey: ({
         apiKey,
         provider,
@@ -426,6 +464,21 @@ export interface llmProviderKeysLogicActions {
     }
     setSystemOneModel: (model: string) => {
         model: string
+    }
+    turnEvaluationsBackOn: () => any
+    turnEvaluationsBackOnFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    turnEvaluationsBackOnSuccess: (
+        turnedOffEvaluations: TurnedOffEvaluations | null,
+        payload?: any
+    ) => {
+        turnedOffEvaluations: TurnedOffEvaluations | null
+        payload?: any
     }
     updateProviderKey: ({ id, payload }: { id: string; payload: UpdateLLMProviderKeyPayload }) => {
         id: string
@@ -567,6 +620,54 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     }),
 
     loaders(({ values, actions }) => ({
+        turnedOffEvaluations: [
+            null as TurnedOffEvaluations | null,
+            {
+                loadTurnedOffEvaluations: async ({
+                    keyId,
+                }: {
+                    keyId: string
+                }): Promise<TurnedOffEvaluations | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. llmAnalyticsProviderKeysDependentConfigsRetrieve() from 'products/ai_observability/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                    const response: DependentConfigsResponse = await api.get(
+                        `/api/environments/${teamId}/llm_analytics/provider_keys/${keyId}/dependent_configs/`
+                    )
+                    const evaluations = response.evaluations.filter(turnedOffByKey)
+                    return evaluations.length > 0 ? { keyId, evaluations } : null
+                },
+                turnEvaluationsBackOn: async (): Promise<TurnedOffEvaluations | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    const turnedOff = values.turnedOffEvaluations
+                    if (!teamId || !turnedOff) {
+                        return null
+                    }
+                    // Each one goes through the normal update, so the server still checks it can run.
+                    const outcomes = await Promise.allSettled(
+                        turnedOff.evaluations.map((evaluation) =>
+                            evaluationsPartialUpdate(String(teamId), evaluation.id, { enabled: true })
+                        )
+                    )
+                    const failed = turnedOff.evaluations.filter((_, index) => outcomes[index].status === 'rejected')
+                    const turnedOn = turnedOff.evaluations.length - failed.length
+                    if (turnedOn > 0) {
+                        lemonToast.success(`Turned ${pluralize(turnedOn, 'evaluation')} back on`)
+                    }
+                    if (failed.length > 0) {
+                        const reason = (
+                            outcomes.find((outcome) => outcome.status === 'rejected') as PromiseRejectedResult
+                        ).reason
+                        lemonToast.error(
+                            `Couldn't turn ${pluralize(failed.length, 'evaluation')} back on: ${reason?.detail || reason?.message || 'Unknown error'}`
+                        )
+                    }
+                    return failed.length > 0 ? { keyId: turnedOff.keyId, evaluations: failed } : null
+                },
+            },
+        ],
         dependentConfigs: [
             null as DependentConfigsResponse | null,
             {
@@ -778,6 +879,19 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         },
         deleteProviderKeyFailure: ({ error }) => {
             lemonToast.error(`Failed to delete API key: ${error || 'Unknown error'}`)
+        },
+        // A key that works again leaves the evaluations its problem turned off, so offer them back.
+        validateProviderKeySuccess: ({ providerKeys, payload }) => {
+            const key = providerKeys.find((candidate: LLMProviderKey) => candidate.id === payload?.id)
+            if (key?.state === 'ok') {
+                actions.loadTurnedOffEvaluations({ keyId: key.id })
+            }
+        },
+        updateProviderKeySuccess: ({ providerKeys, payload }) => {
+            const key = providerKeys.find((candidate: LLMProviderKey) => candidate.id === payload?.id)
+            if (key?.state === 'ok') {
+                actions.loadTurnedOffEvaluations({ keyId: key.id })
+            }
         },
         setKeyToDelete: ({ key }) => {
             if (key) {

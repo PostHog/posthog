@@ -629,6 +629,9 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                         "id": str(evaluation.id),
                         "name": evaluation.name,
                         "model_configuration_id": str(config.id),
+                        # Lets the settings page offer to turn back on the evaluations a key problem turned off.
+                        "enabled": evaluation.enabled,
+                        "status_reason": evaluation.status_reason,
                     }
                 )
 

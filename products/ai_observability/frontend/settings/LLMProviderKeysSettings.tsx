@@ -41,6 +41,7 @@ import {
 } from './llmProviderKeysLogic'
 import { endpointErrorFieldFromResult } from './providerKeyStateUtils'
 import { SystemOneConnectionFields } from './SystemOneConnectionFields'
+import { TurnedOffEvaluationsBanner } from './TurnedOffEvaluationsBanner'
 
 function StateTag({ state, errorMessage }: { state: LLMProviderKeyState; errorMessage: string | null }): JSX.Element {
     const tagProps: { type: 'success' | 'danger' | 'warning' | 'default'; children: string } = {
@@ -632,6 +633,8 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 {restrictionReason} Ask a project admin to add or manage API keys on your behalf.
                             </LemonBanner>
                         )}
+
+                        <TurnedOffEvaluationsBanner />
 
                         {providerKeys.length > 0 && (
                             <div className="flex justify-between items-start">
