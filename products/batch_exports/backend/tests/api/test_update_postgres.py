@@ -52,4 +52,4 @@ def test_updating_postgres_batch_export_keeps_its_integration(
     if expected_status == status.HTTP_200_OK:
         assert response.json()["destination"]["integration"] == integration.id
     else:
-        assert response.json()["detail"].startswith("Cannot remove the integration from a Postgres batch export")
+        assert response.json()["detail"] == "Integration is required for Postgres batch exports"

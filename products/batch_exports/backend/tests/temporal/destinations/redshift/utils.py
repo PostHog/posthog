@@ -6,6 +6,7 @@ import collections.abc
 
 from psycopg import sql
 
+from posthog.models.integration import Integration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.service import (
@@ -34,6 +35,21 @@ REQUIRED_ENV_VARS = (
 )
 
 MISSING_REQUIRED_ENV_VARS = any(env_var not in os.environ for env_var in REQUIRED_ENV_VARS)
+
+
+async def make_redshift_integration(team_id: int, redshift_config: dict) -> Integration:
+    """Get or create a plain Redshift integration that connects with `redshift_config`."""
+    host, port, user = redshift_config["host"], redshift_config["port"], redshift_config["user"]
+    integration, _ = await Integration.objects.aget_or_create(
+        team_id=team_id,
+        kind=Integration.IntegrationKind.AWS_REDSHIFT,
+        integration_id=f"{team_id}-{host}-{port}-{user}",
+        defaults={
+            "config": {"host": host, "port": port, "user": user, "ssl_mode": "prefer"},
+            "sensitive_config": {"password": redshift_config["password"]},
+        },
+    )
+    return integration
 
 
 TEST_MODELS: list[AnyBatchExportModel | None] = [

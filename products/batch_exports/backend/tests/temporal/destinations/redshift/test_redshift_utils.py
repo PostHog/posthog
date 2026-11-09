@@ -22,11 +22,15 @@ from posthog.models.integration import (
     parse_redshift_host,
 )
 
-from products.batch_exports.backend.service import AWSCredentials, BatchExportEventsModel
+from products.batch_exports.backend.service import AWSCredentials, BatchExportEventsModel, BatchExportInsertInputs
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     ClientErrorGroup,
     InsufficientS3PermissionsError,
+    RedshiftInsertInputs,
     RedshiftS3CopyError,
+    ServerConnectionParameters,
+    TableParameters,
+    _get_redshift_client_inputs,
     _get_redshift_credentials_policy_statements,
     _get_table_schemas,
     check_and_raise_redshift_copy_error,
@@ -420,3 +424,19 @@ def test_serverless_workgroup_credentials_policy_rejects_mismatched_arn(workgrou
 
     with pytest.raises(IntegrationError):
         _get_redshift_credentials_policy_statements(integration, server, "posthog")
+
+
+async def test_client_inputs_require_an_integration():
+    inputs = RedshiftInsertInputs(
+        batch_export=BatchExportInsertInputs(
+            team_id=1,
+            data_interval_start=None,
+            data_interval_end="2024-01-01T00:00:00+00:00",
+            batch_export_id=str(uuid.uuid4()),
+        ),
+        connection=ServerConnectionParameters(database="db", port=5439, host="fake.example.com"),
+        table=TableParameters(schema_name="public", name="events"),
+    )
+
+    with pytest.raises(IntegrationError, match="no linked integration"):
+        await _get_redshift_client_inputs(inputs)

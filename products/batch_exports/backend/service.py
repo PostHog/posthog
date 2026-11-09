@@ -590,11 +590,14 @@ class RedshiftCopyInputs:
 
 @dataclass(frozen=False, kw_only=True)
 class RedshiftBatchExportInputs(BaseBatchExportInputs):
-    """Inputs for Redshift export workflow."""
+    """Inputs for Redshift export workflow.
+
+    Credentials are never carried here: the activity resolves them from the linked Integration at
+    run time (see `integration_id`). `host` and `port` are read only for AWS Redshift integrations,
+    because a plain Redshift integration stores the server itself.
+    """
 
     database: str
-    user: str | None = None
-    password: str | None = field(default=None, repr=False)
     host: str | None = None
     schema: str = "public"
     table_name: str = "events"
@@ -655,15 +658,16 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
 
 @dataclass(frozen=False, kw_only=True)
 class BigQueryBatchExportInputs(BaseBatchExportInputs):
-    """Inputs for BigQuery export workflow."""
+    """Inputs for BigQuery export workflow.
+
+    Credentials are never carried here: the activity resolves them from the linked Integration at
+    run time (see `integration_id`). The activity also reads the project from the Integration, so
+    `project_id` only keeps existing configs valid.
+    """
 
     dataset_id: str
     table_id: str = "events"
     project_id: str | None = None
-    private_key: str | None = field(default=None, repr=False)
-    private_key_id: str | None = None
-    token_uri: str | None = None
-    client_email: str | None = None
     use_json_type: bool = False
 
 
