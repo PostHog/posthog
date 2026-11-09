@@ -289,19 +289,29 @@ describe('sourceManagementLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadSourcesFailure']).toMatchValues({ sourcesFingerprint: null })
     })
 
-    it('ignores a fingerprint that arrives after the list request started', async () => {
+    it('reuses a slow fingerprint once a poll has read it before reloading', async () => {
         router.actions.push('/data-management/sources')
         ;(externalDataSourcesSyncStateRetrieve as jest.Mock).mockImplementation(
-            () => new Promise((resolve) => setTimeout(() => resolve({ fingerprint: 'fp-late' }), 500))
+            () => new Promise((resolve) => setTimeout(() => resolve({ fingerprint: 'fp-slow' }), 500))
         )
+        const listSources = jest.spyOn(api.externalDataSources, 'list')
         jest.useFakeTimers()
         try {
             logic.mount()
             await jest.advanceTimersByTimeAsync(600)
+            // Read alongside the list and slower than its debounce, so it may be newer than the list.
+            expect(logic.values.sourcesFingerprint).toBeNull()
+
+            logic.actions.pollSources()
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(logic.values.sourcesFingerprint).toEqual('fp-slow')
+            const listLoads = listSources.mock.calls.length
+
+            logic.actions.pollSources()
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(listSources).toHaveBeenCalledTimes(listLoads)
         } finally {
             jest.useRealTimers()
         }
-
-        expect(logic.values.sourcesFingerprint).toBeNull()
     })
 })

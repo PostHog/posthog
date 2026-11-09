@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any, cast
 
 from django.db.models import Prefetch
+from django.utils.crypto import salted_hmac
 
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
@@ -173,7 +173,8 @@ class ExternalDataSourceViewSet(
             )
             .order_by("id")
         )
-        fingerprint = hashlib.sha256(repr((source_rows, schema_rows)).encode()).hexdigest()
+        # Keyed: the rows hold unredacted errors, so a plain hash would let a caller test guesses of a redacted secret.
+        fingerprint = salted_hmac("warehouse_sources.sync_state", repr((source_rows, schema_rows))).hexdigest()
         return Response(ExternalDataSourceSyncStateSerializer({"fingerprint": fingerprint}).data)
 
     def check_object_permissions(self, request: Request, obj: Any) -> None:

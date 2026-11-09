@@ -637,6 +637,11 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             if (!shouldPollSources()) {
                 return
             }
+            if (cache.pollFingerprint !== undefined) {
+                actions.setSourcesFingerprint(cache.pollFingerprint)
+                cache.pollFingerprint = undefined
+                return
+            }
             // Trust the fingerprint only when it came back before the list request started after its
             // debounce. A later read can be newer than the list and would hide a change from the polls.
             const startedAt = Date.now()
@@ -648,6 +653,8 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             const fingerprint = await fetchSourcesFingerprint()
             breakpoint()
             if (fingerprint === null || fingerprint !== values.sourcesFingerprint) {
+                // Read before this reload starts, so it is never newer than the list, however slow.
+                cache.pollFingerprint = fingerprint
                 actions.loadSources()
                 return
             }
