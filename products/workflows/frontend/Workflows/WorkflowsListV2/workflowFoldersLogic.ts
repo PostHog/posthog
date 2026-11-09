@@ -18,6 +18,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { fileSystemCreate, fileSystemList, fileSystemDestroy, fileSystemUnfiledRetrieve } from '~/generated/core/api'
@@ -85,6 +86,7 @@ export interface workflowFoldersLogicValues {
     folderRows: WorkflowListRow[]
     folderScanFailed: boolean
     folderSearchItems: WorkflowFolderFileRow[]
+    folderSidebarCollapsed: boolean
     folderTemplates: FileSystemEntry[]
     folderTreeEntries: (FileSystemEntry | FileSystemImport)[]
     hasActiveQuery: boolean
@@ -205,6 +207,9 @@ export interface workflowFoldersLogicActions {
     }
     setFolderJumpSearch: (search: string) => {
         search: string
+    }
+    setFolderSidebarCollapsed: (collapsed: boolean) => {
+        collapsed: boolean
     }
     setMovingWorkflowId: (id: string | null) => {
         id: string | null
@@ -470,6 +475,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         cancelFolderDraft: true,
         submitFolderDraft: true,
         setExpandedFolders: (folders: string[]) => ({ folders }),
+        setFolderSidebarCollapsed: (collapsed: boolean) => ({ collapsed }),
         moveFileToFolder: (entry: FileSystemEntry) => ({ entry }),
         openFolder: (folder: string | null) => ({ folder }),
         revealFolder: (folder: string | null) => ({ folder }),
@@ -477,7 +483,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         moveWorkflowToFolder: (id: string) => ({ id }),
         setMovingWorkflowId: (id: string | null) => ({ id }),
     }),
-    reducers({
+    reducers(() => ({
         folderJumpSearch: ['', { setFolderJumpSearch: (_, { search }) => search }],
         selectedFileIds: [
             [] as string[],
@@ -523,19 +529,22 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             ['project://'] as string[],
             {
                 setExpandedFolders: (_, { folders }) => folders,
-                revealFolder: (state, { folder }) => [
-                    ...new Set([
-                        ...state,
-                        treeFolderId(null),
-                        ...splitPath(folder ?? '').map((_, index, parts) =>
-                            treeFolderId(joinPath(parts.slice(0, index + 1)))
-                        ),
-                    ]),
+                // Opening a folder closes the ones the person left, so the open folder icon marks only the path to it.
+                revealFolder: (_, { folder }) => [
+                    treeFolderId(null),
+                    ...splitPath(folder ?? '').map((_, index, parts) =>
+                        treeFolderId(joinPath(parts.slice(0, index + 1)))
+                    ),
                 ],
             },
         ],
         movingWorkflowId: [null as string | null, { setMovingWorkflowId: (_, { id }) => id }],
-    }),
+        folderSidebarCollapsed: [
+            false,
+            buildUserScopedPersistenceConfig('workflows_folder_sidebar_collapsed__'),
+            { setFolderSidebarCollapsed: (_, { collapsed }) => collapsed },
+        ],
+    })),
     loaders(({ values, cache }) => ({
         browserReady: [
             false,

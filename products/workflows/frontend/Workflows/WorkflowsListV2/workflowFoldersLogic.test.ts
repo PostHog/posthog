@@ -665,6 +665,16 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.expandedFolders).toContain('project://Billing')
     })
 
+    it('closes the folders the person leaves, so only the open path shows as open', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectTreeFolder('Billing/Cards', false)
+        expect(logic.values.expandedFolders).toEqual(
+            expect.arrayContaining(['project://', 'project://Billing', 'project://Billing/Cards'])
+        )
+        logic.actions.selectTreeFolder('Empty', false)
+        expect(logic.values.expandedFolders).toEqual(['project://', 'project://Empty'])
+    })
+
     it('collapses the open folder when its tree row is selected again', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.selectTreeFolder('Billing', false)
