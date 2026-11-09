@@ -197,7 +197,7 @@ export function MCPSessionDetail(): JSX.Element {
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => loadMoreToolCalls()}
+                                    onClick={() => loadMoreToolCalls(selectedSession.session_id)}
                                     disabled={loadingMore}
                                     data-attr="mcp-session-load-more-tool-calls"
                                 >

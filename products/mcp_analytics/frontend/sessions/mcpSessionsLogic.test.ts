@@ -158,7 +158,7 @@ describe('mcpSessionsLogic', () => {
         let resolveAMore: (value: any) => void = () => {}
         toolCallsMock.mockImplementationOnce(() => new Promise((resolve) => (resolveAMore = resolve)))
         await expectLogic(logic, () => {
-            logic.actions.loadMoreToolCalls()
+            logic.actions.loadMoreToolCalls('A')
         }).toDispatchActions(['loadMoreToolCalls'])
 
         // The user switches to B before A's page returns; B's first page never resolves here.
@@ -201,6 +201,52 @@ describe('mcpSessionsLogic', () => {
         consoleErrorSpy.mockRestore()
     })
 
+    describe('with session A on screen and more calls to load', () => {
+        const pending = (): Promise<never> => new Promise(() => {})
+
+        beforeEach(async () => {
+            listMock.mockResolvedValue({
+                results: [
+                    { session_id: 'A', session_start: '2026-01-01T00:00:00Z' },
+                    { session_id: 'B', session_start: '2026-01-01T00:01:00Z' },
+                ],
+                has_next: false,
+            })
+            toolCallsMock.mockResolvedValueOnce({ results: [toolCall('a1')], has_next: true })
+            await expectLogic(logic, () => logic.actions.loadSessions()).toDispatchActions(['loadToolCallsSuccess'])
+        })
+
+        it.each([
+            ['a refresh refetches A', () => logic.actions.refreshSessions(), false],
+            [
+                "B's first page loads behind cached A",
+                () => {
+                    logic.actions.selectSession('B')
+                    logic.actions.selectSession('A')
+                },
+                false,
+            ],
+            ['a load more runs for A', () => logic.actions.loadMoreToolCalls('A'), true],
+        ])('reports loadingMore while %s', (_label, act, expected) => {
+            toolCallsMock.mockImplementationOnce(pending)
+
+            act()
+
+            expect(logic.values.selectedSessionToolCalls).toMatchObject({ calls: [toolCall('a1')], hasNext: true })
+            expect(logic.values.selectedSessionToolCalls.loadingMore).toBe(expected)
+        })
+
+        it('keeps the cached calls when a refetch fails', async () => {
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+            toolCallsMock.mockRejectedValueOnce(new Error('Unavailable'))
+
+            await expectLogic(logic, () => logic.actions.refreshSessions()).toDispatchActions(['loadToolCallsFailure'])
+
+            expect(logic.values.selectedSessionToolCalls).toMatchObject({ error: false, calls: [toolCall('a1')] })
+            consoleErrorSpy.mockRestore()
+        })
+    })
+
     it('drops a session page when a refresh starts with the same filters', async () => {
         listMock.mockResolvedValueOnce({
             results: [{ session_id: 'old', session_start: '2026-01-01T00:00:00Z' }],
@@ -231,7 +277,7 @@ describe('mcpSessionsLogic', () => {
 
         let resolveMore: (value: any) => void = () => {}
         toolCallsMock.mockImplementationOnce(() => new Promise((resolve) => (resolveMore = resolve)))
-        await expectLogic(logic, () => logic.actions.loadMoreToolCalls()).toDispatchActions(['loadMoreToolCalls'])
+        await expectLogic(logic, () => logic.actions.loadMoreToolCalls('A')).toDispatchActions(['loadMoreToolCalls'])
 
         toolCallsMock.mockResolvedValueOnce({ results: [toolCall('fresh')], has_next: false })
         await expectLogic(logic, () => logic.actions.loadToolCalls('A')).toDispatchActions(['loadToolCallsSuccess'])
@@ -331,7 +377,7 @@ describe('mcpSessionsLogic', () => {
             let resolveMore: (value: any) => void = () => {}
             toolCallsMock.mockImplementationOnce(() => new Promise((resolve) => (resolveMore = resolve)))
             await expectLogic(logic, () => {
-                logic.actions.loadMoreToolCalls()
+                logic.actions.loadMoreToolCalls('A')
             }).toDispatchActions(['loadMoreToolCalls'])
 
             toolCallsMock.mockResolvedValue({ results: [toolCall('filtered')], has_next: false })
