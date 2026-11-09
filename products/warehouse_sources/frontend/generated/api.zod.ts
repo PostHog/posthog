@@ -42,6 +42,12 @@ export const ExternalDataDestinationsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
         ),
+    migration_item_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere.'
+        ),
 })
 
 /**
@@ -76,6 +82,12 @@ export const ExternalDataDestinationsUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
+        ),
+    migration_item_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere.'
         ),
 })
 
@@ -113,6 +125,12 @@ export const ExternalDataDestinationsPartialUpdateBody = /* @__PURE__ */ zod.obj
         .nullish()
         .describe(
             "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
+        ),
+    migration_item_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere.'
         ),
 })
 
