@@ -43,6 +43,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 )
 from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
 from products.replay_vision.backend.scanner_access import UnrunnableReason, unrunnable_reason
+from products.replay_vision.backend.scout_source import pause_scanner_scouts
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
     DEEP_SWEEP_MAX_EXECUTION_SECONDS,
@@ -71,7 +72,7 @@ from products.replay_vision.backend.temporal.sweep_types import (
     FindScannerCandidatesInputs,
     FindScannerCandidatesOutput,
 )
-from products.replay_vision.backend.variant_analysis import pause_variant_analysis_scouts
+from products.replay_vision.backend.variant_analysis import VARIANT_ANALYSIS_TAG
 
 
 @frozen
@@ -121,17 +122,15 @@ def _experiment_lifecycle_block(scanner: ReplayScanner) -> _LifecycleBlock | Non
     return None
 
 
-def _stop_variant_analysis(scanner: ReplayScanner) -> bool:
-    """Pause the scanner's variant analysis scouts and return whether that worked.
+def _pause_scouts(scanner: ReplayScanner, tag: str | None = None) -> bool:
+    """Pause the scanner's scouts, or only those with `tag`, and return whether that worked.
 
-    A failure here leaves the scout running one more day, which must never fail the tick.
+    A failure here leaves the scouts running one more day, which must never fail the tick.
     """
     try:
-        pause_variant_analysis_scouts(scanner)
+        pause_scanner_scouts(scanner, tag=tag)
     except Exception:
-        activity.logger.exception(
-            "replay_vision.sweep.variant_analysis_pause_failed", extra={"scanner_id": str(scanner.id)}
-        )
+        activity.logger.exception("replay_vision.sweep.scout_pause_failed", extra={"scanner_id": str(scanner.id)})
         return False
     return True
 
@@ -164,10 +163,10 @@ def _disable_unrunnable_scanner(
 ) -> FindScannerCandidatesOutput:
     """Turn the scanner off so the reconciler drops its schedule and the owner sees it off, not silently idle.
 
-    An experiment scanner's scouts are paused first: a disabled scanner has no schedule left to retry a
-    failed pause, so a failure keeps the scanner on and the next tick tries again.
+    Its scouts are paused first: a disabled scanner has no schedule left to retry a failed pause, so a
+    failure keeps the scanner on and the next tick tries again.
     """
-    if scanner.scanner_type == ScannerType.EXPERIMENT and not _stop_variant_analysis(scanner):
+    if not _pause_scouts(scanner):
         record_sweep_outcome(f"{reason}_pause_failed")
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
     # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — disables a ReplayScanner, not an alert; scanners have no state machine.
@@ -210,7 +209,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
                 # A pause resumes, and the scout can sit it out. An ended or archived experiment's
                 # data stops changing, so its scout would only re-read the same summaries on the
                 # customer's bill.
-                _stop_variant_analysis(scanner)
+                _pause_scouts(scanner, tag=VARIANT_ANALYSIS_TAG)
             record_sweep_outcome("experiment_over")
             horizon = initial_watermark()
             return FindScannerCandidatesOutput(
