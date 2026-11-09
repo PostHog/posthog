@@ -3,8 +3,6 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 
-from django.test import override_settings
-
 from parameterized import parameterized
 
 from posthog.models.team import Team
@@ -14,7 +12,6 @@ from products.aeo.backend.facade.contracts import BrandKind, BrandStatus
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
 
 
-@override_settings(AEO_TARGET_DOMAINS=["posthog.com"])
 class TestSyncBrandsFromRun(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -45,7 +42,7 @@ class TestSyncBrandsFromRun(BaseTest):
     def test_adds_each_domain_the_run_cited(self) -> None:
         run_id, other_run_id = str(uuid.uuid4()), str(uuid.uuid4())
         self._check(run_id, ["https://docs.amplitude.com/a", "https://amplitude.com/b", "https://www.reddit.com/r/x"])
-        self._check(run_id, ["https://posthog.com/docs", "https://news.ycombinator.com/item"])
+        self._check(run_id, ["https://docs.example.com/guide", "https://news.ycombinator.com/item"])
         self._check(run_id, ["https://heap.io/failed"], failed=True)
         self._check(other_run_id, ["https://mixpanel.com/other-run"])
 
@@ -55,7 +52,7 @@ class TestSyncBrandsFromRun(BaseTest):
         assert self._catalog() == {
             "amplitude.com": {"name": "Amplitude", "kind": BrandKind.UNKNOWN, "status": BrandStatus.SUGGESTED},
             "reddit.com": {"name": "Reddit", "kind": BrandKind.PUBLISHER, "status": BrandStatus.CONFIRMED},
-            "posthog.com": {"name": "Posthog", "kind": BrandKind.OWN, "status": BrandStatus.CONFIRMED},
+            "example.com": {"name": "Example", "kind": BrandKind.UNKNOWN, "status": BrandStatus.SUGGESTED},
             "news.ycombinator.com": {
                 "name": "Ycombinator",
                 "kind": BrandKind.PUBLISHER,

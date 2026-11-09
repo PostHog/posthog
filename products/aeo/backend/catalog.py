@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from django.conf import settings
-
 import tldextract
 
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -63,9 +61,18 @@ def placeholder_name(domain: str) -> str:
     return label[:1].upper() + label[1:BRAND_NAME_MAX_LENGTH]
 
 
-def _classify(domain: str, own_domains: set[str]) -> tuple[BrandKind, BrandStatus]:
-    if domain in own_domains:
-        return BrandKind.OWN, BrandStatus.CONFIRMED
+def own_domains(team_id: int) -> list[str]:
+    """The registrable domains that count as the team itself: its own brands that nobody ignored, sorted."""
+    return sorted(
+        AEOBrand.objects.for_team(team_id)
+        .filter(kind=BrandKind.OWN)
+        .exclude(status=BrandStatus.IGNORED)
+        .values_list("domain", flat=True)
+    )
+
+
+# A newly cited domain is never the team's own: own brands are added by people before the first run.
+def _classify(domain: str) -> tuple[BrandKind, BrandStatus]:
     if domain in PUBLISHER_DOMAINS:
         return BrandKind.PUBLISHER, BrandStatus.CONFIRMED
     return BrandKind.UNKNOWN, BrandStatus.SUGGESTED
@@ -93,10 +100,9 @@ def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
     known = set(
         AEOBrand.objects.for_team(team_id, canonical=True).filter(domain__in=domains).values_list("domain", flat=True)
     )
-    own_domains = {domain for target in settings.AEO_TARGET_DOMAINS if (domain := registrable_domain(f"//{target}"))}
     new_brands = []
     for domain in sorted(domains - known):
-        kind, status = _classify(domain, own_domains)
+        kind, status = _classify(domain)
         new_brands.append(
             AEOBrand(
                 team_id=team_id,

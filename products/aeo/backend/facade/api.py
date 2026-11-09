@@ -14,7 +14,6 @@ from collections.abc import Mapping
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Aggregate, Avg, Count, Exists, Max, Min, OuterRef, Q, QuerySet
@@ -256,7 +255,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
     the cited domains, brand sentiment and the words of the web searches over the last `days` days
     in the team's timezone."""
     prompt = _get_prompt_row(team_id, prompt_id)
-    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
+    target_domains = catalog.own_domains(team_id)
     checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id)
     engines = tuple(
         PromptEngineStats(
@@ -454,7 +453,7 @@ def _top_searches(team_id: int, *, since: dt.datetime) -> tuple[PromptSetSearch,
 def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> PromptSetOverview:
     """Checks across the whole prompt set over the last `days` days in the team's timezone, the same
     counts for the `days` days before, and the current window split per engine and per topic."""
-    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
+    target_domains = catalog.own_domains(team_id)
     tz = ZoneInfo(timezone_name)
     window_to = timezone.now().astimezone(tz).date()
     window_from = window_to - dt.timedelta(days=days - 1)
@@ -597,6 +596,11 @@ def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportRes
 
 def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
     return catalog.sync_brands_from_run(team_id, run_id)
+
+
+def list_own_domains(team_id: int) -> list[str]:
+    """The registrable domains that count as the team itself in citations, from its own brands."""
+    return catalog.own_domains(team_id)
 
 
 def list_brands(

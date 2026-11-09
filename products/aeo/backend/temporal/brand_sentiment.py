@@ -29,6 +29,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.utils import close_db_connections
 
 from products.aeo.backend.brand import brand_regex
+from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.models import AEOCitationCheck
 from products.aeo.backend.sentiment import aggregate_sentiment, brand_sentences
 
@@ -66,7 +67,7 @@ def _load_pending(inputs: AEOBrandSentimentInputs) -> list[_PendingAnswer]:
     Two concurrent runs can both pick up the same backlog row. The writes are idempotent (the same
     text scores the same), so that only costs a duplicate classification, and no transaction is
     held across the model call that a row lock could ride on."""
-    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
+    target_domains = own_domains(inputs.team_id)
     regex = brand_regex(target_domains)
     if regex is None:
         return []

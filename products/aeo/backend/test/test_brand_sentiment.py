@@ -19,6 +19,7 @@ from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
 from products.aeo.backend.temporal.brand_sentiment import AEOBrandSentimentInputs, classify_aeo_brand_sentiment
+from products.aeo.backend.test.factories import create_own_brand
 
 _MODULE = "products.aeo.backend.temporal.brand_sentiment"
 
@@ -75,8 +76,8 @@ def _result(**scores: float) -> SentimentResult:
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog(settings) -> None:
-    settings.AEO_TARGET_DOMAINS = ["example.com"]
     team = await sync_to_async(_team)()
+    await sync_to_async(create_own_brand)(team, "example.com")
     run_id, checks = await sync_to_async(_seed_run)(team)
     await sync_to_async(_age)(checks["other_run"], 10)
     await sync_to_async(_age)(checks["no_brand_backlog"], 20)
@@ -129,8 +130,8 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", [ImportError("No module named 'onnxruntime'"), FileNotFoundError("model.onnx")])
 async def test_activity_leaves_rows_unscored_when_the_model_is_unavailable(settings, error: Exception) -> None:
-    settings.AEO_TARGET_DOMAINS = ["example.com"]
     team = await sync_to_async(_team)()
+    await sync_to_async(create_own_brand)(team, "example.com")
     run_id, checks = await sync_to_async(_seed_run)(team)
 
     with patch("posthog.temporal.ai_observability.sentiment.model.classify", MagicMock(side_effect=error)):
@@ -164,6 +165,7 @@ def test_runner_starts_the_sentiment_workflow_only_when_enabled_and_recording(
 ) -> None:
     settings.AEO_BRAND_SENTIMENT_ENABLED = enabled
     team = _team()
+    create_own_brand(team, "example.com")
     upsert_prompts(team, [PromptCandidate(text="q?", source="imported")])
 
     with patch(f"{_MODULE}.sync_connect") as connect, patch(f"{_MODULE}.asyncio.run") as run:

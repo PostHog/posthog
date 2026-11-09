@@ -7,7 +7,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
-from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -23,7 +22,7 @@ from posthog.models.utils import generate_random_token_personal
 from products.aeo.backend.engines import top_domains
 from products.aeo.backend.facade.api import get_prompt_set_overview
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
-from products.aeo.backend.test.factories import create_citation_check
+from products.aeo.backend.test.factories import create_citation_check, create_own_brand
 
 
 class TestAEOPromptAPI(APIBaseTest):
@@ -522,8 +521,9 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(prompt_id, "claude-web-search", minutes_ago=2 * day, cited=True, position=3)
         self._record_check(prompt_id, "claude-web-search", minutes_ago=40 * day)
 
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            response = self.client.get(f"{self.url}{prompt_id}/stats/")
+        create_own_brand(self.team, "example.com")
+
+        response = self.client.get(f"{self.url}{prompt_id}/stats/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         stats = response.json()
@@ -576,8 +576,9 @@ class TestAEOPromptAPI(APIBaseTest):
         prompt_id = self._import_one_prompt()
         self._record_check(prompt_id, "exa-answer", minutes_ago=10, **check)
 
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
+        create_own_brand(self.team, "example.com")
+
+        stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
 
         assert [row["mentioned"] for row in stats["engines"]] == [expected_mentioned]
         assert [row["mentioned"] for row in stats["daily"]] == [expected_mentioned]
@@ -594,8 +595,9 @@ class TestAEOPromptAPI(APIBaseTest):
                     brand_sentiment=label, brand_sentiment_score=score
                 )
 
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
+        create_own_brand(self.team, "example.com")
+
+        stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
         checks = self.client.get(f"{self.url}{prompt_id}/checks/?engine=exa-answer").json()["results"]
 
         assert [
@@ -641,8 +643,9 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(prompt_id, "openai-web-search", minutes_ago=4 * day, check_failed=True)
         self._record_check(prompt_id, "openai-web-search", minutes_ago=40 * day, cited_urls=[rival, rival, rival])
 
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
+        create_own_brand(self.team, "example.com")
+
+        stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
 
         assert [(row["engine"], row["domain"], row["checks_citing"], row["checks"]) for row in stats["consensus"]] == [
             ("claude-web-search", "docs.example.com", 1, 2),
@@ -719,8 +722,9 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(ids["replay?"], "exa-answer", minutes_ago=40 * day, cited=True, position=4)
         self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=70 * day, cited=True)
 
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            response = self.client.get(f"{self.url}overview/")
+        create_own_brand(self.team, "example.com")
+
+        response = self.client.get(f"{self.url}overview/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         overview = response.json()
