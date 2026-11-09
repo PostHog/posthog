@@ -2229,21 +2229,19 @@ class HogFlowActionSerializer(serializers.Serializer):
                     template = None
             inputs = config.get("inputs", {})
             existing_emails = (self.context.get("existing_action_emails") or {}).get(data.get("id")) or []
+            # A step whose stored template had no email input stored its email data inert, so only the same
+            # step type and template grandfather it. Switching the template would otherwise start sending it.
+            # A stored fixed-template step without a template_id runs its type's fixed template.
+            same_template_emails = [
+                email
+                for action_type, stored_template_id, email in existing_emails
+                if action_type == data.get("type") and (stored_template_id or fixed_template_id) == template_id
+            ]
             input_context = {
                 **self.context,
                 "workflow_action_type": data.get("type"),
-                "existing_email_values": [
-                    email
-                    for action_type, _, email in existing_emails
-                    if action_type == "function_email" and data.get("type") == "function_email"
-                ],
-                # A step whose stored template had no email input stored its email data inert, so only the
-                # same template grandfathers it. Switching the template would otherwise start sending it.
-                "existing_action_email_values": [
-                    email
-                    for action_type, stored_template_id, email in existing_emails
-                    if action_type == data.get("type") and stored_template_id == template_id
-                ],
+                "existing_email_values": same_template_emails if data.get("type") == "function_email" else [],
+                "existing_action_email_values": same_template_emails,
                 "sandbox_email_integration_cache": self.context.setdefault("_sandbox_email_integration_cache", {}),
             }
             email_keys = [
