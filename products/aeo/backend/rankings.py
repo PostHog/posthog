@@ -63,7 +63,7 @@ _BRAND_DAYS_SQL = """
         )
     FROM posthog_aeo_citation_check AS check_row
     CROSS JOIN unnest(%s::text[], %s::text[], %s::bool[]) AS brand(domain, pattern, is_target)
-    WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+    WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
     GROUP BY brand.domain, day
 """
 
@@ -74,7 +74,7 @@ _CITED_HOSTS_SQL = """
         jsonb_array_elements_text(
             CASE WHEN jsonb_typeof(check_row.top_cited_domains) = 'array' THEN check_row.top_cited_domains ELSE '[]'::jsonb END
         ) AS host
-    WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+    WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
 """
 # The host to registrable domain mapping arrives as two parallel arrays.
 _DOMAIN_ANSWERS_SQL = """
@@ -85,7 +85,7 @@ _DOMAIN_ANSWERS_SQL = """
             CASE WHEN jsonb_typeof(check_row.top_cited_domains) = 'array' THEN check_row.top_cited_domains ELSE '[]'::jsonb END
         ) AS cited_host
     WHERE lower(cited_host) = mapping.host
-        AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+        AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
     GROUP BY mapping.domain
 """
 # URLs per host never overlap, so a domain's distinct URLs are the sum over its hosts.
@@ -97,7 +97,7 @@ _DOMAIN_URLS_SQL = """
             CASE WHEN jsonb_typeof(check_row.cited_urls) = 'array' THEN check_row.cited_urls ELSE '[]'::jsonb END
         ) AS url
     WHERE lower(substring(url from '^[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^@/?#]*@)?([^/:?#]+)')) = mapping.host
-        AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+        AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
     GROUP BY mapping.domain
 """
 _PAGES_SQL = """
@@ -106,7 +106,7 @@ _PAGES_SQL = """
         jsonb_array_elements_text(
             CASE WHEN jsonb_typeof(check_row.cited_urls) = 'array' THEN check_row.cited_urls ELSE '[]'::jsonb END
         ) AS url
-    WHERE url <> '' AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+    WHERE url <> '' AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
     GROUP BY url
     ORDER BY count(DISTINCT check_row.id) DESC, url
     LIMIT %s
@@ -126,12 +126,16 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
     window_start = dt.datetime.combine(window_from, dt.time.min, tzinfo=tz)
     previous_start = window_start - dt.timedelta(days=days)
 
-    answered = AEOCitationCheck.objects.for_team(team_id).filter(created_at__gte=window_start, check_failed=False)
+    # Every read stops at the same instant, so a check written mid-request can't make the counts disagree.
+    until = timezone.now()
+    answered = AEOCitationCheck.objects.for_team(team_id).filter(
+        created_at__gte=window_start, created_at__lt=until, check_failed=False
+    )
     answers = answered.count()
 
     # A target like docs.example.com stands for the whole example.com brand.
     targets = {registrable_domain(domain.lower()) for domain in target_domains}
-    citations = _Citations(resolve_effective_team_id(team_id), since=window_start)
+    citations = _Citations(resolve_effective_team_id(team_id), since=window_start, until=until)
     ranked_domains = citations.ranked_domains()
     competitors = _competitors(ranked_domains, targets, brand_names(target_domains))
     top_domains = ranked_domains[:MAX_RANKED_DOMAINS]
@@ -145,6 +149,7 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
         brands=[brand for brand in brands if brand[1]],
         timezone_name=timezone_name,
         since=previous_start,
+        until=until,
         window_from=window_from,
     )
     positive_share = _positive_share(answered) if target_domain else None
@@ -175,7 +180,7 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
             RankedDomain(
                 domain=domain,
                 answers=count,
-                share_of_answers=count / answers,
+                share_of_answers=count / answers if answers else 0.0,
                 urls=domain_urls.get(domain, 0),
                 is_target=domain in targets,
                 is_competitor=domain in competitors,
@@ -186,7 +191,7 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
             RankedPage(
                 url=page.url,
                 answers=page.answers,
-                share_of_answers=page.answers / answers,
+                share_of_answers=page.answers / answers if answers else 0.0,
                 is_target=page.domain in targets,
             )
             for page in citations.top_pages()
@@ -215,8 +220,8 @@ class _Citations:
     once per answer. Python only maps the distinct cited hosts to registrable domains, which needs the
     public suffix list."""
 
-    def __init__(self, team_id: int, *, since: dt.datetime) -> None:
-        self._params: list[Any] = [team_id, since]
+    def __init__(self, team_id: int, *, since: dt.datetime, until: dt.datetime) -> None:
+        self._params: list[Any] = [team_id, since, until]
         with connection.cursor() as cursor:
             cursor.execute(_CITED_HOSTS_SQL, self._params)
             hosts = [host for (host,) in cursor.fetchall() if host]
@@ -277,6 +282,7 @@ def _brand_days(
     brands: list[tuple[str, str | None, bool]],
     timezone_name: str,
     since: dt.datetime,
+    until: dt.datetime,
     window_from: dt.date,
 ) -> _BrandDays:
     current: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
@@ -295,6 +301,7 @@ def _brand_days(
                 [is_target for _, _, is_target in brands],
                 effective_team_id,
                 since,
+                until,
             ],
         )
         rows = cursor.fetchall()

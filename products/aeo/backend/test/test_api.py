@@ -831,6 +831,10 @@ class TestAEOPromptAPI(APIBaseTest):
             ids["funnels?"], "openai-web-search", minutes_ago=10, check_failed=True, cited_urls=["https://rival.io/x"]
         )
         self._record_check(ids["replay?"], "claude-web-search", minutes_ago=35 * day, answer_text="Example.")
+        # Written after the request's snapshot instant, so no count may include it.
+        self._record_check(
+            ids["replay?"], "exa-answer", minutes_ago=-5, answer_text="Late.", cited_urls=["https://late.example.net/x"]
+        )
 
         with override_settings(AEO_TARGET_DOMAINS=["docs.example.com"]):
             response = self.client.get(f"{self.url}rankings/")
