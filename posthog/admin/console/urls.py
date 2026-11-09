@@ -25,7 +25,7 @@ MOVED_ORGANIZATION_ACTIONS = {
     "limit-product": "#panel-billing",
     "unlimit-product": "#panel-billing",
     "sync-to-billing": "#panel-billing",
-    "trigger-deletion": "deletion/delete/",
+    "trigger-deletion": "#panel-deletion",
 }
 
 # The panel, not the form: each deletion operation is offered only in one deletion state, so its form would 404.

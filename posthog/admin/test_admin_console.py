@@ -417,7 +417,7 @@ class TestAdminConsoleViews(BaseTest):
                 "group-types/edit-3/?from=ticket",
             ),
             ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
-            ("organization_deletion_form", "organization", "trigger-deletion/", "deletion/delete/"),
+            ("organization_deletion", "organization", "trigger-deletion/?from=ticket", "?from=ticket#panel-deletion"),
             (
                 "deletion_request_form_page",
                 "datadeletionrequest",
