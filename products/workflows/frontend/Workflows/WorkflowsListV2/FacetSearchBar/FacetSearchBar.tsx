@@ -214,15 +214,16 @@ export function FacetSearchBar<TItem>({
                                 return (
                                     <LemonSnack
                                         key={facetFilterKey(filter, facets)}
-                                        closeLabel={`Remove filter ${label}`}
+                                        closeLabel={`Remove ${fromView ? 'view filter' : 'filter'} ${label}`}
                                         onClose={() => removePill(filter)}
-                                        title={label}
+                                        title={fromView ? `${label}, from the view` : label}
                                         data-attr={`${dataAttr}-pill`}
                                         className={clsx('max-w-80', fromView && 'bg-fill-secondary text-secondary')}
                                     >
                                         <span className={filter.negated && !fromView ? 'text-danger' : undefined}>
                                             {label}
                                         </span>
+                                        {fromView && <span className="sr-only">, from the view</span>}
                                     </LemonSnack>
                                 )
                             })}

@@ -6,7 +6,7 @@ import { useState } from 'react'
 
 import { initKeaTests } from '~/test/init'
 
-import { FacetDefinition, FacetSearchValue, serializeFacetQuery } from './facetQuery'
+import { FacetDefinition, FacetFilter, FacetSearchValue, serializeFacetQuery } from './facetQuery'
 import { FacetSearchBar } from './FacetSearchBar'
 
 interface Item {
@@ -33,7 +33,7 @@ const ITEMS: Item[] = [
     { name: 'Promo', status: 'archived', subjects: [] },
 ]
 
-function Harness({ initial }: { initial: FacetSearchValue }): JSX.Element {
+function Harness({ initial, viewFilters }: { initial: FacetSearchValue; viewFilters?: FacetFilter[] }): JSX.Element {
     const [value, setValue] = useState(initial)
     return (
         <div>
@@ -44,6 +44,7 @@ function Harness({ initial }: { initial: FacetSearchValue }): JSX.Element {
                 facets={FACETS}
                 items={ITEMS}
                 value={value}
+                viewFilters={viewFilters}
                 onChange={setValue}
                 matchesText={(item, text) => item.name.toLowerCase().includes(text.toLowerCase())}
                 placeholder="Search"
@@ -66,8 +67,11 @@ describe('FacetSearchBar', () => {
     beforeEach(() => initKeaTests())
     afterEach(() => cleanup())
 
-    const setup = (initial: FacetSearchValue = { filters: [], text: '' }): ReturnType<typeof userEvent.setup> => {
-        render(<Harness initial={initial} />)
+    const setup = (
+        initial: FacetSearchValue = { filters: [], text: '' },
+        viewFilters?: FacetFilter[]
+    ): ReturnType<typeof userEvent.setup> => {
+        render(<Harness initial={initial} viewFilters={viewFilters} />)
         return userEvent.setup()
     }
 
@@ -241,11 +245,18 @@ describe('FacetSearchBar', () => {
     })
 
     it('exposes the combobox and labels each pill remove button', async () => {
-        const user = setup({ filters: [{ facet: 'status', value: 'draft', negated: true }], text: '' })
+        const fromView: FacetFilter = { facet: 'status', value: 'active', negated: false }
+        const user = setup({ filters: [{ facet: 'status', value: 'draft', negated: true }, fromView], text: '' }, [
+            fromView,
+        ])
         expect(input()).toHaveAttribute('role', 'combobox')
         expect(input()).toHaveAttribute('aria-expanded', 'false')
         expect(document.querySelector('[aria-label="Remove filter Status is not: Draft"]')).not.toBeNull()
         expect(document.querySelector('[title="Status is not: Draft"]')).not.toBeNull()
+        expect(document.querySelector('[aria-label="Remove view filter Status: Active"]')).not.toBeNull()
+        expect(document.querySelector('[title="Status: Active, from the view"]')).toHaveTextContent(
+            'Status: Active, from the view'
+        )
 
         await user.click(input())
         await user.keyboard('status:')
