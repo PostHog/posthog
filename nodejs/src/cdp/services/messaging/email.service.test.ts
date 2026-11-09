@@ -1104,6 +1104,25 @@ describe('EmailService', () => {
                 expect(result.logs.map((log) => log.message).join(' ')).toContain('reached its email sending limit of')
             })
 
+            // Each queueMetadata below is what the release before attachment load retries wrote for that reschedule.
+            it.each([
+                ['a team cap delay', { originQueue: 'hogflow', originPriority: 2, teamCapped: true }],
+                [
+                    'a failed suppression lookup',
+                    { originQueue: 'hogflow', originPriority: 2, suppressionLookupAttempts: 1 },
+                ],
+                ['an SES throttle', { originQueue: 'hogflow', originPriority: 2 }],
+            ])('charges and sends a job the previous release rescheduled after %s', async (_name, queueMetadata) => {
+                claimAllOrNothing.mockResolvedValue({ granted: true, retryAfterMs: null })
+
+                const result = await cappedService.executeSendEmail({ ...invocation, queueMetadata })
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeUndefined()
+                expect(cappedSendSpy).toHaveBeenCalledTimes(1)
+                expect(claimAllOrNothing).toHaveBeenCalledTimes(1)
+            })
+
             it('retries on the token bucket cadence when the limiter reports no horizon', async () => {
                 // A Valkey fault denies with no horizon. Parking on the daily cap's pacing
                 // interval would hold the email long after the limiter recovered.
