@@ -3,6 +3,8 @@ import { type ReactElement, useCallback, useEffect, useLayoutEffect, useMemo, us
 import type { ViewInstance } from 'react-native'
 import { type ListViewToken, Platform, RefreshControl, SectionList, Text, View } from 'react-native'
 import { GestureDetector } from 'react-native-gesture-handler'
+import { useAuthStore } from '@/auth/authStore'
+import { useFirstScreenReady } from '@/auth/bootGate'
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { useNow } from '@/lib/useNow'
@@ -136,6 +138,7 @@ function ViewsReauth({ access }: { access: ViewsAccess }): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
     const tabBottom = useTabBottomOffset()
+    useFirstScreenReady(true)
     useTabHeader('views', {
         hint: null,
         status: null,
@@ -165,6 +168,7 @@ function ViewsBody(): ReactElement {
     const tabBottom = useTabBottomOffset()
     const now = useNow()
     const context = useViewsContext()
+    const accountLoading = useAuthStore((state) => state.accountLoading)
     const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
     const list = useViewsList()
     const { width } = useSceneDimensions()
@@ -834,7 +838,9 @@ function ViewsBody(): ReactElement {
 
     const contentBottom = tabBottom
     const { refresh } = list
-    const loading = list.pins.data === undefined && !list.pins.isError
+    const noProject = context.mode === 'live' && context.scope === null && !accountLoading
+    const loading = !noProject && list.pins.data === undefined && !list.pins.isError
+    useFirstScreenReady(!loading)
     const status = loading ? 'Loading…' : null
     useTabHeader('views', {
         refreshing: !loading && refresh.busy,
@@ -891,6 +897,18 @@ function ViewsBody(): ReactElement {
         body = (
             <View style={[styles.content, { paddingTop: contentTop }]}>
                 <ViewsSkeleton />
+            </View>
+        )
+    } else if (noProject) {
+        body = (
+            <View style={[styles.fill, { paddingTop: contentTop, paddingBottom: contentBottom }]}>
+                <StateView
+                    title="No project selected"
+                    message="Open Settings to check your projects."
+                    actionLabel="Open Settings"
+                    onAction={() => router.push('/settings')}
+                    testID="views-no-project"
+                />
             </View>
         )
     } else if (listFailed) {

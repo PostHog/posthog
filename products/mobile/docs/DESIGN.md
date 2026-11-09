@@ -282,8 +282,7 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   Start page picks the tab the app opens on (Inbox, Chats, Views, Web analytics or Live) and is saved on the device (`defaultPageStore`).
   Web analytics and Live open as their tabs; an unpinned one keeps its bar slot until the person leaves it.
   Sign in also lands there, and so do Back on Settings or a view and closing the chat when there is no screen to go back to.
-  Until the person picks one, the app saves a start page once, on the first launch that knows whether the selected project's organization approved AI data processing: Views if it did not, Inbox if it did.
-  While that status is unknown, the app opens the inbox and saves nothing.
+  Views is the start page until the person picks one.
 - **Errors list** (`features/errors/ErrorsListScreen.tsx`): one body in two chromes. Pushed from the Views Browse
   row, it draws the Back chip and More over a 28pt "Errors" title and the "Most users first · updated 5m ago" line; as
   a pinned tab, the tabs header draws the title and that line. Under them sit the 24h and 7d `SegmentedPill` and the New,

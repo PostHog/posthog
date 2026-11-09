@@ -5,6 +5,10 @@ const base: SplashGateInput = { sessionReady: true, firstScreenReady: false, seg
 describe('shouldHideSplash', () => {
     test.each<[string, Partial<SplashGateInput>, boolean]>([
         ['holds while the index route redirects', {}, false],
+        ['holds while the Views tab loads', { segments: ['(tabs)', 'views'] }, false],
+        ['hides once Views is ready', { segments: ['(tabs)', 'views'], firstScreenReady: true }, true],
+        ['hides when Views times out', { segments: ['(tabs)', 'views'], timedOut: true }, true],
+        ['hides on a deep link to a view', { segments: ['views', 'dashboard', '[id]'] }, true],
         ['holds while the inbox tab loads', { segments: ['(tabs)', 'inbox'] }, false],
         ['hides once the inbox is ready', { segments: ['(tabs)', 'inbox'], firstScreenReady: true }, true],
         ['hides on the chats tab without waiting', { segments: ['(tabs)', 'chats'] }, true],

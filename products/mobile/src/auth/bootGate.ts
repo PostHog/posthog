@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { create } from 'zustand'
 
 // A hung request must not trap the user on the splash; after this the first screen shows its own loading state.
@@ -13,6 +14,16 @@ export const useBootGate = create<BootGateState>()((set) => ({
     markFirstScreenReady: () => set({ firstScreenReady: true }),
 }))
 
+export function useFirstScreenReady(ready: boolean): void {
+    useEffect(() => {
+        if (!ready) {
+            return
+        }
+        const frame = requestAnimationFrame(() => useBootGate.getState().markFirstScreenReady())
+        return () => cancelAnimationFrame(frame)
+    }, [ready])
+}
+
 export interface SplashGateInput {
     sessionReady: boolean
     firstScreenReady: boolean
@@ -25,11 +36,10 @@ function isGroup(segment: string): boolean {
     return segment.startsWith('(') && segment.endsWith(')')
 }
 
-// The index route has no segment and redirects to the default page, so it and the inbox hold the splash until the
-// inbox loads. Chats and Views show their own loading state at once.
+// The index holds the splash through the redirect. Views detail links show their own loading states.
 function holdsSplash(segments: readonly string[]): boolean {
     const first = segments.find((segment) => !isGroup(segment))
-    return first === undefined || first === 'inbox'
+    return first === undefined || first === 'inbox' || (first === 'views' && segments.includes('(tabs)'))
 }
 
 export function shouldHideSplash({ sessionReady, firstScreenReady, segments, timedOut }: SplashGateInput): boolean {

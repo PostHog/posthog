@@ -6,13 +6,8 @@ steps:
     - await: { visible: { id: try-demo }, timeout: 25000 }
     - await: { idle: true }
 
-    - echo: On sign-in. Tap Try the demo. Expect the inbox
+    - echo: On sign-in. Tap Try the demo. Expect the pinned list in Views
     - tap: { id: try-demo }
-    - await: { visible: { id: inbox-screen } }
-    - await: { idle: true }
-
-    - echo: On the inbox. Open Views from the bottom bar. Expect the pinned list
-    - tap: { id: inbox-nav-views }
     - await: { visible: { id: views-screen } }
     - await: { idle: true }
     - assert: { text: { in: { id: views-pin-dashboard-demo-dash-kpis }, contains: Product KPIs } }

@@ -333,7 +333,7 @@ Also perform real push delivery checks on physical Android and iOS devices befor
 The flow needs no account, because every build shows **Try the demo** on the sign-in screen.
 The flow:
 
-1. taps **Try the demo** on the sign-in screen,
+1. taps **Try the demo** on the sign-in screen, checks that Views opens, then taps **Home** to open the inbox,
 2. opens "Report load time", opens and closes the hand-off sheet,
 3. resolves the report as fixed outside PostHog and checks that its inbox row is gone,
 4. opens "3,721 errors", taps **Needs your answer**, picks an answer in the decision sheet, then taps Undo, reopens the question and closes its sheet,
@@ -364,7 +364,7 @@ Prepare the development build:
 2. Open the developer menu (Device, Shake in the Simulator menu, or ⌃⌘Z) and turn off:
    - **Tools button**. The floating gear covers the inbox More button.
    - **Fast refresh**. When files change, its "Refreshing..." banner covers the Back and Close buttons.
-3. Demo mode must be off. If the app opens on the inbox, open Settings and tap **Exit demo**.
+3. If the app opens in demo mode, open Settings and tap **Exit demo**. The flows expect Views as the start page.
 
 Then run the flow from `products/mobile`, because Argent looks for `.argent/flows` in the current directory:
 

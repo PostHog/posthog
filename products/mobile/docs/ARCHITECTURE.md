@@ -9,7 +9,7 @@ products/mobile/
                           push registration, notification routing, analytics, error boundary
     +native-intent.tsx    Drops the Android OAuth callback deep link so it never opens a screen, and opens a web
                           link to one issue or recording at /errors/<id> or /replay/<id> (webLinkTarget)
-    index.tsx             Redirect to /inbox (demo mode or signed in) or /sign-in
+    index.tsx             Redirect to the start page (Views by default) or /sign-in
     sign-in.tsx           -> src/auth/SignInScreen
     (tabs)/               Inbox and Chats share one tab navigator, so the bottom bar stays put when the tab changes
       _layout.tsx         -> src/features/tabs/TabsLayout

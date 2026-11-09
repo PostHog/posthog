@@ -1,7 +1,7 @@
 import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
 import { FlatList, RefreshControl, View } from 'react-native'
-import { useBootGate } from '@/auth/bootGate'
+import { useFirstScreenReady } from '@/auth/bootGate'
 import { track } from '@/lib/analytics'
 import { useNow } from '@/lib/useNow'
 import type { InboxItem } from '@/model/types'
@@ -62,14 +62,7 @@ export function InboxScreen(): ReactElement {
         listRef.current?.scrollToOffset({ offset: 0, animated: false })
     }, [sort])
 
-    // The native splash waits for this, so release it only after the loaded list has had a frame to paint.
-    useEffect(() => {
-        if (query.isLoading) {
-            return
-        }
-        const frame = requestAnimationFrame(() => useBootGate.getState().markFirstScreenReady())
-        return () => cancelAnimationFrame(frame)
-    }, [query.isLoading])
+    useFirstScreenReady(!query.isLoading)
 
     const openReport = useCallback(
         (reportId: string) => router.push({ pathname: '/report/[id]', params: { id: reportId, from: 'inbox' } }),

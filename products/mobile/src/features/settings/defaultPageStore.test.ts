@@ -1,48 +1,23 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { waitFor } from '@testing-library/react-native'
 
-import type { OrgAiStatus } from '@/features/chat/aiAccess'
-
-import {
-    DEFAULT_PAGES,
-    type DefaultPage,
-    defaultPageHref,
-    effectiveDefaultPage,
-    resolveStartPage,
-} from './defaultPageStore'
+import { DEFAULT_PAGES, type DefaultPage, defaultPageHref, effectiveDefaultPage } from './defaultPageStore'
 
 const STORAGE_KEY = 'posthog-mobile-default-page'
-
-jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
 
 type DefaultPageModule = typeof import('./defaultPageStore')
 type DefaultPageStore = DefaultPageModule['useDefaultPageStore']
 
-interface IsolatedModules {
-    defaultPage: DefaultPageModule
-    auth: typeof import('@/auth/authStore')
-    analytics: typeof import('@/lib/analytics')
-}
-
-// One registry for all three modules, so the stores and the mocked track are the instances settleDefaultPage uses.
-async function loadModules(): Promise<IsolatedModules> {
-    let modules: IsolatedModules | undefined
+async function loadStore(): Promise<DefaultPageStore> {
+    let store: DefaultPageStore | undefined
     jest.isolateModules(() => {
-        modules = {
-            defaultPage: jest.requireActual<DefaultPageModule>('./defaultPageStore'),
-            auth: jest.requireActual<typeof import('@/auth/authStore')>('@/auth/authStore'),
-            analytics: jest.requireMock<typeof import('@/lib/analytics')>('@/lib/analytics'),
-        }
+        store = jest.requireActual<DefaultPageModule>('./defaultPageStore').useDefaultPageStore
     })
-    if (!modules) {
+    if (!store) {
         throw new Error('Default page store did not load')
     }
-    await modules.defaultPage.useDefaultPageStore.persist.rehydrate()
-    return modules
-}
-
-async function loadStore(): Promise<DefaultPageStore> {
-    return (await loadModules()).defaultPage.useDefaultPageStore
+    await store.persist.rehydrate()
+    return store
 }
 
 describe('default page store', () => {
@@ -50,19 +25,19 @@ describe('default page store', () => {
         await AsyncStorage.clear()
     })
 
-    test('opens on the inbox when nothing is saved', async () => {
+    test('opens on Views when nothing is saved', async () => {
         const store = await loadStore()
         expect(store.getState().page).toBeNull()
-        expect(effectiveDefaultPage(store.getState().page)).toBe('inbox')
+        expect(effectiveDefaultPage(store.getState().page)).toBe('views')
     })
 
-    test.each<DefaultPage>(['views', 'web_analytics', 'live'])('a chosen %s page survives a restart', async (page) => {
+    test.each<DefaultPage>(DEFAULT_PAGES)('a chosen %s page survives a restart', async (page) => {
         const store = await loadStore()
         store.getState().setPage(page)
         await waitFor(async () => expect(await AsyncStorage.getItem(STORAGE_KEY)).toContain(`"${page}"`))
 
         const restarted = await loadStore()
-        expect(restarted.getState().page).toBe(page)
+        expect(effectiveDefaultPage(restarted.getState().page)).toBe(page)
     })
 
     test.each<[string, unknown]>([
@@ -72,42 +47,6 @@ describe('default page store', () => {
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ state: { page: saved }, version: 0 }))
         const store = await loadStore()
         expect(store.getState().page).toBeNull()
-    })
-
-    test.each<[DefaultPage | null, OrgAiStatus, DefaultPage, boolean]>([
-        [null, 'not_approved', 'views', true],
-        [null, 'approved', 'inbox', true],
-        [null, 'unknown', 'inbox', false],
-        ['chats', 'not_approved', 'chats', false],
-    ])('resolves saved page %s with organization %s to %s (settle: %s)', (saved, orgStatus, page, settle) => {
-        expect(resolveStartPage(saved, orgStatus)).toEqual({ page, settle })
-    })
-
-    test("settles once on views when the selected project's organization has not approved AI", async () => {
-        const { defaultPage, auth, analytics } = await loadModules()
-        auth.useAuthStore.setState({
-            status: 'signed_in',
-            organizations: [
-                { id: 'org-a', name: 'A', aiDataProcessingApproved: false },
-                { id: 'org-b', name: 'B', aiDataProcessingApproved: true },
-            ],
-            projects: [
-                { id: 1, name: 'One', organizationId: 'org-a', organizationName: 'A' },
-                { id: 2, name: 'Two', organizationId: 'org-b', organizationName: 'B' },
-            ],
-            projectId: 1,
-        })
-
-        expect(defaultPage.settleDefaultPage()).toBe('views')
-        await waitFor(async () => expect(await AsyncStorage.getItem(STORAGE_KEY)).toContain('"views"'))
-        expect(analytics.track).toHaveBeenCalledTimes(1)
-        expect(analytics.track).toHaveBeenCalledWith('mobile_default_page_defaulted', {
-            page: 'views',
-            org_ai_approved: false,
-        })
-
-        expect(defaultPage.settleDefaultPage()).toBe('views')
-        expect(analytics.track).toHaveBeenCalledTimes(1)
     })
 
     test('every page maps to a tab route', () => {
