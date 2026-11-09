@@ -40,6 +40,70 @@ const UploadOutput = z.looseObject({
 })
 
 describe('hog error-tracking upload', () => {
+    test('release without git or complete coordinates returns null without a request', async () => {
+        const result = await runHog(['et', 'release', '--release-version', 'abc123', '-o', 'json'], {
+            env: { CLAUDECODE: '1' },
+            cwd: project({}),
+            useDisk: true,
+        })
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toBeNull()
+        expect(result.requests).toEqual([])
+    })
+
+    test.each(['inject', 'upload', 'process'] as const)(
+        '%s skips an incomplete release without git and warns once',
+        async (command) => {
+            const folder = project({
+                'dist/a.js': 'a();\n//# debugId=11111111-2222-4333-8444-555555555555\n//# sourceMappingURL=a.js.map\n',
+                'dist/a.js.map': JSON.stringify({
+                    version: 3,
+                    sources: ['a.ts'],
+                    names: [],
+                    mappings: 'AAAA',
+                    debugId: '11111111-2222-4333-8444-555555555555',
+                }),
+            })
+            const result = await runHog(
+                ['et', command, 'dist', '--release-mode', 'symbol-set', '--release-version', 'abc123', '--dry-run'],
+                { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true }
+            )
+            expect(result.exitCode).toBe(0)
+            const report = result.json(z.looseObject({ warnings: z.array(z.string()) }))
+            expect(
+                report.warnings.filter((warning) => warning.includes('Sourcemaps will upload without a release.'))
+            ).toHaveLength(1)
+            expect(result.requests).toEqual([])
+        }
+    )
+
+    test.each([
+        ['clone', ['packager.map', 'composed.map']],
+        ['upload', ['composed.map']],
+    ])('%s warns when a Hermes release cannot be resolved', async (command, paths) => {
+        const map = {
+            version: 3,
+            sources: ['a.ts'],
+            names: [],
+            mappings: 'AAAA',
+            chunk_id: '11111111-2222-4333-8444-555555555555',
+        }
+        const folder = project({
+            'packager.map': JSON.stringify(map),
+            'composed.map': JSON.stringify({ ...map, x_hermes_function_offsets: { '0': [0] } }),
+        })
+        const result = await runHog(
+            ['et', command, ...paths, '--release-mode', 'symbol-set', '--release-version', 'abc123', '--dry-run'],
+            { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true }
+        )
+        expect(result.exitCode).toBe(0)
+        const report = result.json(z.looseObject({ warnings: z.array(z.string()) }))
+        expect(
+            report.warnings.filter((warning) => warning.includes('Sourcemaps will upload without a release.'))
+        ).toHaveLength(1)
+        expect(result.requests).toEqual([])
+    })
+
     test.each([
         ['the map ID from posthog.json', [], 'map-1'],
         ['--map-id over the one in posthog.json', ['--map-id', 'map-2'], 'map-2'],
