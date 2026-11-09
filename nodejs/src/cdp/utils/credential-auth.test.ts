@@ -1,5 +1,29 @@
+import { readFileSync } from 'fs'
+import path from 'path'
+
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { HOG_FUNCTION_TEMPLATES } from '../templates'
-import { CredentialAuthDeclaration, INTEGRATION_AUTH, ResolvedCredential, applyCredential } from './credential-auth'
+import {
+    CredentialAuthDeclaration,
+    INTEGRATION_AUTH,
+    ResolvedCredential,
+    applyCredential,
+    publicIntegrationConfig,
+    requestOrigin,
+    routedOrigins,
+} from './credential-auth'
+
+// Python's tests read the same table, so the origin Django binds is the one the worker compares.
+const ORIGIN_CASES: {
+    url_origins: { url: string; origin: string | null }[]
+    routed_origins: { url: string; headers: Record<string, string>; origins: string[] }[]
+} = parseJSON(
+    readFileSync(
+        path.resolve(__dirname, '../../../../products/cdp/shared/crosslang/credential_origin_cases.json'),
+        'utf8'
+    )
+)
 
 describe('credential auth', () => {
     const credential = (declaration: CredentialAuthDeclaration, username?: string): ResolvedCredential => ({
@@ -46,10 +70,38 @@ describe('credential auth', () => {
         expect(applyCredential(request, resolved)).toEqual({ ok: true, request: { ...request, ...expected } })
     })
 
-    it('refuses a body path when the body is not a JSON object', () => {
-        const outcome = applyCredential({ ...request, body: '["list"]' }, credential({ scheme: 'body', path: 'token' }))
+    it.each([
+        ['a body that is not a JSON object', '["list"]', 'token'],
+        ['__proto__ in the path', request.body, '__proto__.token'],
+        ['constructor in the path', request.body, 'constructor.prototype.token'],
+        ['prototype in the path', request.body, 'auth.prototype'],
+    ])('refuses a body path with %s', (_name, body, path) => {
+        const outcome = applyCredential({ ...request, body }, credential({ scheme: 'body', path }))
 
         expect(outcome.ok).toBe(false)
+        expect(({} as Record<string, unknown>).token).toBeUndefined()
+    })
+
+    it('keeps tokens and the Slack webhook URL out of the config code sees', () => {
+        const config = {
+            team: { id: 'T1', name: 'Example' },
+            access_token: 'xoxb-1',
+            authed_user: { id: 'U1', access_token: 'xoxp-1' },
+            incoming_webhook: { channel: '#alerts', url: 'https://hooks.slack.com/services/T1/B1/x' },
+        }
+
+        expect(publicIntegrationConfig(config, { refresh_token: 'r' })).toEqual({ team: config.team })
+    })
+
+    it.each(ORIGIN_CASES.url_origins.filter((c) => c.origin !== null))(
+        'reads $url as the origin Django binds',
+        ({ url, origin }) => {
+            expect(requestOrigin(url)).toBe(origin)
+        }
+    )
+
+    it.each(ORIGIN_CASES.routed_origins)('routes $url with $headers to $origins', ({ url, headers, origins }) => {
+        expect(routedOrigins({ url, headers, body: undefined })).toEqual(origins)
     })
 
     it('knows the placement of every connection kind a template applies as a credential', () => {

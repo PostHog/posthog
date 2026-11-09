@@ -9,6 +9,9 @@ import {
     CredentialAuthDeclaration,
     INTEGRATION_AUTH,
     ResolvedCredential,
+    appliesIntegrationCredential,
+    credentialAuthCounter,
+    credentialAuthEnforcedTeams,
     credentialHandle,
     publicIntegrationConfig,
 } from '../utils/credential-auth'
@@ -45,11 +48,16 @@ const accessTokenPlaceholderBase = (integrationId: number): string => `${ACCESS_
 const signedAccessTokenPlaceholder = (base: string, signature: string): string => `${base}_${signature.slice(0, 32)}`
 
 export class HogInputsService {
+    private readonly credentialAuthEnforced: (teamId: number) => boolean
+
     constructor(
         private integrationManager: IntegrationManagerService,
         private recipientTokensService: RecipientTokensService | undefined,
-        private encryptedFields: EncryptedFields
-    ) {}
+        private encryptedFields: EncryptedFields,
+        credentialAuthEnforceTeams = ''
+    ) {
+        this.credentialAuthEnforced = credentialAuthEnforcedTeams(credentialAuthEnforceTeams)
+    }
 
     public async buildInputs(
         hogFunction: HogFunctionType,
@@ -271,9 +279,10 @@ export class HogInputsService {
         const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
         const handleKeys = new Set(allSchemas.filter((schema) => schema.auth).map((schema) => schema.key))
+        const enforced = this.credentialAuthEnforced(hogFunction.team_id)
 
         // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
-        const resolveIntegration = (id: number, handleKey?: string): Record<string, any> | null => {
+        const resolveIntegration = (id: number, inputKey: string, multi: boolean): Record<string, any> | null => {
             const integration = integrations[id]
             if (!integration || integration.team_id !== hogFunction.team_id) {
                 return null
@@ -287,12 +296,17 @@ export class HogInputsService {
             if (isWarehouseSourceIntegration(integration)) {
                 return null
             }
-            if (handleKey) {
+            // The kind decides, because a schema edit can drop `auth` or add a second input on the same connection.
+            const appliesCredential = appliesIntegrationCredential(integration.kind)
+            if (appliesCredential && (enforced || handleKeys.has(inputKey))) {
                 return {
                     $integration_id: integration.id,
                     ...publicIntegrationConfig(integration.config, integration.sensitive_config),
-                    ...credentialHandle(handleKey),
+                    ...(multi ? {} : credentialHandle(inputKey)),
                 }
+            }
+            if (appliesCredential && newGlobals) {
+                credentialAuthCounter.inc({ outcome: 'legacy_integration', mode: 'observe' })
             }
             return {
                 $integration_id: integration.id,
@@ -319,7 +333,7 @@ export class HogInputsService {
             if (isUsed && isWarehouseSourceIntegration(integrations[id])) {
                 throw new HogConfigurationError(warehouseIntegrationMessage(key))
             }
-            returnInputs[key] = { value: resolveIntegration(id, handleKeys.has(key) ? key : undefined) }
+            returnInputs[key] = { value: resolveIntegration(id, key, false) }
         })
 
         Object.entries(multiInputsToLoad).forEach(([key, ids]) => {
@@ -336,7 +350,7 @@ export class HogInputsService {
             ) {
                 throw new HogConfigurationError(warehouseIntegrationMessage(key))
             }
-            returnInputs[key] = { value: ids.map((id) => resolveIntegration(id)).filter((v) => v !== null) }
+            returnInputs[key] = { value: ids.map((id) => resolveIntegration(id, key, true)).filter((v) => v !== null) }
         })
 
         if (newGlobals) {
@@ -429,7 +443,7 @@ function ownInput(
     return inputs && Object.hasOwn(inputs, key) ? (inputs[key] ?? undefined) : undefined
 }
 
-// Only Django, when a secret is typed, or a workflow's template sets this binding, so code can't give itself one.
+// Only Django sets this binding, when a secret is typed, so code can't give itself one.
 function boundSecretDeclaration(input: CyclotronInputType): CredentialAuthDeclaration | null {
     const auth: unknown = (input as { auth?: unknown }).auth
     if (typeof auth !== 'object' || auth === null || Array.isArray(auth)) {
