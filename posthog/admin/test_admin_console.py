@@ -21,6 +21,7 @@ from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operat
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
 from posthog.csp_middleware import CSPMiddleware
+from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 from posthog.models.organization import Organization
@@ -290,6 +291,7 @@ class TestAdminConsoleViews(BaseTest):
             assert len(panel.facts(self.team)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
 
         assert f"/admin/console/organizations/{self.organization.pk}/" in content
+        assert f"/admin/console/tools/ai-gateway-wallet/?team={self.team.pk}" in content
 
         organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
         assert organization_page.status_code == 200
@@ -440,6 +442,43 @@ class TestAdminConsoleViews(BaseTest):
         nonces = {call.kwargs["form_nonce"] for call in add_credit.call_args_list}
         assert add_credit.call_count == 2
         assert nonces == {nonce.group(1)}
+
+    @parameterized.expand(
+        [
+            (
+                "balance_and_ledger",
+                Wallet(
+                    team_id=0,
+                    known=True,
+                    has_ledger=True,
+                    balance="9.500000",
+                    recent=[LedgerEntry("2026-06-01", "topup", "funding", "prepaid", "10.000000", "ref-1")],
+                ),
+                ["Balance: $9.500000", "ref-1"],
+            ),
+            (
+                "no_gateway_account",
+                Wallet(team_id=0, known=False, has_ledger=True, balance=None, recent=[]),
+                ["no gateway account yet", "No ledger entries yet."],
+            ),
+            ("not_configured", AIGatewayNotConfigured(), ["not configured in this region"]),
+            ("gateway_fails", AIGatewayInternalError("boom"), ["The wallet is unavailable: boom"]),
+        ]
+    )
+    def test_the_old_wallet_page_opens_the_wallet_tool(
+        self, _name: str, wallet: Wallet | Exception, expected: list[str]
+    ) -> None:
+        with patch(
+            "posthog.llm.gateway_internal_client.get_wallet",
+            **({"side_effect": wallet} if isinstance(wallet, Exception) else {"return_value": wallet}),
+        ) as get_wallet:
+            response = self.client.get(f"/admin/posthog/team/{self.team.pk}/ai-gateway-wallet/", follow=True)
+
+        assert response.redirect_chain == [(f"/admin/console/tools/ai-gateway-wallet/?team={self.team.pk}", 302)]
+        get_wallet.assert_called_once_with(self.team.pk)
+        content = response.content.decode()
+        for text in expected:
+            assert text in content
 
     @patch(
         "products.ai_gateway.backend.facade.api.add_team_credit",

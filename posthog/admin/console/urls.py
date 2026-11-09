@@ -92,6 +92,10 @@ urlpatterns = [
         for old, target in MOVED_DELETION_REQUEST_ACTIONS.items()
     ],
     path(
+        "admin/posthog/team/<int:pk>/ai-gateway-wallet/",
+        MovedToConsole.page_redirect("The AI gateway wallet", "/admin/console/tools/ai-gateway-wallet/?team={pk}"),
+    ),
+    path(
         "admin/posthog/datadeletionrequest/add/",
         MovedToConsole.page_redirect(
             "Creating a deletion request", "/admin/console/tools/new-deletion-request/create/"

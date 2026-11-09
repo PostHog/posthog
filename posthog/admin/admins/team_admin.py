@@ -32,7 +32,6 @@ from posthog.admin.inlines.events_retention_config_inline import TeamEventsReten
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.helpers.impersonation import is_impersonated
-from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, get_wallet
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Detail, log_activity
 from posthog.models.events_retention_config import (
@@ -902,19 +901,7 @@ class TeamAdmin(admin.ModelAdmin):
     def ai_gateway_wallet(self, team: Team):
         if not team.pk:
             return "-"
-        # The balance read is a blocking call to the gateway, so defer it behind a
-        # link (mirrors remote_config_cache_actions) instead of fetching on every
-        # team page render.
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/ai_gateway_wallet_actions.html",
-                {
-                    "wallet_url": reverse("admin:posthog_team_ai_gateway_wallet", args=[team.pk]),
-                    "add_credit_moved": MovedToConsole.team_action(team, "ai-gateway", "Add credit"),
-                },
-            )
-        )
+        return MovedToConsole.team_action(team, "ai-gateway", "Wallet balance, ledger and Add credit")
 
     @admin.display(description="Recent top-ups (who topped up)")
     def ai_gateway_credit_history(self, team: Team):
@@ -949,24 +936,6 @@ class TeamAdmin(admin.ModelAdmin):
             "<tbody>{}</tbody></table>",
             rows,
         )
-
-    def ai_gateway_wallet_view(self, request, object_id):
-        team = Team.objects.get(pk=object_id)
-        if not self.has_view_permission(request, team):
-            raise PermissionDenied
-        context = {
-            **self.admin_site.each_context(request),
-            "team": team,
-            "title": f"AI gateway wallet - {team.name}",
-            "add_credit_moved": MovedToConsole.team_action(team, "ai-gateway", "Add credit"),
-        }
-        try:
-            context["wallet"] = get_wallet(team.id)
-        except AIGatewayNotConfigured:
-            context["error"] = "ai-gateway internal API not configured in this region"
-        except AIGatewayInternalError as exc:
-            context["error"] = f"wallet unavailable: {exc}"
-        return render(request, "admin/posthog/team/ai_gateway_wallet_page.html", context)
 
     @admin.display(description="Policy cache blob (what the gateway sees)")
     def policy_cache_blob(self, team: Team):
@@ -1019,11 +988,6 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/delete-recordings/workflows/",
                 self.admin_site.admin_view(self.delete_recordings_workflows_fragment),
                 name="posthog_team_delete_recordings_workflows",
-            ),
-            path(
-                "<path:object_id>/ai-gateway-wallet/",
-                self.admin_site.admin_view(self.ai_gateway_wallet_view),
-                name="posthog_team_ai_gateway_wallet",
             ),
             path(
                 "<path:object_id>/suspend-email-sending/",

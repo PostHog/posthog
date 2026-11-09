@@ -15,13 +15,7 @@ from parameterized import parameterized
 
 from posthog.admin.admins.team_admin import TeamAdmin
 from posthog.admin.inlines.team_inline import TeamInline
-from posthog.llm.gateway_internal_client import (
-    AIGatewayInternalError,
-    AIGatewayNotConfigured,
-    CreditResult,
-    LedgerEntry,
-    Wallet,
-)
+from posthog.llm.gateway_internal_client import CreditResult
 from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
@@ -145,45 +139,6 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
         request.user = self.user
         _attach_messages(request)
         return request
-
-    def test_wallet_field_renders_actions_without_fetching(self) -> None:
-        with patch("posthog.admin.admins.team_admin.get_wallet") as mock_get_wallet:
-            rendered = str(self.admin.ai_gateway_wallet(self.team))
-        mock_get_wallet.assert_not_called()
-        assert "View wallet" in rendered
-        assert "Add credit" in rendered
-
-    def test_wallet_view_not_configured_degrades_gracefully(self) -> None:
-        with patch("posthog.admin.admins.team_admin.get_wallet", side_effect=AIGatewayNotConfigured()):
-            with patch("posthog.admin.admins.team_admin.render") as mock_render:
-                self.admin.ai_gateway_wallet_view(self._get(), str(self.team.pk))
-        assert "not configured" in mock_render.call_args.args[2]["error"]
-
-    def test_wallet_view_unavailable_degrades_gracefully(self) -> None:
-        with patch("posthog.admin.admins.team_admin.get_wallet", side_effect=AIGatewayInternalError("boom")):
-            with patch("posthog.admin.admins.team_admin.render") as mock_render:
-                self.admin.ai_gateway_wallet_view(self._get(), str(self.team.pk))
-        error = mock_render.call_args.args[2]["error"]
-        assert "wallet unavailable" in error
-        assert "boom" in error
-
-    def test_wallet_view_renders_balance(self) -> None:
-        wallet = Wallet(
-            team_id=self.team.id,
-            known=True,
-            has_ledger=True,
-            balance="9.500000",
-            recent=[LedgerEntry("2026-06-01", "topup", "funding", "prepaid", "10.000000", "ref-1")],
-        )
-        with patch("posthog.admin.admins.team_admin.get_wallet", return_value=wallet):
-            with patch("posthog.admin.admins.team_admin.render") as mock_render:
-                self.admin.ai_gateway_wallet_view(self._get(), str(self.team.pk))
-        assert mock_render.call_args.args[2]["wallet"].balance == "9.500000"
-
-    def test_wallet_view_requires_view_permission(self) -> None:
-        with patch.object(self.admin, "has_view_permission", return_value=False):
-            with self.assertRaises(PermissionDenied):
-                self.admin.ai_gateway_wallet_view(self._get(), str(self.team.pk))
 
     @parameterized.expand([("direct", False, ""), ("impersonated", True, "(impersonated)")])
     def test_credit_history_renders_recorded_top_ups(self, _name: str, impersonated: bool, marker: str) -> None:
