@@ -521,6 +521,7 @@ class TestTrialAPI(APIBaseTest):
         assert response.json()["grant_status"] == "active"
 
     def test_flag_off_hides_offer_and_prevents_activation_for_claimed_projects(self) -> None:
+        User.objects.create_and_join(self.organization, "later-member@example.com", None)
         with patch(
             "products.signals.backend.trial.billing.TrialBilling.status",
             return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
@@ -530,10 +531,9 @@ class TestTrialAPI(APIBaseTest):
             grant_id = response.json()["grant_id"]
             self.flag_mock.assert_called_with(
                 "self-driving-ubp",
-                str(self.organization.id),
+                self.user.distinct_id,
                 groups={"organization": str(self.organization.id)},
                 group_properties={"organization": {"id": str(self.organization.id)}},
-                only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
             self.flag_mock.return_value = False

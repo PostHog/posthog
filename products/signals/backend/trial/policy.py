@@ -12,6 +12,7 @@ import posthoganalytics
 from rest_framework.exceptions import APIException, PermissionDenied
 
 from posthog.dataclasses import frozen
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -40,6 +41,18 @@ class TrialFlagDecision:
     confirmed: bool
 
 
+def pricing_flag_distinct_id(organization_id: UUID) -> str:
+    # The flag targets a static person cohort of grandfathered orgs. The earliest member stands in
+    # for the org, so that work without a request user gets the same answer as a request.
+    distinct_id = (
+        OrganizationMembership.objects.filter(organization_id=organization_id)
+        .order_by("joined_at", "id")
+        .values_list("user__distinct_id", flat=True)
+        .first()
+    )
+    return distinct_id or str(organization_id)
+
+
 def lock_organization_trial(organization_id: UUID) -> None:
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"signals-trial:{organization_id}"])
@@ -54,12 +67,12 @@ class TrialPolicy:
     def flag_decision(self) -> TrialFlagDecision:
         org_id = str(self.organization_id)
         try:
+            # Remote evaluation is required because the SDK cannot evaluate a static cohort locally.
             decision = posthoganalytics.feature_enabled(
                 TRIAL_FLAG,
-                org_id,
+                pricing_flag_distinct_id(self.organization_id),
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
-                only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
         except Exception:

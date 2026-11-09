@@ -564,9 +564,10 @@ class TestSignalReportRefundFlagGate(APIBaseTest):
         org_id = str(self.organization.id)
         flag_mock.assert_any_call(
             "self-driving-ubp",
-            org_id,
+            self.user.distinct_id,
             groups={"organization": org_id},
             group_properties={"organization": {"id": org_id}},
+            send_feature_flag_events=False,
         )
 
     @patch("posthoganalytics.feature_enabled")
