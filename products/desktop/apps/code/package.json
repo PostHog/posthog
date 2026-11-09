@@ -80,9 +80,9 @@
   },
   "dependencies": {
     "@inversifyjs/strongly-typed": "2.2.0",
-    "@opentelemetry/exporter-logs-otlp-http": "^0.208.0",
-    "@opentelemetry/resources": "^2.5.0",
-    "@opentelemetry/sdk-logs": "^0.208.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.219.0",
+    "@opentelemetry/resources": "^2.8.0",
+    "@opentelemetry/sdk-logs": "^0.219.0",
     "@opentelemetry/semantic-conventions": "^1.39.0",
     "@parcel/watcher": "^2.5.6",
     "@phosphor-icons/react": "^2.1.10",
