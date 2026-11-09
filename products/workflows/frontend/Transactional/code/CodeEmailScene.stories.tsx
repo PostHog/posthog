@@ -1,5 +1,5 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { fireEvent, waitFor, within } from '@testing-library/react'
+import { fireEvent, waitFor, within } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'

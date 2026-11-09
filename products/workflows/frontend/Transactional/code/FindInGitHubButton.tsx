@@ -5,7 +5,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { codeEmailLogic } from './codeEmailLogic'
 
-/** Searches the team's GitHub repos for the email's key and opens the picker. */
 export function FindInGitHubButton(): JSX.Element | null {
     const { canFindInGitHub, editDisabledReason, sourceCandidatesLoading } = useValues(codeEmailLogic)
     const { findSourceCandidates } = useActions(codeEmailLogic)

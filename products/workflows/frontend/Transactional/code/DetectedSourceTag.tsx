@@ -5,7 +5,6 @@ import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { codeEmailLogic } from './codeEmailLogic'
 
-/** Marks a source link PostHog found on GitHub, with a way to change it. */
 export function DetectedSourceTag(): JSX.Element | null {
     const { codeEmail, sourceDetectionEnabled, sourceFormOpen, editDisabledReason } = useValues(codeEmailLogic)
     const { setSourceFormOpen } = useActions(codeEmailLogic)
