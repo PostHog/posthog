@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0199_remove_externaldatasourceinputsbackup_state"),
+        ("warehouse_sources", "0200_drop_externaldatasourceinputsbackup_table"),
     ]
 
     operations = [

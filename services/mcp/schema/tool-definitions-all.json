@@ -236,6 +236,22 @@
         },
         "feature_entitlement": "role_based_access"
     },
+    "account-notes-list": {
+        "description": "Notes (internal notebooks) across every Customer Analytics account the caller can read, newest modified first. Each row carries `short_id`, `title`, `account_id`, `account_name`, `created_by` and `tags`. Filter with `tags` (JSON-encoded array, any match), `account_id`, `created_by`, `assigned_to` and `search`; sort with `ordering` (`last_modified_at`, `created_at`, `title`, `account_name`, `-` prefix for descending). Use `accounts-notebooks-retrieve` with the row's `account_id` and `short_id` to read a note's content.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account notes across accounts",
+        "title": "List account notes across accounts",
+        "required_scopes": ["account:read"],
+        "api_operations": ["GET /api/projects/{project_id}/account_notes/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "account-relationship-definitions-create": {
         "description": "Create a Customer Analytics account relationship definition — a team-defined relationship type between a PostHog user and an account, such as CSM or Onboarding manager. Provide `name` (required, unique within the team), optional `description` explaining what the relationship means, and `is_single_holder` (default true) controlling whether only one user can hold the relationship per account at a time. Definitions are team-scoped and shared across all accounts; assign a user to a specific account with `accounts-relationships-create`.",
         "category": "Customer analytics",
@@ -413,7 +429,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-notebooks-create": {
-        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; the server converts it into the same markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
+        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; the server converts it into the same markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list. Pass `tags` (array of tag names, shared with account tags) to tag the note at creation time.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account notebook",
@@ -445,7 +461,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-notebooks-list": {
-        "description": "List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result includes the notebook `short_id`, `title`, `content`, and authorship metadata.",
+        "description": "List notebooks attached to a Customer Analytics account, newest first by default. Each result includes the notebook `short_id`, `title`, `content`, `tags` and authorship metadata. Pass `tags` (JSON-encoded array, e.g. `[\"renewal\",\"risk\"]`) to keep notebooks carrying any of those tags, `created_by` (user IDs) to keep notebooks by those authors, `search` for full text, and `ordering` (`title`, `created_at`, `last_modified_at`, `created_by`, each with a `-` prefix for descending) to sort.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List account notebooks",
@@ -457,6 +473,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-partial-update": {
+        "description": "Replace an account notebook's `tags` by its `short_id`. `tags` replaces the whole tag set, so read the notebook first and send the full list to add one. The title and content are not edited here: a note's title comes from its first line, so use `notebooks-partial-update` to change the content.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update account notebook tags",
+        "title": "Update account notebook tags",
+        "required_scopes": ["account:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/accounts/{account_id}/notebooks/{short_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "customer-analytics-csp"
     },
@@ -840,7 +872,7 @@
         "feature_flag": "aeo-citation-tracking"
     },
     "aeo-prompts-list": {
-        "description": "List the project's AI citation tracking prompts: the questions PostHog asks AI answer engines every day to check whether their answers cite the project's site. Each prompt has its text (from its `current_version`, out of `version_count` versions), topic, on/off state (`active`), when it last ran (`last_checked_at`) and `latest_checks`, the newest result per engine (`cited`, `check_failed`, `target_best_position`: the 1-based rank of the first target URL among the cited URLs, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an empty string selects prompts with no topic) and by `active`. Archived prompts are left out unless `include_archived` is true; they carry `archived_at`. Results are paginated with `limit`/`offset` and ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find a prompt id before calling `aeo-prompts-update`.",
+        "description": "List the project's AI citation tracking prompts: the questions PostHog asks AI answer engines every day to check whether their answers cite the project's site. Each prompt has its text (from its `current_version`, out of `version_count` versions), topic, on/off state (`active`), when it last ran (`last_checked_at`) and `latest_checks`, the newest result per engine (`cited`, `check_failed`, `target_best_position`: the 1-based rank of the first target URL among the cited URLs, `search_queries`: the web searches the engine ran while answering, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an empty string selects prompts with no topic) and by `active`. Archived prompts are left out unless `include_archived` is true; they carry `archived_at`. Results are paginated with `limit`/`offset` and ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find a prompt id before calling `aeo-prompts-update`.",
         "category": "AI citation tracking",
         "feature": "aeo",
         "summary": "List tracked AI prompts",
@@ -856,7 +888,7 @@
         "feature_flag": "aeo-citation-tracking"
     },
     "aeo-prompts-overview-get": {
-        "description": "Get set-level totals for AI citation tracking over the last `days` days (default 30, at most 90, in the project's timezone) without writing SQL. `prompts_tracked` is how many prompts are on. `current` and `previous` compare the window with the one before it: `checks`, `failed`, `cited`, `mentioned` (answers that name the brand), `citation_rate` and `mention_rate` (shares of answered checks, 0-1), `prompts` that ran and `prompts_cited` (prompts minus prompts_cited is how many prompts were never cited), and `avg_position` (mean rank of the first target URL over cited answers; lower is better). `engines` splits the current window per answer engine: Claude (`claude-web-search`), ChatGPT/OpenAI (`openai-web-search`) and Exa (`exa-answer`). `topics` splits it per prompt topic with the same counts, rates and the number of active prompts, so you can rank topics by citation or mention rate. `top_domains` lists the sites the engines cite most across all answers, with `is_target` marking the project's own domains. Use it to answer \"how are we doing overall\", \"which topics or engines mention or cite us least\", \"how many prompts are never cited\" and \"which sites do the engines cite instead of us\". For one prompt, use `aeo-prompts-stats-get`.",
+        "description": "Get set-level totals for AI citation tracking over the last `days` days (default 30, at most 90, in the project's timezone) without writing SQL. `prompts_tracked` is how many prompts are on. `current` and `previous` compare the window with the one before it: `checks`, `failed`, `cited`, `mentioned` (answers that name the brand), `citation_rate` and `mention_rate` (shares of answered checks, 0-1), `prompts` that ran and `prompts_cited` (prompts minus prompts_cited is how many prompts were never cited), and `avg_position` (mean rank of the first target URL over cited answers; lower is better). `engines` splits the current window per answer engine: Claude (`claude-web-search`), ChatGPT/OpenAI (`openai-web-search`) and Exa (`exa-answer`). `topics` splits it per prompt topic with the same counts, rates and the number of active prompts, so you can rank topics by citation or mention rate. `top_domains` lists the sites the engines cite most across all answers, with `is_target` marking the project's own domains. `top_searches` lists the web searches the engines ran most while answering, ranked by how many prompts triggered them, with how many of those answers cited the project and up to five of the prompts. Use it to answer \"how are we doing overall\", \"which topics or engines mention or cite us least\", \"how many prompts are never cited\", \"which sites do the engines cite instead of us\" and \"what do the engines search for\". For one prompt, use `aeo-prompts-stats-get`.",
         "category": "AI citation tracking",
         "feature": "aeo",
         "summary": "Get the AI citation overview of the whole prompt set",
@@ -15539,7 +15571,7 @@
         "feature_flag": "workflows-supabase-auth-emails"
     },
     "survey-create": {
-        "description": "Creates a new survey in the project. For the draft, targeting, preview, and launch workflow, load the creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow. Survey content is public: anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or other private detail in a survey. For substantial visual changes, preview the final draft once before launch if browser access is already available. Skip browser checks for small edits.",
+        "description": "Creates a new survey in the project. For the draft, targeting, preview, and launch workflow, load the creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow. For in-app surveys, start with a single choice or rating question and put any open-text question after it, because surveys that open with open text get far fewer responses. For a popover, recommend showing it after the event it asks about, and ask before adding a trigger or audience the user did not request. Survey content is public: anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or other private detail in a survey. For substantial visual changes, preview the final draft once before launch if browser access is already available. Skip browser checks for small edits.",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "Creates a new survey in the project.",
