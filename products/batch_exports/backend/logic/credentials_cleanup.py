@@ -84,6 +84,11 @@ class _CopyIntegration:
     existing_id: int | None = None
 
     @property
+    def key(self) -> int | str:
+        """Identifies the Integration: a reused row by its id, since its external id can be empty."""
+        return self.existing_id if self.existing_id is not None else self.external_id
+
+    @property
     def outcome(self) -> str:
         return "copy_integration_reused" if self.existing_id is not None else "copy_integration_created"
 
@@ -201,6 +206,9 @@ def _plan(destination: BatchExportDestination, export: BatchExport, *, include_w
     remove_fields = frozenset(fields & config.keys())
 
     copy_inputs = _copy_inputs(config) if destination.type == BatchExportDestinationType.REDSHIFT else None
+    if destination.type == BatchExportDestinationType.REDSHIFT and copy_inputs is None and config.get("copy_inputs"):
+        # A payload that cannot be read may still hold inline keys, so it is not treated as absent.
+        return _Plan(outcome="skipped_unreadable")
     try:
         copy_keys = _inline_copy_keys(copy_inputs) if copy_inputs is not None else {}
     except _Unreadable:
@@ -236,22 +244,22 @@ def _plan(destination: BatchExportDestination, export: BatchExport, *, include_w
 
 
 def _copy_outcomes(plan: _Plan) -> Iterator[str]:
-    seen: set[str] = set()
+    seen: set[int | str] = set()
     for copy_integration in plan.copy_integrations.values():
-        if copy_integration.external_id not in seen:
-            seen.add(copy_integration.external_id)
+        if copy_integration.key not in seen:
+            seen.add(copy_integration.key)
             yield copy_integration.outcome
 
 
 def _apply(destination: BatchExportDestination, export: BatchExport, plan: _Plan) -> None:
     config = {key: value for key, value in destination.config.items() if key not in plan.remove_fields}
     if plan.copy_inputs is not None:
-        integration_ids: dict[str, int] = {}
+        integration_ids: dict[int | str, int] = {}
         copy_inputs = dict(plan.copy_inputs)
         for name, copy_integration in plan.copy_integrations.items():
-            if copy_integration.external_id not in integration_ids:
+            if copy_integration.key not in integration_ids:
                 if copy_integration.existing_id is not None:
-                    integration_ids[copy_integration.external_id] = copy_integration.existing_id
+                    integration_ids[copy_integration.key] = copy_integration.existing_id
                 else:
                     row = IntegrationManager.aws_s3.credentials.create(
                         export.team_id,
@@ -259,8 +267,8 @@ def _apply(destination: BatchExportDestination, export: BatchExport, plan: _Plan
                         config={"name": copy_integration.external_id},
                         sensitive_config=copy_integration.keys.sensitive_config(),
                     )
-                    integration_ids[copy_integration.external_id] = row.id
-            copy_inputs[name] = integration_ids[copy_integration.external_id]
+                    integration_ids[copy_integration.key] = row.id
+            copy_inputs[name] = integration_ids[copy_integration.key]
         config["copy_inputs"] = copy_inputs
     destination.config = config
     destination.save(update_fields=["config", "last_updated_at"])

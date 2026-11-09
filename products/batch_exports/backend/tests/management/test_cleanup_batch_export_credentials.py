@@ -20,6 +20,7 @@ from posthog.models.team import Team
 from products.batch_exports.backend.logic.credentials_cleanup import (
     CredentialCleanupOutcome,
     cleanup_batch_export_credentials,
+    verify_batch_export_credentials_cleanup,
 )
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 
@@ -130,13 +131,13 @@ class TestCleanupBatchExportCredentials(BaseTest):
         self, kind: str, config: dict[str, object], *, team_id: int | None = None, external_id: str = "fake"
     ) -> IntegrationRecord:
         accessor = {
-            "aws-s3": IntegrationManager.aws_s3,
-            "s3-compatible": IntegrationManager.s3_compatible,
-            "snowflake": IntegrationManager.snowflake,
-            "postgresql": IntegrationManager.postgresql,
-            "aws-redshift": IntegrationManager.aws_redshift,
-            "google-cloud-service-account": IntegrationManager.google_cloud_service_account,
-        }[kind].credentials
+            "aws-s3": IntegrationManager.aws_s3.credentials,
+            "s3-compatible": IntegrationManager.s3_compatible.credentials,
+            "snowflake": IntegrationManager.snowflake.credentials,
+            "postgresql": IntegrationManager.postgresql.credentials,
+            "aws-redshift": IntegrationManager.aws_redshift.credentials,
+            "google-cloud-service-account": IntegrationManager.google_cloud_service_account.credentials,
+        }[kind]
         return accessor.create(
             self.team.id if team_id is None else team_id,
             external_id=external_id,
@@ -268,14 +269,19 @@ class TestCleanupBatchExportCredentials(BaseTest):
             if variant == "unreadable"
             else AWS_PAIR
         )
-        copy_inputs = {
+        copy_inputs: dict[str, object] = {
             "s3_bucket": "fake-bucket",
             "region_name": "us-east-1",
             "s3_key_prefix": "fake/",
             "bucket_credentials": pair,
             "authorization": pair,
         }
-        config = {"database": "fake-db", "mode": "COPY", "password": SECRET, "copy_inputs": copy_inputs}
+        config: dict[str, object] = {
+            "database": "fake-db",
+            "mode": "COPY",
+            "password": SECRET,
+            "copy_inputs": copy_inputs,
+        }
         export = self._create("Redshift", config, integration_id=redshift.id)
         s3 = IntegrationManager.aws_s3.credentials
         existing_row = None
@@ -329,6 +335,39 @@ class TestCleanupBatchExportCredentials(BaseTest):
             unchanged = s3.get(self.team.id, existing_row.id)
             self.assertEqual(unchanged.sensitive_config["aws_secret_access_key"], "fake-other-secret")
         self.assertEqual(self._run(), _outcomes("Redshift", unchanged=1))
+
+    def test_redshift_copy_keys_reuse_distinct_integrations_without_external_ids(self) -> None:
+        redshift = self._create_integration("aws-redshift", {"host": "fake.example.com", "port": 5439, "user": "u"})
+        s3 = IntegrationManager.aws_s3.credentials
+        other_pair = {"aws_access_key_id": "fake-other-access-key", "aws_secret_access_key": "fake-other-secret"}
+        first = s3.create(self.team.id, external_id=None, config={"name": "first"}, sensitive_config=AWS_PAIR)
+        second = s3.create(self.team.id, external_id=None, config={"name": "second"}, sensitive_config=other_pair)
+        copy_inputs: dict[str, object] = {
+            "s3_bucket": "fake-bucket",
+            "bucket_credentials": AWS_PAIR,
+            "authorization": other_pair,
+        }
+        export = self._create(
+            "Redshift", {"database": "fake-db", "mode": "COPY", "copy_inputs": copy_inputs}, integration_id=redshift.id
+        )
+
+        counts = self._run()
+
+        self.assertEqual(counts, _outcomes("Redshift", cleaned=1, copy_integration_reused=2))
+        stored_copy = self._config(export)["copy_inputs"]
+        assert isinstance(stored_copy, dict)
+        self.assertEqual(stored_copy["bucket_credentials"], first.id)
+        self.assertEqual(stored_copy["authorization"], second.id)
+
+    @parameterized.expand([("ciphertext", "gAAAAAfake-undecryptable-ciphertext"), ("invalid_json", "{not json")])
+    def test_redshift_unreadable_copy_inputs_are_unresolved(self, _name: str, raw_copy_inputs: str) -> None:
+        redshift = self._create_integration("aws-redshift", {"host": "fake.example.com", "port": 5439, "user": "u"})
+        config: dict[str, object] = {"database": "fake-db", "mode": "COPY", "copy_inputs": raw_copy_inputs}
+        export = self._create("Redshift", config, integration_id=redshift.id)
+
+        self.assertEqual(self._run(), _outcomes("Redshift", skipped_unreadable=1))
+        self.assertEqual(self._config(export), config)
+        self.assertEqual(verify_batch_export_credentials_cleanup(), _outcomes("Redshift", skipped_unreadable=1))
 
     def test_schedule_sync_failure_is_counted_and_run_continues(self) -> None:
         destination_type, kind, integration_config, keep, remove = CASES["postgres"]
