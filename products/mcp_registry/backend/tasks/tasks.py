@@ -24,12 +24,9 @@ MCP_REGISTRY_SYNC_CRONTAB = crontab(hour="5", minute="45")
 def is_pipeline_enabled() -> bool:
     """Deployment-level kill switch. Fails closed.
 
-    Cloud only: a self-hosted install never crawls the public registry or probes
-    third-party hosts on a schedule, and never asks PostHog Cloud for the flag. The
-    flag used to be evaluated on Cloud from self-hosted workers too, which made every
-    hobby install open outbound connections to 500 arbitrary hosts a day and trip the
-    operator's egress monitoring (#130094). An operator who wants the pipeline runs
-    the sync_mcp_registry management command, which bypasses this gate on purpose.
+    Cloud only: a self-hosted install must not crawl the public registry or probe
+    third-party hosts on a schedule, nor ask PostHog Cloud for the flag. The
+    sync_mcp_registry management command bypasses this gate on purpose.
     """
     if not is_cloud():
         logger.info("mcp_registry.pipeline_skipped", reason="self_hosted")
