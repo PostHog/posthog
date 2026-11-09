@@ -296,8 +296,13 @@ class TestFinalizeHogEvalResult:
             )
 
 
-def test_printed_output_stops_growing_at_its_cap() -> None:
-    source = "for (let i := 0; i < 2000; i := i + 1) { print('line', i) }\nreturn true"
+@parameterized.expand(
+    [
+        ("direct_print", "for (let i := 0; i < 2000; i := i + 1) { print('line', i) }\nreturn true"),
+        ("aliased_print", "let p := print\nfor (let i := 0; i < 2000; i := i + 1) { p('line', i) }\nreturn true"),
+    ]
+)
+def test_printed_output_stops_growing_at_its_cap(_name: str, source: str) -> None:
     with patch("posthog.temporal.ai_observability.evaluation_hog.MAX_HOG_OUTPUT_CHARS", 20):
         raw = execute_hog_eval_bytecode(compile_ai_observability_hog(source, "destination"), {}, False)
 

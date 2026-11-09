@@ -39,8 +39,11 @@ GROUP BY team_id
 
 
 def record_visit(team: Team) -> None:
+    # The row belongs to the root team, which for_team already resolves, so a child environment must not look
+    # itself up by its own id: it would miss the row and try to create a second one.
+    now = timezone.now()
     EvalSuggestionTeamState.objects.for_team(team.pk).update_or_create(
-        team=team, defaults={"last_visited_at": timezone.now()}
+        defaults={"last_visited_at": now}, create_defaults={"team": team, "last_visited_at": now}
     )
 
 

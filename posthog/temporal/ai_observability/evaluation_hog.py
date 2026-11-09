@@ -27,7 +27,6 @@ from products.ai_observability.backend.models.evaluation_configs import (
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import Operation
-from common.hogvm.python.stl.print import print_hog_string_output
 from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededException, HogVMRuntimeExceededException
 
 logger = structlog.get_logger(__name__)
@@ -162,16 +161,18 @@ def build_hog_event_global(
 MAX_HOG_OUTPUT_CHARS = 64_000
 
 
-class _BoundedOutput:
+class _BoundedOutput(list[str]):
+    """The VM's stdout list for one run. Every print, direct or through an alias, appends here."""
+
     def __init__(self) -> None:
-        self.lines: list[str] = []
+        super().__init__()
         self.chars = 0
 
-    def print(self, *args: Any) -> None:
+    def append(self, line: str) -> None:
         if self.chars >= MAX_HOG_OUTPUT_CHARS:
             return
-        line = " ".join(map(print_hog_string_output, args))[: MAX_HOG_OUTPUT_CHARS - self.chars]
-        self.lines.append(line)
+        line = line[: MAX_HOG_OUTPUT_CHARS - self.chars]
+        super().append(line)
         self.chars += len(line)
 
 
@@ -197,7 +198,7 @@ def execute_hog_eval_bytecode(
         response = execute_bytecode(
             bytecode,
             globals=globals_dict,
-            functions={"print": output.print},
+            stdout=output,
             timeout=timedelta(seconds=10),
             team=None,
         )
@@ -225,7 +226,7 @@ def execute_hog_eval_bytecode(
             "unexpected": True,
         }
 
-    reasoning = "\n".join(output.lines)
+    reasoning = "\n".join(output)
 
     if response.result is None and allows_na:
         return {"verdict": None, "applicable": False, "reasoning": reasoning, "error": None}
