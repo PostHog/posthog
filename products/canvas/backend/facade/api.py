@@ -4,14 +4,16 @@ This module pulls the build path (and Temporal) onto import. Put reads that run 
 ``django.setup()`` or on hot request paths in ``facade/search.py`` or ``facade/access.py``.
 """
 
-from django.http import Http404, HttpRequest
+from django.http import Http404, HttpRequest, QueryDict
 
 from products.canvas.backend.actions import canvas_actions_disabled as canvas_actions_disabled
 from products.canvas.backend.artifacts import (
     ARTIFACT_PERMISSIONS_POLICY as ARTIFACT_PERMISSIONS_POLICY,
     artifact_delivery_origin as artifact_delivery_origin,
     canvas_artifact as _canvas_artifact,
+    canvas_frame_document as _canvas_frame_document,
     canvas_sandbox_document as _canvas_sandbox_document,
+    create_canvas_frame_document_url as create_canvas_frame_document_url,
     create_canvas_sandbox_document_url as create_canvas_sandbox_document_url,
     require_artifact_host as require_artifact_host,
 )
@@ -115,12 +117,32 @@ def render_canvas_artifact(*, host: str, token: str, artifact_path: str, if_none
     )
 
 
-def render_canvas_sandbox_document(*, host: str, content_hash: str) -> CanvasArtifact | None:
-    """The sandbox bootstrap document for `content_hash`, or None when this host or hash serves none."""
+def render_canvas_sandbox_document(*, host: str, content_hash: str, framed: bool = False) -> CanvasArtifact | None:
+    """The sandbox bootstrap document for `content_hash`, or None when this host or hash serves none.
+
+    `framed` selects the variant that the canvas frame wrapper loads.
+    """
+    request = HttpRequest()
+    request.META["HTTP_HOST"] = host
+    if framed:
+        request.GET = QueryDict("framed=1")
+    try:
+        response = _canvas_sandbox_document(request, content_hash)
+    except Http404:
+        return None
+    return CanvasArtifact(
+        status_code=response.status_code,
+        body=response.content,
+        headers=dict(response.items()),
+    )
+
+
+def render_canvas_frame_document(*, host: str, content_hash: str) -> CanvasArtifact | None:
+    """The canvas frame wrapper document for `content_hash`, or None when this host or hash serves none."""
     request = HttpRequest()
     request.META["HTTP_HOST"] = host
     try:
-        response = _canvas_sandbox_document(request, content_hash)
+        response = _canvas_frame_document(request, content_hash)
     except Http404:
         return None
     return CanvasArtifact(

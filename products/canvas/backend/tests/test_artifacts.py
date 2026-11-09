@@ -1,8 +1,14 @@
+import re
 import time
+import base64
 import hashlib
 
 from posthog.test.base import APIBaseTest, override_settings
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
@@ -150,3 +156,62 @@ class TestCanvasArtifacts(APIBaseTest):
         # The token only addresses manifest assets; a source key is not one.
         url = self._url().replace("index.html", "../../canvas_source/secret")
         assert self.client.get(url).status_code == 404
+
+
+@override_settings(CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", SITE_URL="https://app.example")
+class TestCanvasFrameDocument(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.objects: dict[str, bytes] = {}
+        writer = patch.object(artifacts.object_storage, "write", side_effect=self.objects.__setitem__)
+        reader = patch.object(
+            artifacts.object_storage, "read_bytes", side_effect=lambda key, **kwargs: self.objects.get(key)
+        )
+        writer.start()
+        reader.start()
+        self.addCleanup(writer.stop)
+        self.addCleanup(reader.stop)
+        artifacts._publish_frame_document.cache_clear()
+        self.addCleanup(artifacts._publish_frame_document.cache_clear)
+
+    def _path(self) -> str:
+        url = artifacts.create_canvas_frame_document_url()
+        assert url is not None
+        return url.removeprefix("https://usercontent.example")
+
+    def _previous_deploy_path(self) -> str:
+        content = artifacts.FRAME_DOCUMENT_PATH.read_bytes().replace(b"<script>", b"<script>\n// previous deploy\n")
+        content_hash = hashlib.sha256(content).hexdigest()
+        self.objects[f"canvas_frame/{content_hash}/index.html"] = content
+        return f"/canvas-artifacts/frame/{content_hash}/index.html"
+
+    @parameterized.expand([("current", False), ("previous_deploy", True)])
+    def test_frame_wrapper_policy_names_only_artifact_origin(self, _name: str, previous_deploy: bool) -> None:
+        response = self.client.get(
+            self._previous_deploy_path() if previous_deploy else self._path(), HTTP_HOST="usercontent.example"
+        )
+
+        assert response.status_code == 200
+        assert response["Cache-Control"] == "public, max-age=31536000, immutable"
+        assert "X-Frame-Options" not in response
+        assert "Content-Security-Policy-Report-Only" not in response
+        directives = dict(
+            part.strip().split(" ", 1) for part in response["Content-Security-Policy"].split(";") if " " in part.strip()
+        )
+        assert directives["frame-src"] == "https://usercontent.example/canvas-artifacts/"
+        assert directives["default-src"] == "'none'"
+        assert directives["form-action"] == "'none'"
+        assert directives["sandbox"] == "allow-scripts"
+        assert directives["frame-ancestors"].split()[0] == "https://app.example"
+        scripts = re.findall(rb"<script>(.*?)</script>", response.content, re.DOTALL)
+        assert len(scripts) == 1
+        assert directives["script-src"] == f"'sha256-{base64.b64encode(hashlib.sha256(scripts[0]).digest()).decode()}'"
+
+    @parameterized.expand(
+        [
+            ("app_host", "app.example", None),
+            ("unknown_hash", "usercontent.example", "/canvas-artifacts/frame/" + "0" * 64 + "/index.html"),
+        ]
+    )
+    def test_frame_wrapper_404s(self, _name: str, host: str, path: str | None) -> None:
+        assert self.client.get(path or self._path(), HTTP_HOST=host).status_code == 404

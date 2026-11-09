@@ -18,6 +18,7 @@ import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
@@ -169,6 +170,8 @@ export interface canvasSceneLogicValues {
     draftCode: string | null
     fixRequestPending: boolean
     fixTaskId: string | null
+    frameDocumentUrl: string | null
+    frameWrapperRequired: boolean
     generationError: string | null
     generationPhase: CanvasGenerationPhase | null
     generationStarting: boolean
@@ -383,6 +386,8 @@ export interface canvasSceneLogicMeta {
         visibility: (canvas: CanvasApi | null, space: CanvasSpace | null) => CanvasVisibility | null
         isCreator: (canvas: CanvasApi | null, user: UserType | null) => boolean
         sandboxDocumentUrl: (view: CanvasViewResponseApi | null) => string | null
+        frameWrapperRequired: (featureFlags: FeatureFlagsSet) => boolean
+        frameDocumentUrl: (view: CanvasViewResponseApi | null, frameWrapperRequired: boolean) => string | null
         liveBuild: (view: CanvasViewResponseApi | null) => CanvasBuildApi | null
         draftCode: (view: CanvasViewResponseApi | null) => string | null
         liveRenderSource: (liveBuild: CanvasBuildApi | null, view: CanvasViewResponseApi | null) => CanvasRenderSource
@@ -671,6 +676,15 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         sandboxDocumentUrl: [
             (s) => [s.view],
             (view: CanvasViewResponseApi | null): string | null => view?.sandbox_document_url ?? null,
+        ],
+        frameWrapperRequired: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.CANVAS_FRAME_WRAPPER],
+        ],
+        frameDocumentUrl: [
+            (s) => [s.view, s.frameWrapperRequired],
+            (view: CanvasViewResponseApi | null, frameWrapperRequired: boolean): string | null =>
+                frameWrapperRequired ? (view?.frame_document_url ?? null) : null,
         ],
         liveBuild: [
             (s) => [s.view],

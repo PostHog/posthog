@@ -14,6 +14,7 @@ from object storage. The manifest hash is also used as the response ETag.
 import re
 import math
 import time
+import base64
 import hashlib
 import functools
 from pathlib import Path
@@ -44,6 +45,7 @@ ARTIFACT_TOKEN_BUCKET_SECONDS = 3600
 # Generated from the desktop's sandboxRuntime.ts by `pnpm --filter @posthog/ui
 # generate-web-sandbox`. Do not edit it by hand.
 SANDBOX_DOCUMENT_PATH = Path(__file__).parent / "sandbox" / "sandbox_document.html"
+FRAME_DOCUMENT_PATH = Path(__file__).parent / "frame" / "frame_document.html"
 ARTIFACT_PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
 
 
@@ -146,7 +148,46 @@ def _publish_sandbox_document(document: _SandboxDocument) -> None:
     object_storage.write(f"canvas_sandbox/{document.content_hash}/index.html", document.content)
 
 
-def _canvas_sandbox_document_csp() -> str:
+@frozen
+class _FrameDocument:
+    content: bytes
+    content_hash: str
+    script_hash: str
+
+
+def _parse_frame_document(content: bytes) -> _FrameDocument | None:
+    scripts = re.findall(rb"<script>(.*?)</script>", content, re.DOTALL)
+    if len(scripts) != 1:
+        return None
+    return _FrameDocument(
+        content=content,
+        content_hash=hashlib.sha256(content).hexdigest(),
+        script_hash=base64.b64encode(hashlib.sha256(scripts[0]).digest()).decode(),
+    )
+
+
+@functools.cache
+def _frame_document() -> _FrameDocument:
+    document = _parse_frame_document(FRAME_DOCUMENT_PATH.read_bytes())
+    if document is None:
+        raise ValueError(f"{FRAME_DOCUMENT_PATH} must hold exactly one inline script")
+    return document
+
+
+@functools.cache
+def _publish_frame_document(document: _FrameDocument) -> None:
+    object_storage.write(f"canvas_frame/{document.content_hash}/index.html", document.content)
+
+
+def _stored_document(prefix: str, content_hash: str) -> bytes:
+    """A document an earlier deploy published, so a client that loaded its URL before this deploy still renders."""
+    content = object_storage.read_bytes(f"{prefix}/{content_hash}/index.html", missing_ok=True)
+    if content is None or hashlib.sha256(content).hexdigest() != content_hash:
+        raise Http404
+    return content
+
+
+def _canvas_sandbox_document_csp(*, framed: bool) -> str:
     site = urlsplit(settings.SITE_URL)
     ancestors = dict.fromkeys([f"{site.scheme}://{site.netloc}", *app_frame_ancestor_sources()])
     return "; ".join(
@@ -164,6 +205,26 @@ def _canvas_sandbox_document_csp() -> str:
             "object-src 'none'",
             # The document runs in an opaque origin even when it opens top-level or in a frame
             # without the sandbox attribute.
+            "sandbox allow-scripts",
+            *([] if framed else [f"frame-ancestors {' '.join(ancestors)}"]),
+        ]
+    )
+
+
+def _canvas_frame_document_csp(document: _FrameDocument) -> str:
+    site = urlsplit(settings.SITE_URL)
+    ancestors = dict.fromkeys([f"{site.scheme}://{site.netloc}", *app_frame_ancestor_sources()])
+    return "; ".join(
+        [
+            "default-src 'none'",
+            f"script-src 'sha256-{document.script_hash}'",
+            # frame-src limits the documents the canvas frame may load to the artifact origin's
+            # canvas paths. The origin is named rather than 'self', because the sandbox directive
+            # gives this document an opaque origin.
+            f"frame-src {artifact_delivery_origin()}/canvas-artifacts/",
+            "form-action 'none'",
+            "base-uri 'none'",
+            "object-src 'none'",
             "sandbox allow-scripts",
             f"frame-ancestors {' '.join(ancestors)}",
         ]
@@ -186,6 +247,31 @@ def create_canvas_sandbox_document_url() -> str | None:
     return f"{artifact_delivery_origin()}/canvas-artifacts/sandbox/{document.content_hash}/index.html"
 
 
+def create_canvas_frame_document_url() -> str | None:
+    """The URL of the document that wraps canvas frames, or None when artifact delivery is off.
+
+    Like the sandbox document, the content hash in the path makes each URL immutable.
+    """
+    if not _artifact_delivery_enabled(_artifact_signing_keys()):
+        return None
+    document = _frame_document()
+    try:
+        _publish_frame_document(document)
+    except ObjectStorageError:
+        return None
+    return f"{artifact_delivery_origin()}/canvas-artifacts/frame/{document.content_hash}/index.html"
+
+
+def _immutable_document_response(content: bytes, content_hash: str) -> HttpResponse:
+    response = HttpResponse(content, content_type="text/html; charset=utf-8")
+    response["ETag"] = f'"{content_hash}"'
+    response["Cache-Control"] = "public, max-age=31536000, immutable"
+    response["Referrer-Policy"] = "no-referrer"
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Permissions-Policy"] = ARTIFACT_PERMISSIONS_POLICY
+    return response
+
+
 @xframe_options_exempt
 def canvas_sandbox_document(request: HttpRequest, content_hash: str) -> HttpResponse:
     """The bootstrap document that renders a draft canvas in a sandboxed iframe.
@@ -199,17 +285,31 @@ def canvas_sandbox_document(request: HttpRequest, content_hash: str) -> HttpResp
     if not re.fullmatch(r"[0-9a-f]{64}", content_hash):
         raise Http404
     if content_hash != document.content_hash:
-        content = object_storage.read_bytes(f"canvas_sandbox/{content_hash}/index.html", missing_ok=True)
-        if content is None or hashlib.sha256(content).hexdigest() != content_hash:
+        document = _parse_sandbox_document(_stored_document("canvas_sandbox", content_hash))
+    response = _immutable_document_response(document.content, document.content_hash)
+    # The wrapper's sandbox gives it an opaque origin, which no frame-ancestors source matches.
+    # The wrapped variant of the URL therefore omits the directive, and the plain URL keeps it.
+    response["Content-Security-Policy"] = _canvas_sandbox_document_csp(framed=request.GET.get("framed") == "1")
+    return response
+
+
+@xframe_options_exempt
+def canvas_frame_document(request: HttpRequest, content_hash: str) -> HttpResponse:
+    """The document the web app frames around a built or draft canvas.
+
+    The canvas URL arrives in the fragment, so one immutable document serves every canvas.
+    """
+    require_artifact_host(request.get_host())
+    document = _frame_document()
+    if not re.fullmatch(r"[0-9a-f]{64}", content_hash):
+        raise Http404
+    if content_hash != document.content_hash:
+        stored = _parse_frame_document(_stored_document("canvas_frame", content_hash))
+        if stored is None:
             raise Http404
-        document = _parse_sandbox_document(content)
-    response = HttpResponse(document.content, content_type="text/html; charset=utf-8")
-    response["ETag"] = f'"{document.content_hash}"'
-    response["Cache-Control"] = "public, max-age=31536000, immutable"
-    response["Referrer-Policy"] = "no-referrer"
-    response["X-Content-Type-Options"] = "nosniff"
-    response["Content-Security-Policy"] = _canvas_sandbox_document_csp()
-    response["Permissions-Policy"] = ARTIFACT_PERMISSIONS_POLICY
+        document = stored
+    response = _immutable_document_response(document.content, document.content_hash)
+    response["Content-Security-Policy"] = _canvas_frame_document_csp(document)
     return response
 
 

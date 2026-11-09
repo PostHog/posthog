@@ -1,6 +1,8 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect } from 'react'
 
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
+
 import { themeLogic } from 'lib/logic/themeLogic'
 
 import type { CanvasCapabilitiesApi, CanvasSourceProjectApi } from '../generated/api.schemas'
@@ -23,6 +25,9 @@ export interface CanvasHostFrameProps {
     buildId: string | null
     draftSource: CanvasSourceProjectApi | null
     sandboxDocumentUrl: string | null
+    frameDocumentUrl: string | null
+    /** When set without a frameDocumentUrl, the canvas must not render outside the wrapper. */
+    frameWrapperRequired: boolean
 }
 
 /** One rendered canvas, a build or a draft, wired to the host bridge, runtime errors, and comments. */
@@ -33,6 +38,8 @@ export function CanvasHostFrame({
     buildId,
     draftSource,
     sandboxDocumentUrl,
+    frameDocumentUrl,
+    frameWrapperRequired,
 }: CanvasHostFrameProps): JSX.Element | null {
     const hostLogic = useMountedLogic(canvasHostLogic(hostProps))
     const { navigate, openExternal, canvasRendered, canvasErrored } = useActions(hostLogic)
@@ -71,12 +78,23 @@ export function CanvasHostFrame({
         hasUserActivation: canvasHasUserActivation,
     } as const
 
+    if (frameWrapperRequired && !frameDocumentUrl && (artifactUrl || (draftSource && sandboxDocumentUrl))) {
+        return (
+            <Empty className="h-full border-0">
+                <EmptyHeader>
+                    <EmptyTitle>This canvas can't be shown right now</EmptyTitle>
+                    <EmptyDescription>Reload the page to try again.</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
+    }
     if (artifactUrl) {
         // Keyed by build, so a new build gets a fresh frame and bridge.
         return (
             <BuiltCanvas
                 key={buildId ?? artifactUrl}
                 artifactUrl={artifactUrl}
+                frameDocumentUrl={frameDocumentUrl}
                 capabilities={capabilities}
                 {...shared}
             />
@@ -86,6 +104,7 @@ export function CanvasHostFrame({
         return (
             <DraftCanvas
                 documentUrl={sandboxDocumentUrl}
+                frameDocumentUrl={frameDocumentUrl}
                 capabilities={draftSource.capabilities}
                 files={draftSource.files}
                 entry="src/canvas.tsx"

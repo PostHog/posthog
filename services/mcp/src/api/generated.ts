@@ -24558,6 +24558,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly sandbox_document_url: string | null;
+      /**
+         * URL of the wrapper document, on the artifact origin, that frames a built canvas or the sandbox document. Put the canvas URL in its fragment as `src`, and optionally `theme`. Null when artifact delivery is unavailable.
+         * @nullable
+         */
+      readonly frame_document_url: string | null;
     }
 
     export interface CapabilityReadiness {
