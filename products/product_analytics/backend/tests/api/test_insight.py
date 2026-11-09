@@ -1900,7 +1900,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             Insight.objects.filter(pk=insight.pk).update(description="written by another request")
             return insight
 
-        with patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_write):
+        with (
+            patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_write),
+            capture_db_queries() as queries,
+        ):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "renamed"}, format="json"
             )
@@ -1909,6 +1912,28 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         insight = Insight.objects.get(pk=insight_id)
         assert insight.name == "renamed"
         assert insight.description == "written by another request"
+        # A reload without the row lock passes the assertions above, but two requests that both
+        # reload before either saves would still overwrite each other.
+        assert any('FOR NO KEY UPDATE OF "posthog_dashboarditem"' in query["sql"] for query in queries.captured_queries)
+
+    def test_patch_after_a_concurrent_delete_returns_404_without_adding_a_tile(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight name"})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        original_get_object = InsightViewSet.get_object
+
+        def get_object_then_land_a_concurrent_delete(viewset):
+            insight = original_get_object(viewset)
+            Insight.objects_including_soft_deleted.filter(pk=insight.pk).update(deleted=True)
+            return insight
+
+        with patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_delete):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_id]}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert not DashboardTile.objects_including_soft_deleted.filter(insight_id=insight_id).exists()
+        assert Insight.objects_including_soft_deleted.get(pk=insight_id).deleted
 
     def test_update_insight(self) -> None:
         with time_machine.travel("2012-01-14T03:21:34.000Z", tick=False) as frozen_time:

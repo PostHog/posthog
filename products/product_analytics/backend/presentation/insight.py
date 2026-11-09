@@ -11,7 +11,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, QuerySet
+from django.db.models import Count, Exists, F, Max, QuerySet, prefetch_related_objects
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -913,24 +913,40 @@ class InsightSerializer(InsightBasicSerializer):
         # field. Applied to that copy, a PATCH that sends only `name` would also write back the
         # `description` (or any other field) it read, and undo a concurrent request that changed it.
         # Lock the row and reload it, so this request changes only the fields it sent.
-        instance.refresh_from_db(from_queryset=Insight.objects_including_soft_deleted.select_for_update())
-
-        dashboards_before_change: list[Union[str, dict]] = []
+        # A no-key lock is enough to serialize writers, and unlike FOR UPDATE it does not block inserts
+        # of rows that reference this insight, such as views, tiles and alerts. `of` keeps the joined
+        # team and user rows unlocked.
         try:
-            # since it is possible to be restoring a soft deleted insight
-            # the state captured before the update has to include soft deleted insights
-            # or we can't capture undeletes to the activity log
-            before_update = Insight.objects_including_soft_deleted.prefetch_related(
-                "tagged_items__tag", "dashboards"
-            ).get(pk=instance.id)
-
-            dashboards_before_change = [describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()]
-            dashboards_before_change = sorted(
-                dashboards_before_change,
-                key=lambda x: -1 if isinstance(x, str) else x["id"],
+            instance.refresh_from_db(
+                from_queryset=Insight.objects_including_soft_deleted.select_related(
+                    "team", "created_by", "last_modified_by"
+                ).select_for_update(no_key=True, of=("self",))
             )
         except Insight.DoesNotExist:
-            before_update = None
+            raise NotFound()
+        # The view excludes deleted insights unless the request restores one. A delete that committed
+        # while this request waited for the lock must not let it edit the deleted insight, or add a
+        # tile after the delete hid the others.
+        if instance.deleted and validated_data.get("deleted") is not False:
+            raise NotFound()
+        # refresh_from_db() empties the prefetch cache. Reload the tiles with their dashboards in one
+        # query, so the reads below and the response do not load each dashboard separately.
+        prefetch_related_objects([instance], tile_permissions_prefetch())
+
+        # since it is possible to be restoring a soft deleted insight
+        # the state captured before the update has to include soft deleted insights
+        # or we can't capture undeletes to the activity log
+        before_update = Insight.objects_including_soft_deleted.prefetch_related("tagged_items__tag", "dashboards").get(
+            pk=instance.id
+        )
+
+        dashboards_before_change: list[Union[str, dict]] = [
+            describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()
+        ]
+        dashboards_before_change = sorted(
+            dashboards_before_change,
+            key=lambda x: -1 if isinstance(x, str) else x["id"],
+        )
 
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
