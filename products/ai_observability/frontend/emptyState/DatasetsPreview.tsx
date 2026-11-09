@@ -2,7 +2,7 @@ import './DatasetsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 interface PreviewDataset {
     id: string
@@ -55,7 +55,7 @@ const DATASETS: PreviewDataset[] = [
  * the layout's size.
  */
 export function DatasetsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('DatasetsPreview', isStatic && 'DatasetsPreview--static')}>

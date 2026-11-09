@@ -2,7 +2,7 @@ import './WorkflowsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 /**
  * Example-data preview for the workflows empty state: a mini canvas and the
@@ -13,7 +13,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
  * grids, so nothing shifts.
  */
 export function WorkflowsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('WorkflowsPreview', isStatic && 'WorkflowsPreview--static')}>
