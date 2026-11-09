@@ -1,4 +1,3 @@
-
 from decimal import Decimal
 
 import time_machine
