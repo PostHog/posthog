@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
@@ -6,12 +7,15 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 
 from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.artefact_schemas import Dismissal
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.repo_corrections import wrong_repo_corrections_block
 from products.signals.backend.report_generation import select_repo
+from products.tasks.backend.facade.agents import SandboxRunFailed
+from products.tasks.backend.facade.repo_selection import RepoSelectionUsageLimitError
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 
@@ -108,6 +112,34 @@ class TestRepoCorrections(BaseTest):
 
 
 class TestSelectRepositoryPassesCorrections(BaseTest):
+    @parameterized.expand(
+        [
+            ("invalid_output", ValueError("Invalid selection output")),
+            ("sandbox_failed", SandboxRunFailed("Selection run failed", error_type=None)),
+        ]
+    )
+    def test_agent_failure_returns_no_repository(self, _name: str, error: Exception) -> None:
+        with patch.object(select_repo, "select_repository", new=AsyncMock(side_effect=error)):
+            result = async_to_sync(select_repo.select_repository_for_team)(self.team.id, self.user.id, "context")
+
+        assert result.repository is None
+        assert result.autostart_eligible is False
+        assert "Choose a repository" in result.reason
+
+    @parameterized.expand(
+        [
+            ("canceled", asyncio.CancelledError()),
+            ("usage_limit", RepoSelectionUsageLimitError("Credits exhausted")),
+            ("unexpected", RuntimeError("Unexpected failure")),
+        ]
+    )
+    def test_other_failures_propagate(self, _name: str, error: BaseException) -> None:
+        with (
+            patch.object(select_repo, "select_repository", new=AsyncMock(side_effect=error)),
+            self.assertRaises(type(error)),
+        ):
+            async_to_sync(select_repo.select_repository_for_team)(self.team.id, self.user.id, "context")
+
     def test_chokepoint_threads_corrections_into_selection(self):
         select = AsyncMock(return_value=RepoSelectionResult(repository="acme/checkout", reason="ok"))
         runtime = DEFAULT_RUNTIME
@@ -116,9 +148,12 @@ class TestSelectRepositoryPassesCorrections(BaseTest):
             patch.object(select_repo, "select_repository", new=select),
             patch.object(select_repo, "resolve_agent_runtime", return_value=runtime),
         ):
-            result = async_to_sync(select_repo.select_repository_for_team)(self.team.id, self.user.id, "context")
+            result = async_to_sync(select_repo.select_repository_for_team)(
+                self.team.id, self.user.id, "context", source_repository="acme/website"
+            )
 
         assert result.repository == "acme/checkout"
         block.assert_called_once_with(self.team.id)
         assert select.await_args is not None
         assert select.await_args.kwargs["past_corrections"] == "- entry"
+        assert select.await_args.kwargs["source_repository"] == "acme/website"

@@ -15,11 +15,26 @@ import {
 
 import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { EmailDomainSetupModal, EmailDomainSetupModalProps } from '../EmailDomain/EmailDomainSetupModal'
 import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
 
-export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
+export type EmailSetupModalProps = EmailSetupModalLogicProps & { entry?: EmailDomainSetupModalProps['entry'] }
+
+export const EmailSetupModal = ({ entry, ...props }: EmailSetupModalProps): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    // A verified sender keeps the settings form, which edits what the wizard does not: reply-to and the bounce subdomain.
+    const editsVerifiedSender = props.integration?.config?.verified === true
+    if (featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD] && !editsVerifiedSender) {
+        return <EmailDomainSetupModal {...props} entry={entry ?? (props.integration ? 'configure' : 'channels')} />
+    }
+    return <LegacyEmailSetupModal {...props} />
+}
+
+const LegacyEmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
     const logic = emailSetupModalLogic(props)
     const { savedIntegration, verificationLoading, isEmailSenderSubmitting, dnsRecords, domain, isDomainVerified } =
         useValues(logic)
@@ -68,7 +83,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                         <LemonField
                             name="mail_from_subdomain"
                             label="MAIL FROM subdomain"
-                            help="The subdomain used for your emails' Return-Path header. Setting a MAIL FROM domain helps improve email deliverability."
+                            help="The subdomain used for your emails' Return-Path header. Every sender on a domain uses the same one, so changing it here changes it for all of them. Setting a MAIL FROM domain helps improve email deliverability."
                         >
                             <LemonInput
                                 className="w-fit"

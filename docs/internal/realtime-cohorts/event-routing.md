@@ -36,18 +36,29 @@ It parses every message in two phases.
 1. **A cheap gate.**
    The first parse reads only `team_id` and whether `person_id` is present.
    Large fields such as `properties` and `person_properties` are skipped without being allocated.
-2. **A full parse for survivors.**
-   Only events that pass the gate are parsed completely and turned into the output envelope.
+2. **A forward parse for survivors.**
+   Only events that pass the gate are parsed again, and this parse reads only the fields it needs to build the output envelope.
+   The blobs it forwards, `properties`, `person_properties` and `elements_chain`, are copied as they arrived, without being unescaped.
 
-An event passes the gate when it has a person id and its team is in the **team index**.
-The team index is the set of teams that have at least one realtime cohort, intersected with `REALTIME_COHORT_TEAM_ALLOWLIST`.
-The shuffler rebuilds it from Postgres every few minutes and swaps it in atomically.
+An event passes the gate when it has a person id and its team passes two checks.
+
+1. **The team index.**
+   The team has at least one realtime cohort.
+   The shuffler rebuilds the index from Postgres every few minutes and swaps it in atomically.
+2. **Team access.**
+   `REALTIME_COHORT_TEAM_ALLOWLIST` names the team, or the team's row in `cohort_realtime_team_access` is at `processing` or `serving`.
+   The shuffler reads the whole table about every 15 seconds, so a grant or a revoke takes effect without a deploy.
+   Django never deletes a row, and it never grants an `off` row again.
+   So when a read lacks a row the shuffler holds, or grants one of its `off` rows again, the shuffler keeps its previous row for that team, because that read comes from a lagging replica or the wrong database.
+   The read's other rows still take effect, so a revoke always gets through.
+   After a failed read, it keeps all the previous rows.
+   A row deleted or granted again by hand keeps its old state in every running shuffler and processor, so restart both shuffler deployments and the processor after one.
 
 Apart from the person id check, the gate looks at the team only.
 It cannot filter by event name: person-property criteria are re-evaluated from every event that carries person properties, whatever the event is called.
 So every event from an enabled team with a person id is forwarded.
 
-The shuffler consumes nothing until the team index has loaded once.
+The shuffler consumes nothing until the team index and the team access rows have each loaded once.
 If Postgres is down when it boots, the shuffler lags and retries on its refresh interval.
 It loses nothing as long as its consumer group has a committed offset that is still inside the firehose's retention.
 A group with no usable offset starts at the tail when consumption begins, as described below, so it skips what arrived during the wait.
@@ -97,6 +108,7 @@ A broker or network outage longer than that timeout abandons every forward still
 Other losses:
 
 - a message that cannot be parsed,
+- an event whose forwarded blob holds a lone surrogate escape: the shuffler copies blobs without checking them, and the processor then refuses the whole envelope,
 - a forward the producer rejects outright, for example because it is too large,
 - an event for a team that has just gained its first realtime cohort and is not yet in the team index.
   These are counted together with every other out-of-scope team, so they are not separately visible.
@@ -201,7 +213,7 @@ Person p-1 is `0192f3a0-7c1e-7d2a-9b3c-000000000001`.
 1. Ingestion writes a `$pageview` from p-1 to firehose partition 3, at offset 9870001.
 2. The shuffler's cheap gate reads `team_id: 7` and sees a `person_id`.
    Team 7 is in the team index, so the event passes.
-3. The full parse builds the envelope with `source_partition: 3, source_offset: 9870001`.
+3. The forward parse builds the envelope with `source_partition: 3, source_offset: 9870001`.
 4. The key is `"7:0192f3a0-7c1e-7d2a-9b3c-000000000001"`.
    `murmur2` of it, masked and taken modulo 64, is 26.
 5. The shuffler sends to `cohort_stream_events` partition 26 and records offset 9870001 as in flight for firehose partition 3.
@@ -218,22 +230,25 @@ The processor sees firehose offset 9870001 from partition 3 for p-1 a second tim
 ## Optimizations
 
 - **Two-phase parsing.**
-  The gate parses two fields, and only survivors pay for a full parse.
+  The gate parses two fields, and only survivors pay for the forward parse.
+  The forward parse copies the property blobs as they arrived instead of unescaping and escaping them again.
   Most firehose events are discarded at the gate.
 - **Pipelined forwarding.**
   Consuming, producing and committing run independently.
   Thousands of forwards can be in flight at once, so slow broker acknowledgments do not throttle consumption.
   For typical event sizes, the in-flight cap sits below the producer's byte queue, so the shuffler pauses cleanly instead of churning on a full queue.
-- **Lock-free team index.**
-  The refresh builds a new set and swaps a pointer.
-  The hot path never waits on it.
+- **Lock-free team gate.**
+  The index refresh and the access poll each build a new snapshot and swap a pointer.
+  The hot path never waits on them.
 
 ## Things that surprise people
 
 - The processor's event-name gate only skips behavioral evaluation, after the event is already on `cohort_stream_events`.
 - The shuffler and the processor each read their own copy of `REALTIME_COHORT_TEAM_ALLOWLIST` at startup, and each polls Postgres on its own schedule.
-  Only teams in both are processed, and a newly enabled team can lose a few minutes of events until both have refreshed.
-  Merges also need the team in Node's merge allowlist, and backfills need it in the seeder's copy.
+  Both also let through the teams that a `cohort_realtime_team_access` row grants, and each reads that table about every 15 seconds.
+  Only teams that both let through are processed, so a newly granted team can lose about half a minute of events until both have read the grant.
+  Node ingestion produces merges only for the teams in its own `PERSON_MERGE_EVENTS_TEAM_ALLOWLIST`.
+  Set that list to `*`, because the processor drops the merges of teams it does not process.
 - The processor recognizes applied events with a high-water mark per source partition, not a set of offsets.
   The shuffler's producer does not guarantee ordering on retries, so an event that is overtaken by a later event from the same source partition is skipped as if it were a replay.
 - The broker timestamp on `cohort_stream_events` is the shuffler's send time, not the event's time.

@@ -143,6 +143,14 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     if not created:
         return
 
+    if (
+        instance.created_by_id is None
+        and isinstance(instance.item_context, dict)
+        and instance.item_context.get("author_type") == "AI"
+        and instance.item_context.get("automated_update_key")
+    ):
+        return
+
     # Capture values for closure (avoid referencing instance in deferred callback)
     team_id = instance.team_id
     item_id = instance.item_id
@@ -214,13 +222,22 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 except Exception as e:
                     capture_exception(e, {"ticket_id": item_id})
 
-            # Customer-facing analytics (to customer's project)
+            # Customer-facing analytics (to customer's project). A workflow reply is a team
+            # message with no User, so author stays unset and the team-level report below still runs.
+            author = None
             if is_team_message and author_type != WORKFLOW_AUTHOR_TYPE:
                 author = User.objects.filter(id=created_by_id).first() if created_by_id else None
                 capture_message_sent(ticket, comment_id, content or "", author=author)
             elif not is_team_message:
-                author = None
-                capture_message_received(ticket, comment_id, content or "")
+                capture_message_received(
+                    ticket,
+                    comment_id,
+                    content or "",
+                    # The comments API stores the request's item_context, and a thread reply copies its
+                    # parent's item_context. Only channel handlers write a customer comment with no
+                    # created_by, so only those comments can attest the message author.
+                    item_context=item_context if isinstance(item_context, dict) and created_by_id is None else None,
+                )
 
             # Internal analytics (PostHog tracking its own usage)
             props = {"channel_source": ticket.channel_source}

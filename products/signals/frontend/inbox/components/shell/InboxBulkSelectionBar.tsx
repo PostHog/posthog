@@ -1,31 +1,36 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconHide, IconLeave, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconHide, IconLeave, IconPerson, IconX } from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canUnassignMe, hasOpenImplementationPr } from '../../utils/reportActions'
+import { isReportClaimable } from '../../utils/reportClaim'
+import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'
 import { openDismissReportDialog } from './DismissReportDialog'
 import { openResolveReportDialog } from './ResolveReportDialog'
 
 /**
  * Bulk action toolbar shown when one or more reports are multi-selected.
- * Mirrors desktop `InboxBulkSelectionBar` (the dismiss + clear slice) plus Resolve and Unassign me.
+ * Mirrors desktop `InboxBulkSelectionBar` (the dismiss + clear slice) plus Claim, Resolve and Unassign me.
  * Selection and the bulk state calls live in `inboxBulkActionsLogic`; delete / reingest
  * remain on `inboxSceneLogic` per-report.
  */
 export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }): JSX.Element | null {
-    const { selectedCount, selectedReportIds, isDismissing, isResolving, isUnassigning } =
+    const { selectedCount, selectedReportIds, isClaiming, isDismissing, isResolving, isUnassigning } =
         useValues(inboxBulkActionsLogic)
-    const { clearSelection, bulkDismiss, bulkResolve, bulkUnassignMe } = useActions(inboxBulkActionsLogic)
+    const { clearSelection, bulkClaim, bulkDismiss, bulkResolve, bulkUnassignMe } = useActions(inboxBulkActionsLogic)
     const { isScopedToMe } = useValues(inboxFiltersLogic)
+    const { user } = useValues(userLogic)
 
     if (selectedCount === 0) {
         return null
     }
-    const busy = isDismissing || isResolving || isUnassigning
+    const busy = isClaiming || isDismissing || isResolving || isUnassigning
     const selectedIds = new Set(selectedReportIds)
     const selectedReports = reports.filter((report) => selectedIds.has(report.id))
     const isMonitoring =
@@ -34,6 +39,9 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
     const hasOpenPr = reports.some((report) => selectedIds.has(report.id) && hasOpenImplementationPr(report))
     const unassignableIds = reports
         .filter((report) => selectedIds.has(report.id) && canUnassignMe(report, isScopedToMe))
+        .map((report) => report.id)
+    const claimableIds = selectedReports
+        .filter((report) => isReportClaimable(report, user?.uuid ?? null))
         .map((report) => report.id)
 
     return (
@@ -44,6 +52,23 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconPerson />}
+                    loading={isClaiming}
+                    disabledReason={
+                        busy
+                            ? 'Working…'
+                            : claimableIds.length === 0
+                              ? 'None of the selected reports can be claimed'
+                              : undefined
+                    }
+                    onClick={() => bulkClaim(claimableIds)}
+                    data-attr="inbox-bulk-claim"
+                >
+                    Claim
+                </LemonButton>
                 <LemonButton
                     type="secondary"
                     size="small"
@@ -79,23 +104,36 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
                 >
                     Dismiss
                 </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconLeave />}
-                    loading={isUnassigning}
-                    disabledReason={
-                        busy
-                            ? 'Working…'
-                            : unassignableIds.length === 0
-                              ? "You're not a reviewer on any selected report"
-                              : undefined
-                    }
-                    onClick={() => bulkUnassignMe(unassignableIds)}
-                    data-attr="inbox-bulk-unassign-me"
+                <LemonMenu
+                    placement="top-end"
+                    items={[
+                        {
+                            title: 'Remove yourself',
+                            items: reviewerRemovalReasonOptions(true).map((option) => ({
+                                label: option.label,
+                                onClick: () => bulkUnassignMe(unassignableIds, option.value),
+                            })),
+                        },
+                        { items: [{ label: 'Without a reason', onClick: () => bulkUnassignMe(unassignableIds) }] },
+                    ]}
                 >
-                    Unassign me
-                </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconLeave />}
+                        loading={isUnassigning}
+                        disabledReason={
+                            busy
+                                ? 'Working…'
+                                : unassignableIds.length === 0
+                                  ? "You're not a reviewer on any selected report"
+                                  : undefined
+                        }
+                        data-attr="inbox-bulk-unassign-me"
+                    >
+                        Unassign me
+                    </LemonButton>
+                </LemonMenu>
                 <LemonButton
                     type="tertiary"
                     size="small"

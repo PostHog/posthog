@@ -77,6 +77,12 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod
             .max(dataCatalogMetricsCreateBodyUnitMax)
             .optional()
             .describe('Unit of the result, e.g. usd, percent, cents.'),
+        owner: zod
+            .email()
+            .nullish()
+            .describe(
+                "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+            ),
         definition: zod
             .record(zod.string(), zod.unknown())
             .nullish()
@@ -166,6 +172,12 @@ export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsUpdateBodyUnitMax)
         .optional()
         .describe('Unit of the result, e.g. usd, percent, cents.'),
+    owner: zod
+        .email()
+        .nullish()
+        .describe(
+            "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+        ),
     definition: zod
         .record(zod.string(), zod.unknown())
         .nullish()
@@ -248,6 +260,12 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyUnitMax)
         .optional()
         .describe('Unit of the result, e.g. usd, percent, cents.'),
+    owner: zod
+        .email()
+        .nullish()
+        .describe(
+            "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+        ),
     definition: zod
         .record(zod.string(), zod.unknown())
         .nullish()
@@ -302,6 +320,8 @@ export const DataCatalogMetricsApproveCreateBody = /* @__PURE__ */ zod
 /**
  * Execute the metric's definition and return the normalized result envelope.
  */
+export const dataCatalogMetricsRunCreateBodyOffsetMin = 0
+
 export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
     .object({
         date_from: zod
@@ -320,9 +340,39 @@ export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Override the bucket interval. Rejected for HogQLQuery metrics.\n\n\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
             ),
+        offset: zod
+            .number()
+            .min(dataCatalogMetricsRunCreateBodyOffsetMin)
+            .optional()
+            .describe(
+                'Rows to skip, to read the page after a run that returned has_more. Pass next_offset from that run. Only HogQLQuery metrics accept it. Runs made with a personal or project API key are rejected.'
+            ),
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })
     .describe('Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.')
+
+/**
+ * Give many metrics one owner, keeping their approvals. Unknown metrics are skipped.
+ */
+export const dataCatalogMetricsBulkChangeOwnerCreateBodyNamesItemMax = 128
+
+export const dataCatalogMetricsBulkChangeOwnerCreateBodyNamesMax = 100
+
+export const DataCatalogMetricsBulkChangeOwnerCreateBody = /* @__PURE__ */ zod
+    .object({
+        names: zod
+            .array(zod.string().max(dataCatalogMetricsBulkChangeOwnerCreateBodyNamesItemMax))
+            .min(1)
+            .max(dataCatalogMetricsBulkChangeOwnerCreateBodyNamesMax)
+            .describe('Names of the metrics to act on, at most 100. Duplicates are collapsed.'),
+        owner: zod
+            .email()
+            .nullable()
+            .describe(
+                "Email of the member of this organization who becomes the owner of every named metric, or null to clear the owner. Changing the owner keeps each metric's approval."
+            ),
+    })
+    .describe('Input for giving many metrics one owner.')
 
 /**
  * Approve many metrics as canonical. Unknown, already-approved, and drifted metrics are skipped.

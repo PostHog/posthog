@@ -21,11 +21,10 @@ from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.fields import OptionalBooleanField
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PARENT_LOOKUP_KWARG_PREFIX, TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
@@ -671,8 +670,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # Configure normal organization scope before shared permissions resolve any cached
             # routing properties. The user's current project can change in another browser tab.
             self.param_derived_from_user_current_team = None
-            parent_prefix = extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX
-            self.kwargs[f"{parent_prefix}organization_id"] = str(serializer.validated_data["organization_id"])
+            self.kwargs[f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id"] = str(
+                serializer.validated_data["organization_id"]
+            )
         super().initial(request, *args, **kwargs)
 
     def get_billing_manager(self) -> BillingManager:

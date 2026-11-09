@@ -16,7 +16,7 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.usage import FlagCalls, list_flags_created_by, summarize_flag_calls
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -28,7 +28,7 @@ class TestListFlagsCreatedBy(BaseTest):
     def test_lists_only_the_live_flags_the_person_created_in_this_project(self) -> None:
         mine = FeatureFlag.objects.create(team=self.team, key="checkout", created_by=self.user)
         in_experiment = FeatureFlag.objects.create(team=self.team, key="pricing-test", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Pricing", feature_flag=in_experiment)
+        create_experiment(team_id=self.team.id, feature_flag_id=in_experiment.id, name="Pricing")
         remote = FeatureFlag.objects.create(
             team=self.team, key="app-settings", created_by=self.user, is_remote_configuration=True
         )

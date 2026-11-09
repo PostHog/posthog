@@ -3,6 +3,7 @@ SELECT
   metric_name,
   toDateTime(toStartOfHour(timestamp)) AS time_bucket,
   series_fingerprint,
+  if(empty(input.histogram_bounds), 0, cityHash64(input.histogram_bounds)) AS histogram_bounds_hash,
   toDate32(original_expiry_timestamp) AS original_expiry_date,
   any(resource_fingerprint) AS resource_fingerprint,
   any(service_name) AS service_name,
@@ -15,17 +16,17 @@ SELECT
   anyLast(histogram_bounds) AS histogram_bounds,
   any(_topic) AS _topic,
   groupArray(10000)(timestamp) AS timestamp_arr,
-  groupArray(10000)(observed_timestamp) AS observed_timestamp_arr,
   groupArray(10000)(value) AS value_arr,
   groupArray(10000)(count) AS count_arr,
   groupArray(10000)(histogram_counts) AS histogram_counts_arr,
   groupArray(10000)(trace_id) AS trace_id_arr,
   groupArray(10000)(span_id) AS span_id_arr,
   groupArray(10000)(trace_flags) AS trace_flags_arr
-FROM posthog.metrics4_input
+FROM posthog.metrics4_input AS input
 GROUP BY
   team_id,
   metric_name,
   time_bucket,
   series_fingerprint,
+  histogram_bounds_hash,
   original_expiry_date

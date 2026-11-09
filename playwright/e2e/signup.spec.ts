@@ -1,21 +1,9 @@
 import { randomString } from '@playwright-utils'
-import type { APIRequestContext, Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 
 import { expect, test } from '../utils/workspace-test-base'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
-
-const ensureExistingUser = async (request: APIRequestContext, email: string): Promise<void> => {
-    await request.post('/api/signup/', {
-        data: {
-            first_name: 'Test',
-            email,
-            password: VALID_PASSWORD,
-            organization_name: 'Hogflix',
-            role_at_organization: 'Engineering',
-        },
-    })
-}
 
 const startSignupFlow = async (page: Page, email: string, password: string): Promise<void> => {
     await page.locator('[data-attr=signup-email]').fill(email)
@@ -30,11 +18,11 @@ const startSignupFlow = async (page: Page, email: string, password: string): Pro
     await expect(page.locator('[data-attr=signup-name]')).toBeVisible()
 }
 
-const submitEmailAndExpectExistingAccount = async (page: Page, email: string): Promise<void> => {
+const submitEmailAndExpectLoginStep = async (page: Page, email: string): Promise<void> => {
     await page.locator('[data-attr=signup-email]').fill(email)
     await page.locator('[data-attr=signup-start]').click()
 
-    await expect(page.getByText('There is already an account with this email address.')).toBeVisible()
+    await expect(page.locator('[data-attr=password-login]')).toBeVisible()
     await expect(page.locator('[data-attr=signup-auth-continue]')).not.toBeVisible()
 }
 
@@ -55,11 +43,6 @@ test.describe('Signup', () => {
         await page.goto('/signup')
     })
 
-    test('Cannot create account with existing email', async ({ page, request }) => {
-        await ensureExistingUser(request, 'test@posthog.com')
-        await submitEmailAndExpectExistingAccount(page, 'test@posthog.com')
-    })
-
     test('Can create user account with first name, last name and organization name', async ({ page }) => {
         let signupRequestBody: string | null = null
 
@@ -67,6 +50,7 @@ test.describe('Signup', () => {
             signupRequestBody = route.request().postData()
             await route.continue()
         })
+        await page.goto('/signup?next=/custom_path')
 
         const email = `${randomString('new_user')}@posthog.com`
         await startSignupFlow(page, email, VALID_PASSWORD)
@@ -77,14 +61,16 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-role-at-organization]').click()
         await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
+        const signupPromise = page.waitForResponse('/api/signup/')
         await page.locator('[data-attr=signup-submit]').click()
+        await signupPromise
 
         const parsedBody = JSON.parse(signupRequestBody!)
         expect(parsedBody.first_name).toEqual('Alice')
         expect(parsedBody.last_name).toEqual('Bob')
         expect(parsedBody.organization_name).toEqual('Hogflix SpinOff')
 
-        await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
+        await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*\?next=(\/|%2F)custom_path/)
     })
 
     test('Can submit the signup form multiple times if there is a generic email set', async ({ page }) => {
@@ -119,10 +105,10 @@ test.describe('Signup', () => {
         await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
         await page.goto('/signup')
 
-        // Try to recreate account with same email- should fail
-        await submitEmailAndExpectExistingAccount(page, email)
+        // The same email now has an account, so it goes to the login step instead of signup
+        await submitEmailAndExpectLoginStep(page, email)
 
-        // Update email to generic email and retry
+        // Typing a new email closes the login step's password field and retries the signup
         const newEmail = `${randomString('new_user')}@posthog.com`
         await startSignupFlow(page, newEmail, VALID_PASSWORD)
         await page.locator('[data-attr=signup-name]').fill('Alice Bob')
@@ -156,59 +142,5 @@ test.describe('Signup', () => {
         await expect(page.locator('.Toastify [data-attr="error-toast"]')).toContainText(
             'Inactive social login session.'
         )
-    })
-
-    test('Shows redirect notice if redirecting for maintenance', async ({ page }) => {
-        // Equivalent to setupFeatureFlags in Playwright
-        await page.route('**/flags/*', async (route) => {
-            const response = {
-                config: {
-                    enable_collect_everything: true,
-                },
-                featureFlags: {
-                    'redirect-signups-to-instance': 'us',
-                },
-                isAuthenticated: false,
-            }
-            await route.fulfill({ json: response })
-        })
-
-        await page.context().clearCookies()
-        await page.goto('/')
-        await expect(page).toHaveURL(/.*\/login/)
-
-        // Modify window object before page load
-        await page.goto('/signup?maintenanceRedirect=true')
-
-        // Inject cloud = true into the context
-        await page.evaluate(() => {
-            const context = window['POSTHOG_APP_CONTEXT']
-            if (context && context.preflight) {
-                context.preflight.cloud = true
-            }
-        })
-
-        await expect(page.locator('[data-attr="info-toast"]')).toContainText(
-            `You've been redirected to signup on our US instance while we perform maintenance on our other instance.`
-        )
-    })
-
-    test('Preserves next parameter through signup flow', async ({ page }) => {
-        // Start signup with next parameter
-        await page.goto('/signup?next=/custom_path')
-
-        const email = `${randomString('new_user')}@posthog.com`
-        await startSignupFlow(page, email, VALID_PASSWORD)
-        await page.locator('[data-attr=signup-name]').fill('Alice Bob')
-        await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice Bob')
-        await page.locator('[data-attr=signup-organization-name]').fill('Hogflix SpinOff')
-        await expect(page.locator('[data-attr=signup-organization-name]')).toHaveValue('Hogflix SpinOff')
-        await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
-        await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
-        await page.locator('[data-attr=signup-submit]').click()
-
-        // Verify we're redirected to verify_email page with next parameter preserved
-        await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*\?next=(\/|%2F)custom_path/)
     })
 })

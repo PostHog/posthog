@@ -18,6 +18,8 @@ from pydantic.dataclasses import dataclass
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
+
 
 @dataclass(frozen=True)
 class DataModelingJob:
@@ -63,6 +65,7 @@ class SavedQueryDefinition:
     created_at: datetime
     refreshes_incrementally: bool = False
     calls_decision_functions: bool = False
+    created_by_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -115,9 +118,43 @@ class MaterializationRunDirection(LabeledStrEnum):
     DOWNSTREAM = "downstream", "Downstream"
 
 
+class MaterializationEngine(LabeledStrEnum):
+    CLICKHOUSE = "clickhouse", "ClickHouse"
+    TRINO = "trino", "Trino"
+
+
 class MaterializationForbiddenError(Exception):
     pass
 
 
+class ManagedWarehouseUnavailableError(MaterializationForbiddenError):
+    pass
+
+
+class MaterializationAlreadyRunningError(Exception):
+    pass
+
+
+class MaterializationRanRecentlyError(Exception):
+    def __init__(self, message: str, *, retry_after_seconds: int) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
 class MaterializationFailedError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class NodeDescriptionTarget:
+    """What a node stands for, which decides where its description lives."""
+
+    node_id: UUID
+    saved_query_id: UUID | None = None
+    warehouse_table_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class NodeDescription:
+    text: str = ""
+    source: WarehouseColumnAnnotationDescriptionSource | None = None

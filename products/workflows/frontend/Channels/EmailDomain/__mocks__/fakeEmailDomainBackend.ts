@@ -10,6 +10,7 @@ import type {
     PaginatedIntegrationConfigListApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 
+import type { DataSuggestionApi, DataSuggestionsResponseApi } from '../../../generated/api.schemas'
 import { HogflowTestResult } from '../../../Workflows/hogflows/steps/types'
 import { EmailSenderConfig, EmailSetupMethod } from '../emailDomainSenderLogic'
 
@@ -29,6 +30,8 @@ export type FakeEndpoint =
     | 'domain_connect_apply_url'
     | 'event_hosts'
     | 'test_email'
+    | 'data_suggestions_generate'
+    | 'data_suggestions_current'
 
 export interface FakeFailure {
     status: number
@@ -172,6 +175,8 @@ const createHold = (): Hold => {
 export class FakeEmailDomainBackend {
     readonly requests: FakeRequest[] = []
     eventHosts: [host: string, count: number][] = []
+    /** What the AI workflow suggestions answer. The real backend answers unavailable when it can make none. */
+    dataSuggestions: Omit<DataSuggestionsResponseApi, 'email_sender_ready'> = { status: 'unavailable', suggestions: [] }
 
     private senders = new Map<number, IntegrationConfigApi>()
     private domains = new Map<string, FakeDomain>()
@@ -186,6 +191,7 @@ export class FakeEmailDomainBackend {
         const sender: IntegrationConfigApi = {
             id: this.nextSenderId++,
             kind: 'email',
+            auth_type: 'credentials',
             config: {
                 provider: 'ses',
                 name: 'Acme',
@@ -201,6 +207,7 @@ export class FakeEmailDomainBackend {
             files_write_requestable: false,
             installation_shared: null,
             installation_status: null,
+            needs_webhook_reconnect: null,
         }
         this.senders.set(sender.id, sender)
         if (!this.domains.has(domain)) {
@@ -276,6 +283,11 @@ export class FakeEmailDomainBackend {
                 sender.config = { ...config, verified: true }
             }
         })
+    }
+
+    /** The AI wrote these workflow suggestions from the project's events. */
+    suggestWorkflows(suggestions: DataSuggestionApi[]): void {
+        this.dataSuggestions = { status: 'ready', suggestions }
     }
 
     sesReports(domain: string, state: Exclude<FakeSesState, 'verified' | 'none'>): void {
@@ -364,6 +376,10 @@ export class FakeEmailDomainBackend {
                     'domain_connect_check',
                     ({ request }) => this.detectionOf(new URL(request.url).searchParams.get('domain') ?? '')
                 ),
+                '/api/projects/:team_id/workflow_data_suggestions/current/': this.serve(
+                    'data_suggestions_current',
+                    () => this.dataSuggestionsResponse()
+                ),
             },
             post: {
                 '/api/environments/:team_id/integrations/': this.serve('integration_create', (_, body) =>
@@ -375,6 +391,10 @@ export class FakeEmailDomainBackend {
                 '/api/environments/:team_id/integrations/domain-connect/apply-url/': this.serve(
                     'domain_connect_apply_url',
                     (_, body) => this.applyUrl(body as { integration_id: number; redirect_uri: string })
+                ),
+                '/api/projects/:team_id/workflow_data_suggestions/generate/': this.serve(
+                    'data_suggestions_generate',
+                    () => this.dataSuggestionsResponse()
                 ),
                 '/api/environments/:team_id/query/': this.serve('event_hosts', () => ({ results: this.eventHosts })),
                 '/api/environments/:team_id/hog_flows/:id/invocations/': this.serve(
@@ -411,6 +431,11 @@ export class FakeEmailDomainBackend {
             }
             return respond(info, body)
         }
+    }
+
+    private dataSuggestionsResponse(): DataSuggestionsResponseApi {
+        const anyVerified = [...this.domains.values()].some((state) => state.ses === 'verified')
+        return { ...this.dataSuggestions, email_sender_ready: anyVerified }
     }
 
     private failureFor(endpoint: FakeEndpoint): FakeFailure | undefined {

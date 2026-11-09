@@ -5,7 +5,7 @@ import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import { fileURLToPath } from 'node:url'
 import path from 'path'
 
-import type { Mocks } from '~/mocks/utils'
+import type { SnapshotTheme, SupportedBrowserName, ViewportWidthName } from '~/@types/storybook-parameters'
 
 // Storybook 10 loads this config as a native ES module, where `__dirname` is
 // not defined — derive it from the module URL instead.
@@ -18,92 +18,7 @@ const VIEWPORT_WIDTHS = {
     medium: { width: 960, height: 720 },
     wide: { width: 1300, height: 720 },
     superwide: { width: 1920, height: 720 },
-} as const
-type ViewportWidthName = keyof typeof VIEWPORT_WIDTHS
-
-// 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
-type SupportedBrowserName = 'chromium' | 'webkit'
-type SnapshotTheme = 'light' | 'dark'
-
-// Extend Storybook interface `Parameters` with Chromatic parameters
-declare module 'storybook/internal/types' {
-    interface Parameters {
-        options?: any
-        /** @default 'padded' */
-        layout?: 'padded' | 'fullscreen' | 'centered'
-        testOptions?: {
-            /**
-             * Whether we should wait for all loading indicators to disappear before taking a snapshot.
-             * @default true
-             */
-            waitForLoadersToDisappear?: boolean
-            /** If set, we'll wait for the given selector (or all selectors, if multiple) to be satisfied. */
-            waitForSelector?: string | string[]
-            /** Timeout in ms for waitForSelector. Defaults to Playwright's context timeout (PLAYWRIGHT_TIMEOUT_MS). */
-            waitForSelectorTimeout?: number
-            /**
-             * Override the per-test Jest timeout (ms) for stories whose render legitimately needs
-             * longer than the default. Use sparingly — a slow story is usually a bug, not a budget
-             * problem. Still scaled by the viewport-widths multiplier. Defaults to JEST_TIMEOUT_MS.
-             */
-            jestTimeout?: number
-            /**
-             * By default we wait for images to have width as an indication the page is ready for screenshot testing
-             * Some stories have broken images on purpose to test what the UI does
-             * in those cases set `allowImagesWithoutWidth` to `true`
-             */
-            allowImagesWithoutWidth?: boolean
-            /**
-             * Whether navigation should be included in the snapshot. Only applies to `layout: 'fullscreen'` stories.
-             * @default false
-             */
-            includeNavigationInSnapshot?: boolean
-            /**
-             * The test will always run for all the browers, but snapshots are only taken in Chromium by default.
-             * Override this to take snapshots in other browsers too.
-             *
-             * @default ['chromium']
-             */
-            snapshotBrowsers?: SupportedBrowserName[]
-            /** Narrow the snapshot to a specific element. Only works for component (non-fullscreen) snapshots — throws an error if used with `layout: 'fullscreen'`. */
-            snapshotTargetSelector?: string
-            /** specify an alternative viewport size */
-            viewport?: { width: number; height: number }
-            /** take snapshots at multiple preset widths, producing one snapshot per width */
-            viewportWidths?: ViewportWidthName[]
-            /**
-             * Skip waiting for iframes to load. Useful for stories with external iframes that fail in CI.
-             * Also skips waiting for networkidle, which is useful for stories with background network activity.
-             * @default false
-             */
-            skipIframeWait?: boolean
-            /**
-             * Skip taking a dark mode snapshot. Useful for stories that don't support dark mode or have known issues in dark mode that would cause snapshot failures.
-             */
-            skipDarkMode?: boolean
-            /**
-             * Skip taking a light mode snapshot. Useful for stories that pin themselves to dark mode
-             * (e.g. via story globals plus a mocked `theme_mode: 'dark'` user), where the light
-             * snapshot would render dark-computed values on a light background.
-             */
-            skipLightMode?: boolean
-            /**
-             * Suppress quill-charts canvas painting for this story's snapshot, avoiding flake from
-             * the charts' async paint. Handled by the `withChartCanvasSnapshot` decorator.
-             * @default false
-             */
-            skipCanvasDraw?: boolean
-        }
-        msw?: {
-            mocks?: Mocks
-        }
-        [name: string]: any
-    }
-
-    interface Globals {
-        theme: SnapshotTheme
-    }
-}
+} as const satisfies Record<ViewportWidthName, { width: number; height: number }>
 
 const RETRY_TIMES = 2
 const FRAME_SELECTOR_SEPARATOR = ' >>> '
@@ -169,6 +84,19 @@ export default {
     // making the marker visible from the very first module evaluation.
     async prepare({ page, browserContext, testRunnerConfig }) {
         await page.addInitScript(() => {
+            // Seeded (mulberry32) and restarted per story in preVisit, so random placeholders render the same every run.
+            const RANDOM_SEED = 1
+            let randomState = RANDOM_SEED
+            Math.random = (): number => {
+                randomState = (randomState + 0x6d2b79f5) | 0
+                let value = Math.imul(randomState ^ (randomState >>> 15), 1 | randomState)
+                value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value
+                return ((value ^ (value >>> 14)) >>> 0) / 4294967296
+            }
+            ;(window as unknown as { __testRunnerRestartRandom: () => void }).__testRunnerRestartRandom = (): void => {
+                randomState = RANDOM_SEED
+            }
+
             const patchedUserAgent = `${navigator.userAgent} StorybookTestRunner`
             Object.defineProperty(navigator, 'userAgent', {
                 get: () => patchedUserAgent,
@@ -211,7 +139,11 @@ export default {
     async preVisit(page, context) {
         // Resets the scheme `takeSnapshotWithTheme` emulates, which is page-level and outlasts the story.
         // Not `null`: that stops emulation, so WebKit follows a dark host.
-        await page.emulateMedia({ colorScheme: 'light' })
+        // Reduced motion also stops requestAnimationFrame motion (React Flow, d3) that the CSS override cannot reach.
+        await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+        await page.evaluate(() =>
+            (window as unknown as { __testRunnerRestartRandom?: () => void }).__testRunnerRestartRandom?.()
+        )
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
@@ -562,7 +494,7 @@ async function takeSnapshotWithTheme(
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
     // `isDarkModeOn` does not list that attribute as a selector input, so only a scheme change recomputes it.
-    await page.emulateMedia({ colorScheme: theme })
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
@@ -625,6 +557,7 @@ async function takeSnapshotWithTheme(
                         const iframes = Array.from(document.querySelectorAll('iframe'))
                         return iframes.every((iframe) => iframe.getAttribute('data-load-tracked') === 'loaded')
                     },
+                    undefined,
                     { timeout: 8000 }
                 )
                 .catch(() => {
@@ -635,22 +568,15 @@ async function takeSnapshotWithTheme(
         }
     }
 
-    // reset scroll positions to ensure consistent snapshots
+    // Inner containers keep their scroll position. Components scroll them on a timer (the settings
+    // nav scrolls to the selected item), so resetting them races that timer and flips the snapshot.
     await page.evaluate(() => {
-        // scroll main viewport to top
         window.scrollTo(0, 0)
-        // scroll the app's main content viewport (Navigation.tsx uses <main id="main-content"> as the scroll container)
+        // Navigation.tsx uses <main id="main-content"> as the scroll container
         const mainContent = document.querySelector('#main-content')
         if (mainContent instanceof HTMLElement) {
             mainContent.scrollTop = 0
         }
-        // scroll all overflow containers to top
-        document.querySelectorAll('.overflow-auto, .overflow-y-auto, .overflow-x-auto').forEach((el) => {
-            if (el instanceof HTMLElement) {
-                el.scrollTop = 0
-                el.scrollLeft = 0
-            }
-        })
     })
 
     // wait for content to stabilize - detects when DOM stops changing
@@ -684,6 +610,7 @@ async function takeSnapshotWithTheme(
                     checkStability()
                 })
             },
+            undefined,
             { timeout: 3000 }
         )
         .catch(() => {
@@ -695,8 +622,30 @@ async function takeSnapshotWithTheme(
 
     await waitForChartCanvasesPainted(page)
 
+    await finishAnimations(page)
+
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
+}
+
+/** Headless Chromium sometimes paints the first keyframe of the 0 ms animations base.scss forces; this commits the last. */
+async function finishAnimations(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        // document.getAnimations() leaves out shadow trees, and the toolbar renders in one.
+        const roots: (Document | ShadowRoot)[] = [document]
+        document.querySelectorAll('*').forEach((element) => {
+            if (element.shadowRoot) {
+                roots.push(element.shadowRoot)
+            }
+        })
+        for (const animation of roots.flatMap((root) => root.getAnimations())) {
+            try {
+                animation.finish()
+            } catch {
+                continue
+            }
+        }
+    })
 }
 
 async function doTakeSnapshotWithTheme(
@@ -953,6 +902,7 @@ async function resizeViewportAndWait(page: Page, viewport: { width: number; heig
                     checkStability()
                 })
             },
+            undefined,
             { timeout: VIEWPORT_SETTLE_TIMEOUT_MS }
         )
         .catch(() => {

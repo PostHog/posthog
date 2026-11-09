@@ -15,6 +15,8 @@ import type {
     DataCatalogMetricApi,
     DataCatalogMetricApproveRequestApi,
     DataCatalogMetricBulkApproveApi,
+    DataCatalogMetricBulkChangeOwnerApi,
+    DataCatalogMetricBulkChangeOwnerRequestApi,
     DataCatalogMetricBulkDeleteApi,
     DataCatalogMetricBulkNamesRequestApi,
     DataCatalogMetricCreateApi,
@@ -378,6 +380,26 @@ export const dataCatalogMetricsRunCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataCatalogMetricRunRequestApi),
+    })
+}
+
+export const getDataCatalogMetricsBulkChangeOwnerCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/bulk/change_owner/`
+}
+
+/**
+ * Give many metrics one owner, keeping their approvals. Unknown metrics are skipped.
+ */
+export const dataCatalogMetricsBulkChangeOwnerCreate = async (
+    projectId: string,
+    dataCatalogMetricBulkChangeOwnerRequestApi: DataCatalogMetricBulkChangeOwnerRequestApi,
+    options?: RequestInit
+): Promise<DataCatalogMetricBulkChangeOwnerApi> => {
+    return apiMutator<DataCatalogMetricBulkChangeOwnerApi>(getDataCatalogMetricsBulkChangeOwnerCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricBulkChangeOwnerRequestApi),
     })
 }
 

@@ -1,0 +1,17 @@
+@keyframes DetailPanel__slide-in {
+    from {
+        opacity: 0;
+        transform: translateX(2rem);
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .DetailPanel {
+        animation: DetailPanel__slide-in 200ms ease-out;
+    }
+}
+
+// The visual test runner cuts animations to zero duration, and headless Chromium can then paint the first keyframe.
+.storybook-test-runner .DetailPanel {
+    animation: none;
+}

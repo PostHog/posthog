@@ -6,7 +6,7 @@ import {
     aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
-import { FeatureFlagsPartialUpdateBody } from '../generated/feature_flags/api'
+import { FeatureFlagsPartialUpdateBody, FeatureFlagsPartialUpdateParams } from '../generated/feature_flags/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -573,6 +573,134 @@ export const InsightQueryInputSchema = z.preprocess(
     })
 )
 
+const ExplainChartEvidenceSchema = z.object({
+    text: z
+        .string()
+        .min(1)
+        .max(400)
+        .describe(
+            'One finding in one sentence, with the numbers from the query that found it. Mark the name that matters with **double asterisks**.'
+        ),
+    query: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe(
+            'The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.'
+        ),
+    insightShortId: z
+        .string()
+        .regex(/^[A-Za-z0-9]{8}$/)
+        .optional()
+        .describe('The `short_id` of a saved insight that shows this. The explanation links to it.'),
+    url: z
+        .string()
+        .regex(/^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+\/(pull\/\d+|commit\/[0-9a-fA-F]{7,40})\/?$/)
+        .optional()
+        .describe(
+            'A link to the GitHub pull request or commit behind this, when it is not a query or a saved insight. No other links are accepted.'
+        ),
+})
+
+const ExplainChartChapterSchema = z.object({
+    title: z
+        .string()
+        .min(1)
+        .max(80)
+        .describe('A short title, for example "A spike on October 2" or "Lower since September 28".'),
+    start: z
+        .string()
+        .min(1)
+        .describe(
+            "The first point the chapter covers, copied from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart)."
+        ),
+    end: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('The last point the chapter covers, inclusive. Omit it when the chapter is about one point.'),
+    summary: z
+        .string()
+        .max(400)
+        .optional()
+        .describe(
+            "What happened, in one or two sentences. Do not repeat the chart's own numbers: the app works them out from the chart and shows them above this."
+        ),
+    cause: z
+        .string()
+        .max(600)
+        .optional()
+        .describe(
+            'The most likely cause, in one or two sentences. Say whether it is a real change in behavior or an artifact of the data. Wrap the name behind it, such as a referrer or a country, in **double asterisks**. Omit it when you found no cause.'
+        ),
+    confidence: z
+        .enum(['high', 'medium', 'low'])
+        .optional()
+        .describe(
+            'How sure you are of the cause. high: independent signals agree. medium: one signal, or a strong pattern without a cross-check. low: a guess.'
+        ),
+    confidence_reason: z.string().max(200).optional().describe('Why you gave that confidence, in one sentence.'),
+    evidence: z.array(ExplainChartEvidenceSchema).max(6).optional().describe('What you checked, at most 6 findings.'),
+})
+
+const explainChartFields = {
+    insightId: z
+        .union([z.string(), z.number()])
+        .optional()
+        .describe('The saved insight to explain: its numeric `id` or 8-character `short_id`.'),
+    query: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.'),
+    series: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .default(0)
+        .describe("Index of the series in the chart's results that the story follows. Defaults to the first one."),
+    headline: z
+        .string()
+        .min(1)
+        .max(300)
+        .describe(
+            'One sentence a person could read in place of the whole story. Name what stands out, with no numbers, and wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in **double asterisks**.'
+        ),
+    chapters: z
+        .array(ExplainChartChapterSchema)
+        .min(1)
+        .max(8)
+        .describe('The moments that stand out, in the order to read them. At most 8.'),
+}
+
+const onlyOneChart = {
+    check: (params: { insightId?: unknown; query?: unknown }): boolean =>
+        (params.insightId === undefined) !== (params.query === undefined),
+    message: 'Pass exactly one of `insightId` or `query`.',
+}
+
+const explainChartAliases = normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] })
+
+export const ExplainChartInputSchema = z.preprocess(
+    explainChartAliases,
+    z.object(explainChartFields).refine(onlyOneChart.check, { message: onlyOneChart.message })
+)
+
+export const ExplainChartSaveInputSchema = z.preprocess(
+    explainChartAliases,
+    z
+        .object({
+            ...explainChartFields,
+            explanationId: z
+                .string()
+                .uuid()
+                .optional()
+                .describe(
+                    'The id an earlier `explain-chart-save` call on this chart returned, when you are fixing that explanation. Its link then shows the fix. Omit it for a new explanation.'
+                ),
+        })
+        .refine(onlyOneChart.check, { message: onlyOneChart.message })
+)
+
 export const AIObservabilityGetCostsSchema = z.object({
     projectId: z
         .number()
@@ -635,6 +763,15 @@ const EventDefinitionTagSchema = z
 
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
+    owner: z
+        .number()
+        .int()
+        .positive()
+        .nullable()
+        .optional()
+        .describe(
+            'Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.'
+        ),
     tags: z
         .array(EventDefinitionTagSchema)
         .optional()
@@ -654,6 +791,10 @@ export const EventDefinitionUpdateInputSchema = z.object({
 export const EventDefinitionUpdateSchema = z.object({
     eventName: z.string().describe('The name of the event to update (e.g. "$pageview", "user_signed_up")'),
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
+})
+
+export const EventDefinitionGetSchema = z.object({
+    eventName: z.string().min(1).describe('The exact name of the event (e.g. "$pageview", "user_signed_up")'),
 })
 
 export const EventDefinitionCreateSchema = z.object({
@@ -1220,7 +1361,7 @@ export const WorkflowGraphPatchSchema = z.object({
 const EmailDesignFreeformObject = z.record(z.string(), z.unknown())
 
 const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
-    z.object({
+    z.strictObject({
         op: z.literal('update_content'),
         id: z.string().describe('Id of the content block to update.'),
         patch: EmailDesignFreeformObject.describe(
@@ -1228,23 +1369,23 @@ const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
                 "e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
         ),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('update_column'),
         id: z.string().describe('Id of the column to update.'),
         patch: EmailDesignFreeformObject.describe('Partial column fields, deep-merged; a null leaf deletes that key.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('update_row'),
         id: z.string().describe('Id of the row to update.'),
         patch: EmailDesignFreeformObject.describe('Partial row fields, deep-merged; a null leaf deletes that key.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('update_body'),
         patch: EmailDesignFreeformObject.describe(
             "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
         ),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('add_content'),
         column_id: z.string().describe('Id of the column to insert the block into.'),
         content: EmailDesignFreeformObject.describe(
@@ -1253,17 +1394,17 @@ const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
         ),
         index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('remove_content'),
         id: z.string().describe('Id of the content block to remove.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('move_content'),
         id: z.string().describe('Id of the content block to move.'),
         column_id: z.string().describe('Id of the destination column.'),
         index: z.number().int().optional().describe('0-based position in the destination column; omit to append.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('add_row'),
         row: EmailDesignFreeformObject.describe(
             'A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are ' +
@@ -1271,13 +1412,13 @@ const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
         ),
         index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('remove_row'),
         id: z.string().describe('Id of the row to remove.'),
     }),
 ])
 
-export const EmailTemplateDesignPatchSchema = z.object({
+export const EmailTemplateDesignPatchSchema = z.strictObject({
     id: z.string().describe('The email template id to edit.'),
     operations: z
         .array(EmailDesignPatchOperationSchema)
@@ -1349,4 +1490,81 @@ export const UpdateFeatureFlagFiltersSchema = FeatureFlagUpdateFilters.extend({
 }).describe(
     'Full release-condition object. It replaces the stored filters, so read the flag first and send every ' +
         'condition you want to keep. The tool description covers condition_id and group targeting.'
+)
+
+// Rules stay opaque: the server's v2 validator is the only schema, and its field errors name the path to fix.
+// A loose object keeps every key the agent sends, so nothing it echoed from the read is dropped here.
+export const FlagRulesV2UpdateInputSchema = z.preprocess(
+    normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+    z.object({
+        id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams().shape.id),
+        version: z
+            .number()
+            .int()
+            .min(0)
+            .describe(
+                "The flag's top-level `version` from your latest read. The write is refused with 409 when the flag " +
+                    'changed after it.'
+            ),
+        filters: z
+            .looseObject({
+                version: z.literal(2).describe('Config format. Always 2 here; unrelated to the top-level `version`.'),
+                return_type: z.string().describe('Copy it from the flag you read. It cannot change.'),
+                default_value: z
+                    .union([z.boolean(), z.string(), z.number(), z.record(z.string(), z.unknown()), z.null()])
+                    .describe('Value served when no rule returns one. Must match `return_type`, or null.'),
+                rules: z
+                    .array(z.record(z.string(), z.unknown()))
+                    .describe(
+                        'The complete ordered rule list, in the shape the flag read returns. Keep `id` and `seed` on ' +
+                            'every rule you keep; omit both on a new rule.'
+                    ),
+            })
+            .describe('The complete new configuration. It replaces the stored `filters`.'),
+    })
+)
+
+// A scanner's recording filter, as the replay vision tools take it. The API validates the full
+// `RecordingsQuery`; inlining that schema in every scanner tool costs agents hundreds of kilobytes each,
+// so this names the parts a scanner filters on and lets each item through for the API to check.
+const RecordingFilterItemsSchema = z.array(z.record(z.string(), z.unknown()))
+
+const ScannerRecordingsFilterFields = z
+    .object({
+        kind: z.literal('RecordingsQuery').default('RecordingsQuery'),
+        events: RecordingFilterItemsSchema.nullish().describe(
+            'Events a recording must contain, such as `{"id": "$pageview", "type": "events", "order": 0}`. Each can carry `properties` that filter that event.'
+        ),
+        actions: RecordingFilterItemsSchema.nullish().describe(
+            'Saved actions a recording must contain, such as `{"id": 12, "type": "actions", "order": 0}`.'
+        ),
+        properties: RecordingFilterItemsSchema.nullish().describe(
+            'Recording, session, person and cohort filters, such as `{"type": "recording", "key": "visited_page", "value": "/checkout", "operator": "icontains"}` or `{"type": "cohort", "key": "id", "value": 7, "operator": "in"}`.'
+        ),
+        having_predicates: RecordingFilterItemsSchema.nullish().describe(
+            'Duration filters, such as `{"type": "recording", "key": "active_seconds", "value": 60, "operator": "gt"}`. These always apply with AND, whatever `operand` says.'
+        ),
+        console_log_filters: RecordingFilterItemsSchema.nullish().describe(
+            'Console log filters, such as `{"type": "log_entry", "key": "level", "value": ["error"], "operator": "exact"}`.'
+        ),
+        operand: z
+            .enum(['AND', 'OR'])
+            .nullish()
+            .describe(
+                'How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.'
+            ),
+        filter_test_accounts: z.boolean().nullish().describe('Leave out recordings from internal and test accounts.'),
+    })
+    .passthrough()
+
+export const ScannerRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
+    'Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.'
+)
+
+export const ScannerUpdateRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
+    "The filter that replaces the scanner's current one, as a `RecordingsQuery`. It is not merged: any field you leave out is cleared, and `{}` watches every new recording. To change part of the filter, read the current one with `vision-scanners-get`, change it, and send it back in full. The date range is ignored, because the schedule controls time."
+)
+
+export const ScannerEstimateRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
+    'Which recordings to count, as a `RecordingsQuery`. Omit every filter to count every recording. The date range is ignored, because the estimate counts a recent window (`window_days` in the response) and scales it to 30 days.'
 )

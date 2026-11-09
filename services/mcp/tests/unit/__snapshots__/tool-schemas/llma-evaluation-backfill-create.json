@@ -36,6 +36,7 @@
             "type": "array"
         },
         "evaluation_id": {
+            "description": "UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.",
             "type": "string"
         },
         "rerun_existing": {
