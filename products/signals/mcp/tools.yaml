@@ -318,9 +318,8 @@ tools:
             `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`,
             `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its
             clock to start. An open check with a `paused_reason` will not run, so its `next_run_at` is not a live
-            schedule. Checks are written by scout runs and by the research pipeline, so
-            this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot
-            read the data they describe.
+            schedule. Checks are written by scout runs and by the research pipeline, so this surface reads them and does
+            not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.
     inbox-report-checks-replace:
         operation: signals_report_checks_replace_create
         enabled: true
@@ -1386,11 +1385,11 @@ tools:
             in-progress run. Use `metric_threshold` when a bounded query and a baseline exist, and `agent` for a claim
             no single number settles, which a later scout run answers. `next_run_at` is when to first look, so allow
             deploy and soak time. On a report that has not resolved yet, the check is stored `pending`, and the gap you
-            left becomes the wait that starts when Monitoring starts (or when the report resolves, with Monitoring
-            off), so a check never measures the days before the fix shipped. The write is refused when nothing would
-            run the check: a report that has left Monitoring, or, with Monitoring off, a metric check on a resolved
-            report. Record a new expectation on a follow-up report instead. The verdict lands on the report as a
-            `check_result` entry in the inbox.
+            left becomes the wait that starts when Monitoring starts (or when the report resolves, with Monitoring off),
+            so a check never measures the days before the fix shipped. The write is refused when nothing would run the
+            check: a report that has left Monitoring, or, with Monitoring off, a metric check on a resolved report.
+            Record a new expectation on a follow-up report instead. The verdict lands on the report as a `check_result`
+            entry in the inbox.
     scout-report-check-list:
         operation: signals_scout_report_check_list
         enabled: true
@@ -1406,9 +1405,10 @@ tools:
             the `report_id` of the report to read; no `run_id` is needed. Read this before writing a check: a report
             already carrying one for the same claim needs no second, and a report holds at most five open checks at a
             time. A `pending` check is waiting for its clock to start; every status other than `pending` and `active` is
-            terminal. `run_state` says where an open check is: `waiting_on_report`, `paused` (nothing will run it,
-            for example because its report left Monitoring), `scheduled`, `due`, `queued`, `running`, or `stale`. For an `agent` check, `waiting_on_run`,
-            `dispatched_run_id`, and `dispatched_at` name the run the coordinator dispatched and when.
+            terminal. `run_state` says where an open check is: `waiting_on_report`, `paused` (nothing will run it, for
+            example because its report left Monitoring), `scheduled`, `due`, `queued`, `running`, or `stale`. For an
+            `agent` check, `waiting_on_run`, `dispatched_run_id`, and `dispatched_at` name the run the coordinator
+            dispatched and when.
     scout-report-checks-list:
         operation: signals_scout_report_check_list
         enabled: true
