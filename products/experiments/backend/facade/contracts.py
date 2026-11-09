@@ -1011,6 +1011,15 @@ class StaffRecalculation:
 
 
 @frozen
+class StaffMigration:
+    """The new-engine copy of a legacy experiment or shared metric."""
+
+    copy_id: int
+    # An earlier migration made the copy, so this one created nothing.
+    already_migrated: bool
+
+
+@frozen
 class RecalculationStart:
     outcome: RecalculationStartOutcome
     recalculation_id: str | None = None

@@ -76,15 +76,15 @@ class MigrateExperiment:
 
     def __call__(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | Page | None:
         try:
-            new_id, already_migrated = staff.migrate_experiment_by_id(self.experiment_id)
+            migration = staff.migrate_experiment_by_id(self.experiment_id)
         except Exception as e:
             messages.error(request, f"Error migrating experiment: {e}")
             return HttpResponse(status=400)
-        if already_migrated:
-            messages.warning(request, f"Experiment already migrated to {new_id}")
+        if migration.already_migrated:
+            messages.warning(request, f"Experiment already migrated to {migration.copy_id}")
         else:
             messages.success(request, "Experiment migrated successfully")
-        return HttpResponseRedirect(_experiments_url(experiment=new_id))
+        return HttpResponseRedirect(_experiments_url(experiment=migration.copy_id))
 
 
 class MigrateSavedMetric:
@@ -93,15 +93,15 @@ class MigrateSavedMetric:
 
     def __call__(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | Page | None:
         try:
-            new_id, already_migrated = staff.migrate_saved_metric_by_id(self.saved_metric_id)
+            migration = staff.migrate_saved_metric_by_id(self.saved_metric_id)
         except Exception as e:
             messages.error(request, f"Error migrating metric: {e}")
             return HttpResponse(status=400)
-        if already_migrated:
-            messages.warning(request, f"Metric already migrated to {new_id}")
+        if migration.already_migrated:
+            messages.warning(request, f"Metric already migrated to {migration.copy_id}")
         else:
             messages.success(request, "Metric migrated successfully")
-        return HttpResponseRedirect(_experiments_url(saved_metric=new_id))
+        return HttpResponseRedirect(_experiments_url(saved_metric=migration.copy_id))
 
 
 class FixMalformedProperties:
@@ -464,7 +464,10 @@ class ExperimentsTool(ConsoleTool):
                     key="migrate-saved-metric",
                     label="Migrate shared metric",
                     handler=MigrateSavedMetric(saved_metric_id),
+                    danger=True,
+                    form_class=ReasonForm,
                     description="Creates a new-engine copy of the shared metric. The original stays as it is.",
+                    undo_hint="To undo, delete the copy in the project.",
                 )
             ]
 
@@ -481,7 +484,10 @@ class ExperimentsTool(ConsoleTool):
                     key="fix-properties",
                     label="Fix metric properties",
                     handler=FixMalformedProperties(experiment_id),
+                    danger=True,
+                    form_class=ReasonForm,
                     description="Rewrites the metric properties from the old dict format to the list format.",
+                    undo_hint="This cannot be undone. The old metric values are not kept.",
                 )
             )
         shared_metrics = staff.list_shared_metrics(experiment_id)
@@ -493,7 +499,10 @@ class ExperimentsTool(ConsoleTool):
                     key="migrate",
                     label="Migrate experiment",
                     handler=MigrateExperiment(experiment_id),
+                    danger=True,
+                    form_class=ReasonForm,
                     description="Creates a new-engine copy of the experiment. The original stays as it is.",
+                    undo_hint="To undo, delete the copy in the project.",
                 )
             )
         # A recalculation needs a start date, so a draft gets none.
@@ -537,7 +546,7 @@ class ExperimentRecalculationsTool(ConsoleTool):
             blocks=(
                 Notice(
                     text=f"Recalculation {run.id} of experiment {run.experiment_id}, team {run.team_id}.",
-                    link_text="Open the experiment",
+                    link_text="Open the experiment to retry its latest failures",
                     href=_experiments_url(experiment=run.experiment_id),
                 ),
                 live,
@@ -591,5 +600,9 @@ class ExperimentRecalculationsTool(ConsoleTool):
                     undo_hint="This cannot be undone. Start a new recalculation to compute the metrics again.",
                 ),
             ]
+        # A recalculation needs a start date, so a run of a draft experiment offers no new run.
+        experiment = staff.get_experiment(run.experiment_id)
+        if experiment is None or not experiment.is_launched:
+            return operations
         # Retrying failures reruns the latest finished run's failures, so it lives on the experiment page only.
         return operations + _start_operations(run.experiment_id, None)

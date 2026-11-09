@@ -17,6 +17,7 @@ from posthog.models.user import User
 from products.experiments.backend.facade.contracts import (
     RecalculationStart,
     StaffExperiment,
+    StaffMigration,
     StaffRecalculation,
     StaffRecalculationFailure,
     StaffSavedMetric,
@@ -287,7 +288,7 @@ def _get_experiment(experiment_id: int) -> Experiment | None:
 
 
 def team_experiment_counts(team_id: int) -> StaffTeamExperimentCounts:
-    experiments = Experiment.objects.filter(team_id=team_id, deleted=False)
+    experiments = Experiment.objects.filter(team_id=team_id).exclude(deleted=True)
     return StaffTeamExperimentCounts(
         total=experiments.count(),
         running=experiments.filter(start_date__isnull=False, end_date__isnull=True).count(),
@@ -295,7 +296,12 @@ def team_experiment_counts(team_id: int) -> StaffTeamExperimentCounts:
 
 
 def list_team_experiments(team_id: int, limit: int) -> list[StaffExperiment]:
-    experiments = Experiment.objects.select_related("team").filter(team_id=team_id).order_by("-created_at")[:limit]
+    experiments = (
+        Experiment.objects.select_related("team")
+        .filter(team_id=team_id)
+        .exclude(deleted=True)
+        .order_by("-created_at")[:limit]
+    )
     return [_to_staff_experiment(experiment) for experiment in experiments]
 
 
@@ -328,21 +334,19 @@ def get_saved_metric(saved_metric_id: int) -> StaffSavedMetric | None:
     return _to_staff_saved_metric(saved_metric) if saved_metric is not None else None
 
 
-def migrate_experiment_by_id(experiment_id: int) -> tuple[int, bool]:
-    """The new-engine copy's ID, and whether an earlier migration made it."""
+def migrate_experiment_by_id(experiment_id: int) -> StaffMigration:
     # nosemgrep: idor-lookup-without-team (staff console, outside any team scope)
     team_id = Experiment.objects.values_list("team_id", flat=True).get(pk=experiment_id)
     migration = migrate_experiment(experiment_id, team_id)
-    return migration.experiment.pk, migration.already_migrated
+    return StaffMigration(copy_id=migration.experiment.pk, already_migrated=migration.already_migrated)
 
 
-def migrate_saved_metric_by_id(saved_metric_id: int) -> tuple[int, bool]:
-    """The new-engine copy's ID, and whether an earlier migration made it."""
+def migrate_saved_metric_by_id(saved_metric_id: int) -> StaffMigration:
     # nosemgrep: idor-lookup-without-team (staff console, outside any team scope)
     original = ExperimentSavedMetric.objects.only("metadata", "team_id").get(pk=saved_metric_id)
     already_migrated = bool((original.metadata or {}).get("migrated_to"))
     new_metric = migrate_saved_metric(saved_metric_id, original.team_id)
-    return new_metric.pk, already_migrated
+    return StaffMigration(copy_id=new_metric.pk, already_migrated=already_migrated)
 
 
 def fix_malformed_properties_by_id(experiment_id: int) -> bool:

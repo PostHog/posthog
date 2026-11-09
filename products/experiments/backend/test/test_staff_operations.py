@@ -1,6 +1,5 @@
 from datetime import UTC, datetime, timedelta
 
-import pytest
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -52,7 +51,6 @@ class TestFormatDuration:
         assert format_duration(_BASE + timedelta(seconds=10), _BASE) is None
 
 
-@pytest.mark.django_db(transaction=True)
 class TestStaffRecalculation(BaseTest):
     def _launched_experiment(self) -> Experiment:
         flag = FeatureFlag.objects.create(

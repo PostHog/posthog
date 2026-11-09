@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.contrib.admin.models import LogEntry
+
 from parameterized import parameterized
 
 from products.experiments.backend.models.experiment import (
@@ -74,6 +76,10 @@ class TestExperimentsConsole(BaseTest):
         assert "/admin/console/tools/experiments/migrate/" not in content
         assert "/admin/console/tools/experiments/fix-properties/" in content
 
+        Experiment.objects.create(team=self.team, name="Removed test", created_by=self.user, deleted=True)
+        team_list = self.client.get(f"/admin/console/tools/experiments/?team={self.team.pk}").content.decode()
+        assert "Removed test" not in team_list
+
     @parameterized.expand(
         [
             ("start_new_run", "start-recalculation", ExperimentMetricsRecalculation.Trigger.MANUAL),
@@ -99,7 +105,9 @@ class TestExperimentsConsole(BaseTest):
     def test_migrating_an_experiment_opens_its_new_engine_copy(self) -> None:
         Experiment.objects.filter(pk=self.experiment.pk).update(metrics=[LEGACY_TRENDS_METRIC])
 
-        response = self.client.post(f"/admin/console/tools/experiments/migrate/?experiment={self.experiment.pk}")
+        response = self.client.post(
+            f"/admin/console/tools/experiments/migrate/?experiment={self.experiment.pk}", {"reason": "Customer asked"}
+        )
 
         self.experiment.refresh_from_db()
         assert self.experiment.stats_config is not None
@@ -145,6 +153,10 @@ class TestExperimentsConsole(BaseTest):
         run.refresh_from_db()
         assert run.status == expected_run_status
         assert cancel_workflow.called == expect_cancel
+        history = LogEntry.objects.filter(object_id=str(run.pk)).values_list("user_id", "change_message")
+        assert list(history) == (
+            [(self.user.pk, "Manually marked failed from PostHog Admin.")] if expect_cancel else []
+        )
 
     @parameterized.expand(
         [
