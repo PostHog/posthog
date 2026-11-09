@@ -35,11 +35,9 @@ const importCommand = (): Promise<typeof import('lib/components/Command/Command'
     import('lib/components/Command/Command')
 const Command = lazyWithRetry(() => importCommand().then(({ Command }) => ({ default: Command })))
 // Off the eager path but fetched on idle, so the first open skips the network. The lazy component retries a failed import.
-function preloadCommand(withCommandKSearch: boolean): void {
+function preloadCommand(): void {
     void importCommand().catch(() => {})
-    if (withCommandKSearch) {
-        void import('lib/components/CommandKSearch/CommandKSearch').catch(() => {})
-    }
+    void import('lib/components/CommandKSearch/CommandKSearch').catch(() => {})
 }
 
 export default function AuthenticatedShell({ children }: { children: React.ReactNode }): JSX.Element {
@@ -57,11 +55,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
     const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { hasOpenedCommand } = useValues(commandLogic)
-    const newCommandKSearch = !!featureFlags[FEATURE_FLAGS.NEW_COMMAND_K_SEARCH]
-    useEffect(
-        () => (isEmbeddedPageFrame() ? undefined : runWhenIdle(() => preloadCommand(newCommandKSearch))),
-        [newCommandKSearch]
-    )
+    useEffect(() => (isEmbeddedPageFrame() ? undefined : runWhenIdle(() => preloadCommand())), [])
 
     const toasts = (
         <ToastContainer

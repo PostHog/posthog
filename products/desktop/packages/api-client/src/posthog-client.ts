@@ -2145,6 +2145,7 @@ export class PostHogAPIClient {
         appVersion: options.appVersion ?? clientAppVersion,
         fetch: options.fetch,
         userAgent: options.userAgent,
+        taskClientProvenance: this.taskClientProvenance,
       }),
       baseUrl,
     );
@@ -4617,11 +4618,6 @@ export class PostHogAPIClient {
         method: "post",
         url,
         path: urlPath,
-        parameters: {
-          header: {
-            "X-PostHog-Client-Provenance": this.taskClientProvenance,
-          },
-        },
         overrides: {
           body: JSON.stringify({
             repository: options.repository,

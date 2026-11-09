@@ -122,7 +122,79 @@ describe('exceptionFilters', () => {
                 'a ReferenceError from our own bundle, which carries a stack',
                 [
                     unhandledReferenceError('foo is not defined', {
-                        stacktrace: { frames: [{ source: 'https://example.com/static/chunk.js' }] },
+                        stacktrace: { frames: [{ filename: 'https://example.com/static/chunk.js' }] },
+                    }),
+                ],
+                true,
+            ],
+            ...['webkit-masked-url://', 'chrome-extension://', 'moz-extension://', 'safari-web-extension://'].map(
+                (scheme): [string, Record<string, unknown>[], boolean] => [
+                    `an extension crash frame using ${scheme}`,
+                    [
+                        unhandledReferenceError('extensionHook is not defined', {
+                            stacktrace: {
+                                frames: [
+                                    { filename: 'https://example.com/page' },
+                                    { filename: `${scheme}example/script.js`, in_app: false },
+                                ],
+                            },
+                        }),
+                    ],
+                    false,
+                ]
+            ),
+            [
+                'an extension crash frame with WebKit wording',
+                [
+                    unhandledReferenceError("Can't find variable: extensionHook", {
+                        stacktrace: { frames: [{ filename: 'webkit-masked-url://example/script.js', in_app: false }] },
+                    }),
+                ],
+                false,
+            ],
+            [
+                'an app crash called by an extension',
+                [
+                    unhandledReferenceError('foo is not defined', {
+                        stacktrace: {
+                            frames: [
+                                { filename: 'chrome-extension://example/script.js', in_app: false },
+                                { filename: 'https://example.com/static/chunk.js', in_app: true },
+                            ],
+                        },
+                    }),
+                ],
+                true,
+            ],
+            [
+                'a handled extension error',
+                [
+                    unhandledReferenceError('extensionHook is not defined', {
+                        mechanism: { handled: true },
+                        stacktrace: { frames: [{ filename: 'chrome-extension://example/script.js' }] },
+                    }),
+                ],
+                true,
+            ],
+            [
+                'an extension ReferenceError with a different message',
+                [
+                    unhandledReferenceError('Cannot access variable before initialization', {
+                        stacktrace: { frames: [{ filename: 'moz-extension://example/script.js' }] },
+                    }),
+                ],
+                true,
+            ],
+            [
+                'a wrapped extension error with an app stack',
+                [
+                    {
+                        type: 'Error',
+                        mechanism: { handled: false },
+                        stacktrace: { frames: [{ filename: 'https://example.com/static/chunk.js' }] },
+                    },
+                    unhandledReferenceError('extensionHook is not defined', {
+                        stacktrace: { frames: [{ filename: 'chrome-extension://example/script.js' }] },
                     }),
                 ],
                 true,

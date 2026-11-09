@@ -6599,6 +6599,7 @@ export type ExperimentExposureHealthFindingCode =
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
+    | 'unserved_variant_exposures'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -6638,6 +6639,7 @@ export type ExperimentExposureHealthCheckKey =
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
+    | 'unserved_variant_exposures'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
@@ -6652,6 +6654,8 @@ export type ExperimentExposureHealthValueKey =
     | 'since_launch_hours'
     | 'exposed_without_test_account_filter_count'
     | 'kept_by_test_account_filter_percentage'
+    | 'unserved_exposed_count'
+    | 'unserved_exposed_percentage'
 
 export type ExperimentExposureHealthRuleSide = 'above' | 'below'
 
@@ -6708,6 +6712,8 @@ export interface ExperimentExposureQueryResponse {
     health_findings?: ExperimentExposureHealthFinding[]
     /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
     health_checks?: ExperimentExposureHealthCheck[]
+    /** Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library. */
+    exposed_by_library?: Record<string, integer>
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }

@@ -337,6 +337,22 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             response = self.client.post("/api/projects/", {"name": f"Project {i}"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_creating_project_in_another_organization_switches_both_selections(self) -> None:
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        other_org, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_organization = other_org
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/projects/", {"name": "Example project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_team_id, response.json()["id"])
+        self.assertEqual(self.user.current_organization_id, self.organization.id)
+
     def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
         features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
         if with_member_create_entitlement:
