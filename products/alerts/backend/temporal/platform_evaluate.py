@@ -876,7 +876,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             # A task, so a slow claim holds back only the firings it holds, not the next record or round.
             self._after_record.append(asyncio.create_task(self._investigate(inputs, investigated)))
         signals = requested_firing_signals(inputs.batch_key.team_id, chunk)
-        if signals and workflow.patched(_PATCH_FIRING_SIGNALS):
+        if workflow.patched(_PATCH_FIRING_SIGNALS) and signals:
             self._after_record.append(asyncio.create_task(self._start_signals(inputs, signals)))
 
     async def _investigate(self, inputs: SourceEvaluationInputs, outcomes: tuple[PlatformAlertOutcome, ...]) -> None:
@@ -930,6 +930,9 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             )
         except WorkflowAlreadyStartedError:
             pass
+        except Exception:
+            # The outcomes and deliveries are already out, and the signal is best effort.
+            workflow.logger.warning("Could not start the Inbox signals of recorded platform insight firings")
 
     async def _start_investigation(self, start: InvestigationStart) -> None:
         try:
