@@ -72,6 +72,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
+from posthog.ip_restrictions import ip_restrictions_exempt_for_secret_keys
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -95,6 +96,8 @@ from posthog.views import format_bytes
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
+    property_key_overlaps_restriction,
+    redact_restricted_properties,
     split_restricted_property_names,
 )
 from products.access_control.backend.facade.contracts import RestrictedPropertyNames
@@ -779,12 +782,12 @@ def _redact_restricted_actual_values(
 
     def is_restricted(condition_index: Any, prop: dict[str, Any]) -> bool:
         key = prop.get("key")
-        if prop.get("type") != "group":
-            return key in restricted.person
         if not isinstance(key, str):
             return False
+        if prop.get("type") != "group":
+            return property_key_overlaps_restriction(key, restricted.person)
         indexes = _group_type_indexes_for_condition_property(filters, condition_index, key)
-        return any(restricted.is_group_property_restricted(key, index) for index in indexes)
+        return any(property_key_overlaps_restriction(key, restricted.group_property_names(index)) for index in indexes)
 
     redacted: list[Any] = []
     for condition in conditions:
@@ -6334,13 +6337,12 @@ class FeatureFlagViewSet(
                 "reason_description": reason_description,
                 "condition_index": condition_index,
                 "payload": payload,
-                "person_properties": {
-                    key: value
-                    for key, value in _filter_person_properties_for_flag(
+                "person_properties": redact_restricted_properties(
+                    _filter_person_properties_for_flag(
                         evaluation_filters, person_properties, flag_key=feature_flag.key
-                    ).items()
-                    if key not in restricted_properties.person
-                },
+                    ),
+                    restricted_properties.person,
+                ),
                 "evaluation_distinct_id": response_evaluation_distinct_id,
                 "conditions": _redact_restricted_actual_values(
                     detailed_conditions, evaluation_filters, restricted_properties
@@ -6451,6 +6453,7 @@ class FeatureFlagViewSet(
         permission_classes=[TeamSecretTokenPermission],
         throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
+    @ip_restrictions_exempt_for_secret_keys
     def remote_config(self, request: request.Request, **kwargs):
         response = self._remote_config_response(request, **kwargs)
         # Temporary (Rust remote_config port, phase 2): shadow-compare against Rust; delete after cutover.

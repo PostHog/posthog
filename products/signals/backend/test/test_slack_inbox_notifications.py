@@ -145,6 +145,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button(use_
         use_section_blocks=use_section_blocks,
         priority=AutonomyPriority.P1,
         offer_implementation=True,
+        slack_integration_id=7,
     )
 
     assert blocks[0]["text"]["text"] == "Checkout errors spiked"
@@ -168,10 +169,14 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button(use_
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     assert blocks[2]["elements"][0]["text"] == "🟠 *P1* · 👤 Suggested owner: <@U123>"
     report_url = f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?link_source=slack"
-    assert [(button["text"]["text"], button.get("style"), button["url"]) for button in blocks[3]["elements"]] == [
-        ("Implement", "primary", f"{report_url}&link_action=implement"),
-        ("Review in PostHog", None, report_url),
-    ]
+    implement, review = blocks[3]["elements"]
+    assert implement["text"]["text"] == "Implement"
+    assert implement["style"] == "primary"
+    assert implement["action_id"] == "slack_app_implement_report"
+    assert json.loads(implement["value"]) == {"integration_id": 7}
+    assert "url" not in implement
+    assert review["text"]["text"] == "Review in PostHog"
+    assert review["url"] == report_url
     assert text == "Checkout errors spiked"
 
 
@@ -355,9 +360,7 @@ def test_resolve_reviewer_mentions_caps_at_five() -> None:
 def org_and_team():
     org = Organization.objects.create(name="slack-notif-org")
     team = Team.objects.create(organization=org, name="slack-notif-team")
-    yield org, team
-    team.delete()
-    org.delete()
+    return org, team
 
 
 def _set_team_channel(team: Team, channel: str, integration: Integration | None = None) -> None:
@@ -498,7 +501,11 @@ def test_dispatch_sends_to_configured_reviewer(
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     actions = next(block for block in blocks if block["type"] == "actions")
     report_url = f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}?link_source=slack"
-    assert [element["url"] for element in actions["elements"]] == [f"{report_url}&link_action=implement", report_url]
+    implement, review = actions["elements"]
+    assert implement["action_id"] == "slack_app_implement_report"
+    assert json.loads(implement["value"]) == {"integration_id": integration.id}
+    assert "url" not in implement
+    assert review["url"] == report_url
 
 
 @pytest.mark.django_db

@@ -4,6 +4,7 @@ import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 
+import type { AccessKeyStatus } from './access-key'
 import { ApiError } from './api'
 import type { CredentialSource } from './credentials'
 
@@ -21,11 +22,12 @@ export type AuthStatus =
           host: string
           projectId: string
           projectName: string | null
-          kind: 'personal_api_key' | 'oauth'
+          kind: AccessKeyStatus['kind']
           source: CredentialSource
           // Set when the source is the store.
           store: StoreChoice | null
           credentialsPath: string | null
+          provider: string | null
           // What an OAuth login may do and when its access token expires (ISO 8601). Null for a
           // personal API key, which has no expiry and whose scopes PostHog doesn't report.
           scopes: string[] | null
@@ -49,10 +51,11 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
     }
     const { key, source } = credentials
     const { host, projectId } = key
-    const { kind, scopes, expiresAt, rejected } = key.status()
-    const api = await ctx.posthog()
+    const { kind, scopes, expiresAt, rejected, fix, provider } = key.status()
+    const api = (await ctx.posthog()).withoutStepUp()
+    const UserSchema = z.looseObject({ email: z.string(), first_name: z.string().nullish() })
     const [user, project] = await Promise.allSettled([
-        api.get('/api/users/@me/', z.looseObject({ email: z.string(), first_name: z.string().nullish() })),
+        key.identifiesPerson ? api.get('/api/users/@me/', UserSchema) : Promise.resolve(null),
         api.get('', z.looseObject({ name: z.string().nullish() })),
     ])
     const failures = [user, project].flatMap((outcome) => (outcome.status === 'rejected' ? [outcome.reason] : []))
@@ -63,7 +66,7 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
             projectId,
             source,
             error: rejected,
-            next: 'hog auth login',
+            next: fix,
         }
     }
     // A 403 means the key lacks the scope for that detail, not that it doesn't work.
@@ -79,9 +82,14 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         kind,
         source,
         store: credentials.source === 'store' ? credentials.store : null,
-        credentialsPath: credentials.source === 'env' ? null : credentials.path,
+        credentialsPath:
+            credentials.source === 'store' || credentials.source === 'dotenv-file' ? credentials.path : null,
+        provider,
         scopes,
         expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString(),
-        user: user.status === 'fulfilled' ? { email: user.value.email, name: user.value.first_name || null } : null,
+        user:
+            user.status === 'fulfilled' && user.value
+                ? { email: user.value.email, name: user.value.first_name || null }
+                : null,
     }
 }

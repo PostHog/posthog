@@ -888,6 +888,9 @@ const inboxReportsList = (): ToolBase<
                     'ranking.status',
                     'ranking.scored_at',
                     'ranking.predictions',
+                    'inbox_merge_key',
+                    'personal_tier',
+                    'personal_reason',
                     'created_at',
                     'updated_at',
                 ])

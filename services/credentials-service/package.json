@@ -19,19 +19,19 @@
         "fix": "pnpm lint:fix; s=$?; pnpm format && exit $s"
     },
     "dependencies": {
-        "@hono/node-server": "^2.0.2",
-        "hono": "^4.12.18",
+        "@hono/node-server": "^2.1.5",
+        "hono": "^4.13.14",
         "jose": "^6.0.10",
-        "pino": "^8.6.0",
+        "pino": "^8.21.0",
         "prom-client": "^14.2.0"
     },
     "devDependencies": {
         "@types/node": "^22.17.2",
         "esbuild": "^0.25.11",
         "oxfmt": "catalog:",
-        "oxlint": "^1.72.0",
-        "pino-pretty": "^9.1.0",
-        "tsx": "^4.20.5",
+        "oxlint": "^1.78.0",
+        "pino-pretty": "^9.4.1",
+        "tsx": "^4.23.15",
         "typescript": "catalog:",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4"

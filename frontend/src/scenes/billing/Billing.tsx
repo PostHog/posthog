@@ -203,7 +203,14 @@ export function Billing(): JSX.Element {
                     )}
                 >
                     {showBillingSummary && (
-                        <div className={clsx('flex-1', { 'flex-grow-0': showCreditCTAHero })}>
+                        <div
+                            className={clsx('flex-1', {
+                                'flex-grow-0': showCreditCTAHero,
+                                // flex-1 sets a 0 basis, so with flex-grow-0 the summary gets only its min-content width and its text and button wrap.
+                                // The 20rem basis with no shrink keeps it at that width or wider, because the default min-width still holds the content width.
+                                '@3xl:shrink-0 @3xl:basis-80': showCreditCTAHero && billing?.has_active_subscription,
+                            })}
+                        >
                             <BillingSummary />
                         </div>
                     )}

@@ -227,6 +227,7 @@ rules:
     - match:
           - '/frontend/src/layout/ErrorBoundary/*.test.*'
           - '/frontend/src/layout/navigation-3000/*.test.*'
+          - '/frontend/src/layout/navigation-3000/components/*.test.*'
           - '/frontend/src/layout/navigation/Breadcrumbs/*.test.*'
           - '/frontend/src/layout/panel-layout/*.test.*'
           - '/frontend/src/layout/panel-layout/ProjectTree/*.test.*'

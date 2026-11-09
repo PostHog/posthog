@@ -11,6 +11,7 @@ from requests import Response
 from rest_framework import status
 
 import posthog.plugins.plugin_server_api as plugin_server_api
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -31,6 +32,8 @@ SEND_CLAIMS = {
 }
 
 STYLESHEET_LINK = '<link rel="stylesheet" href="/static/message-preferences.css" />'
+
+DELETED_TEAM_ID = 999_999_999
 
 
 def mock_response(status_code: int, response_json: dict):
@@ -85,7 +88,11 @@ class TestMessagePreferencesViews(BaseTest):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
-        response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("message_preferences", kwargs={"token": self.token}), REMOTE_ADDR="198.51.100.7"
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "message_preferences/preferences.html")
@@ -159,13 +166,37 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertTemplateUsed(response, "message_preferences/error.html")
         self.assertContains(response, STYLESHEET_LINK, status_code=400)
 
+    @parameterized.expand(
+        [
+            ("page_view", "get", "", {}),
+            ("one_click_unsubscribe", "post", "?one_click_unsubscribe=1", {"List-Unsubscribe": "One-Click"}),
+        ]
+    )
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
+    def test_preferences_page_rejects_token_of_deleted_team(
+        self, _name, method, query, body, mock_validate_messaging_preferences_token
+    ):
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": DELETED_TEAM_ID, "identifier": self.recipient.identifier}
+        )
+
+        response = getattr(self.client, method)(
+            reverse("message_preferences", kwargs={"token": self.token}) + query, body
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTemplateUsed(response, "message_preferences/error.html")
+        self.assertFalse(MessageRecipientPreference.objects.filter(team_id=DELETED_TEAM_ID).exists())
+
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_valid(self, mock_validate_messaging_preferences_token):
         data = {"token": self.token, "preferences[]": [f"{self.category.id}:true", f"{self.category2.id}:false"]}
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
-        response = self.client.post(reverse("message_preferences_update"), data)
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        self.client.force_login(self.user)
+        response = self.client.post(reverse("message_preferences_update"), data, REMOTE_ADDR="198.51.100.7")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response.content), {"success": True})
 
@@ -201,19 +232,24 @@ class TestMessagePreferencesViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("invalid-token", mock_response(400, {"error": "Invalid token"})),
-            ("invalid-token", mock_response(200, {"valid": False})),
+            ("rejected_by_cdp", mock_response(400, {"error": "Invalid token"}), "Invalid token"),
+            ("not_valid", mock_response(200, {"valid": False}), "Invalid recipient token"),
+            (
+                "deleted_team",
+                mock_response(200, {"valid": True, "team_id": DELETED_TEAM_ID, "identifier": "test@example.com"}),
+                "Invalid recipient",
+            ),
         ]
     )
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_invalid_token(
-        self, token, mock_response_value, mock_validate_messaging_preferences_token
+        self, _name, mock_response_value, expected_error, mock_validate_messaging_preferences_token
     ):
-        data = {"token": token, "preferences[]": [f"{self.category.id}:true"]}
+        data = {"token": "invalid-token", "preferences[]": [f"{self.category.id}:true"]}
         mock_validate_messaging_preferences_token.return_value = mock_response_value
         response = self.client.post(reverse("message_preferences_update"), data)
         self.assertEqual(response.status_code, 400)
-        self.assertIn("error", json.loads(response.content))
+        self.assertEqual(json.loads(response.content), {"error": expected_error})
 
     @parameterized.expand(["invalid", "TRUE", "", "1"])
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")

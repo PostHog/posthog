@@ -236,6 +236,22 @@
         },
         "feature_entitlement": "role_based_access"
     },
+    "account-notes-list": {
+        "description": "Notes (internal notebooks) across every Customer Analytics account the caller can read, newest modified first. Each row carries `short_id`, `title`, `account_id`, `account_name`, `created_by` and `tags`. Filter with `tags` (JSON-encoded array, any match), `account_id`, `created_by`, `assigned_to` and `search`; sort with `ordering` (`last_modified_at`, `created_at`, `title`, `account_name`, `-` prefix for descending). Use `accounts-notebooks-retrieve` with the row's `account_id` and `short_id` to read a note's content.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account notes across accounts",
+        "title": "List account notes across accounts",
+        "required_scopes": ["account:read"],
+        "api_operations": ["GET /api/projects/{project_id}/account_notes/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "account-relationship-definitions-create": {
         "description": "Create a Customer Analytics account relationship definition — a team-defined relationship type between a PostHog user and an account, such as CSM or Onboarding manager. Provide `name` (required, unique within the team), optional `description` explaining what the relationship means, and `is_single_holder` (default true) controlling whether only one user can hold the relationship per account at a time. Definitions are team-scoped and shared across all accounts; assign a user to a specific account with `accounts-relationships-create`.",
         "category": "Customer analytics",
@@ -413,7 +429,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-notebooks-create": {
-        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; the server converts it into the same markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
+        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; the server converts it into the same markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list. Pass `tags` (array of tag names, shared with account tags) to tag the note at creation time.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account notebook",
@@ -445,7 +461,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-notebooks-list": {
-        "description": "List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result includes the notebook `short_id`, `title`, `content`, and authorship metadata.",
+        "description": "List notebooks attached to a Customer Analytics account, newest first by default. Each result includes the notebook `short_id`, `title`, `content`, `tags` and authorship metadata. Pass `tags` (JSON-encoded array, e.g. `[\"renewal\",\"risk\"]`) to keep notebooks carrying any of those tags, `created_by` (user IDs) to keep notebooks by those authors, `search` for full text, and `ordering` (`title`, `created_at`, `last_modified_at`, `created_by`, each with a `-` prefix for descending) to sort.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List account notebooks",
@@ -457,6 +473,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-partial-update": {
+        "description": "Replace an account notebook's `tags` by its `short_id`. `tags` replaces the whole tag set, so read the notebook first and send the full list to add one. The title and content are not edited here: a note's title comes from its first line, so use `notebooks-partial-update` to change the content.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update account notebook tags",
+        "title": "Update account notebook tags",
+        "required_scopes": ["account:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/accounts/{account_id}/notebooks/{short_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "customer-analytics-csp"
     },
@@ -727,6 +759,54 @@
         },
         "feature_entitlement": "audit_logs"
     },
+    "aeo-brands-get": {
+        "description": "Get one brand from the project's AI citation brand catalog by id: its name, registrable `domain`, `kind` (own, competitor, publisher or unknown), review `status` and `aliases`. Get the id from `aeo-brands-list`.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Get a brand from the AI citation catalog",
+        "title": "Get a brand from the AI citation catalog",
+        "required_scopes": ["web_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/aeo_brands/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
+    "aeo-brands-list": {
+        "description": "List the project's AI citation brand catalog by domain, paginated with `limit`/`offset`. Each brand is one registrable domain the answer engines cited: the project's own site (`kind: own`), competitors, publishers such as review and community sites, and domains nobody has labeled yet (`kind: unknown`, `status: suggested`). Each daily run adds the domains its answers cited for the first time. Filter by `kind` or `status`, for example `status=suggested` to find brands that still need a label.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "List brands in the AI citation catalog",
+        "title": "List brands in the AI citation catalog",
+        "required_scopes": ["web_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/aeo_brands/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
+    "aeo-brands-update": {
+        "description": "Rename, relabel, confirm or ignore one brand in the project's AI citation catalog, or replace its `aliases`. Set `kind` to competitor, publisher, own or unknown, and `status` to confirmed or ignored once it is reviewed. The daily run keeps these edits; it only adds newly cited domains. Ask the user before you label a brand as a competitor.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Update a brand in the AI citation catalog",
+        "title": "Update a brand in the AI citation catalog",
+        "required_scopes": ["web_analytics:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/aeo_brands/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
     "aeo-prompts-archive": {
         "description": "Archive one AI citation tracking prompt. It is turned off, never runs again, and drops out of `aeo-prompts-list` unless `include_archived` is true. Nothing is deleted: its check history and versions stay readable, and `aeo-prompts-update` with `archived: false` restores it. Re-importing its text with `aeo-prompts-import` does not bring it back. Ask the user to confirm before you archive prompts.",
         "category": "AI citation tracking",
@@ -792,7 +872,7 @@
         "feature_flag": "aeo-citation-tracking"
     },
     "aeo-prompts-list": {
-        "description": "List the project's AI citation tracking prompts: the questions PostHog asks AI answer engines every day to check whether their answers cite the project's site. Each prompt has its text (from its `current_version`, out of `version_count` versions), topic, on/off state (`active`), when it last ran (`last_checked_at`) and `latest_checks`, the newest result per engine (`cited`, `check_failed`, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an empty string selects prompts with no topic) and by `active`. Archived prompts are left out unless `include_archived` is true; they carry `archived_at`. Results are paginated with `limit`/`offset` and ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find a prompt id before calling `aeo-prompts-update`.",
+        "description": "List the project's AI citation tracking prompts: the questions PostHog asks AI answer engines every day to check whether their answers cite the project's site. Each prompt has its text (from its `current_version`, out of `version_count` versions), topic, on/off state (`active`), when it last ran (`last_checked_at`) and `latest_checks`, the newest result per engine (`cited`, `check_failed`, `target_best_position`: the 1-based rank of the first target URL among the cited URLs, `search_queries`: the web searches the engine ran while answering, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an empty string selects prompts with no topic) and by `active`. Archived prompts are left out unless `include_archived` is true; they carry `archived_at`. Results are paginated with `limit`/`offset` and ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find a prompt id before calling `aeo-prompts-update`.",
         "category": "AI citation tracking",
         "feature": "aeo",
         "summary": "List tracked AI prompts",
@@ -808,7 +888,7 @@
         "feature_flag": "aeo-citation-tracking"
     },
     "aeo-prompts-overview-get": {
-        "description": "Get set-level totals for AI citation tracking over the last `days` days (default 30, at most 90, in the project's timezone) without writing SQL. `prompts_tracked` is how many prompts are on. `current` and `previous` compare the window with the one before it: `checks`, `failed`, `cited`, `mentioned` (answers that name the brand), `citation_rate` and `mention_rate` (shares of answered checks, 0-1), `prompts` that ran and `prompts_cited` (prompts minus prompts_cited is how many prompts were never cited). `engines` splits the current window per answer engine: Claude (`claude-web-search`), ChatGPT/OpenAI (`openai-web-search`) and Exa (`exa-answer`). `topics` splits it per prompt topic with the same counts, rates and the number of active prompts, so you can rank topics by citation or mention rate. `top_domains` lists the sites the engines cite most across all answers, with `is_target` marking the project's own domains. Use it to answer \"how are we doing overall\", \"which topics or engines mention or cite us least\", \"how many prompts are never cited\" and \"which sites do the engines cite instead of us\". For one prompt, use `aeo-prompts-stats-get`.",
+        "description": "Get set-level totals for AI citation tracking over the last `days` days (default 30, at most 90, in the project's timezone) without writing SQL. `prompts_tracked` is how many prompts are on. `current` and `previous` compare the window with the one before it: `checks`, `failed`, `cited`, `mentioned` (answers that name the brand), `citation_rate` and `mention_rate` (shares of answered checks, 0-1), `prompts` that ran and `prompts_cited` (prompts minus prompts_cited is how many prompts were never cited), and `avg_position` (mean rank of the first target URL over cited answers; lower is better). `engines` splits the current window per answer engine: Claude (`claude-web-search`), ChatGPT/OpenAI (`openai-web-search`) and Exa (`exa-answer`). `topics` splits it per prompt topic with the same counts, rates and the number of active prompts, so you can rank topics by citation or mention rate. `top_domains` lists the sites the engines cite most across all answers, with `is_target` marking the project's own domains. `top_searches` lists the web searches the engines ran most while answering, ranked by how many prompts triggered them, with how many of those answers cited the project and up to five of the prompts. Use it to answer \"how are we doing overall\", \"which topics or engines mention or cite us least\", \"how many prompts are never cited\", \"which sites do the engines cite instead of us\" and \"what do the engines search for\". For one prompt, use `aeo-prompts-stats-get`.",
         "category": "AI citation tracking",
         "feature": "aeo",
         "summary": "Get the AI citation overview of the whole prompt set",
@@ -1178,7 +1258,7 @@
         "feature_flag": "anomalies-search"
     },
     "anomaly-search": {
-        "description": "Find which series of the project's saved product analytics insights (trends) were anomalous in a date range, from the scheduled anomaly scoring of those insights. For anomalies in the Metrics product, use characterize-metric-anomaly instead. Each row is one series with `anomaly_rate` (flagged buckets divided by scored buckets in the range). Read it against `baseline_rate`, the same rate over the 30 days before the range: a series that is usually quiet and now flags matters more than one that always flags. Read it together with `coverage` (the share of the range that was scored) and `scored_through` (the newest scored bucket, so later buckets were not checked yet). Scores compare only within one series, so never rank series by score. Scoring is sampled, so a range can be partly scored, and results cover only the insights checked in the range: `insights_scored_in_range` of `watched_insights`. To check a result, `flagged_points` gives the value at each flagged bucket, anomaly-insight-get with the row's `insight_id` gives the full scored history of every series of that insight, and the insight's own query (for example query-trends on the insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or the project turned scoring off in its self-driving settings; `message` says which. Use `group_by: insight` for one row per insight. A 404 means anomaly search is not available for this project.",
+        "description": "Find which series of the project's saved product analytics insights (trends) were anomalous in a date range, from the scheduled anomaly scoring of those insights. For anomalies in the Metrics product, use characterize-metric-anomaly instead. Each row is one series with `anomaly_rate` (flagged buckets divided by scored buckets in the range). Read it against `baseline_rate`, the same rate over the 30 days before the range: a series that is usually quiet and now flags matters more than one that always flags. Read it together with `coverage` (the share of the range that was scored) and `scored_through` (the newest scored bucket, so later buckets were not checked yet). Scores compare only within one series, so never rank series by score. Scoring is sampled, so a range can be partly scored, and results cover only the insights checked in the range: `insights_scored_in_range` of `watched_insights`. To check a result, `flagged_points` gives the value at each flagged bucket, anomaly-insight-get with the row's `insight_id` gives the full scored history of every series of that insight, and the insight's own query (for example query-trends on the insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or the project turned scoring off in its self-driving settings; `message` says which. `scoring_enabled: true` does not mean the scores are ready: rely on them only when `scored_history_ready` is true, that is when `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range) is 14 or more. Use `group_by: insight` for one row per insight. A 404 means anomaly search is not available for this project.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search anomalous insight series",
@@ -5726,6 +5806,65 @@
         },
         "feature_flag": "customer-analytics-csp"
     },
+    "events-retention-deletion-count": {
+        "description": "Count this project's events that the next monthly cleanup would delete if the project kept events for `retention_months` months. Call it before events-retention-update-prepare and tell the user the count, so they know how many events a shorter period deletes. The cleanup deletes whole calendar months, so the count covers the events from before the start of the month that holds the date `retention_months` months before the next cleanup.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Count the events a project's retention period would delete",
+        "title": "Count the events a project's retention period would delete",
+        "required_scopes": ["project:read", "query:read"],
+        "api_operations": ["GET /api/projects/{project_id}/events_retention/deletion_count/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "events-retention-get": {
+        "description": "Get how long this project keeps events and when its events are next deleted. Call it before events-retention-update-prepare, and to answer when or why old events are missing.\n\nThe project keeps events for `project_retention_months` when that is set. When it is null, the project uses the organization's period, `organization_retention_months`, and when that is null too, the default period, `default_retention_months`. The default is 24 months on current plans, and `default_is_grandfathered` is true when an older plan keeps its whole plan period as the default. `plan_retention_months` is the longest period the plan allows.\n\n`retention_months` and `retained_from` say how far back queries return events right now. Both are null while queries still return events older than the period, but a period set for the project or organization still deletes events. `next_deletion_on` is the date of the next cleanup that deletes this project's events, and `next_deletion_before` is the date it deletes events before. Both are null while no deletion is scheduled.\n\n`retention_months_choices` lists the periods events-retention-update-prepare accepts, and the period also has to be between `min_retention_months` and `max_retention_months`. If the current period isn't one of the choices, PostHog support set it.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get the events retention period for a project",
+        "title": "Get the events retention period for a project",
+        "required_scopes": ["project:read"],
+        "api_operations": ["GET /api/projects/{project_id}/events_retention/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "events-retention-update-execute": {
+        "description": "Step 2 of 2 for set events retention period. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Set how long this project keeps events. A period set for the project overrides the organization's period. Pass one of `retention_months_choices` from events-retention-get that is between `min_retention_months` and `max_retention_months`, or null to remove the project's period. Any other value is rejected. Organization admins only. Requires human typed confirmation.\n\nEvents in this project that are older than the new period will be deleted, and deleted events can't be restored. A longer period doesn't bring back events that were already deleted. Deletion isn't instant. A period set for the project or the organization is applied by a cleanup that runs once a month, on `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month past the period.\n\nNull makes the project use the organization's period, which the monthly cleanup applies. When the organization has no period either, the project uses the default period. Don't give the user a date or a count for deleting events past the default period.\n\nBefore you prepare the change, call events-retention-get and tell the user the current and new period. If the new period is shorter and isn't the default period, call events-retention-deletion-count and tell the user how many events are deleted and when. If the current period isn't one of `retention_months_choices`, PostHog support set it. Tell the user that they need to contact support to get that period back after they change it.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Set the events retention period for a project (execute)",
+        "title": "Set the events retention period for a project (execute)",
+        "required_scopes": ["project:write"],
+        "api_operations": ["POST /api/projects/{project_id}/events_retention/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "events-retention-update-prepare": {
+        "description": "Step 1 of 2 for set events retention period. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Set how long this project keeps events. A period set for the project overrides the organization's period. Pass one of `retention_months_choices` from events-retention-get that is between `min_retention_months` and `max_retention_months`, or null to remove the project's period. Any other value is rejected. Organization admins only. Requires human typed confirmation.\n\nEvents in this project that are older than the new period will be deleted, and deleted events can't be restored. A longer period doesn't bring back events that were already deleted. Deletion isn't instant. A period set for the project or the organization is applied by a cleanup that runs once a month, on `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month past the period.\n\nNull makes the project use the organization's period, which the monthly cleanup applies. When the organization has no period either, the project uses the default period. Don't give the user a date or a count for deleting events past the default period.\n\nBefore you prepare the change, call events-retention-get and tell the user the current and new period. If the new period is shorter and isn't the default period, call events-retention-deletion-count and tell the user how many events are deleted and when. If the current period isn't one of `retention_months_choices`, PostHog support set it. Tell the user that they need to contact support to get that period back after they change it.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Set the events retention period for a project (prepare)",
+        "title": "Set the events retention period for a project (prepare)",
+        "required_scopes": ["project:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "experiment-activity": {
         "description": "Get the audit trail for a specific experiment by ID. Returns a paginated list of changes to the experiment, its holdouts and shared metrics, and its linked feature flag (rollout, targeting): who made each change, what was changed (field-level before/after values), and when, newest first. Lifecycle actions (launch, end, ship variant, etc.) appear as updates to the underlying fields (start_date, end_date, conclusion, ...). Use limit and page query params for pagination.",
         "category": "Experiments",
@@ -8120,7 +8259,7 @@
         }
     },
     "inbox-reports-for-me": {
-        "description": "Get the current user's own open inbox reports, ranked for them. One language model call ranks only the reports tied to them (suggested reviewer, claimed, waiting on their input), using their activity summary and the ranking model's scores. Use it for \"what should I work on\" and \"my top N\" questions in place of paging inbox-reports-list. Each entry has a rank, a tier, a short reason, a next step for the top entries and a compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is personal: only the user it describes can read it. The call never waits on the model. By default the last stored list comes back quickly, and `checked_at` says when it was last compared with the full inbox. A report created after that time joins at the next scheduled build. Pass `max_age_minutes` when the list must be newer than that: an older list is checked against every candidate report, which can take some seconds, and rebuilt if the inbox changed. `refresh` and `focus` always start a build, and builds are rate limited. A user with no stored list gets the reports in inbox order with `fallback_reason: building`. When `building` is true, call again a little later, or pass `wait_seconds` (up to 30, counted from the start of the call) to wait for the new list in the same call. `personalized: false` means the user has no activity summary yet or the list is in inbox order (see `fallback_reason`). `stale: true` without `building` means a report in the list changed since the build; the next scheduled build updates it, or pass `refresh`. `status: unavailable` means personal ranking is off for now.",
+        "description": "Get the current user's own open inbox reports, ranked for them. One language model call ranks only the reports tied to them (suggested reviewer, claimed, waiting on their input), using their activity summary and the ranking model's scores. For a plain \"my top N\" read, call inbox-reports-list with `view=for_you` and `sort=personal` first: it serves the same stored ranking in one fast read. Use this tool when the user needs a list newer than the last build, a soft `focus`, a `refresh`, next steps for the top entries, or a first build. Each entry has a rank, a tier, a short reason, a next step for the top entries and a compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is personal: only the user it describes can read it. The call never waits on the model. By default the last stored list comes back quickly, and `checked_at` says when it was last compared with the full inbox. A report created after that time joins at the next scheduled build. Pass `max_age_minutes` when the list must be newer than that: an older list is checked against every candidate report, which can take some seconds, and rebuilt if the inbox changed. `refresh` and `focus` always start a build, and builds are rate limited. A user with no stored list gets the reports in inbox order with `fallback_reason: building`. When `building` is true, call again a little later, or pass `wait_seconds` (up to 30, counted from the start of the call) to wait for the new list in the same call. `personalized: false` means the user has no activity summary yet or the list is in inbox order (see `fallback_reason`). `stale: true` without `building` means a report in the list changed since the build; the next scheduled build updates it, or pass `refresh`. `status: unavailable` means personal ranking is off for now.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get your personal ranked inbox",
@@ -8151,7 +8290,7 @@
         }
     },
     "inbox-reports-list": {
-        "description": "List inbox reports in the current project. A report groups related findings into one issue or trend. Each parameter's description says how it filters.\nWithout `view`, the list holds reports from the whole project, not only the user's. When the user says \"my inbox\", \"my reports\", or \"what needs me\", pass `view=for_you` with `sort=priority`. For reports older than a cutoff, pass `created_before` instead of reading every page. For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For a personal ranked shortlist, such as \"my top 10\", the prioritizing-my-inbox skill combines these rows with the user's activity summary. For the work this agent claimed, pass `assignee=me`.\nWithout `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with inbox-report-artefacts-list before you act on it.\nEach row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.",
+        "description": "List inbox reports in the current project. A report groups related findings into one issue or trend. Each parameter's description says how it filters.\nWithout `view`, the list holds reports from the whole project, not only the user's. When the user says \"my inbox\", \"my top 10\", or \"what should I look at\", pass `view=for_you` with `sort=personal` and `limit=10`. Do not pass `ordering` with it, because `ordering` replaces `sort`. The response's `ranker` is `personal` when the user's stored personal ranking ordered the page, and each row the ranking placed carries `personal_tier` and `personal_reason`. Any other `ranker` means no stored ranking applied and the page is in the recommended order. For later pages, pass the first page's `ranking_id` with `offset`, because the `next` link does not carry it. This read never builds a ranking; for a newer, focused, or refreshed list, use inbox-reports-for-me. For reports older than a cutoff, pass `created_before` instead of reading every page. For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`.\nWithout `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with inbox-report-artefacts-list before you act on it.\nEach row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.\n`source_products` and `scout_name` come from a separate read with a short time limit. When the response has `source_metadata_available: false`, that read did not finish, and an empty `source_products` or a null `scout_name` does not mean the report has none. Say so instead of reporting them as values.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List inbox reports",
@@ -8590,6 +8729,22 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "integrations-email-create": {
+        "description": "Add an email sender for a domain the project owns, the first step before any workflow can send email. Pass config with email (the from address), name (the from name shown in the inbox), provider 'ses', and optionally mail_from_subdomain (defaults to a bounce-handling subdomain nobody sees) and reply_to. A domain that already has a sender keeps the mail_from_subdomain SES uses for it, if any, over the one you pass; the response carries the value that applies. The domain is not verified yet: follow with integrations-email-status-retrieve for the DNS records to publish, then integrations-email-verify-create once they resolve. Use the domain people signed up at rather than a new one, so the mail comes from somewhere they recognise. Ask the user before adding a sender; it is a sending identity for a domain they control, and an address that cannot receive replies breaks any email that asks for one. An address that already has a sender is rejected, so this cannot overwrite or unverify one: find that sender with integrations-list (kind email) and continue setup with its id.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Add an email sender",
+        "title": "Add an email sender",
+        "required_scopes": ["integration:write"],
+        "api_operations": ["POST /api/projects/{project_id}/integrations/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-email-domain-agent-setup"
     },
     "integrations-email-status-retrieve": {
         "description": "Get the setup progress of an email sender's domain by integration ID. Returns the overall status, the three setup steps, and every DNS record to publish with its current status (pending, found, verified). Poll it after adding DNS records until status is verified, waiting at least 10 seconds between calls. Pass refresh=true right after changing DNS to skip the 10 second cache. It does not change DNS or SES, and it does not mark the sender verified: once status is verified, call integrations-email-verify-create.",
@@ -11557,6 +11712,65 @@
         },
         "feature_entitlement": "2fa_enforcement"
     },
+    "organization-events-retention-deletion-count": {
+        "description": "Count the events that the next monthly cleanup would delete if the organization kept events for `retention_months` months, summed over the projects without their own period. Projects with their own period are left out, because the organization's period doesn't apply to them. Call it before organization-events-retention-update-prepare and tell the user the count. The cleanup deletes whole calendar months, so the count covers the events from before the start of the month that holds the date `retention_months` months before the next cleanup.\n\nThe count only includes events that queries can still return, and it can be up to a day old.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Count the events an organization's retention period would delete",
+        "title": "Count the events an organization's retention period would delete",
+        "required_scopes": ["organization:read", "query:read"],
+        "api_operations": ["GET /api/organizations/{organization_id}/events_retention_setting/deletion_count/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organization-events-retention-get": {
+        "description": "Get how long projects in this organization keep events. Call it before organization-events-retention-update-prepare. To see one project's period, how far back its queries go, and its next deletion, use events-retention-get.\n\n`organization_retention_months` is the period every project without its own period uses. When it is null, those projects use the default period, `default_retention_months`. The default is 24 months on current plans, and `default_is_grandfathered` is true when an older plan keeps its whole plan period as the default. `plan_retention_months` is the longest period the plan allows. `next_monthly_cleanup_on` is the date of the next monthly cleanup.\n\n`retention_months_choices` lists the periods organization-events-retention-update-prepare accepts, and the period also has to be between `min_retention_months` and `max_retention_months`. If the current period isn't one of the choices, PostHog support set it.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get the events retention period for an organization",
+        "title": "Get the events retention period for an organization",
+        "required_scopes": ["organization:read"],
+        "api_operations": ["GET /api/organizations/{organization_id}/events_retention_setting/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organization-events-retention-update-execute": {
+        "description": "Step 2 of 2 for set organization events retention period. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Set how long every project without its own period keeps events. Projects with their own period keep it. Pass one of `retention_months_choices` from organization-events-retention-get that is between `min_retention_months` and `max_retention_months`, or null to remove the organization's period. Any other value is rejected. Organization admins only. Requires human typed confirmation.\n\nEvents in projects without their own period that are older than the new period will be deleted, and deleted events can't be restored. A longer period doesn't bring back events that were already deleted. Deletion isn't instant. The organization's period is applied by a cleanup that runs once a month, on `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month past the period.\n\nNull makes projects without their own period use the default period. Don't give the user a date or a count for deleting events past the default period.\n\nBefore you prepare the change, call organization-events-retention-get and tell the user the current and new period. If the new period is shorter and isn't the default period, call organization-events-retention-deletion-count and tell the user how many events are deleted and when. If the current period isn't one of `retention_months_choices`, PostHog support set it. Tell the user that they need to contact support to get that period back after they change it.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Set the events retention period for an organization (execute)",
+        "title": "Set the events retention period for an organization (execute)",
+        "required_scopes": ["organization:write"],
+        "api_operations": ["POST /api/organizations/{organization_id}/events_retention_setting/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "organization-events-retention-update-prepare": {
+        "description": "Step 1 of 2 for set organization events retention period. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Set how long every project without its own period keeps events. Projects with their own period keep it. Pass one of `retention_months_choices` from organization-events-retention-get that is between `min_retention_months` and `max_retention_months`, or null to remove the organization's period. Any other value is rejected. Organization admins only. Requires human typed confirmation.\n\nEvents in projects without their own period that are older than the new period will be deleted, and deleted events can't be restored. A longer period doesn't bring back events that were already deleted. Deletion isn't instant. The organization's period is applied by a cleanup that runs once a month, on `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month past the period.\n\nNull makes projects without their own period use the default period. Don't give the user a date or a count for deleting events past the default period.\n\nBefore you prepare the change, call organization-events-retention-get and tell the user the current and new period. If the new period is shorter and isn't the default period, call organization-events-retention-deletion-count and tell the user how many events are deleted and when. If the current period isn't one of `retention_months_choices`, PostHog support set it. Tell the user that they need to contact support to get that period back after they change it.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Set the events retention period for an organization (prepare)",
+        "title": "Set the events retention period for an organization (prepare)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "organization-get": {
         "description": "Get details of an organization by ID including name, membership level, member count, teams, projects, and the plan features available to it. Each entry in `available_product_features` has a `key` and a `limit`. For example, `organizations_projects` gives the maximum number of non-demo projects. Teams include `project_id` and `is_demo` so multiple environments of one project count once and demo projects can be excluded. These lists include only projects visible to the caller. If no ID is provided, returns the active organization.",
         "category": "Platform Features",
@@ -12067,7 +12281,7 @@
         "system_prompt_hint": "Log filtering by severity/service/attribute"
     },
     "query-marketing-recommendations": {
-        "description": "Get paid and organic search recommendations for the project's Google Ads accounts, built from synced Google Ads and Google Search Console warehouse tables. Mirrors the recommendations in the in-product **Marketing analytics** scene.\n\n# When to use\n\nUse this tool when the user asks where to cut ad spend, which campaigns to scale or review, which search terms waste money, or how paid and organic search overlap.\n\nDo not use it for attribution, conversion goals, or channel performance. Use `marketing-analytics-diagnose` when the data looks missing or wrong.\n\n# Inputs\n\n- `dateRange` — pass `{ \"date_from\": \"-30d\" }` unless the user asks for another period. Short ranges give few recommendations, because the rules need enough clicks and spend to compare.\n- Leave everything else out. The tool reads every synced Google Ads and Google Search Console source in the project.\n\n# Output\n\nEach result has:\n\n- `rule` — the check that produced it, for example `spend_without_conversions`, `brand_leak`, `budget_constrained`, `scale_campaign`, `review_campaign`, `brand_overlap`, `content_gap`, `keyword_gap`, `striking_distance` or `policy_limited`.\n- `level` — `campaign` or `search_term`. `subject` is the campaign name or the search term, and `campaign` is the campaign a search term belongs to. For `keyword_gap`, `campaign` is the campaign to add the keyword to, because the search is not bought yet.\n- `action` and `reason` — what to do and the numbers behind it. Quote them instead of inventing your own advice.\n- `impact` — the monthly money impact in `currency`, or null. `impactDirection` says how to read it: `save` is spend to cut, `invest` is extra budget to add, `gain` is value to win, and `keep` is spend to protect.\n- `impactType` — `measured` comes straight from the data. `estimated` is a projection, so present it as an estimate.\n- `steps` — how to apply the recommendation, in order. A step's `copyValue` is the exact text to paste, such as a campaign name, a keyword in match type syntax (`[term]` is exact match, `\"term\"` is phrase match) or a page URL. A step's `url` opens what `linkText` names: a Google Ads section for the whole account, Google Search Console, or the page on the user's site that ranks for the search. When the user asks how to make a change, walk them through these steps. Some rules have no steps yet.\n\nTotals in different currencies come from different ad accounts. Never add them together.\n\nPresent the results as suggestions for the user to evaluate, not as instructions. Always show the response's `disclaimer` text with them. Do not change campaigns, budgets, bids or keywords on the user's behalf.\n\nAn empty result means no rule fired, or the project has no synced Google Ads `campaign` and `campaign_stats` tables. Call `marketing-analytics-data-sources` to tell the two apart.\n\n# Example\n\n```json\n{\n  \"kind\": \"MarketingAnalyticsRecommendationsQuery\",\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```",
+        "description": "Get paid and organic search recommendations for the project's Google Ads accounts, built from synced Google Ads and Google Search Console warehouse tables. Mirrors the recommendations in the in-product **Marketing analytics** scene.\n\n# When to use\n\nUse this tool when the user asks where to cut ad spend, which campaigns to scale or review, which search terms waste money, or how paid and organic search overlap.\n\nDo not use it for attribution, conversion goals, or channel performance. Use `marketing-analytics-diagnose` when the data looks missing or wrong.\n\n# Inputs\n\n- `dateRange` — pass `{ \"date_from\": \"-30d\" }` unless the user asks for another period. Short ranges give few recommendations, because the rules need enough clicks and spend to compare.\n- `conversionActions` — pass it only when the user names the Google Ads conversion actions that count. Omit it to count the account's primary conversion actions. It takes resource names like `customers/123/conversionActions/456`, not action names. Look them up with SQL on the account's `campaign_conversion_action_stats` table: `SELECT DISTINCT segments_conversion_action, segments_conversion_action_name`. Each ad account only uses the resource names under its own customer ID.\n- Leave everything else out. The tool reads every synced Google Ads and Google Search Console source in the project.\n\n# Output\n\nEach result has:\n\n- `rule` — the check that produced it, for example `spend_without_conversions`, `brand_leak`, `budget_constrained`, `scale_campaign`, `review_campaign`, `brand_overlap`, `content_gap`, `keyword_gap`, `striking_distance`, `policy_limited` or `keyword_tracking`. `keyword_tracking` means the project's Google Ads sessions arrive without `utm_term`, so PostHog conversions cannot be tied to keywords until the account passes `utm_term={keyword}`.\n- `level` — `account`, `campaign` or `search_term`. `subject` is the ad account name, the campaign name or the search term, and `campaign` is the campaign a search term belongs to. For `keyword_gap`, `campaign` is the campaign to add the keyword to, because the search is not bought yet.\n- `action` and `reason` — what to do and the numbers behind it. Quote them instead of inventing your own advice.\n- `impact` — the monthly money impact in `currency`, or null. `impactDirection` says how to read it: `save` is spend to cut, `invest` is extra budget to add, `gain` is value to win, and `keep` is spend to protect.\n- `impactType` — `measured` comes straight from the data. `estimated` is a projection, so present it as an estimate.\n- `steps` — how to apply the recommendation, in order. A step's `copyValue` is the exact text to paste, such as a campaign name, a keyword in match type syntax (`[term]` is exact match, `\"term\"` is phrase match) or a page URL. A step's `url` opens what `linkText` names: a Google Ads section for the whole account, Google Search Console, or the page on the user's site that ranks for the search. When the user asks how to make a change, walk them through these steps. Some rules have no steps yet.\n- `cpa` — `value` is the subject's cost per conversion, `benchmark` is the CPA benchmark (rules that judge a CPA compare it with this value, and other rules show it for context), `benchmarkSource` says where that benchmark comes from (`target_cpa`: the campaign's target CPA in Google Ads, compared with the campaign's total CPA; `campaign`: the campaign's own non-brand CPA, used for its search terms once it has enough non-brand conversions; `account`: the account's non-brand CPA), and `bestCampaign` and `worstCampaign` are the lowest and highest non-brand CPAs of the account's non-brand Search campaigns. Use them to say whether to scale or cut.\n\n`dataGaps` lists data the rules could not read. Mention each gap's `message`, because the CPAs it names count the primary conversion actions instead of the selected ones.\n\nTotals in different currencies come from different ad accounts. Never add them together.\n\nPresent the results as suggestions for the user to evaluate, not as instructions. Always show the response's `disclaimer` text with them. Do not change campaigns, budgets, bids or keywords on the user's behalf.\n\nAn empty result means no rule fired, or the project has no synced Google Ads `campaign` and `campaign_stats` tables. Call `marketing-analytics-data-sources` to tell the two apart.\n\n# Example\n\n```json\n{\n  \"kind\": \"MarketingAnalyticsRecommendationsQuery\",\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```",
         "category": "Marketing analytics",
         "feature": "marketing_analytics",
         "summary": "Get paid and organic search recommendations",
@@ -14635,7 +14849,7 @@
         "feature_flag": "workflows-supabase-auth-emails"
     },
     "survey-create": {
-        "description": "Creates a new survey in the project. For the draft, targeting, preview, and launch workflow, load the creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow. Survey content is public: anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or other private detail in a survey. For substantial visual changes, preview the final draft once before launch if browser access is already available. Skip browser checks for small edits.",
+        "description": "Creates a new survey in the project. For the draft, targeting, preview, and launch workflow, load the creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow. For in-app surveys, start with a single choice or rating question and put any open-text question after it, because surveys that open with open text get far fewer responses. For a popover, recommend showing it after the event it asks about, and ask before adding a trigger or audience the user did not request. Survey content is public: anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or other private detail in a survey. For substantial visual changes, preview the final draft once before launch if browser access is already available. Skip browser checks for small edits.",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "Creates a new survey in the project.",
@@ -15100,6 +15314,70 @@
             "readOnlyHint": true
         },
         "feature_flag": "tasks"
+    },
+    "ui-customization-describe": {
+        "description": "Get the layout JSON Schema and default layout for a supported UI customization context, such as analytics_sidebar for the Analytics sidebar, before designing alternatives. Read the schema descriptions for additional server validation rules, including limits across sections. This does not read or change the person's saved layout. Use ui-customization-get to read their layout before replacing it with ui-customization-set. Saving always validates the full layout again.",
+        "category": "UI customization",
+        "feature": "ui_customization",
+        "summary": "Describe UI customization",
+        "title": "Describe UI customization",
+        "required_scopes": ["user:read"],
+        "api_operations": ["GET /api/projects/{project_id}/ui_customization/{context}/schema/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "ui-customization"
+    },
+    "ui-customization-get": {
+        "description": "Get the person's layout for a supported UI customization context. For analytics_sidebar, this is the Analytics pane in the new navigation. It is the person's own layout, or the default when customized is false. Call it before you change the fragment, then send the whole changed layout to ui-customization-set.",
+        "category": "UI customization",
+        "feature": "ui_customization",
+        "summary": "Get UI customization",
+        "title": "Get UI customization",
+        "required_scopes": ["user:read"],
+        "api_operations": ["GET /api/projects/{project_id}/ui_customization/{context}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "ui-customization"
+    },
+    "ui-customization-reset": {
+        "description": "Remove the person's own layout for the selected context, such as analytics_sidebar for the Analytics sidebar, so it shows the default again. Returns the default layout.",
+        "category": "UI customization",
+        "feature": "ui_customization",
+        "summary": "Reset UI customization",
+        "title": "Reset UI customization",
+        "required_scopes": ["user:write"],
+        "api_operations": ["DELETE /api/projects/{project_id}/ui_customization/{context}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "ui-customization"
+    },
+    "ui-customization-set": {
+        "description": "Replace the person's layout for the selected UI customization context. It changes only the person who calls it, in this project. For analytics_sidebar: Build the layout from sections of items: links and buttons that open a PostHog page or an insight, dashboard or notebook of this project, metrics that show the latest value of a trends insight, and lists that PostHog fills (pinned, recents, by_posthog). Get the IDs of insights, dashboards and notebooks from their tools first; never invent them. Saving rejects an insight, dashboard or notebook that does not exist, and a metric whose insight is not a trends insight. Use at most 30 items total across all sections, including at most 4 live metrics. Each built-in list counts as one item. Keep the default sections the person did not ask to remove, and keep the IDs of the sections you keep. A 400 error names each value that does not fit, so fix those values and send it again.",
+        "category": "UI customization",
+        "feature": "ui_customization",
+        "summary": "Set UI customization",
+        "title": "Set UI customization",
+        "required_scopes": ["user:write"],
+        "api_operations": ["PUT /api/projects/{project_id}/ui_customization/{context}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "ui-customization"
     },
     "update-feature-flag": {
         "description": "Update a feature flag by numeric ID (partial update: only the fields you include are changed). Use this for edits that have no dedicated tool, such as property filters, adding and removing release conditions, variant definitions, payloads, tags and the description.\n\nPrefer a dedicated tool whenever the request matches one. `feature-flag-enable`, `feature-flag-disable`, `feature-flag-archive` and `feature-flag-unarchive` each change one state field and send no `filters`. A targeting change someone else made between your read and your write is therefore not overwritten. Send `active` or `archived` here only when the same request also changes targeting or another field, so the whole edit lands in one write.\n\n`feature-flag-set-release-condition-rollout` changes one release condition's percentage and `feature-flag-roll-out-to-everyone` serves the flag to its whole audience. Both send no `filters` and both refuse the write when the flag changed after the version you read, so a concurrent edit cannot be lost. On a flag without `filters.version` 2, this tool does not check `version`, so it writes even when the flag changed after your read. It replaces the whole `filters` object with your copy of it. Use it for a rollout change only when those two tools cannot express it, such as changing the split between variants while leaving the audience alone.\n\nA flag whose `filters.version` is 2 requires `version` for any change, so read the flag first and send its current `version`; never guess it. A stale `version` returns 409: read the flag again and decide against its current state. Don't send `filters` for such a flag: its rules change through `feature-flag-rules-update`.\n\nRollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters` replaces the whole object, so read the flag first and merge your change. Each release condition you read has a `condition_id`. Send it unchanged on every condition you keep, edit, or move, and leave it off a new condition. A `condition_id` belongs to the flag you read it from, so leave it off a condition copied from a different flag. Once any condition has a `condition_id`, a condition without one is treated as new. This tool uses the ID to restore each condition's property types and targeting, so a reorder, deletion, or edit keeps every condition on the persons or group type it targeted. If a `condition_id` matches no condition on the flag, the flag may have changed after your read, and the update is refused. Read the flag again and rebuild the update. When the flag targets groups, keep `type: \"group\"`, `group_type_index`, and `filters.aggregation_group_type_index` in what you send; if you omit them this tool restores them from the existing flag so group targeting is not silently converted to person targeting. When the flag's conditions don't all target the same thing (some target persons and others a group type, or they target different group types), set `aggregation_group_type_index` on every new condition. Use null for persons. If you send no `condition_id` values, set `aggregation_group_type_index` on every condition whenever you add, remove, reorder, or change the properties of conditions. Otherwise this tool can't tell which target each condition keeps, and it refuses the update. Use `feature-flag-get-definition-by-key` when you have the string key: it returns the numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you already have the ID. To apply a change at a future time instead, use `scheduled-changes-create`.",
