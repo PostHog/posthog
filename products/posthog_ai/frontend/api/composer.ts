@@ -8,6 +8,7 @@
 // deep `../components/*` paths. See ../README.md for the tier model and ../AGENTS.md for the coupling rule.
 
 export { Composer } from '../components/composer/Composer'
+export { ReplySuggestionHint } from '../components/composer/ReplySuggestionHint'
 export type {
     ComposerRootProps,
     ComposerFrameProps,
@@ -19,3 +20,4 @@ export type {
 export { QuillComposerLayout } from '../components/quill/QuillComposerLayout'
 export type { QuillComposerLayoutProps } from '../components/quill/QuillComposerLayout'
 export { QuillComposerSendButton } from '../components/quill/QuillComposerSendButton'
+export { QuillTaskComposerSkeleton } from '../components/quill/QuillTaskComposerSkeleton'

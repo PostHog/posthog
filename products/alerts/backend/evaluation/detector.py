@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
@@ -48,6 +49,7 @@ from products.alerts.backend.evaluation.delay import (
     apply_evaluation_delay,
     validate_evaluation_delay,
 )
+from products.alerts.backend.facade.contracts import MovedAlertCheck
 from products.alerts.backend.judge import (
     EarlierFlag,
     JudgeAttribution,
@@ -69,6 +71,7 @@ def extract_detector_series(
     detector_config: dict[str, Any],
     execution_mode: ExecutionMode,
     *,
+    cache_age_seconds: int | None = None,
     series_index: int = 0,
     date_from: str | None = None,
     user: Optional[User] = None,
@@ -101,7 +104,12 @@ def extract_detector_series(
         filters_override = _date_range_override_for_detector(query, min_samples)
 
     calculation_result = calculate_for_query_based_insight(
-        insight, team=team, execution_mode=execution_mode, user=user, filters_override=filters_override
+        insight,
+        team=team,
+        execution_mode=execution_mode,
+        cache_age_seconds=cache_age_seconds,
+        user=user,
+        filters_override=filters_override,
     )
 
     if calculation_result.result is None:
@@ -222,29 +230,68 @@ def _series_context(
 MAX_EARLIER_CHECKS = 500
 
 
-def _earlier_flags(alert_id: Any) -> tuple[EarlierFlag, ...]:
+def _earlier_flags(alert: AlertConfiguration) -> tuple[EarlierFlag, ...]:
     """The points that earlier AI checks of this alert fired on, with the reason each check gave.
 
     Statistical checks and errored checks are left out: only an AI verdict has a reason the
     model can read. When two checks fired on the same date, the newer reason wins.
+
+    After the platform takes the alert over, its checks come from the platform's history.
     """
-    checks = (
-        AlertCheck.objects.filter(
-            alert_configuration_id=alert_id,
-            error__isnull=True,
-            triggered_metadata__detector_type=DetectorType.LLM.value,
-            triggered_dates__isnull=False,
-        )
-        .order_by("-created_at")
-        .values_list("triggered_dates", "triggered_metadata")[:MAX_EARLIER_CHECKS]
+    moved_at = alert.platform_owned_since
+    own_checks = AlertCheck.objects.filter(
+        alert_configuration_id=alert.id,
+        error__isnull=True,
+        triggered_metadata__detector_type=DetectorType.LLM.value,
+        triggered_dates__isnull=False,
     )
+    if moved_at is not None:
+        own_checks = own_checks.filter(created_at__lt=moved_at)
+    fired: list[tuple[Any, Any]] = list(
+        own_checks.order_by("-created_at").values_list("triggered_dates", "triggered_metadata")[:MAX_EARLIER_CHECKS]
+    )
+    if moved_at is not None:
+        # The platform's checks are all newer than the alert's own, so they go first.
+        fired = [
+            *(
+                (list(check.triggered_dates), check.triggered_metadata)
+                for check in _platform_fired_checks(alert, moved_at)
+            ),
+            *fired,
+        ][:MAX_EARLIER_CHECKS]
+
     by_date: dict[str, str] = {}
-    for triggered_dates, metadata in checks:
+    for triggered_dates, metadata in fired:
         rationale = str((metadata or {}).get("rationale") or "")
         for date in triggered_dates if isinstance(triggered_dates, list) else []:
             if isinstance(date, str):
                 by_date.setdefault(date, rationale)
     return tuple(EarlierFlag(date=date, rationale=rationale) for date, rationale in sorted(by_date.items()))
+
+
+def _saved_alert_flags(team: Team, alert_id: Any) -> tuple[EarlierFlag, ...]:
+    alert = AlertConfiguration.objects.filter(team_id=team.id, id=alert_id).first()
+    return _earlier_flags(alert) if alert is not None else ()
+
+
+def _platform_fired_checks(alert: AlertConfiguration, moved_at: datetime) -> list[MovedAlertCheck]:
+    """The AI checks of a moved alert that fired, newest first."""
+    # Imported here because the platform reads import the evaluation package this module is part of.
+    from products.alerts.backend.platform_alert_reads import moved_alert_fired_checks  # noqa: PLC0415
+
+    checks = moved_alert_fired_checks(
+        team_id=alert.team_id,
+        moved_at={alert.id: moved_at},
+        not_before=None,
+        limit=MAX_EARLIER_CHECKS,
+        ai_verdicts_only=True,
+    ).get(alert.id, ())
+    return [
+        check
+        for check in checks
+        if check.error_message is None
+        and (check.triggered_metadata or {}).get("detector_type") == DetectorType.LLM.value
+    ]
 
 
 def _judge_attribution(
@@ -388,9 +435,7 @@ def evaluate_with_detector(
     metric_description = _metric_description(
         insight, series_index, _effective_date_range(result, detector_config), alert_config
     )
-    earlier_flags = (
-        _earlier_flags(alert.id) if alert is not None and detector_type_str == DetectorType.LLM.value else ()
-    )
+    earlier_flags = _earlier_flags(alert) if alert is not None and detector_type_str == DetectorType.LLM.value else ()
 
     def score(series: ComparableSeries) -> _ScoredSeries:
         return _score_series(
@@ -469,7 +514,12 @@ class TrendsDetectorExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         detector_config = alert.detector_config
         if not detector_config:
@@ -482,6 +532,7 @@ class TrendsDetectorExtractor:
             trends_query,
             detector_config,
             execution_mode,
+            cache_age_seconds=cache_age_seconds,
             series_index=series_index,
             user=alert.created_by,
             evaluation_delay_intervals=alert.evaluation_delay_intervals,
@@ -602,11 +653,9 @@ def simulate_detector_on_insight(
         user=user,
         score=score,
         is_agent_billable=is_agent_billable,
-        earlier_flags=(
-            _earlier_flags(alert_id)
-            if score and alert_id is not None and detector_type_str == DetectorType.LLM.value
-            else ()
-        ),
+        earlier_flags=_saved_alert_flags(team, alert_id)
+        if score and alert_id is not None and detector_type_str == DetectorType.LLM.value
+        else (),
     )
 
     if result.is_breakdown:

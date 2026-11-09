@@ -6,12 +6,21 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
+import {
+    type ExperimentMetric,
+    type ExperimentMetricSource,
+    ExperimentMetricType,
+    type ExperimentWarehouseNativeExposureConfig,
+    ExperimentWarehouseNativeMathType,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, type AppContext, type FeatureFlagType } from '~/types'
 
@@ -39,7 +48,7 @@ jest.mock('scenes/feature-flags/JSONEditorInput', () => ({
 
 // The consent gate reads a single selector; stubbing the logic lets each case pick the org's
 // consent state without standing up organizationLogic's loaders.
-jest.mock('scenes/settings/organization/aiConsentLogic', () => {
+jest.mock('~/layout/ai/aiConsentLogic', () => {
     const { kea, selectors } = jest.requireActual('kea')
     return {
         aiConsentLogic: kea([
@@ -105,6 +114,16 @@ const apiMocks = {
         '/api/projects/:team_id/experiments': () => [200, { results: [], count: 0 }],
     },
 }
+
+const warehouseExposure = (
+    overrides: Partial<ExperimentWarehouseNativeExposureConfig> = {}
+): ExperimentWarehouseNativeExposureConfig => ({
+    kind: NodeKind.ExperimentWarehouseNativeExposureConfig,
+    connection_id: 'connection-1',
+    unit: { unit_type: 'customer', id_namespace: 'billing_customer_id' },
+    query: 'SELECT customer_id AS entity_id, variant, assigned_at AS timestamp FROM billing.assignments',
+    ...overrides,
+})
 
 describe('experimentWizardLogic', () => {
     describe('feature flag input flow', () => {
@@ -423,6 +442,68 @@ describe('experimentWizardLogic', () => {
             expect(logic.values.currentStep).toBe('about')
         })
 
+        it('reports each step view with the step it came from and how it was reached', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.nextStep()
+                logic.actions.setStep('about')
+            }).toDispatchActions([
+                logic.actionCreators.reportExperimentWizardStepViewed('variants', 2, 'about', 'continue'),
+                logic.actionCreators.reportExperimentWizardStepViewed('about', 1, 'variants', 'stepper'),
+            ])
+
+            // Going back from the first step doesn't change the step, so it isn't a new view
+            await expectLogic(logic, () => {
+                logic.actions.prevStep()
+            }).toNotHaveDispatchedActions(['reportExperimentWizardStepViewed'])
+
+            await expectLogic(logic, () => {
+                logic.actions.nextStep()
+                logic.actions.prevStep()
+            }).toDispatchActions([
+                logic.actionCreators.reportExperimentWizardStepViewed('variants', 2, 'about', 'continue'),
+                logic.actionCreators.reportExperimentWizardStepViewed('about', 1, 'variants', 'back'),
+            ])
+        })
+
+        it('reports the first view as a start when the wizard opens on the first step', () => {
+            logic.unmount()
+            createLogic.unmount()
+
+            const capture = jest.spyOn(posthog, 'capture')
+            createLogic = createExperimentLogic()
+            createLogic.mount()
+            logic = experimentWizardLogic()
+            logic.mount()
+
+            expect(capture).toHaveBeenCalledWith('experiment wizard step viewed', {
+                step: 'about',
+                step_number: 1,
+                previous_step: null,
+                navigation: 'start',
+            })
+            capture.mockRestore()
+        })
+
+        it('reports the first view as a resume when the wizard reopens on a later step', async () => {
+            logic.actions.setStep('analytics')
+            logic.unmount()
+            createLogic.unmount()
+
+            const capture = jest.spyOn(posthog, 'capture')
+            createLogic = createExperimentLogic()
+            createLogic.mount()
+            logic = experimentWizardLogic()
+            logic.mount()
+
+            expect(capture).toHaveBeenCalledWith('experiment wizard step viewed', {
+                step: 'analytics',
+                step_number: 3,
+                previous_step: null,
+                navigation: 'resume',
+            })
+            capture.mockRestore()
+        })
+
         it('remount preserves step when sessionStorage is not cleared', async () => {
             logic.actions.setStep('variants')
             await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
@@ -567,6 +648,63 @@ describe('experimentWizardLogic', () => {
             })
         })
 
+        it('blocks the save while a warehouse-native exposure is unfinished, and reports the exposure source once', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExposureCriteria({ exposure_config: warehouseExposure({ connection_id: '' }) })
+            }).toDispatchActions([
+                logic.actionCreators.reportExperimentWizardExposureSourceSelected('warehouse_native'),
+            ])
+            // The stepper stays clean until the user leaves the step, but the save is blocked right away
+            expect(logic.values.stepValidationErrors.analytics).toEqual([])
+            expect(logic.values.saveDisabledReason).toBe('Select a BigQuery connection')
+
+            logic.actions.markStepDeparted('analytics')
+            expect(logic.values.stepValidationErrors.analytics).toEqual(['Select a BigQuery connection'])
+
+            // Filling in the exposure keeps the same source, so it is not a new selection
+            await expectLogic(logic, () => {
+                logic.actions.setExposureCriteria({ exposure_config: warehouseExposure() })
+            }).toNotHaveDispatchedActions(['reportExperimentWizardExposureSourceSelected'])
+            expect(logic.values.stepValidationErrors.analytics).toEqual([])
+            expect(logic.values.saveDisabledReason).toBeUndefined()
+        })
+
+        it('blocks the save while a shared metric cannot run with the exposure', () => {
+            const sharedMetric = (source: ExperimentMetricSource): ExperimentMetric =>
+                ({
+                    kind: NodeKind.ExperimentMetric,
+                    uuid: 'shared-1',
+                    metric_type: ExperimentMetricType.MEAN,
+                    source,
+                    isSharedMetric: true,
+                    sharedMetricId: 7,
+                }) as ExperimentMetric
+            const exposure = warehouseExposure()
+            const sharedWarehouseMetric = sharedMetric({
+                kind: NodeKind.ExperimentWarehouseNativeNode,
+                connection_id: exposure.connection_id,
+                unit: exposure.unit,
+                query: 'SELECT customer_id AS entity_id, paid_at AS timestamp FROM billing.payments',
+                math: ExperimentWarehouseNativeMathType.TotalCount,
+            })
+            logic.actions.setExposureCriteria({ exposure_config: exposure })
+
+            // The draft keeps shared metrics outside `experiment`, so they are easy to leave out of the check
+            createLogic.actions.setSharedMetrics({
+                primary: [],
+                secondary: [sharedMetric({ kind: NodeKind.EventsNode, event: '$pageview' })],
+            })
+            expect(logic.values.metricDataSources).toEqual({ warehouseNative: false, posthog: true })
+            expect(logic.values.saveDisabledReason).toMatch(/only works with warehouse-native metrics/)
+
+            createLogic.actions.setSharedMetrics({ primary: [sharedWarehouseMetric], secondary: [] })
+            expect(logic.values.saveDisabledReason).toBeUndefined()
+
+            // An exposure edit moves the draft's own metrics, but a shared metric keeps its connection
+            logic.actions.setExposureCriteria({ exposure_config: warehouseExposure({ connection_id: 'connection-2' }) })
+            expect(logic.values.saveDisabledReason).toMatch(/shared metric uses another connection/)
+        })
+
         it('saveExperiment marks all steps as departed, revealing all errors', async () => {
             // Experiment has empty name and key — errors hidden until departure
             expect(logic.values.stepValidationErrors.about).toEqual([])
@@ -664,6 +802,52 @@ describe('experimentWizardLogic', () => {
             })
             // Flag config no longer travels through the deprecated parameters keys.
             expect(capturedPayload.parameters).not.toHaveProperty('feature_flag_variants')
+        })
+
+        it('saves warehouse-native metrics on the connection and unit of the exposure as last edited', async () => {
+            createLogic.actions.setExperimentValue('name', 'Ship it')
+            createLogic.actions.setExperimentValue('feature_flag_key', 'ship-it')
+            logic.actions.validateFeatureFlagKey('ship-it')
+            await waitFor(() => {
+                expect(createLogic.values.featureFlagKeyValidation).toMatchObject({ valid: true })
+            })
+            const exposure = warehouseExposure()
+            logic.actions.setExposureCriteria({ exposure_config: exposure })
+            logic.actions.setExperiment({
+                ...createLogic.values.experiment,
+                metrics: [
+                    {
+                        kind: NodeKind.ExperimentMetric,
+                        uuid: 'metric-1',
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: {
+                            kind: NodeKind.ExperimentWarehouseNativeNode,
+                            connection_id: exposure.connection_id,
+                            unit: exposure.unit,
+                            query: 'SELECT customer_id AS entity_id, paid_at AS timestamp FROM billing.payments',
+                            math: ExperimentWarehouseNativeMathType.TotalCount,
+                        },
+                    },
+                ],
+            })
+            // The metric was added first. The exposure then moves to another connection and unit.
+            const editedExposure = warehouseExposure({
+                connection_id: 'connection-2',
+                unit: { unit_type: 'account', id_namespace: 'crm_account_id' },
+            })
+            logic.actions.setExposureCriteria({ exposure_config: editedExposure })
+
+            logic.actions.saveExperiment()
+            await waitFor(() => {
+                expect(capturedPayload).not.toBeNull()
+            })
+
+            expect(capturedPayload.exposure_criteria.exposure_config).toEqual(editedExposure)
+            expect(capturedPayload.metrics[0].source).toMatchObject({
+                connection_id: 'connection-2',
+                unit: { unit_type: 'account', id_namespace: 'crm_account_id' },
+                query: 'SELECT customer_id AS entity_id, paid_at AS timestamp FROM billing.payments',
+            })
         })
     })
 
@@ -838,7 +1022,7 @@ describe('experimentWizardLogic', () => {
             sessionStorage.clear()
             useMocks(apiMocks)
             initKeaTests()
-            // The checkbox's disabledReason fails closed when the app context carries no access
+            // The toggle's disabledReason fails closed when the app context carries no access
             // levels, which would swallow every click; grant what the backend grants an editor.
             appContextBeforeGrant = window.POSTHOG_APP_CONTEXT
             window.POSTHOG_APP_CONTEXT = {
@@ -881,49 +1065,100 @@ describe('experimentWizardLogic', () => {
             )
         }
 
+        const setArm = (arm: 'control' | 'test'): void => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD, FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER],
+                {
+                    [FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD]: arm,
+                    [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true,
+                }
+            )
+        }
+
+        // `control` keeps the checkbox, `test` shows the card with a toggle
+        const turnOn = async (arm: 'control' | 'test'): Promise<void> => {
+            await userEvent.click(
+                arm === 'test'
+                    ? screen.getByLabelText('Compare what users do in each variant')
+                    : screen.getByText('Compare what users do in each variant')
+            )
+        }
+
         it.each([
-            {
-                desc: 'a tick without org AI consent opens the consent popover instead of arming the scanner',
-                accepted: false,
-                expectedArmed: false,
-            },
-            {
-                desc: 'a tick with org AI consent arms the scanner without the popover',
-                accepted: true,
-                expectedArmed: true,
-            },
-        ])('$desc', async ({ accepted, expectedArmed }) => {
-            ;(global as any).__consentAccepted = accepted
+            { arm: 'control' as const, accepted: false, expectedArmed: false },
+            { arm: 'control' as const, accepted: true, expectedArmed: true },
+            { arm: 'test' as const, accepted: false, expectedArmed: false },
+            { arm: 'test' as const, accepted: true, expectedArmed: true },
+        ])(
+            'in $arm, turning it on with org AI consent $accepted arms the scanner: $expectedArmed',
+            async ({ arm, accepted, expectedArmed }) => {
+                ;(global as any).__consentAccepted = accepted
+                setArm(arm)
 
-            renderAnalyticsStep()
-            await userEvent.click(screen.getByText('Compare what users do in each variant'))
+                renderAnalyticsStep()
+                await turnOn(arm)
 
-            // Without the gate the unconsented tick lands in the logic, and the save path then
-            // creates a scanner the backend refuses with the consent 400.
-            expect(logic.values.createReplayVisionScanner).toBe(expectedArmed)
-            const popoverPrompt = screen.queryByText(/needs your approval/)
-            if (accepted) {
-                expect(popoverPrompt).not.toBeInTheDocument()
-            } else {
-                expect(popoverPrompt).toBeInTheDocument()
+                // Without the gate the unconsented click lands in the logic, and the save path then
+                // creates a scanner the backend refuses with the consent 400.
+                expect(logic.values.createReplayVisionScanner).toBe(expectedArmed)
+                const popoverPrompt = screen.queryByText(/needs your approval/)
+                if (accepted) {
+                    expect(popoverPrompt).not.toBeInTheDocument()
+                } else {
+                    expect(popoverPrompt).toBeInTheDocument()
+                }
             }
-        })
+        )
 
-        it('shows the per-session price next to the checkbox', () => {
+        it.each(['control' as const, 'test' as const])(
+            'anchors the consent popover to the option in %s',
+            async (arm) => {
+                ;(global as any).__consentAccepted = false
+                setArm(arm)
+
+                renderAnalyticsStep()
+                await turnOn(arm)
+
+                // The popover anchors to its child through a ref. Without one it never gets a position,
+                // so it sits at the top left of the page and its arrow points at nothing.
+                await waitFor(() =>
+                    expect(document.querySelector<HTMLElement>('.Popover__arrow')?.style.left).toMatch(/px$/)
+                )
+            }
+        )
+
+        it.each(['control' as const, 'test' as const])('shows the per-session price in %s', (arm) => {
             ;(global as any).__consentAccepted = true
+            setArm(arm)
 
             renderAnalyticsStep()
 
             expect(screen.getByText(/Each scanned session costs/)).toBeInTheDocument()
         })
 
-        it('offers no scanner without the experiment-scanner flag', () => {
+        it('shows the card with a toggle only in the test arm', () => {
             ;(global as any).__consentAccepted = true
-            featureFlagLogic.actions.setFeatureFlags([], {})
+            setArm('test')
 
             renderAnalyticsStep()
 
-            expect(screen.queryByText(/Each scanned session costs/)).not.toBeInTheDocument()
+            expect(screen.getByLabelText('Compare what users do in each variant')).toHaveAttribute('role', 'switch')
+            expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+            expect(screen.getByText('Learn more about Replay Vision')).toBeInTheDocument()
         })
+
+        it.each(['control' as const, 'test' as const])(
+            'offers no scanner without the experiment-scanner flag in %s',
+            (arm) => {
+                ;(global as any).__consentAccepted = true
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD], {
+                    [FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD]: arm,
+                })
+
+                renderAnalyticsStep()
+
+                expect(screen.queryByText(/Each scanned session costs/)).not.toBeInTheDocument()
+            }
+        )
     })
 })

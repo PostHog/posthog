@@ -4,7 +4,7 @@ import textwrap
 from dataclasses import field
 from typing import TYPE_CHECKING, Any
 
-from django.db import models
+from django.db import models, transaction
 
 import structlog
 from temporalio import activity
@@ -22,6 +22,8 @@ from products.slack_app.backend.services.slack_messages import (
     post_slack_thread_reply,
     thread_permalink,
 )
+from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
+from products.slack_app.backend.task_profiles import REPORT_IMPLEMENTATION, SLACK
 from products.slack_app.backend.temporal.attachments import (
     PreparedSlackAttachments,
     SlackAttachmentBudget,
@@ -33,12 +35,18 @@ from products.slack_app.backend.temporal.attachments import (
     prepare_slack_file_artifacts,
     prepare_slack_thread_file_artifacts,
 )
-from products.slack_app.backend.temporal.helpers import block_if_team_over_quota, safe_react, safe_unreact
+from products.slack_app.backend.temporal.helpers import (
+    block_if_ai_processing_not_approved,
+    block_if_team_over_quota,
+    safe_react,
+    safe_unreact,
+)
 from products.slack_app.backend.temporal.types import (
     SLACK_APP_PROCESSING_REACTION,
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppModelOverride,
 )
+from products.tasks.backend.facade.profiles import TaskRunOptions
 
 if TYPE_CHECKING:
     from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -596,22 +604,21 @@ def create_posthog_code_task_for_repo_activity(
     repo_research_task_id: str | None = None,
     repo_research_run_id: str | None = None,
     model_override: SlackAppModelOverride | None = None,
-) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
+) -> bool | None:
+    from posthog.models.integration import SlackIntegration
     from posthog.models.user import User
 
-    from products.signals.backend.facade import api as signals_facade
+    from products.signals.backend.facade import (
+        api as signals_facade,
+        report_tasks,
+    )
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
 
     # A report notification invites the reader to reply in its thread, so a mention there is the
@@ -650,10 +657,20 @@ def create_posthog_code_task_for_repo_activity(
             thread_ts=thread_ts,
             integration_id=inputs.integration_id,
         )
-        return
+        return True
 
     # Refuse before the :eyes: reaction or the permalink fetch: a denied
     # mention should not first ack-react and then refuse a second later.
+    if block_if_ai_processing_not_approved(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="task_create",
+    ):
+        return False
+
     if block_if_team_over_quota(
         integration=integration,
         slack=slack,
@@ -662,7 +679,7 @@ def create_posthog_code_task_for_repo_activity(
         slack_user_id=slack_user_id,
         context="task_create",
     ):
-        return
+        return False
 
     user_message_ts = event.get("ts")
     if user_message_ts:
@@ -765,28 +782,87 @@ def create_posthog_code_task_for_repo_activity(
             user_id=user_id,
         )
 
+    # `last_forwarded_ts` seeds the follow-up diff watermark — anything
+    # strictly newer than this when a follow-up arrives is rendered into a
+    # `<slack_thread_context_update>` block so the agent catches up on
+    # messages it never saw. The natural anchor is the initiator's `ts`, but
+    # if other participants posted between Slack delivering the event and the
+    # workflow actually fetching the thread, those messages were already
+    # baked into the original `<slack_thread_context>` block; surfacing them
+    # again on the first follow-up would just duplicate context. Take the
+    # max across everything we know the agent has already seen.
+    initial_watermark = _max_ts(
+        user_message_ts,
+        thread_ts,
+        *(m.ts for m in thread_messages),
+    )
+    conversation_type = resolve_conversation_type(slack, event, channel)
+
+    if inputs.report_implementation_message_ts and signal_report_id is None:
+        return False
+
+    def admit_report_implementation() -> None:
+        if signal_report_id is not None:
+            report_tasks.enforce_report_task_cap(
+                team_id=integration.team_id,
+                report_id=signal_report_id,
+                relationship=None,
+                created_by_id=user_id,
+            )
+
     # 1. Create task + run WITHOUT starting the workflow
     try:
-        created = tasks_facade.create_and_run_task(
-            team=integration.team,
-            title=title,
-            description=description,
-            origin_product=tasks_facade.TaskOriginProduct.SLACK,
-            user_id=user_id,
-            repository=repository,
-            create_pr=allow_pr_creation,
-            mode="interactive",
-            slack_thread_context=slack_thread_context,
-            slack_thread_url=slack_thread_url,
-            start_workflow=False,
-            posthog_mcp_scopes="full",
-            initial_permission_mode="bypassPermissions",
-            runtime_adapter=run_prefs.runtime_adapter,
-            model=run_prefs.model,
-            reasoning_effort=run_prefs.reasoning_effort,
-            channel_id=personal_channel_id,
-            extra_run_state=own_plan_state,
-        )
+        with transaction.atomic():
+            created = tasks_facade.create_and_run_task(
+                team=integration.team,
+                title=title,
+                description=description,
+                profile=REPORT_IMPLEMENTATION if inputs.report_implementation_message_ts else SLACK,
+                user_id=user_id,
+                repository=repository,
+                options=TaskRunOptions(
+                    adapter=run_prefs.runtime_adapter,
+                    model=run_prefs.model,
+                    reasoning_effort=run_prefs.reasoning_effort,
+                    mcp_scopes="full",
+                    permission_mode="bypassPermissions",
+                ),
+                create_pr=allow_pr_creation,
+                mode="interactive",
+                slack_thread_context=slack_thread_context,
+                slack_thread_url=slack_thread_url,
+                start_workflow=False,
+                channel_id=personal_channel_id,
+                extra_run_state=own_plan_state,
+                signal_report_id=signal_report_id if inputs.report_implementation_message_ts else None,
+                before_task_create=admit_report_implementation if inputs.report_implementation_message_ts else None,
+            )
+            if inputs.report_implementation_message_ts and signal_report_id:
+                report_tasks.record_report_task(
+                    team_id=integration.team_id, report_id=signal_report_id, task_id=str(created.task_id)
+                )
+            task_run = created.latest_run
+            if task_run:
+                SlackThreadTaskMapping.objects.update_or_create(
+                    integration_id=integration.id,
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    defaults={
+                        "team": integration.team,
+                        "slack_workspace_id": inputs.slack_team_id,
+                        "task_id": created.task_id,
+                        "task_run_id": task_run.id,
+                        "mentioning_slack_user_id": slack_user_id,
+                        "last_forwarded_ts": initial_watermark,
+                        # Decides whether the whole team may read this thread's task, so it is
+                        # resolved here — once, against the live conversation — rather than
+                        # re-derived on every request that gates on it.
+                        "conversation_type": conversation_type,
+                    },
+                )
+    except report_tasks.ReportTaskCapExceeded as exc:
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=exc.detail)
+        return False
     except Exception as e:
         logger.exception(
             "posthog_code_task_creation_failed",
@@ -804,7 +880,7 @@ def create_posthog_code_task_for_repo_activity(
             )
         except Exception:
             logger.warning("posthog_code_error_notification_failed", channel=channel, thread_ts=thread_ts)
-        return
+        return False
 
     logger.info(
         "posthog_code_task_created",
@@ -815,8 +891,6 @@ def create_posthog_code_task_for_repo_activity(
         thread_ts=thread_ts,
     )
 
-    # 2. Create mapping BEFORE starting the workflow to avoid race condition
-    # where the agent finishes and tries to relay before the mapping exists
     task_run = created.latest_run
     if task_run:
         bot_token = get_slack_bot_token(slack, integration)
@@ -848,37 +922,6 @@ def create_posthog_code_task_for_repo_activity(
             thread_ts=thread_ts,
         )
 
-        # `last_forwarded_ts` seeds the follow-up diff watermark — anything
-        # strictly newer than this when a follow-up arrives is rendered into a
-        # `<slack_thread_context_update>` block so the agent catches up on
-        # messages it never saw. The natural anchor is the initiator's `ts`, but
-        # if other participants posted between Slack delivering the event and the
-        # workflow actually fetching the thread, those messages were already
-        # baked into the original `<slack_thread_context>` block; surfacing them
-        # again on the first follow-up would just duplicate context. Take the
-        # max across everything we know the agent has already seen.
-        initial_watermark = _max_ts(
-            user_message_ts,
-            thread_ts,
-            *(m.ts for m in thread_messages),
-        )
-        SlackThreadTaskMapping.objects.update_or_create(
-            integration=integration,
-            channel=channel,
-            thread_ts=thread_ts,
-            defaults={
-                "team": integration.team,
-                "slack_workspace_id": inputs.slack_team_id,
-                "task_id": created.task_id,
-                "task_run_id": task_run.id,
-                "mentioning_slack_user_id": slack_user_id,
-                "last_forwarded_ts": initial_watermark,
-                # Decides whether the whole team may read this thread's task, so it is
-                # resolved here — once, against the live conversation — rather than
-                # re-derived on every request that gates on it.
-                "conversation_type": resolve_conversation_type(slack, event, channel),
-            },
-        )
         if signal_report_id:
             tasks_facade.link_slack_task_to_report(
                 team_id=integration.team_id,
@@ -925,6 +968,7 @@ def create_posthog_code_task_for_repo_activity(
             slack_thread_context=slack_thread_context,
             posthog_mcp_scopes="full",
         )
+    return task_run is not None
 
 
 def _followup_task_mappings(
@@ -976,7 +1020,7 @@ def forward_posthog_code_followup_activity(
     the first attempt announced. It defaults to ``None`` for histories recorded before
     the workflow classified this early, which simply leave the run on its own model.
     """
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import resolve_slack_user
     from products.tasks.backend.facade import api as tasks_facade
@@ -989,11 +1033,7 @@ def forward_posthog_code_followup_activity(
 
     task_run = mapping.task_run
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
 
     actor_user = mapping.task.created_by
@@ -1053,6 +1093,16 @@ def forward_posthog_code_followup_activity(
                 plan_name=plan.plan_name if (plan := tasks_facade.get_run_plan(task_run.state)) else None,
             )
             return True
+
+    if block_if_ai_processing_not_approved(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="followup",
+    ):
+        return True
 
     if block_if_team_over_quota(
         integration=integration,
@@ -1228,6 +1278,10 @@ def forward_posthog_code_followup_activity(
             text="I couldn't deliver your message to the agent. The sandbox may have stopped. Please try starting a new task.",
         )
         return True
+
+    tasks_facade.record_task_client(
+        task_id=str(mapping.task_id), team_id=task_run.team_id, client=tasks_facade.TaskClient.SLACK
+    )
 
     # Message queued; the agent picks it up next, so leave the :eyes: reaction
     # up. relayAgentResponse posts the agent's response once it finishes.
@@ -1472,6 +1526,9 @@ def _resume_task_with_new_run(
     model_override: SlackAppModelOverride | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
+    from products.signals.backend.facade import (
+        report_tasks,  # noqa: PLC0415 - keeps the signals model graph off the webhook import path
+    )
     from products.slack_app.backend.facade.run_preferences import resolve_effective_runtime_adapter
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         decode_slack_event_text,
@@ -1581,13 +1638,28 @@ def _resume_task_with_new_run(
         # The replying user, not the task creator: the safety-net default resolution and
         # its gated-model entitlement check inside `create_run` must run against whoever
         # launches this follow-up.
-        new_run = tasks_facade.create_run(
-            mapping.task_id,
-            mode="interactive",
-            extra_state=extra_state,
-            acting_user_id=run_actor.id,
-            subscription_owner_id=created_by.id if own_plan_state else None,
+        with transaction.atomic():
+            if report_id := mapping.task.signal_report_source_id:
+                report_tasks.enforce_report_implementation_rerun_cap(
+                    team_id=mapping.task.team_id,
+                    report_id=str(report_id),
+                    task_id=str(mapping.task_id),
+                )
+            new_run = tasks_facade.create_run(
+                mapping.task_id,
+                mode="interactive",
+                extra_state=extra_state,
+                acting_user_id=run_actor.id,
+                subscription_owner_id=created_by.id if own_plan_state else None,
+            )
+    except report_tasks.ReportTaskCapExceeded as exc:
+        post_slack_thread_reply(
+            slack.client,
+            channel=channel,
+            thread_ts=thread_ts,
+            text=exc.detail,
         )
+        return True
     except Exception:
         logger.exception(
             "posthog_code_resume_create_run_failed",
@@ -1602,6 +1674,10 @@ def _resume_task_with_new_run(
             text=_RESUME_ERROR_MSG,
         )
         return True
+
+    tasks_facade.record_task_client(
+        task_id=str(mapping.task_id), team_id=previous_run.team_id, client=tasks_facade.TaskClient.SLACK
+    )
 
     # The carried mode can pin BOT after the creator connected GitHub, because the live-sandbox
     # promotion in _refresh_sandbox_github never sees a successor's first turn. Re-check here so

@@ -16,6 +16,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
+import { credentialTypeLabel } from './credentialTypeLabel'
 import { sandboxChange } from './sandboxChange'
 
 export interface AuditLogTableProps {
@@ -93,6 +94,19 @@ const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
         key: 'time',
         render: (_, logItem) => <TZLabel time={logItem.created_at} />,
         width: '15%',
+    },
+    {
+        title: 'Credential',
+        key: 'credential_type',
+        render: (_, logItem) => {
+            const credentialType = logItem.unprocessed?.credential_type
+            return credentialType ? (
+                <span className="whitespace-nowrap">{credentialTypeLabel(credentialType)}</span>
+            ) : (
+                <span className="text-muted">—</span>
+            )
+        },
+        width: '10%',
     },
     {
         title: 'IP address',
@@ -219,6 +233,14 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
                                 Item ID
                             </div>
                             <div className="text-[13px] text-default">{unprocessed.item_id}</div>
+                        </div>
+                    )}
+                    {unprocessed.credential_id && (
+                        <div>
+                            <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
+                                Credential ID
+                            </div>
+                            <div className="text-[13px] text-default font-mono">{unprocessed.credential_id}</div>
                         </div>
                     )}
                     {agent?.intent && (

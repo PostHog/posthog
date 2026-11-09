@@ -102,9 +102,26 @@ class TestSpanAttributeFilter(ClickhouseTestMixin, APIBaseTest):
                 },
                 [WITH_CODE],
             ),
+            # A negated filter matches only spans that have the attribute. A span without the key would
+            # otherwise read '' and select its whole trace in the trace list.
             (
                 "is_not",
                 {"key": "code.filepath", "type": "span_attribute", "operator": "is_not", "value": "nope.rs"},
+                [WITH_CODE],
+            ),
+            (
+                "resource_is_not_on_missing_key",
+                {
+                    "key": "deployment.environment",
+                    "type": "span_resource_attribute",
+                    "operator": "is_not",
+                    "value": "prod",
+                },
+                [],
+            ),
+            (
+                "is_not_without_value_matches_all",
+                {"key": "code.filepath", "type": "span_attribute", "operator": "is_not", "value": []},
                 sorted([WITH_CODE, WITHOUT_CODE]),
             ),
             ("is_set", {"key": "code.filepath", "type": "span_attribute", "operator": "is_set"}, [WITH_CODE]),
@@ -177,12 +194,12 @@ class TestSpanAttributeFilter(ClickhouseTestMixin, APIBaseTest):
                 {"key": "code.lineno", "type": "span_attribute", "operator": "between", "value": ["50", "60"]},
                 [],
             ),
-            # not_between keeps spans missing the attribute: a row without code.lineno is not inside
-            # [0, 41], so negating the range must return it alongside the out-of-range WITH_CODE span.
+            # not_between matches only spans that have the attribute, so the span without code.lineno
+            # is not returned with the out-of-range WITH_CODE span.
             (
                 "lineno_not_between_matches",
                 {"key": "code.lineno", "type": "span_attribute", "operator": "not_between", "value": ["0", "41"]},
-                sorted([WITH_CODE, WITHOUT_CODE]),
+                [WITH_CODE],
             ),
         ]
     )

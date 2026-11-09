@@ -22,7 +22,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 use ingestion_consumer::aperture;
 use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
 use ingestion_consumer::batcher::{Batcher, BatcherObserver};
-use ingestion_consumer::config::Config;
+use ingestion_consumer::config::{Config, GRACEFUL_SHUTDOWN, LIVENESS_DEADLINE};
 use ingestion_consumer::consumer::IngestionConsumer;
 use ingestion_consumer::debug_recorder::{
     BatcherLoad, DebugLoad, DebugRecorder, DebugState, GovernorLoad, RoutingDebug, WorkerStatus,
@@ -53,13 +53,22 @@ fn main() -> Result<()> {
     config
         .partition_budget()
         .map_err(|err| anyhow::anyhow!("invalid partition budget: {err}"))?;
+    config
+        .in_flight_limit()
+        .map_err(|err| anyhow::anyhow!("invalid in-flight limit: {err}"))?;
+    config
+        .revoke_drain_timeout()
+        .map_err(|err| anyhow::anyhow!("invalid revoke drain timeout: {err}"))?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("Failed to build tokio runtime")?;
 
-    runtime.block_on(async_main(config))
+    let result = runtime.block_on(async_main(config));
+    // A blocking commit that outlived its timeout must not hold the exit.
+    runtime.shutdown_timeout(Duration::from_secs(5));
+    result
 }
 
 async fn async_main(config: Config) -> Result<()> {
@@ -113,8 +122,8 @@ async fn async_main(config: Config) -> Result<()> {
     let consumer_handle = manager.register(
         "consumer",
         ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(60))
-            .with_liveness_deadline(Duration::from_secs(60))
+            .with_graceful_shutdown(GRACEFUL_SHUTDOWN)
+            .with_liveness_deadline(LIVENESS_DEADLINE)
             .with_stall_threshold(3),
     );
 
@@ -284,6 +293,9 @@ async fn async_main(config: Config) -> Result<()> {
         Duration::from_millis(config.ingestion_worker_stream_ack_timeout_ms),
     );
     transport.set_max_body_bytes(config.transport_max_body_bytes);
+    transport.set_idle_close(Duration::from_millis(
+        config.ingestion_worker_stream_idle_close_ms,
+    ));
     transport.set_assignment_epoch(assignment_epoch);
     let transport = Arc::new(transport);
 
@@ -634,6 +646,7 @@ async fn build_debug_load(
     let ring = aperture::sorted_ring(
         snapshots
             .iter()
+            .filter(|snap| !snap.draining)
             .map(|snap| WorkerId::from(snap.url.as_str()))
             .collect(),
     );
@@ -647,7 +660,7 @@ async fn build_debug_load(
         strategy: pool_source.strategy().as_str().to_string(),
         min_aperture: pool_source.min_aperture(),
         ring: ring.iter().map(|w| w.to_string()).collect(),
-        slice: slice.map(|s| s.iter().map(|w| w.to_string()).collect()),
+        slice: slice.map(|s| s.iter().map(|c| c.worker.to_string()).collect()),
     };
     let workers = snapshots
         .into_iter()

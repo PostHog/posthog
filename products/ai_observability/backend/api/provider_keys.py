@@ -1,9 +1,10 @@
 import logging
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
@@ -25,7 +26,7 @@ from posthog.security.url_validation import strip_userinfo
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..llm.client import Client
-from ..llm.decisions import DecisionClient, decision_evaluations_enabled
+from ..llm.decisions import DecisionClient
 from ..llm.providers.anthropic import (
     DISALLOWED_FOUNDRY_ENDPOINT_MESSAGE,
     error_field_for_validation_message as anthropic_error_field,
@@ -42,12 +43,12 @@ from ..llm.providers.openai_compatible import (
     is_allowed_custom_base_url,
 )
 from ..models.evaluation_config import EvaluationConfig
-from ..models.evaluations import Evaluation
+from ..models.evaluations import Evaluation, EvaluationStatus
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from ..models.taggers import Tagger
 from .metrics import llma_track_latency
-from .proxy import models_cache_key
+from .proxy import LLMProxyModelInfoSerializer, models_cache_key, provider_key_models
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +82,6 @@ def _reload_model_config_dependents_on_commit(team_id: int, model_config_ids: li
 
 def validate_provider_key(provider: str, api_key: str, *, team_id: int, **kwargs: str) -> tuple[str, str | None]:
     """Validate an API key for any supported provider using the unified client."""
-    if provider == LLMProvider.SYSTEM_ONE and not decision_evaluations_enabled(
-        team_id, base_url=kwargs.get("base_url", "")
-    ):
-        raise exceptions.PermissionDenied("System One evaluations are not available for this project.")
     try:
         return Client.validate_key(provider, api_key, **kwargs)
     except Exception:
@@ -119,6 +116,14 @@ _PROVIDER_CONFIG_FIELDS: dict[str, tuple[str, ...]] = {
 _ALL_PROVIDER_CONFIG_FIELDS: tuple[str, ...] = tuple(
     {field for fields in _PROVIDER_CONFIG_FIELDS.values() for field in fields}
 )
+
+
+def _is_typesafe_host(url: str) -> bool:
+    try:
+        host = (urlsplit(url).hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
+    except (ValueError, UnicodeError):
+        return False
+    return host == "typesafe.ai" or host.endswith(".typesafe.ai")
 
 
 class LLMProviderKeySerializer(serializers.ModelSerializer):
@@ -208,6 +213,11 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
                 return DecisionClient.normalize_base_url(value)
             except ValueError as error:
                 raise serializers.ValidationError(str(error)) from error
+        # TypeSafe is not a subprocessor. Only a team's own System One connection may send data there.
+        if _is_typesafe_host(value):
+            raise serializers.ValidationError(
+                "TypeSafe is not an approved subprocessor. Use a System One connection to send data to it."
+            )
         # `base_url_display` is readable by any project member while the API key is masked, and the
         # URL also reaches exception messages and log lines. A credential typed into this field
         # would leak through all three, so drop it before anything stores or echoes the value.
@@ -448,6 +458,37 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class ProviderKeyDependentEvaluationSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Evaluation ID.")
+    name = serializers.CharField(help_text="Evaluation name.")
+    model_configuration_id = serializers.CharField(
+        required=False, help_text="Model configuration that pins this key. Absent for evaluations on the active key."
+    )
+    enabled = serializers.BooleanField(help_text="Whether the evaluation is running.")
+    status_reason = serializers.CharField(
+        allow_null=True, help_text="Why the system turned the evaluation off, such as provider_key_quota_exceeded."
+    )
+
+
+class ProviderKeyAlternativeSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Provider key ID.")
+    name = serializers.CharField(help_text="Provider key name.")
+    provider = serializers.CharField(help_text="Provider of the key.")
+
+
+class ProviderKeyDependentConfigsSerializer(serializers.Serializer):
+    evaluations = ProviderKeyDependentEvaluationSerializer(
+        many=True, help_text="Evaluations whose model configuration pins this key."
+    )
+    alternative_keys = ProviderKeyAlternativeSerializer(
+        many=True, help_text="Working keys for the same provider that could replace this one."
+    )
+    active_key_evaluations = ProviderKeyDependentEvaluationSerializer(
+        many=True,
+        help_text="Errored evaluations with no pinned key, which run on this key while it is the project's active key.",
+    )
+
+
 class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "llm_provider_key"
     permission_classes = [TeamMemberStrictManagementPermission]
@@ -591,6 +632,16 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
+    @extend_schema(responses={200: LLMProxyModelInfoSerializer(many=True)})
+    @action(detail=True, methods=["get"], required_scopes=["llm_provider_key:read"], pagination_class=None)
+    @llma_track_latency("llma_provider_keys_models")
+    @monitor(feature=None, endpoint="llma_provider_keys_models", method="GET")
+    def models(self, request: Request, **_kwargs) -> Response:
+        """Models this provider key can run, as the model pickers list them. Scoped to the project in the URL, so a
+        page on a project other than the user's current one still lists its own keys' models."""
+        return Response(provider_key_models(self.get_object()))
+
+    @extend_schema(responses={200: ProviderKeyDependentConfigsSerializer})
     @action(detail=True, methods=["get"], required_scopes=["llm_provider_key:read"])
     @llma_track_latency("llma_provider_keys_dependent_configs")
     @monitor(feature=None, endpoint="llma_provider_keys_dependent_configs", method="GET")
@@ -598,18 +649,27 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         """Get evaluations using this key and alternative keys for replacement."""
         instance = self.get_object()
 
+        # Reading a key must not reveal evaluations the caller cannot open.
+        visible_evaluations: QuerySet[Evaluation] = Evaluation.objects.filter(team_id=self.team_id, deleted=False)
+        if not is_service_auth(request):
+            visible_evaluations = self.user_access_control.filter_queryset_by_access_level(visible_evaluations)
+        visible_evaluation_ids = visible_evaluations.values("id")
+
         model_configs = LLMModelConfiguration.objects.filter(
             provider_key=instance, team_id=self.team_id
         ).prefetch_related("evaluations")
 
         evaluations = []
         for config in model_configs:
-            for evaluation in config.evaluations.filter(deleted=False):
+            for evaluation in config.evaluations.filter(deleted=False, id__in=visible_evaluation_ids):
                 evaluations.append(
                     {
                         "id": str(evaluation.id),
                         "name": evaluation.name,
                         "model_configuration_id": str(config.id),
+                        # Lets the settings page offer to turn back on the evaluations a key problem turned off.
+                        "enabled": evaluation.enabled,
+                        "status_reason": evaluation.status_reason,
                     }
                 )
 
@@ -619,13 +679,36 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             state=LLMProviderKey.State.OK,
         ).exclude(id=instance.id)
 
+        # An evaluation with no pinned key runs on the project's active key (`active_key_fallback`), so a
+        # problem with that key turns it off too. Listed apart, because replacing a key only re-pins the
+        # configs above.
+        active_key_evaluations = []
+        if EvaluationConfig.objects.filter(team_id=self.team_id, active_provider_key=instance).exists():
+            active_key_evaluations = [
+                {
+                    "id": str(evaluation.id),
+                    "name": evaluation.name,
+                    "enabled": evaluation.enabled,
+                    "status_reason": evaluation.status_reason,
+                }
+                for evaluation in Evaluation.objects.filter(
+                    team_id=self.team_id, deleted=False, status=EvaluationStatus.ERROR, id__in=visible_evaluation_ids
+                ).filter(
+                    Q(model_configuration__isnull=True)
+                    | Q(model_configuration__provider_key__isnull=True, model_configuration__provider=instance.provider)
+                )
+            ]
+
         return Response(
-            {
-                "evaluations": evaluations,
-                "alternative_keys": [
-                    {"id": str(key.id), "name": key.name, "provider": key.provider} for key in alternative_keys
-                ],
-            }
+            ProviderKeyDependentConfigsSerializer(
+                {
+                    "evaluations": evaluations,
+                    "alternative_keys": [
+                        {"id": str(key.id), "name": key.name, "provider": key.provider} for key in alternative_keys
+                    ],
+                    "active_key_evaluations": active_key_evaluations,
+                }
+            ).data
         )
 
     @llma_track_latency("llma_provider_keys_destroy")

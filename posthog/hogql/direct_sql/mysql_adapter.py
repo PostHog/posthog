@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, cast
 
 import pymysql
-import sqlparse
 from opentelemetry import trace
 from pymysql.constants import FIELD_TYPE as MYSQL_FIELD_TYPE
 from sqlparse import tokens as sqlparse_tokens
@@ -11,7 +10,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
-from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
+from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
 from posthog.hogql.errors import ExposedHogQLError
 
 if TYPE_CHECKING:
@@ -96,8 +95,7 @@ def _raw_mysql_token_values(statement: Statement) -> list[str]:
 
 
 def ensure_read_only_raw_mysql_statement(sql: str) -> str:
-    sql = ensure_single_direct_statement(sql)
-    statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
+    statements = parse_direct_statements(sql, dialect="mysql")
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
         raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
 

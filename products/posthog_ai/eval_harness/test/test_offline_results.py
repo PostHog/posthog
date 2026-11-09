@@ -162,6 +162,35 @@ def test_prepare_assigns_stable_trial_ids_and_uses_captured_revision() -> None:
     assert items[0]["payload"]["metadata"]["braintrust_url"] == "https://braintrust.example.com/experiment/test"
 
 
+@parameterized.expand(
+    [
+        ("missing", {}, None, []),
+        ("null", {"model": None}, None, []),
+        ("no_output", None, None, []),
+        ("model", {"model": "case-model"}, "case-model", []),
+        ("invalid_type", {"model": 42}, None, ["model_version"]),
+        ("empty_identifier", {"model": ""}, None, ["model_version"]),
+    ]
+)
+def test_prepare_preserves_per_item_models(
+    _name: str, output: dict[str, object] | None, model: str | None, omitted: list[str]
+) -> None:
+    case = _case()
+    case.output = output
+    other_case = _case("other")
+    other_case.output = {"model": "other-model"}
+
+    upload = _prepare(_publisher(), [case, other_case])
+    items = [item.to_dict() for item in _items(upload)]
+
+    assert upload.experiment["model_version"] == "test-model"
+    assert items[0].get("model_version") == model
+    assert items[1]["model_version"] == "other-model"
+    assert items[0]["payload"]["metadata"]["omitted_fields"] == omitted
+    assert items[0]["payload"]["output"] == output
+    assert all(result.to_dict()["status"] == "ok" for result in upload.results)
+
+
 def test_prepare_omits_raw_logs_and_oversized_fields_without_mutating_results() -> None:
     case = _case()
     original_output = {"raw_log": "local trace", "tool_result": "x" * (1100 * 1024), "answer": "There are 3 events"}

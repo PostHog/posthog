@@ -1850,10 +1850,13 @@ class TestCanvasState(CanvasAPIBaseTest):
         assert "value" not in first["entries"][0]
         assert first["next_offset"] == 1
         assert first["complete"] is False
-        second = self.client.get(url, {"keys_only": "true", "limit": "1", "offset": "1"}).json()
+        assert (first["count"], first["previous"]) == (2, None)
+        second = self.client.get(first["next"]).json()
         assert [entry["key"] for entry in second["entries"]] == ["policy"]
         assert second["next_offset"] is None
         assert second["complete"] is True
+        assert (second["count"], second["next"]) == (2, None)
+        assert [entry["key"] for entry in self.client.get(second["previous"]).json()["entries"]] == ["board"]
         selected = self.client.get(url, {"key": "policy"}).json()
         assert [(entry["key"], entry["value"]) for entry in selected["entries"]] == [("policy", "a long policy")]
 
@@ -2550,6 +2553,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
         task = Task.objects.get(id=response.json()["result"]["task_id"])
         assert task.created_by_id == self.user.id
         assert task.channel_id == self.channel.id
+        assert task.profile == "user"
         assert task.title == "Follow up"
         assert not task.runs.exists()
 
@@ -2637,6 +2641,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
         run = task.runs.get(id=response.json()["result"]["run_id"])
         assert task.created_by_id == viewer.id
         assert task.channel_id == self.channel.id
+        assert task.profile == "user"
         assert task.repositories == repositories
         assert task.github_integration_id == integration.id
         assert run.environment == TaskRun.Environment.CLOUD

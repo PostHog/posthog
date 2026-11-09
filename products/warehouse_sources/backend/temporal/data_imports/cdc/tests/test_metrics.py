@@ -18,7 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
     cleanup_orphan_slots_activity,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import ChangeEventBatcher
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCLag, ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 
@@ -209,9 +209,10 @@ def _sweeper_adapter(*, lag_bytes=0, retention_cap_mb=None):
         yield MagicMock()
 
     adapter.management_connection.side_effect = _conn
-    adapter.get_lag_bytes.return_value = lag_bytes
-    adapter.get_retention_cap_mb.return_value = retention_cap_mb
-    adapter.slot_exists.return_value = False
+    adapter.get_lag.return_value = (
+        None if lag_bytes is None else CDCLag(behind_bytes=lag_bytes, retention_cap_mb=retention_cap_mb)
+    )
+    adapter.stream_exists.return_value = False
     return adapter
 
 

@@ -129,6 +129,7 @@ class TestPostgresTable(BaseTest):
         predicates: list[Expr] | None = None,
         extra_fields: dict[str, DatabaseField] | None = None,
         postgres_pushdown_values: dict[str, str | int | bool] | None = None,
+        push_team_guard_with_predicates: bool = False,
     ) -> None:
         self.database = Database.create_for(team=self.team)
 
@@ -152,6 +153,7 @@ class TestPostgresTable(BaseTest):
                         if postgres_pushdown_values is None
                         else {"postgres_pushdown_values": postgres_pushdown_values}
                     ),
+                    push_team_guard_with_predicates=push_team_guard_with_predicates,
                     fields=fields,
                 ),
             )
@@ -164,8 +166,12 @@ class TestPostgresTable(BaseTest):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-    def _init_database_for_joins(self, *, predicates=None, extra_fields=None):
-        self._init_database(predicates=predicates, extra_fields=extra_fields)
+    def _init_database_for_joins(self, *, predicates=None, extra_fields=None, push_team_guard_with_predicates=False):
+        self._init_database(
+            predicates=predicates,
+            extra_fields=extra_fields,
+            push_team_guard_with_predicates=push_team_guard_with_predicates,
+        )
         self.database.tables.add_child(
             TableNode(
                 name="other_table",
@@ -255,6 +261,19 @@ class TestPostgresTable(BaseTest):
             f"WHERE team_id = {self.team.pk} AND status = %(hogql_val_5)s)",
             sql,
         )
+
+    def test_predicate_keeps_team_guard_next_to_the_read_when_opted_in(self):
+        self._init_database_for_joins(
+            predicates=[parse_expr("status != 'deleted'")],
+            extra_fields={"status": StringDatabaseField(name="status")},
+            push_team_guard_with_predicates=True,
+        )
+
+        sql = self._select(
+            "SELECT other_table.id FROM other_table LEFT JOIN postgres_table ON postgres_table.id = other_table.ref_id"
+        )
+
+        self.assertIn(f"WHERE team_id = {self.team.pk}) AS postgres_table", sql)
 
     def test_predicate_combined_with_user_where(self):
         self._init_database(
@@ -621,9 +640,14 @@ class TestSystemTableAccessScope(SimpleTestCase):
         access_scope = _SCOPED_SYSTEM_TABLES[table_name].access_scope
 
         # A pure umbrella is a parent in the inheritance map that is never itself a
-        # `scope_object` — so object grants can only ever live on its children, not on it.
+        # `scope_object`, while a child is — so object grants live on its children, not on it.
+        # A parent whose children store no object grants either (`task` for `inbox`) has none to miss.
         grant_scopes = _object_grant_scopes()
-        pure_umbrellas = {parent for parent in RESOURCE_INHERITANCE_MAP.values() if parent not in grant_scopes}
+        pure_umbrellas = {
+            parent
+            for child, parent in RESOURCE_INHERITANCE_MAP.items()
+            if parent not in grant_scopes and child in grant_scopes
+        }
 
         if access_scope in pure_umbrellas:
             children = sorted(child for child, parent in RESOURCE_INHERITANCE_MAP.items() if parent == access_scope)

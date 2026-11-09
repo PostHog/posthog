@@ -311,6 +311,9 @@ const dataCatalogMetricCreate = (): ToolBase<
         if (params.unit !== undefined) {
             body['unit'] = params.unit
         }
+        if (params.owner !== undefined) {
+            body['owner'] = params.owner
+        }
         if (params.definition !== undefined) {
             body['definition'] = params.definition
         }
@@ -429,6 +432,9 @@ const dataCatalogMetricRun = (): ToolBase<
         if (params.interval !== undefined) {
             body['interval'] = params.interval
         }
+        if (params.offset !== undefined) {
+            body['offset'] = params.offset
+        }
         if (params.query_id !== undefined) {
             body['query_id'] = params.query_id
         }
@@ -472,6 +478,9 @@ const dataCatalogMetricUpdate = (): ToolBase<
         }
         if (params.unit !== undefined) {
             body['unit'] = params.unit
+        }
+        if (params.owner !== undefined) {
+            body['owner'] = params.owner
         }
         if (params.definition !== undefined) {
             body['definition'] = params.definition

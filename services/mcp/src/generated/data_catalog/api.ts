@@ -135,6 +135,12 @@ export const DataCatalogMetricsCreateBody = () => zod
             .max(dataCatalogMetricsCreateBodyUnitMax)
             .optional()
             .describe('Unit of the result, e.g. usd, percent, cents.'),
+        owner: zod
+            .email()
+            .nullish()
+            .describe(
+                "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+            ),
         definition: zod
             .record(zod.string(), zod.unknown())
             .nullish()
@@ -240,6 +246,12 @@ export const DataCatalogMetricsPartialUpdateBody = () => zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyUnitMax)
         .optional()
         .describe('Unit of the result, e.g. usd, percent, cents.'),
+    owner: zod
+        .email()
+        .nullish()
+        .describe(
+            "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+        ),
     definition: zod
         .record(zod.string(), zod.unknown())
         .nullish()
@@ -338,6 +350,8 @@ export const DataCatalogMetricsRunCreateQueryParams = () => zod.object({
         ),
 })
 
+export const dataCatalogMetricsRunCreateBodyOffsetMin = 0
+
 export const DataCatalogMetricsRunCreateBody = () => zod
     .object({
         date_from: zod
@@ -355,6 +369,13 @@ export const DataCatalogMetricsRunCreateBody = () => zod
             .optional()
             .describe(
                 'Override the bucket interval. Rejected for HogQLQuery metrics.\n\n\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
+            ),
+        offset: zod
+            .number()
+            .min(dataCatalogMetricsRunCreateBodyOffsetMin)
+            .optional()
+            .describe(
+                'Rows to skip, to read the page after a run that returned has_more. Pass next_offset from that run. Only HogQLQuery metrics accept it. Runs made with a personal or project API key are rejected.'
             ),
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })

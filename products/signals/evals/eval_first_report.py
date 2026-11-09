@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 
@@ -9,14 +9,11 @@ from .first_report_seeders import seed_sparse_project, seed_upload_control, seed
 from .offline_config import FIRST_REPORT_SUITE
 from .scout_runner import run_first_report_scout
 
-NO_SEND_LOGS = True
-
 
 async def eval_first_report(ctx: EvalContext) -> None:
     if ctx.skill_delivery != "bundled":
         raise ValueError("Scout evals use the production bundled skill configuration")
-    await SandboxedPrivateEval(
-        no_send_logs=NO_SEND_LOGS,
+    await SandboxedEval(
         offline_suite=FIRST_REPORT_SUITE,
         send_to_posthog=True,
         experiment_name="first-report-scout",

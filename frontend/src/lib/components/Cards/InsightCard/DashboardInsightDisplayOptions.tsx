@@ -1,15 +1,15 @@
 import { IconChevronRight } from '@posthog/icons'
 
+import { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 
-import { DisplayOptionTab } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-import { InsightDisplayOptionsPanel } from '~/queries/nodes/InsightViz/InsightDisplayOptionsPanel'
+import { InsightDisplayOptionsPanel } from 'products/product_analytics/frontend/insights/editor/InsightDisplayOptionsPanel'
 
 // Items are computed in InsightMeta (always mounted) and passed down to avoid mounting
-// useInsightDisplayOptions lazily inside the More popover overlay, which triggers kea logic
+// useDisplayOptions(insightDisplayOptions) lazily inside the More popover overlay, which triggers kea logic
 // mounts that cascade and close the popover before the user can interact with it.
 export function DashboardInsightDisplayOptions({
     visualizationItems,

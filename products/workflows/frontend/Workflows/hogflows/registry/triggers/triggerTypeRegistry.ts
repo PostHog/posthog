@@ -67,3 +67,11 @@ export function registerTriggerType(definition: TriggerTypeDefinition): void {
 export function getRegisteredTriggerTypes(): TriggerTypeDefinition[] {
     return triggerTypeDefinitions
 }
+
+export function getTriggerDisplayType(config: { type: string }): string {
+    // Several tiles can share one config type (`event`, `internal-event`), so the tile is whichever
+    // one claims this config, not the type itself. Types owned by a single tile fall through to the
+    // type, which is that tile's value.
+    const match = triggerTypeDefinitions.find((t) => t.matchConfig?.(config))
+    return match ? match.value : config.type
+}

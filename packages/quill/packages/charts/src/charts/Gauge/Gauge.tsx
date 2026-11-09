@@ -1,0 +1,444 @@
+import React, { useLayoutEffect, useMemo, useState } from 'react'
+
+import { ChartLayoutContext } from '../../core/chart-context'
+import type { ChartLayoutContextValue } from '../../core/chart-context'
+import { ChartShell, useCanvasBounds } from '../../core/chart-shell'
+import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { useAnimatedNumber } from '../../core/hooks/useAnimatedNumber'
+import { useChartCanvas } from '../../core/hooks/useChartCanvas'
+import { useChartDraw } from '../../core/hooks/useChartDraw'
+import { useResolvedChartTheme } from '../../core/theme'
+import type { ChartDrawArgs, ChartMargins, ChartScales, ChartTheme } from '../../core/types'
+import { defaultResolveValue } from '../../core/types'
+import { Tooltip } from '../../overlays/Tooltip'
+import { humanFriendlyNumber } from '../../utils/format'
+import { measureLabelWidth } from '../../utils/text-measure'
+import { drawGauge } from './draw-gauge'
+import type { GaugePaint } from './draw-gauge'
+import { initialGaugeColors, resolveGaugeColors } from './gauge-colors'
+import {
+    clampGaugeSweep,
+    computeGaugeLayout,
+    DEFAULT_GAUGE_THICKNESS,
+    fractionToAngle,
+    gaugeFraction,
+    isOverGauge,
+    layoutGaugeText,
+    resolveGaugeBounds,
+    sortThresholds,
+    thresholdBands,
+    thresholdIndexAt,
+} from './gauge-layout'
+import type { GaugeLayout, GaugeThreshold } from './gauge-layout'
+import { GaugeLabels } from './GaugeLabels'
+import type { GaugeEndLabel, GaugeEnds } from './GaugeLabels'
+import { GAUGE_EMPTY_VALUE, GaugeTooltip } from './GaugeTooltip'
+import type { GaugeTooltipContext, GaugeTooltipThreshold } from './GaugeTooltip'
+
+export interface GaugeTarget {
+    /** Where the tick sits, in the same units as `value`. */
+    value: number
+    /** Names the target in the tooltip, such as `'SLO'`. Defaults to `'Target'`. */
+    label?: string
+}
+
+export interface GaugeConfig {
+    /** Degrees the arc spans, centered on 12 o'clock. Default 240. Clamped to 180 (a half circle)
+     *  through 360 (a full ring). */
+    sweepAngle?: number
+    /** Arc thickness as a fraction of the gauge radius, so it scales with the container, up to 28px.
+     *  Default 0.15. */
+    thickness?: number
+    /** Formats the value, the min and max labels, and the tooltip. `buildYTickFormatter` builds one from
+     *  the axis format options (`duration`, `percentage`, `currency`, prefixes and suffixes). */
+    valueFormatter?: (value: number) => string
+    /** Show the min and max under the arc ends. Default true. Always hidden above a 300° sweep, where
+     *  the ends meet, and when the two labels would overlap. */
+    showMinMax?: boolean
+    /** Draw the threshold bands as a thin ring outside the track. Default true when there are two or
+     *  more thresholds. */
+    showThresholdBands?: boolean
+    /** Track color. Defaults to a faint tint of the page text color. */
+    trackColor?: string
+    /** Duration (ms) of the value arc's ease to a new value. Default 500. `0` snaps. Reduced motion
+     *  always snaps. */
+    animationMs?: number
+    tooltip?: {
+        /** Show the tooltip on hover. Default true. */
+        enabled?: boolean
+    }
+}
+
+export interface GaugeProps {
+    /** The value to show. `null` draws an empty track and a dash, not a zero. */
+    value: number | null
+    /** Range start. Defaults to the lowest threshold, else 0. A value or target below that widens the
+     *  range down to 0, or to the value when it is negative. */
+    min?: number
+    /** Range end. Defaults to the highest threshold, else the larger of `min + 1` and 0, raised to
+     *  contain the value and the target. Out-of-range values still print as-is and the arc clamps to
+     *  the end. */
+    max?: number
+    /** Color steps. The arc takes the color of the step the value falls in, and the steps draw as
+     *  bands around the track. Order does not matter. Colors may be `var(--…)`. */
+    thresholds?: readonly GaugeThreshold[]
+    /** Arc color without thresholds: hex, rgb, or `var(--…)`. Defaults to `theme.colors[0]`. */
+    color?: string
+    /** Palette and chrome colors. Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars.
+     *  A new theme object, as on a light or dark switch, resolves every `var(--…)` color again. */
+    theme?: ChartTheme
+    /** Short caption under the value, such as the metric name. Truncates to fit the arc. */
+    label?: string
+    /** Marks a value on the track with a tick, such as an SLO target. Hidden when outside the range. */
+    target?: number | GaugeTarget
+    /** Shape, formatting, animation, and tooltip options. */
+    config?: GaugeConfig
+    /** Replaces the default tooltip content. */
+    tooltip?: (ctx: GaugeTooltipContext) => React.ReactNode
+    /** Classes for the chart wrapper. */
+    className?: string
+    /** `data-attr` applied to the chart wrapper. */
+    dataAttr?: string
+    /** Called when rendering throws. The gauge then renders a fallback instead of unmounting its parent. */
+    onError?: (error: Error, info: React.ErrorInfo) => void
+}
+
+const ZERO_MARGINS: ChartMargins = { top: 0, right: 0, bottom: 0, left: 0 }
+const PADDING = 4
+const DEFAULT_ANIMATION_MS = 500
+const MAX_MINMAX_SWEEP = 300
+const EMPTY_SERIES: never[] = []
+const EMPTY_LABELS: string[] = []
+// The ring's top-right shoulder, as a fraction of the outer radius, so the tooltip sits beside the value.
+const TOOLTIP_ANCHOR = 0.72
+
+export function Gauge({ onError, ...rest }: GaugeProps): React.ReactElement {
+    return (
+        <ChartErrorBoundary onError={onError}>
+            <GaugeInner {...rest} />
+        </ChartErrorBoundary>
+    )
+}
+
+function paintFromScales(scales: ChartScales): GaugePaint | null {
+    return (scales._private as { gauge?: GaugePaint } | undefined)?.gauge ?? null
+}
+
+function drawStatic({ ctx, scales }: ChartDrawArgs): void {
+    const paint = paintFromScales(scales)
+    if (paint) {
+        drawGauge(ctx, paint)
+    }
+}
+
+function drawHover(): boolean {
+    return false
+}
+
+function minMaxFontSize(width: number, height: number): number {
+    return Math.min(13, Math.max(9, Math.min(width, height * 1.3) * 0.045))
+}
+
+function placeMinMax(
+    layout: GaugeLayout,
+    width: number,
+    minText: string,
+    maxText: string,
+    font: string
+): { min: GaugeEndLabel; max: GaugeEndLabel } | null {
+    const { cx, radius, angles } = layout
+    const minWidth = measureLabelWidth(minText, font)
+    const maxWidth = measureLabelWidth(maxText, font)
+    const edge = 2
+    const minX = Math.min(Math.max(cx + Math.cos(angles.start) * radius, edge + minWidth / 2), width - edge)
+    const maxX = Math.max(Math.min(cx + Math.cos(angles.end) * radius, width - edge - maxWidth / 2), edge)
+    if (minX + minWidth / 2 + 6 > maxX - maxWidth / 2) {
+        return null
+    }
+    return { min: { text: minText, x: minX }, max: { text: maxText, x: maxX } }
+}
+
+function GaugeInner({
+    value: rawValue,
+    min,
+    max,
+    thresholds,
+    color,
+    theme: themeProp,
+    label,
+    target: rawTarget,
+    config,
+    tooltip,
+    className,
+    dataAttr,
+}: Omit<GaugeProps, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
+    const {
+        sweepAngle,
+        thickness = DEFAULT_GAUGE_THICKNESS,
+        valueFormatter,
+        showMinMax = true,
+        showThresholdBands,
+        trackColor: trackColorProp,
+        animationMs: rawAnimationMs,
+        tooltip: tooltipConfig,
+    } = config ?? {}
+    const animationMs =
+        rawAnimationMs !== undefined && Number.isFinite(rawAnimationMs) ? rawAnimationMs : DEFAULT_ANIMATION_MS
+    const sweep = clampGaugeSweep(sweepAngle)
+    const value = rawValue !== null && Number.isFinite(rawValue) ? rawValue : null
+    const targetValue = typeof rawTarget === 'number' ? rawTarget : rawTarget?.value
+    const targetLabel = typeof rawTarget === 'number' ? undefined : rawTarget?.label
+    // Keyed on the fields, so an inline `target={{ … }}` does not repaint the canvas on every render.
+    const target = useMemo<GaugeTarget | null>(
+        () =>
+            targetValue !== undefined && Number.isFinite(targetValue)
+                ? { value: targetValue, label: targetLabel }
+                : null,
+        [targetValue, targetLabel]
+    )
+
+    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx } = useChartCanvas({
+        margins: ZERO_MARGINS,
+    })
+
+    const formatValue = valueFormatter ?? humanFriendlyNumber
+
+    // Keyed on the content, so an inline `thresholds={[…]}` does not re-resolve colors and repaint on every render.
+    const thresholdsKey = (thresholds ?? [])
+        .map((t) => `${t.value}\u0000${t.color}\u0000${t.label ?? ''}`)
+        .join('\u0001')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const sorted = useMemo(() => sortThresholds(thresholds), [thresholdsKey])
+    const bounds = useMemo(
+        () => resolveGaugeBounds({ value, min, max, thresholds: sorted, target: target?.value }),
+        [value, min, max, sorted, target]
+    )
+
+    // Re-read on every theme change, because a light/dark flip changes what each `var(--…)` resolves to.
+    const [colors, setColors] = useState(() => initialGaugeColors({ sorted, color, trackColor: trackColorProp, theme }))
+    useLayoutEffect(() => {
+        const root = wrapperRef.current
+        if (root) {
+            setColors(resolveGaugeColors(root, { sorted, color, trackColor: trackColorProp, theme }))
+        }
+    }, [wrapperRef, sorted, color, trackColorProp, theme])
+    const { base: baseColor, thresholds: resolvedThresholds, track: trackColor, ink, fontFamily } = colors
+
+    const targetFraction = gaugeFraction(value, bounds)
+    const animatedFraction = useAnimatedNumber(targetFraction, animationMs)
+    const settled = animatedFraction === targetFraction
+    const colorValue = settled ? value : bounds.min + animatedFraction * (bounds.max - bounds.min)
+    const valueIndex = thresholdIndexAt(value, resolvedThresholds)
+    const arcIndex = thresholdIndexAt(colorValue, resolvedThresholds)
+    const arcColor = arcIndex >= 0 ? resolvedThresholds[arcIndex].color : baseColor
+    const valueColor = valueIndex >= 0 ? resolvedThresholds[valueIndex].color : baseColor
+
+    const bandsVisible = showThresholdBands ?? resolvedThresholds.length > 1
+    const showEnds = showMinMax && sweep <= MAX_MINMAX_SWEEP
+    const minMaxFont = dimensions ? minMaxFontSize(dimensions.width, dimensions.height) : 0
+    const minText = formatValue(bounds.min)
+    const maxText = formatValue(bounds.max)
+    const hasTarget = target !== null
+
+    const { layout, ends } = useMemo<{ layout: GaugeLayout | null; ends: GaugeEnds | null }>(() => {
+        if (!dimensions) {
+            return { layout: null, ends: null }
+        }
+        const fit = (footer: number): GaugeLayout =>
+            computeGaugeLayout({
+                width: dimensions.width,
+                height: dimensions.height,
+                sweep,
+                thickness,
+                showBands: bandsVisible && resolvedThresholds.length > 0,
+                footer,
+                padding: PADDING,
+                hasTarget,
+            })
+        if (!showEnds) {
+            return { layout: fit(0), ends: null }
+        }
+        const withFooter = fit(minMaxFont * 1.6)
+        const placed = placeMinMax(withFooter, dimensions.width, minText, maxText, `${minMaxFont}px ${fontFamily}`)
+        if (!placed) {
+            return { layout: fit(0), ends: null }
+        }
+        return {
+            layout: withFooter,
+            ends: { ...placed, top: withFooter.bottom + minMaxFont * 0.3, fontSize: minMaxFont },
+        }
+    }, [
+        dimensions,
+        sweep,
+        thickness,
+        bandsVisible,
+        resolvedThresholds.length,
+        hasTarget,
+        showEnds,
+        minMaxFont,
+        minText,
+        maxText,
+        fontFamily,
+    ])
+
+    // `useChartDraw` repaints when `scales` changes, so each animation frame rides in on `_private`.
+    const scales = useMemo<ChartScales | null>(() => {
+        if (!layout) {
+            return null
+        }
+        const angleAt = (v: number): number => fractionToAngle(gaugeFraction(v, bounds), layout.angles)
+        const paint: GaugePaint = {
+            layout,
+            trackColor,
+            bands: bandsVisible
+                ? thresholdBands(resolvedThresholds, bounds).map((band) => ({
+                      startAngle: angleAt(band.from),
+                      endAngle: angleAt(band.to),
+                      color: band.threshold.color,
+                  }))
+                : [],
+            valueAngle: fractionToAngle(animatedFraction, layout.angles),
+            valueColor: arcColor,
+            targetAngle:
+                target && target.value >= bounds.min && target.value <= bounds.max ? angleAt(target.value) : null,
+            targetColor: ink,
+        }
+        return { x: () => undefined, y: () => 0, yTicks: () => [], _private: { gauge: paint } }
+    }, [layout, bounds, trackColor, bandsVisible, resolvedThresholds, animatedFraction, arcColor, target, ink])
+
+    useChartDraw({
+        ctx,
+        overlayCtx: null,
+        dimensions,
+        scales,
+        series: EMPTY_SERIES,
+        labels: EMPTY_LABELS,
+        hoverIndex: -1,
+        hoverPosition: null,
+        theme,
+        drawStatic,
+        drawHover,
+    })
+
+    const valueText = value === null ? GAUGE_EMPTY_VALUE : formatValue(value)
+
+    const text = useMemo(() => {
+        if (!layout || layout.innerRadius <= 0) {
+            return null
+        }
+        return layoutGaugeText({
+            layout,
+            measure: measureLabelWidth,
+            fontFamily,
+            valueText,
+            labelText: label || null,
+        })
+    }, [layout, fontFamily, valueText, label])
+
+    const tooltipThreshold: GaugeTooltipThreshold | null =
+        valueIndex < 0
+            ? null
+            : {
+                  threshold: resolvedThresholds[valueIndex],
+                  from: valueIndex === 0 ? undefined : resolvedThresholds[valueIndex].value,
+                  to: valueIndex + 1 < resolvedThresholds.length ? resolvedThresholds[valueIndex + 1].value : undefined,
+              }
+
+    const canvasBounds = useCanvasBounds(canvasRef)
+    const [hoverRect, setHoverRect] = useState<DOMRect | null>(null)
+    const showTooltip = tooltipConfig?.enabled !== false
+
+    // Returning the previous rect while the gauge stays put lets React skip the re-render on every mousemove.
+    const onMouseMove = (e: React.MouseEvent<HTMLDivElement>): void => {
+        if (!layout || !showTooltip) {
+            return
+        }
+        const rect = e.currentTarget.getBoundingClientRect()
+        const hit = isOverGauge(layout, e.clientX - rect.left, e.clientY - rect.top)
+        setHoverRect((previous) =>
+            !hit ? null : previous && previous.left === rect.left && previous.top === rect.top ? previous : rect
+        )
+    }
+
+    const tooltipCtx: GaugeTooltipContext | null =
+        hoverRect && layout && showTooltip
+            ? {
+                  dataIndex: 0,
+                  label: label ?? '',
+                  seriesData: [],
+                  position: {
+                      x: layout.cx + layout.outerRadius * TOOLTIP_ANCHOR,
+                      y: layout.cy - layout.outerRadius * TOOLTIP_ANCHOR,
+                  },
+                  hoverPosition: null,
+                  canvasBounds: hoverRect,
+                  isPinned: false,
+                  value,
+                  min: bounds.min,
+                  max: bounds.max,
+                  threshold: tooltipThreshold,
+                  thresholdCount: resolvedThresholds.length,
+                  target,
+                  color: valueColor,
+                  formatValue,
+              }
+            : null
+
+    const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
+        if (!scales || !dimensions) {
+            return null
+        }
+        return {
+            scales,
+            dimensions,
+            labels: EMPTY_LABELS,
+            series: EMPTY_SERIES,
+            theme,
+            resolvePositionValue: defaultResolveValue,
+            canvasBounds,
+            axis: { orientation: 'vertical', xTickFormatter: undefined, isPercent: false },
+            yGutters: [],
+        }
+    }, [scales, dimensions, theme, canvasBounds])
+
+    const ariaLabel = [
+        label ? `${label}:` : 'Gauge:',
+        value === null ? 'no data' : valueText,
+        `of ${minText} to ${maxText}`,
+        tooltipThreshold?.threshold.label ? `(${tooltipThreshold.threshold.label})` : '',
+    ]
+        .filter(Boolean)
+        .join(' ')
+
+    return (
+        <ChartLayoutContext.Provider value={layoutValue}>
+            <ChartShell
+                wrapperRef={wrapperRef}
+                canvasRef={canvasRef}
+                overlayCanvasRef={overlayCanvasRef}
+                className={className}
+                dataAttr={dataAttr}
+                pointer={false}
+                ariaLabel={ariaLabel}
+                handlers={{ onMouseMove, onMouseLeave: () => setHoverRect(null), onClick: () => {} }}
+                showOverlay={!!layout}
+            >
+                <GaugeLabels
+                    text={text}
+                    ends={ends}
+                    empty={value === null}
+                    valueColor={valueColor}
+                    mutedColor={theme.axisColor}
+                />
+                {tooltipCtx ? (
+                    <Tooltip
+                        context={tooltipCtx}
+                        renderTooltip={(ctx) => (tooltip ? tooltip(ctx) : <GaugeTooltip ctx={ctx} />)}
+                        placement="follow-data"
+                    />
+                ) : null}
+            </ChartShell>
+        </ChartLayoutContext.Provider>
+    )
+}

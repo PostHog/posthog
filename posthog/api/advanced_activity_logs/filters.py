@@ -15,7 +15,7 @@ _ALLOWED_DETAIL_FILTER_OPERATIONS = {"exact", "contains", "in"}
 # and `name.regex` becomes `(detail ->> 'name')::text ~ <value>`, which evaluates an arbitrary
 # Postgres regular expression against every row. Computed from Django's registries so the set
 # stays correct when Django adds lookups.
-_DJANGO_LOOKUP_NAMES = frozenset(JSONField().get_lookups()) | frozenset(KeyTransform.get_lookups())
+_DJANGO_LOOKUP_NAMES = frozenset(JSONField().get_lookups()) | frozenset(KeyTransform.get_class_lookups())
 
 _MAX_DETAIL_FILTERS = 100
 _MAX_FIELD_PATH_LENGTH = 500
@@ -90,6 +90,23 @@ def _validate_detail_filter(field_path: Any, filter_config: Any) -> None:
             raise serializers.ValidationError(
                 f"Detail filter field path '{field_path}' uses reserved segment '{component}'."
             )
+
+
+def filters_match_change_values(filters: dict[str, Any]) -> bool:
+    """Whether the filters can match on logged change values (`changes[].before` / `changes[].after`)."""
+    if filters.get("search_text"):
+        return True
+    return any(
+        isinstance(filter_config, dict)
+        and filter_config.get("value") is not None
+        and _field_path_reaches_change_values(field_path)
+        for field_path, filter_config in (filters.get("detail_filters") or {}).items()
+    )
+
+
+def _field_path_reaches_change_values(field_path: str) -> bool:
+    # Array filters on `changes[]` search the whole serialized array, so any `changes` path can match values.
+    return field_path.split("[]")[0].split(".")[0] == "changes"
 
 
 class AdvancedActivityLogFilterManager:
