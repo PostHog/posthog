@@ -70,6 +70,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         entries = ActivityLog.objects.filter(team_id=self.team.id, scope="Group")
         self.assertTrue(entries.exists())
         for entry in entries:
+            assert isinstance(entry.detail, dict)
             self.assertEqual(entry.detail["context"], {"group_type_index": group_type_index})
 
     maxDiff = None
