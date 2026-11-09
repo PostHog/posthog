@@ -643,7 +643,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             and not _named_warehouse_tables(data["filters"].get("data_warehouse"))
         ):
             raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
-        self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
+        secret_inputs = dict(instance.encrypted_inputs or {}) if instance else {}
+        if instance and self.context.get("use_draft"):
+            # A staged secret keeps the binding it got when it was typed, so a later draft edit to its
+            # origins or URL input can't send it to another host during a test run.
+            secret_inputs.update(instance.draft_encrypted_inputs or {})
+        self.context["encrypted_inputs"] = secret_inputs
 
         template = None
         if data["template_id"]:
@@ -1419,19 +1424,14 @@ class HogFunctionViewSet(
 
     def _draft_test_configuration(self, hog_function: Optional[HogFunction]) -> dict:
         """The staged draft as a test-invocable configuration: live config with the draft's content
-        fields on top, staged secrets rehydrated in plaintext so the test exercises what publish
-        would ship. Secrets the draft doesn't stage stay as `{"secret": true}` markers, which
-        validation recovers from the live encrypted inputs."""
+        fields on top. Secrets stay as `{"secret": true}` markers, which validation recovers from the
+        staged encrypted inputs first and the live ones second, with the binding each was typed with."""
         if hog_function is None or not hog_function.draft:
             raise exceptions.ValidationError({"use_draft": "This function has no staged draft to test."})
 
         serialized = self.get_serializer(hog_function).data
         draft = serialized.get("draft") or {}
-        configuration = {**serialized, **{field: draft[field] for field in DRAFT_CONTENT_FIELDS if field in draft}}
-        inputs = dict(configuration.get("inputs") or {})
-        inputs.update(hog_function.draft_encrypted_inputs or {})
-        configuration["inputs"] = inputs
-        return configuration
+        return {**serialized, **{field: draft[field] for field in DRAFT_CONTENT_FIELDS if field in draft}}
 
     @extend_schema(
         request=HogFunctionInvocationSerializer,
@@ -1451,7 +1451,12 @@ class HogFunctionViewSet(
             raise exceptions.ValidationError({"configuration": "Required unless use_draft is true."})
 
         serializer = HogFunctionInvocationSerializer(
-            data=data, context={**self.get_serializer_context(), "instance": hog_function}
+            data=data,
+            context={
+                **self.get_serializer_context(),
+                "instance": hog_function,
+                "use_draft": bool(data.get("use_draft")),
+            },
         )
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)

@@ -202,8 +202,8 @@ def bind_secret_auth(declaration: dict[str, Any], inputs: dict[str, Any]) -> dic
     entry = inputs.get(origin_input)
     url = entry.get("value") if isinstance(entry, dict) else None
     origin = url_origin(url) if isinstance(url, str) and "{" not in url else None
-    if not origin:
+    if not origin or not origin.startswith("https://"):
         raise serializers.ValidationError(
-            f"Enter a full address in {origin_input}, such as https://example.com, before you save this secret."
+            f"Enter a full address in {origin_input}, starting with https://, before you save this secret."
         )
     return {**bound, "origins": [origin]}
