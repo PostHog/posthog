@@ -14,7 +14,7 @@ export function TodayTopBarSearch(): JSX.Element {
             variant="outline"
             left
             className="h-7 w-full justify-start gap-2 bg-[var(--today-paper)] px-2 font-normal text-muted-foreground hover:text-foreground"
-            onClick={() => toggleCommand('nav-search-bar')}
+            onClick={() => toggleCommand('today-top-bar')}
             data-attr="today-top-bar-search"
         >
             <IconSearch className="size-3.5 shrink-0" />

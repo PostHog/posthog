@@ -15,7 +15,7 @@ import { getCapacityRetryAt, getRetryCooldown } from 'lib/insights/sharedUtils'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import {
@@ -34,6 +34,7 @@ import { Query } from '~/queries/Query/Query'
 import { queryVizDefinitelyRendersToCanvas } from '~/queries/schema/node-accessors'
 import { isBIVisualizationNode } from '~/queries/schema/node-guards'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import type { QueryContext } from '~/queries/types'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -60,7 +61,7 @@ import { INSIGHT_CARD_KEY_ATTR, insightCardKey } from './insightCardImageCapture
 import { InsightMeta } from './InsightMeta'
 import { InsightVisualizationSkeleton } from './InsightVisualizationSkeleton'
 
-const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
+const IS_STORYBOOK = inStorybook()
 
 export function shouldRenderInsightCardViz({
     isStorybook,
@@ -175,6 +176,7 @@ export interface InsightCardProps extends Resizeable {
     projectTimezone?: string
     /** Shown above the title, for a card that has to name where its insight comes from. */
     contextHeading?: JSX.Element | null
+    onDateRangeZoom?: QueryContext['onDateRangeZoom']
 }
 
 function InsightCardInternal(
@@ -230,6 +232,7 @@ function InsightCardInternal(
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
+        onDateRangeZoom,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -435,6 +438,7 @@ function InsightCardInternal(
                         renderVizWhenMounted && placement === DashboardPlacement.Dashboard,
                     // Small tables keep natural column widths because their full row count is cheap to render.
                     dataVisualizationTableVirtualizationCellThreshold: 100,
+                    onDateRangeZoom,
                 }}
                 readOnly
                 embedded
@@ -454,6 +458,7 @@ function InsightCardInternal(
         biDashboardTileId,
         dashboardId,
         loadPriority,
+        onDateRangeZoom,
     ])
 
     const vizContent = shouldRenderViz ? (

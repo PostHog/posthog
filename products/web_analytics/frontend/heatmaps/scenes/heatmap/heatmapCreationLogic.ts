@@ -24,7 +24,7 @@ import { hasWildcard, heatmapUrlPatternToRegex, resolveHeatmapUrlFilter } from '
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { hogql } from 'lib/utils/hogql'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import type { SessionPlayerModalContext } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -547,7 +547,7 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
         authorizationDisabledReason: [
             () => [],
             (): string | null => {
-                if (inStorybook() || inStorybookTestRunner()) {
+                if (inStorybook()) {
                     return null
                 }
                 return getAccessControlDisabledReason(
