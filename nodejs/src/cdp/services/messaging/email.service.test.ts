@@ -1640,8 +1640,12 @@ describe('EmailService', () => {
 
         it.each([
             ['To', { to: { email: 'jo\u0000@example.com', name: 'Jo' } }, 'To "jo\\u0000@example.com"'],
-            ['CC', { cc: 'Ann <ok@example.com>; "Jo" <jo\u0001@example.com>' }, 'CC "jo\\u0001@example.com"'],
-            ['BCC', { bcc: '"jo(\u007F)"@example.com' }, 'BCC "jo(\\u007f)@example.com"'],
+            [
+                'CC',
+                { cc: 'ok@example.com, "Jo\u0001" <jo@example.com>' },
+                'CC "ok@example.com, "Jo\\u0001" <jo@example.com>"',
+            ],
+            ['BCC', { bcc: 'jo\u007F@example.com' }, 'BCC "jo\\u007f@example.com"'],
         ])('fails the send before any lookup when %s has a control character', async (_field, recipients, named) => {
             const isSuppressed = jest.spyOn(service['emailSuppressionService'], 'isSuppressed')
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, ...recipients })
@@ -1653,27 +1657,23 @@ describe('EmailService', () => {
             expect(isSuppressed).not.toHaveBeenCalled()
             expect(result).toMatchObject({
                 finished: true,
-                error: `Email not sent: an email address can't contain a control character. Fix the template or person property that fills ${named}.`,
+                error: `Email not sent: To, CC and BCC can't contain a control character. Fix the template or person property that fills ${named}.`,
             })
             expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_failed'])
         })
 
-        it.each([
-            [
-                'a template splits across lines',
-                'one@example.com,\n\ttwo@example.com\r\n',
-                ['one@example.com', 'two@example.com'],
-            ],
-            ['a control character in a display name', '"Jo\u0001 S" <jo@example.com>', ['"Jo S" <jo@example.com>']],
-        ])('sends to a cc list that %s', async (_case, cc, sentCc) => {
-            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, cc })
+        it('sends to a cc list that a template splits across lines', async () => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                cc: 'one@example.com,\n\ttwo@example.com\r\n',
+            })
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
             const result = await service.executeSendEmail(invocation)
 
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Destination.CcAddresses).toEqual(sentCc)
+            expect(sentCommand.input.Destination.CcAddresses).toEqual(['one@example.com', 'two@example.com'])
         })
 
         it.each([

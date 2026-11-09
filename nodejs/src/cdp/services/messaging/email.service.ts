@@ -638,7 +638,7 @@ export class EmailService {
             if (fieldsToFix.length > 0) {
                 failureReason = 'recipient_unreachable'
                 throw new Error(
-                    `Email not sent: an email address can't contain a control character. Fix the template or person property that fills ${fieldsToFix.join(' and ')}.`
+                    `Email not sent: To, CC and BCC can't contain a control character. Fix the template or person property that fills ${fieldsToFix.join(' and ')}.`
                 )
             }
 
