@@ -19,6 +19,7 @@ from posthog.dataclasses import frozen
 
 from products.engineering_analytics.backend.logic.sources import JobSourceTables, resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import depot_ci, job_costs, workflow_jobs, workflow_runs
+from products.engineering_analytics.backend.logic.views.materialized_columns import materialized_select
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -116,14 +117,14 @@ JOB_COLUMNS = tuple(column for column in JOB_FIELDS if column not in _SOURCE_FIE
 assert JOB_COLUMNS == (*workflow_jobs.COLUMNS, *job_costs.COST_COLUMNS, "is_handoff_shell")
 
 
-def _stored_rows(source: JobSourceTables, columns: tuple[str, ...], rows: str) -> str:
+def _stored_rows(source: JobSourceTables, fields: dict[str, FieldOrTable], columns: tuple[str, ...], rows: str) -> str:
     # GitHub names are case-insensitive, and a source can store them in either case.
     return f"""
         SELECT
             {escape_hogql_string(source.source_id)} AS source_id,
             {escape_hogql_string(source.repository.casefold())} AS repository,
-            {", ".join(columns)}
-        FROM ({rows})
+            {materialized_select({column: fields[column] for column in columns}, "stored")}
+        FROM ({rows}) AS stored
     """
 
 
@@ -142,7 +143,7 @@ def runs_select(source: JobSourceTables) -> str:
     rows = workflow_runs.build_query(
         _stored_runs(source), pull_requests_table=source.pull_requests, passthrough=depot_ci.STORED_RUN_COLUMNS
     )
-    return _stored_rows(source, RUN_COLUMNS, rows)
+    return _stored_rows(source, RUN_FIELDS, RUN_COLUMNS, rows)
 
 
 def jobs_select(source: JobSourceTables) -> str:
@@ -155,7 +156,7 @@ def jobs_select(source: JobSourceTables) -> str:
     else:
         shell = "0"
     rows = f"SELECT j.*, {shell} AS is_handoff_shell FROM ({rows}) AS j"
-    return _stored_rows(source, JOB_COLUMNS, rows)
+    return _stored_rows(source, JOB_FIELDS, JOB_COLUMNS, rows)
 
 
 @frozen
