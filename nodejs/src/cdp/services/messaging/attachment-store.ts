@@ -132,20 +132,24 @@ export class S3AttachmentStore implements AttachmentStore {
         const checksum = Buffer.from(sha256, 'hex').toString('base64')
         const urlExpiresAt = new Date(this.now().getTime() + UPLOAD_URL_LIFETIME_MS)
         try {
-            const url = await getSignedUrl(
-                this.signer,
-                new PutObjectCommand({
-                    Bucket: this.config.bucket,
-                    Key: key,
-                    ContentLength: size,
-                    ChecksumSHA256: checksum,
-                }),
-                {
-                    expiresIn: UPLOAD_URL_LIFETIME_MS / 1000,
-                    // The checksum stays a signed header, so the bucket refuses a body whose SHA-256 differs from the key.
-                    signableHeaders: new Set(['content-length', 'x-amz-checksum-sha256']),
-                    unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
-                }
+            // Signing takes no abort signal, and it can wait on a credential refresh over the network.
+            const url = await settleWithin(
+                this.config.timeoutMs,
+                getSignedUrl(
+                    this.signer,
+                    new PutObjectCommand({
+                        Bucket: this.config.bucket,
+                        Key: key,
+                        ContentLength: size,
+                        ChecksumSHA256: checksum,
+                    }),
+                    {
+                        expiresIn: UPLOAD_URL_LIFETIME_MS / 1000,
+                        // The checksum stays a signed header, so the bucket refuses a body whose SHA-256 differs from the key.
+                        signableHeaders: new Set(['content-length', 'x-amz-checksum-sha256']),
+                        unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
+                    }
+                )
             )
             return {
                 sha256,
@@ -167,6 +171,11 @@ export class S3AttachmentStore implements AttachmentStore {
         needsUntil: Date
     ): Promise<number | null> {
         const key = this.key(teamId, sha256)
+        if (needsUntil > this.latestKeepable()) {
+            throw new RangeError(
+                `A file can be kept until ${this.latestKeepable().toISOString()} at the latest, not ${needsUntil.toISOString()}`
+            )
+        }
         const head = await this.head(key)
         if (!head || (head.ChecksumSHA256 && head.ChecksumSHA256 !== Buffer.from(sha256, 'hex').toString('base64'))) {
             attachmentStoreFiles.labels({ operation, outcome: 'missing' }).inc()
@@ -179,6 +188,11 @@ export class S3AttachmentStore implements AttachmentStore {
             attachmentStoreFiles.labels({ operation, outcome: 'kept' }).inc()
         }
         return head.ContentLength ?? 0
+    }
+
+    // A self-copy keeps a file for one lifetime from the copy. S3 stores the copy's time to the second.
+    private latestKeepable(): Date {
+        return new Date(this.now().getTime() + ATTACHMENT_LIFETIME_MS - 1000)
     }
 
     private key(teamId: number, sha256: Sha256Hex): string {
@@ -243,6 +257,18 @@ export class S3AttachmentStore implements AttachmentStore {
 const expiryOf = (head: HeadObjectCommandOutput): Date =>
     new Date((head.LastModified?.getTime() ?? 0) + ATTACHMENT_LIFETIME_MS)
 
+async function settleWithin<T>(timeoutMs: number, promise: Promise<T>): Promise<T> {
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`No answer within ${timeoutMs} ms`)), timeoutMs)
+    })
+    try {
+        return await Promise.race([promise, timeout])
+    } finally {
+        clearTimeout(timer)
+    }
+}
+
 type AttachmentStoreSettings = Pick<
     CdpConfig,
     | 'CDP_EMAIL_ATTACHMENTS_S3_BUCKET'
@@ -267,6 +293,9 @@ export function credentialsThatOutliveUploadUrls(base: SigningCredentialsProvide
     return async () => {
         const cached = await base()
         const credentials = outlivesAnUploadUrl(cached) ? cached : await base({ forceRefresh: true })
+        if (!outlivesAnUploadUrl(credentials)) {
+            throw new Error('The signing credentials expire before an upload URL would, even after a refresh')
+        }
         return credentials.expiration
             ? {
                   ...credentials,
