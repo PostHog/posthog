@@ -14363,6 +14363,7 @@ export namespace Schemas {
     } as const;
 
     export interface Annotation {
+      /** Unique ID of the annotation. */
       readonly id: number;
       /**
          * Annotation text shown on charts to describe the change, release, or incident.
@@ -14390,17 +14391,34 @@ export namespace Schemas {
          * @nullable
          */
       dashboard_id?: number | null;
-      /** @nullable */
+      /**
+         * Name of the dashboard in `dashboard_id`, or null when there is none.
+         * @nullable
+         */
       readonly dashboard_name: string | null;
-      /** @nullable */
+      /**
+         * Short ID of the insight in `dashboard_item`, or null when there is none.
+         * @nullable
+         */
       readonly insight_short_id: string | null;
-      /** @nullable */
+      /**
+         * Name of the insight in `dashboard_item`, or null when it has none.
+         * @nullable
+         */
       readonly insight_name: string | null;
-      /** @nullable */
+      /**
+         * Generated name of the insight in `dashboard_item`, shown when the insight has no name.
+         * @nullable
+         */
       readonly insight_derived_name: string | null;
+      /** User who created the annotation. */
       readonly created_by: UserBasic;
-      /** @nullable */
+      /**
+         * When the annotation was created.
+         * @nullable
+         */
       readonly created_at: string | null;
+      /** When the annotation was last changed. */
       readonly updated_at: string;
       /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
       deleted?: boolean;
@@ -14870,6 +14888,10 @@ export namespace Schemas {
       watched_insights: number;
       /** Insights with at least one scored bucket in the range. Results cover only these insights. */
       insights_scored_in_range: number;
+      /** Distinct UTC days with a scored daily bucket of any insight series in the last 28 days. It does not follow the requested range, and it counts scores written before scoring was turned off. */
+      scored_days: number;
+      /** True when `scored_days` is 14 or more. Until then the project has too little scored history to rely on its scores, even when `scoring_enabled` is true. */
+      scored_history_ready: boolean;
       /** The applied start of the range, in the project timezone. */
       date_from: string;
       /** The applied end of the range, in the project timezone. */
@@ -43379,13 +43401,39 @@ export namespace Schemas {
       readonly default_period_deletes: boolean;
     }
 
+    /**
+     * * `1` - 1 month
+     * * `3` - 3 months
+     * * `12` - 1 year
+     * * `24` - 2 years
+     * * `36` - 3 years
+     * * `60` - 5 years
+     * * `84` - 7 years
+     */
+    export type EventsRetentionMonthsEnum = typeof EventsRetentionMonthsEnum[keyof typeof EventsRetentionMonthsEnum];
+
+
+    export const EventsRetentionMonthsEnum = {
+      Number1: 1,
+      Number3: 3,
+      Number12: 12,
+      Number24: 24,
+      Number36: 36,
+      Number60: 60,
+      Number84: 84,
+    } as const;
+
     export interface EventsRetentionUpdate {
-      /**
-         * The period in months, one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.
-         * @minimum 1
-         * @nullable
-         */
-      retention_months: number | null;
+      /** The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.
+       *
+       * * `1` - 1 month
+       * * `3` - 3 months
+       * * `12` - 1 year
+       * * `24` - 2 years
+       * * `36` - 3 years
+       * * `60` - 5 years
+       * * `84` - 7 years */
+      retention_months: EventsRetentionMonthsEnum | null;
     }
 
     export interface ExcerptChoice {
@@ -81746,6 +81794,7 @@ export namespace Schemas {
     }
 
     export interface PatchedAnnotation {
+      /** Unique ID of the annotation. */
       readonly id?: number;
       /**
          * Annotation text shown on charts to describe the change, release, or incident.
@@ -81773,17 +81822,34 @@ export namespace Schemas {
          * @nullable
          */
       dashboard_id?: number | null;
-      /** @nullable */
+      /**
+         * Name of the dashboard in `dashboard_id`, or null when there is none.
+         * @nullable
+         */
       readonly dashboard_name?: string | null;
-      /** @nullable */
+      /**
+         * Short ID of the insight in `dashboard_item`, or null when there is none.
+         * @nullable
+         */
       readonly insight_short_id?: string | null;
-      /** @nullable */
+      /**
+         * Name of the insight in `dashboard_item`, or null when it has none.
+         * @nullable
+         */
       readonly insight_name?: string | null;
-      /** @nullable */
+      /**
+         * Generated name of the insight in `dashboard_item`, shown when the insight has no name.
+         * @nullable
+         */
       readonly insight_derived_name?: string | null;
+      /** User who created the annotation. */
       readonly created_by?: UserBasic;
-      /** @nullable */
+      /**
+         * When the annotation was created.
+         * @nullable
+         */
       readonly created_at?: string | null;
+      /** When the annotation was last changed. */
       readonly updated_at?: string;
       /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
       deleted?: boolean;
