@@ -360,8 +360,6 @@ Pass dates are dates in that local time zone, so the date shown in settings is t
 
 A billing sync that lengthens the plan period writes the organization's rows straight away, so a downgrade soon after still sees the longer period.
 A billing sync that shortens the plan period checks each team's period under the previous and the new plan, each with its own standard retention feature.
-In between, it clears each set period above the new plan period, both team values and the organization's default, and logs each one in the activity log.
-Those teams then use their default period, so their shorter period waits for a pass at least 3 months out, like a team that never set one.
 It does nothing more when no team's period gets shorter, for example when every team has a set period within the new plan.
 Otherwise it writes the rows of those teams straight away, the same way a settings save does.
 The sync then queues the Celery task `report_events_retention_shortened`, which sends an `events retention period shortened` event to each organization admin, with the previous and new plan periods and the first pass past the shorter period.

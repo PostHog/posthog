@@ -19,11 +19,22 @@ export interface EventsRetentionPeriodSelectProps extends RetentionPeriods, Even
     onSave: (months: number | null) => void
 }
 
+function savedPeriodNote(retentionMonths: number | null, planMonths: number): string | null {
+    if (retentionMonths === null) {
+        return null
+    }
+    if (retentionMonths > planMonths) {
+        return `The saved period of ${retentionPeriodLabel(retentionMonths)} is longer than your plan allows, so events are kept for ${retentionPeriodLabel(planMonths)}.`
+    }
+    return 'Older events are deleted once a month, so some are kept up to about a month longer.'
+}
+
 export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectProps): JSX.Element {
     const {
         retentionMonths,
         defaultMonths,
         choices,
+        planMonths,
         level,
         scope,
         owner,
@@ -36,6 +47,7 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
     const [changingSupportPeriod, setChangingSupportPeriod] = useState(false)
     const options = eventsRetentionPeriodOptions(props)
     const supportMonths = retentionMonths !== null && !choices.includes(retentionMonths) ? retentionMonths : null
+    const periodNote = savedPeriodNote(retentionMonths, planMonths)
 
     const confirm = (months: number | null): void => {
         const period = retentionPeriodLabel(months ?? defaultMonths)
@@ -92,9 +104,7 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
             )}
             <p className="mb-0 text-xs text-secondary">
                 <span>{note}</span>
-                {retentionMonths !== null && (
-                    <span> Older events are deleted once a month, so some are kept up to about a month longer.</span>
-                )}
+                {periodNote && <span> {periodNote}</span>}
             </p>
             {supportMonths !== null && changingSupportPeriod && (
                 <EventsRetentionSupportPeriodModal
