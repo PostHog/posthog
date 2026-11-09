@@ -18,6 +18,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.dataclasses import frozen
 from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
@@ -115,13 +116,22 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
         )
 
 
-def _load_senders(integration_ids: set[int], context: dict, *, team_id: int) -> dict[int, tuple[str, str]]:
+@frozen
+class _SenderRow:
+    kind: str
+    domain: str
+
+
+_NO_SENDER_ROW = _SenderRow(kind="", domain="")
+
+
+def _load_senders(integration_ids: set[int], context: dict, *, team_id: int) -> dict[int, _SenderRow]:
     """The kind and verified domain of each sender row, or empty strings for an id with no row.
 
     A drip sequence validates one action at a time, so the rows go in a request-scoped cache.
     """
     shared_cache = context.get("email_integration_domain_cache")
-    cache: dict[int, tuple[str, str]] = shared_cache if isinstance(shared_cache, dict) else {}
+    cache: dict[int, _SenderRow] = shared_cache if isinstance(shared_cache, dict) else {}
     missing_ids = [integration_id for integration_id in integration_ids if integration_id not in cache]
     if missing_ids:
         for row in IntegrationManager.any.with_source_rows().get_many(team_id, missing_ids).values():
@@ -129,9 +139,9 @@ def _load_senders(integration_ids: set[int], context: dict, *, team_id: int) -> 
             domain = (
                 (config.get("domain") or email_domain(config.get("email") or "") or "") if row.kind == "email" else ""
             )
-            cache[row.id] = (row.kind, domain.lower())
+            cache[row.id] = _SenderRow(kind=row.kind, domain=domain.lower())
         for integration_id in missing_ids:
-            cache.setdefault(integration_id, ("", ""))
+            cache.setdefault(integration_id, _NO_SENDER_ROW)
     return {integration_id: cache[integration_id] for integration_id in integration_ids}
 
 
@@ -154,7 +164,7 @@ def _validate_email_sender_kind(from_value: dict, context: dict) -> None:
     if not new_ids:
         return
     senders = _load_senders(new_ids, context, team_id=get_team().id)
-    if any(kind and kind != "email" for kind, _domain in senders.values()):
+    if any(sender.kind and sender.kind != "email" for sender in senders.values()):
         raise serializers.ValidationError(
             {"input": "This sender can't send email from a workflow. Choose a verified email sender."}
         )
@@ -237,7 +247,7 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     senders = _load_senders(integration_ids, context, team_id=get_team().id)
 
     for integration_id in sorted(integration_ids):
-        integration_domain = senders[integration_id][1]
+        integration_domain = senders[integration_id].domain
         if integration_domain and override_domain != integration_domain:
             raise serializers.ValidationError(
                 {
