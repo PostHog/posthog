@@ -45,6 +45,7 @@ import {
 } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
+import { LARGEST_SEND_FILE_BYTES } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
@@ -1104,6 +1105,25 @@ describe('EmailService', () => {
                 expect(result.logs.map((log) => log.message).join(' ')).toContain('reached its email sending limit of')
             })
 
+            // Each queueMetadata below is what the release before attachment load retries wrote for that reschedule.
+            it.each([
+                ['a team cap delay', { originQueue: 'hogflow', originPriority: 2, teamCapped: true }],
+                [
+                    'a failed suppression lookup',
+                    { originQueue: 'hogflow', originPriority: 2, suppressionLookupAttempts: 1 },
+                ],
+                ['an SES throttle', { originQueue: 'hogflow', originPriority: 2 }],
+            ])('charges and sends a job the previous release rescheduled after %s', async (_name, queueMetadata) => {
+                claimAllOrNothing.mockResolvedValue({ granted: true, retryAfterMs: null })
+
+                const result = await cappedService.executeSendEmail({ ...invocation, queueMetadata })
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeUndefined()
+                expect(cappedSendSpy).toHaveBeenCalledTimes(1)
+                expect(claimAllOrNothing).toHaveBeenCalledTimes(1)
+            })
+
             it('retries on the token bucket cadence when the limiter reports no horizon', async () => {
                 // A Valkey fault denies with no horizon. Parking on the daily cap's pacing
                 // interval would hold the email long after the limiter recovered.
@@ -1452,9 +1472,17 @@ describe('EmailService', () => {
                 attachments: [{ ...attachmentFile().metadata, filename: 'report.pdf' }],
             })
         }
+        const filesTooLarge = (): void => {
+            sesAccepts()
+            service['attachmentStore'] = attachmentStore
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                attachments: [{ ...attachmentFile().metadata, sizeBytes: LARGEST_SEND_FILE_BYTES + 1 }],
+            })
+        }
         const filesUnreachableAfterEveryRetry = (): void => {
             filesGone()
-            invocation.queueMetadata = { attachmentLoadTries: 10 }
+            invocation.queueMetadata = { attachmentLoadRetries: 10 }
             jest.spyOn(attachmentStore, 'load').mockRejectedValue(
                 new AttachmentStoreUnavailableError(new Error('connect ECONNREFUSED'))
             )
@@ -1585,7 +1613,7 @@ describe('EmailService', () => {
                     expect(paced.finished).toBe(false)
                     expect(paced.invocation.queueParameters).toEqual(invocation.queueParameters)
                     expect(paced.invocation.queueMetadata).toMatchObject({
-                        attachmentLoadTries: 1,
+                        attachmentLoadRetries: 1,
                         teamBudgetClaimed: true,
                     })
                     expect(result.finished).toBe(true)
@@ -1608,50 +1636,94 @@ describe('EmailService', () => {
                 expect(result.error).toMatch(/^attachments_missing: /)
             })
 
+            const loadRetry = { finished: false, error: undefined, loadRetries: 1, rescheduled: true, failed: false }
+
             it.each([
                 [
                     'the store does not answer',
+                    'reschedules the send as a load retry',
                     () =>
                         jest.spyOn(attachmentStore, 'load').mockImplementation((_teamId, _files, signal) =>
                             rejectOnAbort(signal).catch((error) => {
                                 throw new AttachmentStoreUnavailableError(error)
                             })
                         ),
+                    loadRetry,
                 ],
                 [
                     'the SES client never gets its credentials',
+                    'reschedules the send as a load retry',
                     () => {
                         service.sesV2Client = new SESv2Client({
                             region: 'us-east-1',
                             credentials: () => new Promise<never>(() => {}),
                         })
                     },
+                    loadRetry,
                 ],
-            ])('reschedules the send as a load retry when %s past the deadline', async (_name, hang) => {
+                [
+                    'SES receives the request and does not answer',
+                    'fails the send without a retry, because SES may have sent it',
+                    () => {
+                        service.sesV2Client = new SESv2Client({
+                            region: 'us-east-1',
+                            credentials: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' },
+                            requestHandler: {
+                                handle: (_request: unknown, options?: { abortSignal?: AbortSignal }) =>
+                                    rejectOnAbort(options!.abortSignal!),
+                                updateHttpClientConfig: () => {},
+                                httpHandlerConfigs: () => ({}),
+                            },
+                        })
+                    },
+                    {
+                        finished: true,
+                        error: expect.stringMatching(/^Failed to send email via SES: /),
+                        loadRetries: undefined,
+                        rescheduled: false,
+                        failed: true,
+                    },
+                ],
+            ])('when %s past the deadline, %s', async (_name, _outcome, hang, expected) => {
                 service['sesConfig'].attachmentSendDeadlineMs = 100
                 hang()
 
                 const result = await service.executeSendEmail(invocation)
 
-                expect(result.finished).toBe(false)
-                expect(result.error).toBeUndefined()
-                expect(result.invocation.queueMetadata).toMatchObject({ attachmentLoadTries: 1 })
-                expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
-                expect(result.metrics.map((metric) => metric.metric_name)).not.toContain('email_failed')
+                expect({
+                    finished: result.finished,
+                    error: result.error,
+                    loadRetries: result.invocation.queueMetadata?.attachmentLoadRetries,
+                    rescheduled: (result.invocation.queueScheduledAt?.toMillis() ?? 0) > Date.now(),
+                    failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
+                }).toEqual(expected)
             })
 
             it.each([
-                [9, 'retries once more', false, undefined],
-                [10, 'fails as attachment_unavailable', true, expect.stringMatching(/^attachment_unavailable: /)],
+                [9, false, 'retries once more', false, undefined],
+                [
+                    10,
+                    false,
+                    'fails as attachment_unavailable',
+                    true,
+                    expect.stringMatching(/^attachment_unavailable: /),
+                ],
+                [
+                    0,
+                    true,
+                    'fails a test send at once as attachment_unavailable',
+                    true,
+                    expect.stringMatching(/^attachment_unavailable: .* in 1 try,/),
+                ],
             ])(
-                'after %s load retries, %s when the store still does not answer',
-                async (retriesSoFar, _outcome, finished, error) => {
-                    invocation.queueMetadata = { attachmentLoadTries: retriesSoFar }
+                'after %s load retries (test send: %s), %s when the store still does not answer',
+                async (retriesSoFar, isTest, _outcome, finished, error) => {
+                    invocation.queueMetadata = { attachmentLoadRetries: retriesSoFar }
                     jest.spyOn(attachmentStore, 'load').mockRejectedValue(
                         new AttachmentStoreUnavailableError(new Error('connect ECONNREFUSED'))
                     )
 
-                    const result = await service.executeSendEmail(invocation)
+                    const result = await service.executeSendEmail(invocation, isTest)
 
                     expect(result.finished).toBe(finished)
                     expect(result.error).toEqual(error)
@@ -1733,6 +1805,14 @@ describe('EmailService', () => {
                 'attachments_missing',
             ],
             [
+                'a transactional email whose files are larger than one email can carry',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                filesTooLarge,
+                'failed',
+                'message_too_large',
+            ],
+            [
                 'a transactional email whose files could not be loaded in any retry',
                 TRANSACTIONAL_EMAIL_EVENT,
                 false,
@@ -1771,7 +1851,8 @@ describe('EmailService', () => {
                 status === 'sent' ||
                 reason === 'provider_error' ||
                 reason === 'attachments_missing' ||
-                reason === 'attachment_unavailable'
+                reason === 'attachment_unavailable' ||
+                reason === 'message_too_large'
                     ? 'posthog-test.com'
                     : ''
             expect(rows).toEqual(

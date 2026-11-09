@@ -390,21 +390,21 @@ describe('CyclotronJobQueuePostgresV2', () => {
     })
 
     describe('deferInvocations', () => {
-        async function latenessSamples(wait: string): Promise<number> {
+        async function latenessSamples(wait: string, series: 'count' | 'sum' = 'count'): Promise<number> {
             const metric = register.getSingleMetric('cdp_cyclotron_job_lateness_seconds')
             const samples = metric ? (await metric.get()).values : []
             return (
                 samples.find(
                     (sample) =>
                         'metricName' in sample &&
-                        sample.metricName === 'cdp_cyclotron_job_lateness_seconds_count' &&
+                        sample.metricName === `cdp_cyclotron_job_lateness_seconds_${series}` &&
                         sample.labels.queue === 'email' &&
                         sample.labels.wait === wait
                 )?.value ?? 0
             )
         }
 
-        it('hands a job back with its deferral count, and counts its next dequeue as deferred lateness', async () => {
+        it('hands a job back with its deferral state, and counts its next dequeue as late from its first due time', async () => {
             const { queue } = createQueue()
             let consume: (jobs: CyclotronV2DequeuedJob[]) => Promise<void> = () => Promise.resolve()
             jest.spyOn(queue as any, 'createWorker').mockReturnValue({
@@ -424,7 +424,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
                         ...baseInvocation,
                         id: job.id,
                         queue: 'email',
-                        queueMetadata: { attachmentDeferrals: 1 },
+                        queueMetadata: { attachmentDeferrals: 1, attachmentDueAt: Date.now() - 60_000 },
                     },
                     scheduledAt,
                 },
@@ -435,6 +435,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             const [[{ state }]] = job.defer.mock.calls
             const before = {
                 deferred: await latenessSamples('deferred'),
+                deferredSeconds: await latenessSamples('deferred', 'sum'),
                 scheduled: await latenessSamples('scheduled'),
             }
             const dequeued = (overrides: Record<string, any>) =>
@@ -446,6 +447,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
                 }) as unknown as CyclotronV2DequeuedJob
             await consume([dequeued({ id: job.id, state }), dequeued({})])
             expect(await latenessSamples('deferred')).toBe(before.deferred + 1)
+            expect((await latenessSamples('deferred', 'sum')) - before.deferredSeconds).toBeGreaterThanOrEqual(60)
             expect(await latenessSamples('scheduled')).toBe(before.scheduled + 1)
         })
     })
@@ -505,6 +507,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
         type BatchOptions = {
             stopConsuming?: () => Promise<void>
             disconnect?: () => Promise<void>
+            disconnectProducer?: () => Promise<void>
             jobs?: CyclotronV2DequeuedJob[]
         }
 
@@ -514,6 +517,10 @@ describe('CyclotronJobQueuePostgresV2', () => {
         ): Promise<{ queue: any; steps: string[] }> {
             const { queue } = createQueue()
             const steps: string[] = []
+            ;(queue as any).manager.disconnect = async () => {
+                steps.push('close producer pool')
+                await options.disconnectProducer?.()
+            }
             let consume: (jobs: CyclotronV2DequeuedJob[]) => Promise<void> = () => Promise.resolve()
             jest.spyOn(queue as any, 'createWorker').mockReturnValue({
                 connect: (fn: typeof consume) => {
@@ -573,6 +580,11 @@ describe('CyclotronJobQueuePostgresV2', () => {
                 () => Promise.resolve(),
                 { disconnect: () => new Promise<void>(() => {}) },
             ],
+            [
+                'closing the producer pool hangs on a blocked insert',
+                () => Promise.resolve(),
+                { disconnectProducer: () => new Promise<void>(() => {}) },
+            ],
         ])(
             'returns at the stop deadline, counted from the start of the stop, when %s',
             async (_name, write, options) => {
@@ -581,13 +593,16 @@ describe('CyclotronJobQueuePostgresV2', () => {
                     const { queue, steps } = await consumeOneBatch(write, options)
                     let returned = false
 
-                    const stopped = queue.stopConsumer().then(() => (returned = true))
+                    const stopped = queue
+                        .stopConsumer()
+                        .then(() => queue.stopProducer())
+                        .then(() => (returned = true))
                     await jest.advanceTimersByTimeAsync(CONSUMER_STOP_DEADLINE_MS - 1)
                     expect(returned).toBe(false)
                     await jest.advanceTimersByTimeAsync(1)
                     await stopped
 
-                    expect(steps).toEqual(['stop dequeuing', 'close pool'])
+                    expect(steps).toEqual(['stop dequeuing', 'close pool', 'close producer pool'])
                 } finally {
                     jest.useRealTimers()
                 }

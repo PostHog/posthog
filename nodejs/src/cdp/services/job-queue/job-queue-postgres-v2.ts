@@ -4,10 +4,12 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { settleAllThenThrowFirst } from '../../utils/settle-all'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
 import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { JobQueue } from './job-queue.interface'
@@ -31,8 +33,7 @@ const jobLatenessHistogram = new Histogram({
     buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900],
 })
 
-// Counted from the start of the stop. It covers one send with files (20 s deadline) under the default 30 s termination
-// grace; work still running after it is left to the janitor's stall reset.
+// Counted from the start of the stop, to fit one send with files (20 s deadline) in the default 30 s termination grace.
 export const CONSUMER_STOP_DEADLINE_MS = 25_000
 
 async function settleBefore(deadline: number, work: Promise<unknown>): Promise<boolean> {
@@ -67,7 +68,9 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
-    private resultWrites = new Set<Promise<unknown>>()
+    // Tracked per write: a batch's writes run in a fail-fast Promise.all, so the batch can reject while siblings write.
+    private resultWrites = new PromiseScheduler()
+    private stopDeadline?: number
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
 
     constructor(
@@ -138,9 +141,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 this.pendingJobs.set(job.id, job)
                 const invocation = v2JobToInvocation(job)
                 invocations.push(invocation)
-                jobLatenessHistogram
-                    .labels({ queue, wait: invocation.queueMetadata?.attachmentDeferrals ? 'deferred' : 'scheduled' })
-                    .observe(Math.max(0, now - job.scheduled.toMillis()) / 1000)
+                const { wait, dueAt } = dueTimeOf(job, invocation)
+                jobLatenessHistogram.labels({ queue, wait }).observe(Math.max(0, now - dueAt) / 1000)
             }
 
             pendingJobsGauge.set(this.pendingJobs.size)
@@ -153,14 +155,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             })
 
             const { backgroundTask } = await consumeBatch(invocations)
-            void this.trackWrite(backgroundTask)
-            void backgroundTask.catch((error) => {
-                resultWriteFailuresCounter.labels({ queue }).inc()
-                logger.warn('CyclotronV2 failed to write batch results', {
-                    queue,
-                    error: String(error),
-                })
-            })
+            void this.resultWrites.schedule(backgroundTask)
+            void backgroundTask.catch((error) => reportResultWriteFailure(queue, error))
 
             pendingJobsGauge.set(this.pendingJobs.size)
         })
@@ -172,33 +168,26 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             return
         }
         const deadline = Date.now() + CONSUMER_STOP_DEADLINE_MS
+        this.stopDeadline = deadline
         const drained = await settleBefore(
             deadline,
             worker.stopConsuming().then(() => this.drainWrites())
         )
         if (!drained) {
             logger.warn('CyclotronV2 stop deadline passed with work still running; the janitor resets its jobs', {
-                writes: this.resultWrites.size,
+                writes: this.resultWrites.promises.size,
             })
         }
-        // pg's Pool.end() waits for every checked-out client, so a blocked query would hold the stop forever. Past the
-        // deadline the pool keeps closing in the background and the process exit drops its connections.
+        // pg's Pool.end() waits for every checked-out client, so a blocked query would hold the stop forever.
         if (!(await settleBefore(deadline, worker.disconnect()))) {
             logger.warn('CyclotronV2 stop deadline passed before the pool closed')
         }
         this.worker = undefined
     }
 
-    // Tracked per write: a batch's writes run in a fail-fast Promise.all, so the batch can reject while siblings write.
-    private trackWrite<T>(write: Promise<T>): Promise<T> {
-        this.resultWrites.add(write)
-        void write.finally(() => this.resultWrites.delete(write)).catch(() => {})
-        return write
-    }
-
     private async drainWrites(): Promise<void> {
-        while (this.resultWrites.size > 0) {
-            await Promise.allSettled([...this.resultWrites])
+        while (this.resultWrites.promises.size > 0) {
+            await this.resultWrites.waitForAllSettled()
         }
     }
 
@@ -210,7 +199,16 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     }
 
     public async stopProducer(): Promise<void> {
-        await this.manager?.disconnect()
+        const manager = this.manager
+        if (!manager) {
+            return
+        }
+        // A batch that outlived the consumer's stop deadline can still hold this pool in bulkCreateJobs.
+        if (this.stopDeadline === undefined) {
+            await manager.disconnect()
+        } else if (!(await settleBefore(this.stopDeadline, manager.disconnect()))) {
+            logger.warn('CyclotronV2 stop deadline passed before the producer pool closed')
+        }
         this.manager = undefined
     }
 
@@ -279,7 +277,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         const sanitizedResults = this.sanitizer.sanitizeResults(invocationResults)
 
-        await everyWrite(
+        await settleAllThenThrowFirst(
             sanitizedResults.map(async (result) => {
                 const job = this.pendingJobs.get(result.invocation.id)
                 if (!job) {
@@ -293,7 +291,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 }
 
                 try {
-                    await this.trackWrite(this.writeResult(job, result))
+                    await this.resultWrites.schedule(this.writeResult(job, result))
                 } finally {
                     this.forgetPendingJob(job)
                 }
@@ -317,10 +315,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 personId: extractPersonId(result.invocation),
                 actionId: extractActionId(result.invocation),
                 queueName: result.invocation.queue,
-                // Persisted only across email-queue transitions: entering carries the
-                // class routeEmailToQueue assigned, leaving restores the origin
-                // priority. Elsewhere the row keeps its insert-time priority, so the
-                // in-memory retry bumps on other queues stay unpersisted as before.
+                // Persisted only across email-queue transitions (routeEmailToQueue's class in, origin priority out), so
+                // in-memory retry bumps on other queues stay unpersisted.
                 priority:
                     result.invocation.queue === 'email' || job.queueName === 'email'
                         ? result.invocation.queuePriority
@@ -335,7 +331,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 const job = this.pendingJobs.get(inv.id)
                 if (job) {
                     try {
-                        await this.trackWrite(job.fail())
+                        await this.resultWrites.schedule(job.fail())
                     } finally {
                         this.forgetPendingJob(job)
                     }
@@ -350,7 +346,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 const job = this.pendingJobs.get(inv.id)
                 if (job) {
                     try {
-                        await this.trackWrite(job.ack())
+                        await this.resultWrites.schedule(job.ack())
                     } finally {
                         this.forgetPendingJob(job)
                     }
@@ -362,12 +358,12 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     public async deferInvocations(
         deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]
     ): Promise<void> {
-        await everyWrite(
+        await settleAllThenThrowFirst(
             deferrals.map(async ({ invocation, scheduledAt }) => {
                 const job = this.pendingJobs.get(invocation.id)
                 if (job) {
                     try {
-                        await this.trackWrite(job.defer({ scheduledAt, state: serializeState(invocation) }))
+                        await this.resultWrites.schedule(job.defer({ scheduledAt, state: serializeState(invocation) }))
                     } finally {
                         this.forgetPendingJob(job)
                     }
@@ -388,7 +384,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 } catch (err) {
                     const message = err instanceof Error ? err.message : String(err)
                     if (message.includes('already released')) {
-                        // Benign race with ack/fail/reschedule flipping `released` on the wrapper.
+                        // Benign race: the release write settled first, so the wrapper refuses the heartbeat.
                         logger.debug('CyclotronV2 heartbeat skipped for released job', { id: inv.id })
                     } else {
                         // Real failure (connection error, pool exhaustion, query timeout) —
@@ -403,13 +399,20 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     }
 }
 
-// The batch stops heartbeating once its writes settle, so a failed write is reported only after every other one landed.
-async function everyWrite(writes: Promise<unknown>[]): Promise<void> {
-    const settled = await Promise.allSettled(writes)
-    const failed = settled.find((write): write is PromiseRejectedResult => write.status === 'rejected')
-    if (failed) {
-        throw failed.reason
-    }
+export function reportResultWriteFailure(queue: string, error: unknown): void {
+    resultWriteFailuresCounter.labels({ queue }).inc()
+    logger.warn('CyclotronV2 failed to write batch results', { queue, error: String(error) })
+}
+
+// A deferral moves the job's scheduled time, so a deferred job is late from when it first became due.
+function dueTimeOf(
+    job: CyclotronV2DequeuedJob,
+    invocation: CyclotronJobInvocation
+): { wait: 'deferred' | 'scheduled'; dueAt: number } {
+    const firstDueAt = invocation.queueMetadata?.attachmentDueAt
+    return typeof firstDueAt === 'number'
+        ? { wait: 'deferred', dueAt: firstDueAt }
+        : { wait: 'scheduled', dueAt: job.scheduled.toMillis() }
 }
 
 function serializeState(invocation: CyclotronJobInvocation): Buffer {
@@ -463,7 +466,21 @@ export function extractActionId(invocation: CyclotronJobInvocation): string | nu
     return (invocation as LookupColumnSource).state?.currentAction?.id || null
 }
 
-export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
+type CyclotronV2JobData = Pick<
+    CyclotronV2DequeuedJob,
+    | 'id'
+    | 'teamId'
+    | 'functionId'
+    | 'queueName'
+    | 'priority'
+    | 'scheduled'
+    | 'created'
+    | 'parentRunId'
+    | 'state'
+    | 'cancelRequestedAt'
+>
+
+export function v2JobToInvocation(job: CyclotronV2JobData): CyclotronJobInvocation {
     let parsed: SerializedJobState = { state: null }
 
     if (job.state) {
