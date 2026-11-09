@@ -85,25 +85,39 @@ class SameAggregationTopNRule:
     scalar_functions = frozenset(
         {"toDate", "toDateTime", "toString", "if", "ifNull", "coalesce", "isNull", "isNotNull"}
     )
-    identifier_fields = frozenset(
-        {
-            "distinct_id",
-            "person_id",
-            "uuid",
-            "id",
-            "session_id",
-            "$session_id",
-            "$window_id",
-            "$device_id",
-            "$user_id",
-            "$anon_distinct_id",
-            "$insert_id",
-        }
+    bucket_functions = frozenset(
+        {"toDate", "toStartOfDay", "toStartOfWeek", "toStartOfMonth", "toStartOfQuarter", "toStartOfYear"}
     )
 
     @classmethod
-    def _groups_by_identifier(cls, node: ast.SelectQuery) -> bool:
-        # The fused query fully sorts the aggregate, which runs out of memory at one group per user or event.
+    def _bounded(cls, expr: ast.Expr, aliases: dict[str, ast.Expr], expanding: frozenset[str]) -> bool:
+        if isinstance(expr, ast.Constant):
+            return True
+        if isinstance(expr, ast.Alias):
+            return cls._bounded(expr.expr, aliases, expanding)
+        if isinstance(expr, ast.Field):
+            names = [part for part in expr.chain if isinstance(part, str)]
+            if len(names) == 1 and names[0] in aliases and names[0] not in expanding:
+                return cls._bounded(aliases[names[0]], aliases, expanding | {names[0]})
+            return bool(names) and names[-1] == "event" and "properties" not in names
+        if isinstance(expr, ast.Call):
+            if expr.name in cls.bucket_functions and expr.args:
+                first = expr.args[0]
+                names = [part for part in first.chain if isinstance(part, str)] if isinstance(first, ast.Field) else []
+                if names and names[-1] == "timestamp" and "properties" not in names:
+                    return all(isinstance(arg, ast.Constant) for arg in expr.args[1:])
+            return all(cls._bounded(arg, aliases, expanding) for arg in expr.args)
+        if isinstance(expr, ast.CompareOperation):
+            return cls._bounded(expr.left, aliases, expanding) and cls._bounded(expr.right, aliases, expanding)
+        if isinstance(expr, ast.And | ast.Or | ast.Tuple | ast.Array):
+            return all(cls._bounded(child, aliases, expanding) for child in expr.exprs)
+        if isinstance(expr, ast.Not):
+            return cls._bounded(expr.expr, aliases, expanding)
+        return False
+
+    @classmethod
+    def _has_unbounded_grouping(cls, node: ast.SelectQuery) -> bool:
+        # The fused query fully sorts the aggregate, so only groupings with a known small number of values are safe.
         aliases: dict[str, ast.Expr] = {}
         source: ast.SelectQuery | None = node
         while source is not None:
@@ -112,21 +126,7 @@ class SameAggregationTopNRule:
                     aliases.setdefault(selected.alias, selected.expr)
             table = source.select_from.table if source.select_from else None
             source = table if isinstance(table, ast.SelectQuery) else None
-        pending: list[ast.Expr] = list(node.group_by or [])
-        expanded: set[str] = set()
-        while pending:
-            for child in _nodes(pending.pop()):
-                if not isinstance(child, ast.Field):
-                    continue
-                names = [part for part in child.chain if isinstance(part, str)]
-                if not names:
-                    continue
-                if names[-1] in cls.identifier_fields:
-                    return True
-                if len(names) == 1 and names[0] in aliases and names[0] not in expanded:
-                    expanded.add(names[0])
-                    pending.append(aliases[names[0]])
-        return False
+        return not all(cls._bounded(expr, aliases, frozenset()) for expr in node.group_by or [])
 
     @classmethod
     def _candidate(cls, query: SharingQuery) -> _TopNQuery | str:
@@ -236,8 +236,8 @@ class SameAggregationTopNRule:
                 return f"unsupported expression: {type(child).__name__}"
         if not node.select_from or not found_aggregate:
             return "requires an events aggregation"
-        if cls._groups_by_identifier(node):
-            return "grouping by a per-user or per-event identifier is not supported"
+        if cls._has_unbounded_grouping(node):
+            return "grouping must use event or a date bucket of timestamp"
         body = clone_expr(node)
         body.order_by = None
         body.limit = None
