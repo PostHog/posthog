@@ -7374,14 +7374,18 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         # Most-failing first.
         assert rows[0]["workflow_id"] == str(self.flow_b.id)
 
-    def test_counts_runs_of_every_version_and_ignores_steps_and_the_version_agnostic_series(self):
-        self._seed(self.flow_a.id, succeeded=3, failed=1)
-        self._seed(self.flow_a.id, succeeded=2, app_source_id=f"{self.flow_a.id}/2")
-        # Step rows carry the action id, and the version-agnostic series keys batch runs by run id.
-        self._seed(self.flow_a.id, succeeded=8, failed=6, instance_id="action_email")
-        self._seed(self.flow_a.id, succeeded=40, app_source="hog_flow", app_source_id=str(self.flow_a.id))
+    def test_counts_each_run_once_across_versions_steps_and_both_series(self):
+        today = datetime.now(tz=UTC)
+        before_versioning = today - timedelta(days=3)
+        legacy = {"app_source": "hog_flow", "app_source_id": str(self.flow_a.id)}
+        self._seed(self.flow_a.id, succeeded=3, failed=1, timestamp=today)
+        self._seed(self.flow_a.id, succeeded=2, app_source_id=f"{self.flow_a.id}/2", timestamp=today)
+        self._seed(self.flow_a.id, succeeded=8, failed=6, instance_id="action_email", timestamp=today)
+        self._seed(self.flow_a.id, succeeded=40, timestamp=today, **legacy)
+        self._seed(self.flow_a.id, succeeded=6, failed=2, timestamp=before_versioning, **legacy)
+        self._seed(self.flow_a.id, succeeded=50, instance_id="action_email", timestamp=before_versioning, **legacy)
         rows = self._global().json()
-        assert rows == [{"workflow_id": str(self.flow_a.id), "succeeded": 5, "failed": 1}]
+        assert rows == [{"workflow_id": str(self.flow_a.id), "succeeded": 11, "failed": 3}]
 
     def test_time_window_filter(self):
         now = datetime.now(tz=UTC)
