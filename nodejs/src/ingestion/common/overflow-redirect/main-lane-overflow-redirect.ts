@@ -10,6 +10,7 @@ import {
     overflowRedirectEventsTotal,
     overflowRedirectKeysTotal,
     overflowRedirectRateLimitDecisions,
+    overflowRedirectRateLimiterBuckets,
     overflowRedirectSourceEventsTotal,
 } from './metrics'
 import { OverflowEventGroup, OverflowRedirectService } from './overflow-redirect-service'
@@ -166,6 +167,10 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
                 toRedirect.add(group.key)
                 redirectSource.set(group.key, 'rate_limiter')
             }
+        }
+
+        for (const { label, limiter } of this.strategies) {
+            overflowRedirectRateLimiterBuckets.labels(type, label).set(limiter.buckets.size)
         }
 
         // Step 4: Batch flag newly rate-limited keys in Redis
