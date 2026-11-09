@@ -204,13 +204,11 @@ function isGeneratedOrVendored(filename, resolution) {
 }
 
 // computeOwnerFootprints applies the test-file rule from `find_candidates` in
-// products/stamphog/backend/logic/routing/candidates.py.
+// products/stamphog/backend/logic/routing/candidates.py. A test file there also joins an
+// owner that only a pin brought in, which needs nothing here because classifyOwnersWithPinned
+// requests pinned owners apart from the footprints.
 // Keep in step with runner_for_path in packages/owners-yaml/owners_yaml/census.py.
 const TEST_FILE = /(^|\/)test_[^/]*\.py$|_test\.py$|\.(test|spec)\.[jt]sx?$/
-
-function isTestFile(filename) {
-    return TEST_FILE.test(filename)
-}
 
 // Build a footprint per owner from the resolver's per-file result: which
 // owners.yaml/product.yaml sources pulled them in, which (non-excluded) files
@@ -219,15 +217,25 @@ function isTestFile(filename) {
 // trivially testable. `resolutionByPath` maps filename -> {owners, source, ...}.
 function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG) {
     const relevantFiles = changedFiles.filter((file) => !isExcludedFile(file.filename, config.excludedPatterns))
-    const sourceFilesFirst = relevantFiles.toSorted((a, b) => isTestFile(a.filename) - isTestFile(b.filename))
+    const testFiles = relevantFiles.filter((file) => TEST_FILE.test(file.filename))
+    const otherFiles = relevantFiles.filter((file) => !TEST_FILE.test(file.filename))
     const footprints = new Map()
-    let testsJoinOnly = null
+    addFootprints(footprints, otherFiles, resolutionByPath, false)
+    addFootprints(footprints, testFiles, resolutionByPath, footprints.size > 0)
 
-    for (const file of sourceFilesFirst) {
-        const isTest = isTestFile(file.filename)
-        if (isTest && testsJoinOnly === null) {
-            testsJoinOnly = footprints.size > 0
-        }
+    return Array.from(footprints.values()).map((footprint) => ({
+        owner: footprint.owner,
+        type: footprint.type,
+        name: footprint.name,
+        patterns: Array.from(footprint.patterns),
+        fileCount: footprint.files.size,
+        lines: Array.from(footprint.files.values()).reduce((sum, n) => sum + n, 0),
+    }))
+}
+
+// With `joinOnly`, a file only adds to footprints that already exist.
+function addFootprints(footprints, files, resolutionByPath, joinOnly) {
+    for (const file of files) {
         const resolution = resolutionByPath[file.filename]
         if (isGeneratedOrVendored(file.filename, resolution)) {
             continue
@@ -249,7 +257,7 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
 
             let footprint = footprints.get(resolved.owner)
             if (!footprint) {
-                if (isTest && testsJoinOnly) {
+                if (joinOnly) {
                     continue
                 }
                 footprint = {
@@ -266,15 +274,6 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
             footprint.files.set(file.filename, lines)
         }
     }
-
-    return Array.from(footprints.values()).map((footprint) => ({
-        owner: footprint.owner,
-        type: footprint.type,
-        name: footprint.name,
-        patterns: Array.from(footprint.patterns),
-        fileCount: footprint.files.size,
-        lines: Array.from(footprint.files.values()).reduce((sum, n) => sum + n, 0),
-    }))
 }
 
 // GitHub reports a moved file as `renamed`, and a move into a new directory adds

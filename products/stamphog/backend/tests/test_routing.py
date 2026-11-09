@@ -146,7 +146,7 @@ class TestFindCandidates:
                 {"team-tests": 1, "team-other": 1},
             ),
             (
-                "test_listed_before_its_source",
+                "test_listed_before_its_code",
                 {"posthog/api/test/test_team.py": "team-tests", "posthog/api/team.py": "team-tests"},
                 (),
                 {"team-tests": 2},
@@ -159,7 +159,7 @@ class TestFindCandidates:
             ),
         ]
     )
-    def test_a_test_file_makes_its_owner_a_candidate_with_its_source_when_sensitive_or_alone(
+    def test_a_test_file_makes_its_owner_a_candidate_with_its_code_when_sensitive_or_alone(
         self, _name: str, owner_by_path: dict[str, str], sensitive: tuple[str, ...], expected: dict[str, int]
     ) -> None:
         resolutions = {
@@ -173,18 +173,24 @@ class TestFindCandidates:
     @parameterized.expand([("added", True), ("renamed", True), ("copied", True), ("modified", False)])
     def test_addition_pins_owners_of_additions(self, status: str, expect_pin: bool) -> None:
         path = "products/new_thing/backend/api.py"
+        test_path = "posthog/test/test_architecture.py"
         added = Addition(path="products/new_thing", additions=["team-architecture"])
-        resolutions = {path: _resolution(path, ["team-products"], added=added, source="products/owners.yaml")}
+        resolutions = {
+            path: _resolution(path, ["team-products"], added=added, source="products/owners.yaml"),
+            test_path: _resolution(test_path, ["team-architecture"]),
+        }
 
         candidates = {
-            candidate.owner: candidate for candidate in find_candidates([_file(path, status=status)], resolutions)
+            candidate.owner: candidate
+            for candidate in find_candidates([_file(path, status=status), _file(test_path)], resolutions)
         }
 
         assert not candidates["team-products"].is_pinned
         assert candidates["team-products"].owners_sources == {path: "products/owners.yaml"}
         if expect_pin:
             assert candidates["team-architecture"].pins == {Pin(reason=PinReason.NEW_PATH, path="products/new_thing")}
-            assert candidates["team-architecture"].owners_sources == {}
+            assert candidates["team-architecture"].owners_sources == {test_path: "owners.yaml"}
+            assert [file.path for file in candidates["team-architecture"].files] == [path, test_path]
         else:
             assert "team-architecture" not in candidates
 
