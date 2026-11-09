@@ -47,7 +47,7 @@ import {
 } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
-import { LARGEST_SEND_FILE_BYTES } from './in-flight-registry'
+import { InFlightRegistry, LARGEST_SEND_FILE_BYTES } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
@@ -1664,6 +1664,68 @@ describe('EmailService', () => {
                 expect(result.finished).toBe(true)
                 expect(result.error).toMatch(/^attachments_missing: /)
             })
+
+            it.each([
+                [
+                    'loads its files only once that download settles',
+                    500,
+                    5000,
+                    { finished: true, loadRetries: undefined, sent: 1, downloadRunningAtEachLoad: [true, false] },
+                ],
+                [
+                    'reschedules as a load retry when its deadline passes before that download settles',
+                    null,
+                    500,
+                    { finished: false, loadRetries: 1, sent: 0, downloadRunningAtEachLoad: [true] },
+                ],
+            ])(
+                'when a flow sends its next email inline while a download of the email before is still running, it %s',
+                async (_name, settleAfterMs, deadlineMs, expected) => {
+                    sesAccepts()
+                    service['sesConfig'].attachmentSendDeadlineMs = deadlineMs
+                    let downloadRunning = true
+                    let settleDownload!: () => void
+                    const download = new Promise<never>((_, reject) => {
+                        settleDownload = () => {
+                            downloadRunning = false
+                            reject(new Error('Request aborted'))
+                        }
+                    })
+                    jest.spyOn(attachmentStore.s3, 'send').mockImplementationOnce((() => download) as never)
+                    const downloadRunningAtEachLoad: boolean[] = []
+                    const realLoad = attachmentStore.load.bind(attachmentStore)
+                    jest.spyOn(attachmentStore, 'load').mockImplementation((...args) => {
+                        downloadRunningAtEachLoad.push(downloadRunning)
+                        return realLoad(...args)
+                    })
+                    const registry = new InFlightRegistry({
+                        budgetBytes: Number.MAX_SAFE_INTEGER,
+                        heapLimitBytes: Number.MAX_SAFE_INTEGER,
+                        maxInFlight: 1,
+                    })
+                    if (settleAfterMs !== null) {
+                        setTimeout(settleDownload, settleAfterMs)
+                    }
+
+                    const admission = registry.tryStart(pdf.bytes.length, async () => {
+                        send(pdf, attachmentFile())
+                        const first = await service.executeSendEmail(invocation)
+                        send(pdf, logo)
+                        return { first, second: await service.executeSendEmail(invocation) }
+                    })
+                    const { first, second } = await (admission as Extract<typeof admission, { started: unknown }>)
+                        .started
+                    settleDownload()
+
+                    expect(first.error).toMatch(/^attachments_missing: /)
+                    expect({
+                        finished: second.finished,
+                        loadRetries: second.invocation.queueMetadata?.attachmentLoadRetries,
+                        sent: sendEmailSpy.mock.calls.length,
+                        downloadRunningAtEachLoad,
+                    }).toEqual(expected)
+                }
+            )
 
             const loadRetry = { finished: false, error: undefined, loadRetries: 1, rescheduled: true, failed: false }
 

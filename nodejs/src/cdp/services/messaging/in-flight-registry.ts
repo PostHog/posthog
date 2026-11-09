@@ -121,6 +121,23 @@ export async function callsSettledWithin(maxWaitMs: number): Promise<void> {
     clearTimeout(timer)
 }
 
+export async function callsSettledBefore(deadline: AbortSignal): Promise<void> {
+    if (!sendCalls.getStore()?.size) {
+        return
+    }
+    await new Promise<void>((resolve, reject) => {
+        const abort = (): void => reject(deadline.reason)
+        void everyCallSettled()
+            .then(resolve)
+            .finally(() => deadline.removeEventListener('abort', abort))
+        if (deadline.aborted) {
+            abort()
+        } else {
+            deadline.addEventListener('abort', abort, { once: true })
+        }
+    })
+}
+
 async function everyCallSettled(): Promise<void> {
     const calls = sendCalls.getStore()
     while (calls?.size) {

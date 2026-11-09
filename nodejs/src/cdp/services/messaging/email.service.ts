@@ -47,7 +47,7 @@ import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, addWorkflowRunTagToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
-import { declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
+import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import {
     PreferencesTokenSource,
@@ -1339,6 +1339,9 @@ export class EmailService {
         if (!this.attachmentStore) {
             throw new AttachmentStoreUnavailableError(new Error('No attachment store is configured on this pod'))
         }
+        await callsSettledBefore(deadline).catch((reason) => {
+            throw new AttachmentStoreUnavailableError(reason)
+        })
         return await this.attachmentStore.load(teamId, files, deadline)
     }
 
