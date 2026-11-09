@@ -129,9 +129,9 @@ When a Slack report needs a table, state the column names and require a Markdown
 Use this shape in the prompt as a concrete example:
 
 ```markdown
-| Alert type | Latest orgs | WoW change | Direction |
-| --- | ---: | ---: | --- |
-| Example type | 123 | +4 (+3.2%) | increase |
+| Alert type   | Latest orgs | WoW change | Direction |
+| ------------ | ----------: | ---------: | --------- |
+| Example type |         123 | +4 (+3.2%) | increase  |
 ```
 
 Keep related values in the same cell. For example, put the absolute and percentage change together in one `WoW change` cell. Do not add cells that have no matching header.
