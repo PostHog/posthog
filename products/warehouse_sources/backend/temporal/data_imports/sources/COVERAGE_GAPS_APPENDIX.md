@@ -11405,13 +11405,13 @@ Today (4): `issues`, `organizations`, `projects`, `targets`
 Diffed against: <https://api.snyk.io/rest/openapi/2026-03-25>
 
 - [x] `GET /orgs/{org_id}/memberships` — user-to-org membership with role - the lookup that resolves who owns the projects and issues we sync (high)
-- [ ] `GET /groups and GET /groups/{group_id}/orgs` — group is the parent of every org; without it multi-org rollups have no hierarchy to aggregate on (high)
+- [x] `GET /groups and GET /groups/{group_id}/orgs` — group is the parent of every org; without it multi-org rollups have no hierarchy to aggregate on (high). Added as `group_organizations` (fan-out over the groups of the synced orgs). `GET /groups` skipped: it is beta only, and the source calls GA versions.
 - [x] `GET /groups/{group_id}/memberships and /org_memberships` — group-level membership and role assignment across all orgs (medium)
 - [x] `GET /orgs/{org_id}/collections and /collections/{collection_id}/relationships/projects` — collection membership - the standard breakdown dimension for grouping projects in reporting (medium)
 - [ ] `GET /orgs/{org_id}/policies and GET /orgs/{org_id}/policies/{policy_id}/events` — ignore/severity policies plus their event log explain why issues we sync are suppressed or re-rated (medium)
-- [ ] `GET /orgs/{org_id}/container_images (and /relationships/image_target_refs)` — container image inventory joining images to the targets already synced (medium)
-- [ ] `GET /orgs/{org_id}/audit_logs/search (and group-level equivalent)` — state/transition history for org and project changes (medium)
-- [ ] `GET /orgs/{org_id}/inventory/assets (plus /relationships/projects and /relationships/targets)` — the AppRisk asset inventory and its mapping onto projects/targets we already sync (medium)
+- [x] `GET /orgs/{org_id}/container_images (and /relationships/image_target_refs)` — container image inventory joining images to the targets already synced (medium). Added as `container_images` and `container_image_target_refs` (fan-out over `container_images`).
+- [x] `GET /orgs/{org_id}/audit_logs/search (and group-level equivalent)` — state/transition history for org and project changes (medium). Added as `org_audit_logs` and `group_audit_logs`, incremental on `created` (Snyk keeps 90 days).
+- [ ] `GET /orgs/{org_id}/inventory/assets (plus /relationships/projects and /relationships/targets)` — the AppRisk asset inventory and its mapping onto projects/targets we already sync (medium); skipped: every inventory/assets path is beta only (2024-10-15~beta), and the source calls GA versions
 - [ ] `GET /orgs/{org_id}/tests/{test_id}/findings` — individual findings per test run, finer grained than the issue rollup (low)
 - [ ] `GET /orgs/{org_id}/cloud/resources, /cloud/environments, /cloud/scans` — cloud posture resources and scan history for IaC customers (low)
 - [ ] `GET /tenants/{tenant_id}/roles` — role lookup that resolves the role ids on membership records (low)
