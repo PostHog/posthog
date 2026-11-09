@@ -106,7 +106,7 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         selection.into_iter().filter(is_javascript_file),
         &args.public_path_prefix,
     );
-    upload_pairs(args, pairs, existing_release, file_selection, true)
+    upload_pairs(args, pairs, existing_release, file_selection)
 }
 
 /// Upload `pairs`, then run the `--delete-after` cleanup scoped to `file_selection`
@@ -119,7 +119,6 @@ pub fn upload_pairs(
     mut pairs: Vec<SourcePair>,
     existing_release: Option<&Release>,
     file_selection: FileSelectionArgs,
-    standalone_upload: bool,
 ) -> Result<()> {
     if args.conflict.skip_on_conflict_ignored(args.release_mode) {
         warn!(
@@ -162,22 +161,16 @@ pub fn upload_pairs(
         .map(|r| r.id.to_string())
     };
 
-    if standalone_upload
-        && args.release_mode == ReleaseMode::SymbolSet
-        && created_release_id.is_none()
-        && (args.release.name.is_some()
-            || args.release.version.is_some()
-            || args.release.build.is_some()
-            || args.release.info_plist.is_some())
-    {
-        warn!("No release could be resolved. Sourcemaps will upload without a release. Pass both --release-name and --release-version, or run from a git repository or supported CI environment.");
-    }
-
     // Override release_id if we created/fetched one
     if let Some(ref release_id) = created_release_id {
         for pair in &mut pairs {
             pair.set_release_id(Some(release_id.clone()));
         }
+    }
+    if args.release_mode == ReleaseMode::SymbolSet
+        && pairs.iter().any(|p| !p.sourcemap.has_release_id())
+    {
+        warn!("No release could be resolved. Sourcemaps will upload without a release. Pass both --release-name and --release-version, or run from a git repository or supported CI environment.");
     }
 
     let (empty_pairs, valid_pairs): (Vec<_>, Vec<_>) = pairs

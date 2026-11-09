@@ -119,9 +119,6 @@ pub fn inject_impl(
                     .as_ref()
                     .map(|r| r.id.to_string())
             };
-            if created_release_id.is_none() {
-                warn!("No release could be resolved. Sourcemaps will upload without a release. Pass both --release-name and --release-version, or run from a git repository or supported CI environment.");
-            }
             pairs = inject_pairs_legacy(pairs, created_release_id)?;
         }
     }

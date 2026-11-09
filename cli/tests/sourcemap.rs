@@ -40,7 +40,12 @@ fn assert_file_eq(base_path: &Path, path: &str, actual: impl Into<String>) {
 
 #[test]
 fn standalone_upload_warns_once_when_release_coordinates_are_incomplete() {
-    for command in ["upload", "process"] {
+    for (command, release_version) in [
+        ("upload", Some("abc123")),
+        ("process", Some("abc123")),
+        ("upload", None),
+        ("process", None),
+    ] {
         let dir = tempfile::tempdir().expect("Failed to create Git-free build directory");
         fs::write(
             dir.path().join("app.js"),
@@ -53,7 +58,8 @@ fn standalone_upload_warns_once_when_release_coordinates_are_incomplete() {
         )
         .expect("Failed to write empty sourcemap");
 
-        let output = Command::new(env!("CARGO_BIN_EXE_posthog-cli"))
+        let mut subprocess = Command::new(env!("CARGO_BIN_EXE_posthog-cli"));
+        subprocess
             .args([
                 "sourcemap",
                 command,
@@ -61,16 +67,25 @@ fn standalone_upload_warns_once_when_release_coordinates_are_incomplete() {
                 dir.path().to_str().expect("Valid temporary directory"),
                 "--release-mode",
                 "symbol-set",
-                "--release-version",
-                "abc123",
             ])
+            .args(
+                release_version
+                    .iter()
+                    .flat_map(|version| ["--release-version", *version]),
+            )
             .current_dir(dir.path())
             .env("POSTHOG_CLI_API_KEY", "phx_dummy")
             .env("POSTHOG_CLI_PROJECT_ID", "1")
             .env("POSTHOG_CLI_HOST", "http://127.0.0.1:9")
-            .env("RUST_LOG", "posthog_cli=warn")
-            .output()
-            .expect("Failed to run CLI");
+            .env("RUST_LOG", "posthog_cli=warn");
+        for (name, _) in std::env::vars_os() {
+            if name.to_string_lossy().starts_with("GITHUB_")
+                || name.to_string_lossy().starts_with("VERCEL")
+            {
+                subprocess.env_remove(name);
+            }
+        }
+        let output = subprocess.output().expect("Failed to run CLI");
         let stderr = String::from_utf8_lossy(&output.stderr);
 
         assert!(output.status.success(), "{command}: {stderr}");
