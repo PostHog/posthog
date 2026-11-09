@@ -72,10 +72,12 @@ _SKIPPED_FILE_NAME_PREFIXES = ("test_",)
 _SKIPPED_FILE_NAME_SUFFIXES = ("_spec.rb",)
 # The send calls of PostHog's SDKs, and the raw API route. A matched line's context holds up to five lines on
 # either side, so a key passed a few lines below the call still counts.
-_QUOTES = frozenset("'\"`")
-_SEND_CALL = re.compile(
-    r"emails\.send|emails\(\)(?:\.|->)send|Emails\(\)\.Send|Emails\.SendAsync|Emails\.send|send/email"
-)
+_SDK_SEND_CALL = re.compile(r"emails\.send|emails\(\)(?:\.|->)send|Emails\(\)\.Send|Emails\.SendAsync|Emails\.send")
+_SEND_URL = re.compile(r"send/email")
+_CODE, _STRING, _COMMENT = "c", "s", "#"
+# Longest first, so a triple quote is not read as an empty string.
+_OPENING_QUOTES = ('"""', "'''", '"', "'", "`")
+_MULTILINE_QUOTES = frozenset({'"""', "'''", "`"})
 
 
 _UNTOUCHED = Q(source_url__isnull=True, source_origin__isnull=True)
@@ -139,12 +141,15 @@ def _sends_key(line: MatchedLine, key_argument: re.Pattern[str]) -> bool:
     if argument is None or position >= len(context) or context[position] != line.text:
         return False
     before_key = "\n".join([*context[:position], line.text[: argument.start()]])
-    code = _blank_strings_and_comments(before_key)
-    return any(_still_open(code[call.end() :]) for call in _SEND_CALL.finditer(before_key))
+    kinds = _char_kinds(before_key)
+    code = "".join(char if kind == _CODE else " " for char, kind in zip(before_key, kinds))
+    sdk_calls = (call for call in _SDK_SEND_CALL.finditer(before_key) if kinds[call.start()] == _CODE)
+    url_calls = (call for call in _SEND_URL.finditer(before_key) if kinds[call.start()] != _COMMENT)
+    return any(_still_open(code[call.end() :]) for call in (*sdk_calls, *url_calls))
 
 
 def _still_open(after_call: str) -> bool:
-    """Whether the send call is still open at the end of ``after_call``.
+    """Whether the send call is still open at the end of ``after_call``, which holds code only.
 
     ``emails.send(`` opens its own call. A raw ``send/email`` URL sits inside a call that opened before it. Either
     way, a ``)`` that closes more than ``after_call`` opened ends the send.
@@ -161,36 +166,46 @@ def _still_open(after_call: str) -> bool:
     return True
 
 
-def _blank_strings_and_comments(code: str) -> str:
-    """``code`` at the same length, with string literals and whole-line comments as spaces.
+def _char_kinds(code: str) -> str:
+    """Whether each character of ``code`` is code, inside a string literal, or in a whole-line comment.
 
-    A parenthesis in a subject such as ``'Hi :)'`` is text, not a call boundary.
+    A parenthesis in a subject such as ``'Hi :)'`` is text, and a commented-out send is not a send.
     """
-    blanked: list[str] = []
+    kinds: list[str] = []
     quote: str | None = None
-    escaped = comment = False
-    for index, char in enumerate(code):
-        if char == "\n":
-            # Only template literals span lines, so an apostrophe in prose can't blank the rest of the context.
-            quote = quote if quote == "`" else None
-            escaped = comment = False
-        elif comment or quote is not None:
-            escaped, quote = _after_quoted(char, quote, escaped)
-            char = " "
-        elif char in _QUOTES:
-            quote, char = char, " "
-        elif _starts_line_comment(code, index):
-            comment, char = True, " "
-        blanked.append(char)
-    return "".join(blanked)
+    comment = False
+    index = 0
+    while index < len(code):
+        token = code[index]
+        if token == "\n":
+            quote = quote if quote in _MULTILINE_QUOTES else None
+            comment = False
+            kinds.append(_CODE)
+        elif comment:
+            kinds.append(_COMMENT)
+        elif quote is not None:
+            token = _quoted_token(code, index, quote)
+            quote = None if token == quote else quote
+            kinds.append(_STRING * len(token))
+        elif token := _opening_quote(code, index):
+            quote = token
+            kinds.append(_STRING * len(token))
+        else:
+            token = code[index]
+            comment = _starts_line_comment(code, index)
+            kinds.append(_COMMENT if comment else _CODE)
+        index += len(token)
+    return "".join(kinds)
 
 
-def _after_quoted(char: str, quote: str | None, escaped: bool) -> tuple[bool, str | None]:
-    if quote is None or escaped:
-        return False, quote
-    if char == "\\":
-        return True, quote
-    return False, None if char == quote else quote
+def _opening_quote(code: str, index: int) -> str:
+    return next((quote for quote in _OPENING_QUOTES if code.startswith(quote, index)), "")
+
+
+def _quoted_token(code: str, index: int, quote: str) -> str:
+    if code[index] == "\\":
+        return code[index : index + 2]
+    return quote if code.startswith(quote, index) else code[index]
 
 
 def _starts_line_comment(code: str, index: int) -> bool:

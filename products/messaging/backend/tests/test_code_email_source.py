@@ -84,6 +84,15 @@ _KEY_IN_AN_EVENT_AFTER_A_SEND_WITH_A_PARENTHESIS_IN_A_STRING = (
     "posthog.capture('email sent', { template_key: 'welcome' })",
 )
 
+_SEND_COMMENTED_OUT_ABOVE_THE_KEY = (
+    "const props = { template_key: 'welcome' }",
+    "// posthog.emails.send()\nconst props = { template_key: 'welcome' }",
+)
+_TRIPLE_QUOTED_BODY_BEFORE_THE_KEY = (
+    '    template_key="welcome",',
+    'posthog.emails.send(\n    body="""Hello (friend\nWelcome\n)""",\n    template_key="welcome",\n)',
+)
+
 
 class TestRankCallSites(SimpleTestCase):
     @parameterized.expand(
@@ -176,6 +185,20 @@ class TestRankCallSites(SimpleTestCase):
                 ),
             ),
             (
+                "triple_quoted_body_before_the_key",
+                [
+                    ExactCodeSearchResult(
+                        matches=[_match("app/mailer.py", _TRIPLE_QUOTED_BODY_BEFORE_THE_KEY)], complete=True
+                    )
+                ],
+                False,
+                SourceDetection(
+                    outcome="linked",
+                    call_site=CallSite(repository="acme/web", path="app/mailer.py", line=12),
+                    candidate_files=1,
+                ),
+            ),
+            (
                 "only_a_constant",
                 [ExactCodeSearchResult(matches=[_match("src/keys.ts", _KEY_ONLY)], complete=True)],
                 False,
@@ -231,6 +254,16 @@ class TestRankCallSites(SimpleTestCase):
                             )
                         ],
                         complete=True,
+                    )
+                ],
+                False,
+                SourceDetection(outcome="none", call_site=None, candidate_files=1),
+            ),
+            (
+                "key_below_a_commented_out_send",
+                [
+                    ExactCodeSearchResult(
+                        matches=[_match("src/emails/welcome.ts", _SEND_COMMENTED_OUT_ABOVE_THE_KEY)], complete=True
                     )
                 ],
                 False,
