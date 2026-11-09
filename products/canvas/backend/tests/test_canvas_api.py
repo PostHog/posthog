@@ -1175,7 +1175,7 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
             description="d",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
-        headers: dict[str, str] = {}
+        headers: dict[str, Any] = {}
         client: APIClient = self.client
         if caller == "personal_api_key":
             raw_key = generate_random_token_personal()

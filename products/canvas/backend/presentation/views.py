@@ -32,16 +32,17 @@ from posthog.permissions import is_service_auth
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.canvas.backend.experiment import blocks_session_action, in_canvas_experiment
 from products.canvas.backend.facade import api as canvas_api
 from products.canvas.backend.facade.api import (
     apply_layout_ops,
     apply_source_edits,
+    blocks_session_action,
     canvas_actions_disabled,
     canvas_connectors_enabled,
     connector_listings,
     create_canvas_sandbox_document_url,
     has_errors,
+    in_canvas_experiment,
     native_connector_listings,
     render_canvas_artifact,
     render_canvas_sandbox_document,
