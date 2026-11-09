@@ -62,6 +62,7 @@ from products.alerts.backend.platform_source_cycle import (
     QUERY_ID_PREFIX,
     QUERY_INFLIGHT_KEY,
     ChartRenderPoolFull,
+    ChartRenderTimedOut,
     evaluate_insight_check,
     fail_insight_check,
     plan_insight_batch,
@@ -335,6 +336,27 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 render_firing_chart(self.team.id, str(alert.id), held_until=held_until)
 
         assert render.call_count == 2
+
+    @parameterized.expand(
+        [("failed_quickly", timedelta(seconds=90), False), ("used_the_whole_limit", timedelta(0), True)]
+    )
+    def test_a_render_that_returns_nothing_at_the_export_limit_timed_out(
+        self, _name: str, limit: timedelta, timed_out: bool
+    ) -> None:
+        alert = self._alert()
+
+        with (
+            patch(f"{_MODULE}.render_alert_insight_chart", return_value=None),
+            patch(f"{_MODULE}.CHART_RENDER_TIMEOUT", limit),
+        ):
+            if timed_out:
+                with pytest.raises(ChartRenderTimedOut):
+                    render_firing_chart(self.team.id, str(alert.id), held_until=time.time() + 60)
+            else:
+                assert render_firing_chart(self.team.id, str(alert.id), held_until=time.time() + 60) is None
+
+        # The slot is free either way, so the next firing's render is not held back.
+        assert inflight_alert_ids(CHART_RENDER_INFLIGHT_KEY) == set()
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_a_check_holds_a_clickhouse_slot_only_while_its_query_runs(self) -> None:

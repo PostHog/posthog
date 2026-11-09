@@ -205,6 +205,18 @@ def increment_checks_unfinished(source: str, count: int) -> None:
     ).add(count)
 
 
+ChartRenderOutcome = Literal["rendered", "timed_out", "no_chart"]
+
+
+def increment_chart_renders(source: str, outcome: ChartRenderOutcome) -> None:
+    """Firing charts by outcome. A firing whose render fails or runs out of time still goes out,
+    without its chart, so nothing else shows the charts that were lost."""
+    get_metric_meter({"source": source, "outcome": outcome}).create_counter(
+        "alerts_platform_chart_renders_total",
+        "Firing chart renders, by source and outcome",
+    ).add(1)
+
+
 def increment_describer_failures(source: str) -> None:
     """A source's describer raised, so its alerts went out in the platform's generic wording."""
     get_metric_meter({"source": source}).create_counter(
