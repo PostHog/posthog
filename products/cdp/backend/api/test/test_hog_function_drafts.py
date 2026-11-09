@@ -474,8 +474,15 @@ class TestHogFunctionDrafts(DraftTestCase):
 
     @parameterized.expand(
         [
-            ("stored_secret", "destination", SENDER_HOG, {"secret": True}, status.HTTP_400_BAD_REQUEST),
-            ("entered_secret", "destination", SENDER_HOG, {"value": "typed for this test"}, status.HTTP_200_OK),
+            ("stored_secret", "destination", SENDER_HOG, {"secret": True}, "secret", status.HTTP_400_BAD_REQUEST),
+            (
+                "entered_secret",
+                "destination",
+                SENDER_HOG,
+                {"value": "typed for this test"},
+                "secret",
+                status.HTTP_200_OK,
+            ),
             # A transformation is under the enabled-functions cap, which validates the nested
             # configuration through a branch of its own.
             (
@@ -483,22 +490,52 @@ class TestHogFunctionDrafts(DraftTestCase):
                 "transformation",
                 "print(inputs.token); return event",
                 {"secret": True},
+                "secret",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "stored_secret_left_out_of_the_schema",
+                "destination",
+                "fetch(inputs.url, {'method': 'POST', 'secret_headers_input': 'token'});",
+                None,
+                "omitted",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "stored_secret_declared_public",
+                "destination",
+                SENDER_HOG,
+                None,
+                "public",
                 status.HTTP_400_BAD_REQUEST,
             ),
         ]
     )
     def test_test_invocation_that_sends_a_secret_to_a_new_host(
-        self, _name: str, function_type: str, tested_hog: str, token: dict, expected_status: int
+        self,
+        _name: str,
+        function_type: str,
+        tested_hog: str,
+        token: dict | None,
+        token_schema: str,
+        expected_status: int,
     ):
         stored_hog = SENDER_HOG if function_type == "destination" else "return event"
         function_id = self._create(
             type=function_type, hog=stored_hog, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}}
         )
+        url_schema, secret_token_schema = BASE_FUNCTION["inputs_schema"]
+        tested_schemas = {
+            "secret": [url_schema, secret_token_schema],
+            "omitted": [url_schema],
+            "public": [url_schema, {**secret_token_schema, "secret": False}],
+        }
         configuration = {
             **BASE_FUNCTION,
             "type": function_type,
             "hog": tested_hog,
-            "inputs": sender_inputs(MOVED_URL, token),
+            "inputs_schema": tested_schemas[token_schema],
+            "inputs": {"url": {"value": MOVED_URL}, **({"token": token} if token else {})},
         }
 
         with secret_host_binding_flag(True):
@@ -508,6 +545,30 @@ class TestHogFunctionDrafts(DraftTestCase):
 
         assert response.status_code == expected_status, response.json()
         assert mock_invoke.called == (expected_status == status.HTTP_200_OK)
+
+    def test_publish_resolves_the_rollout_flag_before_locking_the_row(self):
+        function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
+        self._stage(function_id, {"hog": MOVED_SENDER_HOG})
+        locked_at_lookup: list[bool] = []
+        real_select_for_update = HogFunction.objects.select_for_update
+        locks: list[str] = []
+
+        def lock(*args, **kwargs):
+            locks.append("locked")
+            return real_select_for_update(*args, **kwargs)
+
+        def flag(*args, **kwargs) -> bool:
+            locked_at_lookup.append(bool(locks))
+            return True
+
+        with (
+            patch("products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled", side_effect=flag),
+            patch.object(HogFunction.objects, "select_for_update", side_effect=lock),
+        ):
+            published = self._publish(function_id)
+
+        assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
+        assert locked_at_lookup == [False]
 
     @parameterized.expand([("live_edit", False), ("draft_test_run", True)])
     def test_rotating_one_secret_keeps_an_unbound_sibling(self, _name: str, staged: bool):

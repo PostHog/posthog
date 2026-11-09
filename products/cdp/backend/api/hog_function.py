@@ -441,6 +441,17 @@ def _secret_baselines(
     return {key: baseline(key) for key in secret_keys}
 
 
+def secret_binding_enforced(team: Team) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            SECRET_HOST_BINDING_FLAG,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            send_feature_flag_events=False,
+        )
+    )
+
+
 def staged_secret_context(hog_function: HogFunction) -> dict[str, Any]:
     """A resent secret is recovered from its staged value first, but origins still compare with the live one."""
     live_secrets = hog_function.encrypted_inputs or {}
@@ -1047,21 +1058,27 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     ) -> None:
         inputs = attrs.get("inputs") or {}
         stored_secrets = (self.context.get("encrypted_inputs") or {}) if instance else {}
-        secret_keys = {
-            schema["key"]
-            for schema in attrs.get("inputs_schema") or []
-            if schema.get("secret") and (schema["key"] in inputs or isinstance(stored_secrets.get(schema["key"]), dict))
-        }
-        if not secret_keys:
+        declared = {schema["key"] for schema in attrs.get("inputs_schema") or [] if schema.get("secret")}
+        secret_keys = {key for key in declared if key in inputs or isinstance(stored_secrets.get(key), dict)}
+        # The worker runs a test with the function's stored secrets even when the tested schema leaves a
+        # secret out or declares it public, so the code under test can still send that stored value.
+        undeclared = (
+            {key for key, value in stored_secrets.items() if key not in declared and isinstance(value, dict)}
+            if getattr(self.context.get("view"), "action", None) == "invocations"
+            else set()
+        )
+        if not secret_keys and not undeclared:
             return
         # `move_secret_inputs` keeps a stored secret the request leaves out, so it is checked as kept.
         for key in secret_keys - inputs.keys():
             inputs[key] = dict(stored_secrets[key])
         attrs["inputs"] = inputs
+        checked_inputs = {**inputs, **{key: dict(stored_secrets[key]) for key in undeclared}}
+        checked_keys = secret_keys | undeclared
 
         hog = attrs.get("hog", instance.hog if instance else "") or ""
         mappings = attrs.get("mappings", instance.mappings if instance else None)
-        analysis = analyze_secret_origins(hog, inputs, mapping_inputs(mappings), secret_keys)
+        analysis = analyze_secret_origins(hog, checked_inputs, mapping_inputs(mappings), checked_keys)
         if analysis.unanalyzable:
             logger.warning(
                 "secret_origins_unanalyzable",
@@ -1074,11 +1091,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         derived = analysis.origins
         live_secrets = self.context.get("live_encrypted_inputs", stored_secrets)
         stored_inputs = {**((instance.inputs or {}) if instance else {}), **live_secrets}
-        unchanged = _unchanged_secrets(instance, hog, inputs, mappings, stored_inputs, derived)
-        baselines = _secret_baselines(instance, secret_keys, stored_secrets, stored_inputs, derived, unchanged)
-        entered = entered_secret_input_keys(self.requested_inputs)
+        unchanged = _unchanged_secrets(instance, hog, checked_inputs, mappings, stored_inputs, derived)
+        baselines = _secret_baselines(instance, checked_keys, stored_secrets, stored_inputs, derived, unchanged)
+        entered = entered_secret_input_keys(self.requested_inputs) - undeclared
         bindings = {
-            key: secret_binding(derived[key], baselines[key], key in entered, key in unchanged) for key in secret_keys
+            key: secret_binding(derived[key], baselines[key], key in entered, key in unchanged) for key in checked_keys
         }
 
         stages_draft = bool(self.context.get("stages_draft"))
@@ -1091,7 +1108,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 # The save goes through, so store where the code now sends the secret. A staged edit
                 # keeps the old origins because publishing checks the move again.
                 origins = derived[key]
-            inputs[key]["allowed_origins"] = stored_origins(origins)
+            if key in secret_keys:
+                inputs[key]["allowed_origins"] = stored_origins(origins)
             SECRET_HOST_BINDING_COUNTER.labels(
                 outcome=_binding_metric(outcome, let_through, stages_draft), surface=surface
             ).inc()
@@ -1103,14 +1121,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def _enforces_secret_binding(self, team: Team) -> bool:
         if self.context.get("view") is None:
             return False
-        return bool(
-            posthoganalytics.feature_enabled(
-                SECRET_HOST_BINDING_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id)},
-                send_feature_flag_events=False,
-            )
-        )
+        if "enforces_secret_binding" in self.context:
+            return self.context["enforces_secret_binding"]
+        return secret_binding_enforced(team)
 
     def to_representation(self, data):
         is_instance = isinstance(data, HogFunction)
@@ -2053,6 +2066,8 @@ class HogFunctionViewSet(
                 }
             )
 
+        # The flag lookup can make a network call, so it runs before the row lock is taken.
+        enforces_secret_binding = secret_binding_enforced(self.team)
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFunction.objects.select_for_update().get(pk=instance.pk)
@@ -2082,7 +2097,11 @@ class HogFunctionViewSet(
                 locked,
                 data=dict(locked.draft),
                 partial=True,
-                context={**self.get_serializer_context(), "live_encrypted_inputs": live_secrets},
+                context={
+                    **self.get_serializer_context(),
+                    "live_encrypted_inputs": live_secrets,
+                    "enforces_secret_binding": enforces_secret_binding,
+                },
             )
             serializer.is_valid(raise_exception=True)
             serializer.save()
