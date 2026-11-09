@@ -150,7 +150,7 @@ def query_jobs_by_run(
     """The job list of one attempt of each run, keyed by run id. ``run_attempts`` maps each run id
     to the attempt to read, and ``earliest_run_started_at`` is the earliest start among those runs.
     ``job_name`` keeps one job name. Steps are the widest column, so they are read only on request."""
-    jobs_source = curated.jobs_source(created_floor=True, include_steps=include_steps)
+    jobs_source = curated.jobs_source(created_floor=True, since=earliest_run_started_at, include_steps=include_steps)
     if jobs_source is None or not run_attempts:
         return {}
     placeholders: dict[str, ast.Expr] = {
