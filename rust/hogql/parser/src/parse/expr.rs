@@ -5284,11 +5284,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 *lhs = self.emit.alias(prev, &name);
                 // `AS`/aliases sit in the loosest (boolean) grammar tier, so only an
                 // outer-tier operator may bind to a bare alias — `AND`, `OR`, ternary
-                // (`?`), or a chained `AS` wrap it, while a value-tier operator (`+`,
-                // `[`, `::`, `BETWEEN`, `IS`, a call `()`, …) cannot and terminates the
+                // (`?`), or a chained `AS` wrap it, and a comparison may take it as its
+                // left operand (`1 AS x > 0`). Any other value-tier operator (`+`, `[`,
+                // `::`, `BETWEEN`, `IS`, a call `()`, …) cannot and terminates the
                 // expression (cpp rejects `1 AS x + 2`; parenthesise as `(1 AS x) + 2`).
                 // The Pratt loop's next iteration reads this flag and stops before
-                // folding a value-tier op onto the alias.
+                // folding such an op onto the alias.
                 self.after_bare_alias = true;
                 Ok(Some(true))
             }
