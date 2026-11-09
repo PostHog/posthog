@@ -218,13 +218,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     }, [])
 
     const finishLayoutGesture = useCallback(
-        (report: ((gesturePerformance?: LayoutGesturePerformance) => void) | null): void => {
+        (report: ((gesturePerformance?: LayoutGesturePerformance) => void) | null, releasedAt: number): void => {
             const gesture = layoutGesture.current
             layoutGesture.current = null
             if (!report) {
                 gesture?.cancel()
             } else if (gesture) {
-                gesture.finish(report)
+                gesture.finish(report, releasedAt)
             } else {
                 report()
             }
@@ -567,13 +567,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     )
 
     const handleResizeStop = useCallback(() => {
+        const releasedAt = performance.now()
         finishInteraction()
         const dashboardId = dashboard?.id
         finishLayoutGesture(
             dashboardId
                 ? (gesturePerformance) =>
                       reportDashboardTileRepositioned(dashboardId, 'resized', effectiveZoom, 'drag', gesturePerformance)
-                : null
+                : null,
+            releasedAt
         )
     }, [dashboard?.id, effectiveZoom, finishInteraction, finishLayoutGesture])
 
@@ -619,6 +621,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             event: Event,
             element: HTMLElement | null
         ) => {
+            const releasedAt = performance.now()
             stopAutoScroll()
             if (dragEndTimeout.current) {
                 window.clearTimeout(dragEndTimeout.current)
@@ -640,7 +643,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                               input,
                               gesturePerformance
                           )
-                    : null
+                    : null,
+                releasedAt
             )
         },
         [

@@ -200,7 +200,10 @@ export class LayoutGestureMonitor {
         private readonly requestFrame: (callback: FrameRequestCallback) => number = (callback) =>
             requestAnimationFrame(callback),
         private readonly cancelFrame: (handle: number) => void = (handle) => cancelAnimationFrame(handle)
-    ) {}
+    ) {
+        // The first gap runs from the gesture start, so work that delays the first frame counts as a slow frame.
+        this.lastFrameAt = startedAt
+    }
 
     start(): this {
         const onFrame = (frameAt: number): void => {
@@ -208,23 +211,33 @@ export class LayoutGestureMonitor {
             this.frameRequest = this.requestFrame(onFrame)
         }
         this.frameRequest = this.requestFrame(onFrame)
+        document.addEventListener('visibilitychange', this.onVisibilityChange)
         return this
     }
 
     recordFrame(frameAt: number): void {
         if (this.lastFrameAt !== null) {
-            this.gaps.push(frameAt - this.lastFrameAt)
+            this.gaps.push(Math.max(0, frameAt - this.lastFrameAt))
         }
         this.lastFrameAt = frameAt
     }
 
-    /** Reports after the second frame from release, because the first frame callback runs before the dropped layout paints. */
-    finish(report: (performance: LayoutGesturePerformance) => void): void {
+    // A carried tile stays in the gesture while the tab is hidden, and the browser pauses frames for that time.
+    private readonly onVisibilityChange = (): void => {
+        if (document.visibilityState === 'hidden') {
+            this.lastFrameAt = null
+        }
+    }
+
+    /**
+     * Reports after the second frame from release, because the first frame callback runs before the dropped layout paints.
+     * Pass the time the stop handler started, so the grid's own drop work counts toward the release.
+     */
+    finish(report: (performance: LayoutGesturePerformance) => void, releasedAt: number = performance.now()): void {
         if (this.finished) {
             return
         }
         this.cancel()
-        const releasedAt = performance.now()
         this.requestFrame(() =>
             this.requestFrame(() => {
                 try {
@@ -237,6 +250,7 @@ export class LayoutGestureMonitor {
     cancel(): void {
         this.finished = true
         this.cancelFrame(this.frameRequest)
+        document.removeEventListener('visibilitychange', this.onVisibilityChange)
     }
 
     summarize(releasedAt: number, paintedAt: number): LayoutGesturePerformance {
