@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -7,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import type { MessageTemplate } from '../TemplateLibrary/types'
+import type { TransactionalEmailRow } from './transactionalEmailRows'
 import { transactionalEmailsLogic } from './transactionalEmailsLogic'
 
 const template = (id: string, name: string, tags: string[], createdBy: number, transactional = true): MessageTemplate =>
@@ -28,10 +31,18 @@ const codeEmail = (id: string, key: string, tags: string[]): CodeEmailApi => ({
     sensitive: true,
     source_url: null,
     created_at: '2026-01-01T00:00:00Z',
+    user_access_level: 'editor',
 })
+
+// The code email endpoints are scoped by team, so the mocks below answer only under the team's id.
+const TEAM_ID = 42
+const PROJECT_ID = 7
+const CODE_EMAILS = `/api/projects/${TEAM_ID}/transactional_code_emails/`
 
 describe('transactionalEmailsLogic', () => {
     let logic: ReturnType<typeof transactionalEmailsLogic.build>
+    const codeRow = (): TransactionalEmailRow =>
+        logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!
     let writes: { path: string; tags: string[] }[]
 
     beforeEach(async () => {
@@ -44,7 +55,7 @@ describe('transactionalEmailsLogic', () => {
                     writes.push({ path: `messaging_templates/${id}`, tags })
                     return [200, { ...template(id, 'Password reset', [], 1), tags }]
                 },
-                '/api/projects/:team_id/transactional_code_emails/:id/': async ({ request, params }) => {
+                [`${CODE_EMAILS}:id/`]: async ({ request, params }) => {
                     const { tags } = (await request.json()) as { tags: string[] }
                     const id = String(params.id)
                     writes.push({ path: `transactional_code_emails/${id}`, tags })
@@ -60,11 +71,15 @@ describe('transactionalEmailsLogic', () => {
                         template('d', 'Newsletter', ['auth'], 1, false),
                     ],
                 },
-                '/api/projects/:team_id/transactional_code_emails/': [codeEmail('k', 'password-changed', ['auth'])],
+                [CODE_EMAILS]: [codeEmail('k', 'password-changed', ['auth'])],
                 '/api/projects/:team_id/tags': ['auth', 'billing'],
             },
         })
-        initKeaTests()
+        initKeaTests(
+            true,
+            { ...MOCK_DEFAULT_TEAM, id: TEAM_ID, project_id: PROJECT_ID },
+            { ...MOCK_DEFAULT_PROJECT, id: PROJECT_ID }
+        )
         logic = transactionalEmailsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -138,4 +153,128 @@ describe('transactionalEmailsLogic', () => {
             { path: 'messaging_templates/b', tags: ['billing', 'urgent'] },
         ])
     })
+
+    it.each([404, 500])('keeps the template rows when the code emails answer %s', async (status) => {
+        logic.unmount()
+        useMocks({ get: { [CODE_EMAILS]: () => [status, { detail: 'Unavailable' }] } })
+        logic = transactionalEmailsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.codeEmailsLoading).toBe(false)
+        expect(logic.values.transactionalEmails.map((row) => row.name)).toEqual([
+            'Password reset',
+            'Receipt',
+            'Sign-in code',
+        ])
+    })
+
+    it('stores the newest tags when a second tag edit is made while the first one saves', async () => {
+        jest.useFakeTimers()
+        try {
+            let stored = ['auth']
+            let releaseFirst: () => void = () => {}
+            useMocks({
+                patch: {
+                    [`${CODE_EMAILS}:id/`]: async ({ request, params }) => {
+                        const { tags } = (await request.json()) as { tags: string[] }
+                        writes.push({ path: `transactional_code_emails/${String(params.id)}`, tags })
+                        if (writes.length === 1) {
+                            await new Promise<void>((resolve) => (releaseFirst = resolve))
+                        }
+                        stored = tags
+                        return [200, codeEmail(String(params.id), 'password-changed', tags)]
+                    },
+                },
+                get: { [CODE_EMAILS]: () => [200, [codeEmail('k', 'password-changed', stored)]] },
+            })
+            const row = (): TransactionalEmailRow =>
+                logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!
+
+            logic.actions.saveTransactionalTags(row(), ['auth', 'security'])
+            await jest.advanceTimersByTimeAsync(300)
+            logic.actions.saveTransactionalTags(row(), ['auth', 'security', 'urgent'])
+            await jest.advanceTimersByTimeAsync(300)
+            expect(writes).toHaveLength(1)
+            releaseFirst()
+            await jest.advanceTimersByTimeAsync(0)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(stored).toEqual(['auth', 'security', 'urgent'])
+            expect(row().tags).toEqual(['auth', 'security', 'urgent'])
+            logic.actions.loadCodeEmails()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(row().tags).toEqual(['auth', 'security', 'urgent'])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it.each([
+        [1, 200],
+        [1, 500],
+        [2, 500],
+    ])(
+        'shows the stored tags of an email sent from code when a burst of %s tag edits fails to save and the read-back answers %s',
+        async (edits, status) => {
+            useMocks({
+                patch: { [`${CODE_EMAILS}:id/`]: () => [500, { detail: 'Unavailable' }] },
+                get: { [`${CODE_EMAILS}:id/`]: () => [status, codeEmail('k', 'password-changed', ['auth'])] },
+            })
+
+            for (const tag of ['security', 'urgent'].slice(0, edits)) {
+                logic.actions.saveTransactionalTags(codeRow(), [...codeRow().tags, tag])
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(codeRow().tags).toEqual(['auth'])
+            expect(logic.values.savingTagsFor).toBeNull()
+        }
+    )
+
+    it.each([200, 500])(
+        'keeps a newer tag edit when the read-back of a failed save answers %s after it, also through a later failed edit',
+        async (status) => {
+            let outage = false
+            let patches = 0
+            let readBackStarted: () => void = () => {}
+            const readBack = new Promise<void>((resolve) => (readBackStarted = resolve))
+            let releaseReadBack: () => void = () => {}
+            const readBackHeld = new Promise<void>((resolve) => (releaseReadBack = resolve))
+            useMocks({
+                patch: {
+                    [`${CODE_EMAILS}:id/`]: async ({ request, params }) => {
+                        const { tags } = (await request.json()) as { tags: string[] }
+                        if (++patches === 1 || outage) {
+                            return [500, { detail: 'Unavailable' }]
+                        }
+                        return [200, codeEmail(String(params.id), 'password-changed', tags)]
+                    },
+                },
+                get: {
+                    [`${CODE_EMAILS}:id/`]: async () => {
+                        if (outage) {
+                            return [500, { detail: 'Unavailable' }]
+                        }
+                        readBackStarted()
+                        await readBackHeld
+                        return [status, codeEmail('k', 'password-changed', ['auth'])]
+                    },
+                },
+            })
+
+            logic.actions.saveTransactionalTags(codeRow(), ['auth', 'security'])
+            await readBack
+            logic.actions.saveTransactionalTags(codeRow(), [...codeRow().tags, 'urgent'])
+            await expectLogic(logic).toDispatchActions(['transactionalTagsSaved'])
+            releaseReadBack()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(codeRow().tags).toEqual(['auth', 'security', 'urgent'])
+            outage = true
+            logic.actions.saveTransactionalTags(codeRow(), [...codeRow().tags, 'later'])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(codeRow().tags).toEqual(['auth', 'security', 'urgent'])
+        }
+    )
 })

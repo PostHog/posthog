@@ -125,6 +125,7 @@ export function TransactionalEmailsTable(): JSX.Element {
             <LemonTable<TransactionalEmailRow>
                 dataSource={filteredTransactionalEmails}
                 loading={templatesLoading || codeEmailsLoading}
+                pagination={{ pageSize: 50, hideOnSinglePage: true }}
                 rowKey="id"
                 data-attr="transactional-emails-table"
                 columns={[
@@ -197,7 +198,18 @@ export function TransactionalEmailsTable(): JSX.Element {
                                 maxVisibleTags: 2,
                                 'data-attr': 'transactional-email-tags',
                             }
-                            return editDisabledReason ? (
+                            // An email sent from code follows the reader's access to its own workflow.
+                            const tagsDisabledReason =
+                                row.source === 'code'
+                                    ? getAccessControlDisabledReason(
+                                          AccessControlResourceType.Workflow,
+                                          AccessControlLevel.Editor,
+                                          (row.codeEmail.user_access_level ?? undefined) as
+                                              | AccessControlLevel
+                                              | undefined
+                                      )
+                                    : editDisabledReason
+                            return tagsDisabledReason ? (
                                 <ObjectTags {...shown} staticOnly />
                             ) : (
                                 <ObjectTags

@@ -47,6 +47,7 @@ const codeEmail = (id: string, key: string, fields: Partial<CodeEmailApi>): Code
     sensitive: true,
     source_url: null,
     created_at: '2026-11-01T10:00:00Z',
+    user_access_level: 'editor',
     ...fields,
 })
 
