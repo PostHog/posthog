@@ -1108,21 +1108,20 @@ export class CdpApi {
         }
 
         const { id, team_id } = req.params
-        const { user_id, variables } = req.body ?? {}
-
-        if (typeof user_id !== 'string' || !user_id) {
-            return res.status(400).json({ error: 'user_id is required' })
+        const parsed = z
+            .object({
+                user_id: z.string({ error: 'user_id is required' }).min(1, 'user_id is required'),
+                variables: z.record(z.string(), z.unknown(), { error: 'variables must be an object' }).optional(),
+            })
+            .safeParse(req.body ?? {})
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body' })
         }
-        if (
-            variables !== undefined &&
-            (typeof variables !== 'object' || variables === null || Array.isArray(variables))
-        ) {
-            return res.status(400).json({ error: 'variables must be an object' })
-        }
+        const { user_id: userId, variables } = parsed.data
 
         try {
             const invocationId = await this.cdpSourceWebhooksConsumer.processManualTrigger(parseInt(team_id), id, {
-                userId: user_id,
+                userId,
                 variables: variables ?? {},
             })
             return res.json({ status: 'queued', invocation_id: invocationId })
