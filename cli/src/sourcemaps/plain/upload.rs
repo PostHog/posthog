@@ -167,6 +167,11 @@ pub fn upload_pairs(
             pair.set_release_id(Some(release_id.clone()));
         }
     }
+    if args.release_mode == ReleaseMode::SymbolSet
+        && pairs.iter().any(|p| !p.sourcemap.has_release_id())
+    {
+        warn!("No release could be resolved. Sourcemaps will upload without a release. Pass both --release-name and --release-version, or run from a git repository or supported CI environment.");
+    }
 
     let (empty_pairs, valid_pairs): (Vec<_>, Vec<_>) = pairs
         .into_iter()
