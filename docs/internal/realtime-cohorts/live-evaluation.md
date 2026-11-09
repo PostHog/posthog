@@ -132,7 +132,7 @@ Each person has one **person record**.
 It stores the set of person condition hashes that currently match, plus:
 
 - a **properties fingerprint**, a digest of the raw `person_properties` string last evaluated,
-- a **catalog fingerprint**, a digest of the team's distinct person condition hashes when last evaluated,
+- a **catalog fingerprint**, a digest of the evaluator version and the team's distinct person condition hashes when last evaluated,
 - a **stamp**, the event time and source offset of the newest event applied.
 
 For each event with person properties, the worker makes one of four decisions.
@@ -245,6 +245,7 @@ Every change applies lazily, person by person, on their next relevant event, fli
 - **A composition edit** keeps every leaf's state.
   A person is recomposed under the new tree when one of their leaves next flips, or, with cascades on, when a cohort it references flips for them.
 - **A change to the set of distinct person conditions** changes the catalog fingerprint, so every person in the team is re-evaluated on their next event with person properties.
+  A new evaluator version does the same for every team at once.
   A new cohort that reuses a person condition the team already has does not change the fingerprint, so the reused condition makes no transition.
   Its current matchers enter a single-leaf cohort only through the backfill, and a composed cohort through the backfill or the next flip of one of its other leaves.
 - **A cohort that is deleted, stops being realtime, or becomes excluded** stops producing output.

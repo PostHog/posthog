@@ -203,6 +203,7 @@ class HogQLQueryExecutor:
     direct_dialect: Optional[HogQLDialect] = None
     connection_id: Optional[str] = None
     expected_direct_engine: str | None = None
+    trino_canary: bool = False
     send_raw_query: bool = False
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
@@ -760,7 +761,10 @@ class HogQLQueryExecutor:
                 query_type=self.query_type,
                 debug=bool(self.debug),
                 principal=(
-                    DirectQueryPrincipal(value=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}")
+                    DirectQueryPrincipal(
+                        value=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}",
+                        trino_canary=self.trino_canary,
+                    )
                     if isinstance(self.user, User) and self.user.pk is not None
                     else None
                 ),

@@ -800,18 +800,27 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "label, exception_types, send_error, expected_raise, expected_enabled",
+    "label, exception_types, send_error, expected_raise, expected_status, expected_enabled",
     [
-        ("owner_left", ["CreatorLeftOrganizationError"], None, None, False),
-        ("owner_lost_access_to_every_tile", ["TableAccessDeniedError", "TableAccessDeniedError"], None, None, False),
+        # No chart rendered, so the delivery is recorded as failed even though the email carried the reason.
+        ("owner_left", ["CreatorLeftOrganizationError"], None, None, "failed", False),
+        (
+            "owner_lost_access_to_every_tile",
+            ["TableAccessDeniedError", "TableAccessDeniedError"],
+            None,
+            None,
+            "failed",
+            False,
+        ),
         # One denied tile still delivers the dashboard, with that tile showing why.
-        ("owner_lost_access_to_one_tile", ["TableAccessDeniedError", None], None, None, True),
+        ("owner_lost_access_to_one_tile", ["TableAccessDeniedError", None], None, None, "partial", True),
         # A permanent bounce raises out of the send, and the disable must still happen.
         (
             "owner_left_and_email_bounces",
             ["CreatorLeftOrganizationError"],
             EmailDeliveryError("permanent rejection"),
             ApplicationError,
+            None,
             False,
         ),
         # A transient failure is retried by Temporal, so the retry delivers the reason before any disable.
@@ -820,12 +829,13 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
             ["CreatorLeftOrganizationError"],
             ConnectionError("smtp unreachable"),
             ConnectionError,
+            None,
             True,
         ),
     ],
 )
 async def test_deliver_subscription_sends_the_reason_then_disables_when_the_owner_cannot_run_it(
-    team, user, label, exception_types, send_error, expected_raise, expected_enabled
+    team, user, label, exception_types, send_error, expected_raise, expected_status, expected_enabled
 ):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"own-{label[:5]}", name="owner")
     asset_ids = []
@@ -869,7 +879,7 @@ async def test_deliver_subscription_sends_the_reason_then_disables_when_the_owne
                 await run
         else:
             result = await run
-            assert result.recipient_results[0].status == "success"
+            assert result.recipient_results[0].status == expected_status
 
     send_report.assert_called_once()
     send_disabled_email.assert_not_called()

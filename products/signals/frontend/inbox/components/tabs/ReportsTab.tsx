@@ -1,9 +1,9 @@
 import { useMountedLogic, useValues } from 'kea'
 import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { isRankingSortField } from '../../filterOptions'
+import { isMergeKeySortField, isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
@@ -30,6 +30,7 @@ import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxMcpBanner } from '../InboxMcpBanner'
 import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
+import { InboxFiltersPanel } from '../shell/InboxFiltersPanel'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
 import { InboxSortSelect } from '../shell/InboxSortSelect'
@@ -49,6 +50,7 @@ type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
 interface SectionListState {
     count: number | null
     countLoading: boolean
+    countSettled: boolean
     reports: SignalReport[]
     isLoaded: boolean
     reportsLoadFailed: boolean
@@ -56,6 +58,7 @@ interface SectionListState {
     reportsResponseLoading: boolean
     hasMore: boolean
     loadedRankingPill: boolean
+    loadedPersonalFallback: boolean
 }
 
 /**
@@ -67,6 +70,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
     const {
         count,
         countLoading,
+        countSettled,
         reports,
         isLoaded,
         reportsLoadFailed,
@@ -74,10 +78,12 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         reportsResponseLoading,
         hasMore,
         loadedRankingPill,
+        loadedPersonalFallback,
     } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
     return {
         count,
         countLoading,
+        countSettled,
         reports,
         isLoaded,
         reportsLoadFailed,
@@ -85,6 +91,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         reportsResponseLoading,
         hasMore,
         loadedRankingPill,
+        loadedPersonalFallback,
     }
 }
 
@@ -97,6 +104,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
     return {
         monitoring: useSectionState('monitoring'),
         'needs-decision': useSectionState('needs-decision'),
+        'outcome-monitoring': useSectionState('outcome-monitoring'),
         resolved: useSectionState('resolved'),
         closed: useSectionState('closed'),
         dismissed: useSectionState('dismissed'),
@@ -125,10 +133,9 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         !isRunsOpen &&
         !isTriageOpen
 
-    // A count is settled once its request is no longer in flight: loaded, refreshed, or failed
-    // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
-    // filter refresh in progress doesn't fire the event with the previous query's counts.
-    const settled = COUNTED_SECTION_KEYS.every((key) => !sections[key].countLoading)
+    // Waiting on `countSettled` rather than the loading flags means a scope or filter change
+    // doesn't fire the event with the previous query's counts.
+    const settled = COUNTED_SECTION_KEYS.every((key) => sections[key].countSettled)
     const firedRef = useRef(false)
 
     useEffect(() => {
@@ -171,6 +178,7 @@ const ReportRow = memo(function ReportRow({
     sectionKey,
     rankingSortField,
     rankingPill,
+    personalSort,
     timestampField,
     hideOwnClaim,
 }: {
@@ -178,6 +186,7 @@ const ReportRow = memo(function ReportRow({
     sectionKey: InboxReportSectionKey
     rankingSortField: InboxRankingSortField | null
     rankingPill: boolean
+    personalSort: boolean
     timestampField: 'created_at' | 'updated_at'
     hideOwnClaim: boolean
 }): JSX.Element {
@@ -188,6 +197,7 @@ const ReportRow = memo(function ReportRow({
                 selectable
                 rankingSortField={rankingSortField}
                 rankingPill={rankingPill}
+                personalSort={personalSort}
                 timestampField={timestampField}
                 hideOwnClaim={hideOwnClaim}
                 onRestore={() =>
@@ -260,7 +270,10 @@ export function ReportsTab(): JSX.Element {
     const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection)
     // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
     const rankingPill =
-        activeSortField === 'recommended' && selectedSections.some((key) => sections[key].loadedRankingPill)
+        isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedRankingPill)
+    const personalSort = activeSortField === 'personal'
+    // Every state reads the same stored ranking, so one fallback response means the whole list fell back.
+    const personalFallback = personalSort && selectedSections.some((key) => sections[key].loadedPersonalFallback)
     // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
     const firstUnscoredIndex = rankingSortField
         ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
@@ -358,7 +371,14 @@ export function ReportsTab(): JSX.Element {
                 line it falls outside the clipped edge instead of leading the line. The sort group
                 grows so scope always ends the row. */}
             <div className="@container -mx-1 overflow-x-clip px-1">
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2 @2xl:hidden">
+                    <InboxFiltersPanel />
+                    <InboxSortSelect />
+                    <div className="ml-auto min-w-0">
+                        <InboxScopeFilter />
+                    </div>
+                </div>
+                <div className="hidden flex-wrap items-center gap-2 @2xl:flex">
                     <InboxReportFilters />
                     <div className="relative flex flex-1 items-center gap-2">
                         <LemonDivider vertical className="absolute inset-y-1 -left-[5px] m-0" />
@@ -379,6 +399,12 @@ export function ReportsTab(): JSX.Element {
                         notificationEmail={savedState?.first_report_notification_email}
                     />
                 </div>
+            )}
+
+            {personalFallback && !inboxIsEmpty && (
+                <LemonBanner type="info">
+                    Your personalized list isn't ready yet, so this is the Recommended order.
+                </LemonBanner>
             )}
 
             {inboxIsEmpty && !anyLoadFailed ? (
@@ -420,6 +446,7 @@ export function ReportsTab(): JSX.Element {
                                 sectionKey={sectionKey}
                                 rankingSortField={rankingSortField}
                                 rankingPill={rankingPill}
+                                personalSort={personalSort}
                                 timestampField={timestampField}
                                 hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
                             />

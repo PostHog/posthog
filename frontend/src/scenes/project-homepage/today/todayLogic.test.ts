@@ -2,9 +2,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { initKeaTests } from '~/test/init'
@@ -57,11 +54,9 @@ describe('todayLogic', () => {
     })
 
     it.each([
-        { status: 200, variant: 'test' },
-        { status: 500, variant: 'test' },
-        { status: 200, variant: 'control' },
-        { status: 200, variant: false },
-    ])('selects $variant ranking when the request returns $status', async ({ status, variant }) => {
+        { status: 200, mixed: true },
+        { status: 500, mixed: false },
+    ])('mixes frequent items into Jump back: $mixed when the request returns $status', async ({ status, mixed }) => {
         const entry = (id: string): { id: string; path: string; type: string; ref: string } => ({
             id,
             path: `Dashboards/${id}`,
@@ -69,12 +64,10 @@ describe('todayLogic', () => {
             ref: id,
         })
         frequentResponse = [status, status === 200 ? [entry('daily'), entry('weekly')] : {}]
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: variant })
         const logic = todayLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         recentItemsModel.actions.loadRecentsSuccess(['a', 'b', 'c', 'd'].map(entry))
-        const mixed = status === 200 && variant === 'test'
         expect(logic.values.recentObjects.map((item) => item.id)).toEqual(
             mixed ? ['a', 'b', 'daily', 'weekly', 'c', 'd'] : ['a', 'b', 'c', 'd']
         )
@@ -84,7 +77,6 @@ describe('todayLogic', () => {
             expect.objectContaining({
                 position: 3,
                 reason: mixed ? 'frequent' : 'recent',
-                ranking_variant: variant === 'test' ? 'test' : 'control',
             })
         )
     })

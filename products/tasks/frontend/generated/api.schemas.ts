@@ -1307,6 +1307,21 @@ export const TaskClientProvenanceEnumApi = {
 } as const
 
 /**
+ * * `posthog_desktop` - PostHog Desktop
+ * * `posthog_mobile` - PostHog Mobile
+ * * `posthog_web` - PostHog Web
+ * * `slack` - Slack
+ */
+export type TaskClientEnumApi = (typeof TaskClientEnumApi)[keyof typeof TaskClientEnumApi]
+
+export const TaskClientEnumApi = {
+    PosthogDesktop: 'posthog_desktop',
+    PosthogMobile: 'posthog_mobile',
+    PosthogWeb: 'posthog_web',
+    Slack: 'slack',
+} as const
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
@@ -1372,6 +1387,18 @@ export interface TaskDetailDTOApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
 }
 
 /**
@@ -1442,6 +1469,18 @@ export interface TaskBasicApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
     /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
     readonly description_preview: string
 }
@@ -1486,6 +1525,7 @@ export interface PaginatedTaskListItemListApi {
  * * `metrics_import` - Metrics Import
  * * `knowledge_writer` - Knowledge Writer
  * * `context_layer` - Context Layer
+ * * `feature_flags` - Feature Flags
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -1518,6 +1558,7 @@ export const TaskOriginProductEnumApi = {
     MetricsImport: 'metrics_import',
     KnowledgeWriter: 'knowledge_writer',
     ContextLayer: 'context_layer',
+    FeatureFlags: 'feature_flags',
 } as const
 
 /**
@@ -1561,6 +1602,92 @@ export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
     FullAccess: 'full-access',
 } as const
 
+export interface TaskRunOptionsRepositoryApi {
+    /**
+     * GitHub repository in `organization/repo` format.
+     * @maxLength 255
+     */
+    name: string
+    /**
+     * Branch the first run starts from. Omit to use the repository's default branch.
+     * @maxLength 255
+     * @nullable
+     */
+    initial_branch?: string | null
+}
+
+/**
+ * JSON schema that the agent's final answer must match.
+ */
+export type TaskRunOptionsRequestApiOutputSchema = { [key: string]: unknown }
+
+export interface TaskRunOptionsRequestApi {
+    /** Agent protocol and harness for the task. It must be one the profile allows.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime?: TaskRuntimeEnumApi
+    /** Agent harness for the first run. Derived from the model when omitted.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    adapter?: RuntimeAdapterEnumApi
+    /** LLM model for the first run. */
+    model?: string
+    /** Reasoning effort for the first run, for models that support it.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort?: ReasoningEffortEnumApi
+    /**
+     * GitHub repositories available to the task. The first one's initial branch starts the first run.
+     * @maxItems 10
+     */
+    repositories?: TaskRunOptionsRepositoryApi[]
+    /** JSON schema that the agent's final answer must match. */
+    output_schema?: TaskRunOptionsRequestApiOutputSchema
+    /** The agent's starting permission mode for the first run.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
+    permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
+    /** When true, the agent pushes its work and opens a draft pull request when it finishes. */
+    auto_publish?: boolean
+}
+
+/**
+ * * `signal_report` - Signal Report
+ * * `hog_flow` - Hog Flow
+ */
+export type PublicTaskSourceKindEnumApi = (typeof PublicTaskSourceKindEnumApi)[keyof typeof PublicTaskSourceKindEnumApi]
+
+export const PublicTaskSourceKindEnumApi = {
+    SignalReport: 'signal_report',
+    HogFlow: 'hog_flow',
+} as const
+
+export interface TaskSourceRequestApi {
+    /** The kind of row the task starts from. It must be the kind the profile takes.
+     *
+     * * `signal_report` - Signal Report
+     * * `hog_flow` - Hog Flow */
+    kind: PublicTaskSourceKindEnumApi
+    /**
+     * ID of that row. It must belong to the current project.
+     * @maxLength 64
+     */
+    id: string
+}
+
 export interface TaskCreateApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
@@ -1600,7 +1727,8 @@ export interface TaskCreateApi {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
-     * * `context_layer` - Context Layer */
+     * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1727,6 +1855,20 @@ export interface TaskCreateApi {
      * * `acp` - ACP
      * * `pi` - Pi */
     runtime?: TaskRuntimeEnumApi
+    /**
+     * Key of a public task profile, which sets the limits for this kind of task. Omit it to create a task from `origin_product` as before.
+     * @maxLength 64
+     */
+    profile?: string
+    /** Settings for this task, checked against the profile. Only the options the profile makes public are accepted. Requires `profile`. Do not repeat a setting that you also send at the top level. Settings for the first run also require `start_run`: `adapter`, `model`, `reasoning_effort`, `permission_mode`, `auto_publish` and the `initial_branch` of a repository. */
+    options?: TaskRunOptionsRequestApi
+    /** The row this task starts from, for profiles that take one. Requires `profile`. */
+    source?: TaskSourceRequestApi
+    /**
+     * Makes the request safe to retry. Sending the same key with the same body returns the task that the first request created. The same key with a different body is refused. Requires `profile`.
+     * @maxLength 64
+     */
+    idempotency_key?: string
 }
 
 /**
@@ -1795,6 +1937,18 @@ export interface TaskCreateResponseDTOApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
     /** Error returned when the task was created but its first run could not start. */
     run_error?: string
 }
@@ -1838,7 +1992,8 @@ export interface TaskWriteApi {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
-     * * `context_layer` - Context Layer */
+     * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1977,7 +2132,8 @@ export interface PatchedTaskWriteApi {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
-     * * `context_layer` - Context Layer */
+     * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2788,6 +2944,18 @@ export interface TaskRunResponseApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
     /** Error returned when the run could not start. */
     run_error?: string
     /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
@@ -3191,6 +3359,7 @@ export const RunStatusEnumApi = {
  * * `subscription_usage_limit` - subscription_usage_limit
  * * `task_spend_limit` - task_spend_limit
  * * `agent_error` - agent_error
+ * * `ActiveSessionCapError` - ActiveSessionCapError
  */
 export type ErrorTypeEnumApi = (typeof ErrorTypeEnumApi)[keyof typeof ErrorTypeEnumApi]
 
@@ -3211,6 +3380,7 @@ export const ErrorTypeEnumApi = {
     SubscriptionUsageLimit: 'subscription_usage_limit',
     TaskSpendLimit: 'task_spend_limit',
     AgentError: 'agent_error',
+    ActiveSessionCapError: 'ActiveSessionCapError',
 } as const
 
 export interface PatchedTaskRunUpdateApi {
@@ -3263,7 +3433,8 @@ export interface PatchedTaskRunUpdateApi {
      * * `turn_ended_without_response` - turn_ended_without_response
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
-     * * `agent_error` - agent_error */
+     * * `agent_error` - agent_error
+     * * `ActiveSessionCapError` - ActiveSessionCapError */
     error_type?: ErrorTypeEnumApi | null
 }
 
@@ -5015,6 +5186,7 @@ export interface SlackThreadContextResponseApi {
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
  * * `experiments` - experiments
+ * * `feature_flags` - feature_flags
  * * `hogdesk` - hogdesk
  * * `image_builder` - image_builder
  * * `knowledge_writer` - knowledge_writer
@@ -5046,6 +5218,7 @@ export const TaskListSourceEnumApi = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     Experiments: 'experiments',
+    FeatureFlags: 'feature_flags',
     Hogdesk: 'hogdesk',
     ImageBuilder: 'image_builder',
     KnowledgeWriter: 'knowledge_writer',
@@ -5259,6 +5432,7 @@ export type SandboxCustomImagesListParams = {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct
@@ -5296,6 +5470,7 @@ export const SandboxCustomImagesListOriginProduct = {
     MetricsImport: 'metrics_import',
     KnowledgeWriter: 'knowledge_writer',
     ContextLayer: 'context_layer',
+    FeatureFlags: 'feature_flags',
 } as const
 
 export type SandboxListParams = {
@@ -5445,6 +5620,7 @@ export type TasksListParams = {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5597,6 +5773,7 @@ export const TasksListExcludeOriginProduct = {
     MetricsImport: 'metrics_import',
     KnowledgeWriter: 'knowledge_writer',
     ContextLayer: 'context_layer',
+    FeatureFlags: 'feature_flags',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
@@ -5629,6 +5806,7 @@ export const TasksListPrState = {
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
  * * `experiments` - experiments
+ * * `feature_flags` - feature_flags
  * * `hogdesk` - hogdesk
  * * `image_builder` - image_builder
  * * `knowledge_writer` - knowledge_writer
@@ -5660,6 +5838,7 @@ export const TasksListSourcesItem = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     Experiments: 'experiments',
+    FeatureFlags: 'feature_flags',
     Hogdesk: 'hogdesk',
     ImageBuilder: 'image_builder',
     KnowledgeWriter: 'knowledge_writer',

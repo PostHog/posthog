@@ -48,6 +48,8 @@ from products.signals.backend.report_monitoring_outcomes import (
     aggregate_monitoring_attempt,
 )
 from products.signals.backend.report_monitoring_results import MonitoringEvaluation, save_monitoring_result
+from products.signals.backend.tasks import sweep_monitoring_research_requests
+from products.signals.backend.temporal.emitter import SignalEmitterInput
 from products.signals.backend.temporal.monitoring_assessment import (
     MonitoringAssessmentInput,
     MonitoringAssessmentWorkflow,
@@ -247,6 +249,12 @@ class TestReportMonitoringAggregation(BaseTest):
         )
 
     def test_failure_closes_immediately_and_records_research_intent_atomically(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        temporal_client = AsyncMock()
+        self.enterContext(
+            patch("products.signals.backend.facade.api.async_connect", new=AsyncMock(return_value=temporal_client))
+        )
         earlier = SignalReportArtefact.add_log(
             team_id=self.team.id,
             report_id=str(self.report.id),
@@ -277,6 +285,15 @@ class TestReportMonitoringAggregation(BaseTest):
         assert self.attempt.aggregation_state == "failed"
         assert self.attempt.research_requested_at == self.now
         assert self.attempt.assessment_requested_at is None
+        temporal_client.start_workflow.assert_not_called()
+        sweep_monitoring_research_requests.apply(throw=True)
+        emitted = [
+            call.args[1].signal
+            for call in temporal_client.start_workflow.call_args_list
+            if isinstance(call.args[1], SignalEmitterInput)
+        ]
+        assert len(emitted) == 1
+        assert emitted[0].source_id == str(self.attempt.id)
         self.checks[1].refresh_from_db()
         assert self.checks[1].status == "cancelled"
         assert self._aggregate() == MonitoringAggregation.WAITING

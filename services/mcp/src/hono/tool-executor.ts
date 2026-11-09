@@ -9,6 +9,7 @@ import {
     toolResultAnalyticsProperties,
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
+import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import {
     ExecCommandError,
     handleToolError,
@@ -27,6 +28,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
@@ -40,6 +42,7 @@ import {
     formatInputValidationError,
     getDeprecatedToolRedirect,
     markNoncanonicalMetricRun,
+    missingToolScopeError,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
     repairArgumentNesting,
@@ -86,6 +89,8 @@ interface ResolvedTool {
 
 interface ExecMetricState {
     innerToolName: string | undefined
+    innerInput: Record<string, unknown> | undefined
+    innerResult: unknown
     innerOutputFormat: ExecInnerCallProperties['output_format'] | undefined
     /** What the agent asked for, merged onto the event whichever verb ran. */
     commandMeta: ExecCommandMeta | undefined
@@ -244,6 +249,7 @@ export class ToolExecutor {
         }
 
         const rawArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        challengeStepUpForGatedTool(toolName, rawArgs, state)
         const originalTool = this.findOriginalTool(toolName, state)
         const rawRequestMeta = params?._meta
         const requestMeta =
@@ -344,6 +350,11 @@ export class ToolExecutor {
 
         if (!state.allTools.some((t) => t.name === toolName)) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
+            const scopeGatedTool = state.findScopeGatedTool(toolName)
+            if (scopeGatedTool) {
+                const error = missingToolScopeError(scopeGatedTool, state.context, state.oauthClientId)
+                return handleToolError(error, toolName, state.distinctId, undefined, state.suppressAnalytics)
+            }
             const text = getDeprecatedToolRedirect(toolName, state.allTools) ?? `Tool ${toolName} not found`
             return { content: [{ type: 'text', text }], isError: true }
         }
@@ -501,6 +512,7 @@ export class ToolExecutor {
                 toolName: tool.name,
                 args: validation.data,
                 isError: false,
+                resultEmpty: isEmptyToolResult(handlerResult, tool.name),
             })
 
             let response: ToolResultPayload
@@ -541,7 +553,7 @@ export class ToolExecutor {
                     ...toolResultAnalyticsProperties(response),
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                analyticsMeta,
+                { ...analyticsMeta, parameters: validation.data, response: handlerResult },
                 this.servedToolDescription(tool.name)
             )
 
@@ -598,7 +610,7 @@ export class ToolExecutor {
                     ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                analyticsMeta,
+                { ...analyticsMeta, parameters: validation.data },
                 this.servedToolDescription(tool.name)
             )
 
@@ -649,6 +661,8 @@ export class ToolExecutor {
     ): Promise<unknown> {
         const execMetrics: ExecMetricState = {
             innerToolName: undefined,
+            innerInput: undefined,
+            innerResult: undefined,
             innerOutputFormat: undefined,
             commandMeta: undefined,
             innerFailure: undefined,
@@ -709,6 +723,18 @@ export class ToolExecutor {
         // it. Non-`call` verbs (tools/info/search/schema) resolve no inner tool and stay
         // attributed to `exec`.
         const execToolName = (): string => execMetrics.innerToolName ?? 'exec'
+        // The dispatcher can reject a `call` before any handler runs (malformed JSON, a
+        // gated tool, a dropped `call` prefix). Server metrics keep those on `exec`, but
+        // the analytics event names the tool the agent was reaching for, so its failure
+        // counts against that tool rather than hiding in the `exec` bucket.
+        const analyticsToolName = (): string => execMetrics.innerToolName ?? attemptedCallTarget(execShape) ?? 'exec'
+        // The inner tool's validated arguments and raw result. A command that never reached a
+        // handler has neither, so its raw string never reaches analytics.
+        const execAnalyticsMeta = (): ToolCallAnalyticsMeta => ({
+            ...analyticsMeta,
+            parameters: execMetrics.innerInput,
+            response: execMetrics.innerResult,
+        })
 
         // Which stored skill an exec-routed read returned. Success only, unlike the
         // verb above: that records what the agent attempted, this records what it got.
@@ -742,10 +768,11 @@ export class ToolExecutor {
                 execVerb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
                 args: execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : validation.data,
                 isError: innerFailure !== undefined,
+                resultEmpty: execMetrics.resultEmpty,
             })
 
             void trackToolCall(
-                execToolName(),
+                analyticsToolName(),
                 duration,
                 failureShape !== undefined,
                 state,
@@ -763,8 +790,8 @@ export class ToolExecutor {
                     ...toolResultAnalyticsProperties(response),
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                analyticsMeta,
-                this.servedToolDescription(execToolName())
+                execAnalyticsMeta(),
+                this.servedToolDescription(analyticsToolName())
             )
 
             return attachGuidanceNotice(response, guidance, {
@@ -786,7 +813,7 @@ export class ToolExecutor {
             }
 
             void trackToolCall(
-                metricTool,
+                analyticsToolName(),
                 Date.now() - startMs,
                 true,
                 state,
@@ -797,8 +824,8 @@ export class ToolExecutor {
                     ...execMetrics.commandMeta,
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                analyticsMeta,
-                this.servedToolDescription(metricTool)
+                execAnalyticsMeta(),
+                this.servedToolDescription(analyticsToolName())
             )
 
             const sessionUuid = await sessionUuidForError(state)
@@ -870,6 +897,8 @@ export class ToolExecutor {
             // event (now relabelled to the inner tool name, with the inner tool's category
             // derived from it) already carries this call, so a second emit would double-count.
             execMetrics.innerToolName = toolName
+            execMetrics.innerInput = properties.input
+            execMetrics.innerResult = properties.result
             execMetrics.innerOutputFormat = properties.output_format
             if (!properties.success) {
                 execMetrics.innerFailure = { error: properties.error }
@@ -1045,7 +1074,11 @@ export class ToolExecutor {
             const handlerResult = await renderUiTool.handler(state.context, validation.data)
             toolCallsTotal.inc({ tool: 'render-ui', status: 'success' })
             stop({ status: 'success' })
-            void trackToolCall('render-ui', Date.now() - startMs, false, state, inputShape, analyticsMeta)
+            void trackToolCall('render-ui', Date.now() - startMs, false, state, inputShape, {
+                ...analyticsMeta,
+                parameters: validation.data,
+                response: handlerResult,
+            })
             // The handler always returns an exec-built payload (UI resourceUri + structuredContent).
             return handlerResult
         } catch (error: unknown) {
@@ -1100,6 +1133,23 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
     const classification = resolveToolErrorClassification(error)
     toolErrorsTotal.inc({ tool: toolName, error_type: classification.errorType })
     return classification
+}
+
+// Runs first in a tool call, before analytics, guidance, interview recruitment or the tool itself,
+// so a step-up client that replays the call after re-consent repeats nothing.
+function challengeStepUpForGatedTool(toolName: string, args: Record<string, unknown>, state: ResolvedState): void {
+    if (!state.supportsStepUp || state.viaMcpStore) {
+        return
+    }
+    const targetToolName =
+        toolName === 'exec' && typeof args.command === 'string' ? parseExecCallInnerToolName(args.command) : toolName
+    if (!targetToolName || state.allTools.some((tool) => tool.name === targetToolName)) {
+        return
+    }
+    const scopeGatedTool = state.findScopeGatedTool(targetToolName)
+    if (scopeGatedTool) {
+        challengeStepUpBeforeRun(scopeGatedTool.requiredScopes, state.supportsStepUp)
+    }
 }
 
 function resolveToolErrorClassification(error: unknown): ToolErrorClassification {
@@ -1283,6 +1333,12 @@ function inputShapeAnalyticsProperties(
 function recordedTargetTool(execShape: Record<string, unknown>): string | undefined {
     const target = execShape.$mcp_exec_target_tool
     return typeof target === 'string' && target !== UNRECOGNIZED_EXEC_TOKEN ? target : undefined
+}
+
+/** The tool a `call`, or a command that dropped its `call` prefix, named. */
+function attemptedCallTarget(execShape: Record<string, unknown>): string | undefined {
+    const verb = execShape.$mcp_exec_verb
+    return verb === 'call' || verb === UNRECOGNIZED_EXEC_TOKEN ? recordedTargetTool(execShape) : undefined
 }
 
 /**

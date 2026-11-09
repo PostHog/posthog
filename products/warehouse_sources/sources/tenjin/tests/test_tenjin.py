@@ -11,6 +11,7 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.sdk.internals import validate_incremental_sync
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
+    RecordedRequest,
     Script,
     ScriptedResponse,
     SourceDriver,
@@ -24,6 +25,7 @@ from products.warehouse_sources.sources.tenjin.source import TenjinSource
 from products.warehouse_sources.sources.tenjin.tenjin import (
     MAX_HISTORY_DAYS,
     TENJIN_BASE_URL,
+    WINDOW_DAYS,
     TenjinCredentialsError,
     TenjinResumeConfig,
     TenjinRetryableError,
@@ -65,29 +67,44 @@ class TestResolveStartDate:
     def test_unparseable_watermark_falls_back_to_full_history(self) -> None:
         assert resolve_start_date(True, "not-a-date", TODAY) == TODAY - timedelta(days=MAX_HISTORY_DAYS)
 
+    def test_lookback_is_clamped_to_full_history(self) -> None:
+        assert resolve_start_date(True, "2024-07-01", TODAY, lookback_days=37) == TODAY - timedelta(
+            days=MAX_HISTORY_DAYS
+        )
+
 
 class TestRequestShaping:
     @parameterized.expand(
         [
-            ("spend_report", "app_report", "2026-06-28", "2026-06-21"),
-            ("ad_revenue_report", "ad_placement_report", "2026-06-28", "2026-06-21"),
+            ("spend_report", "app_report", [("2026-06-21", "2026-06-30")]),
+            ("ad_revenue_report", "ad_placement_report", [("2026-06-21", "2026-06-30")]),
             # Day-30 cohort metrics keep changing for 30 days after the install date.
-            ("cohort_report", "campaign_cohort_report", "2026-06-28", "2026-05-22"),
-            ("cohort_window_clamped_to_history", "campaign_cohort_report", "2024-07-01", "2024-06-30"),
+            ("cohort_report", "campaign_cohort_report", [("2026-05-22", "2026-06-20"), ("2026-06-21", "2026-06-30")]),
         ]
     )
     def test_incremental_requests_only_the_watermark_range(
-        self, _name: str, endpoint: str, watermark: str, expected_start: str
+        self, _name: str, endpoint: str, expected_windows: list[tuple[str, str]]
     ) -> None:
         result = _drive(
-            [_report_page([{"date": watermark}])],
+            always(_report_page([{"date": "2026-06-28"}])),
             endpoint=endpoint,
             should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
+            db_incremental_field_last_value="2026-06-28",
         )
 
-        assert result.requests[0].param("start_date") == expected_start
-        assert result.requests[0].param("end_date") == "2026-06-30"
+        assert list(zip(result.params("start_date"), result.params("end_date"))) == expected_windows
+
+    def test_first_sync_walks_the_history_in_contiguous_windows(self) -> None:
+        result = _drive(always(_report_page([])))
+
+        assert result.raised is None
+        starts = [date.fromisoformat(str(value)) for value in result.params("start_date")]
+        ends = [date.fromisoformat(str(value)) for value in result.params("end_date")]
+        assert starts[0] == TODAY - timedelta(days=MAX_HISTORY_DAYS)
+        assert ends[-1] == TODAY
+        assert all((end - start).days < WINDOW_DAYS for start, end in zip(starts, ends))
+        assert all(start == end + timedelta(days=1) for end, start in zip(ends, starts[1:]))
+        assert result.final_state == TenjinResumeConfig(window_end=ends[-2].isoformat())
 
     @parameterized.expand([(name,) for name in TENJIN_REPORTS])
     def test_every_report_is_requested_at_daily_granularity(self, endpoint: str) -> None:
@@ -105,9 +122,9 @@ class TestToday:
         driver = SourceDriver(TenjinSource(), TenjinSourceConfig(api_key="test-key"))
 
         with time_machine.travel("2026-07-09T23:30:00Z", tick=False):
-            result = driver.run("app_report", [_report_page([])])
+            result = driver.run("app_report", always(_report_page([])))
 
-        assert result.requests[0].param("end_date") == "2026-07-09"
+        assert result.requests[-1].param("end_date") == "2026-07-09"
 
 
 class TestPaginationAndResume:
@@ -117,23 +134,70 @@ class TestPaginationAndResume:
             [
                 _report_page([{"date": "2026-06-29", "app_id": "a1"}], next_url=next_url),
                 _report_page([{"date": "2026-06-30", "app_id": "a1"}]),
-            ]
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-06-28",
         )
 
         assert len(result.items) == 2
         assert len(result.requests) == 2
         assert result.requests[1].param("page") == "2"
 
-    def test_resume_starts_at_the_saved_next_url(self) -> None:
+    def test_failed_page_leaves_a_resume_point_at_that_page(self) -> None:
+        next_url = f"{TENJIN_BASE_URL}/reports/spend?group_by=app&page=2&per_page=1000"
+        result = _drive(
+            [
+                _report_page([{"date": "2026-06-29", "app_id": "a1"}], next_url=next_url),
+                ScriptedResponse(status=400, json={"error": "Invalid request"}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-06-28",
+        )
+
+        assert result.final_state == TenjinResumeConfig(next_url=next_url, window_end="2026-06-30")
+
+    def test_resume_finishes_the_saved_window_then_requests_only_later_windows(self) -> None:
         saved_url = f"{TENJIN_BASE_URL}/reports/spend?group_by=app&page=7&per_page=1000"
 
         result = _drive(
-            [_report_page([{"date": "2026-06-30", "app_id": "a1"}])],
-            resume_state=TenjinResumeConfig(next_url=saved_url),
+            always(_report_page([{"date": "2026-06-10", "app_id": "a1"}])),
+            resume_state=TenjinResumeConfig(next_url=saved_url, window_end="2026-06-10"),
         )
 
-        assert len(result.requests) == 1
-        assert result.requests[0].param("page") == "7"
+        assert result.params("page") == ["7", None]
+        assert result.params("start_date") == [None, "2026-06-11"]
+        assert result.params("end_date") == [None, "2026-06-30"]
+
+    def test_failed_window_leaves_a_resume_point_after_the_finished_windows(self) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.param("start_date") == "2024-07-30":
+                return ScriptedResponse(status=400, json={"error": "Invalid request"})
+            return _report_page([{"date": request.param("start_date"), "app_id": "a1"}])
+
+        result = _drive(answer)
+
+        assert result.final_state == TenjinResumeConfig(window_end="2024-07-29")
+
+    @parameterized.expand(
+        [
+            (
+                "reason",
+                {"error": "start_date test-key is invalid"},
+                "Tenjin rejected the report request: start_date REDACTED is invalid",
+            ),
+            (
+                "no_reason",
+                {"message": "nope"},
+                "Tenjin rejected the report request. Check that your account has access to the requested report and metrics.",
+            ),
+        ]
+    )
+    def test_rejected_request_error_carries_tenjins_reason(
+        self, _name: str, body: dict[str, Any], expected: str
+    ) -> None:
+        result = _drive([ScriptedResponse(status=400, json=body)])
+
+        assert str(result.raised) == expected
 
 
 class TestTenjinSourceResponse:

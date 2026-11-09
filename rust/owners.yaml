@@ -37,3 +37,6 @@ rules:
           - '/replay-anonymizer/'
           - '/replay-anonymizer-node/'
       owners: ai-research
+    - match:
+          - '/deltalite/python/tests/test_*.py'
+      owners: team-warehouse-sources

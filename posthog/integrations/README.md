@@ -104,7 +104,7 @@ An OAuth accessor (`IntegrationManager.<kind>.oauth`) also refreshes access toke
 ## Rows are read-only
 
 The SDK returns rows typed as `IntegrationRecord`, a read-only `Protocol`:
-`id`, `team_id`, `kind`, `integration_id`, `config`, `sensitive_config`, `errors`, `created_at`, `created_by_id`, `auth_type`, `access_token`, `refresh_token` and `can_be_managed_by_creator(user_id)`.
+`id`, `team_id`, `kind`, `integration_id`, `config`, `sensitive_config`, `errors`, `created_at`, `created_by_id`, `auth_type`, `display_name`, `access_token`, `refresh_token` and `can_be_managed_by_creator(user_id)`.
 `config` and `sensitive_config` are `Mapping`s, so mypy rejects `row.config["x"] = 1`.
 Mypy also rejects `.save()`, `.delete()`, `.refresh_from_db()`, managers and related rows such as `row.team`.
 Use `row.team_id` and `row.created_by_id`, and load the team or the user from their own models.

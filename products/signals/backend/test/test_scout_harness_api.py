@@ -59,6 +59,7 @@ from products.signals.backend.models import (
     SignalSpend,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
+from products.signals.backend.presentation.spend import MonthlyUsageQuerySerializer
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
@@ -77,6 +78,7 @@ from products.signals.backend.scout_harness.limits import (
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
+    SearchMemoryQuerySerializer,
     SignalScoutConfigUpdateSerializer,
     SignalScoutRunSummarySerializer,
     SignalScoutSlackDestinationSerializer,
@@ -2390,6 +2392,11 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         keys = [row["key"] for row in response.json()]
         assert keys == ["match"]
 
+    def test_search_rejects_text_the_trigram_indexes_cannot_serve(self) -> None:
+        response = self.client.get(self._list_url(), {"text": "ai"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "text"
+
     def test_search_keys_only_blanks_content(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="k1", content="a long body")
         response = self.client.get(f"{self._list_url()}?keys_only=true")
@@ -2628,6 +2635,25 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert NOT_IN_USE_WRITES_KEY not in (sibling_run.metadata or {})
 
 
+class TestSearchMemoryQuerySerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("blank", "", True),
+            ("word", "checkout", True),
+            ("key_prefix", "pattern:impl:posthog/posthog", True),
+            ("three_digits", "404", True),
+            ("non_ascii_word", "café", True),
+            ("two_chars_before_separator", "ai_", True),
+            ("two_chars_after_separator", ":pr", True),
+            ("two_chars", "ai", False),
+            ("short_words_split_by_separators", "a-b_c d", False),
+            ("punctuation_only", "%%%", False),
+        ]
+    )
+    def test_text_needs_a_trigram(self, _name: str, text: str, valid: bool) -> None:
+        assert SearchMemoryQuerySerializer(data={"text": text}).is_valid() is valid
+
+
 class TestScoutHarnessNotesAPI(APIBaseTest):
     # Session auth throughout — unlike the scratchpad, the notes surface is deliberately on the
     # user-grantable `signal_scout` scopes, so any team member's session/PAK can write.
@@ -2715,15 +2741,24 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["content"] for row in response.json()] == ["the /checkout spike is expected"]
 
-    def test_list_excludes_expired_notes_by_default(self) -> None:
+    def test_list_filters_notes_by_expiry(self) -> None:
         SignalScoutNote.objects.create(
             team=self.team, content="stale steering", expires_at=timezone.now() - timedelta(days=1)
         )
         SignalScoutNote.objects.create(team=self.team, content="live steering")
+        SignalScoutNote.objects.create(
+            team=self.team, content="time-boxed steering", expires_at=timezone.now() + timedelta(days=1)
+        )
         default = self.client.get(self._list_url())
-        assert {row["content"] for row in default.json()} == {"live steering"}
+        assert {row["content"] for row in default.json()} == {"live steering", "time-boxed steering"}
         with_expired = self.client.get(f"{self._list_url()}?include_expired=true")
-        assert {row["content"] for row in with_expired.json()} == {"live steering", "stale steering"}
+        assert {row["content"] for row in with_expired.json()} == {
+            "live steering",
+            "stale steering",
+            "time-boxed steering",
+        }
+        standing = self.client.get(f"{self._list_url()}?only_without_expiry=true")
+        assert {row["content"] for row in standing.json()} == {"live steering"}
 
     @parameterized.expand(
         [
@@ -2782,6 +2817,107 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         note = SignalScoutNote.objects.get(team=self.team)
         assert note.expires_at is None
         assert note.content == "watch checkout"
+
+    def test_create_with_report_id_names_the_report_and_logs_it_on_the_report(self) -> None:
+        self._make_scout_skill()
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s", status=SignalReport.Status.READY)
+
+        response = self.client.post(
+            self._list_url(),
+            data={
+                "content": "focus on the new checkout flow",
+                "skill_name": "signals-scout-web-analytics",
+                "report_id": str(report.id),
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        note = response.json()
+        assert str(report.id) in note["content"]
+        assert "Checkout 500s" not in note["content"]
+        # The content quotes a report id, so the row has to ride the derived-origin read gate.
+        assert note["origin"] == SignalScoutNote.Origin.REPORT_NOTE
+        listed = self.client.get(self._list_url(), data={"text": str(report.id)})
+        assert [row["id"] for row in listed.json()] == [note["id"]]
+        artefact = SignalReportArtefact.objects.get(
+            report=report, type=SignalReportArtefact.ArtefactType.SCOUT_NOTE_LEFT
+        )
+        assert json.loads(artefact.content) == {
+            "note": "focus on the new checkout flow",
+            "skill_name": "signals-scout-web-analytics",
+            "scout_note_id": note["id"],
+        }
+        assert artefact.created_by_id == self.user.id
+
+    @parameterized.expand(
+        [
+            ("unknown_report", "unknown", ["*"], status.HTTP_400_BAD_REQUEST),
+            ("other_teams_report", "other_team", ["*"], status.HTTP_400_BAD_REQUEST),
+            ("deleted_report", "deleted", ["*"], status.HTTP_400_BAD_REQUEST),
+            (
+                "caller_without_report_read",
+                "own",
+                ["signal_scout:write", "llm_skill:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "caller_without_report_write",
+                "own",
+                ["signal_scout:write", "llm_skill:write", "task:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "caller_with_inbox_write_only",
+                "own",
+                ["signal_scout:write", "llm_skill:write", "inbox:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+        ]
+    )
+    def test_create_with_report_id_writes_nothing_when_refused(
+        self, _name: str, report_kind: str, scopes: list[str], expected_status: int
+    ) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        other = Team.objects.create(organization=self.organization, name="Other")
+        report_id = {
+            "unknown": lambda: str(uuid4()),
+            "other_team": lambda: str(SignalReport.objects.create(team=other, status=SignalReport.Status.READY).id),
+            "deleted": lambda: str(SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED).id),
+            "own": lambda: str(SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY).id),
+        }[report_kind]()
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "focus on the new checkout flow", "report_id": report_id},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+
+        assert response.status_code == expected_status, response.content
+        assert not SignalScoutNote.objects.filter(team=self.team).exists()
+        assert not SignalReportArtefact.objects.filter(type=SignalReportArtefact.ArtefactType.SCOUT_NOTE_LEFT).exists()
+
+    def test_create_with_report_id_rejects_content_too_long_to_carry_the_reference(self) -> None:
+        from products.signals.backend.report_scout_notes import MAX_REPORT_NOTE_TEXT_LENGTH
+
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "x" * (MAX_REPORT_NOTE_TEXT_LENGTH + 1), "report_id": str(report.id)},
+            format="json",
+        )
+
+        # The request serializer owns the shorter cap, so the caller gets a field error instead of
+        # the note layer's cap firing on prose the schema advertised as acceptable.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not SignalScoutNote.objects.filter(team=self.team).exists()
 
     def test_notes_do_not_leak_across_teams(self) -> None:
         # Cross-team rows go through `all_teams`: the fail-closed `objects` manager is pinned
@@ -6036,11 +6172,19 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
         assert self._spent(sibling_run) == 0
 
 
+class TestMonthlyUsageQuery(SimpleTestCase):
+    @parameterized.expand(["2026-00", "2026-13", "2026-1", "0000-01", "9999-12", "2026-11-01", "2026-09"])
+    def test_invalid_month(self, month: str) -> None:
+        serializer = MonthlyUsageQuerySerializer(data={"month": month})
+        assert not serializer.is_valid()
+        assert "month" in serializer.errors
+
+
 class TestScoutSpendOverview(APIBaseTest):
     @parameterized.expand(
         [
             (endpoint, scope, report_status)
-            for endpoint in ("scouts", "sources", "report")
+            for endpoint in ("scouts", "sources", "report", "monthly", "monthly_query")
             for scope in ("signal_usage", "signal_scout", "task")
             for report_status in (
                 [SignalReport.Status.POTENTIAL, SignalReport.Status.SUPPRESSED]
@@ -6054,6 +6198,8 @@ class TestScoutSpendOverview(APIBaseTest):
         path = {
             "scouts": "signals/spend/",
             "sources": "signals/source_spend/",
+            "monthly": "signals/usage/",
+            "monthly_query": "query/",
             "report": f"signals/reports/{report.id}/spend/",
         }[endpoint]
         raw = generate_random_token_personal()
@@ -6061,14 +6207,198 @@ class TestScoutSpendOverview(APIBaseTest):
             label="usage-read",
             user=self.user,
             secure_value=hash_key_value(raw),
-            scopes=[f"{scope}:read"],
+            scopes=[f"{scope}:read", "query:read"] if endpoint == "monthly_query" else [f"{scope}:read"],
             scoped_teams=[self.team.id],
         )
         self.client.logout()
         with patch("products.signals.backend.spend_reporting.execute_hogql_query") as query:
             query.return_value.results = []
-            response = self.client.get(f"/api/projects/{self.team.id}/{path}", HTTP_AUTHORIZATION=f"Bearer {raw}")
+            if endpoint == "monthly_query":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/{path}",
+                    {"query": {"kind": "InboxUsageQuery", "dateRange": {"date_from": "-7d"}}},
+                    format="json",
+                    HTTP_AUTHORIZATION=f"Bearer {raw}",
+                )
+            else:
+                response = self.client.get(f"/api/projects/{self.team.id}/{path}", HTTP_AUTHORIZATION=f"Bearer {raw}")
         assert response.status_code == (200 if scope == "signal_usage" else 403), response.content
+
+    @time_machine.travel("2026-12-15T12:00:00Z", tick=False)
+    def test_monthly_scout_usage_counts_each_run_once_and_keeps_unsettled_separate(self) -> None:
+        self.client.force_login(self.user)
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save(update_fields=["timezone"])
+        finalized_at = datetime(2026, 12, 1, tzinfo=UTC)
+        report_ids = [str(uuid4()), str(uuid4())]
+        first = _make_run(self.team, emitted_report_ids=report_ids)
+        repeated = _make_run(self.team, emitted_report_ids=report_ids[:1])
+        empty = _make_run(self.team, emitted_report_ids=[])
+        pending = _make_run(self.team)
+        untracked = _make_run(self.team)
+        private = _make_run(self.team, metadata={"scout_trial": {"version": 1}})
+        outside = _make_run(self.team)
+        other_team = Team.objects.create(organization=self.organization)
+        other = _make_run(other_team)
+        for run, amount, completed in [
+            (first, "12.1250", finalized_at),
+            (repeated, "3.0000", finalized_at),
+            (empty, "4.0000", finalized_at),
+            (pending, "1.5000", None),
+            (private, "999.0000", finalized_at),
+            (outside, "999.0000", datetime(2027, 1, 1, tzinfo=UTC)),
+            (other, "999.0000", finalized_at),
+        ]:
+            receipt = SignalSpend.objects.for_team(run.team_id).create(
+                team_id=run.team_id,
+                kind=SignalSpend.Kind.SCOUT_RUN,
+                scout_run=run,
+                task_run_id=run.task_run_id,
+                spend=Decimal(amount),
+                finalized_at=completed,
+                billing_exempt=run == empty,
+            )
+            SignalSpend.objects.for_team(run.team_id).filter(id=receipt.id).update(
+                created_at=datetime(2026, 12, 1, tzinfo=UTC)
+            )
+        SignalScoutRun.objects.for_team(self.team.id).filter(id=untracked.id).update(
+            created_at=datetime(2026, 12, 1, tzinfo=UTC)
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/")
+        assert response.status_code == 200, response.content
+        data = response.json()
+        assert data["period_start"] == "2026-12-01T00:00:00Z"
+        assert data["period_end"] == "2027-01-01T00:00:00Z"
+        assert data["total_credits"] == "19.1250"
+        assert data["exempt_credits"] == "4.0000"
+        assert data["unsettled_credits"] == "1.5000"
+        assert data["untracked_scout_run_count"] == 1
+        assert data["incomplete"] is True
+        assert data["sources"] == []
+        assert data["scouts"] == [
+            {
+                "scout_config_id": str(first.scout_config_id),
+                "skill_name": first.skill_name,
+                "display_name": first.skill_name,
+                "total_credits": "19.1250",
+                "exempt_credits": "4.0000",
+                "run_count": 3,
+                "reports_produced": 2,
+                "incomplete": False,
+            }
+        ]
+        assert Decimal(data["total_credits"]) * Decimal(data["pricing"]["usd_per_credit"]) == Decimal("0.191250")
+        child = Team.objects.create(organization=self.organization, parent_team=self.team)
+        child_response = self.client.get(f"/api/projects/{child.id}/signals/usage/")
+        assert child_response.status_code == 200, child_response.content
+        assert child_response.json()["project_id"] == self.team.id
+        assert child_response.json()["total_credits"] == "19.1250"
+        assert child_response.json()["scouts"] == data["scouts"]
+        query_payload = {
+            "query": {
+                "kind": "InboxUsageQuery",
+                "dateRange": {"date_from": "2026-12-01", "date_to": "2027-01-01", "explicitDate": True},
+            }
+        }
+        query_response = self.client.post(f"/api/projects/{self.team.id}/query/", query_payload, format="json")
+        assert query_response.status_code == 200, query_response.content
+        assert query_response.json()["results"]["total_credits"] == data["total_credits"]
+        assert query_response.json()["is_cached"] is True
+        child_query = self.client.post(f"/api/projects/{child.id}/query/", query_payload, format="json")
+        assert child_query.status_code == 400, child_query.content
+
+        SignalSpend.objects.for_team(self.team.id).filter(scout_run=first).update(spend=Decimal("20.1250"))
+        cached = self.client.get(f"/api/projects/{self.team.id}/signals/usage/").json()
+        assert cached["total_credits"] == data["total_credits"]
+        assert cached["as_of"] == data["as_of"]
+        with time_machine.travel("2026-12-15T12:06:00Z", tick=False):
+            refreshed = self.client.get(f"/api/projects/{self.team.id}/signals/usage/").json()
+        assert refreshed["total_credits"] == "27.1250"
+        with time_machine.travel("2027-01-02T12:00:00Z", tick=False):
+            self.client.force_login(self.user)
+            next_month_response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/")
+        assert next_month_response.status_code == 200, next_month_response.content
+        next_month = next_month_response.json()
+        assert next_month["period_start"] == "2027-01-01T00:00:00Z"
+        assert next_month["total_credits"] == "999.0000"
+
+    @parameterized.expand(
+        [
+            (
+                "exact",
+                {
+                    "date_from": "2026-12-15T12:00:00+01:00",
+                    "date_to": "2026-12-15T12:30:00+01:00",
+                    "explicitDate": True,
+                },
+                "2026-12-15T11:00:00Z",
+                "2026-12-15T11:30:00Z",
+                "2.1250",
+            ),
+            (
+                "exclusive_end",
+                {"date_from": "2026-12-15T10:00:00Z", "date_to": "2026-12-15T11:00:00Z", "explicitDate": True},
+                "2026-12-15T10:00:00Z",
+                "2026-12-15T11:00:00Z",
+                "0",
+            ),
+            (
+                "relative",
+                {"date_from": "-2h", "explicitDate": True},
+                "2026-12-15T10:00:00Z",
+                "2026-12-15T12:00:00Z",
+                "2.1250",
+            ),
+            (
+                "all",
+                {"date_from": "all", "explicitDate": True},
+                "2026-10-01T00:00:00Z",
+                "2026-12-15T12:00:00Z",
+                "2.1250",
+            ),
+            (
+                "clipped_to_available_history",
+                {"date_from": "2026-09-01", "explicitDate": True},
+                "2026-10-01T00:00:00Z",
+                "2026-12-15T12:00:00Z",
+                "2.1250",
+            ),
+        ]
+    )
+    @time_machine.travel("2026-12-15T12:00:00Z", tick=False)
+    def test_usage_query_date_range(
+        self, _name: str, date_range: dict[str, str | bool], start: str, end: str, credits: str
+    ) -> None:
+        self.client.force_login(self.user)
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save(update_fields=["timezone"])
+        run = _make_run(self.team)
+        receipt = SignalSpend.objects.for_team(self.team.id).create(
+            team=self.team,
+            kind=SignalSpend.Kind.SCOUT_RUN,
+            scout_run=run,
+            task_run_id=run.task_run_id,
+            spend=Decimal("2.1250"),
+            finalized_at=datetime(2026, 12, 15, 11, tzinfo=UTC),
+        )
+        SignalSpend.objects.for_team(self.team.id).filter(id=receipt.id).update(
+            created_at=datetime(2026, 11, 1, tzinfo=UTC)
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {"query": {"kind": "InboxUsageQuery", "dateRange": date_range}},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        data = response.json()["results"]
+        assert data["period_start"] == start
+        assert data["period_end"] == end
+        assert data["total_credits"] == credits
+
+    @parameterized.expand(["2026-13", "2026-09"])
+    def test_monthly_usage_rejects_invalid_month(self, month: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month={month}")
+        assert response.status_code == 400
 
     @parameterized.expand([False, True])
     def test_spend_is_team_scoped_and_excludes_private_and_old_runs(self, child_environment: bool) -> None:
@@ -6123,7 +6453,8 @@ class TestScoutSpendOverview(APIBaseTest):
             cached = SpendReporting(self.team).scouts()
         assert cached.scout_spend.total_spend == 200.375
 
-    def test_child_scoped_api_key_cannot_read_parent_spend(self) -> None:
+    @parameterized.expand(["spend", "usage"])
+    def test_child_scoped_api_key_cannot_read_parent_spend(self, endpoint: str) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -6135,7 +6466,7 @@ class TestScoutSpendOverview(APIBaseTest):
         )
         self.client.logout()
 
-        response = self.client.get(f"/api/projects/{child.id}/signals/spend/", HTTP_AUTHORIZATION=f"Bearer {raw}")
+        response = self.client.get(f"/api/projects/{child.id}/signals/{endpoint}/", HTTP_AUTHORIZATION=f"Bearer {raw}")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 

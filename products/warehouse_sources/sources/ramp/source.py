@@ -7,7 +7,12 @@ from products.warehouse_sources.sources.ramp.ramp import (
     ramp_source,
     validate_credentials as validate_ramp_credentials,
 )
-from products.warehouse_sources.sources.ramp.settings import ENDPOINTS, INCREMENTAL_FIELDS, SHOULD_SYNC_DEFAULT
+from products.warehouse_sources.sources.ramp.settings import (
+    DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
+)
 from products.warehouse_sources.sources.sdk import (
     OAUTH2_PERMANENT_ERROR_MARKER,
     CanonicalDescriptions,
@@ -75,7 +80,7 @@ class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
 
 A Ramp admin can create a developer app under Settings > Developer API. Grant it the `transactions:read`, `reimbursements:read`, `users:read`, `cards:read`, and `departments:read` scopes (scopes are fixed at app creation) and enable client credentials, then enter the app's client ID and secret here.
 
-To also sync billing statements, vendors, merchants, bills, or general ledger accounts, grant `billing_statements:read`, `vendors:read`, `merchants:read`, `bills:read`, or `accounting:read` as well.""",
+To also sync billing statements, vendors, merchants, bills, general ledger accounts, locations, business entities, transfers, or statements, grant `billing_statements:read`, `vendors:read`, `merchants:read`, `bills:read`, `accounting:read`, `locations:read`, `entities:read`, `transfers:read`, or `statements:read` as well.""",
             iconPath="/static/services/ramp.png",
             docsUrl="https://posthog.com/docs/cdp/sources/ramp",
             releaseStatus=ReleaseStatus.GA,
@@ -121,7 +126,13 @@ To also sync billing statements, vendors, merchants, bills, or general ledger ac
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+            default_incremental_lookback_seconds=DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
+        )
 
     def validate_credentials(
         self, config: RampSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

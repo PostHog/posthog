@@ -18,6 +18,7 @@ const pathsWithoutProjectId = [
     'embedded',
     'interview',
     'cli',
+    'device',
     'render_query',
 ]
 

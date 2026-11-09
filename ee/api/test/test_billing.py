@@ -2881,6 +2881,46 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertNotIn("start_date is invalid", response.content.decode())
 
 
+def _billing_rate_limited_response() -> Response:
+    response = Response()
+    response.status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    response.headers["Retry-After"] = "30"
+    response._content = json.dumps({"detail": "Request was throttled. Expected available in 30 seconds."}).encode()
+    response.raw = MagicMock()
+    return response
+
+
+@patch(
+    "ee.billing.billing_manager.http_session.get", side_effect=lambda *args, **kwargs: _billing_rate_limited_response()
+)
+class TestBillingRateLimitedAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _assert_rate_limited(self, response: Any) -> None:
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "billing_rate_limited")
+        self.assertEqual(response.headers["Retry-After"], "30")
+
+    def test_billing_list_returns_429(self, _mock_get):
+        self._assert_rate_limited(self.client.get("/api/billing/"))
+
+    def test_billing_usage_returns_429(self, _mock_get):
+        self._assert_rate_limited(self.client.get("/api/billing/usage/?start_date=2025-01-01"))
+
+    def test_billing_invoices_returns_429(self, _mock_get):
+        self._assert_rate_limited(self.client.get("/api/billing/get_invoices"))
+
+    def test_billing_429_is_not_captured(self, _mock_get):
+        with patch("posthog.exceptions.capture_exception", return_value=None) as mock_capture_exception:
+            response = self.client.get("/api/billing/")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        mock_capture_exception.assert_not_called()
+
+
 class TestBillingPeriodAPI(APILicensedTest):
     def test_member_can_read_synced_organization_period(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
