@@ -145,12 +145,13 @@ export class InFlightRegistry {
         }
         const estimate = estimateSend(fileBytes)
         this.hold(estimate, 1)
+        // The send settles at its result write. Its reservation stays until its calls settle, which has no deadline, so
+        // nothing that waits for the send waits for them.
         const started = sendCalls.run(new Set(), async () => {
             try {
                 return await send()
             } finally {
-                await everyCallSettled()
-                this.hold(estimate, -1)
+                void everyCallSettled().then(() => this.hold(estimate, -1))
             }
         })
         return { started }

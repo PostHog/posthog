@@ -278,18 +278,48 @@ describe('CdpCyclotronWorkerEmail', () => {
             }
         })
 
-        it('runs a canceled send with files on a worker that refuses files, so it ends instead of deferring', async () => {
+        it('reports a failed plain batch once the send beside it wrote its result, while its abandoned call still runs', async () => {
+            jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] })
+            try {
+                const { worker, queue } = workerWith(roomFor(1))
+                const [plain, send] = [job(), withFiles()]
+                const stalledCall = new Promise<void>(() => undefined)
+                jest.spyOn(worker, 'processInvocations').mockImplementation(async (invocations) => {
+                    if (invocations[0].id === plain.id) {
+                        throw new Error('plain failed')
+                    }
+                    const deadline = new AbortController()
+                    deadline.abort(new Error('deadline'))
+                    await settleBefore(deadline.signal, stalledCall).catch(() => undefined)
+                    return resultsOf(invocations)
+                })
+
+                const batch = worker.processBatch([plain, send])
+                void batch.catch(() => undefined)
+                await jest.advanceTimersByTimeAsync(3_000)
+
+                await expect(batch).rejects.toThrow('plain failed')
+                expect(written(queue)).toEqual([send.id])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('ends a canceled send with files on a worker that refuses files, instead of deferring it', async () => {
             const { worker, queue } = workerWith(null)
             const canceled = withFiles({ cancelRequestedAt: DateTime.now() })
-            const ran = jest
-                .spyOn(worker, 'processInvocations')
-                .mockImplementation((invocations) => Promise.resolve(resultsOf(invocations)))
 
             await (
                 await worker.processBatch([canceled])
             ).backgroundTask
 
-            expect(ran).toHaveBeenCalledWith([canceled])
+            expect(queue.queueInvocationResults).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    finished: true,
+                    canceled: true,
+                    invocation: expect.objectContaining({ id: canceled.id }),
+                }),
+            ])
             expect(queue.deferInvocations).not.toHaveBeenCalled()
         })
 

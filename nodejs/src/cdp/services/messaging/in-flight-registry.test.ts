@@ -75,11 +75,10 @@ describe('InFlightRegistry', () => {
             const { started } = registry.tryStart(MIB, () =>
                 abandon(new AbortController(), download.promise).catch(() => undefined)
             ) as { started: Promise<unknown> }
-            await new Promise(setImmediate)
-
+            await started
             expect(registry.tryStart(MIB, () => Promise.resolve())).toEqual({ deferred: 'over_budget' })
             download.resolve()
-            await started
+            await new Promise(setImmediate)
             expect(registry.tryStart(MIB, () => Promise.resolve())).toHaveProperty('started')
         }
     )
