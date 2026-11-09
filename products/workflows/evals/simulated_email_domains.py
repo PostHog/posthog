@@ -277,6 +277,9 @@ class SimulatedSESProvider(SESProvider):
     def __init__(self, domains: SimulatedEmailDomains) -> None:
         self._simulated_v2 = _SimulatedSesV2(domains)
         self.sts_client = cast(Any, _SimulatedSts())
+        # Set the account id here so the provider does not cache the simulated account in Redis,
+        # where provider tests that run later in the same process would read it.
+        self._aws_account_id = self.sts_client.get_caller_identity()["Account"]
         self.ses_client = cast(Any, _SimulatedSes(domains))
         self.ses_v2_client = cast(Any, self._simulated_v2)
         self.ses_v2_metrics_client = self.ses_v2_client
