@@ -423,7 +423,13 @@ describe('HogFunctionHandler', () => {
                     holdHours: null,
                 }),
         ],
-    ])('lets an email to an address with a control character past %s, so the send fails it', async (_check, skip) => {
+        [
+            'an ended frequency-cap hold',
+            () => {
+                invocation.state.currentAction!.frequencyCapHoldDeadlineAt = DateTime.now().minus({ hours: 1 }).toISO()!
+            },
+        ],
+    ])('lets an email to an address with a control character past %s to the send', async (_check, skip) => {
         const emailTemplate = await insertHogFunctionTemplate(hub.postgres, {
             id: `template-test-hogflow-email-${team.id}`,
             name: 'Test Email Template',

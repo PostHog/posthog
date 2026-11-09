@@ -565,7 +565,7 @@ export class HogFunctionHandler implements ActionHandler {
         // This check runs last because it also records the send against the cap. If it ran before the
         // opt-out, suppression or bounce checks, a send that one of them skips would still use a slot.
         // A held send that wakes after its hold ended is skipped before the check, so it never claims a slot late.
-        const holdExpired = frequencyCapHoldExpired(invocation)
+        const holdExpired = !failsAtSend && frequencyCapHoldExpired(invocation)
         const frequencyCap =
             hogExecutorOptions?.isTest || holdExpired || failsAtSend
                 ? ({ capped: false } as const)

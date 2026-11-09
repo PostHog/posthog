@@ -1640,8 +1640,8 @@ describe('EmailService', () => {
 
         it.each([
             ['To', { to: { email: 'jo\u0000@example.com', name: 'Jo' } }, 'To "jo\\u0000@example.com"'],
-            ['CC', { cc: 'ok@example.com, jo\u0001@example.com' }, 'CC "ok@example.com, jo\\u0001@example.com"'],
-            ['BCC', { bcc: 'jo\u007F@example.com' }, 'BCC "jo\\u007f@example.com"'],
+            ['CC', { cc: 'Ann <ok@example.com>; "Jo" <jo\u0001@example.com>' }, 'CC "jo\\u0001@example.com"'],
+            ['BCC', { bcc: '"jo(\u007F)"@example.com' }, 'BCC "jo(\\u007f)@example.com"'],
         ])('fails the send before any lookup when %s has a control character', async (_field, recipients, named) => {
             const isSuppressed = jest.spyOn(service['emailSuppressionService'], 'isSuppressed')
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, ...recipients })

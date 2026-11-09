@@ -19,23 +19,37 @@ export type SuppressedRecipientsResult = {
 type ParsedAddress = { email: string; name?: string }
 
 // Tab, line feed and carriage return are left out: they separate the entries of an address list.
-const CONTROL_CHARACTERS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g
+const CONTROL_CHARACTER = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/
+const CONTROL_CHARACTERS = new RegExp(CONTROL_CHARACTER.source, 'g')
+// U+2400 to U+241F picture the C0 controls in order, and U+2421 pictures DEL.
+const CONTROL_PICTURES = /[␀-␟␡]/g
 
-const escapeControlCharacters = (value: string): string =>
-    value.replace(CONTROL_CHARACTERS, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+const toControlPicture = (char: string): string =>
+    String.fromCharCode(char === '\x7F' ? 0x2421 : 0x2400 + char.charCodeAt(0))
 
-const addressesOnly = (list: string | undefined): string | undefined =>
-    list
-        ?.replace(/"(?:[^"\\]|\\.)*"(?!\s*@)|\([^)]*\)/g, '')
-        .split(',')
-        .map((entry) => entry.match(/<([^>]*)>/)?.[1] ?? entry)
-        .join(',')
+const escapeControlPicture = (picture: string): string =>
+    `\\u${(picture === '␡' ? 0x7f : picture.charCodeAt(0) - 0x2400).toString(16).padStart(4, '0')}`
+
+// addressparser drops control characters, so they go in as pictures and stay visible in the parsed addresses.
+const mailboxesWithControlCharacters = (value: string | undefined, isList: boolean): string[] => {
+    if (typeof value !== 'string' || !CONTROL_CHARACTER.test(value)) {
+        return []
+    }
+    const pictured = value.replace(CONTROL_CHARACTERS, toControlPicture)
+    const mailboxes = isList ? addressparser(pictured, { flatten: true }).map((entry) => entry.address) : [pictured]
+    return mailboxes.filter((mailbox) => mailbox !== mailbox.replace(CONTROL_PICTURES, ''))
+}
 
 export const fieldsWithControlCharacters = ({ to, cc, bcc }: EmailRecipients): string[] =>
-    Object.entries({ To: to?.email, CC: addressesOnly(cc), BCC: addressesOnly(bcc) }).flatMap(([field, value]) => {
-        const escaped = typeof value === 'string' ? escapeControlCharacters(value) : value
-        return escaped !== value ? [`${field} "${escaped}"`] : []
-    })
+    Object.entries({
+        To: mailboxesWithControlCharacters(to?.email, false),
+        CC: mailboxesWithControlCharacters(cc, true),
+        BCC: mailboxesWithControlCharacters(bcc, true),
+    }).flatMap(([field, mailboxes]) =>
+        mailboxes.length > 0
+            ? [`${field} "${mailboxes.join(', ').replace(CONTROL_PICTURES, escapeControlPicture)}"`]
+            : []
+    )
 
 // The suppression list stores bare addresses, so a quoted local part (`"jo"@x.com`) is checked unquoted.
 export const unquoteMailbox = (address: string): string => {
