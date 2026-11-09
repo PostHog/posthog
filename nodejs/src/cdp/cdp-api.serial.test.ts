@@ -2311,7 +2311,8 @@ describe('CDP API', () => {
             replyTo: ['help@example.com'],
             tracking: { captureEngagement: true },
         }
-        const newsletterId = '0195d6b4-6c3e-7a1f-9b2d-3f4e5a6b7c8d'
+        // Message categories have UUIDT ids, which are not RFC 4122 UUIDs.
+        const newsletterId = '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b'
         const newsletterSend = { ...codeSend, messageCategoryId: newsletterId }
 
         beforeEach(async () => {
@@ -2834,7 +2835,7 @@ describe('CDP API', () => {
 
             it.each([
                 ['a transactional code send', codeSend, '$all'],
-                ['a code send in another category', newsletterSend, '0195d6b4-0000-7000-8000-000000000000'],
+                ['a code send in another category', newsletterSend, '0195d6b4-6c3e-0001-5e6f-7a8b9c0d1e2f'],
             ])('queues %s', async (_desc, acceptedSend, optedOutOf) => {
                 const res = await sendAccepted(hogFlow.id, {
                     ...body,

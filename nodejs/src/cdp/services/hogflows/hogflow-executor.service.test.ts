@@ -3763,7 +3763,7 @@ if (not res.success) { throw Error(res.error) }`,
         )
 
         describe('for a code send in a marketing category', () => {
-            const newsletterId = '0195d6b4-6c3e-7a1f-9b2d-3f4e5a6b7c8d'
+            const newsletterId = '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b'
             // Django saves every code send's email step as transactional, and the send carries its category.
             const codeSendFlow = () => emailFlow(codeKeyStep(), { message_category_type: 'transactional' })
             const unsubscribeSend = (messageCategoryId?: string): QueuedSend => ({

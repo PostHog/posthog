@@ -40,8 +40,9 @@ export const AcceptedSendSchema = z
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
         tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
-        // The marketing category the send belongs to. Without it the send is transactional.
-        messageCategoryId: z.uuid().optional(),
+        // The marketing category the send belongs to. Its id is a UUIDT, which z.uuid() refuses. Without it the send
+        // is transactional.
+        messageCategoryId: z.guid().optional(),
     })
     .strict()
     .readonly()
