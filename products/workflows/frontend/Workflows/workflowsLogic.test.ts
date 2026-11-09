@@ -191,43 +191,65 @@ describe('workflowsLogic', () => {
             tree.unmount()
         })
 
-        it.each([
-            [['flow-1'], 1, '1 archived workflow', '1 workflow deleted'],
+        it.each<[string[], { deleted: number; deleted_ids?: string[] }, string, string, string[]]>([
+            [
+                ['flow-1'],
+                { deleted: 1, deleted_ids: ['flow-1'] },
+                '1 archived workflow',
+                '1 workflow deleted',
+                ['flow-1'],
+            ],
             // The toast and the tree follow what the server deleted, which can be fewer than the rows picked.
-            [['flow-1', 'flow-2'], 1, '2 archived workflows', '1 workflow deleted'],
-            [['flow-1', 'flow-2', 'flow-3'], 3, '3 archived workflows', '3 workflows deleted'],
-        ])('bulk deletes %j after confirming, clears the selection and reloads', async (ids, deleted, noun, toast) => {
-            const deletedIds = ids.slice(0, deleted)
-            useListMocks(200, { deleted, deleted_ids: deletedIds })
-            const tree = projectTreeDataLogic()
-            tree.mount()
-            const dropFromTree = jest.spyOn(tree.actions, 'deleteTypeAndRef')
-            const successToast = jest.spyOn(lemonToast, 'success')
-            logic.actions.selectAllArchivedWorkflows(ids)
+            [
+                ['flow-1', 'flow-2'],
+                { deleted: 1, deleted_ids: ['flow-1'] },
+                '2 archived workflows',
+                '1 workflow deleted',
+                ['flow-1'],
+            ],
+            [
+                ['flow-1', 'flow-2', 'flow-3'],
+                { deleted: 3, deleted_ids: ['flow-1', 'flow-2', 'flow-3'] },
+                '3 archived workflows',
+                '3 workflows deleted',
+                ['flow-1', 'flow-2', 'flow-3'],
+            ],
+            [['flow-1', 'flow-2'], { deleted: 2 }, '2 archived workflows', '2 workflows deleted', ['flow-1', 'flow-2']],
+            [['flow-1', 'flow-2'], { deleted: 1 }, '2 archived workflows', '1 workflow deleted', []],
+        ])(
+            'bulk deletes %j answered with %j, clears the selection and reloads',
+            async (ids, response, noun, toast, deletedIds) => {
+                useListMocks(200, response)
+                const tree = projectTreeDataLogic()
+                tree.mount()
+                const dropFromTree = jest.spyOn(tree.actions, 'deleteTypeAndRef')
+                const successToast = jest.spyOn(lemonToast, 'success')
+                logic.actions.selectAllArchivedWorkflows(ids)
 
-            logic.actions.deleteSelectedWorkflows()
-            expect(dialogs[0]).toMatchObject({
-                title: `Delete ${noun}?`,
-                description: `Are you sure you want to permanently delete ${noun}? This action cannot be undone.`,
-            })
-            expect(writes).toEqual([])
+                logic.actions.deleteSelectedWorkflows()
+                expect(dialogs[0]).toMatchObject({
+                    title: `Delete ${noun}?`,
+                    description: `Are you sure you want to permanently delete ${noun}? This action cannot be undone.`,
+                })
+                expect(writes).toEqual([])
 
-            confirm(`Delete ${noun}?`)
-            await expectLogic(logic)
-                .toDispatchActions(
-                    tree,
-                    deletedIds.map((id) => tree.actionCreators.deleteTypeAndRef('hog_flow', id))
-                )
-                .toDispatchActions(['clearArchivedWorkflowSelection'])
-                .toMatchValues({ selectedArchivedCount: 0 })
-                .toDispatchActions(['loadWorkflowsSuccess'])
+                confirm(`Delete ${noun}?`)
+                await expectLogic(logic)
+                    .toDispatchActions(
+                        tree,
+                        deletedIds.map((id) => tree.actionCreators.deleteTypeAndRef('hog_flow', id))
+                    )
+                    .toDispatchActions(['clearArchivedWorkflowSelection'])
+                    .toMatchValues({ selectedArchivedCount: 0 })
+                    .toDispatchActions(['loadWorkflowsSuccess'])
 
-            expect(writes).toEqual([{ method: 'POST', path: 'bulk_delete/', body: { ids } }])
-            expect(successToast).toHaveBeenCalledWith(toast)
-            // A workflow restored after it was picked is not deleted, so it stays in the tree
-            expect(dropFromTree.mock.calls).toEqual(deletedIds.map((id) => ['hog_flow', id]))
-            tree.unmount()
-        })
+                expect(writes).toEqual([{ method: 'POST', path: 'bulk_delete/', body: { ids } }])
+                expect(successToast).toHaveBeenCalledWith(toast)
+                // A workflow restored after it was picked is not deleted, so it stays in the tree
+                expect(dropFromTree.mock.calls).toEqual(deletedIds.map((id) => ['hog_flow', id]))
+                tree.unmount()
+            }
+        )
 
         it('opens no bulk delete dialog when nothing is selected', () => {
             logic.actions.deleteSelectedWorkflows()

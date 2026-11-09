@@ -49,6 +49,7 @@ from posthog.api.app_metrics2 import (
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.file_system.file_system import validate_file_system_path
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
@@ -3757,6 +3758,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_resumed_at",
             "last_run",
         ]
+
+    def validate__create_in_folder(self, value: str) -> str:
+        return validate_file_system_path(value) if value else value
 
     def validate_origin_product(self, value: str | None) -> str | None:
         if value == HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS:

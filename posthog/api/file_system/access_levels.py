@@ -137,6 +137,12 @@ def _canonical_ref(registration: ModelRegistration, ref: str) -> str:
     return str(coerced[0]) if coerced else ref
 
 
+def canonical_file_system_ref(entry_type: str, ref: str) -> str:
+    """`ref` in the spelling its object's lookup field stores, or unchanged for an unregistered type."""
+    registration = get_file_system_registration(entry_type)
+    return _canonical_ref(registration, ref) if registration else ref
+
+
 def _ref_translation_queryset(
     entry_type: str, registration: ModelRegistration, refs: list[str], project_id: int
 ) -> QuerySet:

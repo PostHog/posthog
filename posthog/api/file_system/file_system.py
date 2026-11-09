@@ -36,6 +36,7 @@ from rest_framework.response import Response
 from posthog.api.file_system.access_levels import (
     FileSystemAccessLevelSerializerMixin,
     _coerce_refs_for_lookup,
+    canonical_file_system_ref,
     denied_short_id_refs,
     entries_missing_access_level,
     filter_workflow_files_by_access_level,
@@ -200,6 +201,16 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         if len(json.dumps(meta, default=str).encode()) > MAX_META_BYTES:
             raise serializers.ValidationError(f"Meta must be smaller than {MAX_META_BYTES / 1_000_000:g} MB.")
         return meta
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Deletion counts the rows that share a ref to decide whether the object goes too, so every
+        # row has to store one spelling of it. A UUID without hyphens otherwise reaches the same
+        # object as its canonical row but counts as a separate object.
+        attrs = super().validate(attrs)
+        entry_type = attrs.get("type") or (self.instance.type if self.instance else None)
+        if attrs.get("ref") and entry_type:
+            attrs["ref"] = canonical_file_system_ref(entry_type, attrs["ref"])
+        return attrs
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
         if "path" in validated_data:
@@ -1097,7 +1108,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # would treat unrelated rows as references to one object.
         entries_by_group: dict[tuple[int, str, Optional[str], str], list[FileSystem]] = {}
         for current in entries_to_check:
-            group_key = (current.team_id, current.type, current.ref, "" if current.ref else str(current.id))
+            ref = canonical_file_system_ref(current.type, current.ref) if current.ref else current.ref
+            group_key = (current.team_id, current.type, ref, "" if current.ref else str(current.id))
             entries_by_group.setdefault(group_key, []).append(current)
 
         objects_to_delete: builtins.list[tuple[str, str, int]] = []
@@ -1122,10 +1134,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # so a concurrent request deleting a sibling row locks the same row set in the
                 # same order and blocks on it, rather than each request locking a different subset
                 # and deadlocking against the other.
+                spellings = {ref} | {current.ref for current in group if current.ref}
                 sibling_ids = {
                     row.id
                     for row in FileSystem.objects.select_for_update()
-                    .filter(team_id=team_id, type=file_type, ref=ref, shortcut=False)
+                    .filter(team_id=team_id, type=file_type, ref__in=spellings, shortcut=False)
                     .order_by("id")
                 }
                 remaining = len(sibling_ids - ids_to_remove)

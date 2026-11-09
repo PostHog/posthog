@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.api.file_system.access_levels import filter_workflow_files_by_access_level
 from posthog.constants import AvailableFeature
 from posthog.models.file_system.file_system import FileSystem
@@ -115,6 +117,59 @@ class TestWorkflowFolders(APIBaseTest):
         alias_deleted = self.client.delete(f"{files_url}{alias.json()['id']}/")
         self.assertEqual(alias_deleted.status_code, 404, alias_deleted.content)
         self.assertTrue(HogFlow.objects.filter(pk=workflow.id).exists())
+
+    @parameterized.expand([("filed_through_the_api",), ("stored_before_refs_were_canonical",)])
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_deleting_a_hyphenless_alias_keeps_the_workflow_and_its_file(self, origin: str, _reload: MagicMock) -> None:
+        workflow = HogFlow.objects.create(team=self.team, name="Renewal", created_by=self.user)
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        canonical = FileSystem.objects.get(team=self.team, type="hog_flow", ref=str(workflow.id))
+        if origin == "filed_through_the_api":
+            created = self.client.post(
+                files_url, {"path": "Renewal copy", "type": "hog_flow", "ref": workflow.id.hex}, format="json"
+            )
+            self.assertEqual(created.status_code, 201, created.content)
+            self.assertEqual(created.json()["ref"], str(workflow.id))
+            alias_id = created.json()["id"]
+        else:
+            alias_id = FileSystem.objects.create(
+                team=self.team, path="Renewal copy", depth=1, type="hog_flow", ref=workflow.id.hex
+            ).id
+
+        deleted = self.client.delete(f"{files_url}{alias_id}/")
+
+        self.assertEqual(deleted.status_code, 204, deleted.content)
+        self.assertTrue(HogFlow.objects.filter(pk=workflow.id).exists())
+        self.assertTrue(FileSystem.objects.filter(pk=canonical.pk).exists())
+
+    @parameterized.expand(
+        [
+            ("workflow_too_deep", "hog_flows", "/".join(["Level"] * 51)),
+            ("workflow_too_long", "hog_flows", "a" * 4001),
+            ("template_too_deep", "messaging_templates", "/".join(["Level"] * 51)),
+            ("template_too_long", "messaging_templates", "a" * 4001),
+        ]
+    )
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_create_in_folder_rejects_paths_past_the_tree_limits(
+        self, _name: str, resource: str, folder: str, _reload: MagicMock
+    ) -> None:
+        payload = {
+            "hog_flows": {
+                "name": "Bounded",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            "messaging_templates": {"name": "Bounded", "type": "email"},
+        }[resource]
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/{resource}/", {**payload, "_create_in_folder": folder}, format="json"
+        )
+
+        self.assertEqual(created.status_code, 400, created.content)
+        self.assertEqual(created.json()["attr"], "_create_in_folder")
+        self.assertFalse(FileSystem.objects.filter(team=self.team, type="folder").exists())
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_disabled_files_do_not_leave_an_empty_unfiled_tree(self, _flag: MagicMock) -> None:
