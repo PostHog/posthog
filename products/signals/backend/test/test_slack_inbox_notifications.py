@@ -360,9 +360,7 @@ def test_resolve_reviewer_mentions_caps_at_five() -> None:
 def org_and_team():
     org = Organization.objects.create(name="slack-notif-org")
     team = Team.objects.create(organization=org, name="slack-notif-team")
-    yield org, team
-    team.delete()
-    org.delete()
+    return org, team
 
 
 def _set_team_channel(team: Team, channel: str, integration: Integration | None = None) -> None:
