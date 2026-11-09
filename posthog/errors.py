@@ -130,16 +130,15 @@ def _wrap_malformed_csv_row_error(err: ServerException) -> "CHQueryErrorMalforme
     )
 
 
+_ARROW_PARQUET_READER_THRIFT_ERROR = "deserialize thrift"
+_PARQUET_V3_READER_THRIFT_ERROR = "Failed to parse Parquet Thrift metadata"
+_PARQUET_V3_READER_THRIFT_ERROR_CODES = ("INCORRECT_DATA", "CANNOT_EXTRACT_TABLE_STRUCTURE")
+
+
 def _is_unparseable_parquet_metadata_error(code_name: str, message: str) -> bool:
-    # The Arrow-based Parquet reader raises "Couldn't deserialize thrift" as a raw STD_EXCEPTION (code 1001).
-    # The ParquetV3 reader raises "Failed to parse Parquet Thrift metadata" as INCORRECT_DATA (code 117) when a
-    # query reads the file, and as CANNOT_EXTRACT_TABLE_STRUCTURE (code 636) when it infers the schema.
     if code_name == "STD_EXCEPTION":
-        return "deserialize thrift" in message
-    return (
-        code_name in ("INCORRECT_DATA", "CANNOT_EXTRACT_TABLE_STRUCTURE")
-        and "Failed to parse Parquet Thrift metadata" in message
-    )
+        return _ARROW_PARQUET_READER_THRIFT_ERROR in message
+    return code_name in _PARQUET_V3_READER_THRIFT_ERROR_CODES and _PARQUET_V3_READER_THRIFT_ERROR in message
 
 
 def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
