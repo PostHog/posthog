@@ -38,10 +38,6 @@
         border-radius: var(--radius);
         transition: transform 100ms ease;
 
-        &[hidden] {
-            display: none;
-        }
-
         @media (prefers-reduced-motion: reduce) {
             transition: none;
         }
