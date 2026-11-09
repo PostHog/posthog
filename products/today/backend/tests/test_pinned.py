@@ -7,8 +7,10 @@ from unittest.mock import patch
 from parameterized import parameterized
 from pydantic import TypeAdapter
 
+from posthog.constants import AvailableFeature
 from posthog.models import Team
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
 from products.product_analytics.backend.facade.contracts import InsightSeries, SavedInsightDefinition
@@ -98,6 +100,24 @@ class TestPinnedNumbers(BaseTest):
             ([pin.key for pin in choices.pins], [number.key for number in hidden]),
             (expected, [key for key in expected if key != "insight:b"]),
         )
+
+    @parameterized.expand([("no rule", None, ["signup_event"]), ("no access", "none", [])])
+    def test_a_hidden_key_metric_is_named_only_for_a_person_who_can_view_customer_analytics(
+        self, _name: str, access_level: str | None, expected: list[str]
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        if access_level:
+            create_access_control(team_id=self.team.id, resource="customer_analytics", access_level=access_level)
+
+        with patch.object(pulse_pins, "get_key_metric_names", return_value={"signup_event": "Signups"}):
+            hidden = pulse_pins.named_hidden(
+                team=self.team, user=self._create_user("reader@example.com"), keys=["signup_event"], scopes=None
+            )
+
+        self.assertEqual([number.key for number in hidden], expected)
 
     @parameterized.expand(
         [

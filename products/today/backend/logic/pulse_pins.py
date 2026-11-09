@@ -9,11 +9,13 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.scopes import scopes_not_covered
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade.api import get_key_metric_names
 from products.product_analytics.backend.facade.api import viewable_insight_definitions
 
 from ..facade import contracts
 from ..models import TodayPulsePins
+from .highlight_types import allows
 
 MAX_PULSE_PINS = 4
 MAX_HIDDEN_NUMBERS = 50
@@ -74,7 +76,8 @@ def set_hidden(*, team: Team, user_id: int, keys: list[str]) -> list[str]:
 def named_hidden(
     *, team: Team, user: User, keys: list[str], scopes: frozenset[str] | None
 ) -> list[contracts.HiddenPulseNumber]:
-    visible = [key for key in keys if _covered(scopes, key, None)]
+    access = UserAccessControl(user=user, team=team)
+    visible = [key for key in keys if allows(access, scopes, *required_scopes(key, None))]
     short_ids = [key.removeprefix(INSIGHT_PREFIX) for key in visible if key.startswith(INSIGHT_PREFIX)]
     insights = viewable_insight_definitions(team=team, user=user, short_ids=short_ids) if short_ids else {}
     key_metrics = get_key_metric_names(team=team) if len(short_ids) < len(visible) else {}
