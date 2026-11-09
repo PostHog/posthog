@@ -59,7 +59,10 @@ export interface surveySiteSnapshotLogicActions {
 export interface surveySiteSnapshotLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        readySnapshot: (siteSnapshot: any, currentProjectId: any) => ReadySiteSnapshot | null
+        readySnapshot: (
+            siteSnapshot: SiteSnapshotApi | null,
+            currentProjectId: number | null
+        ) => ReadySiteSnapshot | null
     }
 }
 
@@ -89,7 +92,7 @@ export const surveySiteSnapshotLogic = kea<surveySiteSnapshotLogicType>([
     selectors({
         readySnapshot: [
             (s) => [s.siteSnapshot, s.currentProjectId],
-            (siteSnapshot, currentProjectId): ReadySiteSnapshot | null =>
+            (siteSnapshot: SiteSnapshotApi | null, currentProjectId: number | null): ReadySiteSnapshot | null =>
                 siteSnapshot?.status === 'ready' &&
                 siteSnapshot.exported_asset_id !== null &&
                 siteSnapshot.viewport_width !== null
