@@ -102,18 +102,24 @@ class TestSignalAdmission(NonAtomicBaseTest):
         with self.assertRaises(QuotaLimitExceeded):
             prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="later", signal_id=signal_id)
 
-    def test_new_admitted_signal_can_refresh_existing_report_after_limit_changes(self) -> None:
+    @parameterized.expand([(legacy, existing) for legacy in (False, True) for existing in (False, True)])
+    def test_admitted_signal_starts_report_after_limit_changes(self, legacy_trial: bool, existing_report: bool) -> None:
+        self.flags.side_effect = lambda key, *a, **kw: (
+            key == "self-driving-quota-enforcement" or (legacy_trial and key == "self-driving-free-trial")
+        )
         first, next_signal = str(uuid4()), str(uuid4())
-        admit_signal(team=self.team, signal_id=first)
-        report = SignalReport.objects.create(team=self.team, triggering_signal_id=first)
-        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="first", signal_id=first)
-        finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=first)
+        report = SignalReport.objects.create(team=self.team)
+        if existing_report:
+            admit_signal(team=self.team, signal_id=first)
+            prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="first", signal_id=first)
+            finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=first)
         admit_signal(team=self.team, signal_id=next_signal)
         self.quota.return_value = True
         prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="refresh", signal_id=next_signal)
         report.refresh_from_db()
         assert report.self_driving_funding is not None
         assert report.self_driving_funding["report_pass_key"] == "refresh"
+        assert report.self_driving_funding["implementation_allowed"] is not legacy_trial
 
     def test_existing_open_receipt_continues_after_limit_changes(self) -> None:
         signal_id = str(uuid4())
@@ -161,7 +167,6 @@ class TestSignalAdmission(NonAtomicBaseTest):
             direct_report_funding.reset(token)
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
         assert spend.billing_exempt
-        assert signal_funding(self.team.id, signal_id, for_report=True) is None
 
     def test_concurrent_retries_keep_one_admission(self) -> None:
         signal_id = str(uuid4())
@@ -185,10 +190,18 @@ class TestSignalAdmission(NonAtomicBaseTest):
         assert SignalSpend.objects.for_team(self.team.id).filter(signal_id=signal_id).count() == 1
         assert signal_funding(self.team.id, signal_id) is not None
 
-    def test_system_signal_does_not_admit_a_new_customer_report(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_accepted_system_signal_does_not_make_customer_report_free(self, previous_operator_run: bool) -> None:
         self.quota.return_value = True
         signal_id = str(uuid4())
         admit_signal(team=self.team, signal_id=signal_id, billing_exempt=True)
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
         assert spend.billing_exempt
-        assert signal_funding(self.team.id, signal_id, for_report=True) is None
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=signal_id)
+        if previous_operator_run:
+            prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="operator", operator_rerun=True)
+        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="accepted", signal_id=signal_id)
+        report.refresh_from_db()
+        assert report.billing_exempt_reason is None
+        assert report.self_driving_funding is not None
+        assert report.self_driving_funding["funding"] == "existing"

@@ -284,13 +284,25 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         )
         assert self_driving_free_trial_enabled(self.team, admitted_report_id=str(report.id)) is restricted
 
-    def test_free_signal_does_not_replace_customer_report_trial_funding(self) -> None:
+    @parameterized.expand([(False, False), (True, False), (False, True)])
+    def test_free_signal_does_not_replace_customer_report_trial_funding(
+        self, previous_pass: bool, exhausted: bool
+    ) -> None:
         grant = self.claim()
         signal_id = str(uuid4())
         begin_signal_spend(team_id=self.team.id, signal_id=signal_id, billing_exempt=True)
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
 
-        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="promoted", signal_id=signal_id)
+        if previous_pass:
+            prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="original")
+        if exhausted:
+            self._exhaust_grant(grant)
+            self.flag_mock.return_value = True
+        with patch(
+            "products.signals.backend.trial.billing.paid_trial_continuation_authorized",
+            side_effect=AssertionError("Accepted work must not request new payment authorization"),
+        ):
+            prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="promoted", signal_id=signal_id)
 
         report.refresh_from_db()
         funding = TrialFunding.from_dict(report.self_driving_funding)
@@ -462,21 +474,23 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         assert original.spend == 10 and original.trial_grant_id == grant.id
         assert SignalSpend.objects.for_team(self.team.id).get(signal_id=pending_id).finalized_at is not None
 
-    def test_free_signal_cannot_skip_paid_authorization_for_customer_report(self) -> None:
+    def test_accepted_free_signal_keeps_report_funding_after_trial_exhaustion(self) -> None:
         grant = self.claim()
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="original")
         self._exhaust_grant(grant)
         self.flag_mock.return_value = True
         signal_id = str(uuid4())
-        begin_signal_spend(team_id=self.team.id, signal_id=signal_id, billing_exempt=True)
-        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
-
+        admit_signal(team=self.team, signal_id=signal_id, billing_exempt=True)
         with patch(
-            "products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=True
-        ) as paid:
-            assert report_pass_admission(
-                team=self.team, report_id=str(report.id), operation_key="promoted", signal_id=signal_id
-            ).paid_authorized
-        paid.assert_called_once_with(self.team)
+            "products.signals.backend.trial.billing.paid_trial_continuation_authorized",
+            side_effect=AssertionError("Accepted work must not request new payment authorization"),
+        ):
+            prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="promoted", signal_id=signal_id)
+        report.refresh_from_db()
+        assert report.self_driving_funding is not None
+        assert report.self_driving_funding["grant_id"] == str(grant.id)
+        self._assert_report_continues_with_grant(str(report.id), grant)
 
     def test_billable_signal_keeps_existing_funding_after_trial_claim(self) -> None:
         signal_id = str(uuid4())
@@ -549,9 +563,6 @@ class TestTrialReportExecution(NonAtomicBaseTest):
                 return_value=SimpleNamespace(workflow_run_id="accepted-signal", activity_id="first-pass"),
             ),
         ):
-            from products.signals.backend.quota import self_driving_quota_gate
-
-            assert not self_driving_quota_gate(self.team, signal_id=signal_id).enforced
             assert not async_to_sync(check_report_quota_gate_activity)(
                 CheckReportQuotaGateInput(
                     team_id=self.team.id, report_id=str(report.id), stage="summary_entry", signal_id=signal_id
@@ -581,16 +592,21 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         assert not implementation_requires_trial_opt_in(self.team.id, str(report.id))
         assert not self_driving_free_trial_enabled(self.team, admitted_report_id=str(report.id))
 
-    def test_nontrial_receipt_does_not_bypass_current_quota(self) -> None:
+    def test_accepted_nontrial_signal_continues_without_unpausing_new_work(self) -> None:
         from products.signals.backend.quota import self_driving_quota_gate
 
         grant = self.claim()
         signal_id = str(uuid4())
         record_llm_spend(team_id=self.team.id, signal_id=signal_id, stage="grouping", token_cost_microusd=1)
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=signal_id)
         self._exhaust_grant(grant)
         self.flag_mock.return_value = True
         with patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False):
-            assert self_driving_quota_gate(self.team, signal_id=signal_id).enforced
+            assert self_driving_quota_gate(self.team).enforced
+            prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="accepted", signal_id=signal_id)
+        report.refresh_from_db()
+        assert report.self_driving_funding is not None
+        assert report.self_driving_funding["funding"] == "existing"
 
     @parameterized.expand([(reason,) for reason in SignalReport.BillingExemptReason.values])
     def test_system_report_does_not_consume_exhausted_trial(self, reason: str) -> None:
