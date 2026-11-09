@@ -2,7 +2,7 @@
 
 A canvas's declared capabilities (`project.capabilities`) are its permission
 boundary: which insights it may read, which events it may capture, whether it
-may run inline queries, and which network origins it may reach. Widening that
+may run inline queries, and which network origins it declares. Widening that
 boundary is the security-relevant direction, so it gets a first-class,
 structured answer rather than a raw manifest diff.
 """

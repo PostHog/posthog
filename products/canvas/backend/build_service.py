@@ -47,7 +47,7 @@ from posthog.storage import object_storage
 
 from products.canvas.backend import error_reports
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
-from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
+from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits, uploaded_media_source
 from products.canvas.backend.facade.contracts import CanvasBuildCapacityExceeded, CanvasVersionConflict
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import (
@@ -137,6 +137,13 @@ def node_executable() -> str:
     return resolved
 
 
+def _builder_input(project: dict[str, Any]) -> str:
+    return json.dumps(
+        {"project": project, "imageSources": [uploaded_media_source()]},
+        separators=(",", ":"),
+    )
+
+
 def _run_local_builder(project: dict[str, Any]) -> dict[str, Any]:
     # node_modules is git-ignored (production bakes it into the sandbox image),
     # so a fresh checkout fails module resolution on the first import. Catch it
@@ -147,7 +154,7 @@ def _run_local_builder(project: dict[str, Any]) -> dict[str, Any]:
         )
     process = subprocess.run(
         [node_executable(), "--max-old-space-size=256", str(CANVAS_BUILDER_DIR / "build.mjs")],
-        input=json.dumps({"project": project}, separators=(",", ":")),
+        input=_builder_input(project),
         capture_output=True,
         text=True,
         timeout=45,
@@ -185,9 +192,7 @@ def _run_sandbox_builder(project: dict[str, Any]) -> dict[str, Any]:
     # The builder script, its manifest, and node_modules are baked into the
     # CANVAS_BUILD image — only the project payload crosses into the sandbox.
     with get_sandbox_class().create(config) as sandbox:
-        input_write = sandbox.write_file(
-            "/tmp/canvas-build-input.json", json.dumps({"project": project}, separators=(",", ":")).encode()
-        )
+        input_write = sandbox.write_file("/tmp/canvas-build-input.json", _builder_input(project).encode())
         if input_write.exit_code != 0:
             raise RuntimeError("canvas sandbox input upload failed")
         process = sandbox.execute(

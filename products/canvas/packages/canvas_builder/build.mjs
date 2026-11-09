@@ -535,7 +535,7 @@ function artifact(pathname, content) {
     return { path: pathname, content, contentHash: sha256(content), sizeBytes: Buffer.byteLength(content, 'utf8') }
 }
 
-async function buildCanvas(project) {
+async function buildCanvas(project, imageSources = []) {
     const diagnostics = validate(project)
     if (diagnostics.length) {
         return { contractVersion: 1, status: 'failed', diagnostics }
@@ -635,12 +635,10 @@ async function buildCanvas(project) {
             `${runtime}${notebookBridge}\n${selectionRuntime}\n${highlightRuntime}\n${keyboardRuntime}`
         )
     )
-    // Only the artifact origin's response header grants network access, and it admits PostHog's
-    // own media path and nothing a project declares. Declared origins stay in this meta policy's
-    // img-src so that the meta policy does not block media images the header admits.
-    const imageSources = (project.capabilities?.network?.origins ?? []).join(' ')
-    const projectCsp = imageSources
-        ? csp.replace("img-src 'self' data: blob:", `img-src 'self' data: blob: ${imageSources}`)
+    // The meta policy intersects with the artifact origin's response header, so its img-src lists
+    // the same server-defined image sources the header does and never a project's declared origins.
+    const projectCsp = imageSources.length
+        ? csp.replace("img-src 'self' data: blob:", `img-src 'self' data: blob: ${imageSources.join(' ')}`)
         : csp
     // `sandbox` is ignored in a <meta> policy and logs a console warning on every
     // artifact load; the artifact origin delivers it via the response header.
@@ -672,7 +670,7 @@ for await (const chunk of process.stdin) {
 }
 try {
     const request = JSON.parse(input)
-    process.stdout.write(JSON.stringify(await buildCanvas(request.project)))
+    process.stdout.write(JSON.stringify(await buildCanvas(request.project, request.imageSources)))
 } catch (error) {
     process.stdout.write(
         JSON.stringify({

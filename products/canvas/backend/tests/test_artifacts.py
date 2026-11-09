@@ -4,9 +4,12 @@ import hashlib
 from posthog.test.base import APIBaseTest, override_settings
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend import artifacts
+from products.canvas.backend.contract import artifact_csp
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.tasks.backend.models import Channel
 
@@ -149,3 +152,19 @@ class TestCanvasArtifacts(APIBaseTest):
         # The token only addresses manifest assets; a source key is not one.
         url = self._url().replace("index.html", "../../canvas_source/secret")
         assert self.client.get(url).status_code == 404
+
+
+def _directives(csp: str) -> dict[str, str]:
+    return {part.split(" ", 1)[0]: part for part in (p.strip() for p in csp.split(";")) if part}
+
+
+class TestArtifactCsp(SimpleTestCase):
+    def test_image_source_only_widens_img_src(self):
+        locked = _directives(artifact_csp())
+        widened = _directives(artifact_csp(["https://media.example.com/uploaded_media/"]))
+
+        assert widened["img-src"] == "img-src 'self' data: blob: https://media.example.com/uploaded_media/"
+        for name in ("connect-src", "frame-src", "style-src", "font-src", "media-src"):
+            assert widened[name] == locked[name]
+        assert locked["connect-src"] == "connect-src 'none'"
+        assert locked["frame-src"] == "frame-src 'none'"

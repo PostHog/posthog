@@ -54,8 +54,8 @@ Before validation, inventory every literal external URL in every source file. Na
 `external_resource_blocked` error: move the file into the project, use the PostHog media library for
 images, or query PostHog data with `ph`.
 
-Validation rejects undeclared literal calls and resource URLs (`capability_missing_*` diagnostics)
-so you can fix them before publishing. Dynamic URLs and redirect destinations cannot be inferred,
+Validation rejects resource URLs on other sites (`external_resource_blocked`) and undeclared
+literal `ph` calls (`capability_missing_*` diagnostics) so you can fix them before publishing. Dynamic URLs and redirect destinations cannot be inferred,
 so the inventory is still required even when validation is clean.
 
 ## Validate until clean
@@ -150,7 +150,7 @@ preview.
 1. **Stage** — `canvas-draft-create` with the complete `project` (same shape, capabilities, and
    validation as a publish). No `expected_current_version_id`: a draft is based on nothing and
    conflicts with nothing. The response returns the draft's `version_id`, its queued `build`, and
-   `capability_widening` — the insights, capture events, inline queries, and network origins the
+   `capability_widening` — the insights, capture events, and inline queries the
    draft declares beyond the live version. Surface a non-empty widening to the user before
    promoting; it is the access the change would newly grant.
 2. **Wait for the build** — poll `canvas-builds-retrieve` until the draft's build is terminal, the
