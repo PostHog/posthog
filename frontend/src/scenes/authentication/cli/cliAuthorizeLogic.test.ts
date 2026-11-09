@@ -43,8 +43,9 @@ describe('cliAuthorizeLogic', () => {
         const scopes = logic.values.authorize.scopes
         // Covers the agent surface (reads + the writes that are allowed on a key)
         expect(scopes).toEqual(expect.arrayContaining(['user:read', 'project:read', 'query:read', 'insight:write']))
-        // But drops writes the product withholds from manually-created keys
+        // But drops writes the product withholds from keys by default
         expect(scopes).not.toContain('file_system:write')
+        expect(scopes).not.toContain('integration:write')
         expect(scopes).not.toContain('user:write')
         // Faithful subset of the generated MCP mirror
         expect(scopes.every((scope) => (AGENT_USE_CASE_SCOPES as readonly string[]).includes(scope))).toBe(true)
