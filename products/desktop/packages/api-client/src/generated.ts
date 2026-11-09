@@ -11375,7 +11375,7 @@ export namespace Schemas {
      * * `7day` - 7day
      * * `30day` - 30day
      */
-    export type ExternalDataSchemaSyncFrequencyEnum =
+    export type SettableSyncFrequencyEnum =
         | "never"
         | "5min"
         | "15min"
@@ -11455,9 +11455,7 @@ export namespace Schemas {
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
-        sync_frequency?:
-            | (ExternalDataSchemaSyncFrequencyEnum | NullEnum)
-            | undefined;
+        sync_frequency?: (SettableSyncFrequencyEnum | NullEnum) | undefined;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
