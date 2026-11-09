@@ -20,6 +20,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
@@ -29,6 +30,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { transactionalEditorGlobals, variablesInEmail } from '../Transactional/wizard/emailVariables'
 import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
@@ -126,6 +128,22 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         )
     }
 
+    const editDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
+    const saveDisabledReason =
+        editDisabledReason ??
+        (draftsEnabled && isSavingDraft
+            ? 'Saving your draft'
+            : draftsEnabled && !hasDraft && !hasUnsavedChanges
+              ? 'No changes to publish'
+              : !draftsEnabled && !templateChanged && props.id !== 'new'
+                ? 'No changes to save'
+                : !template.name
+                  ? 'Name is required'
+                  : undefined)
+    const sendTestDisabledReason =
+        editDisabledReason ?? (!template.content.email?.subject ? 'Add a subject first' : undefined)
+
     const editor = (
         <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
             {/* The editor stays mounted through a sync: the templater pushes the new design into the open canvas. */}
@@ -203,7 +221,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                         checked={!!originalTemplate.sensitive}
                                         onChange={setSensitive}
                                         loading={isSavingSensitive}
-                                        disabledReason={isSavingSensitive ? 'Saving the setting' : undefined}
+                                        disabledReason={
+                                            editDisabledReason ?? (isSavingSensitive ? 'Saving the setting' : undefined)
+                                        }
                                         aria-label="Protect sensitive data"
                                         data-attr="message-template-sensitive-toggle"
                                     />
@@ -212,7 +232,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             <TransactionalEmailApiExample templateId={props.id} />
                         </div>
                     ) : (
-                        <MakeTransactionalPrompt {...props} />
+                        <MakeTransactionalPrompt {...props} editDisabledReason={editDisabledReason} />
                     ),
                 },
             ]}
@@ -231,7 +251,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     name={template.name}
                     description={template.description}
                     resourceType={{ type: 'template' }}
-                    canEdit
+                    canEdit={!editDisabledReason}
                     descriptionAlwaysVisible
                     isLoading={messageLoading || templateLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
@@ -272,23 +292,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                         todayRailNav ? (
                             <QuillMessageTemplateActions
                                 isNew={props.id === 'new'}
-                                sendTestDisabledReason={
-                                    !template.content.email?.subject ? 'Add a subject first' : undefined
-                                }
-                                saveDisabledReason={
-                                    draftsEnabled && isSavingDraft
-                                        ? 'Saving your draft'
-                                        : draftsEnabled && !hasDraft && !hasUnsavedChanges
-                                          ? 'No changes to publish'
-                                          : !draftsEnabled && !templateChanged && props.id !== 'new'
-                                            ? 'No changes to save'
-                                            : !template.name
-                                              ? 'Name is required'
-                                              : undefined
-                                }
+                                sendTestDisabledReason={sendTestDisabledReason}
+                                saveDisabledReason={saveDisabledReason}
                                 duplicateDisabledReason={
-                                    templateChanged ? 'Save your changes before duplicating' : undefined
+                                    editDisabledReason ??
+                                    (templateChanged ? 'Save your changes before duplicating' : undefined)
                                 }
+                                editDisabledReason={editDisabledReason}
                                 templateChanged={templateChanged && !draftsEnabled}
                                 saving={isTemplateSubmitting || templateLoading}
                                 onSendTest={() => setSendTestEmailModalOpen(true)}
@@ -305,9 +315,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     data-attr="send-test-message-template"
                                     type="secondary"
                                     onClick={() => setSendTestEmailModalOpen(true)}
-                                    disabledReason={
-                                        !template.content.email?.subject ? 'Add a subject first' : undefined
-                                    }
+                                    disabledReason={sendTestDisabledReason}
                                     size="small"
                                 >
                                     Send test
@@ -328,17 +336,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     form="template"
                                     onClick={submitTemplate}
                                     loading={isTemplateSubmitting || templateLoading}
-                                    disabledReason={
-                                        draftsEnabled && isSavingDraft
-                                            ? 'Saving your draft'
-                                            : draftsEnabled && !hasDraft && !hasUnsavedChanges
-                                              ? 'No changes to publish'
-                                              : !draftsEnabled && !templateChanged && props.id !== 'new'
-                                                ? 'No changes to save'
-                                                : !template.name
-                                                  ? 'Name is required'
-                                                  : undefined
-                                    }
+                                    disabledReason={saveDisabledReason}
                                     size="small"
                                     sideAction={
                                         draftsEnabled
@@ -355,11 +353,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                                       icon: <IconTrash />,
                                                                       status: 'danger',
                                                                       onClick: discardDraft,
-                                                                      disabledReason: !hasDraft
-                                                                          ? 'There is no draft to discard'
-                                                                          : isSavingDraft || isDiscardingDraft
-                                                                            ? 'Wait for the draft to finish saving'
-                                                                            : undefined,
+                                                                      disabledReason:
+                                                                          editDisabledReason ??
+                                                                          (!hasDraft
+                                                                              ? 'There is no draft to discard'
+                                                                              : isSavingDraft || isDiscardingDraft
+                                                                                ? 'Wait for the draft to finish saving'
+                                                                                : undefined),
                                                                       'data-attr': 'message-template-discard-draft',
                                                                   },
                                                               ]}
@@ -380,6 +380,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                 data-attr="save-as-new-template"
                                                 fullWidth
                                                 onClick={() => setIsSaveTemplateModalOpen(true)}
+                                                disabledReason={editDisabledReason}
                                             >
                                                 Save as new template
                                             </LemonButton>
@@ -390,9 +391,10 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                         fullWidth
                                                         onClick={duplicateTemplate}
                                                         disabledReason={
-                                                            hasUnsavedChanges
+                                                            editDisabledReason ??
+                                                            (hasUnsavedChanges
                                                                 ? 'Save your changes before duplicating'
-                                                                : undefined
+                                                                : undefined)
                                                         }
                                                     >
                                                         Duplicate
@@ -403,6 +405,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                         status="danger"
                                                         fullWidth
                                                         onClick={deleteTemplate}
+                                                        disabledReason={editDisabledReason}
                                                     >
                                                         Delete
                                                     </LemonButton>
@@ -419,6 +422,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 <SceneTags
                     tags={[...(template.tags ?? [])]}
                     onSave={saveTags}
+                    canEdit={!editDisabledReason}
                     loading={isTemplateSubmitting}
                     dataAttrKey="message-template"
                 />

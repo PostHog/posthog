@@ -248,9 +248,10 @@ class TestBingAdsSource:
         with patch.object(BingAdsSource, "get_oauth_integration", return_value=integration):
             return SourceDriver(BingAdsSource(), config).run(schema_name, [], **inputs)
 
+    @parameterized.expand([("plain", "12345"), ("padded", " 12345\n")])
     @patch("products.warehouse_sources.sources.bing_ads.bing_ads.BingAdsClient")
     @patch("products.warehouse_sources.sources.bing_ads.bing_ads.credentials_service.get_secrets")
-    def test_bing_ads_source_campaigns(self, mock_secrets, mock_client_class):
+    def test_bing_ads_source_campaigns(self, _name, account_id, mock_secrets, mock_client_class):
         mock_secrets.return_value = {
             "BING_ADS_DEVELOPER_TOKEN": "test_dev_token",
             "BING_ADS_CLIENT_ID": "test_client_id",
@@ -262,7 +263,7 @@ class TestBingAdsSource:
         mock_client_class.return_value = mock_client
 
         result = bing_ads_source(
-            account_id=self.account_id,
+            account_id=account_id,
             resource_name="campaigns",
             access_token=self.access_token,
             refresh_token=self.refresh_token,
@@ -279,6 +280,7 @@ class TestBingAdsSource:
         data = list(items)
         assert len(data) == 1
         assert data[0][0]["Id"] == "123"
+        assert mock_client.get_data_by_resource.call_args.kwargs["account_id"] == 12345
 
     @patch("products.warehouse_sources.sources.bing_ads.bing_ads.fetch_data_in_yearly_chunks")
     @patch("products.warehouse_sources.sources.bing_ads.bing_ads.BingAdsClient")
@@ -442,7 +444,7 @@ class TestBingAdsSource:
 
     @parameterized.expand(
         [
-            ("account_number", "F118FDGN"),
+            ("account_number", "X1234567"),
             ("alphanumeric", "ABC123"),
             ("empty", ""),
         ]
@@ -461,6 +463,8 @@ class TestBingAdsSource:
         assert result.response is not None
         assert isinstance(result.raised, ValueError)
         assert "Bing Ads Account ID must be numeric" in str(result.raised)
+        if account_id:
+            assert account_id not in str(result.raised)
         assert result.requests == []
 
     @patch("products.warehouse_sources.sources.bing_ads.bing_ads.credentials_service.get_secrets")

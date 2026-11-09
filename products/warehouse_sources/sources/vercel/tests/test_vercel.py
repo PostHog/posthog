@@ -378,6 +378,29 @@ class TestGetFanoutRows:
         # Only the uid-bearing parent issues a child request.
         assert len(result.requests) == 2
 
+    @parameterized.expand([("not_found_is_skipped", 404, False), ("forbidden_still_fails", 403, True)])
+    def test_child_request_error_status(self, _name: str, status: int, should_raise: bool) -> None:
+        result = _run(
+            "check_runs",
+            [
+                ScriptedResponse(
+                    json={
+                        "deployments": [{"uid": "d1", "created": 200}, {"uid": "d2", "created": 100}],
+                        "pagination": {"next": None},
+                    }
+                ),
+                ScriptedResponse(status=status, json={"error": {"code": "not_found"}}),
+                ScriptedResponse(json={"runs": [{"id": "r2", "deploymentId": "d2"}]}),
+            ],
+        )
+
+        if should_raise:
+            assert isinstance(result.raised, requests.HTTPError)
+            assert _rows(result) == []
+        else:
+            assert result.raised is None
+            assert [r["id"] for r in _rows(result)] == ["r2"]
+
     def test_fans_out_across_every_parent_page(self) -> None:
         # The parent deployments list paginates; the fan-out must visit deployments from every page,
         # not silently cap the child table at the first page of parents.

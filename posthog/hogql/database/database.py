@@ -94,7 +94,7 @@ from posthog.hogql.database.schema.experiment_exposures_preaggregated import Exp
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
     ExperimentMetricEventsPreaggregatedTable,
 )
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, join_persons_to_flag_evaluations
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -2237,11 +2237,11 @@ class Database(BaseModel):
                         .select_related("table", "managed_viewset")
                     )
                     all_saved_queries = list(queryset)
-                    # Raw Trino views hold Trino SQL, which HogQL cannot expand.
                     saved_queries = [
                         sq
                         for sq in all_saved_queries
-                        if (is_managed_viewset_enabled or sq.managed_viewset_id is None) and not sq.is_raw_managed_trino
+                        if (is_managed_viewset_enabled or sq.managed_viewset_id is None)
+                        and sq.engine.referenceable_from_clickhouse.available
                     ]
 
         with timings.measure("endpoint_saved_query", emit_span=True):
@@ -2531,6 +2531,8 @@ class Database(BaseModel):
                         join_table=database.get_table("persons"),
                         resolver=PERSONS,
                     )
+                    if database.has_table(["posthog", "flag_evaluations"]):
+                        join_persons_to_flag_evaluations(database)
 
                 _add_error_tracking_fields(database)
 
