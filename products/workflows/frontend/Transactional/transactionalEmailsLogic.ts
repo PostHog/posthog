@@ -204,6 +204,9 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
             // is in flight would be built from the stored list and drop the first one. Showing the new
             // tags at once gives that second edit the right starting point.
             if (row.source === 'code') {
+                if (!confirmedCodeEmails.has(row.id)) {
+                    confirmedCodeEmails.set(row.id, row.codeEmail)
+                }
                 actions.codeEmailChanged({ ...row.codeEmail, tags })
             } else {
                 actions.templateTagsSaved({ ...row.template, tags })
@@ -225,6 +228,7 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
                             row.codeEmail.id,
                             { tags }
                         )
+                        confirmedCodeEmails.set(row.id, updated)
                         if (isLatestEdit()) {
                             transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(updated)
                         }
@@ -242,16 +246,22 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
                             String(values.currentTeamId),
                             row.codeEmail.id
                         )
+                        confirmedCodeEmails.set(row.id, stored)
                         if (isLatestEdit()) {
                             transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(stored)
                         }
                     } catch {
                         if (isLatestEdit()) {
-                            transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(row.codeEmail)
+                            transactionalEmailsLogic
+                                .findMounted()
+                                ?.actions.codeEmailChanged(confirmedCodeEmails.get(row.id) ?? row.codeEmail)
                         }
                     }
                 }
             } finally {
+                if (isLatestEdit()) {
+                    confirmedCodeEmails.delete(row.id)
+                }
                 if (!pendingTagSaves.has(row.id)) {
                     actions.transactionalTagsSaved(row.id)
                 }
@@ -309,6 +319,10 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
 
 // The newest tag edit made on each row, so a save can tell when a later edit has replaced its tags.
 const latestTagEdits = new Map<string, number>()
+
+// The last tags the server confirmed for each email sent from code with edits in progress. A row already shows
+// unsaved tags while a burst of edits waits, so it can't tell what to go back to when every save and read fails.
+const confirmedCodeEmails = new Map<string, CodeEmailApi>()
 
 // Writes on one row run one after another, so the server stores tags in the order the user made them.
 const tagWrites = new Map<string, Promise<void>>()
