@@ -1,6 +1,6 @@
 import { useId } from 'react'
 
-import { LemonButton, LemonInputSelect, LemonInputSelectProps } from '@posthog/lemon-ui'
+import { LemonInputSelect, LemonInputSelectProps } from '@posthog/lemon-ui'
 
 import { LoadTags } from './tagSelectLogic'
 import { useTagPages } from './useTagPages'
@@ -45,16 +45,8 @@ export function TagsInputSelect({
             onInputChange={setSearch}
             disableFiltering
             loading={saving || awaitingFirstPage || pageLoading}
-            emptyStateComponent={
-                error ? (
-                    <div className="flex items-center justify-between gap-2 px-2 py-1">
-                        <span className="text-secondary">Couldn't load tags.</span>
-                        <LemonButton size="xsmall" type="secondary" onClick={retry}>
-                            Try again
-                        </LemonButton>
-                    </div>
-                ) : undefined
-            }
+            // An action shows even when selected tags fill the list, where an empty state would stay hidden.
+            action={error ? { children: "Couldn't load tags. Try again", onClick: retry } : undefined}
             {...inputProps}
         />
     )

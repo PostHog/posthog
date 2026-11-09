@@ -74,8 +74,14 @@ function TagsComboboxInner({
     const [inputValue, setInputValue] = useState('')
     const trimmed = inputValue.trim()
     // While matches load, Enter would pick "Create" over an existing tag that hasn't arrived yet.
+    // After a failed search, the Create row would hide the error and its retry.
     const showCreateItem =
-        allowCustomValues && !loading && trimmed.length > 0 && !value.includes(trimmed) && !options.includes(trimmed)
+        allowCustomValues &&
+        !loading &&
+        !error &&
+        trimmed.length > 0 &&
+        !value.includes(trimmed) &&
+        !options.includes(trimmed)
 
     // Synthetic items list: existing options + (optionally) the "Create X" sentinel at the bottom.
     const items: string[] = [...options]

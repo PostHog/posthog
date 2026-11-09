@@ -99,10 +99,15 @@ export function useTagPages(logicKey: string, loadTags?: LoadTags): TagPages {
             }
         },
         // Some inputs report a cleared search as they close, which would leave the next open waiting for a page nobody asked for.
+        // Typing into a closed input reports the text before the open, so a non-empty search opens it.
         setSearch: (next) => {
-            if (showPopover) {
-                setSearch(next)
+            if (!showPopover && !next) {
+                return
             }
+            if (!showPopover) {
+                setShowPopover(true)
+            }
+            setSearch(next)
         },
         loadMore: () => loadMoreTags(source),
         retry: () => loadTagPage({ search, offset: nextOffset, loadTags: source, requestEpoch }),
