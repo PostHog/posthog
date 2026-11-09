@@ -28,6 +28,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
+from posthog.api.file_system.file_system import validate_file_system_path
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -354,6 +355,9 @@ class MessageTemplateSerializer(serializers.Serializer):
         help_text="Unpublished edits to a transactional template's content. Sends keep using `content`. Saving "
         "`content` publishes it and clears the draft. Set null to discard the draft.",
     )
+
+    def validate__create_in_folder(self, value: str) -> str:
+        return validate_file_system_path(value) if value else value
 
     def validate_tags(self, tags: list[str]) -> list[str]:
         # The stored name is the tagified one, and lowercasing can lengthen a string: "\u0130" becomes two

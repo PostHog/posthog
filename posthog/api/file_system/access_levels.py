@@ -6,7 +6,7 @@ from typing import Any, Optional, cast
 from django.apps import apps
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import BigIntegerField, CharField, F, Q, QuerySet, Value
+from django.db.models import BigIntegerField, CharField, F, IntegerField, Q, QuerySet, UUIDField, Value
 from django.db.models.functions import Cast
 
 from drf_spectacular.utils import extend_schema_field
@@ -135,6 +135,27 @@ def _canonical_ref(registration: ModelRegistration, ref: str) -> str:
     model = apps.get_model(registration.app_label, registration.model_name)
     coerced = _coerce_refs_for_lookup(model, registration.lookup_field, [ref])
     return str(coerced[0]) if coerced else ref
+
+
+def canonical_file_system_ref(entry_type: str, ref: str) -> str:
+    """`ref` in the spelling its object's lookup field stores, or unchanged for an unregistered type."""
+    registration = get_file_system_registration(entry_type)
+    return _canonical_ref(registration, ref) if registration else ref
+
+
+def file_system_ref_canonical_pattern(entry_type: str) -> Optional[str]:
+    """A regex that only the canonical spelling of this type's key matches, or None when the lookup field
+    accepts no other spelling. A UUID key also accepts upper case, no hyphens, braces or a `urn:uuid:`
+    prefix, and an integer key accepts a sign or leading zeros. A text key matches only itself."""
+    registration = get_file_system_registration(entry_type)
+    if registration is None:
+        return None
+    field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(registration.lookup_field)
+    if isinstance(field, UUIDField):
+        return r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    if isinstance(field, IntegerField):
+        return r"^(0|-?[1-9][0-9]*)$"
+    return None
 
 
 def _ref_translation_queryset(
