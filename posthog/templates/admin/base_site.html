@@ -1,4 +1,5 @@
 {% extends "admin/base_site.html" %}
+{% load admin_console %}
 {% block extrahead %}
     <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2023-07-07">
     {% comment %}
@@ -128,7 +129,7 @@
         <div class="console-banner">
             <p>
                 This is the Django admin, for viewing and editing core database tables directly. Staff tools are in PostHog Admin.
-                <a href="{% block admin_console_url %}/admin/console/{% endblock %}">Open PostHog Admin</a>
+                <a href="{% admin_console_url original %}">Open PostHog Admin</a>
             </p>
             <button type="button" class="console-banner-hide" data-hide-console-banner>Hide for a month</button>
         </div>

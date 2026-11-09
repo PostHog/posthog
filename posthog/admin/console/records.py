@@ -24,6 +24,7 @@ class RecordType:
     """
 
     key: ClassVar[str]
+    model: ClassVar[type[Model]]
     # The URL segment, for example "teams" in /admin/console/teams/7/.
     plural: ClassVar[str]
     label: ClassVar[str]
@@ -61,6 +62,7 @@ class RecordType:
 
 class TeamRecord(RecordType):
     key = "team"
+    model = Team
     plural = "teams"
     label = "Team"
     pk_converter = "int"
@@ -93,6 +95,7 @@ class TeamRecord(RecordType):
 
 class OrganizationRecord(RecordType):
     key = "organization"
+    model = Organization
     plural = "organizations"
     label = "Organization"
     pk_converter = "uuid"
@@ -122,6 +125,7 @@ def request_type_label(obj: DataDeletionRequest) -> str:
 
 class DeletionRequestRecord(RecordType):
     key = "deletion-request"
+    model = DataDeletionRequest
     plural = "deletion-requests"
     label = "Deletion request"
     pk_converter = "uuid"
@@ -158,3 +162,12 @@ class DeletionRequestRecord(RecordType):
 RECORD_TYPES: dict[str, RecordType] = {
     record.key: record for record in (TeamRecord(), OrganizationRecord(), DeletionRequestRecord())
 }
+
+
+def console_url_for(obj: Model) -> str | None:
+    """The console page of a record, for the Django admin change form of the same row. None when the console has
+    no page for its model."""
+    for record_type in RECORD_TYPES.values():
+        if isinstance(obj, record_type.model) and obj.pk is not None:
+            return record_type.url(obj)
+    return None

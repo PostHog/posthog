@@ -391,6 +391,36 @@ class TestAdminConsoleViews(BaseTest):
 
     @parameterized.expand(
         [
+            ("team_change_form", "team", "teams", []),
+            (
+                "organization_change_form_suggests_deactivation_reasons",
+                "organization",
+                "organizations",
+                [
+                    'list="id_is_not_active_reason_suggestions"',
+                    f'<option value="{Organization.DeactivationReason.DESKTOP_ABUSE}">',
+                ],
+            ),
+            ("changelist", None, None, []),
+        ]
+    )
+    def test_the_django_admin_banner_opens_the_console_page_of_the_record(
+        self, _name: str, record: str | None, plural: str | None, expected: list[str]
+    ) -> None:
+        obj = {"team": self.team, "organization": self.organization}.get(record or "")
+        url = f"/admin/posthog/{record}/{obj.pk}/change/" if obj is not None else "/admin/posthog/team/"
+
+        response = self.client.get(url)
+
+        assert response.status_code == 200
+        console_url = f"/admin/console/{plural}/{obj.pk}/" if obj is not None else "/admin/console/"
+        content = response.content.decode()
+        assert f'<a href="{console_url}">Open PostHog Admin</a>' in content
+        for text in expected:
+            assert text in content
+
+    @parameterized.expand(
+        [
             ("new_token", "phc_console_new", 302, "phc_console_new"),
             ("blank_token", "   ", 400, "phc_console_old"),
             ("identical_token", "phc_console_old", 400, "phc_console_old"),
