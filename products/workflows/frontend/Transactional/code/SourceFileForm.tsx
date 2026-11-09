@@ -13,13 +13,10 @@ export function SourceFileForm({
 }): JSX.Element {
     const [url, setUrl] = useState(initialUrl ?? '')
     const trimmed = url.trim()
+    const linkError = !trimmed ? null : sourceLinkError(trimmed)
     const disabledReason = !trimmed
         ? 'Paste a link to the file first'
-        : !/^https?:\/\//i.test(trimmed)
-          ? 'The link starts with https:// or http://'
-          : trimmed === initialUrl
-            ? 'This file is already linked'
-            : undefined
+        : (linkError ?? (trimmed === initialUrl ? 'This file is already linked' : undefined))
     return (
         <form
             className="flex flex-col gap-2 p-2 w-100 max-w-full"
@@ -39,8 +36,14 @@ export function SourceFileForm({
                 placeholder="https://github.com/acme/web/blob/main/src/emails/receipt.tsx"
                 value={url}
                 onChange={setUrl}
+                status={linkError ? 'danger' : 'default'}
                 data-attr="code-email-source-file-input"
             />
+            {linkError ? (
+                <p className="m-0 text-danger text-xs" data-attr="code-email-source-file-error">
+                    {linkError}
+                </p>
+            ) : null}
             <div className="flex justify-end">
                 <LemonButton
                     type="primary"
@@ -55,4 +58,16 @@ export function SourceFileForm({
             </div>
         </form>
     )
+}
+
+function sourceLinkError(link: string): string | null {
+    if (!/^https?:\/\//i.test(link)) {
+        return 'The link starts with https:// or http://'
+    }
+    try {
+        new URL(link)
+    } catch {
+        return "This isn't a web address. Copy the link from your code host's file page."
+    }
+    return null
 }

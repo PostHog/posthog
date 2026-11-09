@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCopy, IconInfo, IconLock } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -7,21 +7,15 @@ import { NotFound } from 'lib/components/NotFound'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { WorkflowInvocations } from '../../Workflows/WorkflowInvocations'
-import { workflowLogic } from '../../Workflows/workflowLogic'
-import { WorkflowMetrics } from '../../Workflows/WorkflowMetrics'
 import { CodeBadge } from './CodeBadge'
-import { CodeEmailApiExample } from './CodeEmailApiExample'
 import { CodeEmailLogicProps, codeEmailLogic } from './codeEmailLogic'
+import { CodeEmailTabs } from './CodeEmailTabs'
 import { SourceRow } from './SourceRow'
 
 export const scene: SceneExport<CodeEmailLogicProps> = {
@@ -35,15 +29,11 @@ const ACTION_BREAKPOINTS = { 0: 'narrow', 760: 'wide' } as const
 
 export function CodeEmailScene(): JSX.Element {
     // The scene binds the logic to the email ID in the URL.
-    const { codeEmail, codeEmailLoading, tab } = useValues(codeEmailLogic)
-    const { loadCodeEmail, updateCodeEmail, setTab, setSourceFormOpen, copyAgentPrompt } = useActions(codeEmailLogic)
+    const { codeEmail, loadState, saving, editDisabledReason } = useValues(codeEmailLogic)
+    const { loadCodeEmail, updateCodeEmail, setSourceFormOpen, copyAgentPrompt } = useActions(codeEmailLogic)
     const { ref: widthRef, size } = useResizeBreakpoints(ACTION_BREAKPOINTS, { initialSize: 'wide' })
-    const editDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.Workflow,
-        AccessControlLevel.Editor
-    )
 
-    if (codeEmail === null) {
+    if (loadState === 'not-found') {
         return (
             <NotFound
                 object="email"
@@ -51,7 +41,7 @@ export function CodeEmailScene(): JSX.Element {
             />
         )
     }
-    if (codeEmail === undefined && !codeEmailLoading) {
+    if (loadState === 'failed') {
         return (
             <SceneContent>
                 <LemonBanner
@@ -143,35 +133,12 @@ export function CodeEmailScene(): JSX.Element {
                         tags={codeEmail.tags}
                         onSave={(tags) => updateCodeEmail({ tags })}
                         canEdit={!editDisabledReason}
-                        loading={codeEmailLoading}
+                        loading={saving}
                         dataAttrKey="code-email"
                     />
                 )}
             </div>
-            {!codeEmail ? (
-                <LemonSkeleton className="h-100" />
-            ) : (
-                // The reused workflow tabs read workflowLogic without props, so bind it to this email's workflow.
-                <BindLogic logic={workflowLogic} props={{ id: codeEmail.hog_flow_id }}>
-                    <LemonTabs
-                        activeKey={tab}
-                        onChange={setTab}
-                        tabs={[
-                            {
-                                key: 'metrics',
-                                label: 'Metrics',
-                                content: <WorkflowMetrics id={codeEmail.hog_flow_id} />,
-                            },
-                            {
-                                key: 'sends',
-                                label: 'Sends',
-                                content: <WorkflowInvocations id={codeEmail.hog_flow_id} />,
-                            },
-                            { key: 'api', label: 'API', content: <CodeEmailApiExample templateKey={codeEmail.key} /> },
-                        ]}
-                    />
-                </BindLogic>
-            )}
+            {!codeEmail ? <LemonSkeleton className="h-100" /> : <CodeEmailTabs codeEmail={codeEmail} />}
         </SceneContent>
     )
 }

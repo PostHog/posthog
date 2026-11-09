@@ -11,7 +11,7 @@ import { SourceFileForm } from './SourceFileForm'
 
 /** The file in your repository that sends this email, or a way to link it. */
 export function SourceRow(): JSX.Element | null {
-    const { codeEmail, codeEmailLoading, sourceFormOpen } = useValues(codeEmailLogic)
+    const { codeEmail, saving, sourceFormOpen, editDisabledReason } = useValues(codeEmailLogic)
     const { linkSourceFile, setSourceFormOpen } = useActions(codeEmailLogic)
     if (!codeEmail) {
         return null
@@ -20,12 +20,10 @@ export function SourceRow(): JSX.Element | null {
     const repo = file ? repoUrl(file) : null
     return (
         <LemonDropdown
-            visible={sourceFormOpen}
+            visible={sourceFormOpen && !editDisabledReason}
             onClickOutside={() => setSourceFormOpen(false)}
             placement="bottom-start"
-            overlay={
-                <SourceFileForm initialUrl={codeEmail.source_url} saving={codeEmailLoading} onSave={linkSourceFile} />
-            }
+            overlay={<SourceFileForm initialUrl={codeEmail.source_url} saving={saving} onSave={linkSourceFile} />}
         >
             <div className="flex flex-wrap items-center gap-1 text-secondary min-w-0" data-attr="code-email-source-row">
                 <IconCode className="shrink-0" />
@@ -37,6 +35,7 @@ export function SourceRow(): JSX.Element | null {
                             type="tertiary"
                             icon={<IconPlus />}
                             onClick={() => setSourceFormOpen(!sourceFormOpen)}
+                            disabledReason={editDisabledReason ?? undefined}
                             data-attr="code-email-link-source-file"
                         >
                             Link source file
