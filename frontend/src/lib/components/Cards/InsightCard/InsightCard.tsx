@@ -15,7 +15,7 @@ import { getCapacityRetryAt, getRetryCooldown } from 'lib/insights/sharedUtils'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import {
@@ -60,7 +60,7 @@ import { INSIGHT_CARD_KEY_ATTR, insightCardKey } from './insightCardImageCapture
 import { InsightMeta } from './InsightMeta'
 import { InsightVisualizationSkeleton } from './InsightVisualizationSkeleton'
 
-const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
+const IS_STORYBOOK = inStorybook()
 
 export function shouldRenderInsightCardViz({
     isStorybook,

@@ -225,7 +225,6 @@ rules:
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |ExternalDataSourceDestination
-                              |ExternalDataSourceInputsBackup
                               |FeatureFlag
                               |FeatureFlagCodeAnalysis
                               |FeatureRequest
@@ -436,6 +435,7 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |SignalTrialGrant
                               |LegacySignalSpend
 
                               |AnomalyScoringState
@@ -745,7 +745,6 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
-                        |ExternalDataSourceInputsBackup
                         |FeatureFlag
                         |FeatureFlagCodeAnalysis
                         |FeatureRequest
@@ -949,6 +948,7 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |SignalTrialGrant
                         |LegacySignalSpend
 
                         |AnomalyScoringState
