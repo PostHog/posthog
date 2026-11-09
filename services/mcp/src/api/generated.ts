@@ -25230,32 +25230,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `name` - name
-     * * `description` - description
-     * * `prompt` - prompt
-     * * `scanner_type` - scanner_type
-     * * `type_config` - type_config
-     * * `query` - query
-     * * `sampling` - sampling
-     * * `model` - model
-     * * `budget` - budget
-     */
-    export type ChangedFieldsEnum = typeof ChangedFieldsEnum[keyof typeof ChangedFieldsEnum];
-
-
-    export const ChangedFieldsEnum = {
-      Name: 'name',
-      Description: 'description',
-      Prompt: 'prompt',
-      ScannerType: 'scanner_type',
-      TypeConfig: 'type_config',
-      Query: 'query',
-      Sampling: 'sampling',
-      Model: 'model',
-      Budget: 'budget',
-    } as const;
-
-    /**
      * The task currently generating this channel's CONTEXT.md, or null.
      */
     export interface ChannelContextGeneration {
@@ -37107,6 +37081,32 @@ export namespace Schemas {
          */
       error: string | null;
     }
+
+    /**
+     * * `name` - Name
+     * * `description` - Description
+     * * `prompt` - Prompt
+     * * `scanner_type` - Scanner type
+     * * `type_config` - Type settings
+     * * `query` - Query
+     * * `sampling` - Sampling
+     * * `model` - Model
+     * * `budget` - Budget
+     */
+    export type DraftFieldEnum = typeof DraftFieldEnum[keyof typeof DraftFieldEnum];
+
+
+    export const DraftFieldEnum = {
+      Name: 'name',
+      Description: 'description',
+      Prompt: 'prompt',
+      ScannerType: 'scanner_type',
+      TypeConfig: 'type_config',
+      Query: 'query',
+      Sampling: 'sampling',
+      Model: 'model',
+      Budget: 'budget',
+    } as const;
 
     /**
      * Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words.
@@ -101247,7 +101247,7 @@ export namespace Schemas {
          */
       estimated_monthly_observations: number | null;
       /** The parts of the draft the change touched. Apply only these to the form. */
-      changed_fields: ChangedFieldsEnum[];
+      changed_fields: DraftFieldEnum[];
       /** Each part of the instruction that could not be applied, addressed to the person. */
       could_not: string[];
       /** The request's `refinement_index`, echoed back. */

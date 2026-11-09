@@ -24,7 +24,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal, TypeVar
 
 from django.conf import settings
-from django.db import connections
+from django.db import connections, models
 from django.db.models import Q
 
 import structlog
@@ -328,17 +328,19 @@ class CurrentDraft:
 
 # The parts of a draft a refine reports as changed. The frontend's `draftChanges.ts` uses the same list, so
 # `changed_fields` on a refine and `draft_changes` on the save line up.
-DRAFT_FIELDS = (
-    "name",
-    "description",
-    "prompt",
-    "scanner_type",
-    "type_config",
-    "query",
-    "sampling",
-    "model",
-    "budget",
-)
+class DraftField(models.TextChoices):
+    NAME = "name", "Name"
+    DESCRIPTION = "description", "Description"
+    PROMPT = "prompt", "Prompt"
+    SCANNER_TYPE = "scanner_type", "Scanner type"
+    TYPE_CONFIG = "type_config", "Type settings"
+    QUERY = "query", "Query"
+    SAMPLING = "sampling", "Sampling"
+    MODEL = "model", "Model"
+    BUDGET = "budget", "Budget"
+
+
+DRAFT_FIELDS: tuple[str, ...] = tuple(DraftField.values)
 
 
 @dataclass(frozen=True, kw_only=True)

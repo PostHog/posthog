@@ -420,7 +420,7 @@ function DraftRefineBox({
                     value={instruction}
                     onChange={setInstruction}
                     onPressEnter={() => submit(instruction)}
-                    placeholder="For example: only the test variant, or make it a 1-5 score"
+                    placeholder="For example: make the output a 1-5 score, or only watch recordings that visit /pricing"
                     maxLength={500}
                     disabled={goalRefinementLoading}
                     data-attr="vision-goal-overview-refine-input"

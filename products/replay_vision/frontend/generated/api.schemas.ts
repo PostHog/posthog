@@ -3025,19 +3025,19 @@ export interface RefineScannerDraftRequestApi {
 }
 
 /**
- * * `name` - name
- * * `description` - description
- * * `prompt` - prompt
- * * `scanner_type` - scanner_type
- * * `type_config` - type_config
- * * `query` - query
- * * `sampling` - sampling
- * * `model` - model
- * * `budget` - budget
+ * * `name` - Name
+ * * `description` - Description
+ * * `prompt` - Prompt
+ * * `scanner_type` - Scanner type
+ * * `type_config` - Type settings
+ * * `query` - Query
+ * * `sampling` - Sampling
+ * * `model` - Model
+ * * `budget` - Budget
  */
-export type ChangedFieldsEnumApi = (typeof ChangedFieldsEnumApi)[keyof typeof ChangedFieldsEnumApi]
+export type DraftFieldEnumApi = (typeof DraftFieldEnumApi)[keyof typeof DraftFieldEnumApi]
 
-export const ChangedFieldsEnumApi = {
+export const DraftFieldEnumApi = {
     Name: 'name',
     Description: 'description',
     Prompt: 'prompt',
@@ -3103,7 +3103,7 @@ export interface RefineScannerDraftResponseApi {
      */
     estimated_monthly_observations: number | null
     /** The parts of the draft the change touched. Apply only these to the form. */
-    changed_fields: ChangedFieldsEnumApi[]
+    changed_fields: DraftFieldEnumApi[]
     /** Each part of the instruction that could not be applied, addressed to the person. */
     could_not: string[]
     /** The request's `refinement_index`, echoed back. */
