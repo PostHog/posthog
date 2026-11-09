@@ -22,10 +22,11 @@ from posthog.exceptions import as_drf_validation_error
 from posthog.models import User
 from posthog.permissions import FEATURE_FLAG_REQUIRED_ERROR_CODE
 
-from products.alerts_platform.backend.delivery.routing import ROUTING_FLAG
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.api import redact_destination_data
 from products.alerts_platform.backend.facade.contracts import (
+    ROUTABLE_DESTINATION_TYPES,
+    ROUTING_FLAG,
     AlertDestinationValidationError,
     AlertEventKind,
     AlertReceiverEdit,
@@ -35,7 +36,6 @@ from products.alerts_platform.backend.facade.contracts import (
     StoredAlertRoute,
     UnknownAlertRouting,
 )
-from products.alerts_platform.backend.logic.alert_routing import ROUTABLE_DESTINATION_TYPES
 from products.alerts_platform.backend.presentation.views.platform_alert import (
     PLATFORM_ALERTS_FLAG,
     platform_flag_enabled,
@@ -118,7 +118,8 @@ class AlertReceiverWriteSerializer(serializers.Serializer):
 
 
 class AlertRouteMatcherSerializer(serializers.Serializer):
-    label = serializers.CharField(help_text="Name of an alert label, such as team.")
+    # The wire name matches the stored matcher shape. It shadows `Field.label`, the field's display title.
+    label = serializers.CharField(help_text="Name of an alert label, such as team.")  # type: ignore[assignment]
     value = serializers.CharField(help_text="The value the label must equal, such as checkout.")
 
 

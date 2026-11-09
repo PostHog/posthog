@@ -14,12 +14,12 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count
 
 from products.alerts_platform.backend.facade.contracts import (
+    ROUTABLE_DESTINATION_TYPES,
     AlertDestinationData,
     AlertDestinationValidationError,
     AlertEventKind,
     AlertReceiverEdit,
     AlertRouteEdit,
-    DestinationType,
     RouteMatcher,
     StoredAlertReceiver,
     StoredAlertRoute,
@@ -29,14 +29,6 @@ from products.alerts_platform.backend.logic.alert_destinations import validate_d
 from products.alerts_platform.backend.logic.rule_metadata import InvalidRuleMetadata, validate_labels
 from products.alerts_platform.backend.models import AlertReceiver, AlertRoute
 
-# The types routed delivery sends to. It skips incident managers, and email and in-app need
-# recipients that belong to one alert.
-ROUTABLE_DESTINATION_TYPES: Final = (
-    DestinationType.SLACK,
-    DestinationType.WEBHOOK,
-    DestinationType.TEAMS,
-    DestinationType.DISCORD,
-)
 DEFAULT_ROUTE_EVENT_KINDS: Final = (
     AlertEventKind.FIRING,
     AlertEventKind.RESOLVED,
@@ -82,6 +74,7 @@ def update_receiver(*, team_id: int, receiver_id: UUID, edit: AlertReceiverEdit)
             row.type = edit.data["type"]
             row.config = dict(edit.data)
         if edit.enabled is not None:
+            # nosemgrep: platform-alert-state-direct-mutation (a routing row's own switch, not an alert's lifecycle)
             row.enabled = edit.enabled
         try:
             with transaction.atomic():
@@ -141,6 +134,7 @@ def update_route(*, team_id: int, route_id: UUID, edit: AlertRouteEdit) -> Store
             validate_event_kinds(edit.event_kinds)
             row.event_kinds = [kind.value for kind in edit.event_kinds]
         if edit.enabled is not None:
+            # nosemgrep: platform-alert-state-direct-mutation (a routing row's own switch, not an alert's lifecycle)
             row.enabled = edit.enabled
         try:
             with transaction.atomic():
