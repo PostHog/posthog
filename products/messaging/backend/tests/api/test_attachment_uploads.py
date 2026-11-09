@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.test import SimpleTestCase
 
 import requests
 from parameterized import parameterized
@@ -14,6 +15,8 @@ from rest_framework.test import APIClient
 from posthog.models import ProjectSecretAPIKey
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
+
+from products.messaging.backend.presentation.views.attachment_uploads import AttachmentUploadsRequestSerializer
 
 INVOICE = "a" * 64
 LOGO = "b" * 64
@@ -147,16 +150,6 @@ class TestAttachmentUploads(APIBaseTest):
                 11,
                 11,
             ),
-            ("no_files", {"files": []}, "invalid_request", "files", 0, 0),
-            (
-                "a_hash_that_is_not_hex",
-                {"files": [{"sha256": "z" * 64, "size": 1}]},
-                "invalid_request",
-                "files__0__sha256",
-                1,
-                1,
-            ),
-            ("an_empty_file", {"files": [{"sha256": INVOICE, "size": 0}]}, "invalid_request", "files__0__size", 1, 0),
             (
                 "an_unknown_field",
                 {"files": [{"sha256": INVOICE, "size": 1, "name": "a.pdf"}]},
@@ -211,3 +204,21 @@ class TestAttachmentUploads(APIBaseTest):
         response = self._upload(TWO_FILES, scopes)
 
         assert response.status_code == expected_status, response.json()
+
+
+class TestAttachmentUploadsRequest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_files", {"files": []}, ("files",), "min_length"),
+            ("a_hash_that_is_not_hex", {"files": [{"sha256": "z" * 64, "size": 1}]}, ("files", 0, "sha256"), "invalid"),
+            ("an_empty_file", {"files": [{"sha256": INVOICE, "size": 0}]}, ("files", 0, "size"), "min_value"),
+        ]
+    )
+    def test_refuses_a_malformed_file_list(self, _name, body, path, code):
+        serializer = AttachmentUploadsRequestSerializer(data=body)
+
+        assert not serializer.is_valid()
+        errors: Any = serializer.errors
+        for key in path:
+            errors = errors[key]
+        assert errors[0].code == code

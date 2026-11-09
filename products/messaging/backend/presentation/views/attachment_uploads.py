@@ -33,6 +33,7 @@ from products.messaging.backend.presentation.views.code_send_fields import MAX_A
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_SEND_SCOPE,
     require_email_from_code,
+    require_workflow_editor,
     transactional_email_authorized_by,
     transactional_email_throttles,
 )
@@ -254,7 +255,7 @@ class MessagingAttachmentsViewSet(RequestBodyCapMixin, TeamAndOrgViewSetMixin, v
     @action(detail=False, methods=["POST"], required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
     def uploads(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         require_email_from_code(self.team)
-        self._require_workflow_create()
+        require_workflow_editor(request, self.user_access_control, "You need editor access to workflows to send files.")
         files = [AttachmentUploadRequest(**file) for file in request.validated_data["files"]]
         requested = self._requested(request.validated_data)
         try:
@@ -276,12 +277,6 @@ class MessagingAttachmentsViewSet(RequestBodyCapMixin, TeamAndOrgViewSetMixin, v
             present_bytes=requested["requested_bytes"] - upload_bytes,
         )
         return Response(AttachmentUploadsResponseSerializer({"files": cast(list[AttachmentUploadSlot], slots)}).data)
-
-    def _require_workflow_create(self) -> None:
-        if is_authenticated_via_project_secret_api_key(self.request):
-            return
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
-            raise exceptions.PermissionDenied("You need editor access to workflows to send files.")
 
     @staticmethod
     def _size_attr(files: list[AttachmentUploadRequest], sha256: str | None) -> str | None:
