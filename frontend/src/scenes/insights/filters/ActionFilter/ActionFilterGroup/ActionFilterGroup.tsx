@@ -200,68 +200,69 @@ export function ActionFilterGroup({
                             {showMath && !hasSecondaryMathDropdown && <MathSelector {...mathSelectorProps} />}
                         </div>
 
-                        {!readOnly && (
+                        {!readOnly && quillSurface && (
                             <div className="flex shrink-0 self-start pt-0.75">
-                                {quillSurface ? (
-                                    <QuillActionFilterGroupMenu
-                                        index={index}
-                                        onSplit={onSplit}
-                                        onRename={onRename}
-                                        onDuplicate={onDuplicate}
-                                        onDelete={onDelete}
+                                <QuillActionFilterGroupMenu
+                                    index={index}
+                                    onSplit={onSplit}
+                                    onRename={onRename}
+                                    onDuplicate={onDuplicate}
+                                    onDelete={onDelete}
+                                />
+                            </div>
+                        )}
+                        {!readOnly && !quillSurface && (
+                            <div className="flex shrink-0 self-start pt-0.75">
+                                <LemonMenu
+                                    placement="bottom-end"
+                                    items={[
+                                        {
+                                            items: [
+                                                {
+                                                    label: 'Split events',
+                                                    size: 'medium',
+                                                    icon: <IconUndo />,
+                                                    onClick: onSplit,
+                                                    'data-attr': `group-filter-split-${index}`,
+                                                },
+                                            ],
+                                        },
+                                        {
+                                            items: [
+                                                {
+                                                    label: 'Rename',
+                                                    size: 'medium',
+                                                    icon: <IconPencil />,
+                                                    onClick: onRename,
+                                                    'data-attr': `group-filter-rename-${index}`,
+                                                },
+                                                {
+                                                    label: 'Duplicate',
+                                                    size: 'medium',
+                                                    icon: <IconCopy />,
+                                                    onClick: onDuplicate,
+                                                    'data-attr': `group-filter-duplicate-${index}`,
+                                                },
+                                                {
+                                                    label: 'Delete',
+                                                    size: 'medium',
+                                                    status: 'danger',
+                                                    icon: <IconTrash />,
+                                                    onClick: onDelete,
+                                                    'data-attr': `group-filter-delete-${index}`,
+                                                },
+                                            ],
+                                        },
+                                    ]}
+                                >
+                                    <LemonButton
+                                        noPadding
+                                        size="medium"
+                                        icon={<IconEllipsis />}
+                                        aria-label="Show more actions"
+                                        data-attr={`group-filter-menu-${index}`}
                                     />
-                                ) : (
-                                    <LemonMenu
-                                        placement="bottom-end"
-                                        items={[
-                                            {
-                                                items: [
-                                                    {
-                                                        label: 'Split events',
-                                                        size: 'medium',
-                                                        icon: <IconUndo />,
-                                                        onClick: onSplit,
-                                                        'data-attr': `group-filter-split-${index}`,
-                                                    },
-                                                ],
-                                            },
-                                            {
-                                                items: [
-                                                    {
-                                                        label: 'Rename',
-                                                        size: 'medium',
-                                                        icon: <IconPencil />,
-                                                        onClick: onRename,
-                                                        'data-attr': `group-filter-rename-${index}`,
-                                                    },
-                                                    {
-                                                        label: 'Duplicate',
-                                                        size: 'medium',
-                                                        icon: <IconCopy />,
-                                                        onClick: onDuplicate,
-                                                        'data-attr': `group-filter-duplicate-${index}`,
-                                                    },
-                                                    {
-                                                        label: 'Delete',
-                                                        size: 'medium',
-                                                        status: 'danger',
-                                                        icon: <IconTrash />,
-                                                        onClick: onDelete,
-                                                        'data-attr': `group-filter-delete-${index}`,
-                                                    },
-                                                ],
-                                            },
-                                        ]}
-                                    >
-                                        <LemonButton
-                                            noPadding
-                                            size="medium"
-                                            icon={<IconEllipsis />}
-                                            aria-label="Show more actions"
-                                            data-attr={`group-filter-menu-${index}`}
-                                        />
-                                    </LemonMenu>
-                                )}
+                                </LemonMenu>
                             </div>
                         )}
                     </div>
@@ -329,45 +330,46 @@ export function ActionFilterGroup({
                                     />
                                 </div>
                             )}
-                            {mathCategory === MathCategory.HogQLExpression && (
+                            {mathCategory === MathCategory.HogQLExpression && quillSurface && (
                                 <div className="min-w-0 flex-1">
-                                    {quillSurface ? (
-                                        <QuillHogQLMathPopover
-                                            open={isHogQLDropdownVisible}
-                                            onOpenChange={setHogQLDropdownVisible}
-                                            value={node.math_hogql || defaultMathHogQLExpression}
-                                            onChange={onMathHogQLChange}
+                                    <QuillHogQLMathPopover
+                                        open={isHogQLDropdownVisible}
+                                        onOpenChange={setHogQLDropdownVisible}
+                                        value={node.math_hogql || defaultMathHogQLExpression}
+                                        onChange={onMathHogQLChange}
+                                        data-attr={`math-hogql-select-${index}`}
+                                    />
+                                </div>
+                            )}
+                            {mathCategory === MathCategory.HogQLExpression && !quillSurface && (
+                                <div className="min-w-0 flex-1">
+                                    <LemonDropdown
+                                        visible={isHogQLDropdownVisible}
+                                        closeOnClickInside={false}
+                                        onClickOutside={() => setHogQLDropdownVisible(false)}
+                                        overlay={
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                                                <HogQLEditor
+                                                    value={node.math_hogql || defaultMathHogQLExpression}
+                                                    onChange={onMathHogQLChange}
+                                                />
+                                            </div>
+                                        }
+                                    >
+                                        <LemonButton
+                                            fullWidth
+                                            type="secondary"
+                                            size="small"
+                                            truncate
                                             data-attr={`math-hogql-select-${index}`}
-                                        />
-                                    ) : (
-                                        <LemonDropdown
-                                            visible={isHogQLDropdownVisible}
-                                            closeOnClickInside={false}
-                                            onClickOutside={() => setHogQLDropdownVisible(false)}
-                                            overlay={
-                                                // eslint-disable-next-line react/forbid-dom-props
-                                                <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
-                                                    <HogQLEditor
-                                                        value={node.math_hogql || defaultMathHogQLExpression}
-                                                        onChange={onMathHogQLChange}
-                                                    />
-                                                </div>
-                                            }
+                                            onClick={() => setHogQLDropdownVisible(!isHogQLDropdownVisible)}
                                         >
-                                            <LemonButton
-                                                fullWidth
-                                                type="secondary"
-                                                size="small"
-                                                truncate
-                                                data-attr={`math-hogql-select-${index}`}
-                                                onClick={() => setHogQLDropdownVisible(!isHogQLDropdownVisible)}
-                                            >
-                                                <code className="truncate">
-                                                    {node.math_hogql || defaultMathHogQLExpression}
-                                                </code>
-                                            </LemonButton>
-                                        </LemonDropdown>
-                                    )}
+                                            <code className="truncate">
+                                                {node.math_hogql || defaultMathHogQLExpression}
+                                            </code>
+                                        </LemonButton>
+                                    </LemonDropdown>
                                 </div>
                             )}
                         </div>
