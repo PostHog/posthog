@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from unittest import TestCase
 
 import numpy as np
@@ -22,6 +24,30 @@ def _generate_sufficient_stats(rng: np.random.Generator, n: int, mean: float, st
     """Generate sufficient statistics (sum, sum_squares) from synthetic data."""
     data = rng.normal(mean, std, n)
     return float(np.sum(data)), float(np.sum(data**2)), data
+
+
+def _sample_mean_statistic(values: np.ndarray) -> SampleMeanStatistic:
+    return SampleMeanStatistic(n=len(values), sum=float(values.sum()), sum_squares=float(values @ values))
+
+
+def _proportion_statistic(values: np.ndarray) -> ProportionStatistic:
+    return ProportionStatistic(n=len(values), sum=int(values.sum()))
+
+
+def _mean_arms(sign: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    return (
+        sign * np.array([10, 13, 14, 9, 16, 11, 15, 12], dtype=float),
+        np.array([3, 5, 4, 2, 7, 3, 6, 2], dtype=float),
+        sign * np.array([10, 8, 13, 9, 12, 7], dtype=float),
+        np.array([2, 3, 6, 4, 5, 1], dtype=float),
+    )
+
+
+def _conversion_arm(seed: int, n: int, conversion_rate: float) -> tuple[np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(seed)
+    covariate = rng.normal(0, 1, n)
+    converted = rng.random(n) < np.clip(conversion_rate + 0.2 * covariate, 0, 1)
+    return converted.astype(float), covariate
 
 
 class TestComputeTheta(TestCase):
@@ -119,31 +145,6 @@ class TestCupedAdjust(TestCase):
 
         # Theta should be approximately 2
         self.assertAlmostEqual(result.theta, 2.0, places=1)
-
-    def test_unadjusted_means_preserved(self):
-        """CupedResult should contain the original unadjusted means."""
-        rng = np.random.default_rng(42)
-        n = 500
-
-        pre = rng.normal(10, 3, n)
-        post_t = pre + rng.normal(1, 1, n)
-        post_c = pre + rng.normal(0, 1, n)
-
-        treatment_post = SampleMeanStatistic(n=n, sum=float(np.sum(post_t)), sum_squares=float(np.sum(post_t**2)))
-        control_post = SampleMeanStatistic(n=n, sum=float(np.sum(post_c)), sum_squares=float(np.sum(post_c**2)))
-        treatment_cuped = CupedCovariate(
-            pre_statistic=SampleMeanStatistic(n=n, sum=float(np.sum(pre)), sum_squares=float(np.sum(pre**2))),
-            sum_of_cross_products=float(np.sum(post_t * pre)),
-        )
-        control_cuped = CupedCovariate(
-            pre_statistic=SampleMeanStatistic(n=n, sum=float(np.sum(pre)), sum_squares=float(np.sum(pre**2))),
-            sum_of_cross_products=float(np.sum(post_c * pre)),
-        )
-
-        result = cuped_adjust(treatment_post, control_post, treatment_cuped, control_cuped)
-
-        self.assertAlmostEqual(result.treatment_unadjusted_mean, treatment_post.mean, places=10)
-        self.assertAlmostEqual(result.control_unadjusted_mean, control_post.mean, places=10)
 
     def test_no_adjustment_when_zero_pre_variance(self):
         """When pre-exposure has zero variance, should return original stats with theta=0."""
@@ -447,8 +448,7 @@ class TestCupedReferenceData(TestCase):
 
         result = cuped_adjust(treatment_post, control_post, treatment_cuped, control_cuped)
 
-        self.assertAlmostEqual(result.control_unadjusted_mean, 0.099964299, places=7)
-        self.assertAlmostEqual(result.treatment_unadjusted_mean, 0.073214286, places=7)
+        self.assertAlmostEqual(result.relative_effect_baseline.mean, 0.099964299, places=7)
         self.assertAlmostEqual(result.theta, -0.069566052, places=7)
         self.assertAlmostEqual(result.control_adjusted.mean, 0.104807347, places=7)
         self.assertAlmostEqual(result.treatment_adjusted.mean, 0.075947238, places=7)
@@ -502,23 +502,41 @@ class TestCupedReferenceData(TestCase):
         self.assertAlmostEqual(test_result.credible_interval[0], -0.481992, places=5)
         self.assertAlmostEqual(test_result.credible_interval[1], -0.095417, places=5)
 
-    @parameterized.expand([("positive", 1.0), ("negative", -1.0)])
-    def test_relative_variance_matches_linearized_observations(self, _name: str, sign: float) -> None:
-        treatment_y = sign * np.array([10, 13, 14, 9, 16, 11, 15, 12], dtype=float)
-        treatment_x = np.array([3, 5, 4, 2, 7, 3, 6, 2], dtype=float)
-        control_y = sign * np.array([10, 8, 13, 9, 12, 7], dtype=float)
-        control_x = np.array([2, 3, 6, 4, 5, 1], dtype=float)
-
-        def statistic(values: np.ndarray) -> SampleMeanStatistic:
-            return SampleMeanStatistic(n=len(values), sum=float(values.sum()), sum_squares=float(values @ values))
-
-        result = cuped_adjust(
-            statistic(treatment_y),
-            statistic(control_y),
-            CupedCovariate(
-                pre_statistic=statistic(treatment_x), sum_of_cross_products=float(treatment_y @ treatment_x)
+    @parameterized.expand(
+        [
+            ("positive", *_mean_arms(1.0), _sample_mean_statistic, 1e-9),
+            ("negative", *_mean_arms(-1.0), _sample_mean_statistic, 1e-9),
+            # A funnel's ProportionStatistic takes the population variance p(1 - p), so it matches the
+            # sample-variance expectation only to O(1/n).
+            (
+                "funnel",
+                *_conversion_arm(seed=1, n=4000, conversion_rate=0.35),
+                *_conversion_arm(seed=2, n=3000, conversion_rate=0.25),
+                _proportion_statistic,
+                2e-3,
             ),
-            CupedCovariate(pre_statistic=statistic(control_x), sum_of_cross_products=float(control_y @ control_x)),
+        ]
+    )
+    def test_relative_variance_matches_linearized_observations(
+        self,
+        _name: str,
+        treatment_y: np.ndarray,
+        treatment_x: np.ndarray,
+        control_y: np.ndarray,
+        control_x: np.ndarray,
+        post_statistic: Callable[[np.ndarray], SampleMeanStatistic | ProportionStatistic],
+        rtol: float,
+    ) -> None:
+        result = cuped_adjust(
+            post_statistic(treatment_y),
+            post_statistic(control_y),
+            CupedCovariate(
+                pre_statistic=_sample_mean_statistic(treatment_x),
+                sum_of_cross_products=float(treatment_y @ treatment_x),
+            ),
+            CupedCovariate(
+                pre_statistic=_sample_mean_statistic(control_x), sum_of_cross_products=float(control_y @ control_x)
+            ),
         )
         pooled_x = np.concatenate([treatment_x, control_x])
         pooled_y = np.concatenate([treatment_y, control_y])
@@ -539,7 +557,7 @@ class TestCupedReferenceData(TestCase):
             DifferenceType.RELATIVE,
             relative_effect_baseline=result.relative_effect_baseline,
         )
-        self.assertAlmostEqual(actual_variance, expected_variance)
+        np.testing.assert_allclose(actual_variance, expected_variance, rtol=rtol)
         bayesian_effect, bayesian_variance = calculate_effect_size_and_variance(
             result.treatment_adjusted,
             result.control_adjusted,
@@ -547,7 +565,7 @@ class TestCupedReferenceData(TestCase):
             relative_effect_baseline=result.relative_effect_baseline,
         )
         self.assertAlmostEqual(bayesian_effect, difference / abs(baseline))
-        self.assertAlmostEqual(bayesian_variance, expected_variance)
+        np.testing.assert_allclose(bayesian_variance, expected_variance, rtol=rtol)
 
     @parameterized.expand([("zero", 0.0), ("near_zero", 1e-12)])
     def test_relative_baseline_rejection_preserves_absolute_effect(self, _name: str, baseline: float) -> None:
@@ -598,8 +616,7 @@ class TestCupedReferenceData(TestCase):
 
         self.assertIsInstance(result.treatment_adjusted, SampleMeanStatistic)
         self.assertIsInstance(result.control_adjusted, SampleMeanStatistic)
-        self.assertAlmostEqual(result.control_unadjusted_mean, 280 / 2801, places=9)
-        self.assertAlmostEqual(result.treatment_unadjusted_mean, 205 / 2800, places=9)
+        self.assertAlmostEqual(result.relative_effect_baseline.mean, 280 / 2801, places=9)
         self.assertGreater(result.variance_reduction_treatment, 0)
         self.assertGreater(result.variance_reduction_control, 0)
 

@@ -20,23 +20,13 @@ class InvalidStatisticError(StatisticError):
 
 @frozen
 class RelativeEffectBaseline:
-    """Baseline moments on the scale of sample means, not individual observations."""
+    """The mean that relative effects divide by, with its variance and its covariance with the treatment-control
+    difference. Moments are on the scale of sample means, not individual observations."""
 
     mean: float
     variance: float
+    # The adjusted difference contains control observations, so it covaries with the raw baseline.
     difference_covariance: float
-
-    def relative_variance(self, *, difference_mean: float, difference_variance: float) -> float:
-        if abs(self.mean) < 1e-10:
-            raise StatisticError("Control mean cannot be zero for relative variance calculation")
-
-        # The adjusted difference contains control observations, so it covaries with the raw baseline.
-        # Delta method for D/B: Var(D)/B² + D²Var(B)/B⁴ - 2D Cov(D,B)/B³.
-        return (
-            difference_variance / self.mean**2
-            + difference_mean**2 * self.variance / self.mean**4
-            - 2 * difference_mean * self.difference_covariance / self.mean**3
-        )
 
 
 @dataclass

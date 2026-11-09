@@ -11,7 +11,14 @@ from scipy.stats import norm
 
 from ..shared.enums import DifferenceType
 from ..shared.statistics import AnyStatistic, StatisticError
-from ..shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
+from ..shared.utils import (
+    get_mean,
+    get_sample_size,
+    get_variance,
+    relative_effect,
+    relative_effect_variance,
+    validate_test_inputs,
+)
 from .priors import GaussianPrior
 
 if TYPE_CHECKING:
@@ -53,60 +60,13 @@ def calculate_effect_size_and_variance(
         effect_variance = treatment_var / treatment_n + control_var / control_n
 
     elif difference_type == DifferenceType.RELATIVE:
-        denominator = relative_effect_baseline.mean if relative_effect_baseline is not None else control_mean
-        if abs(denominator) < 1e-10:
-            raise StatisticError("Baseline mean is zero, so the relative difference is undefined")
-
-        effect = (treatment_mean - control_mean) / abs(denominator)
-
-        if relative_effect_baseline is not None:
-            return effect, relative_effect_baseline.relative_variance(
-                difference_mean=treatment_mean - control_mean,
-                difference_variance=treatment_var / treatment_n + control_var / control_n,
-            )
-
-        # The effect is ±(μ_T / μ_C - 1), so it has the variance of μ_T / μ_C. Keep the signed μ_C for the covariance term.
-        effect_variance = variance_of_ratios(
-            mean_numerator=treatment_mean,
-            var_numerator=treatment_var / treatment_n,
-            mean_denominator=denominator,
-            var_denominator=control_var / control_n,
-            covariance=0,  # No covariance between treatment and control
-        )
+        effect = relative_effect(treatment_stat, control_stat, relative_effect_baseline)
+        effect_variance = relative_effect_variance(treatment_stat, control_stat, relative_effect_baseline)
 
     else:
         raise StatisticError(f"Unsupported difference type: {difference_type}")
 
     return effect, effect_variance
-
-
-def variance_of_ratios(
-    mean_numerator: float, var_numerator: float, mean_denominator: float, var_denominator: float, covariance: float
-) -> float:
-    """
-    Calculate variance of ratio using delta method.
-
-    For ratio R = M/D, the variance is approximately:
-    Var(R) ≈ Var(M)/D² + M²Var(D)/D⁴ - 2M*Cov(M,D)/D³
-
-    Args:
-        mean_numerator: Mean of numerator
-        var_numerator: Variance of numerator
-        mean_denominator: Mean of denominator
-        var_denominator: Variance of denominator
-        covariance: Covariance between numerator and denominator
-
-    Returns:
-        Variance of the ratio
-    """
-    if abs(mean_denominator) < 1e-10:
-        raise StatisticError("Denominator mean cannot be zero for ratio variance calculation")
-
-    return (
-        var_numerator / mean_denominator**2
-        + mean_numerator**2 * var_denominator / mean_denominator**4
-        - 2 * mean_numerator * covariance / mean_denominator**3
-    )
 
 
 def calculate_posterior(effect_size: float, effect_variance: float, prior: GaussianPrior) -> tuple[float, float]:

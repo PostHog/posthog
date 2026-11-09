@@ -525,6 +525,19 @@ class TestRelativeEffectSignedBaseline(TestCase):
         with pytest.raises(StatisticError, match="Baseline mean is zero"):
             run_test(treatment, control)
 
+    @parameterized.expand(
+        [
+            ("frequentist", lambda t, c: FrequentistMethod().run_test(t, c)),
+            ("bayesian", lambda t, c: BayesianMethod().run_test(t, c)),
+        ]
+    )
+    def test_zero_treatment_without_spread_is_rejected(self, _name: str, run_test: Any) -> None:
+        treatment = _sample_mean_stat(n=100, mean=0.0, variance=0.0)
+        control = _sample_mean_stat(n=100, mean=2.5, variance=2.25)
+
+        with pytest.raises(StatisticError, match="variance must be positive"):
+            run_test(treatment, control)
+
 
 class TestNumericalStability:
     """Tests for numerical stability and precision."""

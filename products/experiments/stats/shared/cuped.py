@@ -42,17 +42,14 @@ class CupedResult:
         treatment_adjusted: CUPED-adjusted treatment statistic.
         control_adjusted: CUPED-adjusted control statistic.
         theta: The regression coefficient used for adjustment.
-        treatment_unadjusted_mean: Original treatment mean before adjustment.
-        control_unadjusted_mean: Original control mean before adjustment.
         variance_reduction_treatment: Fraction of variance reduced (1 - adjusted/original).
         variance_reduction_control: Fraction of variance reduced (1 - adjusted/original).
+        relative_effect_baseline: The unadjusted control mean that relative effects divide by, with its moments.
     """
 
     treatment_adjusted: SampleMeanStatistic
     control_adjusted: SampleMeanStatistic
     theta: float
-    treatment_unadjusted_mean: float
-    control_unadjusted_mean: float
     variance_reduction_treatment: float
     variance_reduction_control: float
     relative_effect_baseline: RelativeEffectBaseline
@@ -195,9 +192,6 @@ def cuped_adjust(
             f"Control post n ({control_post.n}) does not match pre n ({control_cuped.pre_statistic.n})"
         )
 
-    treatment_unadjusted_mean = _get_post_mean(treatment_post)
-    control_unadjusted_mean = _get_post_mean(control_post)
-
     theta = compute_theta(treatment_post, control_post, treatment_cuped, control_cuped)
 
     control_covariance = _compute_covariance(
@@ -209,7 +203,7 @@ def cuped_adjust(
     # Treat fitted theta as fixed to first order: randomization makes the population covariate difference zero.
     # Cov(T_adj - C_adj, C_raw) = -(Var(C_raw) - theta * Cov(C_raw, X_C)) / n_C.
     relative_effect_baseline = RelativeEffectBaseline(
-        mean=control_unadjusted_mean,
+        mean=_get_post_mean(control_post),
         variance=control_post.variance / control_post.n,
         difference_covariance=-(control_post.variance - theta * control_covariance) / control_post.n,
     )
@@ -221,8 +215,6 @@ def cuped_adjust(
             treatment_adjusted=treatment_adjusted,
             control_adjusted=control_adjusted,
             theta=0.0,
-            treatment_unadjusted_mean=treatment_unadjusted_mean,
-            control_unadjusted_mean=control_unadjusted_mean,
             variance_reduction_treatment=0.0,
             variance_reduction_control=0.0,
             relative_effect_baseline=relative_effect_baseline,
@@ -235,8 +227,6 @@ def cuped_adjust(
         treatment_adjusted=treatment_adjusted,
         control_adjusted=control_adjusted,
         theta=theta,
-        treatment_unadjusted_mean=treatment_unadjusted_mean,
-        control_unadjusted_mean=control_unadjusted_mean,
         variance_reduction_treatment=vr_treatment,
         variance_reduction_control=vr_control,
         relative_effect_baseline=relative_effect_baseline,

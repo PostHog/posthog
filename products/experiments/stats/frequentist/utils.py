@@ -4,7 +4,14 @@ import numpy as np
 from scipy import stats
 
 from products.experiments.stats.shared.enums import DifferenceType
-from products.experiments.stats.shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
+from products.experiments.stats.shared.utils import (
+    get_mean,
+    get_sample_size,
+    get_variance,
+    relative_effect,
+    relative_effect_variance,
+    validate_test_inputs,
+)
 
 from ..shared.statistics import AnyStatistic, QuantileStatistic, StatisticError
 
@@ -41,10 +48,7 @@ def calculate_point_estimate(
         return treatment_mean - control_mean
 
     elif difference_type == DifferenceType.RELATIVE:
-        denominator = relative_effect_baseline.mean if relative_effect_baseline is not None else control_mean
-        if abs(denominator) < 1e-10:
-            raise StatisticError("Baseline mean is zero, so the relative difference is undefined")
-        return (treatment_mean - control_mean) / abs(denominator)
+        return relative_effect(treatment_stat, control_stat, relative_effect_baseline)
 
     else:
         raise StatisticError(f"Unknown difference type: {difference_type}")
@@ -81,26 +85,7 @@ def calculate_variance_pooled(
         return treatment_var / treatment_n + control_var / control_n
 
     elif difference_type == DifferenceType.RELATIVE:
-        # Delta method for relative differences
-        treatment_mean = get_mean(treatment_stat)
-        control_mean = get_mean(control_stat)
-        denominator = relative_effect_baseline.mean if relative_effect_baseline is not None else control_mean
-
-        if abs(denominator) < 1e-10:
-            raise StatisticError("Baseline mean is zero, so the relative variance is undefined")
-
-        if relative_effect_baseline is not None:
-            return relative_effect_baseline.relative_variance(
-                difference_mean=treatment_mean - control_mean,
-                difference_variance=treatment_var / treatment_n + control_var / control_n,
-            )
-
-        # Var(Y/X) ≈ Var(Y)/X² + Y²Var(X)/X⁴ - 2Y*Cov(X,Y)/X³
-        # Since treatment and control are independent, Cov(X,Y) = 0
-        var_y_over_x_squared = treatment_var / (treatment_n * denominator**2)
-        y_squared_var_x_over_x_fourth = (treatment_mean**2 * control_var) / (control_n * denominator**4)
-
-        return var_y_over_x_squared + y_squared_var_x_over_x_fourth
+        return relative_effect_variance(treatment_stat, control_stat, relative_effect_baseline)
 
     else:
         raise StatisticError(f"Unknown difference type: {difference_type}")
