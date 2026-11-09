@@ -507,7 +507,6 @@ def test_the_binding_holds_the_whole_batch() -> None:
 
 
 def test_a_firing_waits_for_one_render_at_most() -> None:
-    # The render gives up before its activity does.
     assert CHART_START_TO_CLOSE > RENDER_TIMEOUT
 
 

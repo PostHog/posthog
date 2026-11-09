@@ -499,9 +499,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     render_platform_insight_chart_activity,
                     InsightChartInputs(team_id=inputs.batch_key.team_id, alert_id=alert_id),
                     start_to_close_timeout=CHART_START_TO_CLOSE,
-                    # The firing waits for one render at most, so a wait for a render slot comes out
-                    # of the same budget. Past it the firing goes out without its chart, as
-                    # production sends one whose render timed out.
+                    # A firing waits for one render at most, slot wait included, then goes without its chart.
                     schedule_to_close_timeout=CHART_START_TO_CLOSE,
                     retry_policy=CHART_RETRY_POLICY,
                 )
@@ -893,13 +891,15 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
 
 
 def _render_outcome(chart: object) -> "ChartRenderOutcome":
-    # The firing goes out either way, so only this counter shows the charts it went without.
+    """How a firing's render ended. The firing goes out either way, so only this shows lost charts.
+
+    `timed_out` covers a render that overran and one that never got a slot; `no_chart` a render that
+    failed or had no render user.
+    """
     if isinstance(chart, RenderedChart):
         return "rendered"
-    # The activity ran out of its budget, in a render or waiting for a render slot.
     if isinstance(chart, ActivityError):
         return "timed_out"
-    # The render failed, or the alert had no render user.
     return "no_chart"
 
 
