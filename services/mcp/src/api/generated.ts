@@ -508,6 +508,91 @@ export namespace Schemas {
       brand_names: string[];
     }
 
+    export interface AEORankedBrand {
+      /** Registrable domain of the brand, for example 'example.com'. */
+      domain: string;
+      /** The word an answer must contain to count as naming the brand. For the project's own brand, a comma-separated list where any name counts. */
+      name: string;
+      /** Whether this is the project's own brand. The others are competitors. */
+      is_target: boolean;
+      /** Answered checks in the current window that named the brand or cited its domain: the numerator of 'visibility'. */
+      answers_mentioning: number;
+      /**
+         * Share (0-1) of answered checks in the current window that named the brand or cited its domain. Null without answers.
+         * @nullable
+         */
+      visibility: number | null;
+      /**
+         * The same share for the window before. Null without answers.
+         * @nullable
+         */
+      previous_visibility: number | null;
+      /**
+         * For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored.
+         * @nullable
+         */
+      positive_share: number | null;
+    }
+
+    export interface AEORankedBrandDay {
+      /** Day, in the project's timezone. */
+      date: string;
+      /** The brand's registrable domain, matching a row in 'brands'. */
+      domain: string;
+      /** Answered checks that day. */
+      answers: number;
+      /**
+         * Share (0-1) of that day's answers that named the brand or cited its domain.
+         * @nullable
+         */
+      visibility: number | null;
+    }
+
+    export interface AEORankedDomain {
+      /** Registrable domain of the cited URLs, for example 'example.com'. */
+      domain: string;
+      /** Answered checks in the window that cited a URL on this domain. */
+      answers: number;
+      /** Share (0-1) of answered checks in the window that cited the domain. */
+      share_of_answers: number;
+      /** Distinct URLs on this domain cited in the window. */
+      urls: number;
+      /** Whether the domain is the project's own site. */
+      is_target: boolean;
+      /** Whether the domain is one of the competitors in 'brands'. */
+      is_competitor: boolean;
+    }
+
+    export interface AEORankedPage {
+      /** The cited URL, as the engine returned it. */
+      url: string;
+      /** Answered checks in the window that cited this URL. */
+      answers: number;
+      /** Share (0-1) of answered checks in the window that cited the URL. */
+      share_of_answers: number;
+      /** Whether the URL is on the project's own site. */
+      is_target: boolean;
+    }
+
+    export interface AEOPromptSetRankings {
+      /** The project's brand and up to 10 competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks. A competitor counts as named when its domain's name appears as a word, so a common-word name can over-count. */
+      brands: AEORankedBrand[];
+      /** Visibility per brand and day in the current window, ordered by day then domain. */
+      daily: AEORankedBrandDay[];
+      /** The 20 registrable domains the engines cited most in the window, most cited first. */
+      top_domains: AEORankedDomain[];
+      /** The 20 pages the engines cited most in the window, most cited first. */
+      top_pages: AEORankedPage[];
+      /** Length of each window in days. */
+      days: number;
+      /** First day of the current window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the current window (today), in the project's timezone. */
+      window_to: string;
+      /** Answered checks in the current window: the denominator of every share. */
+      answers: number;
+    }
+
     export interface AEOPromptStats {
       /** Totals per answer engine over the prompt's whole history. */
       engines: AEOPromptEngineStats[];
@@ -125205,6 +125290,15 @@ export namespace Schemas {
     };
 
     export type AeoPromptsOverviewParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    };
+
+    export type AeoPromptsRankingsParams = {
     /**
      * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
      * @minimum 1
