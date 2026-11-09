@@ -1,3 +1,4 @@
+import { RecommendationsShownState } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingSourceName } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import {
@@ -145,6 +146,33 @@ export function withoutDismissed(
     dismissedKeys: Set<string>
 ): MarketingAnalyticsRecommendation[] {
     return recommendations.filter((recommendation) => !dismissedKeys.has(recommendationKey(recommendation)))
+}
+
+export interface RecommendationsLoadStatus {
+    sourcesLoading: boolean
+    dismissalsPending: boolean
+    responseLoading: boolean
+    responseError: boolean
+    connectedSourceCount: number
+    selectedSourceCount: number
+    hasRecommendations: boolean
+}
+
+export function recommendationsShownState(status: RecommendationsLoadStatus): RecommendationsShownState | null {
+    const hasSelectedSource = status.selectedSourceCount > 0
+    if (hasSelectedSource && !status.responseError && !status.dismissalsPending && status.hasRecommendations) {
+        return 'recommendations'
+    }
+    if (status.sourcesLoading || status.dismissalsPending || (status.responseLoading && hasSelectedSource)) {
+        return null
+    }
+    if (status.connectedSourceCount === 0) {
+        return 'no_connected_source'
+    }
+    if (!hasSelectedSource) {
+        return 'no_selected_source'
+    }
+    return status.responseError ? 'error' : 'empty'
 }
 
 export function groupRecommendations(recommendations: MarketingAnalyticsRecommendation[]): RecommendationGroup[] {

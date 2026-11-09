@@ -1,6 +1,12 @@
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 
-import { groupRecommendations, recommendationKey, withoutDismissed } from './recommendations'
+import {
+    RecommendationsLoadStatus,
+    groupRecommendations,
+    recommendationKey,
+    recommendationsShownState,
+    withoutDismissed,
+} from './recommendations'
 
 function recommendation(overrides: Partial<MarketingAnalyticsRecommendation>): MarketingAnalyticsRecommendation {
     return {
@@ -59,6 +65,29 @@ describe('recommendations', () => {
             expect(withoutDismissed(rows, dismissed).map((row) => [row.subject, row.campaign])).toEqual([
                 ['example shoes', 'Campaign B'],
             ])
+        })
+    })
+
+    describe('recommendationsShownState', () => {
+        const loaded: RecommendationsLoadStatus = {
+            sourcesLoading: false,
+            dismissalsPending: false,
+            responseLoading: false,
+            responseError: false,
+            connectedSourceCount: 1,
+            selectedSourceCount: 1,
+            hasRecommendations: true,
+        }
+
+        it.each([
+            ['dismissals still loading', { dismissalsPending: true }, null],
+            ['first response still loading', { responseLoading: true, hasRecommendations: false }, null],
+            ['reload over earlier results', { responseLoading: true }, 'recommendations'],
+            ['failed load over earlier results', { responseError: true }, 'error'],
+            ['no results', { hasRecommendations: false }, 'empty'],
+            ['nothing connected', { connectedSourceCount: 0, selectedSourceCount: 0 }, 'no_connected_source'],
+        ] as const)('%s', (_, overrides, expected) => {
+            expect(recommendationsShownState({ ...loaded, ...overrides })).toEqual(expected)
         })
     })
 })
