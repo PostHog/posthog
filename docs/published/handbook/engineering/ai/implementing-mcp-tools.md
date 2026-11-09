@@ -72,6 +72,12 @@ For lookup tools, return an explicit normal result when absence is an expected a
 checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
 server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
 
+For context-dependent UI fragments, `ui-customization-describe` returns the selected context's layout JSON Schema
+and default layout. The schema comes from the same validator used when saving. Its descriptions include rules
+that JSON Schema cannot enforce, such as limits across sections and unique list sources. Agents can use this
+read-only tool to plan alternatives, then read the person's saved layout before replacing it. Schema discovery
+uses the same feature flag and project access checks as reading a customization; saving still validates every layout.
+
 Preserve API errors with `throw result.error` or `wrapError(message, result.error)` from `@/lib/errors`.
 Copying only the message loses the HTTP status and retry guidance.
 For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
@@ -336,6 +342,8 @@ The app draws the first view from that data, so it still renders on hosts that r
 This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
 
 ## Claude web and desktop exec schema budget
+
+The server's tool instructions resolve an ambiguous target project before skill or tool discovery. An explicit target or an unambiguous active project needs no confirmation. Project clarification comes before the skill-first workflow; once the target is clear, the agent discovers and loads the relevant skills.
 
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
 Keep only guidance needed on nearly every call inline, including the compact tool-domain index.

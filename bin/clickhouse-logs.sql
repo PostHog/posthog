@@ -438,7 +438,7 @@ CREATE OR REPLACE TABLE trace_spans_kafka_metrics
     `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
     `max_lag` SimpleAggregateFunction(max, UInt64)
 )
-ENGINE = MergeTree
+ENGINE = AggregatingMergeTree
 ORDER BY (_topic, _partition);
 
 drop view if exists kafka_trace_spans_avro_kafka_metrics_mv;

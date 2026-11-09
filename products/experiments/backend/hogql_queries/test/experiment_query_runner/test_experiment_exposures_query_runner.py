@@ -33,7 +33,6 @@ from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
-from posthog.models import PropertyDefinition
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
 from posthog.test.persons import create_group_type_mapping
@@ -43,6 +42,7 @@ from products.access_control.backend.facade.api import upsert_property_access_co
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -2077,7 +2077,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         lookup = patch(
-            "products.experiments.backend.health.launch_time.ActivityLog.objects.filter",
+            "products.experiments.backend.models.experiment.ActivityLog.objects.filter",
             side_effect=OperationalError("the activity log is unavailable"),
         )
         with time_machine.travel(now, tick=False), lookup if launch_lookup_fails else nullcontext():

@@ -259,7 +259,10 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
 //   dist/toolbar-extension/posthog-toolbar-chrome-<version>.zip
 const TOOLBAR_EXTENSION_OUT_DIR = 'toolbar-extension'
 
-const TOOLBAR_EXTENSION_VERSION = '0.1.0'
+// The release workflow bumps this version from Sampo changesets. See "Releases" in src/toolbar/extension/README.md.
+const TOOLBAR_EXTENSION_VERSION = JSON.parse(
+    fs.readFileSync(new URL('./src/toolbar/extension/release/package.json', import.meta.url), 'utf8')
+).version
 
 const TOOLBAR_EXTENSION_BUILD_DIR = 'toolbar-extension-build'
 
@@ -359,6 +362,11 @@ function buildToolbarExtensionManifest() {
         host_permissions: ['http://*/*', 'https://*/*'],
         web_accessible_resources: [{ resources: ['content.css', 'assets/*'], matches: ['http://*/*', 'https://*/*'] }],
         side_panel: { default_path: 'panel.html' },
+        // The PostHog app asks whether the extension is installed, and asks it to open an authorized URL. Only the cloud
+        // app hosts, because a sender also sets the extension's PostHog host.
+        externally_connectable: {
+            matches: ['https://us.posthog.com/*', 'https://eu.posthog.com/*', 'https://app.posthog.com/*'],
+        },
         // 116 is the first release with `sidePanel.setPanelBehavior`, which opens the panel from the toolbar button.
         minimum_chrome_version: '116',
         background: { service_worker: 'background.js' },
