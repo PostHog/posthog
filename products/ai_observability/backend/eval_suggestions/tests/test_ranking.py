@@ -41,6 +41,7 @@ PROFILE = TeamProfile(
     generations=5000,
     traces=1000,
     sessions=100,
+    session_traces=1000,
     generations_by_days_ago={0: 700, 1: 700},
     traces_by_days_ago={0: 150, 1: 150},
     tool_call_share=0.5,
@@ -237,6 +238,13 @@ def test_judge_tokens_per_run(_name: str, target: str, trace_tokens: list[float]
     traces = [replace(_sampled(f"t{i}", "chat"), input_tokens=tokens) for i, tokens in enumerate(trace_tokens)]
     # PROFILE holds 1,000 traces in 100 sessions, 10 traces each.
     assert ranking.mean_unit_tokens(target, PROFILE, TraceSample(main=traces, held_out=[])) == expected
+
+
+def test_traces_without_a_session_leave_the_session_price_alone() -> None:
+    traces = [replace(_sampled("t0", "chat"), input_tokens=5000.0)]
+    profile = replace(PROFILE, traces=PROFILE.traces * 2)
+
+    assert ranking.mean_unit_tokens("session", profile, TraceSample(main=traces, held_out=[])) == 50_000.0
 
 
 def test_a_long_dedupe_key_is_bounded_and_stable() -> None:

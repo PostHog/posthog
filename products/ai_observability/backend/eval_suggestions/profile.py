@@ -78,8 +78,9 @@ class ProfileWindow:
 class TeamProfile:
     generations: int
     traces: int
-    # Distinct conversations, which a session judge runs once each.
+    # Distinct conversations, which a session judge runs once each, and the traces that belong to one.
     sessions: int
+    session_traces: int
     # Keyed by whole days before the window end, so bucket 0 is the last 24 hours.
     generations_by_days_ago: dict[int, int]
     traces_by_days_ago: dict[int, int]
@@ -99,6 +100,7 @@ class TeamProfile:
             generations=0,
             traces=0,
             sessions=0,
+            session_traces=0,
             generations_by_days_ago={},
             traces_by_days_ago={},
             tool_call_share=0.0,
@@ -114,7 +116,10 @@ class TeamProfile:
 
 # Reads only sort-key and materialized columns, so it costs little even on the largest teams.
 _COUNT_SQL = """
-SELECT count(), uniqIf(toString(properties.$ai_session_id), notEmpty(toString(properties.$ai_session_id)))
+SELECT
+    count(),
+    uniqIf(toString(properties.$ai_session_id), notEmpty(toString(properties.$ai_session_id))),
+    uniqIf(toString(properties.$ai_trace_id), notEmpty(toString(properties.$ai_session_id)))
 FROM events
 WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}
 """
@@ -235,6 +240,7 @@ def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
     count_rows = run_query(team, _COUNT_SQL, placeholders, "EvalSuggestionsProfileCount")
     generations = int(count_rows[0][0]) if count_rows else 0
     sessions = int(count_rows[0][1]) if count_rows else 0
+    session_traces = int(count_rows[0][2]) if count_rows else 0
     if generations == 0:
         return TeamProfile.empty()
     per_mille = sample_per_mille(generations)
@@ -274,6 +280,7 @@ def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
     return TeamProfile(
         generations=generations,
         sessions=sessions,
+        session_traces=session_traces,
         traces=round(sum(int(row[2]) for row in daily) * scale),
         generations_by_days_ago={int(row[0]): round(int(row[1]) * scale) for row in daily},
         traces_by_days_ago={int(row[0]): round(int(row[2]) * scale) for row in daily},

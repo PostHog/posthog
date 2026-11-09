@@ -14,6 +14,7 @@ from products.ai_observability.backend.eval_suggestions.profile import TeamProfi
 
 PROFILE = TeamProfile(
     sessions=0,
+    session_traces=0,
     generations=1000,
     traces=200,
     generations_by_days_ago={0: 500, 1: 500},

@@ -199,7 +199,7 @@ def covers(existing: ExistingEval, target: str, filters: Sequence[Mapping[str, A
         return False
     # A condition set at 0% rollout matches but never runs, so it covers nothing.
     return any(
-        (condition.get("rollout_percentage") or 0) > 0
+        _live(condition)
         and all(
             any(_same_or_wider(prop, candidate) for candidate in filters) for prop in condition.get("properties") or []
         )
@@ -322,6 +322,9 @@ def _filter_fix(
     """
     conditions = _clean_conditions(existing.conditions)
     for condition in conditions:
+        # A condition set at 0% rollout runs on nothing whatever its filter matches.
+        if not _live(condition):
+            continue
         for prop in condition.get("properties") or []:
             key = str(prop["key"])
             for old in _exact_values(prop):
@@ -360,8 +363,20 @@ def _filter_fix(
     return None
 
 
+def fix_dedupe_key(evaluation_id: str, problem: FixProblem) -> str:
+    return f"fix:{evaluation_id}:{problem}"
+
+
+def _live(condition: dict[str, Any]) -> bool:
+    return (condition.get("rollout_percentage") or 0) > 0
+
+
 def find_fixes(
-    team: Team, evals: Sequence[ExistingEval], window_start: datetime, window_end: datetime
+    team: Team,
+    evals: Sequence[ExistingEval],
+    window_start: datetime,
+    window_end: datetime,
+    dismissed: frozenset[str] = frozenset(),
 ) -> list[EvalFix]:
     enabled = {existing.id: existing for existing in evals if existing.enabled}
     if not enabled:
@@ -378,12 +393,14 @@ def find_fixes(
     fixes: list[EvalFix] = []
     values_by_key: dict[str, dict[str, int]] = {}
     # Each candidate costs a count and possibly repair probes, so a team with many silent evaluations pays for
-    # the most recently edited few.
+    # the most recently edited few. Dismissed ones and ones paused at 0% rollout leave room for the rest.
     silent = sorted(
         (
             (evaluation_id, existing)
             for evaluation_id, existing in enabled.items()
             if evaluation_id not in runs
+            and fix_dedupe_key(evaluation_id, "no_runs") not in dismissed
+            and (not existing.conditions or any(_live(condition) for condition in existing.conditions))
             and now - existing.created_at >= MIN_EVALUATION_AGE
             and now - existing.updated_at >= MIN_QUIET_AFTER_EDIT
         ),
@@ -474,8 +491,9 @@ def dismissed_dedupe_keys(team: Team) -> frozenset[str]:
 
 def fetch_coverage(team: Team, window_start: datetime, window_end: datetime) -> Coverage:
     evals = existing_evals(team)
+    dismissed = dismissed_dedupe_keys(team)
     return Coverage(
         evals=evals,
-        fixes=find_fixes(team, evals, window_start, window_end),
-        dismissed_dedupe_keys=dismissed_dedupe_keys(team),
+        fixes=find_fixes(team, evals, window_start, window_end, dismissed),
+        dismissed_dedupe_keys=dismissed,
     )

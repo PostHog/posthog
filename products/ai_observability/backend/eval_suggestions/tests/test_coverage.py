@@ -12,7 +12,10 @@ from products.ai_observability.backend.eval_suggestions.coverage import (
     ExistingEval,
     best_replacement,
     covers,
+    existing_evals,
     fetch_coverage,
+    find_fixes,
+    fix_dedupe_key,
 )
 from products.ai_observability.backend.models.evaluations import Evaluation
 
@@ -87,13 +90,19 @@ def test_best_replacement(_name: str, old: str, values: dict[str, int], expected
 
 class TestFetchCoverage(ClickhouseTestMixin, APIBaseTest):
     def _evaluation(
-        self, name: str, product: str | None, *, age: timedelta = timedelta(days=40), evaluation_type: str = "llm_judge"
+        self,
+        name: str,
+        product: str | None,
+        *,
+        age: timedelta = timedelta(days=40),
+        evaluation_type: str = "llm_judge",
+        rollout: int = 100,
     ) -> Evaluation:
         conditions = (
             [
                 {
                     "id": "scoped",
-                    "rollout_percentage": 100,
+                    "rollout_percentage": rollout,
                     "properties": [{"key": "ai_product", "value": [product], "operator": "exact", "type": "event"}],
                 }
             ]
@@ -262,3 +271,23 @@ class TestFetchCoverage(ClickhouseTestMixin, APIBaseTest):
         coverage = fetch_coverage(self.team, end - timedelta(days=7), end)
 
         assert len(coverage.fixes) == MAX_SILENT_EVALUATIONS
+
+    def test_dismissed_fixes_leave_room_for_the_next_silent_evaluation(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        evaluations = [
+            self._evaluation(f"Silent {index}", f"gone-{index}") for index in range(MAX_SILENT_EVALUATIONS + 1)
+        ]
+        for index, evaluation in enumerate(evaluations):
+            Evaluation.objects.filter(pk=evaluation.pk).update(updated_at=timezone.now() - timedelta(days=10 + index))
+        dismissed = frozenset(fix_dedupe_key(str(e.id), "no_runs") for e in evaluations[:MAX_SILENT_EVALUATIONS])
+
+        fixes = find_fixes(self.team, existing_evals(self.team), end - timedelta(days=7), end, dismissed)
+
+        assert [fix.evaluation_id for fix in fixes] == [str(evaluations[-1].id)]
+
+    def test_an_evaluation_paused_at_zero_rollout_gets_no_filter_repair(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        self._evaluation("Scout findings are grounded", "signals", rollout=0)
+        self._generations(end, ("signals_scout",))
+
+        assert fetch_coverage(self.team, end - timedelta(days=7), end).fixes == []

@@ -19,7 +19,7 @@ from products.ai_observability.backend.models.eval_suggestions import EvalSugges
 
 from . import cards, catalog
 from .adapters import AdaptedCheck
-from .coverage import EvalFix
+from .coverage import EvalFix, fix_dedupe_key
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
 from .profile import StructuredGap, TeamProfile, normalize_segment_value
 from .stats import wilson_interval
@@ -130,7 +130,8 @@ def mean_unit_tokens(target: str, profile: TeamProfile, sample: TraceSample) -> 
         return None
     per_trace = min(sum(totals) / len(totals), JUDGE_TRACE_MAX_CHARS / CHARS_PER_TOKEN)
     if target == "session":
-        traces_per_session = profile.traces / profile.sessions if profile.sessions else 1.0
+        # Traces without a session never reach a session judge, so they must not change its price.
+        traces_per_session = profile.session_traces / profile.sessions if profile.sessions else 1.0
         return min(per_trace * traces_per_session, JUDGE_SESSION_MAX_CHARS / CHARS_PER_TOKEN)
     return per_trace
 
@@ -465,7 +466,7 @@ def fix_proposal(fix: EvalFix) -> Proposal:
     return Proposal(
         kind=EvalSuggestionKind.FIX_EVAL,
         template_key="",
-        dedupe_key=f"fix:{fix.evaluation_id}:{fix.problem}",
+        dedupe_key=fix_dedupe_key(fix.evaluation_id, fix.problem),
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
