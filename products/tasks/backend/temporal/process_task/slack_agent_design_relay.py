@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
@@ -35,6 +36,11 @@ with workflow.unsafe.imports_passed_through():
         intent_from_narrative,
         phase_for_key,
         phase_line_title,
+    )
+    from products.slack_app.backend.facade.temporal import (
+        PresentSlackReplyInput,
+        SlackReplyPresentation,
+        present_slack_reply_activity,
     )
 
     from .activities.slack_agent_design import (
@@ -59,6 +65,9 @@ _ACTIVITY_TIMEOUT = timedelta(seconds=30)
 _ACTIVITY_RETRY = RetryPolicy(maximum_attempts=3)
 # The parent's progress step that the first setup line shows.
 _SANDBOX_SETUP_STEP = "sandbox"
+_PATCH_ID_REPLY_PRESENTATION = "slack-agent-design-reply-presentation"
+# The presenter holds up the end of the stream, so a slow call costs the reader more than a missing one.
+_PRESENTATION_TIMEOUT = timedelta(seconds=20)
 
 
 def _trace_key(trace_id: Optional[str]) -> Optional[str]:
@@ -430,6 +439,28 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             return replace(self._placeholder, title=title, status="complete")
         return None
 
+    async def _present(self, input: SlackAgentDesignRelayInput, final_answer: str) -> Optional[SlackReplyPresentation]:
+        """Components for under a finished answer. Only an open stream can take them below the answer."""
+        if not (self._turn_complete and final_answer and input.run_id and self._stream and self._stream.ts):
+            return None
+        if not workflow.patched(_PATCH_ID_REPLY_PRESENTATION):
+            return None
+        try:
+            return await workflow.execute_activity(
+                present_slack_reply_activity,
+                PresentSlackReplyInput(
+                    integration_id=input.slack_thread_context["integration_id"],
+                    run_id=input.run_id,
+                    answer_markdown=final_answer,
+                    trace_id=self._trace_id,
+                ),
+                start_to_close_timeout=_PRESENTATION_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except ActivityError:
+            # The answer must still close the stream when the presenter times out.
+            return None
+
     async def _close_stream(self, input: SlackAgentDesignRelayInput) -> None:
         final_answer = self._final_answer()
         final_for_stop: Optional[str] = final_answer or None
@@ -469,6 +500,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             closing = None
         if pending:
             await self._append(input, pending)
+        presentation = await self._present(input, final_answer)
         await workflow.execute_activity(
             stop_slack_agent_design_stream,
             StopSlackAgentDesignStreamInput(
@@ -485,6 +517,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 answer_markdown=final_answer if self._turn_complete else None,
                 message_id=input.message_id,
                 mention=input.person_message,
+                presentation_blocks=presentation.blocks if presentation else [],
             ),
             # Attachments upload inside this activity. One attempt, because a retry would
             # append the answer a second time.

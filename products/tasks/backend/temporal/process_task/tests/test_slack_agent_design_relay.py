@@ -9,6 +9,7 @@ from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.slack_app.backend.facade.temporal import PresentSlackReplyInput, SlackReplyPresentation
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
     AppendSlackAgentDesignStepsInput,
     SlackAgentDesignStream,
@@ -31,6 +32,8 @@ TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
 
 SLACK_CTX = {"integration_id": 1, "channel": "C1", "thread_ts": "1.0", "mentioning_slack_user_id": "U1"}
 
+PRESENTATION_BLOCKS = [{"type": "section", "fields": [{"type": "mrkdwn", "text": "*Signups*\n1,204"}]}]
+
 CHECKING = [("agent_text_delta", "Checking."), ("agent_status_update", {"phase": "posthog:Execute SQL query"})]
 
 
@@ -42,6 +45,7 @@ class _SlackCalls:
         self.starts: list[StartSlackAgentDesignStreamInput] = []
         self.appends: list[AppendSlackAgentDesignStepsInput] = []
         self.stops: list[StopSlackAgentDesignStreamInput] = []
+        self.presentations: list[PresentSlackReplyInput] = []
 
     def activities(self) -> list[Any]:
         @activity.defn(name="start_slack_agent_design_stream")
@@ -62,7 +66,12 @@ class _SlackCalls:
         async def stop(input: StopSlackAgentDesignStreamInput) -> None:
             self.stops.append(input)
 
-        return [start, append, stop]
+        @activity.defn(name="present_slack_reply_activity")
+        async def present(input: PresentSlackReplyInput) -> SlackReplyPresentation:
+            self.presentations.append(input)
+            return SlackReplyPresentation(blocks=PRESENTATION_BLOCKS)
+
+        return [start, append, stop, present]
 
     def final_lines(self) -> dict[str, tuple[str, str | None, str]]:
         lines: dict[str, tuple[str, str]] = {}
@@ -141,6 +150,9 @@ class TestSlackAgentDesignRelay:
         assert len(calls.stops) == 1
         assert calls.stops[0].ts is None
         assert calls.stops[0].answer_markdown == "Signups grew."
+        # A plain reply has no open stream to take components below the answer.
+        assert calls.presentations == []
+        assert calls.stops[0].presentation_blocks == []
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_tool_calls_collapse_into_one_line_per_phase(self) -> None:
@@ -337,6 +349,8 @@ class TestSlackAgentDesignRelay:
         assert [s.mention_sent for s in calls.stops] == [True]
         # Closing must tag the person the opening tagged.
         assert [s.actor_slack_user_id for s in calls.stops] == ["U9"]
+        assert [(p.answer_markdown, p.trace_id) for p in calls.presentations] == [("Signups grew.", TRACE_ID)]
+        assert [s.presentation_blocks for s in calls.stops] == [PRESENTATION_BLOCKS]
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_stopped_run_marks_the_open_step_failed(self) -> None:

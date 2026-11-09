@@ -81,6 +81,8 @@ class StopSlackAgentDesignStreamInput:
     # run. One of them says what the person asked, for the reply suggestions.
     message_id: Optional[str] = None
     mention: Optional[str] = None
+    # The reply presenter's components. They go under the answer and above the turn's attachments.
+    presentation_blocks: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]:
@@ -202,7 +204,10 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
 
         def _append_attachments() -> None:
             ts = input.ts
-            if task_run is None or ts is None:
+            if ts is None:
+                return
+            handler.append_status_blocks(ts, input.presentation_blocks)
+            if task_run is None:
                 return
             deliveries.append(
                 stream_pending_slack_attachments(

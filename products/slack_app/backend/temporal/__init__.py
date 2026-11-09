@@ -40,6 +40,7 @@ from products.slack_app.backend.temporal.activities import (
     post_slack_unfurl_charts_activity,
     posthog_code_thread_has_task_activity,
     prepare_slack_unfurl_charts_activity,
+    present_slack_reply_activity,
     process_slack_app_fork_thread_activity,
     remind_slack_app_onboarding_activity,
     request_untagged_followup_confirmation_activity,
@@ -107,6 +108,7 @@ SLACK_APP_ACTIVITIES = [
     run_posthog_slack_inbox_onboarding_activity,
     prepare_slack_unfurl_charts_activity,
     post_slack_unfurl_charts_activity,
+    present_slack_reply_activity,
 ]
 
 __all__ = [
@@ -166,4 +168,5 @@ __all__ = [
     "run_posthog_slack_inbox_onboarding_activity",
     "post_slack_unfurl_charts_activity",
     "prepare_slack_unfurl_charts_activity",
+    "present_slack_reply_activity",
 ]

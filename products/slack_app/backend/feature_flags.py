@@ -52,6 +52,7 @@ SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
 SLACK_APP_LINK_SEARCH_SCOPES_FLAG = "slack-app-link-search-scopes"
 SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
+SLACK_APP_RICH_REPLIES_FLAG = "slack-app-rich-replies"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -211,4 +212,15 @@ def is_slack_app_onboarding_enabled(integration: IntegrationRecord) -> bool:
         SLACK_APP_ONBOARDING_FLAG,
         integration,
         failure_log_key="slack_app_onboarding_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_rich_replies_enabled(integration: IntegrationRecord, distinct_id: str | None = None) -> bool:
+    """Gate for the components the reply presenter adds under an answer. Posts through the ``chat:write`` the
+    mention flow already requires, so this is the flag alone. Keyed on the run's author, like the agent design gate."""
+    return _workspace_flag_enabled(
+        SLACK_APP_RICH_REPLIES_FLAG,
+        integration,
+        failure_log_key="slack_app_rich_replies_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )

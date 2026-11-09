@@ -423,3 +423,19 @@ class PostHogCodeSlackMentionCommandResult:
     status: str  # "done" | "needs_picker"
     pending_rule_text: str | None = None
     target_integration_id: int | None = None
+
+
+@frozen
+class PresentSlackReplyInput:
+    integration_id: int
+    run_id: str
+    answer_markdown: str
+    # Gateway trace id of the turn, so the presenter's generation sits in the same trace as the answer.
+    trace_id: str | None = None
+
+
+@frozen
+class SlackReplyPresentation:
+    """Block Kit blocks that go under the answer. Small by construction, because the catalog caps every component."""
+
+    blocks: list[dict[str, Any]]
