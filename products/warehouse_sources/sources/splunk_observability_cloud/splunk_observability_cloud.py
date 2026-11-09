@@ -25,7 +25,6 @@ from products.warehouse_sources.sources.splunk_observability_cloud.settings impo
     SIGNALFLOW_DEFAULT_LOOKBACK_DAYS,
     SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS,
     SYNTHETIC_RUNS_DEFAULT_LOOKBACK_DAYS,
-    SYNTHETIC_TESTS_LIST,
     SYNTHETICS_PAGE_SIZE,
     SplunkObservabilityCloudEndpointConfig,
 )
@@ -329,12 +328,13 @@ def _iter_synthetic_test_ids(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SplunkObservabilityCloudResumeConfig],
 ) -> list[int]:
+    tests_config = SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS["synthetic_tests"]
     test_ids: list[int] = []
     page = 1
     while page <= MAX_OFFSET // SYNTHETICS_PAGE_SIZE:
-        url = _build_url(base_url, SYNTHETIC_TESTS_LIST.path, {"page": page, "perPage": SYNTHETICS_PAGE_SIZE})
+        url = _build_url(base_url, tests_config.path, {"page": page, "perPage": SYNTHETICS_PAGE_SIZE})
         data = _fetch(session, url, headers, logger)
-        rows = _extract_page(SYNTHETIC_TESTS_LIST, data)
+        rows = _extract_page(tests_config, data)
         test_ids.extend(int(row["id"]) for row in rows if row.get("id") is not None)
         # No rows were yielded yet, so resuming from the loaded state loses nothing.
         resumable_source_manager.safe_point()
@@ -342,6 +342,34 @@ def _iter_synthetic_test_ids(
             break
         page += 1
     return test_ids
+
+
+def _paginate_pages(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: SplunkObservabilityCloudEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SplunkObservabilityCloudResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk a Synthetics page/perPage list endpoint, yielding one list of rows per page."""
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    page = resume.page if resume is not None and resume.page else 1
+    while True:
+        params = {**config.extra_params, "page": page, "perPage": SYNTHETICS_PAGE_SIZE}
+        data = _fetch(session, _build_url(base_url, config.path, params), headers, logger)
+        rows = _extract_page(config, data)
+        has_more = bool(rows) and _has_next_page(data)
+        if has_more and page * SYNTHETICS_PAGE_SIZE >= MAX_OFFSET:
+            logger.warning(f"Splunk Observability Cloud: page cap reached, truncating results. endpoint={config.name}")
+            has_more = False
+        if has_more:
+            resumable_source_manager.save_state(SplunkObservabilityCloudResumeConfig(page=page + 1))
+        if rows:
+            yield rows
+        if not has_more:
+            return
+        page += 1
 
 
 def _normalize_synthetic_run_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -424,7 +452,7 @@ def _get_event_search_rows(
     start_ms: int,
     end_ms: int,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Read every event in [start_ms, end_ms] from the org-wide event search.
+    """Read every event in [start_ms, end_ms] from a windowed event search.
 
     One query returns at most 10,000 events, whatever the offset. The request sorts by event
     time, so when a window reaches the cap the next window starts at the latest timestamp
@@ -437,6 +465,7 @@ def _get_event_search_rows(
         window_start = resume.event_start_ms
         offset = resume.offset
 
+    start_param, end_param = config.window_params
     already_yielded: set[str] = set(resume.event_boundary_ids or []) if resume is not None else set()
     latest_ms: int | None = None
     ids_at_latest: set[str] = set()
@@ -445,8 +474,8 @@ def _get_event_search_rows(
         limit = min(EVENT_SEARCH_PAGE_SIZE, EVENT_SEARCH_RESULT_CAP - offset)
         params = {
             **config.extra_params,
-            "start_time": window_start,
-            "end_time": end_ms,
+            start_param: window_start,
+            end_param: end_ms,
             "offset": offset,
             "limit": limit,
         }
@@ -670,6 +699,10 @@ def get_rows(
         yield from _get_synthetic_run_rows(
             session, base_url, headers, config, logger, resumable_source_manager, start_time, _to_iso8601(now_ms)
         )
+        return
+
+    if config.pagination == "page":
+        yield from _paginate_pages(session, base_url, headers, config, logger, resumable_source_manager)
         return
 
     if config.is_event_search:
