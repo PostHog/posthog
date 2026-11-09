@@ -5,15 +5,14 @@ export function ReplySuggestionHint({
     suggestion: string
     acceptHint: JSX.Element
 }): JSX.Element {
-    const trimmed = suggestion.trimEnd()
-    const lastWordStart = trimmed.search(/\S+$/)
-    const head = lastWordStart > 0 ? trimmed.slice(0, lastWordStart) : ''
-    const lastWord = lastWordStart > 0 ? trimmed.slice(lastWordStart) : trimmed
+    const characters = Array.from(suggestion.trimEnd())
+    const head = characters.slice(0, -1).join('')
+    const lastCharacter = characters.slice(-1).join('')
     return (
         <span className="text-sm whitespace-pre-wrap break-words" data-attr="max-reply-suggestion">
             {head}
             <span className="whitespace-nowrap">
-                {lastWord}
+                {lastCharacter}
                 <span className="ml-2 inline-flex align-middle">{acceptHint}</span>
             </span>
         </span>
