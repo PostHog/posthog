@@ -285,12 +285,13 @@ The check reads the file list from a compare pinned to the merge base and the re
 It reads each dependency manifest at both commits as a git blob, so the scripts scan runs without a checkout and sees a symlink as its link text, as `git show` does.
 Never read them through the contents API, which follows an in-repo symlink to its target.
 Every input the worker cannot confirm fails the check: a file list GitHub may have cut short, one that differs from the stored list, unread folder files or manifests, or an engine error.
-A retry of `post_verdict` reuses the stored answer, because a second check that attests would post an approval over a delivered escalation.
+A retry of `post_verdict` reuses a stored answer that did not attest, because a second check that attests would post an approval over a delivered escalation. A stored answer that attested is checked again, because a deny lift can stop holding between attempts.
+The check reads the head's check runs again, so a lift that a policy `attestations` entry grants holds at posting time, and an approval such a lift made possible gets no approval retention.
 A new path to an approval must go through this check too.
 
 A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
 refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over what is a
-race with CI. It can't reuse `Pipeline._only_pending_migration_check`: that method disqualifies on
+race with CI. It can't reuse `Pipeline._only_pending_attestations`: that method disqualifies on
 any failing gate other than the deny-list, and a migrations deny always drags the tier gate to
 T2-never with it, so it answers False for every PR it exists to catch.
 

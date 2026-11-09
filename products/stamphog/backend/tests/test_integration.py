@@ -436,11 +436,89 @@ def test_the_worker_attests_from_the_reviewed_commits(
     )
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_the_worker_attests_against_the_checks_at_posting_time(team, stamphog_chain: StamphogChain) -> None:
+    # The sandbox approved because the Migration risk check lifted the deny when the context was
+    # fetched. By posting time that result is gone, so the lift no longer holds and the worker's own
+    # gate run refuses the approval.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha, migration = "devex-dev", "sha104a", "posthog/migrations/0999_x.py"
+    recorder.policy_files[".stamphog/policy.yml"] = _MIGRATION_RISK_POLICY
+    recorder.register_pr(REPO, 104, _pr_object(104, author, head_sha), [_api_file(migration)])
+    recorder.compare_files = [_api_file(migration)]
+    stamphog_chain.attest_gates.side_effect = _attest_gates
+    check_runs = [[_migration_risk_check([migration])], []]
+
+    with (
+        patch.object(activities, "fetch_folder_policy_files", return_value={}),
+        patch.object(StamphogGitHubClient, "get_check_runs", side_effect=lambda *a, **k: check_runs.pop(0)),
+    ):
+        stamphog_chain.post_webhook(_opened_event(104, author, head_sha), delivery_id=str(uuid.uuid4()))
+
+    pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=104)
+    run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
+    assert run.output["gate_attestation"]["reason"] == "gate_failed"
+    assert run.verdict == ReviewVerdict.ESCALATE
+    assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_retry_checks_an_attested_approval_again_before_posting(team, stamphog_chain: StamphogChain) -> None:
+    # The first attempt attested, then lost the approval post. A deny lift can stop holding between
+    # attempts, so the retry runs the gates again instead of trusting the stored answer; only a
+    # stored answer that did not attest is reused, so that a retry never posts over an escalation.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha = "devex-dev", "sha105a"
+    recorder.register_pr(REPO, 105, _pr_object(105, author, head_sha), [_api_file("src/util.py")])
+    stamphog_chain.post_webhook(_opened_event(105, author, head_sha), delivery_id=str(uuid.uuid4()))
+    pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=105)
+    run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
+    assert (run.verdict, run.output["gate_attestation"]["attested"]) == (ReviewVerdict.APPROVED, True)
+    ReviewRun.objects.for_team(team.id).filter(id=run.id).update(
+        status=ReviewRunStatus.REVIEWING, verdict=ReviewVerdict.NONE, posted_review_id=None, completed_at=None
+    )
+    stamphog_chain.attest_gates.reset_mock()
+    stamphog_chain.attest_gates.return_value = GateAttestation(
+        attested=False, reason="gate_failed", gates=[{"gate": "deny-list", "passed": False, "message": "denied"}]
+    )
+
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    stamphog_chain.attest_gates.assert_called_once()
+    run.refresh_from_db()
+    assert run.verdict == ReviewVerdict.ESCALATE
+    assert len([w for w in recorder.github_writes if w["kind"] == "approve_review"]) == 1
+
+
 def _big_api_file(filename: str, additions: int) -> dict:
     return {**_api_file(filename), "additions": additions, "deletions": 0}
 
 
 _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1500\n---\nTall PRs are normal here.\n"
+_MIGRATION_RISK_APP_ID = 2492437
+# The repository names the check that may lift `migrations`; the engine's shipped policy names none.
+_MIGRATION_RISK_POLICY = (
+    "version: 1\n"
+    "attestations:\n"
+    "    - name: migration_risk\n"
+    "      check: 'Migration risk'\n"
+    f"      app_id: {_MIGRATION_RISK_APP_ID}\n"
+    "      lifts: [migrations]\n"
+    "      paths: ['(?:^|/)migrations/[^/]+\\.py$']\n"
+)
+
+
+def _migration_risk_check(files: list[str]) -> dict:
+    return {
+        "id": 1,
+        "name": "Migration risk",
+        "app": {"id": _MIGRATION_RISK_APP_ID},
+        "status": "completed",
+        "conclusion": "success",
+        "output": {"summary": f"<!-- stamphog:v1 {json.dumps(files)} -->"},
+    }
 
 
 @pytest.mark.parametrize(
@@ -540,6 +618,7 @@ def test_a_final_gate_verdict_is_posted_without_a_sandbox_review(
 
     stamphog_chain.recorder.repo_files[(REPO, "src/AGENT_APPROVALS.md")] = _LIFTING_FOLDER_FILE
     stamphog_chain.recorder.repo_symlinks[(REPO, "sym/AGENT_APPROVALS.md")] = "../../shared/policy.md"
+    stamphog_chain.recorder.policy_files[".stamphog/policy.yml"] = _MIGRATION_RISK_POLICY
 
     engine_failure = EnginePregateError("the engine pre-check exited with code 1") if engine_breaks else None
     with (

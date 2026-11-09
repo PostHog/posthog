@@ -391,13 +391,14 @@ Bot authors are never on a team.
 The `stamphog_policy` category cannot carry the key, because a team that may approve policy edits could widen its own exemption.
 Unlike CODEOWNERS, the category only stops stamphog: any human approval still counts on GitHub.
 
-The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe).
-Only a check from the `tests-posthog` App counts, and the bypass covers the Django migration files the check lists and their `max_migration.txt`.
+A deny category can be lifted by a CI check that the policy names under `attestations`.
+Each entry pins a check name to the GitHub App that publishes it, the categories it may lift, the paths it may lift them for, and optionally companion `sibling_files` and the `publisher_files` the check runs from.
+The check embeds the files it vouches for in a `<!-- stamphog:v1 ... -->` marker in its summary; the engine lifts only the listed files that are in the diff and match the entry's paths, by exact path, and only for the entry's categories.
 Those files still count toward every other deny category.
-The check is the same signal humans see in the PR's Checks tab.
-See `migration_risk.py` for how the engine reads it.
+The shipped default names no attestation; this repository's `.stamphog/policy.yml` names `Migration risk` for the `migrations` category.
+The engine knows nothing about what a check proves. See `attestations.py` for the marker contract and the proof conditions.
 
-If the check hasn't reported yet, `review_local.py` returns `WAIT` rather than a verdict, because its caller can retry on the next push.
+If a check that could lift every deny hasn't reported yet, `review_local.py` returns `WAIT` rather than a verdict, because its caller can retry on the next push.
 `review_pr.py` has no such caller and returns `REFUSED` instead.
 The deny-list only matched because the engine could not tell a safe migration from a risky one, so a refusal would be a verdict on a race with CI rather than on the PR.
 A retry against the now-classified head commit reviews it properly.
