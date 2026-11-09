@@ -1880,7 +1880,7 @@ def ssh_replace(name: str) -> None:
     _execvp("ssh", ["ssh", _ssh_host_alias(name)])
 
 
-def exec_replace(name: str, command: list[str]) -> None:
+def exec_replace(name: str, command: list[str], *, in_flox: bool = False) -> None:
     """Run a single command in the workspace over the ssh host alias, replacing the process.
 
     Goes through ``ssh coder.<name>`` rather than ``coder ssh <name> -- cmd``
@@ -1896,8 +1896,14 @@ def exec_replace(name: str, command: list[str]) -> None:
     ``command`` tokens are shell-quoted into one string so the remote login
     shell preserves argument boundaries -- ssh otherwise space-joins argv,
     which would split a token like ``"uname -sm"`` back into two.
+
+    ``in_flox`` runs the command from the box's checkout inside PostHog's flox
+    environment, the only place project tools such as ``pnpm`` are on ``PATH``.
     """
-    _execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+    remote_command = shlex.join(command)
+    if in_flox:
+        remote_command = f"cd {REMOTE_REPO_PATH} && exec flox activate -- {remote_command}"
+    _execvp("ssh", ["ssh", _ssh_host_alias(name), remote_command])
 
 
 def run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
