@@ -1025,9 +1025,18 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
         assert all(result[0][0] < count for result in query_results.values())
 
 
-def test_patch_part_delete_writes_no_mutation(cluster: ClickhouseCluster) -> None:
-    # A patch-part delete that fell back to ALTER UPDATE would still remove the rows, so the
-    # mutation log is the only place the regression shows.
+@pytest.mark.parametrize(
+    "patch_parts, profile_alter_update_mode, writes_mutation",
+    [
+        (True, None, False),
+        (False, "lightweight_force", True),
+    ],
+)
+def test_lightweight_delete_writes_a_mutation_only_without_patch_parts(
+    cluster: ClickhouseCluster, patch_parts: bool, profile_alter_update_mode: str | None, writes_mutation: bool
+) -> None:
+    # A patch part and a mutation both remove the rows, so the mutation log is the only place a
+    # wrong delete mode shows.
     table = EVENTS_JSON_DATA_TABLE
     kept, deleted = uuid.uuid4(), uuid.uuid4()
     cluster.map_one_host_per_shard(Query(f"TRUNCATE TABLE {table}")).result()
@@ -1041,14 +1050,30 @@ def test_patch_part_delete_writes_no_mutation(cluster: ClickhouseCluster) -> Non
     [[[mutations_before]]] = cluster.map_all_hosts(Query(mutations_sql)).result().values()
 
     runner = LightweightDeleteMutationRunner(
-        table=table, predicate="uuid = %(uuid)s", parameters={"uuid": deleted}, patch_parts=True
+        table=table, predicate="uuid = %(uuid)s", parameters={"uuid": deleted}, patch_parts=patch_parts
     )
-    wait_for_mutations_on_shards(cluster, runner.enqueue_on_shards(cluster))
+
+    def enqueue_under_profile(client: Client) -> MutationWaiter:
+        # Client settings stand in for the server settings profile: query settings override both.
+        original_settings = client.settings
+        if profile_alter_update_mode is not None:
+            client.settings = {**original_settings, "alter_update_mode": profile_alter_update_mode}
+        try:
+            return runner(client)
+        finally:
+            client.settings = original_settings
+
+    shard_waiters = {
+        host.shard_num: waiter
+        for host, waiter in cluster.map_one_host_per_shard(enqueue_under_profile).result().items()
+        if host.shard_num is not None
+    }
+    wait_for_mutations_on_shards(cluster, shard_waiters)
 
     for rows in cluster.map_all_hosts(Query(f"SELECT uuid FROM {table}")).result().values():
         assert [row[0] for row in rows] == [kept]
     [[[mutations_after]]] = cluster.map_all_hosts(Query(mutations_sql)).result().values()
-    assert mutations_after == mutations_before
+    assert (mutations_after > mutations_before) == writes_mutation
 
 
 def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:

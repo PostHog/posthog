@@ -952,6 +952,15 @@ class MutationRunner(abc.ABC):
             client.execute(self.get_statement(expected_commands), self.parameters, settings=settings)
             return MutationWaiter(self.table, set())
 
+        # This path finds its work in system.mutations, so the statement must run as a mutation. A server
+        # profile with alter_update_mode = lightweight_force turns ALTER UPDATE, and DELETE rewritten to it,
+        # into a patch part with no mutation row. The runner then fails to find its own mutation.
+        mutation_settings = {
+            "lightweight_delete_mode": "alter_update",
+            "alter_update_mode": "heavy",
+            **self.settings,
+        }
+
         if self.force:
             logger.info(
                 "Forcing mutation for %r, even if it already exists. This may cause issues if the mutation is already running.",
@@ -969,7 +978,7 @@ class MutationRunner(abc.ABC):
         while True:
             self.wait_for_mutation_capacity(client)
             try:
-                client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
+                client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=mutation_settings)
                 break
             except ServerException as e:
                 # another mutation can land in the gap between the capacity check and our ALTER, so
