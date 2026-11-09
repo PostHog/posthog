@@ -82,6 +82,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
+from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.models import Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
@@ -1091,6 +1092,7 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
 
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
+            get_ip_restrictions_for_principal(self.user)
 
     def create_organization_with_features(self, features):
         organization = Organization.objects.create(name="Test Organization")
@@ -1674,7 +1676,7 @@ def snapshot_postgres_queries(fn):
 
 
 @contextmanager
-def count_organization_access_cache_round_trips() -> Iterator[Callable[[], int]]:
+def count_organization_access_cache_round_trips() -> Iterator[Callable[..., int]]:
     # The local memory test cache implements get_many with one get per key, unlike Redis MGET.
     unpatched_get = access_cache.get
     missing = object()
@@ -1688,7 +1690,15 @@ def count_organization_access_cache_round_trips() -> Iterator[Callable[[], int]]
             },
         ) as get_many,
     ):
-        yield lambda: get.call_count + get_many.call_count
+        # IP policies share the backend but not the organization-access key namespace.
+        def count(key_prefix: str | None = "organization_access:") -> int:
+            if key_prefix is None:
+                return get.call_count + get_many.call_count
+            return sum(call.args[0].startswith(key_prefix) for call in get.call_args_list) + sum(
+                any(key.startswith(key_prefix) for key in call.args[0]) for call in get_many.call_args_list
+            )
+
+        yield count
 
 
 def reset_unusable_db_connections() -> None:

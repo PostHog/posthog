@@ -34,7 +34,13 @@ const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
     if (!check) {
         return <span className="text-muted whitespace-nowrap">Not checked</span>
     }
-    return <ContentAutopilotCheckResultTag cited={check.cited} checkFailed={check.check_failed} />
+    return (
+        <ContentAutopilotCheckResultTag
+            cited={check.cited}
+            checkFailed={check.check_failed}
+            position={check.target_best_position}
+        />
+    )
 }
 
 export const ContentAutopilotPrompts = (): JSX.Element => {

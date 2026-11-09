@@ -157,7 +157,7 @@ task = Task.create_and_run(
 
 ### Adding a new origin product
 
-New task creators pass a registered profile.
+Task creation needs a registered profile.
 A profile names the origin product and sets who can see the task, the sandbox limits and the defaults.
 
 If your product doesn't have an `OriginProduct` entry yet,
@@ -211,6 +211,7 @@ In the AI chat view, the staff options menu sits beside the task actions, includ
 
 Every sandboxed agent gets a scoped OAuth access token that controls what PostHog resources it can access.
 Tokens expire after 6 hours and are scoped to a single team.
+Task-bound tokens enforce organization IP restrictions. When a signed MCP client IP is present, restrictions apply to that verified address; direct requests are checked using their trusted client IP.
 
 ### Scope presets
 
