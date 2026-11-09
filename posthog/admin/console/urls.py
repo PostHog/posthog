@@ -4,6 +4,7 @@ from django.urls import path, re_path
 from posthog.admin.console import views
 from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.console.records import RECORD_TYPES
+from posthog.constants import GROUP_TYPES_LIMIT
 
 # Old Django admin URLs of team actions that moved. Staff keep bookmarks to them, query parameters included.
 MOVED_TEAM_ACTIONS = {
@@ -17,6 +18,7 @@ MOVED_TEAM_ACTIONS = {
     "recompute-email-sending-tier": "#panel-email-sending",
     "suspend-email-sending": "email-sending/suspend/",
     "unsuspend-email-sending": "#panel-email-sending",
+    **{f"group-type-mapping/{index}/edit": f"group-types/edit-{index}/" for index in range(GROUP_TYPES_LIMIT)},
 }
 
 MOVED_ORGANIZATION_ACTIONS = {
@@ -103,6 +105,10 @@ urlpatterns = [
         MovedToConsole.page_redirect(
             "Creating a deletion request", "/admin/console/tools/new-deletion-request/create/"
         ),
+    ),
+    path(
+        "admin/posthog/team/<int:pk>/view-cache/",
+        MovedToConsole.page_redirect("The cached config view", "/admin/console/tools/remote-config-cache/?team={pk}"),
     ),
     path(
         "admin/posthog/organization/bulk-deactivate/",
