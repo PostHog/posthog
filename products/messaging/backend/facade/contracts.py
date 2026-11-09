@@ -343,6 +343,11 @@ class TransactionalEmailResults:
     median_hours_to_convert: float | None
 
 
+class CodeEmailSourceOrigin(LabeledStrEnum):
+    MANUAL = "manual", "Manual"
+    DETECTED = "detected", "Detected from GitHub"
+
+
 @frozen
 class CodeManagedEmail:
     """An email sent from code under a `template_key` with no template, as the Transactional emails list shows it."""
@@ -354,6 +359,7 @@ class CodeManagedEmail:
     tags: tuple[str, ...]
     sensitive: bool
     source_url: str | None
+    source_origin: CodeEmailSourceOrigin
     created_at: datetime
 
 

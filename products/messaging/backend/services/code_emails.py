@@ -7,7 +7,11 @@ from uuid import UUID
 
 from django.db import models
 
-from products.messaging.backend.facade.contracts import CodeManagedEmail, CodeManagedEmailNotFound
+from products.messaging.backend.facade.contracts import (
+    CodeEmailSourceOrigin,
+    CodeManagedEmail,
+    CodeManagedEmailNotFound,
+)
 from products.messaging.backend.models import MessageTemplate, TransactionalEmailKey
 from products.workflows.backend.facade.transactional_emails import (
     CodeEmailWorkflow,
@@ -36,6 +40,7 @@ def _code_email(key: TransactionalEmailKey, workflow: CodeEmailWorkflow) -> Code
         tags=workflow.tags,
         sensitive=workflow.sensitive,
         source_url=key.source_url,
+        source_origin=CodeEmailSourceOrigin(key.source_origin),
         created_at=key.created_at,
     )
 
@@ -66,5 +71,7 @@ def update_code_email(
             tags=fields.get("tags"),
         )
     if "source_url" in fields:
-        _keys(team_id).filter(id=code_email_id).update(source_url=fields["source_url"])
+        _keys(team_id).filter(id=code_email_id).update(
+            source_url=fields["source_url"], source_origin=CodeEmailSourceOrigin.MANUAL
+        )
     return get_code_email(team_id, code_email_id, viewable_workflow_ids=viewable_workflow_ids)

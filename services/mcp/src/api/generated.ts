@@ -26446,6 +26446,18 @@ export namespace Schemas {
       UnsupportedConfig: 'unsupported_config',
     } as const;
 
+    /**
+     * * `manual` - Manual
+     * * `detected` - Detected from GitHub
+     */
+    export type CodeEmailSourceOriginEnum = typeof CodeEmailSourceOriginEnum[keyof typeof CodeEmailSourceOriginEnum];
+
+
+    export const CodeEmailSourceOriginEnum = {
+      Manual: 'manual',
+      Detected: 'detected',
+    } as const;
+
     export interface CodeEmail {
       /** The code email's ID. */
       id: string;
@@ -26464,6 +26476,11 @@ export namespace Schemas {
          * @nullable
          */
       source_url: string | null;
+      /** How `source_url` was set: `manual` when a person linked it, `detected` when PostHog found the file in a connected GitHub repository. Setting `source_url` makes it `manual`.
+       *
+       * * `manual` - Manual
+       * * `detected` - Detected from GitHub */
+      source_origin: CodeEmailSourceOriginEnum;
       /** When your code first sent under this key. */
       created_at: string;
     }

@@ -20,7 +20,11 @@ from products.messaging.backend.facade.code_emails import (
     list_code_emails,
     update_code_email,
 )
-from products.messaging.backend.facade.contracts import CodeManagedEmail, CodeManagedEmailNotFound
+from products.messaging.backend.facade.contracts import (
+    CodeEmailSourceOrigin,
+    CodeManagedEmail,
+    CodeManagedEmailNotFound,
+)
 from products.messaging.backend.presentation.views.message_templates import require_email_status_read
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound, get_viewable_workflow_ids
 from products.workflows.backend.facade.workflows import get_workflow_ref
@@ -45,6 +49,11 @@ class CodeEmailSerializer(serializers.Serializer):
     )
     source_url = serializers.CharField(
         allow_null=True, help_text="A link to the file in your repository that sends this email. Null when unlinked."
+    )
+    source_origin = serializers.ChoiceField(
+        choices=CodeEmailSourceOrigin.choices,
+        help_text="How `source_url` was set: `manual` when a person linked it, `detected` when PostHog found the "
+        "file in a connected GitHub repository. Setting `source_url` makes it `manual`.",
     )
     created_at = serializers.DateTimeField(help_text="When your code first sent under this key.")
 

@@ -15,6 +15,7 @@ const receipt: CodeEmailApi = {
     tags: ['billing'],
     sensitive: true,
     source_url: null,
+    source_origin: 'manual',
     created_at: '2026-01-01T00:00:00Z',
 }
 

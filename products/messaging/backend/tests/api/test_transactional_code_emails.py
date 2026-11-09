@@ -44,8 +44,12 @@ class TestTransactionalCodeEmails(APIBaseTest):
 
     def test_lists_the_projects_code_emails_with_their_labels(self, _post, _flag):
         reset = self._code_email("password-reset")
-        self._code_email("order-shipped")
+        shipped = self._code_email("order-shipped")
         self._code_email("other-team-email", team_id=self.create_team_with_organization(self.organization).id)
+        detected = "https://github.com/acme/web/blob/HEAD/src/emails.ts#L4"
+        TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(
+            id__in=[reset.id, shipped.id]
+        ).update(source_url=detected, source_origin="detected")
         self.client.patch(
             self._url(f"{reset.id}/"),
             {
@@ -68,12 +72,13 @@ class TestTransactionalCodeEmails(APIBaseTest):
             "description": "Sent when someone asks to reset their password",
             "tags": ["auth"],
             "source_url": "https://github.com/acme/web/blob/main/src/emails/password-reset.tsx",
+            "source_origin": "manual",
             "sensitive": True,
             "created_at": None,
         }
         assert rows["order-shipped"]["description"] == ""
         assert rows["order-shipped"]["tags"] == []
-        assert rows["order-shipped"]["source_url"] is None
+        assert (rows["order-shipped"]["source_url"], rows["order-shipped"]["source_origin"]) == (detected, "detected")
 
     @parameterized.expand(["workflow_deleted", "template_took_the_key"])
     def test_hides_a_key_that_no_longer_sends_as_code(self, _post, _flag, reason):
