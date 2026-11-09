@@ -184,7 +184,7 @@ See [ClickHouse manual](https://posthog.com/handbook/engineering/clickhouse/) fo
 
 ### HogQL cross joins
 
-The `hogql-optimize-cross-joins` project feature flag enables the `optimizeCrossJoins` modifier for queries whose modifier is unset. The compiler can move direct equality conditions between two sources from `WHERE` into an `ALL INNER JOIN` before resolving lazy person joins. This preserves duplicate matches and corrected person identities without editing saved HogQL. Nullable keys keep the existing path because HogQL equality in `WHERE` matches two nulls, whereas join equality does not. Ambiguous join chains, predicates inside `OR` or `NOT`, sampling, and subqueries in result or filter expressions also keep their existing paths. Set the modifier to `false` to disable the transform for one query or project. The feature flag defaults off.
+The `hogql-optimize-cross-joins` project feature flag enables the `optimizeCrossJoins` modifier for queries whose modifier is unset. The compiler can move direct equality conditions between two sources from `WHERE` into an `ALL INNER JOIN` before resolving lazy person joins. This preserves duplicate matches and corrected person identities without editing saved HogQL. Nullable keys keep the existing path because HogQL equality in `WHERE` matches two nulls, whereas join equality does not. Keys of different types, such as a float and an integer, also keep the existing path, because ClickHouse can reject a join between them. Ambiguous join chains, predicates inside `OR` or `NOT`, sampling, and subqueries in result or filter expressions also keep their existing paths. Set the modifier to `false` to disable the transform for one query or project. The feature flag defaults off.
 
 ### Repeated HogQL CTEs
 

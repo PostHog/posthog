@@ -2,6 +2,16 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
+_JOINABLE_KEY_TYPES = (
+    ast.IntegerType,
+    ast.FloatType,
+    ast.StringType,
+    ast.BooleanType,
+    ast.DateType,
+    ast.DateTimeType,
+    ast.UUIDType,
+)
+
 
 class _UnsafeExpressions(TraversingVisitor):
     def __init__(self, *, reject_subqueries: bool = True, outer_aliases: set[str] | None = None) -> None:
@@ -97,13 +107,24 @@ class CrossJoinOptimizer(TraversingVisitor):
             node = node.expr
         return node if isinstance(node, ast.Field) else None
 
-    def _non_nullable_key(self, node: ast.Expr) -> bool:
+    def _non_nullable_key_type(self, node: ast.Expr) -> ast.ConstantType | None:
         if node.type is None:
-            return False
+            return None
         try:
-            return not node.type.resolve_constant_type(self.context).nullable
+            key_type = node.type.resolve_constant_type(self.context)
         except (NotImplementedError, KeyError):
-            return False
+            return None
+        return None if key_type.nullable else key_type
+
+    def _joinable_keys(self, left: ast.Expr, right: ast.Expr) -> bool:
+        # ClickHouse compares mixed types such as Float64 and UInt64 in WHERE, but fails a JOIN with NO_COMMON_TYPE.
+        left_type, right_type = self._non_nullable_key_type(left), self._non_nullable_key_type(right)
+        return (
+            left_type is not None
+            and right_type is not None
+            and type(left_type) is type(right_type)
+            and isinstance(left_type, _JOINABLE_KEY_TYPES)
+        )
 
     @staticmethod
     def _alias(join: ast.JoinExpr) -> str | None:
@@ -158,8 +179,7 @@ class CrossJoinOptimizer(TraversingVisitor):
             if (
                 isinstance(expr, ast.CompareOperation)
                 and expr.op == ast.CompareOperationOp.Eq
-                and self._non_nullable_key(expr.left)
-                and self._non_nullable_key(expr.right)
+                and self._joinable_keys(expr.left, expr.right)
                 and (
                     (
                         expr.start is not None

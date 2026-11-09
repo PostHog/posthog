@@ -59,6 +59,10 @@ class TestCrossJoinOptimizer(SimpleTestCase):
     @parameterized.expand(
         [
             ("SELECT l.k FROM (SELECT NULL AS k) l CROSS JOIN (SELECT NULL AS k) r WHERE l.k = r.k", True),
+            (
+                "SELECT l.k FROM (SELECT 1.0 AS k) l CROSS JOIN (SELECT count() AS k FROM events) r WHERE l.k = r.k",
+                True,
+            ),
             ("SELECT l.distinct_id FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id", False),
             (
                 "SELECT l.distinct_id FROM events l CROSS JOIN events r CROSS JOIN events t WHERE l.distinct_id = r.distinct_id",
