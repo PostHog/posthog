@@ -42,6 +42,7 @@ from .rules import (
     Rule,
     StaticFollowup,
 )
+from .run_limits import check_time_limit
 from .values import MISSING, Missing, Value, is_truthy, to_json_text
 
 PREDICATE_VERBS: Final = ("equals", "exists", "is", "in", "shape", "every")
@@ -59,9 +60,12 @@ OPERATORS: Final = (
 )
 
 # YAML aliases share one node, so a small team recipe can describe an exponentially large tree. The parser does not
-# cap aliases, so the compiler counts every node it builds or keeps, literal payloads, rules, followups and path
-# segments included, and stops here. Each count comes before the allocation it pays for.
+# cap aliases, so the compiler counts every node it builds, keeps or walks, mapping entries, literal payloads, rules,
+# followups, type names and path segments included, and stops here. Each count comes before the allocation it pays for.
 COMPILE_NODE_BUDGET: Final = 100_000
+# An aliased string is one object however often it is used, but every interpolation or path compiled from it copies
+# its text, so the compiler also counts the characters it copies.
+COMPILE_CHAR_BUDGET: Final = 10_000_000
 
 # The ASCII flag keeps `\w` to the identifier characters JavaScript's `\w` matches.
 _BARE_FIELD: Final = re.compile(r"[A-Za-z_]\w*", re.ASCII)
@@ -97,12 +101,6 @@ def _within_one_edit(a: str, b: str) -> bool:
     return a[i + 1 :] == b[i:]
 
 
-def _as_mapping(raw: object) -> _Items | None:
-    if not isinstance(raw, Mapping):
-        return None
-    return [(_key_text(key), value) for key, value in raw.items()]
-
-
 def _key_text(key: object) -> str:
     # JavaScript turns every object key into a string, so a YAML `1:` or `true:` key names the field "1" or "true".
     if isinstance(key, str):
@@ -115,9 +113,10 @@ def _key_text(key: object) -> str:
 class _RecipeCompiler:
     def __init__(self) -> None:
         self._nodes = 0
+        self._chars = 0
 
     def recipe(self, raw: object, fallback_id: str | None) -> Recipe:
-        items = _as_mapping(raw)
+        items = self._mapping(raw)
         if items is None:
             raise RecipeCompileError("Recipe YAML must be a mapping at top level")
         fields = dict(items)
@@ -136,20 +135,33 @@ class _RecipeCompiler:
                 raise RecipeCompileError(f"Recipe '{recipe_id}' rule[{index}]: {error}") from error
         return Recipe(id=recipe_id, rules=tuple(rules))
 
-    def _count(self, nodes: int = 1) -> None:
+    def _count(self, nodes: int = 1, chars: int = 0) -> None:
         self._nodes += nodes
+        self._chars += chars
         if self._nodes > COMPILE_NODE_BUDGET:
             raise RecipeCompileError(
                 f"the recipe compiles to more than {COMPILE_NODE_BUDGET} nodes; remove YAML aliases or simplify it"
             )
+        if self._chars > COMPILE_CHAR_BUDGET:
+            raise RecipeCompileError(
+                f"the recipe compiles to more than {COMPILE_CHAR_BUDGET} characters; remove YAML aliases or simplify it"
+            )
+        # A caller that compiles inside a deadline, such as a trace read, can stop a compile that runs too long.
+        check_time_limit()
+
+    def _mapping(self, raw: object) -> _Items | None:
+        if not isinstance(raw, Mapping):
+            return None
+        self._count(len(raw))
+        return [(_key_text(key), value) for key, value in raw.items()]
 
     def _rule(self, raw: object) -> Rule:
         self._count()
-        items = _as_mapping(raw)
+        items = self._mapping(raw)
         if items is None:
             raise RecipeCompileError("rule must be a mapping")
         fields = dict(items)
-        on_items = _as_mapping(fields.get("on"))
+        on_items = self._mapping(fields.get("on"))
         if on_items is None:
             raise RecipeCompileError("rule.on must be a mapping")
         on = self._pattern(on_items)
@@ -172,12 +184,12 @@ class _RecipeCompiler:
 
     def _followup(self, raw: object) -> Followup:
         self._count()
-        items = _as_mapping(raw)
+        items = self._mapping(raw)
         if items is None:
             raise RecipeCompileError("followup entry must be a mapping")
         fields = dict(items)
         if "from" in fields and "each" in fields:
-            if _as_mapping(fields["each"]) is None:
+            if not isinstance(fields["each"], Mapping):
                 raise RecipeCompileError("'each:' in followup must be a mapping")
             return ExpandFollowup(source=self._value(fields["from"]), each=self._emit_spec(fields["each"]))
         return StaticFollowup(emit=self._emit_spec(raw))
@@ -187,7 +199,7 @@ class _RecipeCompiler:
 
     def _predicate(self, raw: object) -> Predicate:
         self._count()
-        items = _as_mapping(raw)
+        items = self._mapping(raw)
         if items is None:
             return EqualsPredicate(expected=self._literal(raw))
         keys = [key for key, _ in items]
@@ -215,7 +227,7 @@ class _RecipeCompiler:
                     raise RecipeCompileError("'in:' must be an array")
                 return InPredicate(values=tuple(self._literal(item) for item in value))
             case "shape":
-                items = _as_mapping(value)
+                items = self._mapping(value)
                 if items is None:
                     raise RecipeCompileError("'shape:' must be a mapping")
                 return ShapePredicate(nested=self._pattern(items))
@@ -227,6 +239,7 @@ class _RecipeCompiler:
         names: list[TypeName] = []
         for candidate in value if isinstance(value, list) else [value]:
             # A bare YAML `null` inside `is: [...]` means the type name 'null'.
+            self._count()
             name = "null" if candidate is None else candidate
             if not isinstance(name, str) or name not in TYPE_NAMES:
                 raise RecipeCompileError(
@@ -237,7 +250,7 @@ class _RecipeCompiler:
 
     def _emit_spec(self, raw: object) -> EmitSpec:
         self._count()
-        items = _as_mapping(raw)
+        items = self._mapping(raw)
         if items is None:
             raise RecipeCompileError("emit must be a mapping")
         role: Expr | RoleTag | None = None
@@ -275,7 +288,7 @@ class _RecipeCompiler:
             return self._string(raw)
         if isinstance(raw, list):
             return ArrayExpr(items=tuple(self._value(item) for item in raw))
-        items = _as_mapping(raw)
+        items = self._mapping(raw)
         if items is None:
             return LiteralExpr(value=self._literal(raw))
         if len(items) == 1:
@@ -297,9 +310,12 @@ class _RecipeCompiler:
             return raw
         if isinstance(raw, list):
             return [self._literal(item) for item in raw]
-        items = _as_mapping(raw)
+        items = self._mapping(raw)
         if items is not None:
             return {key: self._literal(value) for key, value in items}
+        # The text of a collection repeats every alias inside it, so it can be exponentially longer than the source.
+        if isinstance(raw, tuple | set | frozenset):
+            raise RecipeCompileError(f"unsupported YAML collection '{type(raw).__name__}'; use a sequence or a mapping")
         return str(raw)
 
     def _string(self, value: str) -> Expr:
@@ -316,6 +332,7 @@ class _RecipeCompiler:
         return LiteralExpr(value=value)
 
     def _interp(self, value: str) -> Expr:
+        self._count(chars=len(value))
         parts: list[str | Expr] = []
         cursor = 0
         for match in _INTERP.finditer(value):
@@ -330,7 +347,7 @@ class _RecipeCompiler:
         return InterpExpr(parts=tuple(parts))
 
     def _path(self, dotted: str) -> PathExpr:
-        self._count(dotted.count(".") + 1)
+        self._count(dotted.count(".") + 1, chars=len(dotted))
         return PathExpr(segments=tuple(dotted.split(".")))
 
     def _operator(self, operator: str, payload: object) -> Expr:
@@ -374,13 +391,13 @@ class _RecipeCompiler:
     def _coalesce_source(self, payload: object) -> Expr:
         if isinstance(payload, list):
             return ArrayExpr(items=tuple(self._value(item) for item in payload))
-        items = _as_mapping(payload)
+        items = self._mapping(payload)
         if items is None:
             raise RecipeCompileError("'coalesce:' takes an array or {from: [...]}")
         return self._required(dict(items), "from")
 
     def _operator_args(self, operator: str, payload: object) -> dict[str, object]:
-        items = _as_mapping(payload)
+        items = self._mapping(payload)
         if items is None:
             raise RecipeCompileError(f"'{operator}:' takes a mapping")
         return dict(items)
@@ -396,7 +413,7 @@ class _RecipeCompiler:
     def _where(self, raw: object) -> Pattern | None:
         if isinstance(raw, Missing):
             return None
-        items = _as_mapping(raw)
+        items = self._mapping(raw)
         if items is None:
             raise RecipeCompileError("'where:' must be a mapping")
         return self._pattern(items)
