@@ -178,6 +178,13 @@ def test_is_throwaway_host(url, expected):
         ("https://app.bücher.de/client.json", "https://keys.xn--bcher-kva.de/jwks.json", True),
         # requests fetches faß.de as xn--fa-hia.de, not as fass.de.
         ("https://fass.de/client.json", "https://faß.de/jwks.json", False),
+        ("https://приложение.пример.рф/client.json", "https://keys.xn--e1afmkfd.xn--p1ai/jwks.json", True),
+        ("https://приложение.пример.рф/client.json", "https://ПРИМЕР.РФ/jwks.json", True),
+        ("https://приложение.пример.рф/client.json", "https://другой.рф/jwks.json", False),
+        ("https://应用.例子.中国/client.json", "https://keys.xn--fsqu00a.xn--fiqs8s/jwks.json", True),
+        ("https://应用.例子.中国/client.json", "https://别人.中国/jwks.json", False),
+        ("https://应用.例子.中国/client.json", "https://例子.公司/jwks.json", False),
+        ("https://a.例子.com.cn/client.json", "https://别人.com.cn/jwks.json", False),
         ("https://app.example.com/client.json", "https://x0.at/oXXP.json", False),
         ("https://app.example.com/client.json", "https://example.com.evil.dev/jwks.json", False),
         # co.uk is a public suffix, so these are two different registrants.
