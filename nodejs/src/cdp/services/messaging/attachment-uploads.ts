@@ -9,9 +9,7 @@ import { AttachmentStore, AttachmentStoreUnavailableError, UploadSlot } from './
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 
 export const ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX = 'cdp-email-attachments-upload-bytes'
-// A day's counter outlives its UTC day, so a request just after midnight still reads the right one.
 const QUOTA_KEY_TTL_SECONDS = 2 * 24 * 60 * 60
-// One script, so two requests at once cannot both pass the check, and a refused request adds nothing.
 const CHARGE_SCRIPT = `
 local total = tonumber(redis.call('GET', KEYS[1]) or '0') + tonumber(ARGV[1])
 if total > tonumber(ARGV[2]) then
@@ -21,7 +19,6 @@ redis.call('SET', KEYS[1], total, 'EX', ARGV[3])
 return 1
 `
 
-// Unknown keys are dropped rather than refused, so Django can add a field before every cdp-api pod reads it.
 const UploadsRequestSchema = z.object({
     files: z
         .array(z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/), size: z.number().int().positive() }))
@@ -49,7 +46,6 @@ export class AttachmentUploads {
 
     constructor(
         private readonly store: AttachmentStore | null,
-        // The idempotency Valkey of transactional email. Its pool bounds every wait, so an outage answers 503.
         private readonly counter: RedisV2 | null,
         private readonly settings: AttachmentUploadsSettings
     ) {
@@ -71,7 +67,6 @@ export class AttachmentUploads {
             return { status: 400, body: { error: 'invalid_request', detail: parsed.error.message } }
         }
         const files = parsed.data.files
-        // Each upload URL is signed for its size, so one hash with two sizes would get a URL the cap never counted.
         const sizeOf = new Map(files.map((file) => [file.sha256, file.size]))
         if (files.some((file) => sizeOf.get(file.sha256) !== file.size)) {
             return { status: 400, body: { error: 'invalid_request', detail: 'One sha256 is listed with two sizes' } }

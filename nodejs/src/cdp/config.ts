@@ -217,9 +217,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: number
     CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: number
     CDP_EMAIL_ATTACHMENTS_MEMORY_FRACTION: number
-    // Comma-separated team ids, or "*", that may upload and send files. Empty refuses every team.
     CDP_EMAIL_ATTACHMENTS_TEAMS: string
-    // The bytes of upload URLs a team may get per UTC day. Files already stored do not count.
     CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: number
 
     // Destination migration diffing
