@@ -449,9 +449,8 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
 
 
 def _queue_source_detection(team_id: int, key_id: str) -> None:
-    # Runs after commit, so the flag check never holds the team's key lock, and evaluates locally so the send never
-    # waits on the flag service. Publishing only while detection is on keeps the task off the queue until workers
-    # that know it are live. retry=False makes a broker failure raise at once instead of retrying inside the send.
+    # After commit and local-only, so a send never waits on the flag service while it holds the team's key lock.
+    # Publishing only while the flag is on keeps the task off the queue until workers that know it are live.
     if source_detection_enabled(team_id, only_locally=True):
         detect_code_email_source_task.apply_async(args=(team_id, key_id), retry=False)
 

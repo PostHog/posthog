@@ -76,8 +76,6 @@ _SEND_CALL = re.compile(
     r"emails\.send|emails\(\)(?:\.|->)send|Emails\(\)\.Send|Emails\.SendAsync|Emails\.send|send/email"
 )
 _COMMENT_LINE = re.compile(r"^\s*(?:#|//|/?\*)")
-# The template key as an argument name, in each SDK's spelling. The lookbehind skips names that end in it, such as
-# fallback_template_key.
 _TEMPLATE_KEY_NAME = r"""(?<![\w-])(?i:template[_-]?key)['"]?\s*(?::|=>|=)"""
 _TEMPLATE_KEY_ARGUMENT = re.compile(_TEMPLATE_KEY_NAME)
 
