@@ -242,7 +242,18 @@ def _resolve_done_mode(profile_key: str, team_id: int) -> DoneMode | None:
 
 
 def keeps_done(mode: DoneMode | None) -> bool:
-    return mode in (DoneMode.ENFORCE, None)
+    return mode != DoneMode.OFF
+
+
+def latest_change_is_shadow_done(team_id: int, task_id: UUID | str) -> bool:
+    latest = (
+        TaskStatusChange.objects.for_team(team_id, canonical=True)
+        .filter(task_id=task_id)
+        .order_by("-created_at", "-id")
+        .values_list("status", "changed_by")
+        .first()
+    )
+    return latest is not None and latest[0] == Task.Status.DONE and latest[1].startswith(SHADOW_ACTOR_PREFIX)
 
 
 def _record_change(
@@ -318,6 +329,8 @@ def mark_done(
         current = stored.value.status
         if Task.Status.DONE not in TRANSITIONS[current] or (expected is not None and current != expected):
             return False
+        if latest_change_is_shadow_done(stored.team_id, task_id):
+            return False
         _record_change(
             stored.team_id,
             task_id,
@@ -341,9 +354,19 @@ def _done_on_turn_close(profile_key: str | None, run: LatestRun) -> bool:
     return profile.done_on_turn_close or (profile.finish_tool and run.finish_report_saved)
 
 
+def _keeps_stored_done(stored: StoredTaskStatus) -> bool:
+    return (
+        stored.value is not None
+        and stored.value.status == Task.Status.DONE
+        and keeps_done(done_mode(stored.profile, stored.team_id))
+    )
+
+
 def sync_task_status(task_id: UUID | str, *, changed_by: str = RUN_SYNC_ACTOR) -> bool:
     stored = _stored_task_status(task_id, lock=False)
     if stored is None or stored.value == derive_task_status(_latest_run(task_id)):
+        return False
+    if _keeps_stored_done(stored):
         return False
     with transaction.atomic():
         stored = _stored_task_status(task_id, lock=True)
@@ -354,11 +377,7 @@ def sync_task_status(task_id: UUID | str, *, changed_by: str = RUN_SYNC_ACTOR) -
         previous = stored.value
         if previous == derived:
             return False
-        if (
-            previous is not None
-            and previous.status == Task.Status.DONE
-            and keeps_done(done_mode(stored.profile, stored.team_id))
-        ):
+        if _keeps_stored_done(stored):
             return False
         if previous is not None and derived.status not in {previous.status, *TRANSITIONS[previous.status]}:
             observe_task_status_outside_transitions(from_status=previous.status, to_status=derived.status)

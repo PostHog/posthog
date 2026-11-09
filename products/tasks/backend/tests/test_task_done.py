@@ -91,7 +91,14 @@ class TestTaskDone(TestCase):
         with self.assertRaises(ValueError):
             transition(self.task.id, Task.Status.DONE, reason=Task.StatusReason.TURN_CLOSED, actor="test")
 
-    @parameterized.expand([("enforce", "enforce", "done"), ("unresolved", None, "done"), ("off", "off", "queued")])
+    @parameterized.expand(
+        [
+            ("enforce", "enforce", "done"),
+            ("shadow", "shadow", "done"),
+            ("unresolved", None, "done"),
+            ("off", "off", "queued"),
+        ]
+    )
     def test_run_sync_leaves_done_alone_unless_explicitly_off(
         self, _name: str, mode: str | None, expected: str
     ) -> None:
@@ -189,9 +196,25 @@ class TestTaskDone(TestCase):
         self.task.refresh_from_db()
         self.assertEqual((self.task.status, self.task.status_reason), (status, reason))
 
+    @parameterized.expand([("once", 1), ("repeated", 3)])
+    def test_shadow_done_is_recorded_once(self, _name: str, calls: int) -> None:
+        Task.objects.filter(pk=self.task.pk).update(
+            status=Task.Status.IDLE, status_reason=Task.StatusReason.TURN_CLOSED, pr_urls=[PR_ONE]
+        )
+
+        with self._mode("shadow"):
+            for _ in range(calls):
+                record_pull_request_outcome(self.task.id, PR_ONE, state="merged")
+
+        shadow_rows = TaskStatusChange.objects.for_team(self.team.id).filter(
+            task=self.task, status=Task.Status.DONE, changed_by__startswith="shadow:"
+        )
+        self.assertEqual(shadow_rows.count(), 1)
+
     @parameterized.expand(
         [
             ("closes_idle_task", "enforce", Task.Status.IDLE, 200, "done"),
+            ("already_done", "enforce", Task.Status.DONE, 200, "done"),
             ("not_enabled", "off", Task.Status.IDLE, 400, "idle"),
             ("running_task", "enforce", Task.Status.RUNNING, 409, "running"),
         ]

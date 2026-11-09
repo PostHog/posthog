@@ -6,9 +6,15 @@ from django.db import transaction
 import structlog
 
 from products.tasks.backend.metrics import observe_task_wake_refused
-from products.tasks.backend.models import Task, TaskStatusChange
+from products.tasks.backend.models import Task
 from products.tasks.backend.pr_urls import canonical_github_pull_request_url
-from products.tasks.backend.task_run_sync import SHADOW_ACTOR_PREFIX, DoneMode, done_mode, keeps_done, mark_done
+from products.tasks.backend.task_run_sync import (
+    DoneMode,
+    done_mode,
+    keeps_done,
+    latest_change_is_shadow_done,
+    mark_done,
+)
 from products.tasks.backend.visibility import task_control_q
 
 logger = structlog.get_logger(__name__)
@@ -23,17 +29,6 @@ class TaskDoneError(ValueError):
         super().__init__("This task is done. Start a new task to keep working on it.")
 
 
-def _latest_change_is_shadow_done(task: Task) -> bool:
-    latest = (
-        TaskStatusChange.objects.for_team(task.team_id, canonical=True)
-        .filter(task_id=task.id)
-        .order_by("-created_at", "-id")
-        .values_list("status", "changed_by")
-        .first()
-    )
-    return latest is not None and latest[0] == Task.Status.DONE and latest[1].startswith(SHADOW_ACTOR_PREFIX)
-
-
 def wake_refusal(task: Task, *, source: str) -> TaskDoneError | None:
     profile = task.profile or "none"
     if task.status == Task.Status.DONE:
@@ -42,7 +37,7 @@ def wake_refusal(task: Task, *, source: str) -> TaskDoneError | None:
         observe_task_wake_refused(profile=profile, source=source, mode=DoneMode.ENFORCE)
         logger.info("task_wake_refused", task_id=str(task.id), profile=profile, source=source)
         return TaskDoneError()
-    if task.profile and _latest_change_is_shadow_done(task):
+    if task.profile and latest_change_is_shadow_done(task.team_id, task.id):
         observe_task_wake_refused(profile=profile, source=source, mode=DoneMode.SHADOW)
         logger.info("task_wake_would_refuse", task_id=str(task.id), profile=profile, source=source)
     return None
@@ -69,6 +64,8 @@ def close_task(task_id: UUID | str, team_id: int, user_id: int) -> CloseTaskOutc
         return "not_found"
     if done_mode(task.profile, task.team_id) != DoneMode.ENFORCE:
         return "not_enabled"
+    if task.status == Task.Status.DONE:
+        return "closed"
     closed = mark_done(task.id, reason=Task.StatusReason.CLOSED, actor=f"user:{user_id}", expected=Task.Status.IDLE)
     return "closed" if closed else "not_idle"
 
