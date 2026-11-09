@@ -58,14 +58,15 @@ export class SandboxEmailActionHandler implements ActionHandler {
     }
 
     private async runTest(options: ActionHandlerOptions<SandboxEmailAction>): Promise<ActionHandlerResult> {
-        if (options.hogExecutorOptions?.functions) {
-            this.log(options, 'Mocked the sandbox email send')
-            return this.finish(options, { status: 'accepted' })
-        }
+        const mocked = !!options.hogExecutorOptions?.functions
         if (!this.testClient) {
-            return this.finish(options, toStepResult(WORKER_UNAVAILABLE))
+            return this.finish(options, mocked ? { status: 'accepted' } : toStepResult(WORKER_UNAVAILABLE))
         }
-        return this.finish(options, await this.testClient.send(options))
+        const stepResult = await this.testClient.send(options)
+        if (mocked && stepResult.status === 'accepted') {
+            this.log(options, 'Mocked the sandbox email send')
+        }
+        return this.finish(options, stepResult)
     }
 
     private routeToSandboxQueue(

@@ -37,6 +37,8 @@ import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { PushNotificationFetchUtils, PushNotificationService } from '../messaging/push-notification.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
+import { SandboxEmailService } from '../messaging/sandbox/sandbox-email.service'
+import { SandboxEmailSendStep } from '../messaging/sandbox/sandbox-email-step'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import { QueuedSend } from './transactional-email'
@@ -64,6 +66,8 @@ describe('Hogflow Executor', () => {
     let executor: HogFlowExecutorService
     let cohortMembershipRepository: CohortMembershipRepository
     let hogFlowFunctionsService: HogFlowFunctionsService
+    let recipientPreferencesService: RecipientPreferencesService
+    let emailValidationService: EmailValidationService
     let hub: Hub
     let team: Team
     let integrationId: number
@@ -154,11 +158,11 @@ describe('Hogflow Executor', () => {
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         hogFlowFunctionsService = new HogFlowFunctionsService(hub.SITE_URL, hogFunctionTemplateManager, hogExecutor)
         const recipientsManager = new RecipientsManagerService(hub.postgres)
-        const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
+        recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
         // Stubbed to always allow: this suite covers executor routing and flow control,
         // not MX validation (email-validation.service.test.ts does), and the real
         // service would fire live DNS lookups for the fixture recipients here.
-        const emailValidationService = {
+        emailValidationService = {
             getSkipReason: () => Promise.resolve(null),
         } as unknown as EmailValidationService
 
@@ -3115,7 +3119,53 @@ describe('Hogflow Executor', () => {
                 .build()
         }
 
-        it('should record billing metrics for both regular hog functions and email functions', async () => {
+        it('bills hog functions and own-domain email, and never a sandbox email in the same run', async () => {
+            const usageReporter = { reportBillableInvocation: jest.fn() }
+            const sandboxSes = { send: jest.fn().mockResolvedValue({ status: 'accepted', messageId: 'ses-1' }) }
+            executor = new HogFlowExecutorService(
+                hogFlowFunctionsService,
+                recipientPreferencesService,
+                emailValidationService,
+                cohortMembershipRepository,
+                hub.integrationManager,
+                null,
+                undefined,
+                usageReporter as any,
+                {
+                    sandboxEmail: {
+                        enabled: true,
+                        send: new SandboxEmailSendStep({
+                            service: new SandboxEmailService({
+                                enabled: true,
+                                fromAddress: 'sandbox@send.example.com',
+                                tenantName: 'sandbox-tenant',
+                                isProvisioned: () => Promise.resolve(true),
+                                checkRecipient: () => Promise.resolve({ ok: true }),
+                                authorize: () =>
+                                    Promise.resolve({
+                                        ok: true,
+                                        organizationId: 'org-1',
+                                        organizationName: 'Acme',
+                                        storedAddress: 'member@example.com',
+                                        tenant: { sendingStatus: 'ENABLED', syncedAt: new Date(Date.now()) },
+                                    }),
+                                claimCaps: () => Promise.resolve({ ok: true }),
+                                ses: sandboxSes,
+                                now: () => new Date(Date.now()),
+                            }),
+                            hogInputsService: new HogInputsService(
+                                hub.integrationManager,
+                                new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                                hub.encryptedFields
+                            ),
+                            siteUrl: hub.SITE_URL,
+                            recipientPreferences: recipientPreferencesService,
+                            events: { capture: jest.fn().mockResolvedValue(undefined) },
+                        }),
+                    },
+                }
+            )
+
             await insertIntegration(hub.postgres, team.id, {
                 id: integrationId,
                 kind: 'email',
@@ -3223,13 +3273,24 @@ describe('Hogflow Executor', () => {
                             },
                         },
                     },
+                    sandbox_email: {
+                        type: 'email_sandbox',
+                        config: {
+                            inputs: {
+                                email: {
+                                    value: { to: { email: 'member@example.com' }, subject: 'Sandbox', text: 'Hi' },
+                                },
+                            },
+                        },
+                    },
                 },
                 edges: [
                     { from: 'trigger', to: 'function_1', type: 'continue' },
                     { from: 'function_1', to: 'function_2', type: 'continue' },
                     { from: 'function_2', to: 'email_1', type: 'continue' },
                     { from: 'email_1', to: 'email_2', type: 'continue' },
-                    { from: 'email_2', to: 'exit', type: 'continue' },
+                    { from: 'email_2', to: 'sandbox_email', type: 'continue' },
+                    { from: 'sandbox_email', to: 'exit', type: 'continue' },
                 ],
             })
 
@@ -3265,6 +3326,20 @@ describe('Hogflow Executor', () => {
                 (m) => m.metric_kind === 'email' && m.metric_name === 'billable_invocation'
             )
             expect(emailBilling).toHaveLength(2)
+
+            expect(sandboxSes.send).toHaveBeenCalledTimes(1)
+            expect(usageReporter.reportBillableInvocation.mock.calls.map(([call]) => call.usageKey).sort()).toEqual([
+                'workflow_billable_invocations',
+                'workflow_billable_invocations',
+                'workflow_emails_sent',
+                'workflow_emails_sent',
+            ])
+            expect(
+                metrics.filter((m) => m.instance_id === 'sandbox_email').map((m) => [m.metric_kind, m.metric_name])
+            ).toEqual([
+                ['email', 'email_sandbox_sent'],
+                ['success', 'succeeded'],
+            ])
         })
     })
 

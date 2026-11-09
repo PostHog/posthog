@@ -1,0 +1,93 @@
+import { z } from 'zod'
+
+import { FetchResponse, internalFetch } from '~/common/utils/request'
+
+import { ScopedServiceJwt } from '../../../utils/scoped-service-jwt'
+import { HogInputsService } from '../../hog-inputs.service'
+import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
+import {
+    SandboxEmailAction,
+    SandboxEmailStepResult,
+    SandboxEmailTestClient,
+} from '../../hogflows/actions/email_sandbox'
+import { SandboxRenderedEmail } from './sandbox-message'
+import { renderSandboxEmail } from './sandbox-render'
+
+export const SANDBOX_TEST_TOKEN_TTL_SECONDS = 120
+const SANDBOX_TEST_TIMEOUT_MS = 10_000
+
+const TestSendResponseSchema = z.object({
+    status: z.enum(['accepted', 'skipped', 'failed', 'pending']),
+    reason: z.string().optional(),
+    message_id: z.string().optional(),
+})
+
+export type SandboxEmailTesterDeps = {
+    hogInputsService: Pick<HogInputsService, 'buildInputsWithGlobals'>
+    siteUrl: string
+    endpoint: string
+    jwt: Pick<ScopedServiceJwt, 'enabled' | 'mint'>
+    fetch?: (url: string, options: Parameters<typeof internalFetch>[1]) => Promise<FetchResponse>
+}
+
+/** Runs editor tests of a sandbox email step from cdp-api: renders here, and sends through the sandbox worker. */
+export class SandboxEmailTester implements SandboxEmailTestClient {
+    constructor(private readonly deps: SandboxEmailTesterDeps) {}
+
+    async send(options: ActionHandlerOptions<SandboxEmailAction>): Promise<SandboxEmailStepResult> {
+        let email: SandboxRenderedEmail
+        try {
+            email = await renderSandboxEmail(
+                this.deps.hogInputsService,
+                options.invocation,
+                options.action,
+                this.deps.siteUrl
+            )
+        } catch {
+            return { status: 'failed', reason: 'render_failed' }
+        }
+        if (options.hogExecutorOptions?.functions) {
+            return { status: 'accepted' }
+        }
+        if (!this.deps.endpoint || !this.deps.jwt.enabled) {
+            return { status: 'failed', reason: 'sandbox_worker_unavailable' }
+        }
+        return this.forward(options, email)
+    }
+
+    private async forward(
+        { invocation, action }: ActionHandlerOptions<SandboxEmailAction>,
+        email: SandboxRenderedEmail
+    ): Promise<SandboxEmailStepResult> {
+        const token = this.deps.jwt.mint(
+            { team_id: invocation.teamId, hog_flow_id: invocation.hogFlow.id },
+            SANDBOX_TEST_TOKEN_TTL_SECONDS
+        )
+        let response: FetchResponse
+        try {
+            response = await (this.deps.fetch ?? internalFetch)(
+                `${this.deps.endpoint.replace(/\/+$/, '')}/api/projects/${invocation.teamId}/sandbox_email/test_send`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({
+                        hog_flow_id: invocation.hogFlow.id,
+                        action_id: action.id,
+                        email,
+                        message_category_id: action.config.message_category_id,
+                        message_category_type: action.config.message_category_type,
+                    }),
+                    timeoutMs: SANDBOX_TEST_TIMEOUT_MS,
+                }
+            )
+        } catch {
+            return { status: 'pending', reason: 'sandbox_worker_unreachable' }
+        }
+        if (response.status !== 200) {
+            await response.dump()
+            return { status: 'failed', reason: 'sandbox_worker_unavailable' }
+        }
+        const parsed = TestSendResponseSchema.safeParse(await response.json().catch(() => null))
+        return parsed.success ? parsed.data : { status: 'failed', reason: 'sandbox_worker_unavailable' }
+    }
+}

@@ -583,6 +583,7 @@ export type HogFlowInvocationContext = {
         // messages. The step re-checks the cap on each wake and skips the send once this ISO time passes.
         frequencyCapHoldDeadlineAt?: string
         sandboxEmail?: SandboxEmailOutcome
+        sandboxEmailRetries?: number
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.

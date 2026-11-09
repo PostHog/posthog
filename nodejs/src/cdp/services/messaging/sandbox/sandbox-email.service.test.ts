@@ -1,0 +1,213 @@
+import { SandboxAuthorization } from './sandbox-authorization'
+import { SandboxEmailService, SandboxEmailServiceDeps, SandboxSendRequest } from './sandbox-email.service'
+
+describe('SandboxEmailService', () => {
+    const now = new Date('2026-01-01T12:00:00.000Z')
+    const member: SandboxAuthorization = {
+        ok: true,
+        organizationId: 'org-1',
+        organizationName: 'Acme',
+        storedAddress: 'Member@Example.com',
+        tenant: { sendingStatus: 'ENABLED', syncedAt: new Date(now.getTime() - 60_000) },
+    }
+
+    const fakeDeps = (overrides: Partial<SandboxEmailServiceDeps> = {}): jest.Mocked<SandboxEmailServiceDeps> =>
+        ({
+            enabled: true,
+            fromAddress: 'sandbox@send.example.com',
+            tenantName: 'sandbox-tenant',
+            isProvisioned: jest.fn().mockResolvedValue(true),
+            authorize: jest.fn().mockResolvedValue(member),
+            checkRecipient: jest.fn().mockResolvedValue({ ok: true }),
+            claimCaps: jest.fn().mockResolvedValue({ ok: true }),
+            ses: { send: jest.fn().mockResolvedValue({ status: 'accepted', messageId: 'ses-1' }) },
+            now: () => now,
+            ...overrides,
+        }) as jest.Mocked<SandboxEmailServiceDeps>
+
+    const request = (overrides: Partial<SandboxSendRequest> = {}): SandboxSendRequest => ({
+        teamId: 2,
+        hogFlowId: 'flow-1',
+        invocationId: 'run-1',
+        actionId: 'action_email_sandbox_1',
+        flowVersion: 4,
+        isTest: false,
+        email: { to: { email: 'member@example.com', name: 'Mem' }, subject: 'Hi', text: 'Hello' },
+        ...overrides,
+    })
+
+    it('sends one message to the stored member spelling, from the organization, with the run tags', async () => {
+        const deps = fakeDeps()
+
+        await expect(new SandboxEmailService(deps).send(request())).resolves.toEqual({
+            status: 'accepted',
+            messageId: 'ses-1',
+        })
+
+        expect(deps.authorize).toHaveBeenCalledWith({
+            teamId: 2,
+            recipient: 'member@example.com',
+            tenantName: 'sandbox-tenant',
+        })
+        expect(deps.claimCaps).toHaveBeenCalledWith({
+            organizationId: 'org-1',
+            teamId: 2,
+            storedAddress: 'Member@Example.com',
+        })
+        expect(deps.ses.send).toHaveBeenCalledTimes(1)
+        const [message, tags] = jest.mocked(deps.ses.send).mock.calls[0]
+        expect(message).toMatchObject({
+            from: { address: 'sandbox@send.example.com', name: 'Acme via PostHog' },
+            to: { address: 'Member@Example.com', name: 'Mem' },
+            subject: 'Hi',
+        })
+        expect(tags).toMatchObject({
+            teamId: 2,
+            hogFlowId: 'flow-1',
+            invocationId: 'run-1',
+            actionId: 'action_email_sandbox_1',
+            flowVersion: 4,
+            isTest: false,
+        })
+    })
+
+    const stale = { sendingStatus: 'ENABLED', syncedAt: new Date(now.getTime() - 600_000) }
+    const paused = { sendingStatus: 'DISABLED', syncedAt: now }
+
+    it.each<[string, Partial<SandboxEmailServiceDeps>, Partial<SandboxSendRequest>, string, string]>([
+        ['the kill switch is off', { enabled: false }, {}, 'skipped', 'sending_disabled'],
+        [
+            'the payload has no subject',
+            {},
+            { email: { to: { email: 'a@b.co' }, text: 'x' } },
+            'failed',
+            'render_failed',
+        ],
+        [
+            'the team has no sandbox sender',
+            { isProvisioned: jest.fn().mockResolvedValue(false) },
+            {},
+            'skipped',
+            'sandbox_not_provisioned',
+        ],
+        [
+            'the provisioning read fails',
+            { isProvisioned: jest.fn().mockRejectedValue(new Error('db down')) },
+            {},
+            'retry',
+            'authorization_unavailable',
+        ],
+        ...[
+            'a@example.com, b@example.com',
+            '"Boss" <a@example.com>',
+            'a@example.com\r\nBcc: b@example.com',
+            'not-an-address',
+        ].map((to): [string, Partial<SandboxEmailServiceDeps>, Partial<SandboxSendRequest>, string, string] => [
+            `the recipient is ${JSON.stringify(to)}`,
+            {},
+            { email: { to: { email: to }, subject: 'Hi', text: 'x' } },
+            'skipped',
+            'invalid_recipient',
+        ]),
+        [
+            'the recipient is suppressed',
+            { checkRecipient: jest.fn().mockResolvedValue({ ok: false, reason: 'suppressed' }) },
+            {},
+            'skipped',
+            'suppressed',
+        ],
+        [
+            'the suppression read fails',
+            { checkRecipient: jest.fn().mockResolvedValue({ ok: false, reason: 'authorization_unavailable' }) },
+            {},
+            'retry',
+            'authorization_unavailable',
+        ],
+        [
+            'the recipient is not a member',
+            { authorize: jest.fn().mockResolvedValue({ ok: false, reason: 'not_member' }) },
+            {},
+            'skipped',
+            'not_member',
+        ],
+        [
+            'the organization is blocked',
+            { authorize: jest.fn().mockResolvedValue({ ok: false, reason: 'organization_blocked' }) },
+            {},
+            'skipped',
+            'organization_blocked',
+        ],
+        [
+            'the member read fails',
+            { authorize: jest.fn().mockResolvedValue({ ok: false, reason: 'authorization_unavailable' }) },
+            {},
+            'retry',
+            'authorization_unavailable',
+        ],
+        [
+            'the tenant mirror is stale',
+            { authorize: jest.fn().mockResolvedValue({ ...member, tenant: stale }) },
+            {},
+            'retry',
+            'pause_state_unavailable',
+        ],
+        [
+            'the tenant is paused',
+            { authorize: jest.fn().mockResolvedValue({ ...member, tenant: paused }) },
+            {},
+            'skipped',
+            'tenant_paused',
+        ],
+        [
+            'a daily cap is reached',
+            { claimCaps: jest.fn().mockResolvedValue({ ok: false, reason: 'daily_cap_reached' }) },
+            {},
+            'skipped',
+            'daily_cap_reached',
+        ],
+        [
+            'the cap storage fails',
+            { claimCaps: jest.fn().mockResolvedValue({ ok: false, reason: 'cap_storage_unavailable' }) },
+            {},
+            'retry',
+            'cap_storage_unavailable',
+        ],
+    ])('sends nothing when %s', async (_name, overrides, requestOverrides, status, reason) => {
+        const deps = fakeDeps(overrides)
+
+        await expect(new SandboxEmailService(deps).send(request(requestOverrides))).resolves.toEqual({
+            status,
+            reason,
+        })
+        expect(deps.ses.send).not.toHaveBeenCalled()
+    })
+
+    it('claims no cap when a recipient check refuses the send', async () => {
+        const deps = fakeDeps({ checkRecipient: jest.fn().mockResolvedValue({ ok: false, reason: 'opted_out' }) })
+
+        await new SandboxEmailService(deps).send(request())
+
+        expect(deps.authorize).not.toHaveBeenCalled()
+        expect(deps.claimCaps).not.toHaveBeenCalled()
+    })
+
+    it('hands the run opt-outs, category, and frequency cap to the recipient check', async () => {
+        const deps = fakeDeps()
+        const frequencyCap = jest.fn()
+        const optOuts = [{ identifier: 'member@example.com', categoryId: 'news' }]
+
+        await new SandboxEmailService(deps).send(
+            request({ categoryId: 'news', categoryType: 'marketing', optOuts, frequencyCap, isTest: true })
+        )
+
+        expect(deps.checkRecipient).toHaveBeenCalledWith({
+            teamId: 2,
+            address: 'member@example.com',
+            categoryId: 'news',
+            categoryType: 'marketing',
+            optOuts,
+            isTest: true,
+            frequencyCap,
+        })
+    })
+})
