@@ -13,6 +13,7 @@ import { PostHogErrorBoundary } from '@posthog/react'
 
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
+import { setTodayRailNavEnabled } from 'lib/components/HelpMenu/todayRailNavOverride'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { projectLogic } from 'scenes/projectLogic'
@@ -125,6 +126,14 @@ export function TodayMoreMenu(): JSX.Element {
                 </DropdownMenuItem>
                 <DropdownMenuItem render={todayMenuLinkItem(urls.exports())} data-attr="more-menu-exports-button">
                     Exports
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    onClick={() => setTodayRailNavEnabled(false)}
+                    description="Only in this browser. Switch back from More."
+                    data-attr="more-menu-today-rail-nav-off-button"
+                >
+                    Switch to the old design
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>

@@ -29,6 +29,7 @@ import { healthSummaryLabel } from './healthSummaryLabel'
 import { healthSummaryLogic } from './healthSummaryLogic'
 import { helpMenuLogic } from './helpMenuLogic'
 import { posthogStatusLogic } from './posthogStatusLogic'
+import { hasTodayRailNavOptOut, setTodayRailNavEnabled } from './todayRailNavOverride'
 
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -224,6 +225,22 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         </Link>
                                     )}
                                 />
+
+                                {(user?.is_staff || hasTodayRailNavOptOut()) && (
+                                    <Menu.Item
+                                        onClick={() => setTodayRailNavEnabled(true)}
+                                        render={
+                                            <ButtonPrimitive
+                                                menuItem
+                                                tooltip="Only in this browser. Switch back from More."
+                                                tooltipPlacement="right"
+                                                data-attr="more-menu-today-rail-nav-on-button"
+                                            >
+                                                Switch to the new design
+                                            </ButtonPrimitive>
+                                        }
+                                    />
+                                )}
 
                                 {!isCloudOrDev && (
                                     <Menu.Item
