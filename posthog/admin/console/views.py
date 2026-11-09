@@ -269,6 +269,30 @@ def _require_gate(
         raise PermissionDenied(f"Only {gate.label} can run {operation.label}")
 
 
+# Query keys that name the record a tool operation acts on. Other values can hold customer data,
+# for example a TopHog distinct ID that is an email address, so the audit log keeps only their key.
+AUDITED_QUERY_KEYS = frozenset(
+    {
+        "id",
+        "organization",
+        "organization_id",
+        "project",
+        "project_id",
+        "schema",
+        "source",
+        "team",
+        "team_id",
+        "token",
+        "user",
+        "user_id",
+    }
+)
+
+
+def _audit_query(request: HttpRequest) -> dict[str, str]:
+    return {key: request.GET.get(key, "") if key in AUDITED_QUERY_KEYS else "<not logged>" for key in request.GET}
+
+
 def _audited(audit: structlog.BoundLogger, run: Callable[[], R]) -> R:
     audit.info("admin_console_operation_started")
     try:
@@ -474,11 +498,10 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
 
     if request.method not in ("GET", "POST"):
         return HttpResponseNotAllowed(["GET", "POST"])
-    # A tool picks its record from the query, for example ?schema=<id>, so the audit log needs the query to name it.
     audit = logger.bind(
         tool=tool.key,
         operation=operation.key,
-        query=request.GET.urlencode(),
+        query=_audit_query(request),
         triggered_by=cast(User, request.user).email,
     )
     _require_gate(request, operation, tool.owner, audit)
