@@ -26,6 +26,7 @@ class CompactConversationForm(forms.Form):
 def compact(request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
     assert form is not None
     conversation_id = str(form.cleaned_data["conversation"])
+    # nosemgrep: idor-lookup-without-team (staff-only PostHog Admin lookup across teams)
     if not Conversation.objects.filter(id=conversation_id).exists():
         form.add_error("conversation", "No conversation has this ID.")
         return HttpResponse(status=404)
