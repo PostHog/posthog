@@ -9,7 +9,7 @@ from posthog.sync import database_sync_to_async
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ee.hogai.mcp_tool import MCPTool, MCPToolResult, mcp_tool_registry
-from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError, MaxToolTransientError
 
 
 class ExplainSQLMCPToolArgs(BaseModel):
@@ -43,6 +43,9 @@ class ExplainSQLMCPTool(MCPTool[ExplainSQLMCPToolArgs]):
         if not await self._can_read_queries():
             raise MaxToolAccessDeniedError(resource="query", required_level="viewer")
         response = await self._metadata(query, args.connectionId)
+        if response.internalError:
+            # The validator itself failed, so the errors say nothing about the SQL and a rewrite will not help.
+            raise MaxToolTransientError("The query could not be checked because of an internal error")
         if not response.isValid:
             errors = "; ".join(error.message for error in response.errors) or "unknown error"
             raise MaxToolRetryableError(f"Query is not valid: {errors}")

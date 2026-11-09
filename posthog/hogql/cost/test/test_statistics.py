@@ -1,7 +1,11 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date, timedelta
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import ClickhouseTestMixin
 from unittest.mock import MagicMock, call, patch
 
@@ -13,11 +17,13 @@ from parameterized import parameterized
 from posthog.hogql.cost.statistics import (
     EVENT_VOLUME_WINDOW_DAYS,
     LOOKUP_CONNECT_SECONDS,
+    LOOKUP_HTTP_INIT_READ_SECONDS,
     LOOKUP_MAX_EXECUTION_SECONDS,
     ClickHouseStatisticsProvider,
     EventVolume,
     FixedStatisticsProvider,
     _lookup_client,
+    _LookupBudgetSpent,
 )
 
 from posthog.clickhouse.client import sync_execute
@@ -65,23 +71,42 @@ class TestLookupClient(SimpleTestCase):
             * 3
         )
 
+    @parameterized.expand([("fast_init", 0.5, 4.5), ("init_used_the_budget", 4.7, None)])
     @override_settings(CLICKHOUSE_USE_HTTP=True)
-    def test_the_http_client_gets_its_own_pool_and_the_bounded_wait(self):
+    def test_the_http_client_spends_one_deadline_on_init_and_the_query(
+        self, _name: str, init_seconds: float, query_read_timeout: float | None
+    ) -> None:
+        clock = [1000.0]
+        client = SimpleNamespace(_client=SimpleNamespace(timeout=None))
+
+        @contextmanager
+        def build_client(**kwargs: Any) -> Iterator[SimpleNamespace]:
+            clock[0] += init_seconds
+            yield client
+
         with (
+            patch("posthog.hogql.cost.statistics.time.monotonic", side_effect=lambda: clock[0]),
             patch("posthog.hogql.cost.statistics.get_http_kwargs", return_value={"user": "app", "password": "tok"}),
             patch("posthog.hogql.cost.statistics._lookup_http_pool_mgr", return_value="own-pool"),
-            patch("posthog.hogql.cost.statistics.get_http_client") as http_client,
+            patch("posthog.hogql.cost.statistics.get_http_client", side_effect=build_client) as http_client,
         ):
-            _lookup_client(1)
+            if query_read_timeout is None:
+                with pytest.raises(_LookupBudgetSpent), _lookup_client(1):
+                    pass
+            else:
+                with _lookup_client(1):
+                    pass
 
         http_client.assert_called_once_with(
-            send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS,
+            send_receive_timeout=LOOKUP_HTTP_INIT_READ_SECONDS,
             connect_timeout=LOOKUP_CONNECT_SECONDS,
             query_retries=0,
             pool_mgr="own-pool",
             user="app",
             password="tok",
         )
+        if query_read_timeout is not None:
+            assert client._client.timeout.read_timeout == query_read_timeout
 
 
 class TestEventVolume(SimpleTestCase):

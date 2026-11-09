@@ -11,8 +11,8 @@ estimator decides what to do without it, so a missing statistic never fails a qu
 
 import math
 import time
-from collections.abc import Mapping
-from contextlib import AbstractContextManager
+from collections.abc import Iterator, Mapping
+from contextlib import AbstractContextManager, contextmanager
 from datetime import date, timedelta
 from functools import lru_cache
 from typing import Any, Protocol
@@ -21,6 +21,7 @@ from django.conf import settings
 from django.core.cache import cache
 
 import structlog
+from urllib3 import Timeout
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import (
@@ -75,6 +76,9 @@ LOOKUP_MIN_SECONDS = 0.5
 # Both drivers wait ten seconds for a connection by default, which alone is twice the budget when the offline
 # host drops connection attempts.
 LOOKUP_CONNECT_SECONDS = 1
+# An HTTP client runs a few small queries of its own when it is built. The driver truncates its timeouts to
+# whole seconds, so each of them waits at most this long, and the statistics query gets what is left.
+LOOKUP_HTTP_INIT_READ_SECONDS = 1
 # Event names beyond the most common ones are folded into one remainder, so a team that sends many distinct
 # names does not put a huge map through the cache on every query.
 EVENT_VOLUME_MAX_EVENTS = 5_000
@@ -163,15 +167,7 @@ def _lookup_client(team_id: int, timeout: float = LOOKUP_MAX_EXECUTION_SECONDS) 
     shared pools wait on the socket without limit. Built the way ``get_pool`` builds the shared one, so a
     file-backed user keeps its rotating token."""
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
-        kwargs = get_http_kwargs(workload=Workload.OFFLINE, team_id=team_id, readonly=True)
-        return get_http_client(
-            send_receive_timeout=timeout,
-            connect_timeout=min(LOOKUP_CONNECT_SECONDS, timeout),
-            # A retry would start a second wait after the first one used the budget.
-            query_retries=0,
-            pool_mgr=_lookup_http_pool_mgr(),
-            **kwargs,
-        )
+        return _http_lookup_client(team_id, timeout)
     kwargs = get_kwargs_for_client(workload=Workload.OFFLINE, team_id=team_id, readonly=True)
     # make_ch_pool caches one pool per distinct argument set for the life of the process. Whole seconds keep
     # the remaining budget to a few keys; a fractional timeout would leak a new pool on every lookup.
@@ -183,6 +179,25 @@ def _lookup_client(team_id: int, timeout: float = LOOKUP_MAX_EXECUTION_SECONDS) 
     else:
         pool = make_ch_pool(**timeouts, **kwargs)
     return pool.get_client()
+
+
+@contextmanager
+def _http_lookup_client(team_id: int, timeout: float) -> Iterator[Any]:
+    deadline = time.monotonic() + timeout
+    kwargs = get_http_kwargs(workload=Workload.OFFLINE, team_id=team_id, readonly=True)
+    with get_http_client(
+        send_receive_timeout=LOOKUP_HTTP_INIT_READ_SECONDS,
+        connect_timeout=LOOKUP_CONNECT_SECONDS,
+        # A retry would start a second wait after the first one used the budget.
+        query_retries=0,
+        pool_mgr=_lookup_http_pool_mgr(),
+        **kwargs,
+    ) as client:
+        remaining = deadline - time.monotonic()
+        if remaining < LOOKUP_MIN_SECONDS:
+            raise _LookupBudgetSpent
+        client._client.timeout = Timeout(connect=LOOKUP_CONNECT_SECONDS, read=remaining)
+        yield client
 
 
 class ClickHouseStatisticsProvider:
@@ -262,6 +277,8 @@ class ClickHouseStatisticsProvider:
                     readonly=True,
                     sync_client=_lookup_client(team_id, timeout),
                 )
+        except _LookupBudgetSpent:
+            return None
         except Exception:
             logger.warning("hogql_cost_table_rows_unavailable", team_id=team_id, table=table, exc_info=True)
             cache.set(cache_key, _NOTHING, timeout=LOOKUP_RETRY_SECONDS)
@@ -312,6 +329,8 @@ class ClickHouseStatisticsProvider:
                     readonly=True,
                     sync_client=_lookup_client(team_id, timeout),
                 )
+        except _LookupBudgetSpent:
+            return None
         except Exception:
             logger.warning("hogql_cost_daily_rows_unavailable", team_id=team_id, table=table, exc_info=True)
             cache.set(cache_key, _NOTHING, timeout=LOOKUP_RETRY_SECONDS)
@@ -338,7 +357,7 @@ class ClickHouseStatisticsProvider:
         try:
             volume = self._query_event_volume(team_id, timeout)
         except _LookupBudgetSpent:
-            # The event-name lookup never ran, so the team's statistics are unknown, not missing.
+            # A lookup that ran out of time never got an answer, so the statistics are unknown, not missing.
             return None
         if volume is None:
             cache.set(cache_key, _NOTHING, timeout=LOOKUP_RETRY_SECONDS)
@@ -431,7 +450,10 @@ class ClickHouseStatisticsProvider:
         timeout = self._lookup_seconds()
         if timeout is None:
             return None
-        distinct_values = self._query_property_ndv(team_id, property_name, timeout)
+        try:
+            distinct_values = self._query_property_ndv(team_id, property_name, timeout)
+        except _LookupBudgetSpent:
+            return None
         if distinct_values is None:
             cache.set(cache_key, _NOTHING, timeout=LOOKUP_RETRY_SECONDS)
         else:
@@ -470,6 +492,8 @@ class ClickHouseStatisticsProvider:
                     readonly=True,
                     sync_client=_lookup_client(team_id, timeout),
                 )
+        except _LookupBudgetSpent:
+            raise
         except Exception:
             logger.warning("hogql_cost_property_ndv_unavailable", team_id=team_id, exc_info=True)
             return None

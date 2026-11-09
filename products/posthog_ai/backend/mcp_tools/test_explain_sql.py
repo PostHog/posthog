@@ -1,13 +1,15 @@
 from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
+
+from posthog.schema import HogQLMetadataResponse, HogQLNotice
 
 from posthog.hogql.cost.statistics import EventVolume, FixedStatisticsProvider
 
 from products.posthog_ai.backend.mcp_tools.explain_sql import ExplainSQLMCPTool, ExplainSQLMCPToolArgs
 
-from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError, MaxToolTransientError
 
 
 class TestExplainSQLMCPTool(NonAtomicBaseTest):
@@ -121,3 +123,11 @@ class TestExplainSQLMCPTool(NonAtomicBaseTest):
             await self.tool.execute(ExplainSQLMCPToolArgs(query="SELECT count() FROM no_such_table"))
 
         assert "no_such_table" in str(raised.exception)
+
+    async def test_an_internal_validator_failure_is_a_service_error_not_invalid_sql(self):
+        response = HogQLMetadataResponse(
+            isValid=False, internalError=True, errors=[HogQLNotice(message="database down")], notices=[], warnings=[]
+        )
+        with patch.object(ExplainSQLMCPTool, "_metadata", new_callable=AsyncMock, return_value=response):
+            with self.assertRaises(MaxToolTransientError):
+                await self.tool.execute(ExplainSQLMCPToolArgs(query="SELECT 1"))
