@@ -43,6 +43,7 @@ export const QuillTaxonomicPopover = forwardRef<HTMLButtonElement, QuillTaxonomi
                         disabledReason={buttonProps.disabledReason || undefined}
                         tooltip={tooltip === undefined ? undefined : resolveTooltipTitle(tooltip)}
                         data-attr={buttonProps['data-attr']}
+                        data-attr-id={buttonProps['data-attr-id'] ?? buttonProps['data-attr']}
                         left={buttonProps.fullWidth}
                         className={cn('min-w-0', buttonProps.fullWidth && 'w-full', buttonProps.className)}
                     >
