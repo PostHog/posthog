@@ -153,7 +153,9 @@ class TestLLMGatewayTeamCommand(BaseTest):
         self.team.save()
         before_enabled = self.team.llm_gateway_enabled_at
         before_revoked = self.team.llm_gateway_revoked_at
-        with patch("posthog.management.commands.llm_gateway_team.update_team_llm_gateway_policy_cache") as mock_update:
+        with patch(
+            "products.ai_gateway.backend.management.commands.llm_gateway_team.update_team_llm_gateway_policy_cache"
+        ) as mock_update:
             out = self._run("refresh", str(self.team.id))
         self.team.refresh_from_db()
         mock_update.assert_called_once_with(self.team)
@@ -169,9 +171,14 @@ class TestLLMGatewayTeamProjectQuota(BaseTest):
         call_command("llm_gateway_team", *args, stdout=out)
         return out.getvalue()
 
-    @patch("posthog.management.commands.llm_gateway_team.project_team_quota", return_value=True)
-    @patch("posthog.management.commands.llm_gateway_team.get_team_quota_blob", return_value={"team_id": 1})
-    @patch("posthog.management.commands.llm_gateway_team.quota_blob_ttl_remaining", return_value=120)
+    @patch("products.ai_gateway.backend.management.commands.llm_gateway_team.project_team_quota", return_value=True)
+    @patch(
+        "products.ai_gateway.backend.management.commands.llm_gateway_team.get_team_quota_blob",
+        return_value={"team_id": 1},
+    )
+    @patch(
+        "products.ai_gateway.backend.management.commands.llm_gateway_team.quota_blob_ttl_remaining", return_value=120
+    )
     def test_project_quota_writes_and_prints_the_key(self, _ttl, _blob, project) -> None:
         out = self._run("project-quota", str(self.team.id))
         project.assert_called_once()
@@ -180,15 +187,17 @@ class TestLLMGatewayTeamProjectQuota(BaseTest):
         self.assertIn(f"cache/teams/{self.team.id}/team_metadata/llm_gateway_quota.json", out)
         self.assertIn("ttl_seconds: 120", out)
 
-    @patch("posthog.management.commands.llm_gateway_team.project_team_quota", return_value=False)
-    @patch("posthog.management.commands.llm_gateway_team.get_team_quota_blob", return_value=None)
-    @patch("posthog.management.commands.llm_gateway_team.quota_blob_ttl_remaining", return_value=None)
+    @patch("products.ai_gateway.backend.management.commands.llm_gateway_team.project_team_quota", return_value=False)
+    @patch("products.ai_gateway.backend.management.commands.llm_gateway_team.get_team_quota_blob", return_value=None)
+    @patch(
+        "products.ai_gateway.backend.management.commands.llm_gateway_team.quota_blob_ttl_remaining", return_value=None
+    )
     def test_project_quota_reports_a_cleared_team(self, _ttl, _blob, _project) -> None:
         out = self._run("project-quota", self.team.api_token)
         self.assertIn("project-quota cleared", out)
 
     @patch(
-        "posthog.management.commands.llm_gateway_team.reconcile_quota_projection",
+        "products.ai_gateway.backend.management.commands.llm_gateway_team.reconcile_quota_projection",
         return_value={"candidates": 3, "written": 2, "cleared": 0, "failed": 1},
     )
     def test_project_quota_all_reconciles(self, reconcile) -> None:
@@ -197,14 +206,14 @@ class TestLLMGatewayTeamProjectQuota(BaseTest):
         self.assertIn("'written': 2", out)
         self.assertIn("'failed': 1", out)
 
-    @patch("posthog.management.commands.llm_gateway_team.project_team_quota", return_value=None)
+    @patch("products.ai_gateway.backend.management.commands.llm_gateway_team.project_team_quota", return_value=None)
     def test_project_quota_failure_raises(self, _project) -> None:
         with self.assertRaisesMessage(CommandError, "project-quota failed"):
             self._run("project-quota", str(self.team.id))
 
     @parameterized.expand([("team",), ("all",)])
-    @patch("posthog.management.commands.llm_gateway_team.reconcile_quota_projection")
-    @patch("posthog.management.commands.llm_gateway_team.project_team_quota")
+    @patch("products.ai_gateway.backend.management.commands.llm_gateway_team.reconcile_quota_projection")
+    @patch("products.ai_gateway.backend.management.commands.llm_gateway_team.project_team_quota")
     def test_project_quota_refuses_without_gateway_redis(self, target, project, reconcile) -> None:
         args = ("--all",) if target == "all" else (str(self.team.id),)
         with override_settings(AI_GATEWAY_REDIS_URL=""), self.assertRaisesMessage(CommandError, "AI_GATEWAY_REDIS_URL"):
