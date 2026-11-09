@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Literal
 
 import structlog
@@ -502,6 +503,7 @@ ComputeSettlementOutcome = Literal[
     "retry",
     "attempts_exhausted",
     "contract_error",
+    "insufficient_credits",
     "deployment_error",
     "skipped",
 ]
@@ -517,7 +519,9 @@ def observe_compute_settlement(outcome: ComputeSettlementOutcome) -> None:
     COMPUTE_SETTLEMENTS_TOTAL.labels(outcome=outcome).inc()
 
 
-def push_compute_settlement_sweep_gauges(*, hogland_open_over_day: int, unsettled_over_hour: int) -> None:
+def push_compute_settlement_sweep_gauges(
+    *, hogland_open_over_day: int, unsettled_over_hour: int, parked_by_reason: Mapping[str, int]
+) -> None:
     with pushed_metrics_registry("tasks_compute_settlement") as registry:
         Gauge(
             "posthog_tasks_hogland_sandbox_sessions_open_over_day",
@@ -529,6 +533,14 @@ def push_compute_settlement_sweep_gauges(*, hogland_open_over_day: int, unsettle
             "Attributed sandbox sessions that ended more than an hour ago and are neither settled nor parked",
             registry=registry,
         ).set(unsettled_over_hour)
+        parked = Gauge(
+            "posthog_tasks_sandbox_sessions_parked",
+            "Sandbox sessions that are parked and not settled, by park reason",
+            labelnames=["reason"],
+            registry=registry,
+        )
+        for reason, rows in parked_by_reason.items():
+            parked.labels(reason=reason).set(rows)
 
 
 # scoped: "true" when the delivery's installation resolved to at least one team, so the

@@ -6,6 +6,7 @@ import posthoganalytics
 from drf_spectacular.extensions import OpenApiSerializerExtension
 from rest_framework import serializers
 
+from posthog.api.object_media_preview import visible_previews, with_preview_media
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
@@ -85,6 +86,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified_at",
             "verified_by",
             "hidden",
+            "scheduled_deletion_at",
             "enforcement_mode",
             "primary_property",
             # Action fields
@@ -107,6 +109,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "last_updated_at",
             "verified_at",
             "verified_by",
+            "scheduled_deletion_at",
             # Action fields
             "is_action",
             "action_id",
@@ -198,6 +201,10 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             validated_data["verified_by"] = None
             validated_data["verified_at"] = None
 
+        # Unhiding (directly or by verifying) cancels a scheduled delete, even if the event is hidden again later
+        if validated_data.get("hidden") is False:
+            validated_data["scheduled_deletion_at"] = None
+
         # Remove post_to_slack field - it exists on Action model but not EventDefinition
         validated_data.pop("post_to_slack", None)
 
@@ -247,9 +254,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
         if not obj.id:
             return []
-        previews = (
-            ObjectMediaPreview.objects.filter(event_definition_id=obj.id)
-            .select_related("uploaded_media", "exported_asset")
-            .order_by("-updated_at")
+        previews = with_preview_media(ObjectMediaPreview.objects.filter(event_definition_id=obj.id)).order_by(
+            "-updated_at"
         )
-        return [p.media_url for p in previews if p.media_url]
+        return [p.media_url for p in visible_previews(previews, self.context.get("view")) if p.media_url]

@@ -63,8 +63,7 @@ export function IOSSourceMapsInstructions(): JSX.Element {
                                 <code>POSTHOG_CLI_API_KEY</code>
                             </td>
                             <td className="py-2 px-2">
-                                <strong>Personal API key</strong> with <code>error_tracking:write</code> and{' '}
-                                <code>organization:read</code> scopes
+                                <strong>Personal API key</strong> with the <code>error_tracking:write</code> scope
                             </td>
                         </tr>
                     </tbody>

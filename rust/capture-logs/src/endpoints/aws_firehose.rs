@@ -871,7 +871,7 @@ mod tests {
         assert!(row.bytes_uncompressed.is_some());
         assert_eq!(decoded[1].0.severity_text, "warn");
         let old = &decoded[2].0;
-        assert!(old.attributes.contains_key("$originalTimestamp"));
+        assert!(old.attributes.contains_key("posthog.original_timestamp"));
         assert!(!old.attributes.contains_key("aws.log.event.id"));
     }
 

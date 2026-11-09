@@ -27,6 +27,8 @@ from pydantic.dataclasses import dataclass
 
 from posthog.integrations import IntegrationUsage
 
+from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
+
 # The request flag that confirms an edit of credentials that other sources or products also use.
 UPDATE_SHARED_CREDENTIALS_PARAM = "update_shared_credentials"
 
@@ -61,7 +63,8 @@ class UnusableCredentialsReferenceError(ValueError):
 class SharedCredentialsEdit(StrEnum):
     """What a write of a source's inputs does when other sources or products also use its credentials row."""
 
-    # Keep the shared row as it is. Internal writes use this, so they never change credentials of other users.
+    # The default of internal writes. The row is the only storage of the credentials, so a change to a shared row
+    # raises `SharedCredentialsError` as with REFUSE. A skipped write would lose the change.
     SKIP = "skip"
     # Raise `SharedCredentialsError`, so the API can ask the person for a confirmation.
     REFUSE = "refuse"
@@ -71,6 +74,23 @@ class SharedCredentialsEdit(StrEnum):
 
 class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
+
+
+HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE = (
+    "You need to be able to manage access to this table and its history table to copy its access rules."
+)
+
+
+class HistoryAccessRulesNotAllowedError(Exception):
+    """The user may not set the access rules of a table or of its history table."""
+
+
+class NoHistoryTableError(Exception):
+    """The table has no registered history table."""
+
+
+class HistoryTableDropRefusedError(Exception):
+    """A history table can't be dropped now. The message says why and can be shown to the user."""
 
 
 class UnreadableSourceInputsError(ValueError):
@@ -86,13 +106,14 @@ CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY = "connection_fields_stripped_typed_in"
 STRIPPED_STORE_KEYS: frozenset[str] = frozenset(
     {CONNECTION_FIELDS_STRIPPED_KEY, CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY}
 )
+DEAD_CREDENTIALS_CLEARED_KEY = "dead_credentials_cleared_at"
 
 SOURCE_CREDENTIALS_MISSING_ERROR = "The credentials of this source are missing or cannot be read"
 
 
 class SourceCredentialsMissingError(UnreadableSourceInputsError):
-    """The connection fields of a stripped source are not in its credentials row. `job_inputs` holds no copy,
-    so nothing can replace them: the user must enter the credentials again."""
+    """The credentials row or the reference column that a source needs is missing or unreadable. `job_inputs` is
+    never a copy of the credentials, so the user must enter the credentials again or reconnect the account."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -117,6 +138,16 @@ class ConfigValueError(ValueError):
     opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
     We name the field but never its value, so nothing a user typed reaches logs or error tracking.
     """
+
+
+@dataclass(frozen=True)
+class HistoryTableRef:
+    """A table's history table, as the table's access dialog shows it."""
+
+    id: UUID
+    # The name the history table is queried by in HogQL.
+    name: str
+    user_can_manage_access: bool
 
 
 @dataclass(frozen=True)
@@ -362,6 +393,14 @@ class ExternalDataJob:
 
 
 @dataclass(frozen=True)
+class TableLevelDescription:
+    """What a warehouse table represents. `source` is null for text from the source schema."""
+
+    text: str
+    source: WarehouseColumnAnnotationDescriptionSource | None
+
+
+@dataclass(frozen=True)
 class WarehouseColumnAnnotation:
     """A user/AI description attached to a warehouse table column."""
 
@@ -446,6 +485,76 @@ class UploadReadSettings:
 
     columns: dict[str, Any]
     allow_double_quotes: bool | None = None
+
+
+class WarehouseMigrationKeyRejectedError(ValueError):
+    """The vendor refused the API key."""
+
+
+class WarehouseMigrationVendorUnreachableError(ValueError):
+    """The vendor API could not be reached to check the API key."""
+
+
+class WarehouseMigrationBusyError(ValueError):
+    """The migration is already reading the vendor account."""
+
+
+class WarehouseMigrationItemClaimedError(ValueError):
+    """An apply has already claimed or finished this migration item."""
+
+
+class WarehouseMigrationUnknownItemsError(ValueError):
+    """Some item ids are not items of the migration."""
+
+    def __init__(self, item_ids: list[UUID]) -> None:
+        super().__init__(f"Not items of this migration: {', '.join(str(item_id) for item_id in item_ids)}.")
+        self.item_ids = item_ids
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationBulkSkip:
+    skipped_item_ids: list[UUID]
+    # Items an apply claimed or finished, which a skip never overwrites.
+    not_skipped_item_ids: list[UUID]
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationItemCounts:
+    as_is: int
+    caveats: int
+    unsupported: int
+    applied: int
+    skipped: int
+
+
+@dataclass(frozen=True)
+class WarehouseMigration:
+    """One import of a vendor account. The vendor key never leaves the product."""
+
+    id: UUID
+    provider: str
+    status: str
+    account_name: str
+    crawled_at: datetime | None
+    latest_error: str
+    created_at: datetime
+    item_counts: WarehouseMigrationItemCounts
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationItem:
+    id: UUID
+    migration_id: UUID
+    vendor_connection_id: str
+    vendor_service: str
+    name: str
+    verdict: str
+    caveats: list[str]
+    # The planned PostHog source as stored JSON, or None when the connection cannot move.
+    proposal: dict[str, Any] | None
+    status: str
+    external_data_source_id: UUID | None
+    error: str
 
 
 @dataclass(frozen=True)

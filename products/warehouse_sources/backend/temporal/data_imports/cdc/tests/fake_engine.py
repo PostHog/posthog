@@ -158,6 +158,9 @@ class FakeCDCAdapter:
     def position_to_seq(self, position_serialized: str) -> int:
         return int(position_serialized)
 
+    def current_position(self, conn: Any) -> str:
+        return _position(self._db.head)
+
     @contextmanager
     def management_connection(self, source: ExternalDataSource, connect_timeout: int = 15) -> Iterator[Any]:
         yield self._db

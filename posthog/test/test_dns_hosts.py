@@ -1,8 +1,10 @@
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.dns_hosts import detect_dns_host
+from posthog.dns_hosts import detect_dns_host, lookup_dns_host
 
 
 class TestDetectDnsHost(SimpleTestCase):
@@ -26,3 +28,17 @@ class TestDetectDnsHost(SimpleTestCase):
     def test_names_host_from_nameservers(self, nameservers: list[str], expected: str | None) -> None:
         host = detect_dns_host(nameservers)
         assert (host.name if host else None) == expected
+
+
+class TestOOBDomainGuard(SimpleTestCase):
+    # A host per case, because the lookup caches its answer per domain.
+    @parameterized.expand([("on_cloud", True, "cloud.oast.live"), ("off_cloud", False, "selfhosted.oast.live")])
+    def test_a_listed_domain_is_refused_on_cloud_only(self, _name: str, cloud: bool, domain: str) -> None:
+        with (
+            patch("posthog.dns_hosts.is_cloud", return_value=cloud),
+            patch("posthog.dns_hosts._nameservers", return_value=["ns-1.awsdns-01.org"]) as nameservers,
+        ):
+            host = lookup_dns_host(domain)
+
+        assert nameservers.called is not cloud
+        assert (host.name if host else None) == (None if cloud else "Route 53")

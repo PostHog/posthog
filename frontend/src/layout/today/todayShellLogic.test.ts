@@ -241,6 +241,21 @@ describe('todayShellLogic', () => {
         expect(logic.values.activePane).toBe('spaces')
     })
 
+    test.each([
+        ['/project/1/dashboard', 'products'],
+        ['/project/1/support/tickets', 'products'],
+        ['/project/1/persons', 'products'],
+        ['/project/1/person/ada%40example.com', 'people'],
+    ])('%s opened while the Products pane is open shows the %s pane', (pathname, pane) => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane('products')
+        router.actions.push('/project/1/airplane')
+        router.actions.push(pathname)
+        expect(logic.values.activePane).toBe(pane)
+    })
+
     it('sizes the left navigation from the clamped sidebar width, and from the rail alone when hidden', () => {
         const logic = todayShellLogic()
         logic.mount()

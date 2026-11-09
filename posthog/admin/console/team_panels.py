@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.db import IntegrityError, transaction
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
+from django.urls import reverse
 
 from posthog.admin.console.panels import Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.registry import console
@@ -57,10 +58,14 @@ class RemoteConfigPanel(Panel):
     owner = DEV_EXPERIENCE
 
     def facts(self, obj: Model) -> list[Fact]:
+        assert isinstance(obj, Team)
+        tool_url = reverse("admin_console_tool", kwargs={"tool_key": "remote-config-cache"})
         return [
             Fact(
                 label="Cache", value="SDKs read the team's config from this cache. It rebuilds when the config changes."
-            )
+            ),
+            Fact(label="Cache key", value=RemoteConfig.get_hypercache().get_cache_key(obj.api_token), mono=True),
+            Fact(label="Cached config", value="View the JSON", href=f"{tool_url}?team={obj.pk}"),
         ]
 
     def operations(self, obj: Model) -> list[Operation]:

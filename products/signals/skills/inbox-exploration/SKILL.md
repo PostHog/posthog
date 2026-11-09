@@ -8,7 +8,8 @@ description: >
   dismiss, or snooze a report, or wants to see which signal sources are configured. Also use before you
   investigate an error, bug, metric change, or support ticket in code, to find research the Inbox already did.
   Covers listing, filtering, drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
-  or semantic search are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`.
+  or semantic search are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`,
+  which starts from the stored personal ranking (`view=for_you`, `sort=personal`).
 ---
 
 # Exploring the Inbox
@@ -45,9 +46,11 @@ Without a `view`, `inbox-reports-list` returns reports from the whole project, n
 When the user says "my inbox", "my reports", or "what needs me", pass `view: "for_you"`.
 Use project scope only when the user asks for the whole project or the team's inbox.
 
-When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports"), use the
-**`prioritizing-my-inbox`** skill. It ranks reports by the user's activity summary, the ranking model, and
-what waits on them.
+When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports", "what should I
+look at today?"), use the **`prioritizing-my-inbox`** skill. Its first call is
+`{"view": "for_you", "sort": "personal", "limit": 10}`, which returns the user's stored personal ranking in one
+read. Check that the response's `ranker` is `personal` before you call the list personal, and do not pass
+`ordering` with it, because `ordering` replaces `sort`.
 
 For deeper investigation, hand off to other skills and tools:
 
@@ -188,9 +191,10 @@ Practical implications for triage:
   the code, (b) the suggested logins came from commit history and no org member has that
   GitHub account linked (a reviewer set by `user_uuid` doesn't have this problem), or (c) the
   source material wasn't tied to a specific repo / commits.
-- If the user asks "what should _I_ look at?", lead with `is_suggested_reviewer: true`
-  reports: these are the ones routed to the user as a likely owner. Mention the rest as a
-  secondary group rather than mixing them in.
+- If the user asks "what should _I_ look at?", use `prioritizing-my-inbox`. When no stored
+  personal ranking applies, lead with `is_suggested_reviewer: true` reports: these are the
+  ones routed to the user as a likely owner. Mention the rest as a secondary group rather
+  than mixing them in.
 - If the user has _no_ suggested reports but the inbox isn't empty, say so explicitly
   ("nothing in the inbox is tied to code you've authored recently") rather than pretending
   the top of the list is personalized.

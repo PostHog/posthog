@@ -57,7 +57,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
 )
-from products.signals.backend.report_urls import ReportLinkAction, ReportLinkSource, build_report_url
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_formatting import (
     first_sentence as _first_sentence,
@@ -71,7 +71,7 @@ from products.signals.backend.slack_notification_targets import is_slack_member_
 from products.signals.backend.slack_report_threads import record_report_slack_thread
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.typed_report_links import incoming_links
-from products.slack_app.backend.facade.api import slack_followup_invite
+from products.slack_app.backend.facade.api import slack_followup_invite, slack_report_implementation_button
 from products.tasks.backend.facade import api as tasks_facade
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
@@ -427,6 +427,7 @@ def _build_message_blocks(
     use_section_blocks: bool = False,
     priority: str | None = None,
     offer_implementation: bool = False,
+    slack_integration_id: int | None = None,
 ) -> tuple[list[dict], str]:
     title_line = _display_title(report.title)
     header_text = (
@@ -474,16 +475,8 @@ def _build_message_blocks(
         )
 
     action_elements: list[dict] = []
-    # A link, not an interactive button: the inbox runs its own access, quota and repository checks.
-    if offer_implementation:
-        action_elements.append(
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Implement", "emoji": True},
-                "style": "primary",
-                "url": build_report_url(report.team_id, report.id, ReportLinkSource.SLACK, ReportLinkAction.IMPLEMENT),
-            }
-        )
+    if offer_implementation and slack_integration_id is not None:
+        action_elements.append(slack_report_implementation_button(slack_integration_id))
     action_elements.append(
         {
             "type": "button",
@@ -664,6 +657,7 @@ def _deliver_route_notification(
             use_section_blocks=organization_inbox_slack_section_blocks_enabled(report.team.organization_id),
             priority=priority,
             offer_implementation=offer_implementation,
+            slack_integration_id=route.integration.id,
         )
         # Added here rather than inside the block builder, which stays free of the integration so it
         # can be tested without one. Approval is read now, not assumed from generation time: a

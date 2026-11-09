@@ -32,6 +32,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.slack_inbox_notifications import resolve_suggested_reviewer_user_ids
+from products.signals.backend.trial.funding import TrialFunding
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
 from products.tasks.backend.models import Task
@@ -148,6 +149,11 @@ class TestCustomAgentLogArtefacts(BaseTest):
         agent.register_artefact(NoteArtefact(note="first"))
 
         with (
+            # This queue test mocks persistence; pool connections cannot see its uncommitted fixtures.
+            patch(
+                "products.signals.backend.trial.direct_reports._report_funding",
+                return_value=TrialFunding(funding="existing"),
+            ),
             patch(
                 "products.signals.backend.custom_agent.base.create_custom_agent_ready_report",
                 return_value=PersistedCustomAgentReport(report_id=str(uuid.uuid4()), task_id=None),

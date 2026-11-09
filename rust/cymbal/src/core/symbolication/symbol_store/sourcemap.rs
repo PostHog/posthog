@@ -16,16 +16,19 @@ use reqwest::Url;
 use serde::Deserialize;
 use sourcemap::{DecodedMap, SourceMap};
 use sqlx::PgPool;
-use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter, SourcePosition};
+use symbolic::sourcemapcache::{
+    ScopeLookupResult, SourceLocation, SourceMapCache, SourceMapCacheWriter, SourcePosition,
+};
 use tracing::{debug, info, warn};
 
 use crate::{
     core::config::ResolverConfig,
     error::{JsResolveErr, ResolveError, UnhandledError},
     metric_consts::{
-        CHUNK_ID_RESCUED_FROM_BODY, SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND,
-        SOURCEMAP_EXTERNAL_BYTES, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND, SOURCEMAP_NOT_FOUND,
-        SOURCEMAP_PARSE, SYMBOL_SET_DECOMPRESSED_BYTES,
+        CHUNK_ID_RESCUED_FROM_BODY, DART2JS_LOOKBACK, SOURCEMAP_BODY_FETCHES,
+        SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_EXTERNAL_BYTES, SOURCEMAP_FETCH,
+        SOURCEMAP_HEADER_FOUND, SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE,
+        SYMBOL_SET_DECOMPRESSED_BYTES,
     },
 };
 
@@ -58,16 +61,17 @@ const MAX_REDIRECTS: usize = 10;
 /// Hostnames are passed through, to be vetted at connect time by whichever layer owns that:
 /// `PublicIPv4Resolver` normally, or the egress proxy when one is configured.
 ///
-/// An out-of-band interaction domain is logged on the way past. That check is detection only,
-/// and it sits above the escape hatch below so a probe is recorded whatever
-/// `allow_internal_ips` says.
+/// An out-of-band interaction domain is refused on the way past. That check sits above the
+/// escape hatch below, so a probe is stopped whatever `allow_internal_ips` says.
 fn ensure_fetchable_host(
     url: &Url,
     allow_internal_ips: bool,
     team_id: Option<i32>,
 ) -> Result<(), JsResolveErr> {
     if let Some(host) = url.host_str() {
-        common_dns::oob_domains::note_oob_domain(host, "cymbal_sourcemap", team_id);
+        if common_dns::oob_domains::check_oob_domain(host, "cymbal_sourcemap", team_id).is_some() {
+            return Err(JsResolveErr::BlockedUrl(url.to_string()));
+        }
     }
 
     if allow_internal_ips {
@@ -114,6 +118,8 @@ pub struct OwnedSourceMapCache {
     /// dart2js minified names mapping (minified -> original) for Flutter Web support.
     /// Parsed from the x_org_dartlang_dart2js.minified_names.global extension.
     dart_minified_names: Option<HashMap<String, String>>,
+    /// Column-only segments, which end the mapping before them. `Some` for every dart2js map.
+    dart2js_unmapped_segments: Option<Vec<SourcePosition>>,
     /// Decompressed byte count from the symbol_data container, used for cache memory accounting.
     decompressed_bytes: usize,
 }
@@ -128,6 +134,7 @@ impl OwnedSourceMapCache {
             data,
             ignored_source_ranges: Vec::new(),
             dart_minified_names: None,
+            dart2js_unmapped_segments: None,
             decompressed_bytes,
         })
     }
@@ -137,7 +144,15 @@ impl OwnedSourceMapCache {
         decompressed_bytes: usize,
     ) -> Result<Self, symbolic::sourcemapcache::SourceMapCacheWriterError> {
         let ignored_source_ranges = parse_ignored_source_ranges(&sam.sourcemap);
-        let dart_minified_names = parse_dart_minified_names(&sam.sourcemap);
+        let is_dart2js = sam.sourcemap.contains("\"x_org_dartlang_dart2js\"");
+        let (dart_minified_names, dart2js_unmapped_segments) = if is_dart2js {
+            (
+                parse_dart_minified_names(&sam.sourcemap),
+                Some(parse_unmapped_segments(&sam.sourcemap)),
+            )
+        } else {
+            (None, None)
+        };
 
         let mut data = Vec::with_capacity(sam.minified_source.len() + sam.sourcemap.len() + 16);
         let smcw = SourceMapCacheWriter::new(&sam.minified_source, &sam.sourcemap)?;
@@ -146,6 +161,7 @@ impl OwnedSourceMapCache {
             data,
             ignored_source_ranges,
             dart_minified_names,
+            dart2js_unmapped_segments,
             decompressed_bytes,
         })
     }
@@ -170,15 +186,90 @@ impl OwnedSourceMapCache {
     pub fn get_dart_minified_names(&self) -> Option<&HashMap<String, String>> {
         self.dart_minified_names.as_ref()
     }
+
+    /// For a dart2js frame that `lookup` missed: symbolic matches only the frame's own line, and
+    /// dart2js leaves many lines without a token (see also getsentry/symbolic#1110). The walk stops
+    /// at a column-only segment, and at a token whose scope name differs from the frame line's.
+    /// Only names compare, because the cache keeps no function ranges. Other maps keep the strict
+    /// match, so that a mismatched map gives no location instead of a wrong one.
+    pub fn dart2js_lookback<'a>(
+        &self,
+        smc: &'a SourceMapCache<'_>,
+        position: SourcePosition,
+    ) -> Option<SourceLocation<'a>> {
+        let unmapped_segments = self.dart2js_unmapped_segments.as_ref()?;
+        let last_unmapped_line = unmapped_segments
+            .partition_point(|segment| *segment <= position)
+            .checked_sub(1)
+            .map(|index| unmapped_segments[index].line);
+        let frame_line_scope = smc
+            .lookup(SourcePosition::new(position.line, u32::MAX))
+            .map(|location| location.scope());
+
+        let mut outcome = "no_mapping";
+        let mut found = None;
+        let first_line = position.line.saturating_sub(DART2JS_LOOKBACK_LINES);
+        for line in (first_line..position.line).rev() {
+            if last_unmapped_line.is_some_and(|unmapped| unmapped > line) {
+                outcome = "unmapped_segment";
+                break;
+            }
+            let Some(location) = smc.lookup(SourcePosition::new(line, u32::MAX)) else {
+                continue;
+            };
+            if frame_line_scope.is_some_and(|scope| scope != location.scope()) {
+                outcome = "other_scope";
+            } else {
+                outcome = match frame_line_scope {
+                    Some(ScopeLookupResult::NamedScope(_)) => "hit",
+                    _ => "hit_unscoped",
+                };
+                found = Some(location);
+            }
+            break;
+        }
+        metrics::counter!(DART2JS_LOOKBACK, "outcome" => outcome).increment(1);
+        found
+    }
+}
+
+// In the dart2js map from #76722, about 40% of the generated lines have no token. A longer walk
+// finds more frames, but each extra line is one more chance to pass the end of the previous method.
+const DART2JS_LOOKBACK_LINES: u32 = 5;
+
+fn parse_unmapped_segments(sourcemap: &str) -> Vec<SourcePosition> {
+    let Ok(decoded) = sourcemap::decode_slice(sourcemap.as_bytes()) else {
+        return Vec::new();
+    };
+    let unmapped_segments = |map: &SourceMap| {
+        map.tokens()
+            .filter(|token| !token.has_source())
+            .map(|token| SourcePosition::new(token.get_dst_line(), token.get_dst_col()))
+            .collect()
+    };
+    match decoded {
+        DecodedMap::Regular(map) => unmapped_segments(&map),
+        DecodedMap::Index(index) => index
+            .flatten()
+            .map(|map| unmapped_segments(&map))
+            .unwrap_or_default(),
+        DecodedMap::Hermes(map) => unmapped_segments(&map),
+    }
 }
 
 impl Countable for OwnedSourceMapCache {
     fn byte_count(&self) -> usize {
-        self.decompressed_bytes.saturating_add(
-            self.ignored_source_ranges
-                .capacity()
-                .saturating_mul(std::mem::size_of::<(SourcePosition, bool)>()),
-        )
+        let unmapped_segments = self
+            .dart2js_unmapped_segments
+            .as_ref()
+            .map_or(0, Vec::capacity);
+        self.decompressed_bytes
+            .saturating_add(
+                self.ignored_source_ranges
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<(SourcePosition, bool)>()),
+            )
+            .saturating_add(unmapped_segments.saturating_mul(std::mem::size_of::<SourcePosition>()))
     }
 }
 
@@ -204,14 +295,22 @@ pub(crate) mod test_support {
     }
 
     pub fn source_map_catalog() -> StaticSourceMapCatalog {
-        let sourcemap = r#"{"version":3,"file":"bundle.js","sources":["vendor.js","app.js"],"sourcesContent":["export function vendor() {}","export function app() {}"],"names":[],"mappings":"AAAA,UCAA","ignoreList":[0]}"#.to_string();
-        let decompressed_bytes = sourcemap.len();
+        source_map_catalog_from(
+            "function vendor(){} function app(){}",
+            r#"{"version":3,"file":"bundle.js","sources":["vendor.js","app.js"],"sourcesContent":["export function vendor() {}","export function app() {}"],"names":[],"mappings":"AAAA,UCAA","ignoreList":[0]}"#,
+        )
+    }
+
+    pub fn source_map_catalog_from(
+        minified_source: &str,
+        sourcemap: &str,
+    ) -> StaticSourceMapCatalog {
         let source_map = OwnedSourceMapCache::from_source_and_map(
             SourceAndMap {
-                minified_source: "function vendor(){} function app(){}".to_string(),
-                sourcemap,
+                minified_source: minified_source.to_string(),
+                sourcemap: sourcemap.to_string(),
             },
-            decompressed_bytes,
+            sourcemap.len(),
         )
         .unwrap();
         StaticSourceMapCatalog(Arc::new(source_map))
@@ -1409,7 +1508,7 @@ mod test {
     }
 
     #[test]
-    fn ensure_fetchable_host_logs_an_out_of_band_domain_and_still_fetches_it() {
+    fn ensure_fetchable_host_refuses_an_out_of_band_domain() {
         for (raw, host, listed) in [
             ("https://x.oast.live/app.js", "x.oast.live", true),
             // IDNA maps the fullwidth form onto the ascii name the resolver queries.
@@ -1430,9 +1529,10 @@ mod test {
                 // A redirect hop passes None, so both shapes have to render correctly.
                 for team_id in [Some(4242), None] {
                     let logs = capture_oob_logs(|| {
-                        assert!(
-                            ensure_fetchable_host(&url, allow_internal_ips, team_id).is_ok(),
-                            "detection must not refuse {raw}"
+                        assert_eq!(
+                            ensure_fetchable_host(&url, allow_internal_ips, team_id).is_err(),
+                            listed,
+                            "unexpected verdict for {raw}"
                         );
                     });
                     let seen = logs.contains("security.oob_domain_seen")

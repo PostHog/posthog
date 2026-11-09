@@ -1,11 +1,13 @@
 jest.unmock('lib/utils/concurrencyController')
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { promiseResolveReject } from 'lib/utils/async'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -705,6 +707,71 @@ describe('scoutTrialsLogic', () => {
         expect(logic.values.selectedComparison?.id).toBe(trialFixtureServerComparison.comparison_id)
         expect(logic.values.comparisonState.value).toEqual(trialFixtureServerComparison)
         expect(logic.values.trialView).toBe('detail')
+    })
+
+    it('opens the view in the URL, including an archived trial this browser has not loaded, and keeps the URL in step', async () => {
+        const scout = trialFixtureConfig.skill_name
+        const trial = trialFixtureServerComparison.comparison_id
+        const run = trialFixtureServerComparison.variants[1].launch_ids[0]
+        jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue({
+            ...trialFixtureServerComparison,
+            archived: true,
+        })
+        logic.unmount()
+        router.actions.push(urls.inboxScoutTrials(), { scout, trial, run })
+
+        logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        expect(logic.values.trialView).toBe('detail')
+        expect(logic.values.selectedComparison?.id).toBe(trial)
+        expect(logic.values.selectedLaunchId).toBe(run)
+        expect(router.values.searchParams).toEqual({ scout, trial, run })
+
+        await expectLogic(logic, () => logic.actions.selectResult(null)).toFinishAllListeners()
+        expect(router.values.searchParams).toEqual({ scout, trial })
+        await expectLogic(logic, () => logic.actions.newComparison()).toFinishAllListeners()
+        expect(router.values.searchParams).toEqual({ scout, view: 'setup' })
+        await expectLogic(logic, () => logic.actions.showTrialList()).toFinishAllListeners()
+        expect(router.values.searchParams).toEqual({ scout })
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.inboxScoutTrials(), { scout, view: 'setup' })
+        }).toFinishAllListeners()
+        expect(logic.values.trialView).toBe('setup')
+        await expectLogic(logic, () => {
+            router.actions.push(urls.inboxScoutTrials(), { scout, trial })
+        }).toFinishAllListeners()
+        expect(logic.values.trialView).toBe('detail')
+        expect(logic.values.selectedComparison?.id).toBe(trial)
+    })
+
+    test.each([
+        ['fails in a way a reload can retry', null],
+        ['is pending when the person goes back to the list', urls.inboxScoutTrials()],
+        ['is pending when the person leaves the page', urls.inbox()],
+    ])('keeps the URL when the lookup of a linked trial %s', async (_, destination) => {
+        const scout = trialFixtureConfig.skill_name
+        const lookup = promiseResolveReject<ScoutTrialComparisonApi>()
+        jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockReturnValue(lookup.promise)
+        logic.unmount()
+        router.actions.push(urls.inboxScoutTrials(), { scout, trial: trialFixtureServerComparison.comparison_id })
+
+        logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['openTrialsLink'])
+        if (destination) {
+            router.actions.push(destination, destination === urls.inboxScoutTrials() ? { scout } : {})
+            lookup.resolve(trialFixtureServerComparison)
+        } else {
+            lookup.reject(new ApiError('Server error', 500))
+        }
+        const location = { ...router.values.location }
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.trialView).toBe('list')
+        expect(router.values.location).toEqual(location)
     })
 
     it('keeps a trial visible if archiving fails, and does not archive an active trial', async () => {

@@ -386,9 +386,9 @@ export const searchLogic = kea<searchLogicType>([
     path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
     props({} as SearchLogicProps),
     key((props) => props.logicKey),
-    connect((props: SearchLogicProps) => ({
+    connect(() => ({
         values: [
-            searchListsLogic({ commandPalette: props.logicKey === 'command' }),
+            searchListsLogic({ commandPalette: false }),
             [
                 'starredItems',
                 'productsItems',
