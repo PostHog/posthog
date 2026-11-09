@@ -1138,6 +1138,28 @@ def forward_posthog_code_followup_activity(
         clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
         return handled
 
+    # Decided before any attachment is uploaded to the live run, so a handoff takes the files to the new run.
+    if _stop_run_for_runtime_handoff(
+        integration, slack, channel, thread_ts, task_run=task_run, override=model_override, actor_user=actor_user
+    ):
+        handled = _resume_task_with_new_run(
+            mapping,
+            task_run,
+            slack,
+            inputs,
+            channel,
+            thread_ts,
+            slack_user_id,
+            event_text,
+            user_message_ts,
+            actor_user=actor_user,
+            user_text_prefix=followup_user_text_prefix,
+            model_override=model_override,
+            runtime_handoff=True,
+        )
+        clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
+        return handled
+
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         collect_thread_messages,
         decode_slack_event_text,
@@ -1321,6 +1343,79 @@ def forward_posthog_code_followup_activity(
     # agent answers or overtakes its last question, so the buttons under it are stale.
     clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
     logger.info("posthog_code_followup_forwarded", channel=channel, thread_ts=thread_ts, task_run_id=str(task_run.id))
+    return True
+
+
+_RUNTIME_HANDOFF_CANCEL_SOURCE = "slack_runtime_handoff"
+
+
+def _stop_run_for_runtime_handoff(
+    integration: Any,
+    slack: Any,
+    channel: str,
+    thread_ts: str,
+    *,
+    task_run: Any,
+    override: SlackAppModelOverride | None,
+    actor_user: Any | None,
+) -> bool:
+    """Stop a live run so that a new run on the same task can use a model from the other runtime.
+
+    Returns True only when the live run is stopped or already finished. In every other case the
+    follow-up stays on the live run, and `_apply_followup_model_override` refuses the model as before.
+    Two runs that both answer the thread are worse than a refusal.
+    """
+    from products.slack_app.backend.facade.run_preferences import describe_run_model, resolve_live_run_override
+    from products.slack_app.backend.feature_flags import is_slack_app_runtime_handoff_enabled
+    from products.tasks.backend.facade import cancellation as tasks_cancellation
+
+    if override is None or not override.model:
+        return False
+    state = task_run.state or {}
+    try:
+        change = resolve_live_run_override(
+            override,
+            runtime_adapter=state.get("runtime_adapter"),
+            model=state.get("model"),
+            reasoning_effort=state.get("reasoning_effort"),
+        )
+    except Exception:
+        logger.exception("slack_app_runtime_handoff_resolve_failed", task_run_id=str(task_run.id))
+        return False
+    if not change.refused_model:
+        return False
+    if not is_slack_app_runtime_handoff_enabled(integration, actor_user.distinct_id if actor_user else None):
+        return False
+
+    try:
+        outcome, _ = tasks_cancellation.cancel_task_run(
+            task_run.id,
+            task_run.task_id,
+            task_run.team_id,
+            reason="Moved to another runtime",
+            source=_RUNTIME_HANDOFF_CANCEL_SOURCE,
+            requested_by_user_id=actor_user.id if actor_user else None,
+        )
+    except Exception:
+        logger.exception("slack_app_runtime_handoff_cancel_failed", task_run_id=str(task_run.id))
+        return False
+    if outcome not in ("accepted", "already_terminal"):
+        logger.warning("slack_app_runtime_handoff_cancel_refused", task_run_id=str(task_run.id), outcome=outcome)
+        return False
+
+    _post_thread_context(
+        slack,
+        channel,
+        thread_ts,
+        f"Moving this thread to {describe_run_model(change.refused_model, None)}. "
+        "A new agent starts with the conversation so far.",
+    )
+    logger.info(
+        "slack_app_runtime_handoff_started",
+        task_run_id=str(task_run.id),
+        from_runtime_adapter=state.get("runtime_adapter"),
+        to_model=change.refused_model,
+    )
     return True
 
 
@@ -1524,8 +1619,13 @@ def _resume_task_with_new_run(
     actor_user: Any | None = None,
     user_text_prefix: str | None = None,
     model_override: SlackAppModelOverride | None = None,
+    runtime_handoff: bool = False,
 ) -> bool:
-    """Create a new run on the same task when a follow-up arrives after the previous run completed."""
+    """Create a new run on the same task when a follow-up arrives after the previous run completed.
+
+    ``runtime_handoff`` marks a previous run that this follow-up stopped itself to change runtime. That
+    stop is not a failure or a user cancel, so the new run gets no recovery instructions for it.
+    """
     from products.signals.backend.facade import (
         report_tasks,  # noqa: PLC0415 - keeps the signals model graph off the webhook import path
     )
@@ -1611,8 +1711,8 @@ def _resume_task_with_new_run(
     extra_state["resume_from_run_id"] = str(previous_run.id)
 
     previous_pr_url = (previous_run.output or {}).get("pr_url")
-    recovery_strategy = _terminal_recovery_strategy(previous_run)
-    initial_prompt_override = _build_terminal_recovery_prompt(previous_run, user_text)
+    recovery_strategy = None if runtime_handoff else _terminal_recovery_strategy(previous_run)
+    initial_prompt_override = user_text if runtime_handoff else _build_terminal_recovery_prompt(previous_run, user_text)
     if create_pr and previous_pr_url:
         initial_prompt_override = (
             f"[CONTEXT: This task already has an open pull request: {previous_pr_url}\n"

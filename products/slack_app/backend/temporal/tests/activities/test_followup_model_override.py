@@ -16,6 +16,7 @@ from products.slack_app.backend.services.slack_settings import AIPreferences
 from products.slack_app.backend.temporal.activities.task_creation import (
     _apply_followup_model_override,
     _run_preference_state,
+    _stop_run_for_runtime_handoff,
 )
 from products.slack_app.backend.temporal.types import SlackAppModelOverride
 
@@ -44,7 +45,9 @@ def apply_config():
 
 
 def _run(state=None):
-    return SimpleNamespace(id="run-1", team_id=7, state=state if state is not None else dict(RUNNING_STATE))
+    return SimpleNamespace(
+        id="run-1", task_id="task-1", team_id=7, state=state if state is not None else dict(RUNNING_STATE)
+    )
 
 
 def _slack():
@@ -116,6 +119,58 @@ class TestApplyFollowupModelOverride:
         )
         apply_config.assert_not_called()
         slack.client.chat_postMessage.assert_not_called()
+
+
+class TestStopRunForRuntimeHandoff:
+    @pytest.mark.parametrize(
+        "override,flag_enabled,cancel_outcome,expected",
+        [
+            (SlackAppModelOverride(model="gpt-5.6-sol"), True, "accepted", True),
+            (SlackAppModelOverride(model="gpt-5.6-sol"), True, "already_terminal", True),
+            (SlackAppModelOverride(model="gpt-5.6-sol"), True, "unavailable", False),
+            (SlackAppModelOverride(model="gpt-5.6-sol"), False, "accepted", False),
+            (SlackAppModelOverride(model="claude-fable-5"), True, "accepted", False),
+            (SlackAppModelOverride(reasoning_effort="high"), True, "accepted", False),
+        ],
+        ids=[
+            "stopped",
+            "already_finished",
+            "workflow_unreachable",
+            "flag_off",
+            "same_runtime",
+            "effort_only",
+        ],
+    )
+    def test_hands_off_only_when_the_live_run_is_stopped(
+        self, catalogue, override, flag_enabled, cancel_outcome, expected
+    ):
+        slack = _slack()
+        with (
+            patch(
+                "products.slack_app.backend.feature_flags.is_slack_app_runtime_handoff_enabled",
+                return_value=flag_enabled,
+            ),
+            patch(
+                "products.tasks.backend.facade.cancellation.cancel_task_run",
+                return_value=(cancel_outcome, None),
+            ) as cancel,
+        ):
+            handed_off = _stop_run_for_runtime_handoff(
+                MagicMock(),
+                slack,
+                "C1",
+                "111.1",
+                task_run=_run(),
+                override=override,
+                actor_user=SimpleNamespace(id=42, distinct_id="user-42"),
+            )
+
+        assert handed_off is expected
+        if expected:
+            assert cancel.call_args.kwargs["source"] == "slack_runtime_handoff"
+            assert "*GPT-5.6 Sol*" in _posted_text(slack)
+        else:
+            slack.client.chat_postMessage.assert_not_called()
 
 
 class TestRunPreferenceState:
