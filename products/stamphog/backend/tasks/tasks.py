@@ -1958,11 +1958,13 @@ def silent_review_after_clean_external_review(
     error retries with backoff, because no webhook redelivery stands behind this call. A retry is
     safe: every check runs again, and the head dedupe collapses repeats into one run.
     """
-    repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
-    if repo_config is None:
-        logger.info("stamphog_silent_review_skipped", repository=repository, pr_number=pr_number, outcome="no_config")
-        return
     try:
+        repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
+        if repo_config is None:
+            logger.info(
+                "stamphog_silent_review_skipped", repository=repository, pr_number=pr_number, outcome="no_config"
+            )
+            return
         outcome = _queue_silent_review_at_head(repo_config, pr_number, head_sha)
     except GitHubRateLimitError as e:
         logger.warning("stamphog_silent_review_rate_limited", repository=repository, pr_number=pr_number)

@@ -2311,7 +2311,9 @@ def test_silent_review_posts_nothing_but_an_approval(
     # A clean external review starts this run without anybody asking stamphog, so only an approval may
     # reach the PR. Every other verdict is computed and stored, and its startup and terminal approval
     # sweeps still run, so an approval from an older head never outlives a withheld refusal.
-    _silent_repo_config(team.id)
+    repo_config = _silent_repo_config(team.id)
+    repo_config.routing_mode = RoutingMode.FALLBACK
+    repo_config.save()
     recorder = stamphog_chain.recorder
     head_sha = "sha160a"
     recorder.register_pr(REPO, 160, _silent_review_pr(160, head_sha, changed_files=len(files)), files)
@@ -2328,6 +2330,7 @@ def test_silent_review_posts_nothing_but_an_approval(
         patch.object(activities, "get_sandbox_class_for_backend", lambda backend: sandbox),
         patch.object(activities, "summarize_refusal") as summarize,
         patch.object(activities, "ph_background_capture", return_value=capture_fn),
+        patch(ROUTING_AFTER_VERDICT_DELAY) as routing_delay,
     ):
         silent_review_after_clean_external_review(team_id=team.id, repository=REPO, pr_number=160, head_sha=head_sha)
 
@@ -2337,6 +2340,7 @@ def test_silent_review_posts_nothing_but_an_approval(
     assert run.verdict_withheld is not approved
     assert (run.verdict_posted_at is not None) is approved
     summarize.assert_not_called()
+    assert routing_delay.called is approved
     # Dismissing a review also hides it as outdated, so both belong to the sweep.
     writes = [w["kind"] for w in recorder.github_writes if w["kind"] not in ("dismiss_review", "minimize_review")]
     assert writes == (["approve_review"] if approved else [])
