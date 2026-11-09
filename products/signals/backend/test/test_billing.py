@@ -166,6 +166,21 @@ class TestSignalsBilling(BaseTest):
         # 1 credit = $0.01, so $15 == 1500 credits.
         self.assertEqual(SIGNALS_CREDITS_PER_REPORT_WITH_PR, 1500)
 
+    def test_operator_run_does_not_charge_or_exempt_later_automatic_work(self) -> None:
+        report = self._report()
+        operator_run = self._pr_run(report, created_at=_at(10))
+        operator_run.state = {"self_driving_funding": {"funding": "operator", "policy_version": 1}}
+        operator_run.save(update_fields=["state"])
+        assert self._credits() == {}
+        assert first_billable_pr_run(report.id, team_id=self.team.id) is None
+
+        automatic_run = self._pr_run(report, created_at=_at(11))
+        assert self._credits() == {self.team.id: 1500}
+        assert (
+            first_billable_pr_run_at_by_report([report.id], team_id=self.team.id)[str(report.id)]
+            == automatic_run.created_at
+        )
+
     @parameterized.expand([(as_list, usage_billing) for as_list in (False, True) for usage_billing in (False, True)])
     def test_organization_filter_excludes_other_organizations(self, as_list: bool, usage_billing: bool) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
@@ -489,7 +504,7 @@ class TestSignalsBilling(BaseTest):
         index_sql, index_params = run_model.objects.filter(index.condition).order_by().query.sql_with_params()
         query_sql, query_params = _bridges_with_pr_run().query.sql_with_params()
         self.assertIn(index_sql.split(" WHERE ", 1)[1], query_sql)
-        self.assertTrue(set(index_params).issubset(query_params))
+        self.assertTrue(all(parameter in query_params for parameter in index_params))
 
 
 class TestBillingExemptions(BaseTest):
@@ -655,7 +670,7 @@ class TestSpendBasedBilling(BaseTest):
                 kind=kind,
                 signal_id=signal_id if signal_owned else None,
                 scout_run=scout,
-                report=None if signal_owned or scout else report,
+                report=None if signal_owned or scout or kind == SignalSpend.Kind.CUSTOM_AGENT else report,
                 task_run_id=(scout.task_run_id if scout else uuid4()) if kind != SignalSpend.Kind.AD_HOC else None,
                 spend=20,
                 usage_billing=True,
@@ -706,8 +721,8 @@ class TestSpendBasedBilling(BaseTest):
         assert dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END)) == {self.team.id: 1500}
         assert self._day(11) == {self.team.id: 20}
 
-    @parameterized.expand([("settling", False, 20), ("failed", True, 0)])
-    def test_only_settling_spend_in_current_billing_period_counts_towards_quota(
+    @parameterized.expand([("settling", False, 20), ("failed", True, 20)])
+    def test_known_running_spend_in_current_billing_period_counts_towards_quota(
         self, _name: str, failed: bool, expected_credits: int
     ) -> None:
         with time_machine.travel(_at(10), tick=False):

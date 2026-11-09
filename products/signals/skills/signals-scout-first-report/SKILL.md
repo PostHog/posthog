@@ -1,6 +1,7 @@
 ---
 name: signals-scout-first-report
 scout-display-name: First report
+scout-preserve-trial-model: true
 description: >
   Runs once after Self-driving activation to find one valuable, actionable finding
   in a project's existing product and warehouse data.
