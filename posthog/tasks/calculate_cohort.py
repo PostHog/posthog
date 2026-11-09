@@ -1004,10 +1004,13 @@ def _populate_static_cohort(
             return
         # NULL means append: the create path and workflows never claim, so they never write a mode.
         replacing = supports_replace and cohort.pending_population_mode == CohortPopulationMode.REPLACE
-        if replacing and ch_insert_done and replace_marker is not None:
+        if replace_marker is not None:
+            # A retry that carries a marker belongs to that replace, whatever the cohort runs now. If the cohort no
+            # longer runs it (a newer attempt minted another marker, the sweep ended the run, or a claim started a new
+            # one), it stops before touching is_calculating. Otherwise it would continue as an append and finalize
+            # under that run's token.
             marker = datetime.fromisoformat(replace_marker)
-            if not population_marker_is_current(cohort_id, marker):
-                # A newer attempt owns the cohort, including is_calculating, so this retry touches nothing.
+            if not (replacing and population_marker_is_current(cohort_id, marker)):
                 logger.info(f"{log_prefix}_superseded", cohort_id=cohort_id, team_id=team_id)
                 return
         team = Team.objects.get(pk=team_id)
@@ -1023,6 +1026,7 @@ def _populate_static_cohort(
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
         claimed = cohort
+        # The mode as first read, in case the refresh below raises and the finalize needs a token anyway.
         claimed_mode = cohort.pending_population_mode
         cohort.refresh_from_db()
         # The mode this attempt runs under is half of the token it finalizes with: a newer claim
