@@ -32,7 +32,7 @@ describe('todayProductsLogic', () => {
         ])
     })
 
-    it('lists every product of the current navigation, People pane products and Home included', () => {
+    it('lists every product of the current navigation but Home, People pane products included', () => {
         useMocks({ get: { '/api/projects/:team_id/file_system_shortcut/': { results: [] } } })
         initKeaTests()
         const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true }
@@ -41,10 +41,13 @@ describe('todayProductsLogic', () => {
         logic.mount()
 
         const hrefs = logic.values.products.map((item) => item.href)
-        expect(hrefs).toEqual(getNavProductItems(flags).map((item) => item.href))
+        expect(hrefs).toEqual(
+            getNavProductItems(flags)
+                .map((item) => item.href)
+                .filter((href) => href !== urls.projectRoot())
+        )
         expect(hrefs).toEqual(
             expect.arrayContaining([
-                urls.projectRoot(),
                 urls.persons(),
                 urls.customerAnalytics(),
                 urls.supportTickets(),

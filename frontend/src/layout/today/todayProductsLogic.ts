@@ -5,6 +5,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { urls } from 'scenes/urls'
 
 import {
     getNavProductItems,
@@ -146,12 +147,14 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
         ],
     }),
     selectors({
-        // The same list as the Products tab of the current navigation. Never drop a product because another rail pane
-        // also links to it: this list is where people go to find everything.
+        // The same list as the Products tab of the current navigation, less Home, which is the rail's Home item. Never
+        // drop a product because another rail pane also links to it: this list is where people go to find everything.
         products: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): FileSystemImport[] =>
-                getNavProductItems(featureFlags).filter((item) => !getProductAccessDisabledReason(item)),
+                getNavProductItems(featureFlags).filter(
+                    (item) => item.href !== urls.projectRoot() && !getProductAccessDisabledReason(item)
+                ),
         ],
         pinnedProducts: [
             (s) => [s.products, s.search],
