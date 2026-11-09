@@ -19,11 +19,12 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
+from products.tasks.backend.facade.profiles import TaskProfile, TaskSource
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
 from products.tasks.backend.logic.services.sandbox import SandboxResources
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import TaskRun
 
 if TYPE_CHECKING:
     from products.tasks.backend.logic.services.custom_prompt_internals import OutputFn
@@ -133,7 +134,12 @@ def _account_type_sort_key(row: IntegrationRecord) -> tuple[bool, str]:
 
 
 def resolve_team_github_integration(
-    team_id: int, team: Team | None = None, requester_user_id: int | None = None, team_only: bool = False
+    team_id: int,
+    team: Team | None = None,
+    requester_user_id: int | None = None,
+    team_only: bool = False,
+    *,
+    include_unavailable: bool = False,
 ) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team.
 
@@ -161,7 +167,10 @@ def resolve_team_github_integration(
             for row in IntegrationManager.github.oauth.list(team_id)
             # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
             # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
-            if row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+            if include_unavailable
+            or (
+                row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+            )
         ),
         # Prioritize orgs vs users (alphabetically), then oldest first. `list` is already oldest
         # first and `sorted` is stable.
@@ -274,6 +283,28 @@ def list_team_connected_repositories(team_id: int) -> list[str]:
     if github is None:
         return []
     return _list_candidate_repos(github, team_id, allow_refresh=False, exclude_archived=True)
+
+
+def team_repository_names(
+    team_id: int, *, team: Team | None = None, refresh_stale_snapshot: bool = True
+) -> dict[str, str] | None:
+    """The repositories the team's own GitHub installation can reach, keyed by lowercased `owner/repo`.
+
+    Each value keeps GitHub's casing, for display. Returns None when the team has no GitHub installation.
+    `team_only` because callers show these names to any project member and run work as the installation's
+    bot, so a member's personal connection must not answer for the team. Callers apply their own precedence
+    to pick one repository from the result.
+
+    With `refresh_stale_snapshot=False`, a stale snapshot is used as it is, and GitHub is called only when no
+    snapshot exists yet. A refresh lists every page of the installation inside the request.
+    """
+    github = resolve_team_github_integration(team_id, team=team, team_only=True)
+    if github is None:
+        return None
+    repositories = (
+        None if refresh_stale_snapshot else github.list_all_cached_repositories(max_repos=1000, allow_refresh=False)
+    ) or github.list_all_cached_repositories(max_repos=1000)
+    return {full_name.lower(): full_name for repo in repositories if (full_name := repo.get("full_name"))}
 
 
 def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
@@ -667,12 +698,12 @@ async def select_repository(
     user_id: int,
     context: str,
     *,
-    origin_product: Task.OriginProduct,
+    profile: TaskProfile,
     priority: Priority,
+    source: TaskSource | None = None,
     github: GitHubIntegrationBase | None = None,
     candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
-    signal_report_id: str | None = None,
     spend_signal_id: str | None = None,
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
@@ -821,11 +852,10 @@ async def select_repository(
             step_name=step_name,
             verbose=verbose,
             output_fn=output_fn,
-            origin_product=origin_product,
-            signal_report_id=signal_report_id,
+            profile=profile,
+            source=source,
             spend_signal_id=spend_signal_id,
             ai_stage="repo_selection",
-            internal=True,
             on_task_run_created=_session_created,
             fallback_from_text=_salvage,
             json_retry_prompt=REPO_SELECTION_JSON_RETRY_PROMPT,

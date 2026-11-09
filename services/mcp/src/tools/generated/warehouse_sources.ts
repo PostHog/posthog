@@ -266,6 +266,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
+        if (params.copy_access_rules_to_history !== undefined) {
+            body['copy_access_rules_to_history'] = params.copy_access_rules_to_history
+        }
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
         }

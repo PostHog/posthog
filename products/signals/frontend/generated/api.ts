@@ -12,6 +12,8 @@ import type {
     ActivitySummaryApi,
     ActivitySummarySearchResultApi,
     ActivitySummaryVersionApi,
+    AlertPatternPreviewRequestApi,
+    AlertPatternPreviewResponseApi,
     AnomalyInsightResponseApi,
     AnomalySearchResponseApi,
     CancelReportCheckRequestApi,
@@ -31,6 +33,7 @@ import type {
     InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
+    MonthlyUsageApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportCheckListApi,
@@ -95,6 +98,7 @@ import type {
     ScoutTrialSetupApi,
     ScoutTrialStartedApi,
     ScratchpadEntryApi,
+    SelfDrivingTrialStatusApi,
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
@@ -148,6 +152,7 @@ import type {
     SignalsActivitySummaryVersionsRetrieveParams,
     SignalsAnomaliesInsightRetrieveParams,
     SignalsAnomaliesSearchRetrieveParams,
+    SignalsMonthlyUsageParams,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportChecksListParams,
@@ -3392,6 +3397,27 @@ export const signalsSourceConfigsDestroy = async (
     })
 }
 
+export const getSignalsSourceConfigsAlertPatternPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/alert_pattern_preview/`
+}
+
+/**
+ * Check allow and block patterns for the product analytics source before saving them. Returns why each list would be rejected, and what the patterns do to the project's enabled alerts: which ones they let through and which ones they drop. Saves nothing.
+ * @summary Preview product analytics alert patterns
+ */
+export const signalsSourceConfigsAlertPatternPreviewCreate = async (
+    projectId: string,
+    alertPatternPreviewRequestApi?: AlertPatternPreviewRequestApi,
+    options?: RequestInit
+): Promise<AlertPatternPreviewResponseApi> => {
+    return apiMutator<AlertPatternPreviewResponseApi>(getSignalsSourceConfigsAlertPatternPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertPatternPreviewRequestApi),
+    })
+}
+
 export const getSignalsSourceSpendUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/source_spend/`
 }
@@ -3409,6 +3435,61 @@ export const getSignalsSpendOverviewUrl = (projectId: string) => {
 
 export const signalsSpendOverview = async (projectId: string, options?: RequestInit): Promise<SpendOverviewApi> => {
     return apiMutator<SpendOverviewApi>(getSignalsSpendOverviewUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsTrialListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/trial/`
+}
+
+export const signalsTrialList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SelfDrivingTrialStatusApi> => {
+    return apiMutator<SelfDrivingTrialStatusApi>(getSignalsTrialListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsTrialCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/trial/`
+}
+
+export const signalsTrialCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SelfDrivingTrialStatusApi> => {
+    return apiMutator<SelfDrivingTrialStatusApi>(getSignalsTrialCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSignalsMonthlyUsageUrl = (projectId: string, params?: SignalsMonthlyUsageParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/usage/`
+}
+
+export const signalsMonthlyUsage = async (
+    projectId: string,
+    params?: SignalsMonthlyUsageParams,
+    options?: RequestInit
+): Promise<MonthlyUsageApi> => {
+    return apiMutator<MonthlyUsageApi>(getSignalsMonthlyUsageUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

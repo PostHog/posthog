@@ -17,6 +17,8 @@ export type ChartTrackingContext = 'pin' | 'view' | 'fullscreen'
 /** `at` is the bucket start in epoch milliseconds, a plain number that worklets can read. `value` NaN = gap. */
 export interface ChartPoint {
     at: number
+    /** SQL category label, preserved verbatim instead of interpreting `at` as a date. */
+    label?: string
     value: number
 }
 
@@ -34,6 +36,11 @@ export interface ChartSeries {
     /** Use `seriesColor(index)` for the web's palette. A `compareOf` series always draws gray. */
     color: string
     points: ChartPoint[]
+    kind?: ChartKind
+    axis?: 'left' | 'right'
+    startAtZero?: boolean
+    area?: boolean
+    formatValue?: (value: number) => string
     /** Defaults to `dotted` for a `compareOf` series and `solid` otherwise. */
     style?: ChartSeriesStyle
     /**
@@ -51,6 +58,7 @@ export interface ChartTooltipRow {
     label: string
     color: string
     value: number
+    formattedValue?: string
     /** The previous period at the same bucket, when the chart has a compare series for this one. */
     previous?: { value: number; at: number }
 }
@@ -61,6 +69,7 @@ export interface ChartTooltipPoint {
     /** Start of the bucket, epoch milliseconds. */
     at: number
     interval: ChartInterval
+    label?: string
     /** Every visible current series with a value at this bucket, highest first. Not cut to the tooltip's four. */
     rows: ChartTooltipRow[]
     incomplete: boolean

@@ -5,6 +5,7 @@ import { withAppReloadBlocked } from '@/lib/appReload'
 import { isRecord } from '@/lib/records'
 
 import { BudgetExceededError, type BudgetFamily, budgetFamilyFor, trySpend } from './budget'
+import type { ProjectScope } from './reports'
 import { recordServerDate } from './serverClock'
 import { requestWithDeadline, transport } from './transport'
 
@@ -91,6 +92,22 @@ export function projectPath(path: string): string {
         throw new Error('No project selected')
     }
     return `/api/projects/${auth.projectId}/${path.replace(/^\//, '')}`
+}
+
+function hostKey(host: string): string {
+    return host.replace(/\/+$/, '').toLowerCase()
+}
+
+// The session's token works only on its own host, so a scope on another host throws.
+export function scopedPath(scope: ProjectScope | null, path: string): string {
+    const auth = requireAuth()
+    if (scope === null) {
+        throw new NotSignedInError()
+    }
+    if (hostKey(scope.host) !== hostKey(auth.host)) {
+        throw new Error('This project is in another region')
+    }
+    return `/api/projects/${scope.projectId}/${path.replace(/^\//, '')}`
 }
 
 export function buildQuery(query: Record<string, QueryValue> | undefined): string {

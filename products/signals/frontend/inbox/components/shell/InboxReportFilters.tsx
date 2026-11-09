@@ -3,34 +3,11 @@ import { useActions, useValues } from 'kea'
 import { IconCalendar } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import {
-    INBOX_CREATED_WINDOW_OPTIONS,
-    INBOX_PRIORITY_OPTIONS,
-    inboxPriorityFilterLabel,
-    PRIORITY_ACCENT,
-    PRIORITY_MEANING,
-} from '../../filterOptions'
+import { INBOX_CREATED_WINDOW_OPTIONS } from '../../filterOptions'
 import { InboxCreatedWindow, inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import { SignalReportPriority } from '../../types'
+import { InboxPriorityFilter } from './InboxPriorityFilter'
 import { InboxSourceFilter } from './InboxSourceFilter'
 import { InboxStateFilter } from './InboxStateFilter'
-
-const ALL_PRIORITIES = null
-
-const PRIORITY_SELECT_OPTIONS = [
-    { value: ALL_PRIORITIES, label: 'All priorities' },
-    ...INBOX_PRIORITY_OPTIONS.map((priority) => ({
-        value: priority,
-        label: `${priority} · ${PRIORITY_MEANING[priority].label}`,
-        icon: (
-            <span
-                className="size-2 rounded-full"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ backgroundColor: PRIORITY_ACCENT[priority] }}
-            />
-        ),
-    })),
-]
 
 const ANY_TIME = null
 const CREATED_WINDOW_SELECT_OPTIONS: { value: InboxCreatedWindow | null; label: string }[] = [
@@ -62,8 +39,8 @@ function PanelField({ label, children }: { label: string; children: JSX.Element 
  * and scope picks whose inbox this is, so both sit after a divider at the end of the row.
  */
 export function InboxReportFilters({ layout = 'row' }: { layout?: 'row' | 'panel' }): JSX.Element {
-    const { priorityFilter, timeWindowAvailable, createdWindow, sourceFilterAvailable } = useValues(inboxFiltersLogic)
-    const { setPriorityFilter, setCreatedWindow } = useActions(inboxFiltersLogic)
+    const { timeWindowAvailable, createdWindow, sourceFilterAvailable } = useValues(inboxFiltersLogic)
+    const { setCreatedWindow } = useActions(inboxFiltersLogic)
     const panel = layout === 'panel'
     const field = (label: string, control: JSX.Element): JSX.Element =>
         panel ? <PanelField label={label}>{control}</PanelField> : control
@@ -71,19 +48,7 @@ export function InboxReportFilters({ layout = 'row' }: { layout?: 'row' | 'panel
     return (
         <div className={panel ? 'flex flex-col gap-2' : 'flex flex-wrap items-center gap-2'}>
             {field('Status', <InboxStateFilter />)}
-            {field(
-                'Priority',
-                <LemonSelect
-                    size="small"
-                    value={priorityFilter.length === 1 ? priorityFilter[0] : ALL_PRIORITIES}
-                    onChange={(priority) => setPriorityFilter(priority ? [priority as SignalReportPriority] : [])}
-                    options={PRIORITY_SELECT_OPTIONS}
-                    // A shared link can carry several priorities, which no single option represents.
-                    // Read the selection out of the filter itself so the button never understates it.
-                    renderButtonContent={() => inboxPriorityFilterLabel(priorityFilter)}
-                    data-attr="inbox-filter-priority"
-                />
-            )}
+            {field('Priority', <InboxPriorityFilter />)}
             {timeWindowAvailable &&
                 field(
                     'Created',

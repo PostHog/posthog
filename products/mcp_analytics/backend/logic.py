@@ -1,6 +1,7 @@
 import json
 import hashlib
 import dataclasses
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -37,7 +38,9 @@ from products.mcp_analytics.backend.constants import (
     MCP_MISSING_CAPABILITY_EVENT,
     MCP_TOOL_CALL_EVENT,
 )
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.facade import contracts, enums
+from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.hogql_queries.base import shared_filter_exprs
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
@@ -56,7 +59,17 @@ SELECT
     toString(properties.$mcp_intent) AS intent,
     toString(properties.$mcp_is_error) AS is_error_raw,
     toString(properties.$mcp_error_message) AS error_message,
-    toString(properties.$mcp_duration_ms) AS duration_ms_raw
+    toString(properties.$mcp_duration_ms) AS duration_ms_raw,
+    JSONExtractRaw(properties, '$mcp_parameters') AS parameters,
+    JSONExtractRaw(properties, '$mcp_response') AS response,
+    toString(properties.$mcp_error_type) AS error_type,
+    toString(properties.$mcp_error_status) AS error_status,
+    toString(properties.$mcp_exec_verb) AS exec_verb,
+    toString(properties.$mcp_exec_target_tool) AS exec_target_tool,
+    JSONExtractRaw(properties, '$mcp_input_keys') AS input_keys,
+    toString(properties.$mcp_error_code) AS error_code,
+    toString(properties.$mcp_error_field) AS error_field,
+    toString(properties.$mcp_llm_model) AS llm_model
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
@@ -534,7 +547,9 @@ ACTIVITY_TOP_TOOLS_LIMIT = 5
 ACTIVITY_CLIENTS_LIMIT = 6
 ACTIVITY_RECENT_CALLS_LIMIT = 20
 
-_ACTIVITY_STATS_SQL = f"""
+
+def _activity_stats_sql(custom_rules: Sequence[CustomHarnessRule]) -> str:
+    return f"""
 SELECT
     count() AS total_calls,
     uniq(tool) AS distinct_tools,
@@ -544,7 +559,7 @@ SELECT
     -- mean Codex), which the Clients card folds into one row, so counting tokens would
     -- put "2 clients" next to a one-row card. The raw `$mcp_client_name` is absent from
     -- every non-initialize call and cannot be counted here at all.
-    uniqIf({mcp_harness.harness_label_or_token_sql("h")}, h != '') AS distinct_clients,
+    uniqIf({mcp_harness.harness_label_or_token_sql("h", custom_rules=custom_rules)}, h != '') AS distinct_clients,
     countIf(has_intent) AS calls_with_intent,
     countIf(is_error) AS error_calls
 FROM (
@@ -560,6 +575,7 @@ FROM (
         AND {{shared_filters}}
 )
 """
+
 
 _ACTIVITY_MISSING_CAPABILITY_SQL = """
 SELECT count()
@@ -581,6 +597,7 @@ ORDER BY calls DESC
 LIMIT {limit}
 """
 
+
 # Resolved through the canonical classifier rather than the raw `$mcp_client_name`,
 # which is absent on any call that isn't the session's `initialize` — reading it alone
 # left the large majority of calls unattributed and lumped whole clients under one
@@ -589,9 +606,10 @@ LIMIT {limit}
 # (differing case, or a name carrying mcp-remote's proxy signature) into a single row.
 # Unrecognized clients are named verbatim: this is a ranked top-N list, so a
 # self-reported name is more use than collapsing it into "Other".
-_ACTIVITY_CLIENTS_SQL = f"""
+def _activity_clients_sql(custom_rules: Sequence[CustomHarnessRule]) -> str:
+    return f"""
 SELECT
-    {mcp_harness.harness_label_or_token_sql("h")} AS client,
+    {mcp_harness.harness_label_or_token_sql("h", custom_rules=custom_rules)} AS client,
     count() AS calls
 FROM (
     SELECT
@@ -606,7 +624,9 @@ ORDER BY calls DESC
 LIMIT {{limit}}
 """
 
-_ACTIVITY_RECENT_CALLS_SQL = f"""
+
+def _activity_recent_calls_sql(custom_rules: Sequence[CustomHarnessRule]) -> str:
+    return f"""
 SELECT
     timestamp,
     tool,
@@ -615,7 +635,7 @@ SELECT
     error_raw,
     duration_ms,
     -- Resolved, not raw: the live feed showed a blank caller on most rows otherwise.
-    {mcp_harness.harness_label_or_token_sql("h")} AS client_name
+    {mcp_harness.harness_label_or_token_sql("h", custom_rules=custom_rules)} AS client_name
 FROM (
     SELECT
         timestamp,
@@ -797,6 +817,7 @@ def _query_activity_overview(
     # Building the database costs more Python time than most of these queries spend in
     # ClickHouse, and the threads share the GIL, so build it once for all five.
     database = _shared_activity_database(team, user)
+    rules = custom_harness_rules(team)
 
     def run_query(spec: tuple[str, str, object]) -> list[Any]:
         assert isinstance(spec[2], dict)
@@ -808,7 +829,7 @@ def _query_activity_overview(
         run_query,
         [
             (
-                _ACTIVITY_STATS_SQL,
+                _activity_stats_sql(rules),
                 "mcp_analytics_activity_stats",
                 {
                     "tool_call_event": tool_call_event,
@@ -834,7 +855,7 @@ def _query_activity_overview(
                 },
             ),
             (
-                _ACTIVITY_CLIENTS_SQL,
+                _activity_clients_sql(rules),
                 "mcp_analytics_activity_clients",
                 {
                     "tool_call_event": tool_call_event,
@@ -843,7 +864,7 @@ def _query_activity_overview(
                 },
             ),
             (
-                _ACTIVITY_RECENT_CALLS_SQL,
+                _activity_recent_calls_sql(rules),
                 "mcp_analytics_activity_recent_calls",
                 {
                     "tool_call_event": tool_call_event,
@@ -986,10 +1007,32 @@ def list_mcp_tool_calls(
             is_error=str(row[4]).lower() in ("true", "1"),
             error_message=row[5] or "",
             duration_ms=_parse_int(row[6]),
+            parameters=row[7] or "",
+            response=row[8] or "",
+            error_type=row[9] or "",
+            error_status=row[10] or "",
+            exec_verb=row[11] or "",
+            exec_target_tool=row[12] or "",
+            input_keys=_string_list(row[13]),
+            error_code=row[14] or "",
+            error_field=row[15] or "",
+            llm_model=row[16] or "",
         )
         for row in rows[:limit]
     ]
     return contracts.MCPToolCallsPage(results=results, has_next=has_next)
+
+
+def _string_list(raw: str | None) -> list[str]:
+    # Event properties are client-supplied, so a malformed or hostile value reads as no keys.
+    try:
+        value = json.loads(raw) if raw else []
+    except (ValueError, RecursionError):
+        return []
+    if not isinstance(value, list):
+        return []
+    # isprintable() also drops lone surrogates, which the JSON renderer cannot encode.
+    return [item for item in value if isinstance(item, str) and item.strip() and item.isprintable()]
 
 
 def _parse_int(value: str | int | None) -> int | None:
