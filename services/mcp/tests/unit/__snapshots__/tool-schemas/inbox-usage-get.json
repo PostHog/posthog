@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "month": {
+            "description": "UTC calendar month in YYYY-MM format, from 2026-10 onward. Defaults to the current month. Usage is grouped by finalization time.",
+            "minLength": 1,
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

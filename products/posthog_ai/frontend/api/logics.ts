@@ -62,9 +62,10 @@ export type { UseComposerOverrideOptions } from '../hooks/useComposerOverride'
 export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 
 // --- User-picked context (the composer's @-affordance, headless half) ---
-// `contextPickerLogic` owns explicit user picks and registers them as the `user-picker` provider;
-// the `AttachedContextBar` component (Tier 2 `api/primitives`) is its prepackaged UI.
-export { contextPickerLogic, taxonomicItemToAttachedContext, PICKER_PROVIDER_ID } from '../logics/contextPickerLogic'
+// `contextPickerLogic` turns a selection into a pick, and `chatContextLogic` combines picks with the rest of a
+// chat's context; the `AttachedContextBar` component (Tier 2 `api/primitives`) is the prepackaged UI.
+export { chatContextLogic, chatSendItems } from '../logics/chatContextLogic'
+export { contextPickerLogic, taxonomicItemToAttachedContext } from '../logics/contextPickerLogic'
 export type { PickableTaxonomicItem } from '../logics/contextPickerLogic'
 
 // --- Tool-stream event bus + subscription hook (headless) ---

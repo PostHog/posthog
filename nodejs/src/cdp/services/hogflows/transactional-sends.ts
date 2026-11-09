@@ -32,6 +32,7 @@ import {
     TransactionalEmailStageTimer,
     TransactionalSendRefusal,
     decodeAttachments,
+    fieldNotAcceptedError,
     queuedSend,
     transactionalEmailRecipients,
 } from './transactional-email'
@@ -113,11 +114,13 @@ export type TransactionalSendsDeps = {
     emailValidation: EmailValidationService
     quotaLimiting: QuotaLimiting
     emailAttachments: Pick<EmailAttachmentsService, 'store'>
+    attachmentsEnabled: boolean
 }
 
 export type TransactionalSendResult =
     | { outcome: 'queued' | 'replayed'; invocationId: string; scheduledAt: string | null }
     | { outcome: TransactionalSendRefusal }
+    | { outcome: 'invalid_request'; error: string }
 
 export class TransactionalSends {
     constructor(private readonly deps: TransactionalSendsDeps) {}
@@ -167,6 +170,14 @@ export class TransactionalSends {
             invocation.state.scheduledAt = scheduledAt.toISOString()
         }
         try {
+            // After the idempotency check, so a retry of a send accepted with files still gets its answer.
+            if (request.send?.attachments !== undefined && !this.deps.attachmentsEnabled) {
+                if (idempotencyKey) {
+                    stages.start('idempotency')
+                    await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                }
+                return { outcome: 'invalid_request', error: fieldNotAcceptedError('attachments') }
+            }
             stages.start('checks')
             const refusal = tooFarAhead
                 ? 'invalid_scheduled_at'

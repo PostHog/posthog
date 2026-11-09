@@ -2,12 +2,18 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/spf13/viper"
 )
@@ -94,6 +100,7 @@ func (r *PropertyRestrictions) RestrictsGeo() bool {
 }
 
 type authorizationResponse struct {
+	IPRestrictions             [][]string          `json:"ip_restrictions"`
 	RestrictedEventProperties  []string            `json:"restricted_event_properties"`
 	RestrictedPersonProperties []string            `json:"restricted_person_properties"`
 	RestrictedGroupProperties  map[string][]string `json:"restricted_group_properties"`
@@ -111,7 +118,7 @@ func toSet(keys []string) map[string]struct{} {
 }
 
 // Fails closed: anything other than an explicit allow or refusal is reported as unavailable.
-func CheckAccess(ctx context.Context, header http.Header) (*PropertyRestrictions, error) {
+func CheckAccess(ctx context.Context, viewerRequest *http.Request) (*PropertyRestrictions, error) {
 	url := viper.GetString("jwt.authorization_url")
 	if url == "" {
 		return nil, nil
@@ -120,9 +127,17 @@ func CheckAccess(ctx context.Context, header http.Header) (*PropertyRestrictions
 	if err != nil {
 		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
 	}
-	request.Header.Set("Authorization", header.Get("Authorization"))
+	request.Header.Set("Authorization", viewerRequest.Header.Get("Authorization"))
 	// Django answers 204 to a client that does not ask for JSON, so an older service keeps working.
 	request.Header.Set("Accept", "application/json")
+	request.Header.Set("X-PostHog-Livestream-IP-Policy", "1")
+	serviceToken, err := mintPolicyAccessToken(viewerRequest.Header)
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
+	}
+	if serviceToken != "" {
+		request.Header.Set("X-PostHog-Livestream-Service-Token", serviceToken)
+	}
 	response, err := authorizationClient.Do(request)
 	if err != nil {
 		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
@@ -136,6 +151,9 @@ func CheckAccess(ctx context.Context, header http.Header) (*PropertyRestrictions
 		var payload authorizationResponse
 		if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil {
 			return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
+		}
+		if err := enforceIPRestrictions(viewerRequest, payload.IPRestrictions); err != nil {
+			return nil, err
 		}
 		var groups map[string]map[string]struct{}
 		for groupType, keys := range payload.RestrictedGroupProperties {
@@ -159,4 +177,100 @@ func CheckAccess(ctx context.Context, header http.Header) (*PropertyRestrictions
 	default:
 		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
 	}
+}
+
+func settingValues(name string) []string {
+	var values []string
+	for _, entry := range viper.GetStringSlice(name) {
+		for _, value := range strings.Split(entry, ",") {
+			if value = strings.TrimSpace(value); value != "" {
+				values = append(values, value)
+			}
+		}
+	}
+	return values
+}
+
+func mintPolicyAccessToken(header http.Header) (string, error) {
+	keys := settingValues("jwt.authorization_signing_keys")
+	if len(keys) == 0 {
+		return "", nil
+	}
+	claims, err := ParseAuthClaims(header)
+	if err != nil {
+		return "", err
+	}
+	viewerHash := sha256.Sum256([]byte(header.Get("Authorization")))
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"aud":                 "posthog:livestream:authorization",
+		"exp":                 time.Now().Add(time.Minute).Unix(),
+		"team_id":             claims.TeamID,
+		"operation":           "read_ip_policy",
+		"viewer_token_sha256": hex.EncodeToString(viewerHash[:]),
+	})
+	return token.SignedString([]byte(keys[0]))
+}
+
+func viewerIPExtractor() (echo.IPExtractor, error) {
+	if !viper.GetBool("is_behind_proxy") {
+		return echo.ExtractIPDirect(), nil
+	}
+	if viper.GetBool("trust_all_proxies") {
+		return func(request *http.Request) string {
+			for _, value := range strings.Split(strings.Join(request.Header.Values(echo.HeaderXForwardedFor), ","), ",") {
+				value = strings.TrimSpace(value)
+				if value == "" {
+					continue
+				}
+				if host, _, err := net.SplitHostPort(value); err == nil {
+					return host
+				}
+				return strings.TrimPrefix(strings.TrimSuffix(value, "]"), "[")
+			}
+			return echo.ExtractIPDirect()(request)
+		}, nil
+	}
+	options := []echo.TrustOption{
+		echo.TrustPrivateNet(false), echo.TrustLoopback(false), echo.TrustLinkLocal(false),
+	}
+	for _, cidr := range settingValues("trusted_proxies") {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid trusted proxy CIDR: %w", err)
+		}
+		options = append(options, echo.TrustIPRange(network))
+	}
+	return echo.ExtractIPFromXFFHeader(options...), nil
+}
+
+func enforceIPRestrictions(request *http.Request, policies [][]string) error {
+	if len(policies) == 0 {
+		return nil
+	}
+	extractor, err := viewerIPExtractor()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
+	}
+	viewerIP, err := netip.ParseAddr(extractor(request))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, "live stream access denied")
+	}
+	for _, rules := range policies {
+		allowed := len(rules) == 0
+		for _, rule := range rules {
+			prefix, err := netip.ParsePrefix(rule)
+			if err != nil {
+				address, addressErr := netip.ParseAddr(rule)
+				if addressErr != nil {
+					return echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
+				}
+				prefix = netip.PrefixFrom(address, address.BitLen())
+			}
+			allowed = allowed || prefix.Contains(viewerIP)
+		}
+		if !allowed {
+			return echo.NewHTTPError(http.StatusUnauthorized, "live stream access denied")
+		}
+	}
+	return nil
 }

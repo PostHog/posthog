@@ -16,6 +16,7 @@ import requests
 import structlog
 from prometheus_client import Counter, Histogram
 
+from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
@@ -229,8 +230,8 @@ def sender_address_error(team_id: int, sender: dict[str, Any]) -> str | None:
         config = IntegrationManager.email.credentials.get(team_id, integration_id).config or {}
     except IntegrationNotFound:
         config = {}
-    domain = (config.get("domain") or (config.get("email") or "").partition("@")[2]).lower()
-    if domain and address.partition("@")[2].lower() != domain:
+    domain = (config.get("domain") or email_domain(config.get("email") or "") or "").lower()
+    if domain and (email_domain(address) or "").lower() != domain:
         return f"Use an address on {domain}, the domain this sender is verified for."
     return None
 

@@ -2398,6 +2398,7 @@ describe('experimentLogic', () => {
             evidence,
             actions: [],
             diagnostic_ref: null,
+            check: 'flag_state',
         })
 
         const flag = (

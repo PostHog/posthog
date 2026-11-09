@@ -141,7 +141,6 @@ class _MigrationTest(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         patches = [
-            patch(f"{MODULE}.source_feature_flag_missing", return_value=False),
             patch(f"{MODULE}.delete_external_data_schedule"),
             # The location check resolves the bucket host, and these example buckets don't exist.
             patch.object(source_base, "validate_warehouse_table_url_pattern", return_value=(True, "")),
@@ -149,7 +148,7 @@ class _MigrationTest(BaseTest):
         mocks = [p.start() for p in patches]
         for p in patches:
             self.addCleanup(p.stop)
-        self.flag_missing, self.delete_schedule, _ = mocks
+        self.delete_schedule, _ = mocks
         self.credential = self._credential("AKIAFIRST")
 
     def _credential(self, access_key: str, access_secret: str = "c2VjcmV0") -> DataWarehouseCredential:
@@ -485,16 +484,6 @@ class TestSelfManagedMigration(_MigrationTest):
         assert outcome.status.state == TableMigrationState.SKIPPED
         assert reason in (outcome.status.reason or "")
         assert outcome.action == "none"
-        assert not ExternalDataSchema.objects.filter(team=self.team).exists()
-
-    def test_teams_without_the_flag_are_skipped(self) -> None:
-        self.flag_missing.return_value = True
-        self._table()
-
-        [outcome] = self._migrate()
-
-        assert outcome.status.state == TableMigrationState.SKIPPED
-        assert "dwh-object-storage-sources" in (outcome.status.reason or "")
         assert not ExternalDataSchema.objects.filter(team=self.team).exists()
 
     def test_status_reports_every_state(self) -> None:
@@ -1004,7 +993,6 @@ class TestDeletingAMigrationSchema(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         patches = [
-            patch(f"{MODULE}.source_feature_flag_missing", return_value=False),
             patch.object(source_base, "validate_warehouse_table_url_pattern", return_value=(True, "")),
             patch(f"{SOURCE_VIEWS}.base.bulk_delete_external_data_schedules", return_value=[]),
             patch(f"{SOURCE_VIEWS}.base.delete_external_data_schedule"),
@@ -1224,23 +1212,13 @@ class TestUploadedTableMigration(_MigrationTest):
         assert merge_duplicate_sources(team_id=self.team.pk, live_run=True) == []
         assert ExternalDataSource.objects.filter(team=self.team, deleted=False).count() == 2
 
-    def test_teams_without_the_flag_keep_their_uploaded_tables(self) -> None:
-        self.flag_missing.return_value = True
-        self._uploaded("orders", "file_uploads/team_{team}/{upload}/orders.csv")
-
-        [outcome] = self._migrate()
-
-        assert outcome.status.state == TableMigrationState.SKIPPED
-        assert "dwh-object-storage-sources" in (outcome.status.reason or "")
-        assert not ExternalDataSource.objects.filter(team=self.team).exists()
-
     def test_selection_takes_only_the_teams_own_uploaded_tables(self) -> None:
         self._uploaded("uploaded", "file_uploads/team_{team}/{upload}/orders.csv")
         self._uploaded("legacy", "managed/team_{team}/orders.csv")
         self._uploaded("materialized_view", "dlt/team_{team}_model_abc/modeling/orders")
         self._uploaded("another_teams_file", "managed/team_999999/orders.csv")
         self._uploaded("nested_key", "managed/team_{team}/sub/orders.csv")
-        # A table made with the flag on links to its own file upload source and waits for its first sync.
+        # A table made from an upload links to its own file upload source and waits for its first sync.
         waiting = self._uploaded("waiting", "file_uploads/team_{team}/{upload}/waiting.csv")
         upload_source = ExternalDataSource.objects.create(team=self.team, source_type="FileUpload", job_inputs={})
         ExternalDataSchema.objects.create(name="waiting", team=self.team, source=upload_source, table=waiting)

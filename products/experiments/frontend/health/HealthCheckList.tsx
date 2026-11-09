@@ -36,10 +36,10 @@ export function HealthCheckList({
     onSelect: (check: ListedHealthCheck) => void
 }): JSX.Element {
     return (
-        <div className="flex flex-col gap-4 px-3 py-2" data-attr="experiment-health-check-list">
+        <div className="flex flex-col gap-5 px-4 py-3" data-attr="experiment-health-check-list">
             {exposureChecksMissing && (
                 // The exposure checks come with the exposure answer, so without one the page has no names for them.
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-semibold text-secondary">
                         Couldn't check. Refresh the results to run these checks.
                     </span>
@@ -51,7 +51,7 @@ export function HealthCheckList({
                 </div>
             )}
             {groupByOutcome(checks).map((group) => (
-                <div key={`${group.status}:${group.label}`} className="flex flex-col gap-1">
+                <div key={`${group.status}:${group.label}`} className="flex flex-col gap-1.5">
                     <span className="text-xs font-semibold text-secondary">{group.label}</span>
                     <ul className="-mx-2 m-0 p-0 list-none flex flex-col">
                         {group.checks.map((check) => (

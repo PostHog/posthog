@@ -172,7 +172,11 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
                                         ? `Can't show as a ${mode}`
                                         : `No tile here shows as a ${mode}`}
                                 </Text>
-                                <Text style={styles.note}>A pin shows one number, or one line over time.</Text>
+                                <Text style={styles.note}>
+                                    {mode === 'chart'
+                                        ? 'Chart pins support line and bar charts, including SQL charts. Other visualizations can be opened on the web.'
+                                        : 'Number pins need a single value. Choose a big number or a chart with one series.'}
+                                </Text>
                             </View>
                         ) : null}
                         {groups.unusable.map(({ tile, reason }) => (
@@ -242,7 +246,7 @@ function TileOption({ dashboardRef, tile, selected, onPick, reason }: TileOption
                 <Text style={[styles.optionTitle, !eligible && styles.faded]} numberOfLines={1}>
                     {title}
                 </Text>
-                <Text style={styles.optionMeta} numberOfLines={1}>
+                <Text style={styles.optionMeta} numberOfLines={eligible ? 1 : undefined}>
                     {meta}
                 </Text>
             </View>

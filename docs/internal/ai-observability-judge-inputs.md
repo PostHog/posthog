@@ -228,6 +228,9 @@ A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
 Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.
 A backfill runs at most 16 evaluations at once (`LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT`).
+A run that fails because the provider stayed rate limited or unavailable through every retry halves that backfill's cap, down to 1.
+After as many evaluated runs as the cap within one page, the cap rises by one, back up to the maximum.
+The cap carries over between pages, but that count of evaluated runs starts again on each page, and each change logs `llma.evaluation_backfill_in_flight_limit`.
 A run holds one of the shared ClickHouse slots only while it reads its unit, and spends most of its time waiting on the judge.
 Lower the setting if backfills crowd out live evaluations.
 Backfill activities retry temporary database, DNS, connection, and rate-limit failures up to 5 times within 10 minutes, or within the live time limit when that is longer, with backoff from 10 seconds to one minute.
