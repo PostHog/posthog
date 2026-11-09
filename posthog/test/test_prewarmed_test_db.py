@@ -7,7 +7,7 @@ from typing import IO
 
 import pytest
 
-from posthog.test.prewarmed_test_db import PREWARM_RUN_ENV, hold_test_db_lock
+from posthog.test.prewarmed_test_db import DEVBOX_ENV_MARKERS, PREWARM_RUN_ENV, hold_test_db_lock
 
 
 class _SignallingStream(io.StringIO):
@@ -30,9 +30,10 @@ def _build_can_start(lock_path: Path) -> bool:
 
 
 @pytest.fixture(autouse=True)
-def _plain_test_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in (PREWARM_RUN_ENV, "PYTEST_XDIST_WORKER"):
+def _plain_test_run_on_a_devbox(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (PREWARM_RUN_ENV, "PYTEST_XDIST_WORKER", *DEVBOX_ENV_MARKERS):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("CODER", "true")
 
 
 @pytest.mark.parametrize(
@@ -41,13 +42,17 @@ def _plain_test_run(monkeypatch: pytest.MonkeyPatch) -> None:
         pytest.param({}, True, id="a-test-run-waits-for-the-build"),
         pytest.param({PREWARM_RUN_ENV: "1"}, False, id="the-build-does-not-wait-for-its-own-lock"),
         pytest.param({"PYTEST_XDIST_WORKER": "gw0"}, False, id="an-xdist-worker-uses-its-own-database"),
+        pytest.param({"CODER": None}, False, id="a-machine-that-is-not-a-devbox-runs-no-build"),
     ],
 )
 def test_waits_only_while_the_prewarm_holds_its_lock(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: dict[str, str], waits: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: dict[str, str | None], waits: bool
 ) -> None:
     for name, value in env.items():
-        monkeypatch.setenv(name, value)
+        if value is None:
+            monkeypatch.delenv(name)
+        else:
+            monkeypatch.setenv(name, value)
     stderr = _SignallingStream()
     monkeypatch.setattr(sys, "stderr", stderr)
     lock_path = tmp_path / "test-db-prewarm.lock"
