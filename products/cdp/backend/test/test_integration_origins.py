@@ -4,7 +4,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.cdp.backend.integration_origins import integration_origins, integration_worker_calls, public_config
+from products.cdp.backend.integration_origins import (
+    integration_origins,
+    integration_refusal_message,
+    integration_worker_calls,
+    public_config,
+)
 from products.cdp.backend.secret_origins import secret_origins
 from products.cdp.backend.templates import HOG_FUNCTION_TEMPLATES
 
@@ -61,6 +66,68 @@ class TestIntegrationOrigins(SimpleTestCase):
     )
     def test_integration_origins(self, _name: str, kind: str, config: dict, expected: Optional[frozenset[str]]) -> None:
         assert integration_origins(kind, config) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "fixed_host",
+                "hubspot",
+                {},
+                "HubSpot connections can only send credentials to api.hubapi.com. "
+                "Remove the change that sends them anywhere else.",
+            ),
+            (
+                "many_fixed_hosts",
+                "intercom",
+                {},
+                "Intercom connections can only send credentials to api.au.intercom.io, api.eu.intercom.io and "
+                "api.intercom.io. Remove the change that sends them anywhere else.",
+            ),
+            (
+                "instance_host",
+                "salesforce",
+                {"instance_url": "https://acme.my.salesforce.com", "access_token": "TOKEN-123"},
+                "This Salesforce connection can only send credentials to acme.my.salesforce.com. "
+                "Remove the change that sends them anywhere else.",
+            ),
+            (
+                "instance_outside_its_service",
+                "salesforce",
+                {"instance_url": "https://TOKEN-123.example.com"},
+                "PostHog can't find the address of this Salesforce connection, so it can't send credentials from "
+                "destination code. Remove the change that sends them, or connect Salesforce again.",
+            ),
+            (
+                "instance_missing",
+                "gitlab",
+                {},
+                "PostHog can't find the address of this GitLab connection, so it can't send credentials from "
+                "destination code. Remove the change that sends them, or connect GitLab again.",
+            ),
+            (
+                "no_allowed_host",
+                "email",
+                {},
+                "Email connections can't send credentials from destination code. Remove the change that sends them.",
+            ),
+            (
+                "unlisted_kind",
+                "jira",
+                {},
+                "PostHog can't check where this Jira connection may send its credentials, so it can't allow this "
+                "change. Keep the code and inputs as they were, or contact support.",
+            ),
+            (
+                "unknown_kind",
+                "not-a-kind",
+                {},
+                "PostHog can't check where this connection may send its credentials, so it can't allow this change. "
+                "Keep the code and inputs as they were, or contact support.",
+            ),
+        ]
+    )
+    def test_integration_refusal_message(self, _name: str, kind: str, config: dict, expected: str) -> None:
+        assert integration_refusal_message(kind, config) == expected
 
     @parameterized.expand(
         [

@@ -56,6 +56,7 @@ from products.cdp.backend.filters import DATA_WAREHOUSE_SOURCES
 from products.cdp.backend.integration_origins import (
     integration_inputs,
     integration_origins,
+    integration_refusal_message,
     integration_worker_calls,
     public_config,
 )
@@ -162,13 +163,6 @@ CREATE_ENABLED_MESSAGE = (
 )
 
 SECRET_HOST_BINDING_FLAG = "cdp-secret-host-binding"
-INTEGRATION_ORIGIN_MESSAGE = (
-    "This integration can only send its credentials to its own service, and this change could send them elsewhere."
-)
-INTEGRATION_UNLISTED_MESSAGE = (
-    "PostHog can't check where this integration may send its credentials, so it can't allow this change. "
-    "Keep the code and inputs as they were, or contact support."
-)
 SECRET_HOST_BINDING_COUNTER = Counter(
     "posthog_cdp_secret_host_binding_total",
     "Secret and integration inputs checked against the origins they may be sent to, by outcome, by the API "
@@ -353,10 +347,6 @@ def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
     }
 
 
-def _secret_reentry_error(details: dict[str, str]) -> serializers.ValidationError:
-    return serializers.ValidationError({"inputs": details}, code="secret_reentry_required")
-
-
 def _secret_reentry_details(
     attrs: dict,
     instance: Optional[HogFunction],
@@ -385,19 +375,17 @@ def _secret_reentry_details(
     return {key: secret_reentry_message(key, now[key], before.get(key, nowhere), labels) for key in refused}
 
 
-def _raise_secret_reentry(errors: Any) -> None:
-    """Re-raise a test run's secret refusal as a save would, because the raw errors the test run returns drop its code."""
+def _raise_origin_refusal(errors: Any) -> None:
+    """Re-raise a test run's origin refusal as a save would, because the raw errors the test run returns drop its code."""
     configuration_errors = errors.get("configuration") if isinstance(errors, dict) else None
     inputs_errors = configuration_errors.get("inputs") if isinstance(configuration_errors, dict) else None
     if not isinstance(inputs_errors, dict):
         return
     refused = {
-        key: str(error)
-        for key, error in inputs_errors.items()
-        if getattr(error, "code", None) == "secret_reentry_required"
+        key: error for key, error in inputs_errors.items() if getattr(error, "code", None) in _REFUSAL_CODES.values()
     }
     if refused:
-        raise _secret_reentry_error(refused)
+        raise serializers.ValidationError({"inputs": refused})
 
 
 def _templating_of(held: Any) -> dict[str, Any]:
@@ -1332,7 +1320,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 else:
                     binding = SecretBinding.KEPT if unchanged else SecretBinding.REFUSED
                 kind = row.kind if row.kind in IntegrationKind else "other"
-                message = INTEGRATION_ORIGIN_MESSAGE if allowed is not None else INTEGRATION_UNLISTED_MESSAGE
+                message = integration_refusal_message(row.kind, row.config)
                 outcomes.append(_OriginOutcome(key=key, check=check, binding=binding, kind=kind, message=message))
         return outcomes
 
@@ -1976,7 +1964,7 @@ class HogFunctionViewSet(
 
         serializer = HogFunctionInvocationSerializer(data=data, context=context)
         if not serializer.is_valid():
-            _raise_secret_reentry(serializer.errors)
+            _raise_origin_refusal(serializer.errors)
             return Response(serializer.errors, status=400)
 
         configuration = serializer.validated_data["configuration"]

@@ -15,9 +15,10 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from posthog.dataclasses import frozen
+from posthog.integrations.catalogue import KINDS
 from posthog.models.integration.oauth import salesforce_instance_host
 
-from products.cdp.backend.secret_origins import url_origin
+from products.cdp.backend.secret_origins import list_hosts, url_origin
 
 
 @frozen
@@ -88,6 +89,34 @@ def integration_origins(kind: str, config: Mapping[str, Any]) -> frozenset[str] 
     value = config.get(rule.origins.config_key)
     origin = rule.origins.origin(value) if isinstance(value, str) else None
     return frozenset({origin}) if origin else frozenset()
+
+
+def integration_refusal_message(kind: str, config: Mapping[str, Any]) -> str:
+    """Why a save that could send a connection's credentials outside its service is refused. It names
+    only the hosts the kind allows, never one read from the code, because code can build a host out of
+    the credentials themselves."""
+    spec = KINDS.get(kind)
+    rule = INTEGRATION_ORIGINS.get(kind)
+    if rule is None:
+        connection = f"this {spec.label} connection" if spec else "this connection"
+        return (
+            f"PostHog can't check where {connection} may send its credentials, so it can't allow this change. "
+            "Keep the code and inputs as they were, or contact support."
+        )
+    label = spec.label if spec else kind
+    allowed = integration_origins(kind, config) or frozenset()
+    connections = f"{label} connections" if isinstance(rule.origins, frozenset) else f"This {label} connection"
+    if allowed:
+        return (
+            f"{connections} can only send credentials to {list_hosts(allowed)}. "
+            "Remove the change that sends them anywhere else."
+        )
+    if isinstance(rule.origins, frozenset):
+        return f"{connections} can't send credentials from destination code. Remove the change that sends them."
+    return (
+        f"PostHog can't find the address of this {label} connection, so it can't send credentials from "
+        f"destination code. Remove the change that sends them, or connect {label} again."
+    )
 
 
 # The worker resolves `access_token` to a placeholder and adds the raw token as `access_token_raw`.

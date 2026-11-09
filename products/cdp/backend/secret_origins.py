@@ -249,6 +249,11 @@ def _listed(addresses: list[str]) -> str:
     return f"{', '.join(addresses[:-1])} and {addresses[-1]}" if len(addresses) > 1 else addresses[0]
 
 
+def list_hosts(origins: Iterable[str]) -> str:
+    """Hosts the way the re-entry message names them, for origins from config rather than from code."""
+    return _listed(_addresses(SecretDestinations(hosts=frozenset(origins), built_from=frozenset()), {}))
+
+
 def secret_reentry_message(
     key: str,
     now: SecretDestinations | Unbound,
