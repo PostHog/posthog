@@ -204,7 +204,7 @@ Use a site in the project's authorized URLs.
 5. In Inspect, select an element and click **Create action from this element**. Name the action, check the match count, and save it.
 6. Click **Actions**, open an action, add an element with **Select Element**, and save.
 7. Click **Flags**. Turn a flag on, pick a variant, save a payload, and turn a multivariate flag off. The page reacts to each change. Click **Clear overrides**.
-8. Click the camera on a flag that changes the page. The panel shows the page before and after, and the overrides and payloads are the same as before. Compare a multivariate flag and switch variants. Reload the page during a comparison: the flag doesn't stay overridden. Compare on a page with an image from another site: the panel says it couldn't capture the page.
+8. Click the camera on a flag that changes the page. The panel shows the page before and after, and the overrides and payloads are the same as before. Compare a multivariate flag and switch variants. Reload the page during a comparison: the flag doesn't stay overridden. Compare on a page with an image from another site that doesn't send CORS headers: the comparison shows, without that image.
 9. Open a page that doesn't load posthog-js as `window.posthog`. **Flags** says that it can't override flags there.
 10. Switch to a tab with another site, then back. The panel shows the state of each tab.
 11. Switch the project in the panel. The panel connects the toolbar to the new project.
