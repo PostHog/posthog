@@ -32,7 +32,6 @@ def test_signer_reproduces_every_signature_in_the_node_parity_fixture() -> None:
         assert match is not None
         source, epoch_seconds = match.group(1), int(match.group(2))
         signed_at = datetime.fromtimestamp(epoch_seconds, tz=UTC)
-        # The fixture signs with "k1", or with the older "k0" for the rotation case, for team 1 or 2.
         reproduced = {
             sign_internal_logs(keys, source, team_id, signed_at) for keys in ("k1,k0", "k0") for team_id in (1, 2)
         }

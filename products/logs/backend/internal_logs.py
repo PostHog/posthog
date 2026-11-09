@@ -6,7 +6,6 @@ import math
 import hashlib
 from datetime import UTC, datetime
 
-# capture-logs forwards this request header to the logs consumer as the `posthog-internal` Kafka header.
 INTERNAL_LOGS_HTTP_HEADER = "x-posthog-internal"
 
 SIGNATURE_VERSION = "v1"
@@ -14,8 +13,7 @@ SIGNATURE_VERSION = "v1"
 # No dot, because a dot divides the parts of the header value.
 SOURCE_PATTERN = re.compile(r"^[a-z0-9_]{1,64}\Z")
 
-# The `service.name` a producer stamps on each source's logs. Keep the keys equal to the Node
-# `INTERNAL_SOURCE_POLICIES`, because the logs consumer bills a source it does not know.
+# Keys must match the Node `INTERNAL_SOURCE_POLICIES`, because the logs consumer bills an unknown source.
 INTERNAL_SOURCE_SERVICE_NAMES: dict[str, str] = {
     "hog_flow": "posthog-internal-workflows",
     "hog_function": "posthog-internal-hog-functions",

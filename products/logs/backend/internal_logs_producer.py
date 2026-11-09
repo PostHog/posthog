@@ -77,7 +77,6 @@ class InternalLogEntry:
     team_id: int
     log_source_id: str
     instance_id: str
-    # A naive datetime reads as UTC.
     timestamp: datetime
     level: str
     message: str
@@ -90,7 +89,6 @@ class _Batch:
     records: list[bytes]
 
 
-# Identity equality, so each request is its own key in the in-flight map.
 @frozen(eq=False)
 class _Request:
     source: str
@@ -127,12 +125,9 @@ class InternalLogsProducer:
         self._get_team_api_token = get_team_api_token
         self._enabled = bool(config.url) and bool(config.signing_keys.strip())
         self._is_team_enabled = _team_matcher(config.teams)
-        # One batch per source and team, so records that wait for a free request slot leave together in large requests.
         self._waiting: dict[tuple[str, int], _Batch] = {}
-        # Counts waiting and in-flight records, because each one holds its bytes until its request settles.
         self._buffered_bytes = 0
         self._in_flight: dict[_Request, asyncio.Task[None]] = {}
-        # Set when `drain` ends. After it, nothing is sent or counted twice, and a retrying request stops.
         self._stopped = False
         self._session: aiohttp.ClientSession | None = None
 
@@ -199,7 +194,6 @@ class InternalLogsProducer:
         )
         self._waiting.clear()
         self._buffered_bytes = sum(request.byte_count for request in self._in_flight)
-        # A cancelled request releases its bytes and its slot in `_release`.
         for task in self._in_flight.values():
             task.cancel()
         self._report()
@@ -207,7 +201,6 @@ class InternalLogsProducer:
     def _pump(self) -> None:
         while not self._stopped and len(self._in_flight) < self._config.max_in_flight and self._waiting:
             key = next(iter(self._waiting))
-            # Moves the rest of the batch to the back, so each team gets its turn.
             batch = self._waiting.pop(key)
             request = _take_request(batch)
             if batch.records:
@@ -295,7 +288,6 @@ class InternalLogsProducer:
                 status = response.status
             if 200 <= status < 300:
                 return _AttemptResult(outcome="sent", detail=str(status))
-            # Any other 4xx is a bad request, which fails the same way on every attempt.
             retriable = status >= 500 or status in (408, 429)
             return _AttemptResult(outcome="retry" if retriable else "rejected", detail=str(status))
         except Exception as error:
