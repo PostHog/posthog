@@ -721,9 +721,13 @@ describe('Self-driving activation guidance', () => {
         ['redis', true],
         ['project', true],
         ['readiness', true],
+        ['reservation', true],
+        ['mirror', true],
         ['redis', false],
         ['project', false],
         ['readiness', false],
+        ['reservation', false],
+        ['mirror', false],
     ] as const)('bounds a slow %s lookup with flag %s without consuming the allowance', async (phase, enabled) => {
         vi.useFakeTimers()
         const state = activationState({
@@ -744,10 +748,25 @@ describe('Self-driving activation guidance', () => {
                 await stalled
                 return '2'
             })
-        } else {
+        } else if (phase === 'readiness') {
             vi.mocked(state.context.api.request).mockImplementationOnce(async () => {
                 await stalled
                 return { completed_at: null, draft: null }
+            })
+        } else {
+            if (phase === 'mirror') {
+                state.carriedContextHandle = false
+                state.carriedContextSessionKey = undefined
+                state.requestContext.mcpConversationId = 'minted-deadline'
+            }
+            const set = redis.set
+            let writes = 0
+            vi.spyOn(redis, 'set').mockImplementation(async (...args) => {
+                const result = await set(...args)
+                if (++writes === (phase === 'reservation' ? 1 : 2)) {
+                    await stalled
+                }
+                return result
             })
         }
         const engine = new GuidanceEngine(redis)

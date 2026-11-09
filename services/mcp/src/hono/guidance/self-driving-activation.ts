@@ -133,21 +133,43 @@ async function lookupActivationGuidance(
     }
 
     const reserved = await redis.set(countingKey, '1', 'EX', ttl, 'NX')
-    if (reserved !== 'OK' || !productState.hasBudgetLeft()) {
+    if (reserved !== 'OK') {
         return undefined
     }
-    // Keep the caller-scoped reservation when the client starts echoing its newly minted conversation handle.
-    const mintedHandle = state.requestContext.mcpConversationId
-    if (!suppliedHandle && mintedHandle) {
-        await redis.set(sessionKey(state, mintedHandle), '1', 'EX', SESSION_TTL_SECONDS, 'NX')
-    }
+    const ownedKeys = [countingKey]
+    let keepReservation = false
+    try {
+        if (!productState.hasBudgetLeft()) {
+            return undefined
+        }
+        // Keep the caller-scoped reservation when the client starts echoing its newly minted conversation handle.
+        const mintedHandle = state.requestContext.mcpConversationId
+        if (!suppliedHandle && mintedHandle) {
+            const mirrorKey = sessionKey(state, mintedHandle)
+            if ((await redis.set(mirrorKey, '1', 'EX', SESSION_TTL_SECONDS, 'NX')) === 'OK') {
+                ownedKeys.push(mirrorKey)
+            }
+        }
+        if (!productState.hasBudgetLeft()) {
+            return undefined
+        }
 
-    const outcome = state.toolFeatureFlags?.[MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG] === true ? 'shown' : 'flag_off'
-    const projectUrl = state.context.api.getProjectBaseUrl(String(projectId))
-    return {
-        ruleId: RULE_ID,
-        outcome,
-        ...(outcome === 'shown' ? { text: activationText(projectUrl, onboarding.data.github_optional_available) } : {}),
+        const outcome =
+            state.toolFeatureFlags?.[MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG] === true ? 'shown' : 'flag_off'
+        const projectUrl = state.context.api.getProjectBaseUrl(String(projectId))
+        const notice: GuidanceNotice = {
+            ruleId: RULE_ID,
+            outcome,
+            ...(outcome === 'shown'
+                ? { text: activationText(projectUrl, onboarding.data.github_optional_available) }
+                : {}),
+        }
+        keepReservation = true
+        return notice
+    } finally {
+        if (!keepReservation) {
+            await Promise.all(ownedKeys.map((key) => redis.del(key).catch(() => undefined)))
+        }
     }
 }
 
