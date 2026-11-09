@@ -655,7 +655,7 @@ def send_pandadoc_envelope(document: LegalDocument) -> bool:
     Dispatch the signing email for a previously-created PandaDoc envelope.
     Normally called from the `document.draft` webhook once PandaDoc has
     finished processing the template and the envelope is actually sendable.
-    Also driven manually from the Django admin re-send action to recover an
+    Also driven manually from the PostHog Admin re-send operation to recover an
     envelope that was stranded because that webhook was missed.
 
     Returns True when the send succeeded, False otherwise. Never re-raises:
