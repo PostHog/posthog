@@ -12240,6 +12240,10 @@ export namespace Schemas {
         /**
          * Mixin for serializers to add user access control fields
          */
+        folder?: string | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
         name?: (string | null) | undefined;
         /**
          * Mixin for serializers to add user access control fields
