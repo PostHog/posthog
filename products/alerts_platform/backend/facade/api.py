@@ -7,7 +7,7 @@ so every write and every scheduling rule has one home.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
 from uuid import UUID
 
@@ -449,6 +449,14 @@ def delete_orphaned_shadow_copies(
     return platform_writes.delete_orphaned_shadow_copies(
         source_kind=source_kind, existing_source_ids=existing_source_ids, dry_run=dry_run
     )
+
+
+def fill_missing_creators(
+    *, source_kind: SourceKind, creators_of: Callable[[Collection[UUID]], Mapping[UUID, int]], dry_run: bool
+) -> int:
+    """Copies `created_by` from the source rows onto the copies of `source_kind` that have none, and
+    returns the count. `creators_of` maps the given source row ids to their creators' user ids."""
+    return platform_writes.fill_missing_creators(source_kind=source_kind, creators_of=creators_of, dry_run=dry_run)
 
 
 def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> None:

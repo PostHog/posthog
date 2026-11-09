@@ -4,14 +4,14 @@ A configuration its source owns is a copy of the source's own row, which the sou
 and the next check reads back. Writing the copy here would fork it, so those are refused.
 """
 
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
 from django.db import connection, transaction
-from django.db.models import QuerySet
+from django.db.models import Case, QuerySet, Value, When
 from django.utils import timezone as django_timezone
 
 from pydantic import ValidationError as PydanticValidationError
@@ -244,6 +244,7 @@ def create_configuration(
                 destinations_owner=PlatformAlertOwner.PLATFORM
                 if spec.native.platform_destinations
                 else PlatformAlertOwner.SOURCE,
+                created_by_id=created_by_id,
                 now=django_timezone.now(),
             )
     else:
@@ -464,19 +465,12 @@ def delete_orphaned_shadow_copies(
     so a copy found without its row stays an orphan.
     """
     # Cross-team on purpose: a one-off sweep over every copy of the kind. Each delete is scoped to
-    # the copy's own team. Paged by id rather than with `iterator()`, because PgBouncer disables
-    # server-side cursors and `iterator()` would then load every copy at once.
+    # the copy's own team.
     copies = PlatformAlertConfiguration.objects.unscoped().filter(
         source_kind=source_kind.value, owner=PlatformAlertOwner.SOURCE, legacy_configuration_id__isnull=False
     )
     found = 0
-    after: UUID | None = None
-    while batch := list(
-        (copies if after is None else copies.filter(id__gt=after))
-        .order_by("id")
-        .values_list("id", "team_id", "legacy_configuration_id")[:batch_size]
-    ):
-        after = batch[-1][0]
+    for batch in _pages_by_id(copies, "team_id", "legacy_configuration_id", batch_size=batch_size):
         existing = set(existing_source_ids([legacy_id for _, _, legacy_id in batch if legacy_id is not None]))
         orphans = [
             (configuration_id, team_id) for configuration_id, team_id, legacy_id in batch if legacy_id not in existing
@@ -491,6 +485,56 @@ def delete_orphaned_shadow_copies(
                 )
             )
     return found
+
+
+def fill_missing_creators(
+    *,
+    source_kind: SourceKind,
+    creators_of: Callable[[Collection[UUID]], Mapping[UUID, int]],
+    dry_run: bool,
+    batch_size: int = 500,
+) -> int:
+    """Copies `created_by` from the source rows onto every copy of `source_kind` that has none, and
+    returns how many it filled, or would fill with `dry_run`.
+
+    `creators_of` maps the given source row ids to the id of the user who created each. A row with no
+    creator, or one that is gone, is left out, and its copy stays without one.
+    """
+    copies = PlatformAlertConfiguration.objects.unscoped().filter(
+        source_kind=source_kind.value, legacy_configuration_id__isnull=False, created_by__isnull=True
+    )
+    filled = 0
+    for batch in _pages_by_id(copies, "legacy_configuration_id", batch_size=batch_size):
+        creators = creators_of([legacy_id for _, legacy_id in batch if legacy_id is not None])
+        found = {
+            configuration_id: creators[legacy_id] for configuration_id, legacy_id in batch if legacy_id in creators
+        }
+        filled += len(found)
+        if found and not dry_run:
+            # `copies` still requires an unset creator, so an upsert since this page was read wins.
+            copies.filter(id__in=list(found)).update(
+                created_by_id=Case(*(When(id=key, then=Value(user_id)) for key, user_id in found.items()))
+            )
+    return filled
+
+
+def _pages_by_id(
+    configurations: QuerySet[PlatformAlertConfiguration], *fields: str, batch_size: int
+) -> Iterator[list[tuple[Any, ...]]]:
+    """`(id, *fields)` of every configuration, a page at a time in id order.
+
+    Paged by id rather than with `iterator()`, because PgBouncer disables server-side cursors and
+    `iterator()` would then load every row at once. A row the caller changes so it stops matching
+    leaves the later pages as they were.
+    """
+    after: UUID | None = None
+    while batch := list(
+        (configurations if after is None else configurations.filter(id__gt=after))
+        .order_by("id")
+        .values_list("id", *fields)[:batch_size]
+    ):
+        after = batch[-1][0]
+        yield batch
 
 
 def _delete_each(
