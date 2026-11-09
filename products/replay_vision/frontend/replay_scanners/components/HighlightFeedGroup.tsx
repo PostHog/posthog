@@ -133,7 +133,7 @@ function HighlightFeedGroupList({
                 </ul>
             )}
             {/* The list's own total decides, since dismissed or re-ranked sessions can make it differ from the card's count.
-                A short group still links out, because the page shows each session's reasoning side by side. */}
+                A short group still links out, so a reader can see every session on one page. */}
             {members && members.shown.length > 0 && (
                 <Link
                     to={
