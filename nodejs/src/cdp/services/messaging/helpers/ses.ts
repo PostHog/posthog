@@ -390,12 +390,8 @@ type LooseSesRecord = {
     click?: { link?: unknown }
 }
 
-/**
- * The notification without the subject and click link secrets of a sensitive email, by the rules
- * `handleWebhook` applies when it records. A queued notification waits on a Kafka topic, so these
- * secrets must not reach it. A Message that does not parse, or is not from a sensitive email, is
- * returned unchanged, so recording handles it as it handles the original.
- */
+// A queued notification waits on a Kafka topic, so a sensitive email loses its subject and click link
+// secrets here, by the rules `handleWebhook` records with. Anything else is returned unchanged.
 export const redactSensitiveNotification = (envelope: SnsEnvelope): SnsEnvelope => {
     let record: LooseSesRecord
     try {
@@ -744,7 +740,6 @@ export class SesWebhookHandler {
         return lines.join('\n') + '\n'
     }
 
-    /** Verifies a signed notification and returns the envelope to queue, with sensitive fields redacted. */
     async verifyDelivery(body: unknown): Promise<{ status: number; body: unknown } | { envelope: SnsEnvelope }> {
         const parsed = this.parseIncomingBody(body)
         const answer = await this.verifyAndConfirm(parsed, true)

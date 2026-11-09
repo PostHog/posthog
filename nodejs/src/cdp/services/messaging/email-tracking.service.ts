@@ -649,7 +649,6 @@ export class EmailTrackingService {
         return recording
     }
 
-    // A failed produce throws, so the webhook answers 5xx and SNS retries the notification.
     private async queueSesNotification(
         body: unknown,
         outputs: IngestionOutputs<SesWebhooksOutput>

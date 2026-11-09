@@ -13,14 +13,12 @@ import { counterParseError } from './metrics'
 
 type SkipReason = 'unparseable' | 'not_an_sns_envelope' | 'invalid_ses_event' | 'rejected'
 
-// Each notification records serially with several datastore round trips, so a batch of the default
-// CONSUMER_BATCH_SIZE could outrun the consumer's heartbeat health check. This bound keeps a batch well inside it.
+// Each notification records serially, so the default batch size could outrun the heartbeat health check.
 const SES_NOTIFICATIONS_PER_BATCH = 50
 
-// A notification that can never record is logged, counted and skipped, so one bad message cannot hold its
-// partition. SNS drops a notification the same way after its last retry.
-// Any other error fails the batch so Kafka redelivers it, because a datastore or Kafka failure, such as a deploy
-// ahead of its migration, records once it clears. A redelivered batch can count a half-recorded notification again.
+// A notification that can never record is skipped, as SNS drops it after its last retry, so it cannot hold its
+// partition. Any other error fails the batch so Kafka redelivers it once the datastore recovers, which can count
+// a half-recorded notification again.
 export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     protected name = 'CdpSesWebhooksConsumer'
     private kafkaConsumer: KafkaConsumerInterface
