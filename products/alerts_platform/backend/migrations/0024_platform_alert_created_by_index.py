@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("alerts_platform", "0022_platform_alert_creator_and_first_enabled"),
+        ("alerts_platform", "0023_platform_alert_created_by"),
     ]
 
     operations = [
