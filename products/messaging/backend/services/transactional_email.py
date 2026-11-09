@@ -634,14 +634,16 @@ def _queue(
     _observe_cdp_call(time.monotonic() - started_at)
     CDP_SEND_RESULTS.labels(result=_cdp_response_result(response.status_code)).inc()
 
+    answer = _answer(response)
+    refusal_code = _refusal_code(answer)
+    if attachment_refusal := _attachment_refusal(refusal_code, answer):
+        raise attachment_refusal
     if response.status_code == 413:
         raise ContentTooLarge(
             "The email is larger than PostHog can send. Make its content or data smaller, and link to "
             "large images and files instead of embedding them."
         )
-    answer = _answer(response)
     if response.status_code != 202:
-        refusal_code = _refusal_code(answer)
         unknown_field = _send_field_an_older_pipeline_refused(refusal_code) if response.status_code == 400 else None
         if unknown_field is not None:
             logger.warning(
@@ -651,8 +653,6 @@ def _queue(
                 field=unknown_field,
             )
             raise FieldNotAccepted(unknown_field)
-        if attachment_refusal := _attachment_refusal(response.status_code, refusal_code, answer):
-            raise attachment_refusal
         refusal = PIPELINE_REFUSALS.get(refusal_code or "")
         if refusal is None and response.status_code == 400:
             refusal = PIPELINE_REFUSALS["invalid_request"]
@@ -678,10 +678,8 @@ def _queue(
     )
 
 
-def _attachment_refusal(
-    status_code: int, refusal_code: str | None, answer: dict[str, Any]
-) -> TransactionalEmailError | None:
-    if status_code != 400 or refusal_code not in {"attachment_not_uploaded", "message_too_large"}:
+def _attachment_refusal(refusal_code: str | None, answer: dict[str, Any]) -> TransactionalEmailError | None:
+    if refusal_code not in {"attachment_not_uploaded", "message_too_large"}:
         return None
     sha256 = answer.get("sha256")
     error = (

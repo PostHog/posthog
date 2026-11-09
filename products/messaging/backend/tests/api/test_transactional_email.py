@@ -964,6 +964,7 @@ class TestTransactionalEmail(APIBaseTest):
         [
             (
                 "not_uploaded",
+                400,
                 {"error": "attachment_not_uploaded", "sha256": NOTES},
                 "attachment_not_uploaded",
                 "attachments__1__sha256",
@@ -971,13 +972,23 @@ class TestTransactionalEmail(APIBaseTest):
             ),
             (
                 "too_large",
+                400,
                 {"error": "message_too_large", "sha256": CSV, "attachment_bytes": 30_000_000},
                 "message_too_large",
                 "attachments__0__sha256",
                 "40 MB after Base64 encoding, about 29 MB of files",
             ),
             (
+                "too_large_answered_as_a_payload_too_large",
+                413,
+                {"error": "message_too_large", "sha256": CSV},
+                "message_too_large",
+                "attachments__0__sha256",
+                "40 MB after Base64 encoding, about 29 MB of files",
+            ),
+            (
                 "too_large_naming_no_file_it_was_sent",
+                400,
                 {"error": "message_too_large"},
                 "message_too_large",
                 "attachments",
@@ -986,9 +997,9 @@ class TestTransactionalEmail(APIBaseTest):
         ]
     )
     def test_a_file_the_pipeline_refuses_is_named_with_a_reason_and_a_fix(
-        self, mock_post, _flag, _capture, _name, pipeline_body, code, attr, fix
+        self, mock_post, _flag, _capture, _name, pipeline_status, pipeline_body, code, attr, fix
     ):
-        mock_post.return_value = MagicMock(status_code=400, json=lambda: pipeline_body)
+        mock_post.return_value = MagicMock(status_code=pipeline_status, json=lambda: pipeline_body)
 
         response = self._psak_client(["hog_flow:write"]).post(
             self.send_email_url, self._code_send(attachments=TWO_FILES), format="json"
