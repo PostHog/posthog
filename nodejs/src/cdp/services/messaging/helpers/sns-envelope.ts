@@ -81,6 +81,7 @@ export class SnsEnvelopeVerifier {
     private async fetchText(url: string): Promise<string> {
         const response = await fetch(url)
         if (response.status >= 400) {
+            await response.dump().catch(() => undefined)
             throw new SnsFetchError(url, response.status)
         }
         return await response.text()

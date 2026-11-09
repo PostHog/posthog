@@ -100,7 +100,13 @@ const complaint = (feedbackType = 'abuse') => ({
 })
 
 const fetchResponse = (status: number): FetchResponse =>
-    ({ status, headers: {}, json: () => Promise.resolve({}), text: () => Promise.resolve('') }) as FetchResponse
+    ({
+        status,
+        headers: {},
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve(''),
+        dump: () => Promise.resolve(),
+    }) as FetchResponse
 
 const counterValue = async (name: string, labels: Record<string, string>): Promise<number> => {
     const metric = await register.getSingleMetric(name)?.get()
