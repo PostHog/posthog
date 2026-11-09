@@ -35,9 +35,11 @@ from ...logic.pull_requests import (
 )
 from ...logic.records import (
     HEAD_BRANCH_STATE_KEY,
+    PUBLICATION_CLAIM_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     WriterPullRequest,
+    is_publication_claim_live,
     pull_request_json,
 )
 from ...logic.routing import route_request
@@ -48,6 +50,7 @@ SCRATCH_PAGE_NAME = "knowledge-writer-smoke-test.mdx"
 UNREACHABLE_PULL_REQUEST_FLOOR = 900_000_000
 GITHUB_FAILURES = (GitHubIntegrationError, GitHubRateLimitError)
 AGENT_POLL_INTERVAL_SECONDS = 15
+SCRATCH_PUBLISH_TIMEOUT_SECONDS = 300
 SMOKE_NOTE = "Knowledge writer smoke test."
 SMOKE_REQUESTER = "knowledge-writer-smoke-test"
 SmokeRequests = tuple[WriterPullRequest, bool, WriterPullRequest, bool]
@@ -253,12 +256,14 @@ def run_agent_request(
 
 
 def wait_for_pull_request(task_id: UUID, team_id: int, docs_repository: str, deadline: float) -> WriterPullRequest:
+    failure: object = None
     while time.monotonic() < deadline:
         stored = tasks_facade.read_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY)
         if isinstance(stored, dict):
             return pull_request_json.validate_python(stored)
         failure = tasks_facade.read_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY)
-        if isinstance(failure, str):
+        claim = tasks_facade.read_task_state_entry(task_id, team_id, PUBLICATION_CLAIM_STATE_KEY)
+        if isinstance(failure, str) and not is_publication_claim_live(claim):
             raise CommandError(f"Task {task_id} could not open its docs pull request: {failure}")
         for run_id in tasks_facade.list_task_run_ids(task_id, team_id):
             run = tasks_facade.get_task_run(run_id, team_id)
@@ -268,7 +273,7 @@ def wait_for_pull_request(task_id: UUID, team_id: int, docs_repository: str, dea
             if problem:
                 raise CommandError(f"Writer run {run_id} on task {task_id} {problem}")
         time.sleep(AGENT_POLL_INTERVAL_SECONDS)
-    raise CommandError(f"Timed out waiting for task {task_id} to record a pull request")
+    raise CommandError(f"Timed out waiting for task {task_id} to record a pull request; last failure: {failure}")
 
 
 def ended_run_problem(run: TaskRunDTO, docs_repository: str) -> str | None:
@@ -309,10 +314,8 @@ def run_writer_request(
                 "output": {"head_branches": [{"repository": writer.docs_repository, "branch": head_branch}]},
             },
         )
-    stored = tasks_facade.read_task_state_entry(task_id, team.id, PULL_REQUEST_STATE_KEY)
-    if not isinstance(stored, dict):
-        raise CommandError(f"The finished run on {head_branch} recorded no pull request")
-    return pull_request_json.validate_python(stored), joining is not None
+    deadline = time.monotonic() + SCRATCH_PUBLISH_TIMEOUT_SECONDS
+    return wait_for_pull_request(task_id, team.id, writer.docs_repository, deadline), joining is not None
 
 
 def check_pull_request(
