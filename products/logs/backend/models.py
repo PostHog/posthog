@@ -328,6 +328,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
             owner=PlatformAlertOwner.PLATFORM,
             # The platform checked the alert from its creation, so its whole history is the platform's.
             owner_changed_at=view.created_at,
+            created_by_id=view.created_by_id,
             first_enabled_at=view.first_enabled_at,
             created_at=view.created_at,
             updated_at=view.updated_at,

@@ -308,6 +308,7 @@ def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> Pl
         owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
         recurrence_unit=c.recurrence_unit,
         anchor_time=c.anchor_time,
+        created_by_id=c.created_by_id,
     )
 
 
@@ -978,6 +979,7 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
         datapoints_to_alarm=upsert.datapoints_to_alarm,
         cooldown_minutes=upsert.cooldown_minutes,
         schedule_restriction=upsert.schedule_restriction,
+        created_by_id=upsert.created_by_id,
         # `update()` skips `auto_now`.
         updated_at=django_timezone.now(),
     )

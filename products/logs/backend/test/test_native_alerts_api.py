@@ -11,6 +11,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts_platform.backend.facade import testing as platform_testing
@@ -103,6 +104,7 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
                 check_interval_minutes=5,
                 next_check_at=_NOW,
                 owner=PlatformAlertOwner.PLATFORM,
+                created_by=self.user,
                 first_enabled_at=_NOW,
             )
         return str(created.id)
@@ -203,6 +205,19 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
 
         assert pages == [created[3:1:-1], created[1::-1]]
 
+    def test_the_creator_filter_matches_both_kinds_of_alert_by_their_creator(self, *_: object) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        with_row, without_row = self._create_with_logs_row(), self._create_without_logs_row()
+
+        def listed(created_by: User) -> list[tuple[str, int]]:
+            response = self.client.get(self.base_url, {"created_by": str(created_by.uuid)})
+            return sorted((alert["id"], alert["created_by"]["id"]) for alert in response.json()["results"])
+
+        assert (listed(self.user), listed(other)) == (
+            sorted([(with_row, self.user.id), (without_row, self.user.id)]),
+            [],
+        )
+
     def test_terraform_sees_no_difference_between_an_alert_with_a_logs_row_and_one_without(self, *_: object) -> None:
         with_row = self._terraform_lifecycle(self._create_with_logs_row())
         without_row = self._terraform_lifecycle(self._create_without_logs_row())
@@ -269,8 +284,9 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
             LogsAlertConfiguration.objects.filter(team=self.team).count(),
             read.json()["name"],
             read.json()["threshold_count"],
+            read.json()["created_by"]["id"],
             read.json()["first_enabled_at"] is not None,
-        ) == (0 if native_create else 1, "High error rate", 10, True)
+        ) == (0 if native_create else 1, "High error rate", 10, self.user.id, True)
 
     def test_a_native_create_keeps_the_snooze_terraform_sent(self, *_: object) -> None:
         self.native_create = True

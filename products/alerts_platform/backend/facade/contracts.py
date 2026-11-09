@@ -273,6 +273,7 @@ class PlatformAlertCheckInput:
     # The calendar half of the schedule, so a source can tell when its own cadence has moved.
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+    created_by_id: int | None = None
 
     @property
     def destination_alert_id(self) -> UUID:

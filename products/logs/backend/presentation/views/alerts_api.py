@@ -1500,11 +1500,12 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # An alert with no logs row has no row in the queryset, so the page is merged here. Both kinds
         # page on their sort keys alone, and only the page's alerts are loaded.
         rows = self.filter_queryset(self.get_queryset())
-        # An alert with no logs row records no creator, so a creator filter matches none of them.
-        native_keys = () if self._list_created_by else native_alert_keys(self.team_id)
         keys: list[tuple[datetime, UUID, bool]] = [
             *((created_at, alert_id, False) for created_at, alert_id in rows.values_list("created_at", "id")),
-            *((created_at, alert_id, True) for created_at, alert_id in native_keys),
+            *(
+                (created_at, alert_id, True)
+                for created_at, alert_id in native_alert_keys(self.team_id, created_by_uuid=self._list_created_by)
+            ),
         ]
         keys.sort(key=lambda key: (key[0], key[1]), reverse=True)
         page = self.paginate_queryset(keys)
@@ -1513,8 +1514,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             row.id: row for row in rows.filter(id__in=[alert_id for _, alert_id, native in listed if not native])
         }
         native_ids = [alert_id for _, alert_id, native in listed if native]
-        for view in native_alert_views(self.team_id, native_ids):
-            loaded[view.id] = _listed_alert(view, team_id=self.team_id)
+        native_views = native_alert_views(self.team_id, native_ids)
+        # An alert built from a view has no queryset to prefetch its creator with.
+        creators = User.objects.in_bulk({view.created_by_id for view in native_views if view.created_by_id})
+        for view in native_views:
+            alert = _listed_alert(view, team_id=self.team_id)
+            alert.created_by = creators.get(view.created_by_id) if view.created_by_id else None
+            loaded[view.id] = alert
         # An alert deleted since its key was read drops out of the page rather than failing it.
         alerts = [loaded[alert_id] for _, alert_id, _ in listed if alert_id in loaded]
         data = self.get_serializer(alerts, many=True).data

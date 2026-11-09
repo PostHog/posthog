@@ -33,9 +33,9 @@ def native_alert_view(*, team_id: int, alert_id: UUID, lock: bool = False) -> Pl
     return view if view is not None and view.legacy_configuration_id is None else None
 
 
-def native_alert_keys(team_id: int) -> tuple[tuple[datetime, UUID], ...]:
+def native_alert_keys(team_id: int, *, created_by_uuid: UUID | None = None) -> tuple[tuple[datetime, UUID], ...]:
     """`(created_at, id)` of each of the team's logs alerts with no logs row, for paging them beside logs rows."""
-    return native_configuration_keys(team_id=team_id, source_kind=SourceKind.LOGS)
+    return native_configuration_keys(team_id=team_id, source_kind=SourceKind.LOGS, created_by_uuid=created_by_uuid)
 
 
 def native_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[PlatformAlertConfigurationView, ...]:
