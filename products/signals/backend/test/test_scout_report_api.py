@@ -21,6 +21,7 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
+from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 from products.signals.backend.artefact_schemas import (
     AutostartSkip,
     Priority,
@@ -2486,6 +2487,52 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["charts_set"] == expected_charts_set
         assert len(SignalReport.objects.get(id=created["report_id"]).charts) == expected_stored
+
+    @parameterized.expand([("emit",), ("edit",)])
+    def test_a_trends_chart_with_no_data_is_refused_before_the_judge(self, tool: str) -> None:
+        run = _make_run(self.team)
+        charts = [
+            {
+                "chart_id": "pageviews",
+                "title": "Pageviews",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
+            }
+        ]
+        with patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
+            with _safe_judge():
+                created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            with (
+                _safe_judge() as judge,
+                patch(
+                    "products.signals.backend.report_chart_probe.run_cached_trends_query",
+                    return_value=TrendsQueryRunResult(results=[{"data": [0, 0, 0], "count": 0}]),
+                ),
+            ):
+                if tool == "emit":
+                    response = self.client.post(
+                        self._emit_url(str(run.id)),
+                        data={**self._payload(title="Pageviews dropped"), "charts": charts},
+                        format="json",
+                    )
+                else:
+                    response = self.client.post(
+                        self._edit_url(str(run.id)),
+                        data={"report_id": created["report_id"], "charts": charts},
+                        format="json",
+                    )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "'pageviews' returned no data" in str(response.json())
+        judge.assert_not_called()
+        assert SignalReport.objects.filter(team=self.team).count() == 1
+        assert SignalReport.objects.get(id=created["report_id"]).charts == []
+        rejected = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_charts_rejected"]
+        assert len(rejected) == 1
+        assert rejected[0].kwargs["properties"]["tool"] == f"{tool}_report"
+        assert rejected[0].kwargs["properties"]["empty_chart_ids"] == ["pageviews"]
 
     def test_clearing_charts_is_a_valid_sole_edit(self) -> None:
         # `charts: []` is the whole instruction on a retraction, so the "needs at least one input"
