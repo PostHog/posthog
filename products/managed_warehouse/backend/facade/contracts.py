@@ -516,3 +516,18 @@ class StaffProvisionPreview:
     team_name: str
     host: str
     problem: str | None = None
+
+
+@frozen
+class ViewTranslationSummary:
+    """An organization's view translation jobs as staff see them in PostHog Admin."""
+
+    latest_status: str
+    total_count: int
+    compiled_count: int
+    failed_count: int
+    stale_count: int
+    # True while a job is pending or running. An organization runs one job at a time.
+    active: bool
+    # The newest job with failed or stale views, which a retry starts from. None when nothing can be retried.
+    retry_job_id: UUID | None

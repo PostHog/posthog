@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Permission
@@ -18,11 +18,6 @@ from posthog.models import Organization, Team
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.admin.duckgres_server_admin import DuckgresServerAdmin
-from products.managed_warehouse.backend.admin.view_translation_admin import (
-    ManagedWarehouseViewTranslationJobAdmin,
-    ManagedWarehouseViewTranslationJobForm,
-    ManagedWarehouseViewTranslationResultAdmin,
-)
 from products.managed_warehouse.backend.models import (
     DuckgresServer,
     ManagedWarehouseViewTranslationJob,
@@ -30,6 +25,7 @@ from products.managed_warehouse.backend.models import (
 )
 
 MW = "products.managed_warehouse.backend.presentation.views"
+START_JOB = "products.managed_warehouse.backend.logic.view_translation_staff._start_translation_job"
 
 
 def _attach_messages(request) -> None:
@@ -39,108 +35,6 @@ def _attach_messages(request) -> None:
 
 def _messages(request) -> list[str]:
     return [str(m) for m in get_messages(request)]
-
-
-class TestManagedWarehouseViewTranslationJobAdmin(BaseTest):
-    def test_selected_view_form_normalizes_saved_query_ids(self) -> None:
-        DuckgresServer.objects.create(
-            organization=self.organization,
-            host="managed.example.com",
-            database="ducklake",
-            username="root",
-            password="secret",
-        )
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="selected_view",
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-        )
-        form = ManagedWarehouseViewTranslationJobForm(
-            data={
-                "organization": str(self.organization.id),
-                "scope": ManagedWarehouseViewTranslationJob.Scope.SELECTED_VIEWS,
-                "selected_saved_query_ids": f"{saved_query.id},\n{saved_query.id}",
-            }
-        )
-
-        assert form.is_valid(), form.errors
-        assert form.cleaned_data["selected_saved_query_ids"] == [str(saved_query.id)]
-
-    def test_adding_a_job_dispatches_it_after_commit(self) -> None:
-        request = RequestFactory().post("/admin/managed_warehouse/managedwarehouseviewtranslationjob/add/")
-        request.user = self.user
-        model_admin = ManagedWarehouseViewTranslationJobAdmin(ManagedWarehouseViewTranslationJob, AdminSite())
-        job = ManagedWarehouseViewTranslationJob(organization=self.organization)
-
-        with (
-            patch(
-                "products.managed_warehouse.backend.admin.view_translation_admin._start_translation_job"
-            ) as start_job,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            model_admin.save_model(request, job, MagicMock(), change=False)
-
-        job.refresh_from_db()
-        assert job.created_by == self.user
-        assert job.status == ManagedWarehouseViewTranslationJob.Status.PENDING
-        start_job.assert_called_once_with(job.id, self.organization.id)
-
-    def test_retry_selected_results_creates_a_selected_view_job(self) -> None:
-        saved_queries = [
-            DataWarehouseSavedQuery.objects.create(
-                team=self.team,
-                name=name,
-                query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            )
-            for name in ["failed_view", "stale_view"]
-        ]
-        source_job = ManagedWarehouseViewTranslationJob.objects.create(
-            organization=self.organization,
-            status=ManagedWarehouseViewTranslationJob.Status.COMPLETED_WITH_ERRORS,
-        )
-        results = [
-            ManagedWarehouseViewTranslationResult.all_teams.create(
-                job=source_job,
-                team=self.team,
-                saved_query_id=saved_query.id,
-                saved_query_name=saved_query.name,
-                source_query_hash="0" * 64,
-                status=status,
-            )
-            for saved_query, status in zip(
-                saved_queries,
-                [
-                    ManagedWarehouseViewTranslationResult.Status.FAILED,
-                    ManagedWarehouseViewTranslationResult.Status.STALE,
-                ],
-                strict=True,
-            )
-        ]
-        request = RequestFactory().post("/admin/managed_warehouse/managedwarehouseviewtranslationresult/")
-        request.user = self.user
-        _attach_messages(request)
-        model_admin = ManagedWarehouseViewTranslationResultAdmin(
-            ManagedWarehouseViewTranslationResult,
-            AdminSite(),
-        )
-
-        with (
-            patch(
-                "products.managed_warehouse.backend.admin.view_translation_admin._start_translation_job"
-            ) as start_job,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            model_admin.retry_selected_translations(
-                request,
-                ManagedWarehouseViewTranslationResult.all_teams.filter(id__in=[result.id for result in results]),
-            )
-
-        retry_job = ManagedWarehouseViewTranslationJob.objects.exclude(id=source_job.id).get()
-        assert retry_job.trigger_source == ManagedWarehouseViewTranslationJob.TriggerSource.RETRY
-        assert retry_job.scope == ManagedWarehouseViewTranslationJob.Scope.SELECTED_VIEWS
-        assert retry_job.retry_of == source_job
-        assert set(retry_job.selected_saved_query_ids) == {str(saved_query.id) for saved_query in saved_queries}
-        start_job.assert_called_once_with(retry_job.id, self.organization.id)
 
 
 class TestDuckgresServerAdminProvision(BaseTest):
@@ -322,12 +216,100 @@ class TestManagedWarehouseConsolePanel(BaseTest):
         mock_provision.assert_not_called()
         assert "does not belong to organization" in preview.content.decode()
 
-    def test_old_provision_url_points_to_the_console(self) -> None:
-        response = self.client.get("/admin/managed_warehouse/duckgresserver/provision/")
+    @parameterized.expand(
+        [
+            ("duckgresserver/provision/", "Provisioning a managed warehouse moved"),
+            ("managedwarehouseviewtranslationjob/add/", "Starting a view translation job moved"),
+        ]
+    )
+    def test_old_page_urls_point_to_the_console(self, old_path: str, message: str) -> None:
+        response = self.client.get(f"/admin/managed_warehouse/{old_path}")
 
         assert response.status_code == 302
         assert response["Location"] == "/admin/console/"
-        assert any("Provisioning a managed warehouse moved" in m for m in _messages(response.wsgi_request))
+        assert any(message in m for m in _messages(response.wsgi_request))
+
+    def _saved_query(self, name: str, team: Team | None = None) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            team=team or self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+
+    @parameterized.expand([("entire_organization", False), ("selected_views", True)])
+    def test_start_view_translation_dispatches_a_job_after_commit(self, scope: str, select_views: bool) -> None:
+        self._server()
+        saved_query = self._saved_query("selected_view")
+        view_ids = f"{saved_query.id},\n{saved_query.id}" if select_views else ""
+
+        with patch(START_JOB) as start_job, self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"{self.organization_url}managed-warehouse/start-view-translation/", {"saved_query_ids": view_ids}
+            )
+
+        assert response.status_code == 302
+        job = ManagedWarehouseViewTranslationJob.objects.get()
+        assert job.created_by == self.user
+        assert job.trigger_source == ManagedWarehouseViewTranslationJob.TriggerSource.ADMIN
+        assert job.status == ManagedWarehouseViewTranslationJob.Status.PENDING
+        assert job.scope == scope
+        assert job.selected_saved_query_ids == ([str(saved_query.id)] if select_views else [])
+        start_job.assert_called_once_with(job.id, self.organization.id)
+
+    @parameterized.expand([("not_a_uuid", "Enter valid view IDs"), ("other_org", "do not identify an active view")])
+    def test_start_view_translation_refuses_views_outside_the_organization(self, case: str, error: str) -> None:
+        self._server()
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
+        view_ids = "not-a-uuid" if case == "not_a_uuid" else str(self._saved_query("foreign", other_team).id)
+
+        with patch(START_JOB) as start_job:
+            response = self.client.post(
+                f"{self.organization_url}managed-warehouse/start-view-translation/", {"saved_query_ids": view_ids}
+            )
+
+        assert response.status_code == 400
+        assert error in response.content.decode()
+        assert not ManagedWarehouseViewTranslationJob.objects.exists()
+        start_job.assert_not_called()
+
+    def test_retry_view_translation_starts_a_job_for_failed_and_stale_views_then_hides_both_operations(self) -> None:
+        self._server()
+        saved_queries = [self._saved_query(name) for name in ["failed_view", "stale_view", "compiled_view"]]
+        source_job = ManagedWarehouseViewTranslationJob.objects.create(
+            organization=self.organization,
+            status=ManagedWarehouseViewTranslationJob.Status.COMPLETED_WITH_ERRORS,
+        )
+        for saved_query, status in zip(
+            saved_queries,
+            [
+                ManagedWarehouseViewTranslationResult.Status.FAILED,
+                ManagedWarehouseViewTranslationResult.Status.STALE,
+                ManagedWarehouseViewTranslationResult.Status.COMPILED,
+            ],
+            strict=True,
+        ):
+            ManagedWarehouseViewTranslationResult.all_teams.create(
+                job=source_job,
+                team=self.team,
+                saved_query_id=saved_query.id,
+                saved_query_name=saved_query.name,
+                source_query_hash="0" * 64,
+                status=status,
+            )
+        assert "Retry failed view translations" in self.client.get(self.organization_url).content.decode()
+
+        with patch(START_JOB) as start_job, self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"{self.organization_url}managed-warehouse/retry-view-translation/", {"job_id": str(source_job.id)}
+            )
+
+        assert response.status_code == 302
+        retry_job = ManagedWarehouseViewTranslationJob.objects.exclude(id=source_job.id).get()
+        assert retry_job.trigger_source == ManagedWarehouseViewTranslationJob.TriggerSource.RETRY
+        assert retry_job.scope == ManagedWarehouseViewTranslationJob.Scope.SELECTED_VIEWS
+        assert retry_job.retry_of == source_job
+        assert set(retry_job.selected_saved_query_ids) == {str(saved_query.id) for saved_query in saved_queries[:2]}
+        start_job.assert_called_once_with(retry_job.id, self.organization.id)
+        content = self.client.get(self.organization_url).content.decode()
+        assert "Start view translation" not in content and "Retry failed view translations" not in content
 
     def test_enable_backfill_calls_helper_bypassing_flag(self) -> None:
         self._server()

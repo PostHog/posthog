@@ -1,4 +1,6 @@
+import re
 from typing import cast
+from uuid import UUID
 
 from django import forms
 from django.contrib import messages
@@ -10,13 +12,16 @@ from posthog.admin.console.registry import console
 from posthog.admin.console.tools import Cell, Notice, Page, Row, Secret, Table
 from posthog.models.user import User
 
-from products.managed_warehouse.backend.facade.contracts import StaffActionOutcome
+from products.managed_warehouse.backend.facade.contracts import StaffActionOutcome, ViewTranslationSummary
 from products.managed_warehouse.backend.facade.staff import (
     deprovision_for_staff,
     get_duckgres_server_summary,
+    get_view_translation_summary,
     onboard_team_for_staff,
     preview_provision_for_staff,
     provision_for_staff,
+    retry_view_translation_for_staff,
+    start_view_translation_for_staff,
 )
 
 MANAGED_WAREHOUSE = Owner(name="Managed warehouse", crest="managed-warehouse")
@@ -58,6 +63,39 @@ class ProvisionForm(forms.Form):
         ),
     )
     reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
+
+
+def _parse_view_ids(raw: str) -> list[UUID]:
+    tokens = re.split(r"[\s,]+", raw.strip()) if raw.strip() else []
+    try:
+        return list(dict.fromkeys(UUID(token) for token in tokens))
+    except ValueError:
+        raise forms.ValidationError("Enter valid view IDs separated by commas or new lines.") from None
+
+
+class StartViewTranslationForm(forms.Form):
+    saved_query_ids = forms.CharField(
+        label="View IDs",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 6}),
+        help_text="One saved view ID per line. Leave empty to translate every view in the organization.",
+    )
+
+    def clean_saved_query_ids(self) -> list[UUID]:
+        return _parse_view_ids(self.cleaned_data["saved_query_ids"])
+
+
+class RetryViewTranslationForm(forms.Form):
+    job_id = forms.UUIDField(label="Job ID", help_text="The translation job whose failed or stale views to retry.")
+    saved_query_ids = forms.CharField(
+        label="View IDs",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 6}),
+        help_text="One saved view ID per line. Leave empty to retry every failed or stale view of the job.",
+    )
+
+    def clean_saved_query_ids(self) -> list[UUID]:
+        return _parse_view_ids(self.cleaned_data["saved_query_ids"])
 
 
 def _report(request: HttpRequest, outcome: StaffActionOutcome) -> HttpResponse | None:
@@ -175,6 +213,54 @@ def provision(request: HttpRequest, obj: Model, form: forms.Form | None) -> Http
     return Page(blocks=tuple(blocks))
 
 
+def start_view_translation(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert form is not None
+    outcome = start_view_translation_for_staff(
+        obj.pk, form.cleaned_data["saved_query_ids"], actor_user_id=cast(User, request.user).pk
+    )
+    return _report(request, outcome)
+
+
+def retry_view_translation(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert form is not None
+    outcome = retry_view_translation_for_staff(
+        obj.pk,
+        form.cleaned_data["job_id"],
+        form.cleaned_data["saved_query_ids"],
+        actor_user_id=cast(User, request.user).pk,
+    )
+    return _report(request, outcome)
+
+
+def _view_translation_operations(translation: ViewTranslationSummary | None) -> list[Operation]:
+    if translation is not None and translation.active:
+        return []
+    operations = [
+        Operation(
+            key="start-view-translation",
+            label="Start view translation",
+            handler=start_view_translation,
+            form_class=StartViewTranslationForm,
+            description=(
+                "Starts a job that translates the organization's saved views for the managed warehouse and records "
+                "a result for each view. The views themselves do not change."
+            ),
+        )
+    ]
+    if translation is not None and translation.retry_job_id is not None:
+        operations.append(
+            Operation(
+                key="retry-view-translation",
+                label="Retry failed view translations",
+                handler=retry_view_translation,
+                form_class=RetryViewTranslationForm,
+                form_initial={"job_id": translation.retry_job_id},
+                description="Starts a job that translates the failed or stale views of an earlier job again.",
+            )
+        )
+    return operations
+
+
 def deprovision(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
     user = cast(User, request.user)
     outcome = deprovision_for_staff(obj.pk, actor_email=user.email, actor_distinct_id=str(user.distinct_id))
@@ -197,7 +283,19 @@ class ManagedWarehousePanel(Panel):
             Fact(label="Server", value=server.host, mono=True),
             Fact(label="Bucket", value=server.bucket or "Not recorded yet", mono=bool(server.bucket)),
             Fact(label="Internal testing", value="Yes" if server.internal_testing else "No"),
+            self._view_translation_fact(get_view_translation_summary(obj.pk)),
         ]
+
+    @staticmethod
+    def _view_translation_fact(translation: ViewTranslationSummary | None) -> Fact:
+        if translation is None:
+            return Fact(label="View translation", value="Never run")
+        counts = (
+            f"{translation.compiled_count} of {translation.total_count} compiled, "
+            f"{translation.failed_count} failed, {translation.stale_count} stale"
+        )
+        tone = Tone.WARNING if translation.failed_count or translation.stale_count else None
+        return Fact(label="View translation", value=f"{translation.latest_status}: {counts}", tone=tone)
 
     def operations(self, obj: Model) -> list[Operation]:
         provision_operation = Operation(
@@ -222,6 +320,7 @@ class ManagedWarehousePanel(Panel):
             return [provision_operation]
         return [
             provision_operation,
+            *_view_translation_operations(get_view_translation_summary(obj.pk)),
             Operation(
                 key="enable-backfill",
                 label="Enable backfill for a team",

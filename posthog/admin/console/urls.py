@@ -64,16 +64,19 @@ def _moved_duckgres_server_action(target: str) -> Callable[..., HttpResponse]:
     return view
 
 
-def _moved_duckgres_server_provision(request: HttpRequest) -> HttpResponse:
-    # The old page asked for the organization in its form, so its URL names none. Provisioning is now an
-    # operation on each organization's page.
-    messages.info(
-        request,
-        "Provisioning a managed warehouse moved to the Managed warehouse panel on the organization's page in "
-        "PostHog Admin. Look up a team of the organization, then open its organization.",
-    )
-    query = request.META.get("QUERY_STRING", "")
-    return HttpResponseRedirect("/admin/console/" + (f"?{query}" if query else ""))
+def _moved_to_managed_warehouse_panel(what: str) -> Callable[..., HttpResponse]:
+    # The old pages asked for the organization in their form, so their URLs name none. The actions are now
+    # operations on each organization's page.
+    def view(request: HttpRequest) -> HttpResponse:
+        messages.info(
+            request,
+            f"{what} moved to the Managed warehouse panel on the organization's page in PostHog Admin. Look up a "
+            "team of the organization, then open its organization.",
+        )
+        query = request.META.get("QUERY_STRING", "")
+        return HttpResponseRedirect("/admin/console/" + (f"?{query}" if query else ""))
+
+    return view
 
 
 # Every route sits under /admin/, so AdminOAuth2Middleware adds its Google step-up, and admin_view
@@ -168,7 +171,11 @@ urlpatterns = [
     ],
     path(
         "admin/managed_warehouse/duckgresserver/provision/",
-        admin.site.admin_view(_moved_duckgres_server_provision),
+        admin.site.admin_view(_moved_to_managed_warehouse_panel("Provisioning a managed warehouse")),
+    ),
+    path(
+        "admin/managed_warehouse/managedwarehouseviewtranslationjob/add/",
+        admin.site.admin_view(_moved_to_managed_warehouse_panel("Starting a view translation job")),
     ),
     path(
         "admin/posthog/organization/bulk-deactivate/",
