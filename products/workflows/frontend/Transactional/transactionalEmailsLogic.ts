@@ -7,7 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { objectsEqual } from 'lib/utils/objects'
-import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -15,6 +15,7 @@ import { tagsModel } from '~/models/tagsModel'
 import {
     transactionalCodeEmailsList,
     transactionalCodeEmailsPartialUpdate,
+    transactionalCodeEmailsRetrieve,
 } from 'products/messaging/frontend/generated/api'
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -40,7 +41,7 @@ export interface transactionalEmailsLogicValues {
     tags: string[] // messageTemplatesLogic
     templatesLoading: boolean // messageTemplatesLogic
     transactionalTemplates: MessageTemplate[] // messageTemplatesLogic
-    currentProjectId: number | null // projectLogic
+    currentTeamId: number | null // teamLogic
     codeEmails: CodeEmailApi[] | null
     codeEmailsLoading: boolean
     filteredTransactionalEmails: TransactionalEmailRow[]
@@ -123,8 +124,8 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
         values: [
             messageTemplatesLogic,
             ['transactionalTemplates', 'templatesLoading', 'tags'],
-            projectLogic,
-            ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
         ],
         actions: [messageTemplatesLogic, ['loadTagsIfNeeded', 'loadTemplates', 'templateTagsSaved']],
     })),
@@ -141,7 +142,7 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
             {
                 loadCodeEmails: async () => {
                     try {
-                        return await transactionalCodeEmailsList(String(values.currentProjectId))
+                        return await transactionalCodeEmailsList(String(values.currentTeamId))
                     } catch (error) {
                         // The endpoint answers 404 while the project can't send email from code yet.
                         if (error instanceof ApiError && error.status === 404) {
@@ -197,37 +198,91 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
                 !objectsEqual({ ...DEFAULT_FILTERS, ...filters }, DEFAULT_FILTERS),
         ],
     }),
-    listeners(({ actions, values }) => ({
-        saveTransactionalTags: async ({ row, tags }) => {
-            // The editor builds each payload from the row's tags, so a second edit made while the first
-            // is in flight would be built from the stored list and drop the first one. Showing the new
-            // tags at once gives that second edit the right starting point.
-            if (row.source === 'code') {
-                actions.codeEmailChanged({ ...row.codeEmail, tags })
-            } else {
+    listeners(({ actions, values }) => {
+        const changeCodeEmail = (codeEmail: CodeEmailApi): void => {
+            transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(codeEmail)
+        }
+
+        // The editor builds each payload from the row's tags, so a second edit made while the first
+        // is in flight would be built from the stored list and drop the first one. Showing the new
+        // tags at once gives that second edit the right starting point.
+        const showTagsAtOnce = (row: TransactionalEmailRow, tags: string[]): void => {
+            if (row.source !== 'code') {
                 actions.templateTagsSaved({ ...row.template, tags })
+                return
+            }
+            if (!confirmedCodeEmails.has(row.id)) {
+                confirmedCodeEmails.set(row.id, row.codeEmail)
+            }
+            actions.codeEmailChanged({ ...row.codeEmail, tags })
+        }
+
+        const saveCodeEmailTags = async (
+            codeEmail: CodeEmailApi,
+            tags: string[],
+            isLatestEdit: () => boolean
+        ): Promise<void> => {
+            const updated = await transactionalCodeEmailsPartialUpdate(String(values.currentTeamId), codeEmail.id, {
+                tags,
+            })
+            confirmedCodeEmails.set(codeEmail.id, updated)
+            if (isLatestEdit()) {
+                changeCodeEmail(updated)
+            }
+            tagsModel.findMounted()?.actions.loadTags()
+        }
+
+        // The row is showing tags that were never stored, so the stored ones are read back.
+        const recoverCodeEmailTags = async (codeEmail: CodeEmailApi, isLatestEdit: () => boolean): Promise<void> => {
+            if (!isLatestEdit()) {
+                return
             }
             try {
-                await saveTagsAfterPause(row.id, () =>
-                    row.source === 'code'
-                        ? saveCodeEmailTags(String(values.currentProjectId), row.codeEmail, tags)
-                        : saveTemplateTags(row.template, tags)
-                )
-            } catch (error: any) {
-                lemonToast.error(`Couldn't save tags: ${error?.detail || error?.message || 'unknown error'}`)
-                // The row is showing tags that were never stored, so the stored ones are read back.
-                if (row.source === 'code') {
-                    actions.loadCodeEmails()
-                } else {
-                    actions.loadTemplates()
+                const stored = await transactionalCodeEmailsRetrieve(String(values.currentTeamId), codeEmail.id)
+                if (isLatestEdit()) {
+                    confirmedCodeEmails.set(codeEmail.id, stored)
+                    changeCodeEmail(stored)
                 }
-            } finally {
-                if (!pendingTagSaves.has(row.id)) {
-                    actions.transactionalTagsSaved(row.id)
+            } catch {
+                if (isLatestEdit()) {
+                    changeCodeEmail(confirmedCodeEmails.get(codeEmail.id) ?? codeEmail)
                 }
             }
-        },
-    })),
+        }
+
+        return {
+            saveTransactionalTags: async ({ row, tags }) => {
+                showTagsAtOnce(row, tags)
+                const isLatestEdit = startTagEdit(row.id)
+                try {
+                    await saveTagsAfterPause(row.id, () =>
+                        saveInOrder(row.id, async () => {
+                            if (!isLatestEdit()) {
+                                return
+                            }
+                            return row.source === 'code'
+                                ? saveCodeEmailTags(row.codeEmail, tags, isLatestEdit)
+                                : saveTemplateTags(row.template, tags)
+                        })
+                    )
+                } catch (error: any) {
+                    lemonToast.error(`Couldn't save tags: ${error?.detail || error?.message || 'unknown error'}`)
+                    if (row.source === 'code') {
+                        await recoverCodeEmailTags(row.codeEmail, isLatestEdit)
+                    } else {
+                        actions.loadTemplates()
+                    }
+                } finally {
+                    if (isLatestEdit()) {
+                        confirmedCodeEmails.delete(row.id)
+                    }
+                    if (!pendingTagSaves.has(row.id)) {
+                        actions.transactionalTagsSaved(row.id)
+                    }
+                }
+            },
+        }
+    }),
     actionToUrl(({ values }) => ({
         setFilters: () => {
             const { search, createdBy, tags, managedBy } = { ...DEFAULT_FILTERS, ...values.filters }
@@ -277,10 +332,26 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
     }),
 ])
 
-async function saveCodeEmailTags(projectId: string, codeEmail: CodeEmailApi, tags: string[]): Promise<void> {
-    const updated = await transactionalCodeEmailsPartialUpdate(projectId, codeEmail.id, { tags })
-    transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(updated)
-    tagsModel.findMounted()?.actions.loadTags()
+// The newest tag edit made on each row, so a save can tell when a later edit has replaced its tags.
+const latestTagEdits = new Map<string, number>()
+
+function startTagEdit(rowId: string): () => boolean {
+    const edit = (latestTagEdits.get(rowId) ?? 0) + 1
+    latestTagEdits.set(rowId, edit)
+    return () => latestTagEdits.get(rowId) === edit
+}
+
+// The last tags the server confirmed for each email sent from code with edits in progress. A row already shows
+// unsaved tags while a burst of edits waits, so it can't tell what to go back to when every save and read fails.
+const confirmedCodeEmails = new Map<string, CodeEmailApi>()
+
+// Writes on one row run one after another, so the server stores tags in the order the user made them.
+const tagWrites = new Map<string, Promise<void>>()
+
+function saveInOrder(rowId: string, save: () => Promise<void>): Promise<void> {
+    const write = (tagWrites.get(rowId) ?? Promise.resolve()).catch(() => undefined).then(save)
+    tagWrites.set(rowId, write)
+    return write
 }
 
 // Tag writes waiting out their pause, keyed by row. They are held here rather than behind a

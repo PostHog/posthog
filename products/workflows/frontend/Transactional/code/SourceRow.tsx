@@ -3,10 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconCode, IconCopy, IconGithub, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { codeEmailLogic } from './codeEmailLogic'
 import { SourceCandidatePicker } from './SourceCandidatePicker'
@@ -17,18 +14,15 @@ import { SourceFileForm } from './SourceFileForm'
 export function SourceRow(): JSX.Element | null {
     const {
         codeEmail,
-        codeEmailLoading,
+        saving,
         sourceFormOpen,
         sourcePickerOpen,
+        editDisabledReason,
         sourceDetectionEnabled,
         canFindInGitHub,
         sourceCandidatesLoading,
     } = useValues(codeEmailLogic)
     const { linkSourceFile, setSourceFormOpen, findSourceCandidates } = useActions(codeEmailLogic)
-    const editDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.Workflow,
-        AccessControlLevel.Editor
-    )
     if (!codeEmail) {
         return null
     }
@@ -39,18 +33,14 @@ export function SourceRow(): JSX.Element | null {
     const detected = sourceDetectionEnabled && !!file && codeEmail.source_origin === 'detected'
     return (
         <LemonDropdown
-            visible={sourceFormOpen}
+            visible={sourceFormOpen && !editDisabledReason}
             onClickOutside={() => setSourceFormOpen(false)}
             placement="bottom-start"
             overlay={
                 sourcePickerOpen ? (
                     <SourceCandidatePicker />
                 ) : (
-                    <SourceFileForm
-                        initialUrl={codeEmail.source_url}
-                        saving={codeEmailLoading}
-                        onSave={linkSourceFile}
-                    />
+                    <SourceFileForm initialUrl={codeEmail.source_url} saving={saving} onSave={linkSourceFile} />
                 )
             }
         >
@@ -64,6 +54,7 @@ export function SourceRow(): JSX.Element | null {
                             type="tertiary"
                             icon={<IconPlus />}
                             onClick={() => setSourceFormOpen(!sourceFormOpen)}
+                            disabledReason={editDisabledReason ?? undefined}
                             data-attr="code-email-link-source-file"
                         >
                             Link source file

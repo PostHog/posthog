@@ -14,11 +14,13 @@ from posthog.models import OrganizationMembership
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import Integration
 from posthog.models.integration.github_code_search import ExactCodeMatch, ExactCodeSearchResult, MatchedLine
+from posthog.models.scoping import team_scope
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.presentation.views.transactional_code_emails import CodeEmailUpdateSerializer
+from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import destroy_workflow
 
@@ -86,6 +88,7 @@ class TestTransactionalCodeEmails(APIBaseTest):
             "source_origin": "manual",
             "sensitive": True,
             "created_at": None,
+            "user_access_level": "editor",
         }
         assert rows["order-shipped"]["description"] == ""
         assert rows["order-shipped"]["tags"] == []
@@ -113,8 +116,22 @@ class TestTransactionalCodeEmails(APIBaseTest):
         patched = self.client.patch(self._url(f"{other.id}/"), {"description": "Mine now"}, format="json")
         assert patched.status_code == status.HTTP_404_NOT_FOUND
 
+    def _sending_config(self, email: TransactionalEmailKey) -> dict:
+        with team_scope(self.team.id):
+            flow = HogFlow.objects.filter(team_id=self.team.id, id=email.hog_flow_id).get()
+            revisions = flow.revisions.count()
+        return {
+            "version": flow.version,
+            "revisions": revisions,
+            "actions": flow.actions,
+            "edges": flow.edges,
+            "trigger": flow.trigger,
+            "draft": flow.draft,
+        }
+
     def test_update_changes_only_the_fields_sent(self, _post, _flag):
         email = self._code_email("magic-link")
+        sending_config = self._sending_config(email)
         self.client.patch(
             self._url(f"{email.id}/"),
             {"description": "Sign-in link", "tags": ["auth", "login"], "source_url": "https://example.com/a.py"},
@@ -131,6 +148,7 @@ class TestTransactionalCodeEmails(APIBaseTest):
             "source_origin": "manual",
         }
         assert self.client.get(self._url(f"{email.id}/")).json()["tags"] == ["auth"]
+        assert self._sending_config(email) == sending_config
 
     def test_rejects_a_source_url_that_is_not_a_web_link(self, _post, _flag):
         email = self._code_email("export-ready")
@@ -153,7 +171,9 @@ class TestTransactionalCodeEmails(APIBaseTest):
                 organization_member_id=self.organization_membership.id,
             )
 
-        assert [row["key"] for row in self.client.get(self._url()).json()] == ["receipt"]
+        assert [(row["key"], row["user_access_level"]) for row in self.client.get(self._url()).json()] == [
+            ("receipt", "viewer")
+        ]
         assert self.client.get(self._url(f"{hidden.id}/")).status_code == status.HTTP_404_NOT_FOUND
         patched = self.client.patch(self._url(f"{read_only.id}/"), {"description": "Edited"}, format="json")
         assert patched.status_code == status.HTTP_403_FORBIDDEN

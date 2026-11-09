@@ -1,4 +1,4 @@
-from collections.abc import Collection, Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from typing import Any
 from uuid import UUID
 
@@ -72,6 +72,7 @@ __all__ = [
     "get_email_sending_state",
     "get_email_sending_tier_limits",
     "get_viewable_workflow_ids",
+    "get_workflow_access_levels",
     "get_workflow_view_access",
     "get_hog_flows_referencing_template_input_keys",
     "list_owned_workflow_health",
@@ -225,14 +226,22 @@ def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str
     }
 
 
-def get_viewable_workflow_ids(*, team_id: int, user_access_control: UserAccessControl) -> set[str]:
-    """The ids, as strings, of the team's workflows the reader may view."""
-    return {
-        str(pk)
-        for pk in user_access_control.filter_queryset_by_access_level(
-            HogFlow.objects.filter(team_id=team_id)
-        ).values_list("id", flat=True)
-    }
+def get_viewable_workflow_ids(
+    *, team_id: int, user_access_control: UserAccessControl, workflow_ids: Collection[str] | None = None
+) -> set[str]:
+    """The ids, as strings, of the team's workflows the reader may view. Pass `workflow_ids` to check only those."""
+    flows = HogFlow.objects.filter(team_id=team_id)
+    if workflow_ids is not None:
+        flows = flows.filter(id__in=list(workflow_ids))
+    return {str(pk) for pk in user_access_control.filter_queryset_by_access_level(flows).values_list("id", flat=True)}
+
+
+def get_workflow_access_levels(
+    *, team_id: int, user_access_control: UserAccessControl, workflow_ids: Collection[str]
+) -> Mapping[str, str | None]:
+    """The reader's effective access level for each of the team's workflows, keyed by the workflow id as a string."""
+    rows = HogFlow.objects.filter(team_id=team_id, id__in=list(workflow_ids)).values_list("id", "created_by_id")
+    return user_access_control.bulk_object_access_levels("hog_flow", [(str(pk), creator) for pk, creator in rows])
 
 
 def get_workflow_view_access(*, team_id: int, user_access_control: UserAccessControl) -> WorkflowViewAccess:

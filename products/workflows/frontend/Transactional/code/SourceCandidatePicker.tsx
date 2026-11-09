@@ -10,8 +10,7 @@ function fileName(path: string): string {
 
 /** The files in the team's GitHub repositories that use this email's key, to pick one as its source file. */
 export function SourceCandidatePicker(): JSX.Element {
-    const { sourceCandidates, sourceCandidatesLoading, sourceCandidatesError, codeEmailLoading } =
-        useValues(codeEmailLogic)
+    const { sourceCandidates, sourceCandidatesLoading, sourceCandidatesError, saving } = useValues(codeEmailLogic)
     const { findSourceCandidates, pickSourceCandidate, setSourceFormOpen } = useActions(codeEmailLogic)
     const incomplete = sourceCandidates?.complete === false
 
@@ -54,7 +53,7 @@ export function SourceCandidatePicker(): JSX.Element {
                                     fullWidth
                                     size="small"
                                     onClick={() => pickSourceCandidate(candidate)}
-                                    disabledReason={codeEmailLoading ? 'Saving' : undefined}
+                                    disabledReason={saving ? 'Saving' : undefined}
                                     sideIcon={
                                         candidate.call_site ? (
                                             <LemonTag type="success" size="small">
