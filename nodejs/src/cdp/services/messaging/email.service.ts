@@ -168,8 +168,6 @@ export class SESThrottleError extends Error {
 const EMAIL_ATTACHMENTS_MISSING = 'attachments_missing'
 const EMAIL_ATTACHMENT_UNAVAILABLE = 'attachment_unavailable'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
-// Loading the files and the SES call share one deadline. A send with files still runs inside its batch, so the
-// deadline stays under the 30 seconds after which a pod that has not polled fails its health check.
 const DEFAULT_ATTACHMENT_SEND_DEADLINE_MS = 20_000
 
 class EmailSendDeadlineError extends Error {
@@ -179,9 +177,8 @@ class EmailSendDeadlineError extends Error {
     }
 }
 
-// Credentials resolve at the serialize step and signing runs at finalizeRequest, so the deserialize step is the first
-// that runs only once the signed request goes to the HTTP handler. From then on SES may accept the email, and SendEmail
-// takes no idempotency token, so a deadline abort after this point must not lead to a second send.
+const FIRST_STEP_AFTER_SIGNING = 'deserialize'
+
 function trackRequestSent(command: SendEmailCommand): () => boolean {
     let sent = false
     command.middlewareStack.add(
@@ -189,7 +186,7 @@ function trackRequestSent(command: SendEmailCommand): () => boolean {
             sent = true
             return next(args)
         },
-        { step: 'deserialize', name: 'markSesRequestSent' }
+        { step: FIRST_STEP_AFTER_SIGNING, name: 'markSesRequestSent' }
     )
     return () => sent
 }
