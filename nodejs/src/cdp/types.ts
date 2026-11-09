@@ -672,7 +672,6 @@ export type HogFunctionInputSchemaType = {
      * it can be set to 'hog' or 'liquid' to specify the default templating engine to use.
      */
     templating?: boolean | 'hog' | 'liquid'
-    /** How the worker applies this input's credential to a fetch that passes the input as `auth`. */
     auth?: CredentialAuthDeclaration
 }
 

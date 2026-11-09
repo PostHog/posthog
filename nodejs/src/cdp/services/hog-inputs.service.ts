@@ -460,7 +460,6 @@ export class HogInputsService {
         return returnInputs
     }
 
-    // Only the fetch step calls this, so the credential never reaches a value that code can read.
     public async resolveCredential(
         hogFunction: HogFunctionType,
         inputKey: string
@@ -543,8 +542,7 @@ function ownInput(
     return inputs && Object.hasOwn(inputs, key) ? (inputs[key] ?? undefined) : undefined
 }
 
-// Django stores a declaration with a secret when someone types it, with its origins resolved, and a workflow binds one
-// from its template. Code can't set either, so a secret that carries one resolves to a handle.
+// Only Django, when a secret is typed, or a workflow's template sets this binding, so code can't give itself one.
 function boundSecretDeclaration(input: CyclotronInputType): CredentialAuthDeclaration | null {
     const auth: unknown = (input as { auth?: unknown }).auth
     if (typeof auth !== 'object' || auth === null || Array.isArray(auth)) {

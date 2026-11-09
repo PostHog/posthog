@@ -145,8 +145,7 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
     // An input-key reference, like the `*_input` fields above, so credential header values stay out of the fetch parameters.
     secret_headers_input: z.string().optional(),
-    // The input whose credential the worker applies, from the handle code passed as `auth`. Like the `*_input` fields
-    // above, it names the input so the credential stays out of the fetch parameters.
+    // Names the input, like the `*_input` fields above, so the credential stays out of the persisted parameters.
     auth_input: z.string().optional(),
 })
 
