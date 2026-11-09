@@ -171,9 +171,6 @@ class SuspensionSelection:
     reason_contains: tuple[str, ...]
     suspended_from: datetime | None
     suspended_to: datetime | None
-    # Leaves out markers recorded at or after this time. A marker whose time does not parse is kept, as it is
-    # without a window.
-    recorded_before: datetime | None = None
 
 
 @frozen
@@ -185,6 +182,15 @@ class SuspensionMarkerSummary:
     engine: str
     at: str
     reason: str
+
+
+@frozen
+class SuspensionMarkerKey:
+    """One marker staff saw in the preview. `at` tells a re-suspension apart from the marker staff reviewed."""
+
+    node_id: UUID
+    engine: str
+    at: str
 
 
 @frozen

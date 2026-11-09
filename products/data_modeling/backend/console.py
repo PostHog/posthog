@@ -1,12 +1,12 @@
+import json
 from typing import cast
 from uuid import UUID
 
 from django import forms
 from django.conf import settings
 from django.contrib import messages
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, QueryDict
 from django.urls import reverse
-from django.utils import timezone
 
 from posthog.admin.console.panels import Owner, Tone
 from posthog.admin.console.registry import console
@@ -20,6 +20,8 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.contracts import (
     DagTierReport,
+    SuspensionMarkerKey,
+    SuspensionMarkerSummary,
     SuspensionSelection,
     SuspensionSelectionTooBroadError,
     TierSummary,
@@ -66,9 +68,10 @@ class ClearNodeSuspensionsForm(forms.Form):
         widget=forms.Textarea(attrs={"rows": 2}),
         help_text="Optional. Explain why you are clearing these suspensions. Leave empty to use your admin user ID.",
     )
-    # The confirm step selects the markers again. Only markers recorded before staff opened the form count, so a
-    # model that suspends again or suspends for the first time after the preview keeps its suspension.
-    selected_before = forms.DateTimeField(widget=forms.HiddenInput)
+    # The preview fills this with the markers it showed, and the signed confirm token carries them. The confirm
+    # step clears only those, so a model that suspends again or for the first time after the preview keeps its
+    # suspension.
+    previewed_markers = forms.CharField(widget=forms.HiddenInput, required=False)
 
     def _uuid_list(self, field: str) -> tuple[UUID, ...]:
         try:
@@ -81,6 +84,26 @@ class ClearNodeSuspensionsForm(forms.Form):
 
     def clean_saved_query_ids(self) -> tuple[UUID, ...]:
         return self._uuid_list("saved_query_ids")
+
+    def clean_previewed_markers(self) -> tuple[SuspensionMarkerKey, ...]:
+        raw = self.cleaned_data["previewed_markers"]
+        if not raw:
+            return ()
+        try:
+            return tuple(
+                SuspensionMarkerKey(node_id=UUID(item["node_id"]), engine=item["engine"], at=item["at"])
+                for item in json.loads(raw)
+            )
+        except (TypeError, KeyError, ValueError):
+            raise forms.ValidationError("The previewed suspensions could not be read. Preview again.")
+
+    def record_preview(self, markers: list[SuspensionMarkerSummary]) -> None:
+        assert isinstance(self.data, QueryDict)
+        data = self.data.copy()
+        data["previewed_markers"] = json.dumps(
+            [{"node_id": str(marker.node_id), "engine": marker.engine, "at": marker.at} for marker in markers]
+        )
+        self.data = data
 
     def clean(self) -> dict:
         cleaned = super().clean()
@@ -104,7 +127,6 @@ class ClearNodeSuspensionsForm(forms.Form):
             reason_contains=data["reason_contains"],
             suspended_from=data["suspended_from"],
             suspended_to=data["suspended_to"],
-            recorded_before=data["selected_before"],
         )
 
     def resumed_by(self, request: HttpRequest) -> str:
@@ -125,6 +147,7 @@ def preview_suspensions(request: HttpRequest, form: forms.Form) -> Page:
     if not markers:
         form.add_error(None, "No suspensions match this selection.")
         return Page(blocks=())
+    form.record_preview(markers)
     return Page(
         blocks=(
             Notice(
@@ -156,13 +179,9 @@ def preview_suspensions(request: HttpRequest, form: forms.Form) -> Page:
 
 def clear_suspensions(request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
     assert isinstance(form, ClearNodeSuspensionsForm)
-    try:
-        result = clear_suspension_markers(
-            form.selection(), resumed_by=form.resumed_by(request), user_id=cast(User, request.user).pk
-        )
-    except SuspensionSelectionTooBroadError as error:
-        form.add_error(None, str(error))
-        return HttpResponse(status=400)
+    result = clear_suspension_markers(
+        form.cleaned_data["previewed_markers"], resumed_by=form.resumed_by(request), user_id=cast(User, request.user).pk
+    )
     messages.success(
         request,
         f"Cleared {result.cleared} suspension(s). Left {result.skipped} suspension(s) that changed or no longer exist.",
@@ -198,7 +217,6 @@ class ClearNodeSuspensionsTool(ConsoleTool):
                 handler=clear_suspensions,
                 description="Clears the selected suspensions, so the models run on their next scheduled run.",
                 form_class=ClearNodeSuspensionsForm,
-                form_initial={"selected_before": timezone.now()},
                 preview=preview_suspensions,
             )
         ]

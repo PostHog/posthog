@@ -36,8 +36,7 @@ class TestClearNodeSuspensionsConsole(BaseTest):
         return node
 
     def _preview(self, data: dict):
-        # The form records when staff opened it. Suspensions recorded after that are left alone.
-        return self.client.post(CLEAR_URL, {"selected_before": timezone.now().isoformat(), **data})
+        return self.client.post(CLEAR_URL, data)
 
     @staticmethod
     def _previewed_node_ids(response) -> list[str]:
@@ -71,6 +70,13 @@ class TestClearNodeSuspensionsConsole(BaseTest):
         selected.refresh_from_db()
         assert is_node_suspended(selected, "clickhouse")
         new = self._node()
+        # A suspension takes its time before it commits, so one that commits after the preview can carry an
+        # earlier time. It still matches the selection, and it must not be cleared.
+        late_commit = self._node()
+        late_commit.properties["system"]["suspended"]["clickhouse"]["at"] = (
+            timezone.now() - timedelta(hours=1)
+        ).isoformat()
+        late_commit.save()
 
         result = self.client.post(CLEAR_URL, {"confirm_token": response.context["confirm_token"]})
 
@@ -81,7 +87,7 @@ class TestClearNodeSuspensionsConsole(BaseTest):
         assert selected.properties["system"]["suspension_reset"]["clickhouse"]["by"] == expected_by
         log = LogEntry.objects.get(user=self.user, object_id=str(selected.pk))
         assert expected_by in log.change_message
-        for node in (unrelated, old, new):
+        for node in (unrelated, old, new, late_commit):
             node.refresh_from_db()
             assert is_node_suspended(node, "clickhouse")
 
@@ -100,17 +106,6 @@ class TestClearNodeSuspensionsConsole(BaseTest):
         node.refresh_from_db()
         assert is_node_suspended(node, "clickhouse")
         assert not LogEntry.objects.filter(object_id=str(node.pk)).exists()
-
-    def test_clears_a_marker_whose_time_does_not_parse(self) -> None:
-        node = self._node()
-        node.properties["system"]["suspended"]["clickhouse"]["at"] = "not a time"
-        node.save()
-        preview = self._preview({"engine": "clickhouse", "node_ids": str(node.pk)})
-
-        self.client.post(CLEAR_URL, {"confirm_token": preview.context["confirm_token"]})
-
-        node.refresh_from_db()
-        assert not is_node_suspended(node, "clickhouse")
 
     def test_failed_audit_entry_rolls_back_the_reset(self) -> None:
         node = self._node()

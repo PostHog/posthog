@@ -1,12 +1,12 @@
 """Clear suspension markers that staff selected and reviewed in PostHog Admin."""
 
-import datetime as dt
 from itertools import islice
 
 from django.contrib.admin.models import CHANGE, LogEntry
 from django.db import transaction
 
 from products.data_modeling.backend.facade.contracts import (
+    SuspensionMarkerKey,
     SuspensionMarkerSummary,
     SuspensionsCleared,
     SuspensionSelection,
@@ -18,36 +18,24 @@ from products.data_modeling.backend.logic.node_suspension_selection import (
     Selection,
     matching_suspension_markers,
 )
+from products.data_modeling.backend.models.node import Node
 
 MAX_SUSPENSION_PREVIEW = 500
-
-
-def _recorded_before(marker: Marker, cutoff: dt.datetime | None) -> bool:
-    if cutoff is None:
-        return True
-    try:
-        return dt.datetime.fromisoformat(marker.at) < cutoff
-    except (TypeError, ValueError):
-        return True
 
 
 def _matching_markers(selection: SuspensionSelection) -> list[Marker]:
     markers = list(
         islice(
-            (
-                marker
-                for marker in matching_suspension_markers(
-                    team_id=selection.team_id,
-                    node_ids=list(selection.node_ids),
-                    saved_query_ids=list(selection.saved_query_ids),
-                    selection=Selection(
-                        engine=selection.engine,
-                        reason_contains=selection.reason_contains,
-                        suspended_from=selection.suspended_from,
-                        suspended_to=selection.suspended_to,
-                    ),
-                )
-                if _recorded_before(marker, selection.recorded_before)
+            matching_suspension_markers(
+                team_id=selection.team_id,
+                node_ids=list(selection.node_ids),
+                saved_query_ids=list(selection.saved_query_ids),
+                selection=Selection(
+                    engine=selection.engine,
+                    reason_contains=selection.reason_contains,
+                    suspended_from=selection.suspended_from,
+                    suspended_to=selection.suspended_to,
+                ),
             ),
             MAX_SUSPENSION_PREVIEW + 1,
         )
@@ -74,10 +62,18 @@ def find_suspension_markers(selection: SuspensionSelection) -> list[SuspensionMa
     ]
 
 
-def clear_suspension_markers(selection: SuspensionSelection, *, resumed_by: str, user_id: int) -> SuspensionsCleared:
-    markers = _matching_markers(selection)
+def clear_suspension_markers(
+    previewed: tuple[SuspensionMarkerKey, ...], *, resumed_by: str, user_id: int
+) -> SuspensionsCleared:
+    # Clears the markers staff reviewed, not a new match of the selection. A marker can carry a time from before
+    # the preview and still commit after it, so a time cutoff would clear a suspension nobody saw.
+    nodes = Node.objects.in_bulk([key.node_id for key in previewed])
     cleared = 0
-    for marker in markers:
+    for key in previewed:
+        node = nodes.get(key.node_id)
+        if node is None:
+            continue
+        marker = Marker(node=node, engine=key.engine, at=key.at, reason="")
         # The reset and its audit entry commit together, so a failed log write cannot leave an unaudited reset.
         with transaction.atomic():
             if unsuspend_nodes([marker.node], by=resumed_by, engine=marker.engine, only_if=marker.unchanged):
@@ -89,4 +85,4 @@ def clear_suspension_markers(selection: SuspensionSelection, *, resumed_by: str,
                     change_message=f"Cleared {marker.engine} suspension. By / note: {resumed_by}",
                     single_object=True,
                 )
-    return SuspensionsCleared(cleared=cleared, skipped=len(markers) - cleared)
+    return SuspensionsCleared(cleared=cleared, skipped=len(previewed) - cleared)
