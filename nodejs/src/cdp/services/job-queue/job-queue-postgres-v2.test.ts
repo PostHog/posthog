@@ -355,6 +355,31 @@ describe('CyclotronJobQueuePostgresV2', () => {
         })
     })
 
+    describe('startAsConsumer', () => {
+        it('keeps the process up when writing a batch result fails on a dropped connection', async () => {
+            const { queue } = createQueue()
+            let consume: (jobs: any[]) => Promise<void> = () => Promise.resolve()
+            jest.spyOn(queue as any, 'createWorker').mockReturnValue({
+                connect: (fn: typeof consume) => {
+                    consume = fn
+                    return Promise.resolve()
+                },
+            })
+            const unhandled = jest.fn()
+            process.on('unhandledRejection', unhandled)
+            try {
+                await queue.startAsConsumer('hog', () =>
+                    Promise.resolve({ backgroundTask: Promise.reject(new Error('Connection terminated unexpectedly')) })
+                )
+                await consume([createDequeuedJob({ scheduled: DateTime.now(), created: DateTime.now() })])
+                await new Promise((resolve) => setImmediate(resolve))
+                expect(unhandled).not.toHaveBeenCalled()
+            } finally {
+                process.off('unhandledRejection', unhandled)
+            }
+        })
+    })
+
     describe('heartbeatInvocations', () => {
         it('proxies to heartbeat, skips unknown ids, and distinguishes released races from real failures', async () => {
             const { queue } = createQueue()

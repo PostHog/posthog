@@ -13,6 +13,7 @@ import {
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, EMAIL_ATTACHMENTS_MAX_AGE_MS, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager, assignEmailDequeueSeq } from './manager'
+import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
@@ -2998,6 +2999,22 @@ describe('Cyclotron V2', () => {
             await waitForExpect(async () => expect((await queryJob(id)).status).toBe('completed'), 2000, 10)
         })
 
+        it('counts one drop of a checked-out client once', async () => {
+            const pool = createCyclotronPool('worker', { connectionString: DROP_DB_URL })
+            const client = await pool.connect()
+            stops.push(async () => {
+                client.release(true)
+                await pool.end()
+            })
+            const before = await droppedClientCount('worker')
+            const ended = new Promise((resolve) => client.once('end', resolve))
+
+            await terminateDropTestBackends()
+            await ended
+
+            expect(await droppedClientCount('worker')).toBe(before + 1)
+        })
+
         it('a check-in on a dropped client commits nothing, and the janitor hands the job back once', async () => {
             const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
             const worker = createWorker(QUEUE, { pool: { dbUrl: DROP_DB_URL } })
@@ -3008,10 +3025,12 @@ describe('Cyclotron V2', () => {
             try {
                 await holder.query('BEGIN')
                 await holder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
-                const checkIn = job.bulkCreateAndCheckIn({
-                    newJobs: [{ teamId: 1, queueName: QUEUE }],
-                    selfDisposition: { kind: 'ack' },
-                })
+                const checkIn = expect(
+                    job.bulkCreateAndCheckIn({
+                        newJobs: [{ teamId: 1, queueName: QUEUE }],
+                        selfDisposition: { kind: 'ack' },
+                    })
+                ).rejects.toThrow()
                 await waitForExpect(
                     async () => {
                         const waiting = await assertPool.query(
@@ -3024,7 +3043,7 @@ describe('Cyclotron V2', () => {
                     10
                 )
                 await terminateDropTestBackends()
-                await expect(checkIn).rejects.toThrow()
+                await checkIn
             } finally {
                 await holder.query('ROLLBACK')
                 holder.release()
