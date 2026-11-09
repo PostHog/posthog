@@ -18,7 +18,7 @@ import {
     Text,
 } from '@posthog/quill'
 
-import type { PulsePinApi } from 'products/today/frontend/generated/api.schemas'
+import type { HiddenPulseNumberApi, PulsePinApi } from 'products/today/frontend/generated/api.schemas'
 
 import { PULSE_TILES, pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
 import {
@@ -29,6 +29,17 @@ import {
     suggestionsOnHome,
     withoutKeys,
 } from './todayPulseEditorRows'
+
+function HiddenPulseRow({ hidden, onShow }: { hidden: HiddenPulseNumberApi; onShow: () => void }): JSX.Element {
+    return (
+        <li>
+            <Button size="row" left onClick={onShow} className="w-full" data-attr="today-pulse-show-hidden">
+                <span className="min-w-0 flex-1 truncate text-left text-muted-foreground">{hidden.name}</span>
+                <span className="shrink-0 text-xs">Show</span>
+            </Button>
+        </li>
+    )
+}
 
 export function TodayPulseEditor(): JSX.Element {
     const {
@@ -42,8 +53,10 @@ export function TodayPulseEditor(): JSX.Element {
         pulseInsightResultsLoading,
         pulseInsightSearchFailed,
         pulsePinsUnavailableReason,
+        pulseHidden,
     } = useValues(todayHighlightsLogic)
-    const { togglePulsePin, loadPulseInsightResults, pulseEditorOpened } = useActions(todayHighlightsLogic)
+    const { togglePulsePin, loadPulseInsightResults, pulseEditorOpened, showHiddenPulseNumber } =
+        useActions(todayHighlightsLogic)
     const triggerRef = useRef<HTMLButtonElement>(null)
     const [open, setOpen] = useState(false)
     const [search, setSearch] = useState('')
@@ -172,6 +185,22 @@ export function TodayPulseEditor(): JSX.Element {
                 ) : (
                     <ComboboxEmpty>{emptyNote}</ComboboxEmpty>
                 )}
+                {!searching && pulseHidden.length > 0 ? (
+                    <>
+                        <Text size="xs" render={<p />} className="m-0 px-2 pt-2 pb-1 text-muted-foreground">
+                            Hidden
+                        </Text>
+                        <ul className="m-0 flex max-h-40 list-none flex-col overflow-y-auto p-0">
+                            {pulseHidden.map((hidden) => (
+                                <HiddenPulseRow
+                                    key={hidden.key}
+                                    hidden={hidden}
+                                    onShow={() => showHiddenPulseNumber(hidden)}
+                                />
+                            ))}
+                        </ul>
+                    </>
+                ) : null}
                 {pulsePins.length >= PULSE_TILES ? (
                     <Text size="xs" variant="muted" render={<p />} className="m-0 border-t px-2.5 py-1.5">
                         {PULSE_TILES} pinned. Unpin one to pin another.

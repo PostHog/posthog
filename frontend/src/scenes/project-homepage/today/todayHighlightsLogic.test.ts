@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -63,8 +65,17 @@ describe('todayHighlightsLogic', () => {
         ])
     })
 
-    it('hides a pulse metric in this project only, fills its place with the next suggestion, and undoes the hide', async () => {
+    it('moves numbers hidden in this browser to the server, fills a hidden place with the next suggestion, and undoes the hide', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const saved: string[][] = []
+        jest.spyOn(todayApi, 'todayPulsePinsHiddenUpdate').mockImplementation(async (_projectId, { keys }) => {
+            saved.push(keys)
+            return { hidden: keys.map((key) => ({ key, name: key.toUpperCase() })) }
+        })
+        window.localStorage.setItem(
+            'scenes.project-homepage.today.todayHighlightsLogic.hiddenPulseMetrics',
+            JSON.stringify({ [`${MOCK_TEAM_ID}:insight:a`]: true, '2:insight:x': true })
+        )
         const pulse = ['a', 'b', 'c', 'd', 'e', 'f'].map((key) => makePulseMetric({ key: `insight:${key}` }))
         highlightResponses = [[200, makeHighlights({ pulse })]]
         const logic = todayHighlightsLogic()
@@ -72,23 +83,23 @@ describe('todayHighlightsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         const shown = (): string[] => logic.values.pulseTiles.map((metric) => metric.key)
 
-        logic.actions.setHiddenPulseMetrics({ '1:insight:a': true })
-        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:d'])
+        expect([saved, logic.values.hiddenPulseMetrics, shown()]).toEqual([
+            [['insight:a']],
+            { '2:insight:x': true },
+            ['insight:b', 'insight:c', 'insight:d', 'insight:e'],
+        ])
 
         logic.actions.hidePulseMetric(pulse[1], 1)
-        expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:d'])
-
-        logic.actions.hidePulseMetric(pulse[3], 3)
-        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse: [...pulse.slice(0, 4), pulse[5], pulse[4]] }))
-        expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:f'])
+        expect(shown()).toEqual(['insight:f', 'insight:c', 'insight:d', 'insight:e'])
+        await expectLogic(logic).toFinishAllListeners()
         expect(capture).toHaveBeenCalledWith('today pulse metric hidden', expect.objectContaining({ position: 1 }))
 
-        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse: pulse.filter((metric) => metric !== pulse[1]) }))
-        expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:f'])
-
-        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse }))
         logic.actions.unhidePulseMetric(pulse[1], 1)
-        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:f'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect([saved.slice(1), logic.values.pulseHidden]).toEqual([
+            [['insight:a', 'insight:b'], ['insight:a']],
+            [{ key: 'insight:a', name: 'INSIGHT:A' }],
+        ])
     })
 
     it('keeps numbers in their places when a later result reorders or drops them, and starts fresh on a new visit', async () => {
