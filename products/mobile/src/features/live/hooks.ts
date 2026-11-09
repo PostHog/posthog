@@ -134,6 +134,7 @@ interface PollerOptions<T> {
 function usePoller<T>({ enabled, read, intervalMs, slowdown, onEvent }: PollerOptions<T>): {
     state: LiveControllerState<T>
     controller: LiveController<T> | null
+    screenActive: boolean
 } {
     const focused = useIsFocused()
     const active = useAppActive()
@@ -166,7 +167,7 @@ function usePoller<T>({ enabled, read, intervalMs, slowdown, onEvent }: PollerOp
     // The app state goes first, so a controller made in the background never reads before it knows.
     useEffect(() => controller?.setForeground(active), [controller, active])
     useEffect(() => controller?.setVisible(focused), [controller, focused])
-    return { state, controller }
+    return { state, controller, screenActive: focused && active }
 }
 
 interface StatsUsersOnline {
@@ -175,6 +176,7 @@ interface StatsUsersOnline {
     /** True once the service cannot answer: another host, no token, or failed reads. The HogQL count stands in. */
     fallback: boolean
     count: number | null
+    failed: boolean
     controller: LiveController<number | null> | null
 }
 
@@ -223,15 +225,16 @@ function useStatsUsersOnline(source: LiveSource | null, intervalMs: number): Sta
         active,
         fallback: source !== null && (host === null || token === null || failed),
         count: active ? poller.state.data : null,
+        failed: failed || (active && poller.state.failures > 0),
         controller: poller.controller,
     }
 }
 
 /**
  * Users online for the Live chip on the Web analytics screen. It reads only while that screen is focused and the app is
- * in the foreground. Null until a read answers.
+ * in the foreground.
  */
-export function useLiveUsersOnline(): number | null {
+export function useLiveUsersOnline(): { count: number | null; reconnecting: boolean; screenActive: boolean } {
     const mode = useDataMode()
     const scope = useProjectScope()
     const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
@@ -253,10 +256,15 @@ export function useLiveUsersOnline(): number | null {
         read: readCount,
         intervalMs: CHIP_INTERVAL_MS,
     })
-    return stats.active ? stats.count : counted.state.data
+    const reconnecting = stats.active
+        ? stats.failed
+        : counted.state.failures > 0 || (counted.state.data === null && stats.failed)
+    const count = stats.active ? stats.count : counted.state.data
+    return { count: reconnecting ? null : count, reconnecting, screenActive: counted.screenActive }
 }
 
 export interface LiveFeed {
+    screenActive: boolean
     snapshot: LiveSnapshot
     status: LiveStatus
     updatedAt: number | null
@@ -358,6 +366,7 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
 
     const snapshot = main.state.data ?? EMPTY_LIVE_SNAPSHOT
     return {
+        screenActive: main.screenActive,
         snapshot,
         status: source ? liveStatus(main.state) : 'loading',
         updatedAt: main.state.updatedAt,

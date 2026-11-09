@@ -1,3 +1,4 @@
+import { useSegments } from 'expo-router'
 import { NativeTabs } from 'expo-router/native-tabs'
 import { type ReactElement, useRef } from 'react'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
@@ -48,7 +49,9 @@ export function NativeTabsLayout(): ReactElement {
     const focused = useTabHeaderStore((state) => state.focused)
     const pins = useNavPins()
     const flags = useMobileProductFlags()
-    const shownPins = visibleNavPins(pins, focused, flags)
+    const segments: readonly string[] = useSegments()
+    const [group, route] = segments
+    const shownPins = visibleNavPins(pins, group === '(tabs)' ? tabForRoute(route) : focused, flags)
     // Every pinnable tab stays registered, the shown pin first so it takes the slot after Views.
     const tabs: TabKey[] = ['inbox', 'chats', 'views', ...new Set([...shownPins, ...NAV_PINS])]
     useViewsOpenedEvent(focused === 'views')

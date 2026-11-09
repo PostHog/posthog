@@ -16,19 +16,19 @@ export function LiveChip(): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
-    const online = useLiveUsersOnline()
-    const label = online === null ? 'Live' : `${groupThousands(online)} online`
+    const { count, reconnecting, screenActive } = useLiveUsersOnline()
+    const label = count !== null ? `${groupThousands(count)} online` : reconnecting ? 'Reconnecting…' : 'Live'
     return (
         <Pressable44
             onPress={() => router.push(liveHref({ from: 'web_analytics' }))}
             accessibilityRole="button"
-            accessibilityLabel={online === null ? 'Live' : `Live, ${label}`}
+            accessibilityLabel={label === 'Live' ? label : `Live, ${label}`}
             accessibilityHint="Opens Live"
             pressedBackground={colors.pressed}
             style={styles.chip}
             testID="web-analytics-live-chip"
         >
-            <LiveDot on={online !== null} />
+            <LiveDot on={count !== null} animate={screenActive} />
             <Text style={styles.text} numberOfLines={1}>
                 {label}
             </Text>

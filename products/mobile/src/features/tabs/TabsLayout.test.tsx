@@ -316,6 +316,26 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
     })
 
     test.each([
+        { pin: 'web_analytics', route: 'web-analytics' },
+        { pin: 'live', route: 'live' },
+    ] as const)('opens an unpinned $pin route with the initial Inbox header state', async ({ pin, route }) => {
+        useTabHeaderStore.getState().setFocused('inbox')
+        const router = await renderRouter(
+            {
+                '(tabs)/_layout': TabsLayout,
+                '(tabs)/inbox': InboxStub,
+                '(tabs)/chats': ChatsStub,
+                '(tabs)/views': ViewsStub,
+                ...LIST_TABS,
+            },
+            { initialUrl: `/${route}` }
+        )
+        expect(router.getSegments()).toEqual(['(tabs)', route])
+        expect(screen.getByTestId(`${route}-screen`)).toBeTruthy()
+        expect(screen.getByTestId(`nav-pin-${pin}`).props.accessibilityState).toEqual({ selected: true })
+    })
+
+    test.each([
         { width: 402, height: 874 },
         { width: 951, height: 669 },
         { width: 669, height: 951 },

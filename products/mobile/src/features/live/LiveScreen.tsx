@@ -174,6 +174,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
         <LiveTitle
             tab={tab}
             status={feed.status}
+            screenActive={feed.screenActive}
             updatedAt={feed.updatedAt}
             paused={feed.paused}
             onPause={feed.pause}
@@ -230,7 +231,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                     testID="live-top-referrers"
                 />
                 <LiveBreakdownCard kind={breakdown} breakdown={snapshot[breakdown]} onChange={changeBreakdown} />
-                <LiveEventsCard events={snapshot.events} onOpen={openEvent} />
+                <LiveEventsCard events={snapshot.events} onOpen={openEvent} screenActive={feed.screenActive} />
             </View>
         )
     }
@@ -261,6 +262,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
             </ScrollView>
             <LiveEventSheet
                 visible={sheetOpen}
+                screenActive={feed.screenActive}
                 event={sheetEvent}
                 scope={scope}
                 onClose={() => setSheetOpen(false)}
@@ -274,6 +276,7 @@ interface LiveTitleProps {
     /** On a tab the shared tabs header draws the title, so one row holds the dot, the status line and Pause. */
     tab: boolean
     status: LiveStatus
+    screenActive: boolean
     updatedAt: number | null
     paused: boolean
     onPause: () => void
@@ -281,7 +284,16 @@ interface LiveTitleProps {
     onTitleLayout: ScrollTitleState['onTitleLayout']
 }
 
-function LiveTitle({ tab, status, updatedAt, paused, onPause, onResume, onTitleLayout }: LiveTitleProps): ReactElement {
+function LiveTitle({
+    tab,
+    status,
+    screenActive,
+    updatedAt,
+    paused,
+    onPause,
+    onResume,
+    onTitleLayout,
+}: LiveTitleProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const pauseButton = (
@@ -300,9 +312,10 @@ function LiveTitle({ tab, status, updatedAt, paused, onPause, onResume, onTitleL
         return (
             <View style={[styles.titleBlock, styles.titleRow, styles.tabTitleRow]}>
                 <View style={styles.tabStatus}>
-                    <LiveDot on={status === 'live'} />
+                    <LiveDot on={status === 'live'} animate={screenActive} />
                     <LiveStatusLine
                         status={status}
+                        screenActive={screenActive}
                         updatedAt={updatedAt}
                         numberOfLines={1}
                         style={styles.tabStatusText}
@@ -321,18 +334,19 @@ function LiveTitle({ tab, status, updatedAt, paused, onPause, onResume, onTitleL
                         <Text style={styles.title} accessibilityRole="header">
                             Live
                         </Text>
-                        <LiveDot on={status === 'live'} />
+                        <LiveDot on={status === 'live'} animate={screenActive} />
                     </View>
                     {pauseButton}
                 </View>
             </View>
-            <LiveStatusLine status={status} updatedAt={updatedAt} />
+            <LiveStatusLine status={status} screenActive={screenActive} updatedAt={updatedAt} />
         </View>
     )
 }
 
 interface LiveStatusLineProps {
     status: LiveStatus
+    screenActive: boolean
     updatedAt: number | null
     /** The tab's row truncates the line beside the Pause pill. */
     numberOfLines?: number
@@ -340,9 +354,9 @@ interface LiveStatusLineProps {
 }
 
 /** Its own component, so the one-second clock re-renders only this line. */
-function LiveStatusLine({ status, updatedAt, numberOfLines, style }: LiveStatusLineProps): ReactElement {
+function LiveStatusLine({ status, screenActive, updatedAt, numberOfLines, style }: LiveStatusLineProps): ReactElement {
     const styles = useStyles()
-    const now = useNow(1000).getTime()
+    const now = useNow(screenActive && status === 'live' ? 1000 : null).getTime()
     return (
         <Text
             style={[styles.status, style]}

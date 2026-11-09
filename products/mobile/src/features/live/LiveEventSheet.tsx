@@ -25,6 +25,7 @@ import { agoText } from './liveFormat'
 
 interface LiveEventSheetProps {
     visible: boolean
+    screenActive: boolean
     /** Stays set while the sheet closes, so its content does not vanish mid-animation. */
     event: LiveEventRow | null
     /** Null in demo mode, where no person or recording exists on the web. */
@@ -33,7 +34,14 @@ interface LiveEventSheetProps {
     onNotice: (text: string) => void
 }
 
-export function LiveEventSheet({ visible, event, scope, onClose, onNotice }: LiveEventSheetProps): ReactElement {
+export function LiveEventSheet({
+    visible,
+    screenActive,
+    event,
+    scope,
+    onClose,
+    onNotice,
+}: LiveEventSheetProps): ReactElement {
     const colors = useColors()
     return (
         <BottomSheet
@@ -43,7 +51,15 @@ export function LiveEventSheet({ visible, event, scope, onClose, onNotice }: Liv
             accessibilityLabel="Event details"
             testID="live-event-sheet"
         >
-            {event ? <EventDetails event={event} scope={scope} onClose={onClose} onNotice={onNotice} /> : null}
+            {event ? (
+                <EventDetails
+                    event={event}
+                    scope={scope}
+                    onClose={onClose}
+                    onNotice={onNotice}
+                    active={visible && screenActive}
+                />
+            ) : null}
         </BottomSheet>
     )
 }
@@ -51,10 +67,12 @@ export function LiveEventSheet({ visible, event, scope, onClose, onNotice }: Liv
 function EventDetails({
     event,
     scope,
+    active,
     onClose,
     onNotice,
 }: {
     event: LiveEventRow
+    active: boolean
     scope: ProjectScope | null
     onClose: () => void
     onNotice: (text: string) => void
@@ -62,7 +80,7 @@ function EventDetails({
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
-    const now = useNow(10_000).getTime()
+    const now = useNow(active ? 10_000 : null).getTime()
     const replayInApp = useFeatureFlag(FEATURE_FLAGS.sessionReplay)
     const known = Number.isFinite(event.at)
     const subtitle = known ? `${formatClock(new Date(event.at))} · ${agoText(event.at, now)}` : null

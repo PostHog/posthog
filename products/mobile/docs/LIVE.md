@@ -55,7 +55,7 @@ Two more reads, outside the query budget:
 
 Users online comes from the HogQL `usersOnline` job instead when the host is not Cloud, the project has no token, or two stats reads in a row fail. It then changes every 30 seconds.
 
-The Live chip on the Web analytics screen reads users online alone: the stats read every 30 seconds, or the `usersOnline` query alone every 30 seconds on the `live` budget when the stats read is off. It reads only while the Web analytics screen is focused and the app is in the foreground, and never runs the jobs above.
+The Live chip on the Web analytics screen reads users online alone: the stats read every 30 seconds, or the `usersOnline` query alone every 30 seconds on the `live` budget when the stats read is off. It reads only while the Web analytics screen is focused and the app is in the foreground, and never runs the jobs above. If a read fails, the chip shows “Reconnecting…” until a fresh count is available. The chip and Live screen pause their pulses and clocks when their screens are hidden or the app leaves the foreground.
 
 ## Polling
 
