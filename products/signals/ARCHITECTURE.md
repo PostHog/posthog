@@ -1681,7 +1681,19 @@ Implemented in `backend/source_rate_limit.py` with `posthog.token_bucket`, and c
 Every source goes through `emit_signal()`, so this one gate covers warehouse sources, direct product emitters, and scouts.
 
 - **Key:** one pair of buckets for each `(team_id, source_product, source_type)`.
-- **Budgets:** hourly `Budget(burst=200, per_hour=200)`, then a rolling day `Budget(burst=1000, per_hour=42)`. A signal needs a token from both. When the daily bucket refuses, the hourly token goes back.
+- **Caps:** each source has a cap per hour and per rolling day. A signal needs a token from both. When the daily bucket refuses, the hourly token goes back.
+- **Where the caps come from:** the `signals-source-rate-limit-caps` flag payload (100% on, read for the distinct id `signals_source_rate_limit`, cached for a minute), overlaid on `DEFAULT_CAPS`. The payload can set a `default`, per-source caps keyed `product` or `product:type`, and per-project overrides keyed `<region>:<team_id>` (team ids repeat between US and EU). The most specific match wins. `"enabled": false` turns the gate off. A missing payload or an invalid entry falls back to the code default.
+- **Code defaults** (sized from 90 days of `signal_emission_started`, each above the largest legitimate hour and day seen for that source):
+
+  | Source                                 | Per hour | Per day |
+  | -------------------------------------- | -------- | ------- |
+  | default                                | 500      | 2,500   |
+  | `linear`, `github`, `jira`, `shortcut` | 1,500    | 3,000   |
+  | `replay_vision`                        | 1,500    | 5,000   |
+  | `llm_analytics:evaluation`             | 2,000    | 5,000   |
+
+  `error_tracking:issue_created` takes the default on purpose: its normal tail sits far below it, and the projects above it are runaway volume.
+
 - **Enforcement:** behind `signals-source-rate-limit-enforcement` (org-keyed, read only when a signal is over the cap). With the flag off the gate charges the buckets and reports would-drops, but lets every signal through. A would-drop takes no token, the same as a real drop, so the dark-launch numbers match enforcement. An enforced drop returns `False` and completes the signal's pipeline accounting, like the steering gate.
 - **Fail open:** when Redis cannot answer, the signal goes through (metric `signals_source_rate_check_failed_open_total`).
 
