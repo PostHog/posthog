@@ -158,6 +158,9 @@ export type IngestionConsumerConfig = {
     // The consumer fences a sub-batch it has waited INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS
     // for, so an ack later than that is replayed anyway.
     INGESTION_API_GRPC_STUCK_DRAIN_TIMEOUT_MS: number
+    // After the drain, the normal stop can wait on the dependency the stuck
+    // sub-batch waits on, so the process exits with code 1 after this long.
+    INGESTION_API_GRPC_STUCK_CLEANUP_TIMEOUT_MS: number
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
@@ -362,6 +365,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: 15_000,
         INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS: 300_000,
         INGESTION_API_GRPC_STUCK_DRAIN_TIMEOUT_MS: 60_000,
+        INGESTION_API_GRPC_STUCK_CLEANUP_TIMEOUT_MS: 30_000,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',

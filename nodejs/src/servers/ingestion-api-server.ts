@@ -98,8 +98,6 @@ import {
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 import { GrpcBatchContext, GrpcStreamIngestDriver } from './grpc-stream-ingest-driver'
 
-const STUCK_SHUTDOWN_CLEANUP_MS = 30_000
-
 export type IngestionApiServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
     IngestionOutputsConfig &
@@ -526,11 +524,10 @@ export class IngestionApiServer implements NodeServer {
                         return
                     }
                     this.fatalError = error
-                    // Cleanup can wait on the dependency the stuck batch waits on.
                     setTimeout(() => {
                         logger.error('🧊', 'Stuck-batch shutdown cleanup timed out, exiting')
                         process.exit(1)
-                    }, STUCK_SHUTDOWN_CLEANUP_MS)
+                    }, this.config.INGESTION_API_GRPC_STUCK_CLEANUP_TIMEOUT_MS)
                     void this.stop(error)
                 },
             }
