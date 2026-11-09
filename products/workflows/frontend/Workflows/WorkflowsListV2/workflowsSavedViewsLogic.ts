@@ -541,7 +541,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             }
         }
         const rememberFiltersAddedWhileSaving = (previous: FacetFilter[], next: FacetFilter[]): void => {
-            const previousKeys = new Set(previous.map(facetFilterKey))
+            const previousKeys = new Set(previous.map((filter) => facetFilterKey(filter)))
             for (const filter of next) {
                 if (!previousKeys.has(facetFilterKey(filter))) {
                     cache.filterKeysAddedWhileSaving?.add(facetFilterKey(filter))
@@ -757,7 +757,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         text: raw.has('text') ? (raw.get('text') ?? '') : (view?.state.text ?? ''),
                     }
                     actions.setValue(value)
-                    const effectiveKeys = new Set(value.filters.map(facetFilterKey))
+                    const effectiveKeys = new Set(value.filters.map((filter) => facetFilterKey(filter)))
                     actions.setAddedFilters(
                         raw.has('added')
                             ? parseFacetQuery(raw.get('added') ?? '', values.facets).filter((filter) =>

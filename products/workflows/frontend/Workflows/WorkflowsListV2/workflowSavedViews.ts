@@ -115,8 +115,8 @@ export function addedFiltersAfterEdit(
     previouslyAdded: FacetFilter[],
     filters: FacetFilter[]
 ): FacetFilter[] {
-    const previousKeys = new Set(previousFilters.map(facetFilterKey))
-    const addedKeys = new Set(previouslyAdded.map(facetFilterKey))
+    const previousKeys = new Set(previousFilters.map((filter) => facetFilterKey(filter)))
+    const addedKeys = new Set(previouslyAdded.map((filter) => facetFilterKey(filter)))
     return filters.filter(
         (filter) => addedKeys.has(facetFilterKey(filter)) || !previousKeys.has(facetFilterKey(filter))
     )
@@ -127,8 +127,8 @@ export function filtersFromView(
     added: FacetFilter[],
     filters: FacetFilter[]
 ): FacetFilter[] {
-    const viewKeys = new Set(viewFilters.map(facetFilterKey))
-    const addedKeys = new Set(added.map(facetFilterKey))
+    const viewKeys = new Set(viewFilters.map((filter) => facetFilterKey(filter)))
+    const addedKeys = new Set(added.map((filter) => facetFilterKey(filter)))
     return filters.filter((filter) => viewKeys.has(facetFilterKey(filter)) && !addedKeys.has(facetFilterKey(filter)))
 }
 
