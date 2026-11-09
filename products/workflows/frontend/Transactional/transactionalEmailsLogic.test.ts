@@ -169,42 +169,64 @@ describe('transactionalEmailsLogic', () => {
         ])
     })
 
-    it('stores the newest tags when a second tag edit is made while the first one saves', async () => {
+    it.each([
+        ['a template', 'Password reset'],
+        ['an email sent from code', 'password-changed'],
+    ])('stores every tag when edits on %s are made while earlier ones save', async (_source, name) => {
         jest.useFakeTimers()
         try {
             let stored = ['auth']
-            let releaseFirst: () => void = () => {}
+            const held: (() => void)[] = []
+            const save = async (request: Request, path: string): Promise<string[]> => {
+                const { tags } = (await request.json()) as { tags: string[] }
+                writes.push({ path, tags })
+                if (writes.length <= 2) {
+                    await new Promise<void>((resolve) => held.push(resolve))
+                }
+                stored = tags
+                return tags
+            }
             useMocks({
                 patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request, params }) => {
+                        const tags = await save(request, `messaging_templates/${String(params.id)}`)
+                        return [200, { ...template(String(params.id), 'Password reset', [], 1), tags }]
+                    },
                     [`${CODE_EMAILS}:id/`]: async ({ request, params }) => {
-                        const { tags } = (await request.json()) as { tags: string[] }
-                        writes.push({ path: `transactional_code_emails/${String(params.id)}`, tags })
-                        if (writes.length === 1) {
-                            await new Promise<void>((resolve) => (releaseFirst = resolve))
-                        }
-                        stored = tags
+                        const tags = await save(request, `transactional_code_emails/${String(params.id)}`)
                         return [200, codeEmail(String(params.id), 'password-changed', tags)]
                     },
                 },
-                get: { [CODE_EMAILS]: () => [200, [codeEmail('k', 'password-changed', stored)]] },
+                get: {
+                    '/api/projects/:team_id/messaging_templates/': () => [
+                        200,
+                        { results: [template('a', 'Password reset', stored, 1)] },
+                    ],
+                    [CODE_EMAILS]: () => [200, [codeEmail('k', 'password-changed', stored)]],
+                },
             })
-            const row = (): TransactionalEmailRow =>
-                logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!
+            const row = (): TransactionalEmailRow => logic.values.transactionalEmails.find((r) => r.name === name)!
 
             logic.actions.saveTransactionalTags(row(), ['auth', 'security'])
             await jest.advanceTimersByTimeAsync(300)
-            logic.actions.saveTransactionalTags(row(), ['auth', 'security', 'urgent'])
+            logic.actions.saveTransactionalTags(row(), [...row().tags, 'urgent'])
             await jest.advanceTimersByTimeAsync(300)
             expect(writes).toHaveLength(1)
-            releaseFirst()
+            held[0]()
+            await jest.advanceTimersByTimeAsync(0)
+            logic.actions.saveTransactionalTags(row(), [...row().tags, 'later'])
+            await jest.advanceTimersByTimeAsync(300)
+            held[1]()
             await jest.advanceTimersByTimeAsync(0)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(stored).toEqual(['auth', 'security', 'urgent'])
-            expect(row().tags).toEqual(['auth', 'security', 'urgent'])
+            const all = ['auth', 'security', 'urgent', 'later']
+            expect(stored).toEqual(all)
+            expect(row().tags).toEqual(all)
             logic.actions.loadCodeEmails()
+            logic.actions.loadTemplates()
             await expectLogic(logic).toFinishAllListeners()
-            expect(row().tags).toEqual(['auth', 'security', 'urgent'])
+            expect(row().tags).toEqual(all)
         } finally {
             jest.useRealTimers()
         }
