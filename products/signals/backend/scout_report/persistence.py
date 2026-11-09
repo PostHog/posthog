@@ -1555,6 +1555,7 @@ def soft_delete_scout_signal(
         team_id=team_id,
         signal_ids=[document_id],
         change=SignalMetadataChange(deleted=True, expected_report_id=report_id),
+        signal_timestamps={document_id: timestamp},
     )
 
 

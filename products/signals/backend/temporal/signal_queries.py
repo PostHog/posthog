@@ -122,6 +122,7 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
         team_id=team_id,
         signal_ids=[row[0] for row in result.results or []],
         change=SignalMetadataChange(deleted=True, expected_report_id=report_id),
+        signal_timestamps={row[0]: row[3] for row in result.results or []},
     )
 
 
@@ -173,6 +174,7 @@ def retract_source_signals(*, team: Team, source_product: str, source_type: str,
             team_id=team.id,
             signal_ids=[row[0] for row in rows],
             change=SignalMetadataChange(deleted=True, clear_content=True),
+            signal_timestamps={row[0]: row[3] for row in rows},
         )
         retracted += len(rows)
         if len(rows) < _RETRACT_PAGE_SIZE:
@@ -202,6 +204,7 @@ def reassign_report_signals(*, source_report_id: str, survivor_report_id: str, t
         team_id=team_id,
         signal_ids=signal_ids,
         change=SignalMetadataChange(report_id=survivor_report_id, expected_report_id=source_report_id),
+        signal_timestamps={row[0]: row[3] for row in result.results or []},
     )
     moved = len(signal_ids)
     if moved >= REASSIGN_SIGNAL_ROW_CAP:

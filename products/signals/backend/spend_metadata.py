@@ -1,6 +1,6 @@
 import json
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from django.utils import timezone
 
@@ -32,6 +32,8 @@ from products.signals.backend.spend import (
     SignalSpendUpdate,
     signal_spend_summaries,
 )
+
+SPEND_TIMESTAMP_LOOKBACK = timedelta(days=1)
 
 
 @frozen
@@ -66,21 +68,63 @@ class _SignalEmbedding:
         )
 
 
-def _read_embedding(team: Team, signal_id: str, model: EmbeddingModelName) -> _SignalEmbedding | None:
+def _read_embedding(
+    team: Team,
+    signal_id: str,
+    model: EmbeddingModelName,
+    earliest_spend_at: datetime | None = None,
+    embedding_timestamp: datetime | None = None,
+    allow_expired: bool = False,
+) -> _SignalEmbedding | None:
+    row = _read_embedding_with_bounds(
+        team,
+        signal_id,
+        model,
+        earliest_spend_at=earliest_spend_at,
+        embedding_timestamp=embedding_timestamp,
+    )
+    if row is None and earliest_spend_at is not None and embedding_timestamp is None:
+        row = _read_embedding_with_bounds(team, signal_id, model)
+    if row is None and allow_expired and embedding_timestamp is None:
+        row = _read_embedding_with_bounds(team, signal_id, model, include_ttl_bound=False)
+    return row
+
+
+def _read_embedding_with_bounds(
+    team: Team,
+    signal_id: str,
+    model: EmbeddingModelName,
+    *,
+    earliest_spend_at: datetime | None = None,
+    embedding_timestamp: datetime | None = None,
+    include_ttl_bound: bool = True,
+) -> _SignalEmbedding | None:
+    placeholders = {"model_name": ast.Constant(value=model.value), "signal_id": ast.Constant(value=signal_id)}
+    timestamp_filters = []
+    if embedding_timestamp is not None:
+        timestamp_filters.append("AND timestamp = {embedding_timestamp}")
+        placeholders["embedding_timestamp"] = ast.Constant(value=embedding_timestamp)
+    elif include_ttl_bound:
+        timestamp_filters.append("AND timestamp >= now() - INTERVAL 3 MONTH")
+    if earliest_spend_at is not None and embedding_timestamp is None:
+        timestamp_filters.append("AND timestamp >= {spend_timestamp_lower_bound}")
+        placeholders["spend_timestamp_lower_bound"] = ast.Constant(value=earliest_spend_at - SPEND_TIMESTAMP_LOOKBACK)
+    timestamp_filter = "\n              ".join(timestamp_filters)
     result = execute_hogql_query(
         query_type="SignalsRefreshSpendMetadata",
         ch_user=ClickHouseUser.SIGNALS,
-        query="""
+        query=f"""
             SELECT document_id, argMax(tuple(content, metadata, timestamp, embedding, inserted_at), inserted_at)
             FROM document_embeddings
-            WHERE model_name = {model_name}
+            WHERE model_name = {{model_name}}
               AND product = 'signals' AND document_type = 'signal' AND rendering = 'plain'
-              AND document_id = {signal_id}
+              {timestamp_filter}
+              AND document_id = {{signal_id}}
             GROUP BY document_id
         """,
         team=team,
         context=_signals_query_context(team),
-        placeholders={"model_name": ast.Constant(value=model.value), "signal_id": ast.Constant(value=signal_id)},
+        placeholders=placeholders,
     )
     if not result.results:
         return None
@@ -106,7 +150,14 @@ def publish_signal_spend_metadata(signal: SignalSpendUpdate) -> SignalSpendPubli
     rows = []
     version = int(timezone.now().timestamp())
     for model in EmbeddingModelName:
-        row = _read_embedding(team, signal.signal_id, model)
+        row = _read_embedding(
+            team,
+            signal.signal_id,
+            model,
+            summary.earliest_created_at,
+            signal.embedding_timestamp,
+            allow_expired=bool(signal.changes),
+        )
         if row is None:
             raise RuntimeError("Signal embedding is not yet visible in ClickHouse")
         # Kafka's second-resolution timestamp is the replacement version in ClickHouse.
@@ -146,7 +197,14 @@ def confirm_signal_spend_metadata(publication: SignalSpendPublication) -> bool:
     team = Team.objects.get(id=publication.signal.team_id)
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     for model in EmbeddingModelName:
-        row = _read_embedding(team, publication.signal.signal_id, model)
+        row = _read_embedding(
+            team,
+            publication.signal.signal_id,
+            model,
+            publication.summary.earliest_created_at,
+            publication.signal.embedding_timestamp,
+            allow_expired=bool(publication.signal.changes),
+        )
         if (
             row is None
             or row.with_updates(publication.summary, publication.signal.changes) != row
