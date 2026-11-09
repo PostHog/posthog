@@ -665,7 +665,7 @@ class UpsertAlertTool(MaxTool):
         if limit_error := AlertConfiguration.create_limit_error(
             team_id=team.id, organization=team.organization, calculation_interval=calculation_interval, enabled=enabled
         ):
-            raise AlertLimitReached(limit_error)
+            raise AlertLimitReached(limit_error.message)
         threshold_to_persist.save()
 
         alert = AlertConfiguration.objects.create(
