@@ -109,7 +109,10 @@ def _build_audience_person_query(
             left=ast.Field(chain=["persons", "team_id"]),
             right=ast.Constant(value=team.pk),
         ),
-        person_audience_filter_expr(team, prop_group, group_type_index),
+        # The email dedupe pages after grouping, so only a plain page can narrow the membership by cursor.
+        person_audience_filter_expr(
+            team, prop_group, group_type_index, cursor=cursor if dedupe_key != EMAIL_DEDUPE_KEY else None
+        ),
     ]
 
     if dedupe_key == EMAIL_DEDUPE_KEY:

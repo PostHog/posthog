@@ -22,7 +22,7 @@ from rest_framework import status
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -30,6 +30,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.scopes import APIScopeObject
 from posthog.test.fixtures import create_app_metric2
 
+from products.access_control.backend.facade.testing import create_property_access_control
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
@@ -4439,6 +4440,38 @@ class TestHogFlowAPI(APIBaseTest):
         else:
             assert response.status_code == 400, response.json()
             assert expected_error in response.json()["detail"]
+
+    @parameterized.expand([("save",), ("preview",)])
+    def test_hog_flow_batch_trigger_rejects_group_properties_the_member_cannot_read(self, action):
+        self.organization.available_product_features = [{"key": AvailableFeature.PROPERTY_ACCESS_CONTROL}]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="plan", type=PropertyDefinition.Type.GROUP, group_type_index=0
+        )
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=definition.id,
+            access_level="none",
+            organization_member_id=self.organization_membership.id,
+        )
+        filters = {
+            "properties": [
+                {"key": "plan", "type": "group", "group_type_index": 0, "operator": "exact", "value": ["enterprise"]}
+            ]
+        }
+
+        with self._account_audience_provider(membership=READY_ACCOUNT_MEMBERSHIP):
+            if action == "save":
+                response = self._post_batch_flow(filters)
+            else:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {"filters": filters}, format="json"
+                )
+
+        assert response.status_code == 400, response.json()
+        assert 'account property "plan"' in response.json()["detail"]
 
     def test_hog_flow_batch_trigger_accounts_audience_saves(self):
         with self._account_audience_provider():

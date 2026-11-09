@@ -7,8 +7,8 @@ type, so a condition on another group type is rejected instead of being dropped,
 dropped condition sends to a wider audience.
 """
 
-from collections.abc import Iterator
-from typing import Optional
+from collections.abc import Callable, Iterator
+from typing import TYPE_CHECKING, Optional
 
 from rest_framework import exceptions
 
@@ -16,15 +16,20 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.person_group_membership import PersonGroupMembershipTable
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.models.property import Property, PropertyGroup, PropertyOperatorType
 from posthog.models.property.property import PropertyValidationError
 from posthog.models.team.team import Team
 
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.feature_flags.backend.person_sampling import sample_predicate
 from products.workflows.backend.facade.contracts import PersonGroupMembership
 from products.workflows.backend.services.account_audience import get_person_group_membership
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 GROUP_TYPE_NOT_SUPPORTED_MESSAGE = (
     "People can only be filtered by properties of the account group type set in customer analytics."
@@ -32,6 +37,10 @@ GROUP_TYPE_NOT_SUPPORTED_MESSAGE = (
 MEMBERSHIP_NOT_READY_MESSAGE = "Account membership is still being calculated. Try again when it finishes."
 INVALID_GROUP_CONDITION_MESSAGE = (
     "A group property condition is incomplete or invalid. Check its property, group type, and value."
+)
+TEST_ACCOUNT_GROUP_TYPE_MESSAGE = (
+    "Your test account filters use a group type other than accounts, so they can't be combined with account "
+    "properties. Turn off test account filtering for this audience, or change those filters."
 )
 
 
@@ -46,19 +55,32 @@ def audience_group_type_index(team: Team, filters: dict) -> Optional[int]:
     return membership.group_type_index
 
 
-def reject_unsupported_group_conditions_in_audience(team: Team, filters: dict) -> None:
+def reject_unsupported_group_conditions_in_audience(team: Team, filters: dict, user: Optional["User"] = None) -> None:
     # Readiness is checked when the audience is sized or sent, so a membership backfill doesn't block edits.
-    _supported_membership(team, filters)
+    membership = _supported_membership(team, filters)
+    if membership is None or user is None or not user.is_authenticated:
+        return
+    # Neither the audience count nor the send applies a member's own rules to group properties, so a
+    # member denied one could otherwise learn its values from the count or from who the batch reaches.
+    restricted = {
+        restriction.name
+        for restriction in get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+        if restriction.group_type_index == membership.group_type_index
+    }
+    for condition in _group_conditions(filters):
+        if condition.get("key") in restricted:
+            raise exceptions.ValidationError(
+                {
+                    "filters": f'You don\'t have access to the account property "{condition["key"]}". '
+                    "Remove it from the audience, or ask an admin for access."
+                }
+            )
 
 
 def _supported_membership(team: Team, filters: dict) -> Optional[PersonGroupMembership]:
     # This reads the raw filters because the parser drops a condition it can't parse, such as one with no
     # value or an invalid group_type_index, and the audience would then silently lose that condition.
-    conditions = [
-        condition
-        for condition in _raw_conditions((filters or {}).get("properties"))
-        if condition.get("type") == "group"
-    ]
+    conditions = _group_conditions(filters)
     if not conditions:
         return None
     for condition in conditions:
@@ -71,6 +93,14 @@ def _supported_membership(team: Team, filters: dict) -> Optional[PersonGroupMemb
     if membership is None or indices != {membership.group_type_index}:
         raise exceptions.ValidationError({"filters": GROUP_TYPE_NOT_SUPPORTED_MESSAGE})
     return membership
+
+
+def _group_conditions(filters: dict) -> list[dict]:
+    return [
+        condition
+        for condition in _raw_conditions((filters or {}).get("properties"))
+        if condition.get("type") == "group"
+    ]
 
 
 def _raw_conditions(node: object) -> Iterator[dict]:
@@ -96,30 +126,67 @@ def audience_query_context(
     )
 
 
-def person_audience_filter_expr(team: Team, prop_group: PropertyGroup, group_type_index: Optional[int]) -> ast.Expr:
+def person_audience_filter_expr(
+    team: Team,
+    prop_group: PropertyGroup,
+    group_type_index: Optional[int],
+    *,
+    sample_modulus: Optional[int] = None,
+    cursor: Optional[str] = None,
+) -> ast.Expr:
+    """`sample_modulus` and `cursor` must match the outer query's own person sample and cursor. They only
+    narrow which persons the group membership resolves to, so it doesn't build the whole audience per query."""
     if group_type_index is None:
         return property_to_expr(prop_group, team, scope="person")
-    return _filter_expr(team, prop_group, group_type_index)
+
+    # Each group condition gets its own nodes, because HogQL resolves types onto the nodes in place.
+    def member_constraints() -> list[ast.Expr]:
+        constraints: list[ast.Expr] = []
+        if sample_modulus is not None:
+            constraints.append(sample_predicate(_member_person_id(), sample_modulus))
+        if cursor is not None:
+            constraints.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt, left=_member_person_id(), right=ast.Constant(value=cursor)
+                )
+            )
+        return constraints
+
+    return _filter_expr(team, prop_group, group_type_index, member_constraints)
 
 
-def _filter_expr(team: Team, node: PropertyGroup | Property, group_type_index: int) -> ast.Expr:
+def _filter_expr(
+    team: Team, node: PropertyGroup | Property, group_type_index: int, member_constraints: Callable[[], list[ast.Expr]]
+) -> ast.Expr:
     if isinstance(node, PropertyGroup):
-        exprs = [_filter_expr(team, value, group_type_index) for value in node.values]
+        exprs = [_filter_expr(team, value, group_type_index, member_constraints) for value in node.values]
         if not exprs:
             return ast.Constant(value=1)
         if len(exprs) == 1:
             return exprs[0]
         return ast.And(exprs=exprs) if node.type == PropertyOperatorType.AND else ast.Or(exprs=exprs)
     if node.type == "group":
+        # The audience's own conditions are checked before this, but test account filters are expanded
+        # into the filter later, and membership holds only the account group type.
+        if node.group_type_index != group_type_index:
+            raise exceptions.ValidationError({"filters": TEST_ACCOUNT_GROUP_TYPE_MESSAGE})
         return ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["persons", "id"]),
-            right=_group_members_query(team, node, group_type_index),
+            right=_group_members_query(team, node, group_type_index, member_constraints),
         )
     return property_to_expr(node, team, scope="person")
 
 
-def _group_members_query(team: Team, prop: Property, group_type_index: int) -> ast.SelectQuery:
+def _member_person_id() -> ast.Expr:
+    # The HAVING reads the `person_id` alias of the select. Repeating `argMax(person_id, version)` there
+    # resolves its inner `person_id` to that alias too, and ClickHouse rejects the nested aggregate.
+    return ast.Field(chain=["person_id"])
+
+
+def _group_members_query(
+    team: Team, prop: Property, group_type_index: int, member_constraints: Callable[[], list[ast.Expr]]
+) -> ast.SelectQuery:
     matching_groups = ast.SelectQuery(
         select=[ast.Field(chain=["groups", "key"])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
@@ -163,9 +230,12 @@ def _group_members_query(team: Team, prop: Property, group_type_index: int) -> a
         FROM raw_person_distinct_ids
         WHERE distinct_id IN {members}
         GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0
+        HAVING {having}
         """,
-        placeholders={"members": members},
+        placeholders={
+            "members": members,
+            "having": ast.And(exprs=[parse_expr("argMax(is_deleted, version) = 0"), *member_constraints()]),
+        },
     )
     assert isinstance(query, ast.SelectQuery)
     return query

@@ -2098,7 +2098,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                         parse_account_audience_filters(filters)
                     else:
                         self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=True)
-                        reject_unsupported_group_conditions_in_audience(self.context["get_team"](), filters)
+                        reject_unsupported_group_conditions_in_audience(
+                            self.context["get_team"](), filters, getattr(self.context.get("request"), "user", None)
+                        )
             elif data.get("config", {}).get("type") == "api":
                 # A transactional email's trigger: the authenticated send endpoint runs the workflow once
                 # per call, so the trigger has nothing to configure.
@@ -2110,7 +2112,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                     filters = data.get("config", {}).get("filters", {})
                     if isinstance(filters, dict):
                         self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=False)
-                        reject_unsupported_group_conditions_in_audience(self.context["get_team"](), filters)
+                        reject_unsupported_group_conditions_in_audience(
+                            self.context["get_team"](), filters, getattr(self.context.get("request"), "user", None)
+                        )
             elif data.get("config", {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES:
                 # Warehouse-triggered workflows are person-less ("row-scoped"): one workflow run
                 # per synced row, filtering only against the row payload. The table_name must match
@@ -6900,6 +6904,7 @@ class HogFlowViewSet(
             )
 
         reject_flag_conditions_in_audience(self.team, filters)
+        reject_unsupported_group_conditions_in_audience(self.team, filters, request.user)
 
         size = get_audience_size(
             team_id=self.team_id,

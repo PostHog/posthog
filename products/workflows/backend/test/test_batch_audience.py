@@ -25,6 +25,7 @@ from products.workflows.backend.facade.contracts import PersonGroupMembership
 from products.workflows.backend.services.audience_group_filters import (
     GROUP_TYPE_NOT_SUPPORTED_MESSAGE,
     MEMBERSHIP_NOT_READY_MESSAGE,
+    TEST_ACCOUNT_GROUP_TYPE_MESSAGE,
     audience_group_type_index,
 )
 from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
@@ -38,6 +39,7 @@ ENTERPRISE_FILTERS = {
     ]
 }
 MEMBERSHIP_PATH = "products.workflows.backend.services.audience_group_filters.get_person_group_membership"
+READY_MEMBERSHIP = PersonGroupMembership(group_type_index=0, ready=True)
 
 
 def _uuid(index: int) -> str:
@@ -56,6 +58,27 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
             person_ids.append(_uuid(i))
         flush_persons_and_events()
         return person_ids
+
+    def _create_account_members(self, memberships: list[tuple[int, str, int]]) -> None:
+        create_group(self.team.pk, 0, "org-enterprise", {"plan": "enterprise"})
+        create_group(self.team.pk, 0, "org-free", {"plan": "free"})
+        seen = datetime(2026, 1, 1, tzinfo=UTC)
+        sync_execute(
+            "INSERT INTO person_group_membership (team_id, group_type_index, group_key, distinct_id, first_seen, last_seen) VALUES",
+            [
+                (self.team.pk, group_type_index, group_key, f"user-{index}", seen, seen)
+                for index, group_key, group_type_index in memberships
+            ],
+        )
+
+    def _enterprise_audience_size(self, dedupe_key: str | None = None) -> int:
+        return get_audience_size(
+            team_id=self.team.pk,
+            filters=ENTERPRISE_FILTERS,
+            group_type_index=None,
+            dedupe_key=dedupe_key,
+            sends_email=True,
+        ).affected
 
     @parameterized.expand(
         [
@@ -105,38 +128,70 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("email_dedupe", "email", [1]),
-            ("no_dedupe", None, [1, 2]),
+            ("email_dedupe", "email", [1, 5]),
+            ("no_dedupe", None, [1, 2, 5]),
         ]
     )
     def test_group_property_condition_matches_members_of_matching_groups(self, _name, dedupe_key, expected_indices):
-        self._create_audience(["a@x.com", "a@x.com", "b@x.com", "c@x.com"])
-        create_group(self.team.pk, 0, "org-enterprise", {"plan": "enterprise"})
-        create_group(self.team.pk, 0, "org-free", {"plan": "free"})
-        seen = datetime(2026, 1, 1, tzinfo=UTC)
-        sync_execute(
-            "INSERT INTO person_group_membership (team_id, group_type_index, group_key, distinct_id, first_seen, last_seen) VALUES",
+        self._create_audience(["a@x.com", "a@x.com", "b@x.com", "c@x.com", "d@x.com"])
+        self._create_account_members(
             [
-                (self.team.pk, 0, "org-enterprise", "user-1", seen, seen),
-                (self.team.pk, 0, "org-enterprise", "user-2", seen, seen),
-                (self.team.pk, 0, "org-free", "user-3", seen, seen),
+                (1, "org-enterprise", 0),
+                (2, "org-enterprise", 0),
+                (3, "org-free", 0),
                 # The same key under another group type is a different group.
-                (self.team.pk, 1, "org-enterprise", "user-3", seen, seen),
-            ],
+                (3, "org-enterprise", 1),
+                (5, "org-enterprise", 0),
+            ]
         )
 
-        with patch(MEMBERSHIP_PATH, return_value=PersonGroupMembership(group_type_index=0, ready=True)):
-            page = get_batch_audience_person_ids(self.team, ENTERPRISE_FILTERS, dedupe_key=dedupe_key)
-            size = get_audience_size(
-                team_id=self.team.pk,
-                filters=ENTERPRISE_FILTERS,
-                group_type_index=None,
-                dedupe_key=dedupe_key,
-                sends_email=True,
-            )
+        # One person per page, so a group condition narrowed by the page cursor must not skip anyone.
+        collected: list[str] = []
+        cursor = None
+        with (
+            patch(MEMBERSHIP_PATH, return_value=READY_MEMBERSHIP),
+            override_settings(WORKFLOWS_PERSON_BATCH_SIZE=1),
+        ):
+            while page := get_batch_audience_person_ids(
+                self.team, ENTERPRISE_FILTERS, cursor=cursor, dedupe_key=dedupe_key
+            ):
+                collected.extend(page)
+                cursor = page[-1]
+            size = self._enterprise_audience_size(dedupe_key)
 
-        assert sorted(page) == [_uuid(i) for i in expected_indices]
-        assert size.affected == len(expected_indices)
+        assert collected == [_uuid(i) for i in expected_indices]
+        assert size == len(expected_indices)
+
+    def test_sampled_group_audience_size_samples_members_like_persons(self):
+        self._create_audience([f"{i}@x.com" for i in range(1, 10)])
+        self._create_account_members([(i, "org-enterprise", 0) for i in range(1, 10)])
+        sampled = sync_execute(
+            "SELECT countIf(modulo(cityHash64(toUUID(id)), 2) = 0) FROM (SELECT arrayJoin(%(ids)s) AS id)",
+            {"ids": [_uuid(i) for i in range(1, 10)]},
+        )[0][0]
+
+        with (
+            patch(MEMBERSHIP_PATH, return_value=READY_MEMBERSHIP),
+            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 2),
+            patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
+        ):
+            size = self._enterprise_audience_size()
+
+        assert size == sampled * 2
+
+    def test_group_audience_rejects_test_account_filters_on_another_group_type(self):
+        self.team.test_account_filters = [
+            {"key": "internal", "type": "group", "group_type_index": 1, "value": ["true"], "operator": "is_not"}
+        ]
+        self.team.save()
+
+        with (
+            patch(MEMBERSHIP_PATH, return_value=READY_MEMBERSHIP),
+            self.assertRaises(exceptions.ValidationError) as error,
+        ):
+            get_batch_audience_person_ids(self.team, {**ENTERPRISE_FILTERS, "filter_test_accounts": True})
+
+        assert error.exception.detail == {"filters": TEST_ACCOUNT_GROUP_TYPE_MESSAGE}
 
     @override_settings(WORKFLOWS_PERSON_BATCH_SIZE=7)
     def test_has_more_page_size_follows_the_audience_kind(self):

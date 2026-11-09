@@ -97,7 +97,7 @@ def _run_person_count(
             left=ast.Field(chain=["persons", "team_id"]),
             right=ast.Constant(value=team.pk),
         ),
-        person_audience_filter_expr(team, prop_group, group_type_index),
+        person_audience_filter_expr(team, prop_group, group_type_index, sample_modulus=sample_modulus),
     ]
     if sample_modulus is not None:
         where_exprs.append(person_sample_predicate(sample_modulus))
