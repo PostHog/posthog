@@ -1,0 +1,149 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"7f049abd-6283-5ecf-925b-d4ce9b1a514d\",\"release_id\":null,\"content_hash\":\"04e31d06b2d2a5c46cf60bfc34537fcad8ae5757f3a291dddf38bbc259bff30e5ca679d75fa2280b4b8999898468527ce4bed6f428ac6b50bb3ef02bcbd9c542\",\"content_length\":635},{\"chunk_id\":\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\",\"release_id\":null,\"content_hash\":\"c5e12c8f4f9d845957074ef083da475bcbd1a772bac10788e71fac28b2afe308aec386f3089845e7dc23f511e8945fe2091824e17d9862fe3a8366ab89516489\",\"content_length\":641},{\"chunk_id\":\"97e874eb-b143-5723-bb41-695f14c0d557\",\"release_id\":null,\"content_hash\":\"fe1b92d0e7577bdee59bed4841df6f5883990e9d27c73c5d816f35ce89f984b4a7653f7bd69972fbb62bebfcabcd2960fabcd74d590e9116073811e0f36f3372\",\"content_length\":1424},{\"chunk_id\":\"99aebe21-13ee-51da-a4aa-940e274f080f\",\"release_id\":null,\"content_hash\":\"c6d02d3596cc48d5df3d093d032a62116e0ecd6f264c43d04dafa0949306fc5fe1ca8090b2e2e68c82e24c645716d7804bfb1d0477bbbb906b6272b88ddc0575\",\"content_length\":632},{\"chunk_id\":\"b7e07b27-43b5-41de-9196-855306cb5e17\",\"release_id\":null,\"content_hash\":\"5346926e774ca211656b732ba2946db3dbaf1fb2808e6769d147127e2ffdeff328514a9531918ebddfe1561f59d3995f072d1ef00c2b74fceaa1d1aaaee5796e\",\"content_length\":1347},{\"chunk_id\":\"bb9d599f-3e44-5c89-bd8f-745d085a30a0\",\"release_id\":null,\"content_hash\":\"45088f3b837c44b0f2afd9169b03c72c3451d42ece42f2bffa2da678ed249493f1ad36c6a69f5e05952f0d6602517ed57223eed2d8a4526f66d0888f0b44a131\",\"content_length\":1960},{\"chunk_id\":\"d56106a8-57e0-4c45-909c-5a8d8c4a9cc3\",\"release_id\":null,\"content_hash\":\"5ba438463331e664c5cf293f1b909220d606da838d3768c565f259a2c9b60f90a75db89cd0c5683fdd88cbc86517df96febae3661f23a309eafea0eb65a9c747\",\"content_length\":5948},{\"chunk_id\":\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\",\"release_id\":null,\"content_hash\":\"8d98e62774256a39dbacbcb169460b7a4ac92e29a0c17bef9402461343f01724695738475368fcecd0c386030ad4be2be3fb35a679bbb57ae2b8b59991d1ff2f\",\"content_length\":702}],\"force\":true,\"skip_on_conflict\":false}",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"7f049abd-6283-5ecf-925b-d4ce9b1a514d\",\"release_id\":null,\"content_hash\":\"04e31d06b2d2a5c46cf60bfc34537fcad8ae5757f3a291dddf38bbc259bff30e5ca679d75fa2280b4b8999898468527ce4bed6f428ac6b50bb3ef02bcbd9c542\",\"content_length\":635},{\"chunk_id\":\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\",\"release_id\":null,\"content_hash\":\"c5e12c8f4f9d845957074ef083da475bcbd1a772bac10788e71fac28b2afe308aec386f3089845e7dc23f511e8945fe2091824e17d9862fe3a8366ab89516489\",\"content_length\":641},{\"chunk_id\":\"97e874eb-b143-5723-bb41-695f14c0d557\",\"release_id\":null,\"content_hash\":\"fe1b92d0e7577bdee59bed4841df6f5883990e9d27c73c5d816f35ce89f984b4a7653f7bd69972fbb62bebfcabcd2960fabcd74d590e9116073811e0f36f3372\",\"content_length\":1424},{\"chunk_id\":\"99aebe21-13ee-51da-a4aa-940e274f080f\",\"release_id\":null,\"content_hash\":\"c6d02d3596cc48d5df3d093d032a62116e0ecd6f264c43d04dafa0949306fc5fe1ca8090b2e2e68c82e24c645716d7804bfb1d0477bbbb906b6272b88ddc0575\",\"content_length\":632},{\"chunk_id\":\"b7e07b27-43b5-41de-9196-855306cb5e17\",\"release_id\":null,\"content_hash\":\"5346926e774ca211656b732ba2946db3dbaf1fb2808e6769d147127e2ffdeff328514a9531918ebddfe1561f59d3995f072d1ef00c2b74fceaa1d1aaaee5796e\",\"content_length\":1347},{\"chunk_id\":\"bb9d599f-3e44-5c89-bd8f-745d085a30a0\",\"release_id\":null,\"content_hash\":\"45088f3b837c44b0f2afd9169b03c72c3451d42ece42f2bffa2da678ed249493f1ad36c6a69f5e05952f0d6602517ed57223eed2d8a4526f66d0888f0b44a131\",\"content_length\":1960},{\"chunk_id\":\"d56106a8-57e0-4c45-909c-5a8d8c4a9cc3\",\"release_id\":null,\"content_hash\":\"5ba438463331e664c5cf293f1b909220d606da838d3768c565f259a2c9b60f90a75db89cd0c5683fdd88cbc86517df96febae3661f23a309eafea0eb65a9c747\",\"content_length\":5948},{\"chunk_id\":\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\",\"release_id\":null,\"content_hash\":\"8d98e62774256a39dbacbcb169460b7a4ac92e29a0c17bef9402461343f01724695738475368fcecd0c386030ad4be2be3fb35a679bbb57ae2b8b59991d1ff2f\",\"content_length\":702}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":true,\"skip_on_conflict\":false}",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/352a9101-f516-5f32-b056-fa854bede172?length=1960",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "32538ababcf758b382720d3dc0838ccdc8a6fcbb4d73918603597781933f9dfdf3a13b79bfd062a7d700e488e1a4d156a9aea97890a8506d0f4771e1652523ad",
+        "length": 1960
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/3c842e61-a617-54d6-9b1a-be6815ca29c8?length=1424",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "90df43f3b6502a9e2557a5052e2e4f7dbd90ad175ee6bdc504caeb501722ee5a24758ae1abec1636cde869a551beeb8a0c857b918cf434c3f1d319b0cb85d477",
+        "length": 1424
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/57fc17ec-68e5-598a-9821-9c09d88c3062?length=632",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "81a7697ad75f1170178ac36276c2b77b92a962ba22c1e8eefc0a526c75310edf98a51b60b5845443f76ac2cf2afe5d3292384e71b5823a4517c9013f6fb537c1",
+        "length": 632
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/681f29ad-219c-5b86-ae2b-84ae38e13632?length=5948",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "f18b826ee18941ed2870227d5a1082bf9243094463a8fb27bd83860ccf7ea2a91392051f7c1bf3e868eedd3d8266aa6469bf8092c630dc572fd631be1f456ac5",
+        "length": 5948
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/942ecec0-4cb2-5160-9c2b-948cbff4d4e6?length=702",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "01af843ae752eb9bcc8d602f1452ae2abba5b8e896c9a16d700a67b8174a7b75b3854ef9ec4d909c44de08bd831d2f1b792a3e731a72e18fa64f62b2d8a1e8c6",
+        "length": 702
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/aa9eb665-a4e6-563c-8f32-132887ddb156?length=1347",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "812b9106aa7a3b7ec294b800d167f1a2160f6a48998ad405bb8a450c6182402959ea5bdcf4189b8b38f3dc499eb8eb8571d9d69a12cceaf88f0177310e3ea76c",
+        "length": 1347
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/bc620c4b-45a7-55ab-a4d5-2952c5a7549b?length=635",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "7d56c3548ac5e1a23ffe99527df76168d865ef3f7a2afc8d4863dfff4cd35a533032aa72a6c6db2eed05b5aec6a9d98ddc4be521b0c3c2db280ea53e2d66f4a9",
+        "length": 635
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/f3a4edbe-bdbe-5854-a25b-283553f240ba?length=641",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "63637896d1a3f63e841a17bebfda2985d0ffbaf76ec097034ad1a60f1cd3a6fab67ab5cef5f3948e69035d776fdbe89877eaf68ef4ce5e8b3ae5e7c6cd1a849d",
+        "length": 641
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"content_hashes\":{\"352a9101-f516-5f32-b056-fa854bede172\":\"45088f3b837c44b0f2afd9169b03c72c3451d42ece42f2bffa2da678ed249493f1ad36c6a69f5e05952f0d6602517ed57223eed2d8a4526f66d0888f0b44a131\",\"3c842e61-a617-54d6-9b1a-be6815ca29c8\":\"fe1b92d0e7577bdee59bed4841df6f5883990e9d27c73c5d816f35ce89f984b4a7653f7bd69972fbb62bebfcabcd2960fabcd74d590e9116073811e0f36f3372\",\"57fc17ec-68e5-598a-9821-9c09d88c3062\":\"c6d02d3596cc48d5df3d093d032a62116e0ecd6f264c43d04dafa0949306fc5fe1ca8090b2e2e68c82e24c645716d7804bfb1d0477bbbb906b6272b88ddc0575\",\"681f29ad-219c-5b86-ae2b-84ae38e13632\":\"5ba438463331e664c5cf293f1b909220d606da838d3768c565f259a2c9b60f90a75db89cd0c5683fdd88cbc86517df96febae3661f23a309eafea0eb65a9c747\",\"942ecec0-4cb2-5160-9c2b-948cbff4d4e6\":\"8d98e62774256a39dbacbcb169460b7a4ac92e29a0c17bef9402461343f01724695738475368fcecd0c386030ad4be2be3fb35a679bbb57ae2b8b59991d1ff2f\",\"aa9eb665-a4e6-563c-8f32-132887ddb156\":\"5346926e774ca211656b732ba2946db3dbaf1fb2808e6769d147127e2ffdeff328514a9531918ebddfe1561f59d3995f072d1ef00c2b74fceaa1d1aaaee5796e\",\"bc620c4b-45a7-55ab-a4d5-2952c5a7549b\":\"04e31d06b2d2a5c46cf60bfc34537fcad8ae5757f3a291dddf38bbc259bff30e5ca679d75fa2280b4b8999898468527ce4bed6f428ac6b50bb3ef02bcbd9c542\",\"f3a4edbe-bdbe-5854-a25b-283553f240ba\":\"c5e12c8f4f9d845957074ef083da475bcbd1a772bac10788e71fac28b2afe308aec386f3089845e7dc23f511e8945fe2091824e17d9862fe3a8366ab89516489\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+      "status": 201
+    }
+  ],
+  "files": {
+    "esbuild-cjs/index.cjs": "sha512:7b24bfa3dabd68bf2fc8783da2357d9ab69537a40c2b5b38b3645fb7cc17cfe4f62051bc95bbb0d4666529177bb3c8ea2983f59134d1f71aa549c6c3bb0b9b28",
+    "esbuild-cjs/index.cjs.map": "sha512:66f9e06dd3db41543ff26f633a6b8887fa2759fc302c336337dc0b2c4ee180bfbdab754eb4232b1209b193d0740e92fd18e8aee419ac167e6677b468de9d28fc",
+    "esbuild/chunk-QCGVITVN.js": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"7f049abd-6283-5ecf-925b-d4ce9b1a514d\")}catch(e){}}();function e(r){if(!r)throw new Error(\"Missing product\");return[{productId:r,stars:5,text:\"Works as described\"}]}export{e as fetchReviews};\n//# sourceMappingURL=chunk-QCGVITVN.js.map\n\n//# chunkId=7f049abd-6283-5ecf-925b-d4ce9b1a514d",
+    "esbuild/chunk-QCGVITVN.js.map": "utf8:{\"chunk_id\":\"7f049abd-6283-5ecf-925b-d4ce9b1a514d\",\"mappings\":\"qTAAO,SAASA,EAAaC,EAAW,CACpC,GAAI,CAACA,EACD,MAAM,IAAI,MAAM,iBAAiB,EAErC,MAAO,CAAC,CAAE,UAAAA,EAAW,MAAO,EAAG,KAAM,oBAAqB,CAAC,CAC/D\",\"names\":[\"fetchReviews\",\"productId\"],\"sources\":[\"../../src/reviews.js\"],\"sourcesContent\":[\"export function fetchReviews(productId) {\\n    if (!productId) {\\n        throw new Error('Missing product')\\n    }\\n    return [{ productId, stars: 5, text: 'Works as described' }]\\n}\\n\"],\"version\":3}",
+    "esbuild/index-DLM2YCDD.js": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"97e874eb-b143-5723-bb41-695f14c0d557\")}catch(e){}}();function o(t){return`$${(t/100).toFixed(2)}`}function n(t){let r=Number.parseInt(t,10);if(Number.isNaN(r))throw new TypeError(`Invalid quantity: ${t}`);return r}function i(t){return JSON.stringify({kind:\"badge\",label:t,createdAt:\"\\xE9\\u65E5\\u{1F600}\"})}function f(t){let r=0;for(let e of t)r+=e.price*n(e.quantity);if(r<=0)throw new Error(\"Cart total must be positive\");return i(`Total: ${o(r)}`)}async function s(){let{fetchReviews:t}=await import(\"./chunk-QCGVITVN.js\");return t(\"example-product\")}export{f as checkout,s as loadReviews};\n//# sourceMappingURL=index-DLM2YCDD.js.map\n\n//# chunkId=97e874eb-b143-5723-bb41-695f14c0d557",
+    "esbuild/index-DLM2YCDD.js.map": "utf8:{\"chunk_id\":\"97e874eb-b143-5723-bb41-695f14c0d557\",\"mappings\":\"qTAAO,SAASA,EAAYC,EAAO,CAC/B,MAAO,KAAKA,EAAQ,KAAK,QAAQ,CAAC,CAAC,EACvC,CAEO,SAASC,EAAcC,EAAO,CACjC,IAAMC,EAAS,OAAO,SAASD,EAAO,EAAE,EACxC,GAAI,OAAO,MAAMC,CAAM,EACnB,MAAM,IAAI,UAAU,qBAAqBD,CAAK,EAAE,EAEpD,OAAOC,CACX,CCVO,SAASC,EAAYC,EAAO,CAE/B,OAAO,KAAK,UADE,CAAE,KAAM,QAAS,MAAAA,EAAO,UAAW,qBAAO,CAC7B,CAC/B,CCAO,SAASC,EAASC,EAAO,CAC5B,IAAIC,EAAQ,EACZ,QAAWC,KAAQF,EACfC,GAASC,EAAK,MAAQC,EAAcD,EAAK,QAAQ,EAErD,GAAID,GAAS,EACT,MAAM,IAAI,MAAM,6BAA6B,EAEjD,OAAOG,EAAY,UAAUC,EAAYJ,CAAK,CAAC,EAAE,CACrD,CAEA,eAAsBK,GAAc,CAChC,GAAM,CAAE,aAAAC,CAAa,EAAI,KAAM,QAAO,qBAAc,EACpD,OAAOA,EAAa,iBAAiB,CACzC\",\"names\":[\"formatPrice\",\"cents\",\"parseQuantity\",\"value\",\"parsed\",\"renderBadge\",\"label\",\"checkout\",\"items\",\"total\",\"item\",\"parseQuantity\",\"renderBadge\",\"formatPrice\",\"loadReviews\",\"fetchReviews\"],\"sources\":[\"../../src/cart.js\",\"../../src/ui/badge.js\",\"../../src/index.js\"],\"sourcesContent\":[\"export function formatPrice(cents) {\\n    return `$${(cents / 100).toFixed(2)}`\\n}\\n\\nexport function parseQuantity(value) {\\n    const parsed = Number.parseInt(value, 10)\\n    if (Number.isNaN(parsed)) {\\n        throw new TypeError(`Invalid quantity: ${value}`)\\n    }\\n    return parsed\\n}\\n\",\"export function renderBadge(label) {\\n    const badge = { kind: 'badge', label, createdAt: 'é日😀' }\\n    return JSON.stringify(badge)\\n}\\n\",\"import { formatPrice, parseQuantity } from './cart.js'\\nimport { renderBadge } from './ui/badge.js'\\n\\nexport function checkout(items) {\\n    let total = 0\\n    for (const item of items) {\\n        total += item.price * parseQuantity(item.quantity)\\n    }\\n    if (total <= 0) {\\n        throw new Error('Cart total must be positive')\\n    }\\n    return renderBadge(`Total: ${formatPrice(total)}`)\\n}\\n\\nexport async function loadReviews() {\\n    const { fetchReviews } = await import('./reviews.js')\\n    return fetchReviews('example-product')\\n}\\n\"],\"version\":3}",
+    "rollup/index-W25VBdhh.mjs": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"b7e07b27-43b5-41de-9196-855306cb5e17\")}catch(e){}}();function formatPrice(cents) {\n    return `$${(cents / 100).toFixed(2)}`\n}\n\nfunction parseQuantity(value) {\n    const parsed = Number.parseInt(value, 10);\n    if (Number.isNaN(parsed)) {\n        throw new TypeError(`Invalid quantity: ${value}`)\n    }\n    return parsed\n}\n\nfunction renderBadge(label) {\n    const badge = { kind: 'badge', label, createdAt: 'é日😀' };\n    return JSON.stringify(badge)\n}\n\nfunction checkout(items) {\n    let total = 0;\n    for (const item of items) {\n        total += item.price * parseQuantity(item.quantity);\n    }\n    if (total <= 0) {\n        throw new Error('Cart total must be positive')\n    }\n    return renderBadge(`Total: ${formatPrice(total)}`)\n}\n\nasync function loadReviews() {\n    const { fetchReviews } = await import('./reviews-nJfzDM_Q.mjs');\n    return fetchReviews('example-product')\n}\n\nexport { checkout, loadReviews };\n//# debugId=b7e07b27-43b5-41de-9196-855306cb5e17\n//# sourceMappingURL=index-W25VBdhh.mjs.map\n\n//# chunkId=b7e07b27-43b5-41de-9196-855306cb5e17",
+    "rollup/index-W25VBdhh.mjs.map": "sha512:2530c4d8f240dc5a0b1024b1f701d5487e5e57f833ea97fd81df6d91a7cf9d376ce757eaf9ba446e180084c1e710f813f61aa736f49401937c3d8a8b74902091",
+    "rollup/reviews-nJfzDM_Q.mjs": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\")}catch(e){}}();function fetchReviews(productId) {\n    if (!productId) {\n        throw new Error('Missing product')\n    }\n    return [{ productId, stars: 5, text: 'Works as described' }]\n}\n\nexport { fetchReviews };\n//# debugId=8e45a01c-ff78-471a-87d3-ba56f7ab4c31\n//# sourceMappingURL=reviews-nJfzDM_Q.mjs.map\n\n//# chunkId=8e45a01c-ff78-471a-87d3-ba56f7ab4c31",
+    "rollup/reviews-nJfzDM_Q.mjs.map": "utf8:{\"chunk_id\":\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\",\"debugId\":\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\",\"debug_id\":\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\",\"file\":\"reviews-nJfzDM_Q.mjs\",\"mappings\":\"qTAAO,SAAS,YAAY,CAAC,SAAS,EAAE;AACxC,IAAI,IAAI,CAAC,SAAS,EAAE;AACpB,QAAQ,MAAM,IAAI,KAAK,CAAC,iBAAiB;AACzC,IAAI;AACJ,IAAI,OAAO,CAAC,EAAE,SAAS,EAAE,KAAK,EAAE,CAAC,EAAE,IAAI,EAAE,oBAAoB,EAAE;AAC/D\",\"names\":[],\"sources\":[\"../../src/reviews.js\"],\"sourcesContent\":[\"export function fetchReviews(productId) {\\n    if (!productId) {\\n        throw new Error('Missing product')\\n    }\\n    return [{ productId, stars: 5, text: 'Works as described' }]\\n}\\n\"],\"version\":3}",
+    "terser/badge.min.js": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"99aebe21-13ee-51da-a4aa-940e274f080f\")}catch(e){}}();var Badge=function(e){\"use strict\";return e.renderBadge=function(e){const n={kind:\"badge\",label:e,createdAt:\"é日😀\"};return JSON.stringify(n)},e}({});\n//# sourceMappingURL=badge.min.js.map\n//# chunkId=99aebe21-13ee-51da-a4aa-940e274f080f",
+    "terser/badge.min.js.map": "utf8:{\"chunk_id\":\"99aebe21-13ee-51da-a4aa-940e274f080f\",\"file\":\"badge.min.js\",\"mappings\":\"6WAAO,SAAqBA,GACxB,MAAMC,EAAQ,CAAEC,KAAM,QAASF,QAAOG,UAAW,QACjD,OAAOC,KAAKC,UAAUJ,EAC1B,E\",\"names\":[\"label\",\"badge\",\"kind\",\"createdAt\",\"JSON\",\"stringify\"],\"sources\":[\"src/ui/badge.js\"],\"sourcesContent\":[\"export function renderBadge(label) {\\n    const badge = { kind: 'badge', label, createdAt: 'é日😀' }\\n    return JSON.stringify(badge)\\n}\\n\"],\"version\":3}",
+    "webpack/213.eef13598.js": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\")}catch(e){}}();\"use strict\";(self.webpackChunk=self.webpackChunk||[]).push([[213],{213(e,s,r){function t(e){if(!e)throw new Error(\"Missing product\");return[{productId:e,stars:5,text:\"Works as described\"}]}r.d(s,{fetchReviews:()=>t})}}]);\n//# debugId=eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\n//# sourceMappingURL=213.eef13598.js.map\n//# chunkId=eaaf9a0d-6c5a-4568-a743-6f4fa42549a4",
+    "webpack/213.eef13598.js.map": "utf8:{\"chunk_id\":\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\",\"debugId\":\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\",\"debug_id\":\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\",\"file\":\"213.eef13598.js\",\"mappings\":\"oYAAO,SAAAA,EAAAC,GACP,IAAAA,EACA,UAAAC,MAAA,mBAEA,QAAcD,YAAAE,MAAA,EAAAC,KAAA,sBACd\",\"names\":[\"fetchReviews\",\"productId\",\"Error\",\"stars\",\"text\"],\"sourceRoot\":\"\",\"sources\":[\"webpack:///./src/reviews.js\"],\"sourcesContent\":[\"export function fetchReviews(productId) {\\n    if (!productId) {\\n        throw new Error('Missing product')\\n    }\\n    return [{ productId, stars: 5, text: 'Works as described' }]\\n}\\n\"],\"version\":3}",
+    "webpack/main.24954514.js": "sha512:66b9c4a91d5d3809701f3a4a3c7318653109f9e0068c7d4f7ce7fbb909c7579f50eafb9ec1ef0ea25c91463fbdfdd2b0f47027df2616d46008b8d5518073d3e8",
+    "webpack/main.24954514.js.map": "sha512:50cd0b6f0d4c9adc795734926514286d478e56366ce2117e7783097c84ab5d9f74e6dd120d6f12aad45f2ff44dfa6974a9c23b81a8e708da0914b7c2c4bc0da2"
+  }
+}

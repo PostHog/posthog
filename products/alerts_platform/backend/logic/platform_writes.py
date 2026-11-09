@@ -4,14 +4,14 @@ A configuration its source owns is a copy of the source's own row, which the sou
 and the next check reads back. Writing the copy here would fork it, so those are refused.
 """
 
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
 from django.db import connection, transaction
-from django.db.models import QuerySet
+from django.db.models import Case, QuerySet, Value, When
 from django.utils import timezone as django_timezone
 
 from pydantic import ValidationError as PydanticValidationError
@@ -163,9 +163,11 @@ def update_configuration(
     source_kinds: Sequence[str],
     configuration_id: UUID,
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+    snooze_until: datetime | None = None,
+    snooze_changed: bool = False,
 ) -> PlatformAlertConfigurationView | None:
     """Applies `change` to the configuration's current settings under its row lock, and mirrors the
-    result onto the source's own row.
+    result onto the source's own row. With `snooze_changed`, `snooze_until` becomes the whole alert's mute.
 
     None when the configuration does not exist or its kind is not among `source_kinds`. Taking a
     function rather than the new settings lets a partial update merge with what is stored inside
@@ -179,6 +181,9 @@ def update_configuration(
         if found is None:
             return None
         source_kind, legacy_configuration_id = found
+        if snooze_changed and legacy_configuration_id is not None:
+            # The source row keeps the snooze too, and no mirror carries one, so the two would disagree.
+            raise InvalidPlatformAlertEdit("snooze_until", f"Snooze this alert in the {source_kind} product.")
         spec = source_configs.spec(SourceKind(source_kind))
         mirror = spec.mirror if spec is not None else None
         write_source = (
@@ -189,7 +194,12 @@ def update_configuration(
         configuration = readable.select_for_update().first()
         if configuration is None:
             return None
-        edit, pending = _apply(configuration, change, now=django_timezone.now(), admit=True)
+        now = django_timezone.now()
+        # A snooze ends the firing, as `update_owned_copy` does for a copy.
+        snoozing = snooze_changed and snooze_until is not None and snooze_until > now
+        edit, pending = _apply(configuration, change, now=now, snoozing=snoozing, admit=True)
+        if snooze_changed:
+            platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)
@@ -200,10 +210,15 @@ def update_configuration(
 
 
 def create_configuration(
-    *, team_id: int, source_kind: SourceKind, edit: PlatformAlertConfigurationEdit, created_by_id: int | None
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    edit: PlatformAlertConfigurationEdit,
+    created_by_id: int | None,
+    natively: bool | None = None,
 ) -> PlatformAlertConfigurationView:
     """Creates an alert the platform owns: itself for a native kind, and otherwise through the hook
-    its source registered.
+    its source registered. A source that already decided sets `natively`, so the spec does not decide again.
 
     Raises `PlatformAlertNotEditable` for a kind the API cannot create, `InvalidPlatformAlertEdit` for
     settings its source kind rejects, and `PlatformAlertCreateRefused` when the source refuses.
@@ -212,7 +227,7 @@ def create_configuration(
     if spec is None or not spec.creatable:
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
     validated = _validated(source_kind, None, edit, team_id=team_id)
-    if spec.native is not None:
+    if spec.native is not None and (spec.creates_natively(team_id) if natively is None else natively):
         with transaction.atomic():
             _admit(
                 team_id=team_id,
@@ -229,6 +244,7 @@ def create_configuration(
                 destinations_owner=PlatformAlertOwner.PLATFORM
                 if spec.native.platform_destinations
                 else PlatformAlertOwner.SOURCE,
+                created_by_id=created_by_id,
                 now=django_timezone.now(),
             )
     else:
@@ -399,7 +415,7 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     if owner != PlatformAlertOwner.PLATFORM:
         raise PlatformAlertNotEditable(f"This alert is managed by the {source_kind} product. Delete it there.")
     spec = source_configs.spec(SourceKind(source_kind))
-    if spec is not None and spec.native is not None:
+    if spec is not None and spec.native is not None and legacy_configuration_id is None:
         _delete_native(team_id, configuration_id, spec.native)
     elif spec is not None and spec.delete is not None and legacy_configuration_id is not None:
         spec.delete(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
@@ -449,19 +465,12 @@ def delete_orphaned_shadow_copies(
     so a copy found without its row stays an orphan.
     """
     # Cross-team on purpose: a one-off sweep over every copy of the kind. Each delete is scoped to
-    # the copy's own team. Paged by id rather than with `iterator()`, because PgBouncer disables
-    # server-side cursors and `iterator()` would then load every copy at once.
+    # the copy's own team.
     copies = PlatformAlertConfiguration.objects.unscoped().filter(
         source_kind=source_kind.value, owner=PlatformAlertOwner.SOURCE, legacy_configuration_id__isnull=False
     )
     found = 0
-    after: UUID | None = None
-    while batch := list(
-        (copies if after is None else copies.filter(id__gt=after))
-        .order_by("id")
-        .values_list("id", "team_id", "legacy_configuration_id")[:batch_size]
-    ):
-        after = batch[-1][0]
+    for batch in _pages_by_id(copies, "team_id", "legacy_configuration_id", batch_size=batch_size):
         existing = set(existing_source_ids([legacy_id for _, _, legacy_id in batch if legacy_id is not None]))
         orphans = [
             (configuration_id, team_id) for configuration_id, team_id, legacy_id in batch if legacy_id not in existing
@@ -476,6 +485,56 @@ def delete_orphaned_shadow_copies(
                 )
             )
     return found
+
+
+def fill_missing_creators(
+    *,
+    source_kind: SourceKind,
+    creators_of: Callable[[Collection[UUID]], Mapping[UUID, int]],
+    dry_run: bool,
+    batch_size: int = 500,
+) -> int:
+    """Copies `created_by` from the source rows onto every copy of `source_kind` that has none, and
+    returns how many it filled, or would fill with `dry_run`.
+
+    `creators_of` maps the given source row ids to the id of the user who created each. A row with no
+    creator, or one that is gone, is left out, and its copy stays without one.
+    """
+    copies = PlatformAlertConfiguration.objects.unscoped().filter(
+        source_kind=source_kind.value, legacy_configuration_id__isnull=False, created_by__isnull=True
+    )
+    filled = 0
+    for batch in _pages_by_id(copies, "legacy_configuration_id", batch_size=batch_size):
+        creators = creators_of([legacy_id for _, legacy_id in batch if legacy_id is not None])
+        found = {
+            configuration_id: creators[legacy_id] for configuration_id, legacy_id in batch if legacy_id in creators
+        }
+        filled += len(found)
+        if found and not dry_run:
+            # `copies` still requires an unset creator, so an upsert since this page was read wins.
+            copies.filter(id__in=list(found)).update(
+                created_by_id=Case(*(When(id=key, then=Value(user_id)) for key, user_id in found.items()))
+            )
+    return filled
+
+
+def _pages_by_id(
+    configurations: QuerySet[PlatformAlertConfiguration], *fields: str, batch_size: int
+) -> Iterator[list[tuple[Any, ...]]]:
+    """`(id, *fields)` of every configuration, a page at a time in id order.
+
+    Paged by id rather than with `iterator()`, because PgBouncer disables server-side cursors and
+    `iterator()` would then load every row at once. A row the caller changes so it stops matching
+    leaves the later pages as they were.
+    """
+    after: UUID | None = None
+    while batch := list(
+        (configurations if after is None else configurations.filter(id__gt=after))
+        .order_by("id")
+        .values_list("id", *fields)[:batch_size]
+    ):
+        after = batch[-1][0]
+        yield batch
 
 
 def _delete_each(

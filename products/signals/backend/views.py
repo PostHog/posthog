@@ -368,6 +368,7 @@ from products.signals.backend.throttles import (
     UserReportCreateBurstThrottle,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
+from products.signals.backend.trial.policy import TrialPolicy
 from products.signals.backend.trial.service import TrialService
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
@@ -4959,19 +4960,13 @@ class SignalReportViewSet(
         if not self._signals_pr_refunds_enabled():
             raise NotFound("PR refunds are not enabled for this organization.")
 
-        org_id = str(self.organization.id)
-        usage_based_pricing = posthoganalytics.feature_enabled(
-            "self-driving-ubp",
-            org_id,
-            groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
-        )
-        if usage_based_pricing is True:
-            raise exceptions.PermissionDenied("PR refunds are not available with usage-based pricing.")
-        if usage_based_pricing is not False:
+        pricing = TrialPolicy(self.team).flag_decision()
+        if not pricing.confirmed:
             return Response(
                 {"detail": "Unable to determine pricing. Please try again."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
+        if pricing.enabled:
+            raise exceptions.PermissionDenied("PR refunds are not available with usage-based pricing.")
 
         report = cast(SignalReport, self.get_object())
         data = request.validated_data
