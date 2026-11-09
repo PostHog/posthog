@@ -677,21 +677,33 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === enabled)).toBe(true)
         })
 
+        const TOGGLE = (): void => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)
+        const TEAM_DEFAULT = (): void =>
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...teamLogic.values.currentTeam!,
+                test_account_filters_default_checked: true,
+            })
         it.each([
-            ['the test-account toggle', () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)],
+            ['the test-account toggle', TOGGLE, urls.mcpAnalyticsDashboard(), {}],
+            ["the team's test-account default", TEAM_DEFAULT, urls.mcpAnalyticsDashboard(), {}],
             [
-                "the team's test-account default",
-                () =>
-                    teamLogic.actions.loadCurrentTeamSuccess({
-                        ...teamLogic.values.currentTeam!,
-                        test_account_filters_default_checked: true,
-                    }),
+                'the test-account toggle on a route with another date',
+                TOGGLE,
+                urls.mcpAnalyticsToolQuality(),
+                { date_from: '-30d' },
             ],
-        ])('reloads every tile once on %s', async (_label, change) => {
+            [
+                "the team's test-account default on a route with another date",
+                TEAM_DEFAULT,
+                urls.mcpAnalyticsToolQuality(),
+                { date_from: '-30d' },
+            ],
+        ])('reloads every tile once on %s', async (_label, change, path, searchParams) => {
             router.actions.push(urls.mcpAnalyticsDashboard())
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+            router.actions.push(path, searchParams)
             const callsBefore = mockApi.query.mock.calls.length
 
             await expectLogic(logic, change).toFinishAllListeners()

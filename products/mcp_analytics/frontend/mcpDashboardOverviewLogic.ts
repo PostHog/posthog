@@ -17,6 +17,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import {
     type ComparisonWindow,
     buildBucketKeys,
@@ -56,6 +57,15 @@ function dateFilterFromUrl(searchParams: Record<string, any>): DateFilter {
         dateFrom: typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom,
         dateTo: typeof searchParams.date_to === 'string' ? searchParams.date_to : null,
     }
+}
+
+function dashboardUrlMovesDate(dateFilter: DateFilter): boolean {
+    const { pathname, searchParams } = router.values.currentLocation
+    if (removeProjectIdIfPresent(pathname) !== urls.mcpAnalyticsDashboard()) {
+        return false
+    }
+    const { dateFrom, dateTo } = dateFilterFromUrl(searchParams)
+    return dateFrom !== dateFilter.dateFrom || dateTo !== dateFilter.dateTo
 }
 
 // KPI tiles compare the selected window against the immediately preceding window
@@ -1145,11 +1155,10 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         },
     })),
     // The shared filters change from the filter bar, URL hydration, or the team's test-account default.
-    // A URL that also moves the date reloads through setDateFilter instead, so the tiles load once.
+    // A dashboard URL that also moves the date reloads through setDateFilter instead, so the tiles load once.
     subscriptions(({ actions, values }) => ({
         sharedQueryFilters: (_: MCPSharedQueryFilters, previous: MCPSharedQueryFilters | undefined) => {
-            const { dateFrom, dateTo } = dateFilterFromUrl(router.values.searchParams)
-            if (previous && dateFrom === values.dateFilter.dateFrom && dateTo === values.dateFilter.dateTo) {
+            if (previous && !dashboardUrlMovesDate(values.dateFilter)) {
                 actions.reloadAll()
             }
         },
