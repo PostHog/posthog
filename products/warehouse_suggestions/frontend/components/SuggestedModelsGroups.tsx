@@ -1,5 +1,5 @@
-import { SUGGESTED_MODEL_SECTIONS } from '../suggestionCopy'
 import { WarehouseSuggestionApi } from '../generated/api.schemas'
+import { SUGGESTED_MODEL_SECTIONS } from '../suggestionCopy'
 import { SuggestionGroup } from '../warehouseSuggestionsLogic'
 import { CertificationSuggestionRow } from './CertificationSuggestionRow'
 import { MaterializeSuggestionRow } from './MaterializeSuggestionRow'
