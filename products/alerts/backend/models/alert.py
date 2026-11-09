@@ -357,6 +357,32 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return None
 
     @classmethod
+    def team_alert_count(cls, team_id: int) -> int:
+        """Every insight alert of a team, as the limits count them."""
+        return cls._counted(team_id)
+
+    @classmethod
+    def create_limit_error(
+        cls,
+        *,
+        team_id: int,
+        organization: Organization,
+        calculation_interval: str | AlertCalculationInterval | None,
+        enabled: bool,
+    ) -> str | None:
+        """The plan limit a new alert would break, or None. Call it inside the create's transaction:
+        it holds the team's insight alert lock until the transaction ends, the lock the platform's own
+        creates take, so two creates cannot both pass the count."""
+        # Deferred for the same reason as in `_counted`.
+        from products.alerts_platform.backend.facade.api import hold_cap_lock  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+
+        hold_cap_lock(team_id=team_id, source_kind=SourceKind.INSIGHT)
+        return cls.check_alert_limit(team_id, organization) or cls.real_time_alert_validation_error(
+            team_id=team_id, organization=organization, calculation_interval=calculation_interval, enabled=enabled
+        )
+
+    @classmethod
     def _counted(cls, team_id: int, *, active_real_time: bool = False, exclude_id: str | None = None) -> int:
         """The team's insight alerts: each insight row, and each platform alert with no insight row."""
         # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.

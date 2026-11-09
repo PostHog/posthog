@@ -172,6 +172,10 @@ class UpdateAlertAction(BaseModel):
 UpsertAlertAction = Union[CreateAlertAction, UpdateAlertAction]
 
 
+class AlertLimitReached(Exception):
+    """A create the plan limits refused once the team's alert lock was held."""
+
+
 @frozen
 class _SaveRefusal:
     """A write the alert save refused, with the error code the tool reports."""
@@ -337,6 +341,8 @@ class UpsertAlertTool(MaxTool):
                 },
             )
 
+        except AlertLimitReached as e:
+            return str(e), {"error": "plan_limit_reached"}
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create alert: {str(e)}", {
@@ -655,6 +661,11 @@ class UpsertAlertTool(MaxTool):
         enabled: bool,
         skip_weekend: bool,
     ) -> AlertConfiguration:
+        # Again under the lock, because the checks before this transaction can race another create.
+        if limit_error := AlertConfiguration.create_limit_error(
+            team_id=team.id, organization=team.organization, calculation_interval=calculation_interval, enabled=enabled
+        ):
+            raise AlertLimitReached(limit_error)
         threshold_to_persist.save()
 
         alert = AlertConfiguration.objects.create(
