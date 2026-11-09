@@ -14533,6 +14533,7 @@ export namespace Schemas {
     } as const;
 
     export interface Annotation {
+      /** Unique ID of the annotation. */
       readonly id: number;
       /**
          * Annotation text shown on charts to describe the change, release, or incident.
@@ -14560,17 +14561,34 @@ export namespace Schemas {
          * @nullable
          */
       dashboard_id?: number | null;
-      /** @nullable */
+      /**
+         * Name of the dashboard in `dashboard_id`, or null when there is none.
+         * @nullable
+         */
       readonly dashboard_name: string | null;
-      /** @nullable */
+      /**
+         * Short ID of the insight in `dashboard_item`, or null when there is none.
+         * @nullable
+         */
       readonly insight_short_id: string | null;
-      /** @nullable */
+      /**
+         * Name of the insight in `dashboard_item`, or null when it has none.
+         * @nullable
+         */
       readonly insight_name: string | null;
-      /** @nullable */
+      /**
+         * Generated name of the insight in `dashboard_item`, shown when the insight has no name.
+         * @nullable
+         */
       readonly insight_derived_name: string | null;
+      /** User who created the annotation. */
       readonly created_by: UserBasic;
-      /** @nullable */
+      /**
+         * When the annotation was created.
+         * @nullable
+         */
       readonly created_at: string | null;
+      /** When the annotation was last changed. */
       readonly updated_at: string;
       /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
       deleted?: boolean;
@@ -15178,6 +15196,59 @@ export namespace Schemas {
       Members: 'members',
       Agents: 'agents',
     } as const;
+
+    export interface MigrationTableOverride {
+      /** A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`. */
+      vendor_table: string;
+      /**
+         * The PostHog table to sync it as. Null leaves the table out.
+         * @nullable
+         */
+      posthog_table: string | null;
+    }
+
+    /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     */
+    export type ExternalDataSourceCreateCreatedViaEnum = typeof ExternalDataSourceCreateCreatedViaEnum[keyof typeof ExternalDataSourceCreateCreatedViaEnum];
+
+
+    export const ExternalDataSourceCreateCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+    } as const;
+
+    export interface ApplyMigrationItem {
+      /** The migration item to create a PostHog source for. */
+      item_id: string;
+      /** Stored credential from the source connect page, for the item's PostHog source type. */
+      credential_id: string;
+      /**
+         * Table name prefix to use instead of the planned one, for example when the planned one is taken.
+         * @maxLength 100
+         */
+      prefix?: string;
+      /** Destinations to write the new source to. Omit to write to the PostHog warehouse. */
+      destination_ids?: string[];
+      /** Changes to the planned tables that the user confirmed: rename an inferred pair, map an unmatched table, or leave a table out. */
+      table_overrides?: MigrationTableOverride[];
+      /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp */
+      created_via?: ExternalDataSourceCreateCreatedViaEnum;
+    }
+
+    export interface ApplyMigrationItemResponse {
+      /** The PostHog source created for the item. */
+      source_id: string;
+      /** Every difference from the Fivetran connection, including new ones. */
+      caveats: string[];
+    }
 
     export interface ApplyPathCleaningSuggestionResponse {
       /** Number of rules merged into the team's path_cleaning_filters. */
@@ -48716,10 +48787,10 @@ export namespace Schemas {
      * * `7day` - 7day
      * * `30day` - 30day
      */
-    export type ExternalDataSchemaSyncFrequencyEnum = typeof ExternalDataSchemaSyncFrequencyEnum[keyof typeof ExternalDataSchemaSyncFrequencyEnum];
+    export type SettableSyncFrequencyEnum = typeof SettableSyncFrequencyEnum[keyof typeof SettableSyncFrequencyEnum];
 
 
-    export const ExternalDataSchemaSyncFrequencyEnum = {
+    export const SettableSyncFrequencyEnum = {
       Never: 'never',
       '5min': '5min',
       '15min': '15min',
@@ -48836,7 +48907,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: ExternalDataSchemaSyncFrequencyEnum | null;
+      sync_frequency?: SettableSyncFrequencyEnum | null;
       /**
          * UTC time of day to run the sync (HH:MM:SS).
          * @nullable
@@ -49071,20 +49142,6 @@ export namespace Schemas {
      * Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings.
      */
     export type ExternalDataSourceCreatePayload = { [key: string]: unknown };
-
-    /**
-     * * `web` - web
-     * * `api` - api
-     * * `mcp` - mcp
-     */
-    export type ExternalDataSourceCreateCreatedViaEnum = typeof ExternalDataSourceCreateCreatedViaEnum[keyof typeof ExternalDataSourceCreateCreatedViaEnum];
-
-
-    export const ExternalDataSourceCreateCreatedViaEnum = {
-      Web: 'web',
-      Api: 'api',
-      Mcp: 'mcp',
-    } as const;
 
     export interface ExternalDataSourceCreate {
       /** The source type (e.g. 'Postgres', 'Stripe'). */
@@ -65063,6 +65120,11 @@ export namespace Schemas {
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
       /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
       config: unknown;
+      /** Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.
+       *
+       * * `logs` - Logs
+       * * `spans` - Spans */
+      source?: LogsMetricRuleRecordSourceEnum;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
       readonly created_by: number;
@@ -80309,6 +80371,13 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    export interface WarehouseMigrationCreator {
+      /** First name of the person who prepared the migration. */
+      first_name: string;
+      /** Email of the person who prepared the migration. */
+      email: string;
+    }
+
     export interface WarehouseMigrationItem {
       /** Item ID. Pass it to the apply and skip actions. */
       id: string;
@@ -80343,6 +80412,8 @@ export namespace Schemas {
       external_data_source_id: string | null;
       /** Why the last apply attempt failed, if it did. */
       error: string;
+      /** Who prepared the migration, and so chose the connection settings in `proposal.prefill`. */
+      created_by: WarehouseMigrationCreator | null;
     }
 
     export interface PaginatedWarehouseMigrationItemList {
@@ -80420,6 +80491,8 @@ export namespace Schemas {
       created_at: string;
       /** How many connections fall into each group. */
       item_counts: WarehouseMigrationItemCounts;
+      /** False when an agent uploaded the vendor account. Such a migration cannot be refreshed; upload the connections again instead. */
+      has_vendor_key: boolean;
     }
 
     export interface PaginatedWarehouseMigrationList {
@@ -82027,6 +82100,7 @@ export namespace Schemas {
     }
 
     export interface PatchedAnnotation {
+      /** Unique ID of the annotation. */
       readonly id?: number;
       /**
          * Annotation text shown on charts to describe the change, release, or incident.
@@ -82054,17 +82128,34 @@ export namespace Schemas {
          * @nullable
          */
       dashboard_id?: number | null;
-      /** @nullable */
+      /**
+         * Name of the dashboard in `dashboard_id`, or null when there is none.
+         * @nullable
+         */
       readonly dashboard_name?: string | null;
-      /** @nullable */
+      /**
+         * Short ID of the insight in `dashboard_item`, or null when there is none.
+         * @nullable
+         */
       readonly insight_short_id?: string | null;
-      /** @nullable */
+      /**
+         * Name of the insight in `dashboard_item`, or null when it has none.
+         * @nullable
+         */
       readonly insight_name?: string | null;
-      /** @nullable */
+      /**
+         * Generated name of the insight in `dashboard_item`, shown when the insight has no name.
+         * @nullable
+         */
       readonly insight_derived_name?: string | null;
+      /** User who created the annotation. */
       readonly created_by?: UserBasic;
-      /** @nullable */
+      /**
+         * When the annotation was created.
+         * @nullable
+         */
       readonly created_at?: string | null;
+      /** When the annotation was last changed. */
       readonly updated_at?: string;
       /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
       deleted?: boolean;
@@ -84780,7 +84871,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: ExternalDataSchemaSyncFrequencyEnum | null;
+      sync_frequency?: SettableSyncFrequencyEnum | null;
       /**
          * UTC time of day to run the sync (HH:MM:SS).
          * @nullable
@@ -86499,6 +86590,11 @@ export namespace Schemas {
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
       /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
       config?: unknown;
+      /** Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.
+       *
+       * * `logs` - Logs
+       * * `spans` - Spans */
+      source?: LogsMetricRuleRecordSourceEnum;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
       readonly created_by?: number;
@@ -110817,6 +110913,8 @@ export namespace Schemas {
       source_type: string;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
+      /** The migration item whose prefilled settings the connect page showed. Every prefilled setting must keep its value, or the request is rejected before PostHog connects anywhere. */
+      migration_item_id?: string;
     }
 
     /**
@@ -118167,6 +118265,65 @@ export namespace Schemas {
       skipped_item_ids: string[];
       /** Items that stay as they are because they are being created or are already PostHog sources. */
       not_skipped_item_ids: string[];
+    }
+
+    export interface WarehouseMigrationStartUpload {
+      /** The ETL vendor to import from.
+       *
+       * * `fivetran` - Fivetran */
+      provider: WarehouseMigrationProviderEnum;
+    }
+
+    /**
+     * The Fivetran account info response, unchanged. Send it once, with the first upload.
+     * @nullable
+     */
+    export type WarehouseMigrationUploadConnectionsAccount = { [key: string]: unknown } | null;
+
+    export type WarehouseMigrationUploadConnectionsDestinationsItem = { [key: string]: unknown };
+
+    /**
+     * The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay.
+     */
+    export type WarehouseMigrationUploadedConnectionConnection = { [key: string]: unknown };
+
+    /**
+     * The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.
+     * @nullable
+     */
+    export type WarehouseMigrationUploadedConnectionSchemaConfig = { [key: string]: unknown } | null;
+
+    export interface WarehouseMigrationUploadedConnection {
+      /** The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay. */
+      connection: WarehouseMigrationUploadedConnectionConnection;
+      /**
+         * The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.
+         * @nullable
+         */
+      schema_config?: WarehouseMigrationUploadedConnectionSchemaConfig;
+    }
+
+    export interface WarehouseMigrationUploadConnections {
+      /**
+         * The Fivetran account info response, unchanged. Send it once, with the first upload.
+         * @nullable
+         */
+      account?: WarehouseMigrationUploadConnectionsAccount;
+      /**
+         * Fivetran destination details responses, unchanged. Send them before the connections that use them, so PostHog reads each connection's sync time in its destination's time zone.
+         * @maxItems 100
+         */
+      destinations?: WarehouseMigrationUploadConnectionsDestinationsItem[];
+      /**
+         * At most 25 connections. A connection uploaded again replaces its plan, unless it is already created in PostHog or skipped.
+         * @maxItems 25
+         */
+      connections?: WarehouseMigrationUploadedConnection[];
+    }
+
+    export interface WarehouseMigrationUploadResponse {
+      /** The planned items for the uploaded connections. */
+      items: WarehouseMigrationItem[];
     }
 
     /**
@@ -131006,6 +131163,10 @@ export namespace Schemas {
 
     export type ExternalDataSourcesConnectLinkRetrieveParams = {
     /**
+     * Optional warehouse migration item. The connect page then shows the item's non-secret settings from the vendor, so the user only enters the secret.
+     */
+    migration_item_id?: string;
+    /**
      * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
      */
     source_type: string;
@@ -134253,7 +134414,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Record source whose rules to list or reorder. Defaults to `logs`.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans
+     * @minLength 1
+     */
+    source?: LogsSamplingRulesListSource;
     };
+
+    export type LogsSamplingRulesListSource = typeof LogsSamplingRulesListSource[keyof typeof LogsSamplingRulesListSource];
+
+
+    export const LogsSamplingRulesListSource = {
+      Logs: 'logs',
+      Spans: 'spans',
+    } as const;
 
     export type LogsSamplingRulesReorderCreateParams = {
     /**
@@ -134264,7 +134441,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Record source whose rules to list or reorder. Defaults to `logs`.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans
+     * @minLength 1
+     */
+    source?: LogsSamplingRulesReorderCreateSource;
     };
+
+    export type LogsSamplingRulesReorderCreateSource = typeof LogsSamplingRulesReorderCreateSource[keyof typeof LogsSamplingRulesReorderCreateSource];
+
+
+    export const LogsSamplingRulesReorderCreateSource = {
+      Logs: 'logs',
+      Spans: 'spans',
+    } as const;
 
     export type LogsValuesRetrieveParams = {
     /**
@@ -134552,6 +134745,10 @@ export namespace Schemas {
      * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.
      */
     date_from?: string;
+    /**
+     * Absolute ISO timestamp upper bound for the event scan. Pass the session's end so the scan stops there instead of reading up to now. Unbounded when omitted or unparseable.
+     */
+    date_to?: string;
     /**
      * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
      */
