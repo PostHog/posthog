@@ -824,7 +824,7 @@
             any(t.numeric_value) AS value
      FROM experiment_metric_events_preaggregated AS t
      WHERE and(in(t.job_id, ['00000000-0000-0000-0000-0000000000a1']), equals(t.team_id, 99999), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))))
-     GROUP BY t.entity_id,
+     GROUP BY toUUID(t.entity_id),
               t.timestamp,
               t.event_uuid),
        entity_metrics AS

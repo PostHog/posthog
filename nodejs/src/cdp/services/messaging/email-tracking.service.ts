@@ -4,7 +4,6 @@ import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import {
-    CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     HogFunctionType,
     LogEntry,
@@ -12,9 +11,10 @@ import {
     MinimalAppMetric,
 } from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import { logger, serializeError } from '~/common/utils/logger'
 
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
@@ -24,6 +24,7 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
+import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
@@ -31,12 +32,8 @@ export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAA
 const LINK_REGEX =
     /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
 
-// Anchors carrying either opt-out marker are left unwrapped (no click-tracking redirect).
-const LINK_TRACKING_OPT_OUT_REGEX = /\bclicktracking\s*=\s*["']?off["']?|\bdata-ph-no-track\b/i
-
 // Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
 const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
-const SES_NO_TRACK_ATTR_REGEX = /\bses:no-track\b/i
 
 /**
  * How anchors in the email body are prepared for click attribution.
@@ -89,6 +86,29 @@ const emailTrackingLogSkipsCounter = new Counter({
     labelNames: ['reason', 'source'],
 })
 
+const ENGAGEMENT_PERSON_METRICS: Partial<Record<MinimalAppMetric['metric_name'], MinimalAppMetric['metric_name'][]>> = {
+    email_opened: ['email_opened_by_person'],
+    email_link_clicked: ['email_opened_by_person', 'email_clicked_by_person'],
+}
+// An open after this counts its person again. Almost all opens and clicks come in the first days.
+const ENGAGEMENT_PEOPLE_TTL_SECONDS = 30 * 24 * 60 * 60
+// A slow Redis costs a person count, never an open or click webhook.
+const ENGAGEMENT_REDIS_TIMEOUT_MS = 500
+// PFADD returns 0 for many new people once a HyperLogLog fills, so the growth of PFCOUNT is what counts. Each pair of
+// keys is a HyperLogLog and the total already reported. Returns how much each total grew.
+const ENGAGEMENT_PEOPLE_SCRIPT = `
+local grew = {}
+for index = 1, #KEYS, 2 do
+    redis.call('PFADD', KEYS[index], ARGV[1])
+    local total = redis.call('PFCOUNT', KEYS[index])
+    local reported = tonumber(redis.call('GET', KEYS[index + 1]) or '0')
+    redis.call('SET', KEYS[index + 1], math.max(total, reported), 'EX', ARGV[2])
+    redis.call('EXPIRE', KEYS[index], ARGV[2])
+    grew[#grew + 1] = math.max(total - reported, 0)
+end
+return grew
+`
+
 // Allowlist of metrics that surface as PostHog events when engagement-event capture is enabled.
 // Metrics not in this map are deliberately ignored (no `$messaging_${metricName}` fallback) so a new
 // internal metric can't silently leak into customers' event streams.
@@ -118,14 +138,11 @@ export const resolveEmailEngagementDistinctId = (
     return invocation.state?.globals?.event?.distinct_id || undefined
 }
 
-// The workflow version that is sending this message, for the tracking code minted below. A flow's
-// email runs as a hog function invocation built by spreading the flow invocation, so `hogFlow` is
-// present at runtime even though the type is the narrower hog function shape. A hog function send
-// has none, and its engagement lands in the version-agnostic series alone.
-export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHogFunction): number | undefined => {
-    return 'hogFlow' in invocation
-        ? (invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.version
-        : undefined
+export const resolveEmailSendingAppSourceVersion = (
+    invocation: CyclotronJobInvocationHogFunction
+): { id: string; version: number } | undefined => {
+    const version = invocation.state.renderedWorkflowVersion
+    return version === undefined ? undefined : { id: invocation.functionId, version }
 }
 
 export const resolveEmailTrackingDistinctId = (
@@ -139,19 +156,33 @@ export const resolveEmailTrackingDistinctId = (
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
 // percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
 // through `target=` as a literal `&amp;` and breaks the destination page's query string.
-const HTML_ENTITY_REGEX = /&(?:(amp|lt|gt|quot|apos)|#(\d+)|#x([0-9a-fA-F]+));/g
+const HTML_ENTITY_REGEX = /&(?:(amp|lt|gt|quot|apos|AMP|LT|GT|QUOT)|#(\d+)|#[xX]([0-9a-fA-F]+));/g
 const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 
 export const decodeHtmlEntitiesInHref = (value: string): string => {
     return value.replace(HTML_ENTITY_REGEX, (_match, named, dec, hex) => {
         if (named) {
-            return NAMED_ENTITIES[named]
+            return NAMED_ENTITIES[named.toLowerCase()]
         }
         const code = dec ? parseInt(dec, 10) : parseInt(hex, 16)
         // `String.fromCodePoint` throws RangeError above 0x10FFFF — `Number.isFinite` alone
         // wouldn't catch e.g. `&#x200000;` since `parseInt` happily returns a finite value.
-        return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : _match
+        if (code < 0 || code > 0x10ffff) {
+            return _match
+        }
+        // HTML decodes a surrogate to U+FFFD. A lone one makes `encodeURIComponent` throw and fails the send.
+        return code >= 0xd800 && code <= 0xdfff ? '\uFFFD' : String.fromCodePoint(code)
     })
+}
+
+// A browser drops tabs and newlines anywhere in a URL, and control characters before it, then reads the scheme.
+const isJavascriptHref = (href: string): boolean => {
+    const url = href.replace(/[\t\n\r]/g, '')
+    let start = 0
+    while (start < url.length && (url.charCodeAt(start) <= 0x20 || /\s/.test(url[start]))) {
+        start++
+    }
+    return url.slice(start, start + 'javascript:'.length).toLowerCase() === 'javascript:'
 }
 
 export const addTrackingToEmail = (
@@ -169,7 +200,7 @@ export const addTrackingToEmail = (
     // The pixel and redirect codes carry the sending version too. SES-attributed opens and clicks
     // read the version off the signed header instead, but a provider we track ourselves has these
     // URLs as its only carrier, and without the version its engagement cannot split by version.
-    const trackingInvocation = { ...invocation, distinctId, workflowVersion: resolveEmailSendingVersion(invocation) }
+    const trackingInvocation = { ...invocation, distinctId, workflowVersion: invocation.state.renderedWorkflowVersion }
     const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
     // Incremented for every anchor LINK_REGEX matches, including ones that turn out to be opted
@@ -186,16 +217,15 @@ export const addTrackingToEmail = (
         const href = decodeHtmlEntitiesInHref(d || s || u || '')
         // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
         // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
-        if (/^\s*javascript:/i.test(href)) {
+        if (isJavascriptHref(href)) {
             return m
         }
         // Per-link opt-out. Leaves the href on its own domain so mobile universal links /
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
-        // `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
         const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        const optedOut = sensitive || LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)
+        const optedOut = sensitive || hasClickTrackingOptOut(openingTag)
 
         if (mode === 'ses') {
             // SES rewrites every http(s) anchor once click tracking is on, and it honors only its
@@ -203,7 +233,7 @@ export const addTrackingToEmail = (
             // keeps a universal link or app deeplink off awstrack.me; leaving the href alone (the
             // `redirect` mode's opt-out) does nothing here.
             if (optedOut) {
-                return SES_NO_TRACK_ATTR_REGEX.test(openingTag)
+                return hasSesNoTrack(openingTag)
                     ? m
                     : addAttributeToOpeningTag(openingTag, 'ses:no-track') + m.slice(openingTag.length)
             }
@@ -294,7 +324,8 @@ export class EmailTrackingService {
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
-        private emailStatusService: EmailStatusService | null = null
+        private emailStatusService: EmailStatusService | null = null,
+        private engagementRedis: RedisV2 | null = null
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
@@ -401,6 +432,27 @@ export class EmailTrackingService {
             hogFlow ? 'hog_flow' : 'hog_function'
         )
 
+        if (parentRunId) {
+            for (const { metric, count } of await this.newEngagedPeople(
+                parentRunId,
+                invocationId,
+                metricName,
+                source
+            )) {
+                this.hogFunctionMonitoringService.queueAppMetric(
+                    {
+                        team_id: teamId,
+                        app_source_id: parentRunId,
+                        instance_id: instanceIdOverride || actionId || invocationId,
+                        metric_name: metric,
+                        metric_kind: 'email',
+                        count,
+                    },
+                    hogFlow ? 'hog_flow' : 'hog_function'
+                )
+            }
+        }
+
         const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
         if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
             await this.capturedEventsService.queueEvent({
@@ -411,6 +463,7 @@ export class EmailTrackingService {
                 properties: {
                     $workflow_id: appSourceId,
                     $workflow_action_id: actionId,
+                    $workflow_invocation_id: invocationId,
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
                 },
@@ -630,7 +683,7 @@ export class EmailTrackingService {
             return { status, message: body as string }
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
-            logger.error('[EmailService] handleWebhook: SES webhook error', { error })
+            logger.error('[EmailService] handleWebhook: SES webhook error', { error: serializeError(error) })
             throw error
         }
     }
@@ -659,6 +712,48 @@ export class EmailTrackingService {
                   })
                 : {}
         return Object.fromEntries(ids.map((id) => [id, onReplica[id] ?? onPrimary[id] ?? null]))
+    }
+
+    // How many people this open or click adds to each per-person metric of its run. One email goes to one person, so
+    // the email's invocation id stands for the person. A click also counts as an open, because the open pixel is often
+    // blocked. A HyperLogLog stays small for any audience and is about 1% off. When Redis fails, the counts read low.
+    private async newEngagedPeople(
+        parentRunId: string,
+        invocationId: string,
+        metricName: MinimalAppMetric['metric_name'],
+        source: 'direct' | 'ses'
+    ): Promise<{ metric: MinimalAppMetric['metric_name']; count: number }[]> {
+        const metrics = ENGAGEMENT_PERSON_METRICS[metricName]
+        if (!metrics || !this.engagementRedis) {
+            return []
+        }
+        const keys = metrics.flatMap((metric) => {
+            const key = `@posthog/email-engagement-people/{${parentRunId}}/${metric}`
+            return [key, `${key}/reported`]
+        })
+        let timer: NodeJS.Timeout | undefined
+        const grew = await Promise.race([
+            this.engagementRedis.useClient(
+                { name: 'email-engagement-people', failOpen: true },
+                (client) =>
+                    client.eval(
+                        ENGAGEMENT_PEOPLE_SCRIPT,
+                        keys.length,
+                        ...keys,
+                        invocationId,
+                        ENGAGEMENT_PEOPLE_TTL_SECONDS
+                    ) as Promise<number[]>
+            ),
+            new Promise<null>((resolve) => {
+                timer = setTimeout(() => resolve(null), ENGAGEMENT_REDIS_TIMEOUT_MS)
+            }),
+        ])
+        clearTimeout(timer)
+        if (!grew) {
+            emailTrackingErrorsCounter.inc({ error_type: 'engagement_people_not_counted', source })
+            return []
+        }
+        return metrics.map((metric, index) => ({ metric, count: grew[index] })).filter(({ count }) => count > 0)
     }
 
     private parseTrackingParams(query: Record<string, any>): {

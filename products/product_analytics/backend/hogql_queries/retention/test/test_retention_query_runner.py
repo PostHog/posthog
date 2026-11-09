@@ -42,7 +42,7 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.persons import create_person, update_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.product_analytics.backend.hogql_queries.retention.retention_base_query_fixed import (
@@ -1133,7 +1133,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             steps_json=[
                 {
@@ -1614,7 +1614,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "totalIntervals": 7,
                     "targetEntity": {
-                        "id": action.pk,
+                        "id": action.id,
                         "name": action.name,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                     },
@@ -2113,7 +2113,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["values"][1]["count"], 1)
 
     def test_retention_with_properties_on_action_target_entity(self):
-        action = Action.objects.create(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
 
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
@@ -2135,7 +2135,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     "period": "Day",
                     "totalIntervals": 7,
                     "targetEntity": {
-                        "id": action.pk,
+                        "id": action.id,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                         "properties": [
                             {
@@ -2154,7 +2154,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["values"][0]["count"], 1)
 
     def test_retention_with_properties_on_action_returning_entity(self):
-        action = Action.objects.create(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
 
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
@@ -2177,7 +2177,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     "totalIntervals": 7,
                     "targetEntity": {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS},
                     "returningEntity": {
-                        "id": action.pk,
+                        "id": action.id,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                         "properties": [
                             {
@@ -2430,7 +2430,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_retention_with_user_properties_via_action(self):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             steps_json=[
                 {
@@ -2473,7 +2473,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "dateRange": {"date_to": _date(6, hour=0)},
                 "retentionFilter": {
                     "totalIntervals": 7,
-                    "targetEntity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "targetEntity": {"id": action.id, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
                     "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
                 },
             }
@@ -2526,8 +2526,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Day",
                     "totalIntervals": 7,
-                    "targetEntity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
-                    "returningEntity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "targetEntity": {"id": action.id, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "returningEntity": {"id": action.id, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
                 },
             }
         )
@@ -5228,7 +5228,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="act_a on dash",
             steps_json=[{"event": "act_a", "url": "/dash", "url_matching": "contains"}],

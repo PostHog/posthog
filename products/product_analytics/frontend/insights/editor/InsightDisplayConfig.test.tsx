@@ -53,11 +53,14 @@ function makeRetentionQuery(retentionFilter: NonNullable<RetentionQuery['retenti
     return { kind: NodeKind.RetentionQuery, retentionFilter }
 }
 
-function makeStickinessQuery(display?: ChartDisplayType): StickinessQuery {
+function makeStickinessQuery(
+    display?: ChartDisplayType,
+    stickinessFilter: NonNullable<StickinessQuery['stickinessFilter']> = {}
+): StickinessQuery {
     return {
         kind: NodeKind.StickinessQuery,
         series: [...pageviewSeries],
-        stickinessFilter: { display },
+        stickinessFilter: { display, ...stickinessFilter },
     }
 }
 
@@ -169,7 +172,7 @@ describe('InsightDisplayConfig', () => {
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
-                    displayItems: ['Show values on series', 'Show legend', 'Legend positionBottom', 'Annotations All'],
+                    displayItems: ['Show values on series', 'Show legend', 'Annotations All'],
                     overlayItems: lineOverlays,
                 },
             ],
@@ -183,13 +186,7 @@ describe('InsightDisplayConfig', () => {
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Overlays'],
                     },
-                    displayItems: [
-                        'Show values on series',
-                        'Show as % of total',
-                        'Show legend',
-                        'Legend positionBottom',
-                        'Annotations All',
-                    ],
+                    displayItems: ['Show values on series', 'Show as % of total', 'Show legend', 'Annotations All'],
                     overlayItems: lineOverlays,
                 },
             ],
@@ -203,13 +200,7 @@ describe('InsightDisplayConfig', () => {
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
-                    displayItems: [
-                        'Show values on series',
-                        'Show as % of total',
-                        'Show legend',
-                        'Legend positionBottom',
-                        'Annotations All',
-                    ],
+                    displayItems: ['Show values on series', 'Show as % of total', 'Show legend', 'Annotations All'],
                 },
             ],
             [
@@ -228,9 +219,7 @@ describe('InsightDisplayConfig', () => {
                         'Show as % of total',
                         'Show names on slices',
                         'Show total',
-                        // In-chart legend toggle + position select ("Bottom" is the prospective default)
                         'Show legend',
-                        'Legend positionBottom',
                     ],
                 },
             ],
@@ -246,7 +235,6 @@ describe('InsightDisplayConfig', () => {
                         'Show names on slices',
                         'Show total',
                         'Show legend',
-                        'Legend positionBottom',
                     ],
                 },
             ],
@@ -300,7 +288,7 @@ describe('InsightDisplayConfig', () => {
                 {
                     tabs: [],
                     sections: { General: ['Y-axis', 'Style'] },
-                    displayItems: ['Show values on series', 'Show legend', 'Legend positionBottom'],
+                    displayItems: ['Show values on series', 'Show legend'],
                 },
             ],
             ['stickiness table', makeStickinessQuery(ChartDisplayType.ActionsTable), { tabs: [], sections: {} }],
@@ -472,30 +460,28 @@ describe('InsightDisplayConfig', () => {
     })
 
     describe('in-chart legend position options', () => {
-        it('shows the "Show legend" toggle with a position select', async () => {
+        it('hides the position select while the legend is off', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             await openOptionsMenu()
 
             const items = getDisplaySectionItems()
             expect(items).toContain('Show legend')
-            // legend is off, no saved position → shows 'Bottom' as the prospective default
-            expect(items).toContain('Legend positionBottom')
+            expect(items.some((item) => item.startsWith('Legend position'))).toBe(false)
         })
 
         it.each([
-            ['trends bar', () => makeTrendsQuery(ChartDisplayType.ActionsBar)],
-            ['trends unstacked bar', () => makeTrendsQuery(ChartDisplayType.ActionsUnstackedBar)],
-            ['trends pie', () => makeTrendsQuery(ChartDisplayType.ActionsPie)],
-            ['stickiness line', () => makeStickinessQuery(ChartDisplayType.ActionsLineGraph)],
-            ['stickiness bar', () => makeStickinessQuery(ChartDisplayType.ActionsBar)],
+            ['trends line', () => makeTrendsQuery(ChartDisplayType.ActionsLineGraph, { showLegend: true })],
+            ['trends bar', () => makeTrendsQuery(ChartDisplayType.ActionsBar, { showLegend: true })],
+            ['trends unstacked bar', () => makeTrendsQuery(ChartDisplayType.ActionsUnstackedBar, { showLegend: true })],
+            ['trends pie', () => makeTrendsQuery(ChartDisplayType.ActionsPie, { showLegend: true })],
+            ['stickiness line', () => makeStickinessQuery(ChartDisplayType.ActionsLineGraph, { showLegend: true })],
+            ['stickiness bar', () => makeStickinessQuery(ChartDisplayType.ActionsBar, { showLegend: true })],
             ['lifecycle', () => makeLifecycleQuery()],
-        ])('adds the legend position select for %s', async (_desc, makeQuery) => {
+        ])('adds the legend position select for %s once the legend is on', async (_desc, makeQuery) => {
             setupAndRender(makeQuery())
             await openOptionsMenu()
 
-            const positionItem = getDisplaySectionItems().find((item) => item.startsWith('Legend position'))
-            // Lifecycle sets showLegend:true (no saved position → 'Right'); others have legend off (→ 'Bottom').
-            expect(positionItem).toMatch(/Bottom|Right/)
+            expect(getDisplaySectionItems()).toContain('Legend positionRight')
         })
 
         it('keeps the plain "Show legend" toggle for the aggregated bar-value chart', async () => {

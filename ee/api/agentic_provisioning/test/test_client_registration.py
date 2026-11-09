@@ -10,7 +10,7 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import apply_provisioning_defaults
+from posthog.api.oauth.cimd import THROWAWAY_HOST_MESSAGE, CIMDFetchError, apply_provisioning_defaults
 from posthog.api.oauth.client_assertion import (
     CLIENT_ASSERTION_TYPE_JWT_BEARER,
     PRIVATE_KEY_REQUIRED_MESSAGE,
@@ -279,6 +279,22 @@ class TestClientRegistration(ProvisioningTestBase):
         assert app.provisioning.can_create_accounts is False
         assert app.client_type == OAuthApplication.CLIENT_PUBLIC
 
+    def test_a_throwaway_hosted_client_id_is_refused_before_its_document_is_fetched(self):
+        tunnel_url = "https://quiet-river-tea.trycloudflare.com/.well-known/client.json"
+
+        with patch("posthog.api.oauth.cimd.fetch_client_json_document") as mock_fetch:
+            res = self._post_api(REGISTRATION_URL, {"client_id": tunnel_url})
+
+        assert res.status_code == 400, res.json()
+        checks = {check["name"]: check for check in res.json()["checks"]}
+        assert checks["metadata_document"] == {
+            "name": "metadata_document",
+            "ok": False,
+            "detail": THROWAWAY_HOST_MESSAGE,
+        }
+        mock_fetch.assert_not_called()
+        assert not OAuthApplication.objects.filter(client_id=tunnel_url).exists()
+
     def test_a_document_we_could_not_store_is_not_promoted(self):
         # A rejected save leaves the row describing the previous document. Promoting off it
         # would grant provisioning, and derive client_type from a stored key set, that the
@@ -339,6 +355,19 @@ class TestClientRegistration(ProvisioningTestBase):
         assert checks["metadata_document"]["ok"] is True
         assert checks["provisioning_enabled"]["ok"] is True
         assert checks["jwks"]["ok"] is False
+
+    def test_stored_off_domain_jwks_is_reported_without_fetching_it(self):
+        self._make_partner(jwks_uri="https://keys.partner-cdn.net/jwks.json")
+
+        with patch("posthog.api.oauth.client_assertion._fetch_jwks_document") as fetch_jwks:
+            res = self._register({"client_id": CIMD_URL}, metadata_error=CIMDFetchError("Document unreachable"))
+
+        assert res.status_code == 200, res.json()
+        checks = {check["name"]: check for check in res.json()["checks"]}
+        assert checks["metadata_document"]["ok"] is False
+        assert checks["jwks"]["ok"] is False
+        assert "same domain as your client_id (example.com" in checks["jwks"]["detail"]
+        fetch_jwks.assert_not_called()
 
     @parameterized.expand(
         [

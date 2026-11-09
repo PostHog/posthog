@@ -74,7 +74,7 @@ jobs:
 
             - name: Install dependencies
               # Standalone package: own lockfile, outside the root pnpm workspace, so ignore the workspace.
-              run: corepack enable && CI=1 pnpm install --frozen-lockfile --ignore-workspace
+              run: npm install -g corepack@0.36.0 && corepack enable && CI=1 pnpm install --frozen-lockfile --ignore-workspace
 
             - name: Lint
               run: pnpm lint
@@ -137,9 +137,6 @@ jobs:
 
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1

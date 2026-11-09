@@ -202,6 +202,10 @@ def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_prob
     counts.updated += 1
 
 
+# Slack's MCP server offers `slack_search_public_and_private` only when the token holds the private search scopes.
+_SLACK_DEV_EXTRA_SCOPES = ("canvases:read", "search:read.private", "search:read.im", "search:read.mpim")
+
+
 def _entry_for_environment(entry: CatalogEntry, template: MCPServerTemplate | None) -> CatalogEntry:
     if entry.oauth_credentials_source != "slack_app" or entry.url != "https://mcp.slack.com/mcp":
         return entry
@@ -214,8 +218,8 @@ def _entry_for_environment(entry: CatalogEntry, template: MCPServerTemplate | No
     return replace(
         entry,
         name="Slack via PostHog (dev)",
-        description="Search public Slack channels and read messages, user profiles, and canvases you can access.",
-        oauth_scope_allowlist=(entry.oauth_scope_allowlist or ()) + ("canvases:read",),
+        description="Search Slack channels, direct messages, and group messages, and read messages, user profiles, and canvases you can access.",
+        oauth_scope_allowlist=(entry.oauth_scope_allowlist or ()) + _SLACK_DEV_EXTRA_SCOPES,
         oauth_credentials_source="slack_dev_app",
         disabled=not dev_enabled,
     )

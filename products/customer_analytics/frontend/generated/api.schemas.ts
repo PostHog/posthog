@@ -369,6 +369,8 @@ export interface AccountNoteApi {
     readonly account_name: string
     /** User who created the note, if known. */
     readonly created_by: UserBasicApi | null
+    /** Tag names on the note. */
+    readonly tags: readonly string[]
 }
 
 export interface PaginatedAccountNoteListApi {
@@ -848,6 +850,11 @@ export interface AccountNotebookApi {
     readonly created_by: UserBasicApi
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
+    /**
+     * Tag names on the notebook. On update this replaces the existing set; omit to leave tags untouched.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface PaginatedAccountNotebookListApi {
@@ -857,6 +864,18 @@ export interface PaginatedAccountNotebookListApi {
     /** @nullable */
     previous?: string | null
     results: AccountNotebookApi[]
+}
+
+/**
+ * Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,
+ * since a note's title comes from its first line.
+ */
+export interface PatchedAccountNotebookUpdateApi {
+    /**
+     * Replaces the notebook's tags. Omit to leave them untouched.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**
@@ -1931,6 +1950,13 @@ export interface AccessControlFilterWarningApi {
     type?: 'access_control'
 }
 
+export interface BreakdownNotAppliedWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'breakdown_not_applied'
+}
+
 export interface ActorsQueryResponseApi {
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -1955,8 +1981,8 @@ export interface ActorsQueryResponseApi {
     types?: string[] | null
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | BreakdownNotAppliedWarningApi)[] | null
 }
 
 export interface QueryLogTagsApi {
@@ -2783,8 +2809,8 @@ export interface AccountsTableQueryResponseApi {
     timings?: QueryTimingApi[] | null
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | BreakdownNotAppliedWarningApi)[] | null
 }
 
 export type AccountsTableSortDirectionApi =
@@ -5086,9 +5112,17 @@ export type AccountNotesListParams = {
      */
     offset?: number
     /**
+     * Sort order. Defaults to '-last_modified_at'.
+     */
+    ordering?: string
+    /**
      * Full-text search across note title and content, plus substring match on account name.
      */
     search?: string
+    /**
+     * JSON-encoded array of tag names, e.g. `["renewal","risk"]`. Only return notes that carry any of the listed tags.
+     */
+    tags?: string
 }
 
 export type AccountRelationshipDefinitionsListParams = {
@@ -5175,6 +5209,10 @@ export type AccountsListParams = {
 
 export type AccountsNotebooksListParams = {
     /**
+     * Only return notebooks created by these user IDs (repeat the param per user).
+     */
+    created_by?: number[]
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -5183,13 +5221,17 @@ export type AccountsNotebooksListParams = {
      */
     offset?: number
     /**
-     * Sort by creation date or author. Defaults to '-created_at'.
+     * Sort by creation date, last modification, author or title. Defaults to '-created_at'.
      */
     ordering?: string
     /**
      * Full-text search across notebook title and content.
      */
     search?: string
+    /**
+     * JSON-encoded array of tag names, e.g. `["renewal","risk"]`. Returns notebooks that carry any of the listed tags.
+     */
+    tags?: string
 }
 
 export type AccountsRelationshipsListParams = {

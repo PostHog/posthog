@@ -42,7 +42,6 @@ promptwatch/promptwatch.py::promptwatch_source
 retell_ai/retell_ai.py::retell_ai_source.items
 sentinelone/sentinelone.py::sentinelone_source._items
 sentry/sentry.py::_skip_endpoint_on_forbidden
-shutterstock/shutterstock.py::get_rows
 telli/telli.py::telli_source.get_rows
 twenty/twenty.py::twenty_source.items
 twitter/twitter.py::_iter_pages

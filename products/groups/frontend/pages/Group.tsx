@@ -26,6 +26,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
 import { Query } from '~/queries/Query/Query'
 import type { ActionFilter } from '~/types'
 import {
@@ -78,6 +79,7 @@ export function Group(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const groupProfileVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.GROUP_PROFILE_EXPERIMENT)
+    const groupTitle = useTodayPeopleTitle('group')
     const isProfileEnabled = groupProfileVariant === 'test'
     const showProfile = featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] || isProfileEnabled
 
@@ -91,7 +93,7 @@ export function Group(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={groupDisplayId(groupData.group_key, groupData.group_properties)}
-                resourceType={{ type: 'group' }}
+                resourceType={groupTitle?.resourceType ?? { type: 'group' }}
                 forceBackTo={backTo}
                 actions={
                     <>

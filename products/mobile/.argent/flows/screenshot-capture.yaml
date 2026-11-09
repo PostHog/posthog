@@ -28,9 +28,9 @@ steps:
     - echo: Chat
     - tool: screenshot
       args: { scale: 1, includeImageInContext: false }
-    - tap: { id: chat-back }
-    - await: { visible: { id: report-back } }
-    - tap: { id: report-back }
+    - tap: { text: Back }
+    - await: { visible: { text: Back } }
+    - tap: { text: Back }
     - await: { visible: { id: inbox-screen } }
     - tap: { id: inbox-nav-views }
     - await: { visible: { id: views-screen } }

@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
+import posthog from 'posthog-js'
 import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js/rrweb-types'
 
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
@@ -178,27 +179,31 @@ describe('snapshotDataLogic', () => {
         }
 
         it.each([
-            ['reads the block from its url', 200, false, 'loadSnapshotsForSourceSuccess'],
+            ['reads the block from its url', 200, false, 'loadSnapshotsForSourceSuccess', null],
             [
                 'falls back to the snapshots endpoint when the block fetch fails',
                 500,
                 true,
                 'loadSnapshotsForSourceSuccess',
+                'http_error',
             ],
             [
                 'falls back when the block route answers with the app shell',
                 'html',
                 true,
                 'loadSnapshotsForSourceSuccess',
+                'not_a_block',
             ],
-            ['shows the recording as deleted on a 410', 410, false, 'loadSnapshotsForSourceFailure'],
+            ['shows the recording as deleted on a 410', 410, false, 'loadSnapshotsForSourceFailure', null],
             [
                 'reports a rate limit instead of reading through the snapshots endpoint',
                 429,
                 false,
                 'loadSnapshotsForSourceFailure',
+                null,
             ],
-        ] as const)('%s', async (_, blockStatus, expectsSnapshotsEndpoint, expectedAction) => {
+        ] as const)('%s', async (_, blockStatus, expectsSnapshotsEndpoint, expectedAction, fallbackReason) => {
+            const capture = jest.spyOn(posthog, 'capture')
             let snapshotsEndpointBlockReads = 0
             overrideSessionRecordingMocks({
                 getMocks: {
@@ -231,6 +236,13 @@ describe('snapshotDataLogic', () => {
 
             expect(snapshotsEndpointBlockReads > 0).toBe(expectsSnapshotsEndpoint)
             expect(logic.values.isRecordingDeleted).toBe(blockStatus === 410)
+            const fallbackEvents = capture.mock.calls.filter(
+                ([event]) => event === 'replay direct block fetch fell back'
+            )
+            expect(fallbackEvents.map(([, properties]) => properties?.reason)).toEqual(
+                fallbackReason ? [fallbackReason] : []
+            )
+            capture.mockRestore()
         })
     })
 

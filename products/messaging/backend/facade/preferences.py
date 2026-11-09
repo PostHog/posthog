@@ -17,6 +17,7 @@ from products.messaging.backend.services import (
 )
 from products.messaging.backend.services.lazy_list import LazyList
 from products.messaging.backend.services.opt_out_service import BulkOptOutEntry, UnknownCategoryError
+from products.messaging.backend.services.unsubscribe_metrics import EmailSendReference
 
 ALL_MESSAGE_PREFERENCE_CATEGORY_ID: str = preference_model.ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 EMAIL_TRACKING_PREFERENCE_ID: str = preference_model.EMAIL_TRACKING_PREFERENCE_ID
@@ -237,3 +238,7 @@ def record_unsubscribe_metric(team_id: int, token_data: dict[str, Any], opted_ou
     unsubscribe_metrics.record_email_unsubscribed_metric(
         team_id, unsubscribe_metrics.parse_unsubscribe_source(token_data), opted_out_category_ids
     )
+
+
+def email_send_reference(token_data: dict[str, Any]) -> EmailSendReference | None:
+    return unsubscribe_metrics.parse_email_send_reference(token_data)

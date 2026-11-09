@@ -34,6 +34,7 @@ from products.mcp_analytics.backend.hogql_queries.tool_tables import (
     MCPToolStatsQueryRunner,
     MCPToolTopUsersQueryRunner,
 )
+from products.mcp_analytics.backend.models import MCPCustomHarness
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
@@ -82,9 +83,11 @@ class TestMCPToolTopUsersQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
             ("sdk_mcp_remote_stripped", "claude-ai (via mcp-remote 0.1.37)", ["Claude.ai"]),
             ("sdk_cursor", "cursor-vscode", ["Cursor"]),
             ("sdk_unknown_to_other", "totally-unknown-thing", ["Other"]),
+            ("custom_rule_beats_built_in", "cursor-internal", ["Our Cursor"]),
         ]
     )
     def test_resolves_harness_labels(self, _name: str, client_name: str, expected: list[str]) -> None:
+        MCPCustomHarness.objects.create(team=self.team, name="Our Cursor", match_pattern="cursor-internal")
         self._emit(client_name=client_name)
         flush_persons_and_events()
 
@@ -416,7 +419,7 @@ class TestMCPToolFailureOccurrencesQueryRunner(_MCPAnalyticsTeamScopedTestMixin,
 def _emit_tool_call(
     team: Any,
     *,
-    tool_name: str = "query_run",
+    tool_name: str | None = "query_run",
     distinct_id: str = "d1",
     source: str | None = NEW_SDK_SOURCE,
     is_error: bool = False,
@@ -704,24 +707,33 @@ class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhou
 
     @parameterized.expand(
         [
-            ("before", NeighborDirection.BEFORE, "tool_a"),
-            ("after", NeighborDirection.AFTER, "tool_b"),
+            ("before", NeighborDirection.BEFORE, {"tool_a": 1, "tool_b": 1}),
+            ("after", NeighborDirection.AFTER, {"tool_b": 1, "tool_c": 1}),
         ]
     )
-    def test_finds_adjacent_tool_in_conversation(
-        self, _name: str, direction: NeighborDirection, expected_neighbor: str
+    def test_counts_adjacent_tools_per_occurrence_within_each_conversation(
+        self, _name: str, direction: NeighborDirection, expected: dict[str, int]
     ) -> None:
         now = datetime.now(tz=UTC)
-        _emit_tool_call(self.team, tool_name="tool_a", session_id="conv1", timestamp=now - timedelta(minutes=2))
-        _emit_tool_call(self.team, tool_name="query_run", session_id="conv1", timestamp=now - timedelta(minutes=1))
-        _emit_tool_call(self.team, tool_name="tool_b", session_id="conv1", timestamp=now)
+        conversations: dict[str, list[str | None]] = {
+            "target_repeats_back_to_back_and_at_the_end": ["tool_a", "query_run", "query_run", "tool_b", "query_run"],
+            "target_opens_the_conversation": ["query_run", "tool_c"],
+            "target_never_called": ["tool_b", "tool_d"],
+            "nameless_calls_beside_the_target": [None, "query_run", None],
+        }
+        for session_id, tools in conversations.items():
+            for position, tool in enumerate(tools):
+                _emit_tool_call(
+                    self.team,
+                    tool_name=tool,
+                    session_id=session_id,
+                    timestamp=now - timedelta(minutes=len(tools) - position),
+                )
         flush_persons_and_events()
 
         rows = self._run(direction)
 
-        assert len(rows) == 1
-        assert rows[0].neighbor_tool == expected_neighbor
-        assert rows[0].co_occurrences == 1
+        assert {row.neighbor_tool: row.co_occurrences for row in rows} == expected
 
 
 # Shaped so every table on the tool detail page has a row to drop once the filters apply.

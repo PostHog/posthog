@@ -162,7 +162,7 @@ class TestDataForSEOSource:
 
     @parameterized.expand(
         [
-            ("http_402", "402 Client Error: Payment Required for url: https://api.dataforseo.com"),
+            ("http_402", "402 Client Error"),
             ("body_auth", "DataForSEO API error [40100]"),
             ("body_funds", "DataForSEO API error [40200]"),
             ("body_low_balance", "DataForSEO API error [40210]"),

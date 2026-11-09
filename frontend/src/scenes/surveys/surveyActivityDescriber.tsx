@@ -8,13 +8,14 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    Trigger,
     activityLogSummary,
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
-import { truncate } from 'lib/utils/strings'
+import { pluralize, truncate } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {
@@ -420,11 +421,17 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
         if (changes.length === 1) {
             const { field, description } = changes[0]
             const preposition = field === 'conditions' ? 'for' : getPreposition(field)
+            const target = (
+                <>
+                    {surveyLink}
+                    {systemStopReason(logItem.detail.trigger)}
+                </>
+            )
             return {
-                summary: activityLogSummary(logItem, <SentenceList listParts={summaryChanges} />, surveyLink, preview),
+                summary: activityLogSummary(logItem, <SentenceList listParts={summaryChanges} />, target, preview),
                 description: (
                     <>
-                        {user} {description} {preposition} {surveyLink}
+                        {user} {description} {preposition} {target}
                     </>
                 ),
             }
@@ -446,6 +453,17 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     return defaultDescriber(logItem, asNotification, surveyLink)
+}
+
+function systemStopReason(trigger: Trigger | null): string | null {
+    switch (trigger?.job_type) {
+        case 'survey_schedule_ended':
+            return ' after its last scheduled repeat'
+        case 'survey_responses_limit_reached':
+            return ` after reaching its limit of ${pluralize(trigger.payload.responses_limit, 'response')}`
+        default:
+            return null
+    }
 }
 
 export function getPreposition(field: string): string {

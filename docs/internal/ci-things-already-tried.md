@@ -251,11 +251,6 @@ The comment under `pull_request:` in `.depot/workflows/ci-backend.yml` explains 
 
 The jest and Playwright suites made the same move later, so `ready_for_review` no longer buys a full matrix anywhere.
 Selection now runs on drafts and ready PRs alike in `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml`, and the merge queue's `trunk-merge/**` run is the only full gate.
-Jest selection includes imported JSON files, such as terminal package manifests, because changes to data can break their consumers without changing TypeScript.
-Frontend jest selection follows only the imports that load a module when a test runs.
-An import used only as a type does not select a test, because the jest transformer removes it.
-Jest loads its configuration, its setup files, and the MSW mocks for every test, so selection cannot follow a change to one of them through imports.
-A ready PR that changes one takes the full matrix.
 What still differs by draft state is the fallback when a selection cannot be trusted: a draft skips the suite and defers to its ready run, a ready PR takes the full matrix because no later run on that PR would cover it.
 
 _Also asked as:_ snob, is test selection on, why does CI run all the tests, do we select tests on PRs
@@ -443,9 +438,6 @@ _Also asked as:_ Docker Hub rate limit in CI, unauthenticated pull limit, DOCKER
 
 ## CI orchestration
 
-The required Docker image workflow runs only when a pull request opens or changes.
-A separate non-required workflow handles `hobby-preview` and `no-depot-docker-cache` label additions, while Hobby label events still handle preview cleanup.
-
 ### Move CI from the Depot runners to Blacksmith
 
 **Verdict: rejected** · Apr 2026 to May 2026 · [#54559](https://github.com/PostHog/posthog/pull/54559), removed by [#57991](https://github.com/PostHog/posthog/pull/57991)
@@ -504,6 +496,7 @@ The description covers the backend, frontend, and Rust workflows. The diff chang
 The PR did not merge, and no person reviewed it. The stale bot closed it. Thus there is no recorded reason for the result.
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
+The backend timing collector keeps the full `products/` tree because its optimizer uses product directory presence to retain timings for skipped products.
 The bot IP updater needs only `bin/update-bots-list` and `nodejs/assets/bot-ips.txt`; its sparse checkout retains the tracked output so Git can detect and commit updates.
 `ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
 The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
@@ -517,6 +510,9 @@ The HCL schema guard checks out `posthog/clickhouse/hcl/`, which contains its sc
 Keep the full directory so every environment and role remains available to validation and drift checks.
 
 OpenAPI codegen tests keep root files, every package manifest, patches, the pnpm setup actions, Husky hooks, the Linux-safe postinstall script, and `tools/openapi-codegen/`. The package manifests preserve workspace discovery during the frozen filtered install. Check both cold and warm installs, test discovery, and failure detection when changing these inputs.
+
+The MCP live canary uses the same workspace manifest pattern, plus `services/mcp/` and `packages/` for its dependency tree.
+It keeps the frozen filtered install and live upstream test.
 
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
@@ -534,6 +530,8 @@ Without the filter it took 39 s, because the server then packs the file contents
 A depth-1 checkout followed by `git fetch --filter=blob:none --depth=1000` takes about 7 s, and the job uses that now.
 `--deepen=999` in its place fetched nothing when GitHub had already replaced the PR's merge ref, which failed the run.
 The `test-selection-verdict` and `backend-coverage-report` jobs still use deep blobless checkouts. They run after the required gate, so no PR waits on them.
+The Agent Skills build uses a plain depth-1 checkout on master pushes because its schema cache keys read only `HEAD`.
+Its PR checkout keeps bounded blobless history for the merge-base schema key.
 
 _Also asked as:_ blobless clone is slow, partial clone checkout, speed up the discovery checkout, fetch-depth 1000
 
@@ -746,7 +744,7 @@ One narrow PR from the same window did merge. [#41620](https://github.com/PostHo
 The setting is in `posthog/settings/data_stores.py`, and `Person.Meta.db_table` reads it. It defaults to `posthog_person`, so the cutover is off.
 The switch exists. The eight PRs above failed at what surrounds it: the test setup, the dual reads, and the partition guard.
 `posthog_person_new` comes from the sqlx migrations in `rust/persons_migrations/`. Three Dagster jobs read it, and one carries a comment about a future name swap.
-Person and group data now goes through the gRPC client in `posthog/personhog_client/`. `AGENTS.md` makes that client the required interface and prohibits new ORM queries against the person tables.
+Person and group data now goes through the gRPC client in `posthog/personhog_client/`. `.agents/architecture.md` makes that client the required interface and prohibits new ORM queries against the person tables.
 
 Read this entry before you propose a Django-level cutover. The setting is already there.
 What is missing is everything that must be true before a person changes its value.

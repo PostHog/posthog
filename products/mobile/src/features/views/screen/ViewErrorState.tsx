@@ -61,7 +61,7 @@ export function ViewErrorState({ kind, noun, match, onRetry, onBack }: ViewError
     const actions = usePinActions()
     const [unpinError, setUnpinError] = useState<string | null>(null)
     const key = shortcutMatchKey(match.kind, match.ref)
-    const pinView = pins.data?.find((pin) => shortcutMatchKey(pin.type, pin.ref) === key)
+    const pinView = pins.data?.find((pin) => shortcutMatchKey(pin.kind, pin.ref) === key)
     const gone = kind === 'deleted' || kind === 'no_access'
     const copy = copyFor(kind, noun, Boolean(pinView))
     const screen = match.kind

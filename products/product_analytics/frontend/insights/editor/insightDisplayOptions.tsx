@@ -15,6 +15,7 @@ import {
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { PART_OF_WHOLE_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightLogic, type insightLogicType } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic, type insightVizDataLogicType } from 'scenes/insights/insightVizDataLogic'
 
@@ -22,6 +23,7 @@ import { hasBreakdownFilter, isFunnelsQuery, isRetentionQuery, isTrendsQuery } f
 import type { RetentionFilter, TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, RetentionDashboardDisplayType } from '~/types'
 
+import { QuillFunnelBinCountOption } from 'products/product_analytics/frontend/insights/funnels/filters/QuillFunnelBinCountOption'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 import {
     INTERVAL_TO_DEFAULT_MOVING_AVERAGE_PERIOD,
@@ -81,6 +83,9 @@ interface InsightDisplayContext
         Pick<insightLogicType['values'], 'canEditInsight' | 'editingDisabledReason'>,
         Pick<VizActions, 'updateInsightFilter' | 'updateQuerySource' | 'updateVizSpecificOptions'> {
     isTrendsFunnel: boolean
+    isTimeToConvertFunnel: boolean
+    funnelBinCount: number | undefined
+    todayRailNav: boolean
     isMetric: boolean
     isBoxPlot: boolean
     isPie: boolean
@@ -143,7 +148,13 @@ function useInsightDisplayContext(): InsightDisplayContext {
     const { updateInsightFilter, updateQuerySource, updateVizSpecificOptions } = useActions(
         insightVizDataLogic(insightProps)
     )
-    const isTrendsFunnel = !!useValues(funnelDataLogic(insightProps)).isTrendsFunnel
+    const {
+        isTrendsFunnel: trendsFunnel,
+        isTimeToConvertFunnel,
+        funnelsFilter,
+    } = useValues(funnelDataLogic(insightProps))
+    const isTrendsFunnel = !!trendsFunnel
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         showValuesOnSeries,
         mightContainFractionalNumbers,
@@ -206,6 +217,9 @@ function useInsightDisplayContext(): InsightDisplayContext {
         isStickiness,
         isLifecycle,
         isTrendsFunnel,
+        isTimeToConvertFunnel: !!isTimeToConvertFunnel,
+        funnelBinCount: typeof funnelsFilter?.binCount === 'number' ? funnelsFilter.binCount : undefined,
+        todayRailNav,
         isMetric,
         isBoxPlot,
         isPie,
@@ -412,10 +426,9 @@ const INSIGHT_BINDINGS: DisplayOptionBindings<InsightDisplayContext> = {
                 : c.showLegend),
     },
     legendPosition: {
-        showCondition: (c) => c.useQuillLegendOptions,
-        value: (c) => (c.legendPosition ?? (c.showLegend ? 'right' : 'bottom')) as DisplayOptionValue<'legendPosition'>,
+        showCondition: (c) => c.useQuillLegendOptions && c.showLegend,
+        value: (c) => (c.legendPosition ?? 'right') as DisplayOptionValue<'legendPosition'>,
         onChange: (legendPosition, c) => c.updateInsightFilter({ legendPosition }),
-        disabledReason: (c) => (c.showLegend ? undefined : 'Turn the legend on to set its position'),
     },
     excludeOutliers: {
         showCondition: (c) => c.showDisplaySection && c.isBoxPlot,
@@ -455,6 +468,17 @@ const INSIGHT_BINDINGS: DisplayOptionBindings<InsightDisplayContext> = {
             c.updateInsightFilter({ decimalPlaces })
             posthog.capture('decimal places changed', { decimal_places: decimalPlaces })
         },
+    },
+    funnelBinCount: {
+        showCondition: (c) => c.todayRailNav && c.isTimeToConvertFunnel,
+        render: (c) => (
+            <QuillFunnelBinCountOption
+                value={c.funnelBinCount}
+                onChange={(binCount) => c.updateInsightFilter({ binCount })}
+                disabledReason={c.editingDisabledReason}
+            />
+        ),
+        changedCount: (c) => c.funnelBinCount !== undefined,
     },
     retentionDashboardDisplay: {
         showCondition: (c) => c.isRetention && c.canEditInsight,

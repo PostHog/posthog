@@ -2,7 +2,11 @@ import { dayjs } from 'lib/dayjs'
 
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
-import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generated/api.schemas'
+import type {
+    ExperimentHealthApi,
+    ExperimentHealthCheckKeyEnumApi,
+    ExperimentHealthFindingApi,
+} from '../generated/api.schemas'
 import type { ExperimentHealthFindingActionKind, ExperimentHealthFindingCode } from './experimentHealthFindingEvents'
 
 /** A finding of the health panel, from the experiment read or from the exposure answer. */
@@ -12,9 +16,18 @@ export type HealthPanelFinding = Pick<
 > & {
     code: ExperimentHealthFindingCode
     actions: ExperimentHealthFindingActionKind[]
+    /** The check that reported it. Missing on an exposure answer cached before the server added the field. */
+    check?: ExperimentHealthCheckKeyEnumApi
 }
 
 const SEVERITY_ORDER: Record<HealthPanelFinding['severity'], number> = { critical: 0, warning: 1, info: 2 }
+
+// The icons differ in shape and color only, so each says its severity in words too.
+export const HEALTH_FINDING_SEVERITY_LABELS: Record<HealthPanelFinding['severity'], string> = {
+    info: 'Note',
+    warning: 'Warning',
+    critical: 'Critical',
+}
 
 export function hoursSinceStart(startDate: string | null | undefined): number | null {
     return startDate ? dayjs().diff(startDate, 'hour', true) : null

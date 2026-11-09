@@ -39,6 +39,7 @@ import type { InboxItem, QueryState } from '@/model/types'
 import { useAppActive } from '../handoff/useTaskRun'
 import { useSnoozeEntries, wakeSnooze } from '../snooze/hooks'
 import { applySnoozes } from '../snooze/snoozeEntries'
+import { reportScopeError, useFeatureAccess } from '../views/useViewsAccess'
 import { applyInboxFilters, DEFAULT_INBOX_FILTERS, type InboxFilters, isDefaultInboxFilters } from './filters'
 
 /** The inbox list, which loads one page of reports at a time. */
@@ -93,12 +94,16 @@ function readKey(scope: ProjectScope | null, reportId: string): string {
     return JSON.stringify([accountGeneration, scope, reportId])
 }
 
-async function fetchReadStates(ids: readonly string[], signal: AbortSignal): Promise<Record<string, boolean>> {
+async function fetchReadStates(
+    scope: ProjectScope | null,
+    ids: readonly string[],
+    signal: AbortSignal
+): Promise<Record<string, boolean>> {
     const batches: string[][] = []
     for (let start = 0; start < ids.length; start += READ_STATE_BATCH) {
         batches.push(ids.slice(start, start + READ_STATE_BATCH))
     }
-    const responses = await Promise.all(batches.map((batch) => postReadStates(batch, undefined, signal)))
+    const responses = await Promise.all(batches.map((batch) => postReadStates(scope, batch, undefined, signal)))
     return Object.assign({}, ...responses.map((response: ReadStatesApi) => response.states))
 }
 
@@ -133,7 +138,8 @@ function useLiveInboxItems(
     const scope = useProjectScope()
     const offline = useConnectivity((state) => state.status === 'offline')
     const appActive = useAppActive()
-    const active = enabled && scope !== null
+    const access = useFeatureAccess('inbox')
+    const active = enabled && scope !== null && access.state === 'ok'
     const snoozes = useSnoozeEntries()
     const queryClient = useQueryClient()
     const [pulling, setPulling] = useState(false)
@@ -141,13 +147,16 @@ function useLiveInboxItems(
     const list = useInfiniteQuery({
         queryKey: reportKeys.inbox(scope),
         queryFn: async ({ pageParam, signal }): Promise<CapturedInboxPage> => {
-            const page = await fetchInboxPage(pageParam, signal)
+            const page = await fetchInboxPage(scope, pageParam, signal)
             return { ...page, capturedAt: Date.now() }
         },
         initialPageParam: 0,
         getNextPageParam: nextOffset,
         enabled: active,
     })
+    useEffect(() => {
+        reportScopeError(list.error, 'inbox')
+    }, [list.error])
     const saved = useQuery<SavedInbox>({ queryKey: inboxCacheKey(scope), queryFn: skipToken })
     const reports = useMemo(() => (list.data ? reportsFromPages(list.data.pages) : undefined), [list.data])
     const baseItems = useMemo(() => (reports ? inboxFromReports(reports) : saved.data?.items), [reports, saved.data])
@@ -168,7 +177,7 @@ function useLiveInboxItems(
         queries: pageIds.map((ids) => ({
             queryKey: reportKeys.readStates(scope, ids),
             queryFn: async ({ signal }: { signal: AbortSignal }) => {
-                const states = await fetchReadStates(ids, signal)
+                const states = await fetchReadStates(scope, ids, signal)
                 for (const id of ids) {
                     const pending = pendingReads.get(queryClient)?.get(readKey(scope, id))
                     if (pending) states[id] = pending.read
@@ -411,7 +420,7 @@ function setReportRead(
             if (!previousSucceeded) entry.rollback = existing.rollback
         }
         try {
-            await postReadStates([reportId], read, controller.signal)
+            await postReadStates(scope, [reportId], read, controller.signal)
             if (generation !== accountGeneration) return
             track(read ? 'mobile_report_marked_read' : 'mobile_report_marked_unread', { report_id: reportId, trigger })
             if (!isLatest()) return

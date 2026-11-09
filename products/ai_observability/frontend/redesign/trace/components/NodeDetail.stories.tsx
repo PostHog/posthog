@@ -12,6 +12,7 @@ import {
     FIXTURE_GENERATION_PROPERTIES,
     FIXTURE_LONG_AGENT_INPUT,
     FIXTURE_LONG_AGENT_OUTPUT,
+    FIXTURE_LONG_ANSWER_MESSAGE,
     FIXTURE_SPAN_PROPERTIES,
     FIXTURE_STEP_FEEDBACK,
     FIXTURE_TREE,
@@ -93,8 +94,8 @@ export const ContentNotFound: Story = {
         },
     },
 }
-export const RawTabWhileLoading: Story = {
-    args: { ...base, content: { kind: 'loading' }, initialTab: 'raw' },
+export const DetailsTabWhileLoading: Story = {
+    args: { ...base, content: { kind: 'loading' }, initialTab: 'details' },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 export const WithError: Story = {
@@ -145,4 +146,12 @@ export const FailedGenerationWithImage: Story = {
 export const WithFeedback: Story = {
     args: { ...base, stepFeedback: { feedback: FIXTURE_STEP_FEEDBACK, onOpen: () => {} } },
     decorators: [withWidth(520)],
+}
+export const LongMessage: Story = {
+    args: {
+        ...base,
+        content: { kind: 'messages', input: FIXTURE_GENERATION_INPUT, output: [FIXTURE_LONG_ANSWER_MESSAGE] },
+    },
+    decorators: [withStepScroller],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
 }

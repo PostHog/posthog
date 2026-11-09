@@ -12,6 +12,7 @@ import type {
     ActivityLogPaginatedResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    ChartExplanationApi,
     ColumnConfigurationApi,
     ColumnConfigurationsListParams,
     ElementApi,
@@ -20,7 +21,9 @@ import type {
     ElementsListParams,
     ElementsStatsRetrieveParams,
     ElementsValuesListParams,
+    EventsDeletedApi,
     EventsRetentionApi,
+    EventsRetentionDeletionCountParams,
     EventsRetentionUpdateApi,
     InsightApi,
     InsightBulkDeleteRequestApi,
@@ -30,6 +33,7 @@ import type {
     InsightBulkSetTestAccountFilterResponseApi,
     InsightDataChecksApi,
     InsightDataChecksRequestApi,
+    InsightExplanationCreateApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
@@ -51,6 +55,8 @@ import type {
     InsightsUpdateParams,
     InsightsViewedCreateParams,
     OrganizationEventsRetentionApi,
+    OrganizationEventsRetentionDeletionCountParams,
+    OrganizationEventsRetentionDowngradeDeletionCountParams,
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
     PaginatedInsightListApi,
@@ -84,8 +90,8 @@ export const getOrganizationEventsRetentionRetrieveUrl = (organizationId: string
 }
 
 /**
- * Returns the events retention window that every project without its own window uses, and the range an organization admin can set.
- * @summary Get the organization's events retention window
+ * Returns the events retention period that every project without its own period uses, the default period while none is set, and the periods an organization admin can set.
+ * @summary Get the organization's events retention period
  */
 export const organizationEventsRetentionRetrieve = async (
     organizationId: string,
@@ -102,8 +108,8 @@ export const getOrganizationEventsRetentionUpdateUrl = (organizationId: string) 
 }
 
 /**
- * Sets how long every project without its own window keeps events. Events older than the window are deleted on the next monthly cleanup and can't be restored. Organization admins only.
- * @summary Set the organization's events retention window
+ * Sets how long every project without its own period keeps events. The period has to be one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the organization's events retention period
  */
 export const organizationEventsRetentionUpdate = async (
     organizationId: string,
@@ -116,6 +122,77 @@ export const organizationEventsRetentionUpdate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(eventsRetentionUpdateApi),
     })
+}
+
+export const getOrganizationEventsRetentionDeletionCountUrl = (
+    organizationId: string,
+    params: OrganizationEventsRetentionDeletionCountParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/events_retention_setting/deletion_count/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/events_retention_setting/deletion_count/`
+}
+
+/**
+ * Counts the events that the next monthly cleanup deletes if the organization keeps events for retention_months, summed over the projects without their own period. Organization admins only.
+ * @summary Count the events the organization's period would delete
+ */
+export const organizationEventsRetentionDeletionCount = async (
+    organizationId: string,
+    params: OrganizationEventsRetentionDeletionCountParams,
+    options?: RequestInit
+): Promise<EventsDeletedApi> => {
+    return apiMutator<EventsDeletedApi>(getOrganizationEventsRetentionDeletionCountUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOrganizationEventsRetentionDowngradeDeletionCountUrl = (
+    organizationId: string,
+    params: OrganizationEventsRetentionDowngradeDeletionCountParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/events_retention_setting/downgrade_deletion_count/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/events_retention_setting/downgrade_deletion_count/`
+}
+
+/**
+ * Counts the events that the deletion pass after a plan downgrade deletes if the organization's events retention drops to retention_months, whether or not deletion is rolled out to the organization yet. Sums the projects whose period is longer than retention_months. Organization admins only.
+ * @summary Count the events a downgrade to a shorter period would delete
+ */
+export const organizationEventsRetentionDowngradeDeletionCount = async (
+    organizationId: string,
+    params: OrganizationEventsRetentionDowngradeDeletionCountParams,
+    options?: RequestInit
+): Promise<EventsDeletedApi> => {
+    return apiMutator<EventsDeletedApi>(
+        getOrganizationEventsRetentionDowngradeDeletionCountUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getColumnConfigurationsListUrl = (projectId: string, params?: ColumnConfigurationsListParams) => {
@@ -394,8 +471,8 @@ export const getEventsRetentionRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Returns how far back events stay queryable for this project, the windows set for the project and its organization, and the range an admin can set. Both window fields are null while no retention window applies to the project.
- * @summary Get the events retention window for a project
+ * Returns how far back events stay queryable for this project, the periods set for the project and its organization, the periods an admin can set, and the project's next deletion. Both queryable period fields are null while no retention period applies to the project.
+ * @summary Get the events retention period for a project
  */
 export const eventsRetentionRetrieve = async (
     projectId: string,
@@ -412,8 +489,8 @@ export const getEventsRetentionUpdateUrl = (projectId: string) => {
 }
 
 /**
- * Sets how long this project keeps events, overriding the organization's window. Events older than the window are deleted on the next monthly cleanup and can't be restored. Organization admins only.
- * @summary Set the events retention window for a project
+ * Sets how long this project keeps events, overriding the organization's period. The period has to be one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the events retention period for a project
  */
 export const eventsRetentionUpdate = async (
     projectId: string,
@@ -425,6 +502,37 @@ export const eventsRetentionUpdate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(eventsRetentionUpdateApi),
+    })
+}
+
+export const getEventsRetentionDeletionCountUrl = (projectId: string, params: EventsRetentionDeletionCountParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/events_retention/deletion_count/?${stringifiedParams}`
+        : `/api/projects/${projectId}/events_retention/deletion_count/`
+}
+
+/**
+ * Counts the project's events that the next monthly cleanup deletes if the project keeps events for retention_months. Organization admins only.
+ * @summary Count the events a project's period would delete
+ */
+export const eventsRetentionDeletionCount = async (
+    projectId: string,
+    params: EventsRetentionDeletionCountParams,
+    options?: RequestInit
+): Promise<EventsDeletedApi> => {
+    return apiMutator<EventsDeletedApi>(getEventsRetentionDeletionCountUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -482,6 +590,59 @@ export const insightsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(insightApi),
+    })
+}
+
+export const getInsightsExplanationsCreateUrl = (projectId: string, insightId: number) => {
+    return `/api/projects/${projectId}/insights/${insightId}/explanations/`
+}
+
+export const insightsExplanationsCreate = async (
+    projectId: string,
+    insightId: number,
+    insightExplanationCreateApi: InsightExplanationCreateApi,
+    options?: RequestInit
+): Promise<ChartExplanationApi> => {
+    return apiMutator<ChartExplanationApi>(getInsightsExplanationsCreateUrl(projectId, insightId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightExplanationCreateApi),
+    })
+}
+
+export const getInsightsExplanationsRetrieveUrl = (projectId: string, insightId: number, id: string) => {
+    return `/api/projects/${projectId}/insights/${insightId}/explanations/${id}/`
+}
+
+export const insightsExplanationsRetrieve = async (
+    projectId: string,
+    insightId: number,
+    id: string,
+    options?: RequestInit
+): Promise<ChartExplanationApi> => {
+    return apiMutator<ChartExplanationApi>(getInsightsExplanationsRetrieveUrl(projectId, insightId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightsExplanationsUpdateUrl = (projectId: string, insightId: number, id: string) => {
+    return `/api/projects/${projectId}/insights/${insightId}/explanations/${id}/`
+}
+
+export const insightsExplanationsUpdate = async (
+    projectId: string,
+    insightId: number,
+    id: string,
+    insightExplanationCreateApi: InsightExplanationCreateApi,
+    options?: RequestInit
+): Promise<ChartExplanationApi> => {
+    return apiMutator<ChartExplanationApi>(getInsightsExplanationsUpdateUrl(projectId, insightId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightExplanationCreateApi),
     })
 }
 

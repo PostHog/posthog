@@ -51,9 +51,9 @@ export const config = {
     screenshotJpegQuality: parsePositiveInt(process.env.SCREENSHOT_JPEG_QUALITY, 80),
     metricsPort: parsePositiveInt(process.env.METRICS_PORT, 6738),
 
-    // Encryption
-    secretKey: process.env.TEMPORAL_SECRET_KEY || process.env.SECRET_KEY,
-    fallbackKeys: parseList(process.env.TEMPORAL_FALLBACK_SECRET_KEYS ?? process.env.SECRET_KEY).filter(Boolean),
+    // Encryption. There is no SECRET_KEY fallback, so a deployment never has to give this pod that key.
+    secretKey: process.env.TEMPORAL_SECRET_KEY,
+    fallbackKeys: parseList(process.env.TEMPORAL_FALLBACK_SECRET_KEYS).filter(Boolean),
 
     // S3
     s3Endpoint: process.env.VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT,
@@ -66,7 +66,6 @@ export const config = {
 
     // Recording API. The dev recording-api listens on 6741 (bin/temporal-recording-rasterizer-worker).
     recordingApiBaseUrl: process.env.RECORDING_API_BASE_URL || 'http://localhost:6741',
-    recordingApiSecret: process.env.INTERNAL_API_SECRET || '',
     // The listing hits ClickHouse through recording-api, so internalFetch's 3s default aborts it under load.
     blockListingTimeoutMs: parsePositiveInt(process.env.BLOCK_LISTING_TIMEOUT_MS, 30_000),
     // Renders above this many compressed bytes fail permanently instead of loading the pod into its

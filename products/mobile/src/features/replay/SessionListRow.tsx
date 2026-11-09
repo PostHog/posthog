@@ -26,7 +26,7 @@ export function SessionListRow({ row, now, onOpen }: SessionListRowProps): React
         <Pressable44
             onPress={() => onOpen(row)}
             accessibilityRole="button"
-            accessibilityLabel={`${title}. ${meta}`}
+            accessibilityLabel={`${title}. ${row.countryCode ? `Country ${row.countryCode}. ` : ''}${meta}`}
             pressedBackground={colors.sunken}
             style={styles.row}
             testID={`session-row-${row.sessionId}`}

@@ -30,6 +30,8 @@ from posthog.schema import (
     SpendHistoryItem,
 )
 
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle
@@ -335,8 +337,45 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
-    def test_cancel_conversation(self, mock_cancel):
+    @parameterized.expand(
+        [
+            ("session", "conversation:write", status.HTTP_204_NO_CONTENT),
+            ("personal_api_key", "conversation:write", status.HTTP_204_NO_CONTENT),
+            ("oauth", "conversation:write", status.HTTP_204_NO_CONTENT),
+            ("personal_api_key", "conversation:read", status.HTTP_403_FORBIDDEN),
+            ("oauth", "conversation:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow", new_callable=AsyncMock)
+    def test_cancel_conversation(
+        self, authentication: str, scope: str, expected_status: int, mock_cancel: AsyncMock
+    ) -> None:
+        if authentication != "session":
+            self.client.logout()
+            if authentication == "personal_api_key":
+                token = "phx_fake_conversation_cancel_test"
+                PersonalAPIKey.objects.create(
+                    user=self.user, label="Cancel test", secure_value=hash_key_value(token), scopes=[scope]
+                )
+            else:
+                token = "pha_fake_conversation_cancel_test"
+                application = OAuthApplication.objects.create(
+                    name="Cancel test",
+                    user=self.user,
+                    organization=self.organization,
+                    client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                    authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                    redirect_uris="https://example.com/callback",
+                    algorithm="RS256",
+                )
+                OAuthAccessToken.objects.create(
+                    user=self.user,
+                    application=application,
+                    token=token,
+                    expires=timezone.now() + datetime.timedelta(hours=1),
+                    scope=scope,
+                )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         conversation = Conversation.objects.create(
             user=self.user,
             team=self.team,
@@ -344,11 +383,11 @@ class TestConversation(APIBaseTest):
             type=Conversation.Type.ASSISTANT,
             status=Conversation.Status.IN_PROGRESS,
         )
-        mock_cancel.return_value = AsyncMock(return_value=True)()
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(mock_cancel.await_count, int(expected_status == status.HTTP_204_NO_CONTENT))
 
     def test_cancel_already_canceling_conversation(self):
         conversation = Conversation.objects.create(

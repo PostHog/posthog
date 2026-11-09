@@ -117,6 +117,10 @@ export type CommonConfig = BaseServerConfig & {
     POSTGRES_BEHAVIORAL_COHORTS_USER: string
     POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: string
 
+    // Schema check hook Job (nodejs/src/schema-check)
+    SCHEMA_CHECK_PUSHGATEWAY_URL: string
+    SCHEMA_CHECK_APP: string
+
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
     /**
@@ -344,6 +348,10 @@ export function getDefaultCommonConfig(): CommonConfig {
         POSTGRES_BEHAVIORAL_COHORTS_HOST: 'localhost',
         POSTGRES_BEHAVIORAL_COHORTS_USER: 'postgres',
         POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: '',
+
+        // Schema check hook Job (nodejs/src/schema-check)
+        SCHEMA_CHECK_PUSHGATEWAY_URL: '',
+        SCHEMA_CHECK_APP: '',
 
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,

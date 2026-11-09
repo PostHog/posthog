@@ -19,11 +19,12 @@ from products.data_modeling.backend.facade.system_tables import DATA_MODELING_AL
 from products.managed_warehouse.backend.common import ducklake_data_modeling_schema
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeTableResult,
+    TrinoCompiledQuery,
     TrinoExpansionMode,
     TrinoIncrementalWrite,
 )
 from products.managed_warehouse.backend.table_binding import get_data_modeling_table_names
-from products.managed_warehouse.backend.trino_compiler import compile_hogql_to_trino_sql
+from products.managed_warehouse.backend.trino_compiler import TrinoTarget, compile_hogql_to_trino_sql
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 
 if TYPE_CHECKING:
@@ -56,7 +57,7 @@ def execute_trino_shadow_materialization(
     team = Team.objects.get(pk=team_id, organization_id=organization_id)
     hogql_query = HogQLQuery.model_validate(source_query)
     merge = incremental is not None and incremental.since is not None
-    compiled = _compile(team, hogql_query, incremental if merge else None)
+    compiled = compile_trino_shadow_query(team, hogql_query, incremental if merge else None)
     if control:
         control.checkpoint()
 
@@ -76,7 +77,7 @@ def execute_trino_shadow_materialization(
             if merge and not _table_exists(cursor, control, connection.catalog, schema_name, table_name):
                 # Nothing to merge into, so build the whole table from the unfiltered query.
                 merge = False
-                compiled = _compile(team, hogql_query, None)
+                compiled = compile_trino_shadow_query(team, hogql_query)
             sql, parameters = convert_pyformat_placeholders(compiled.sql, compiled.values)
             if compiled.needs_row_type_probe:
                 sql = _name_anonymous_row_fields(cursor, control, sql, parameters)
@@ -106,13 +107,29 @@ def execute_trino_shadow_materialization(
     return DuckLakeTableResult(schema_name=schema_name, table_name=table_name, row_count=row_count, watermark=watermark)
 
 
-def _compile(team: Team, query: HogQLQuery, incremental: TrinoIncrementalWrite | None) -> Any:
+def compile_trino_shadow_query(
+    team: Team,
+    query: HogQLQuery,
+    incremental: TrinoIncrementalWrite | None = None,
+    *,
+    target: TrinoTarget | None = None,
+) -> TrinoCompiledQuery:
+    """Compile a model's query exactly as the Trino shadow build does. Without ``incremental``, compile the full build.
+
+    Without ``target``, the compiler asks the control plane for the team's ready catalog and table mapping.
+    """
+    from products.data_modeling.backend.facade.api import (  # noqa: PLC0415 -- the facade loads lazily
+        WINDOW_START_PLACEHOLDER,
+        apply_incremental_filter,
+    )
+
+    # The compiler expands placeholders before select_transform runs, so the window start is bound as a value.
+    since = incremental.since if incremental is not None else None
+    query = query.model_copy(update={"values": {**(query.values or {}), WINDOW_START_PLACEHOLDER: since}})
+
     def select_transform(node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         if incremental is None:
             return node
-        from products.data_modeling.backend.facade.api import (  # noqa: PLC0415 -- the facade loads lazily
-            apply_incremental_filter,
-        )
 
         return apply_incremental_filter(node, incremental_key=incremental.incremental_key, since=incremental.since)
 
@@ -125,6 +142,7 @@ def _compile(team: Team, query: HogQLQuery, incremental: TrinoIncrementalWrite |
         expansion_mode=TrinoExpansionMode.DJANGO,
         select_transform=select_transform,
         preserve_clickhouse_output_names=True,
+        target=target,
     )
 
 

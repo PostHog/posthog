@@ -58,6 +58,8 @@ export interface Runtime {
     // Writes a project file, such as a generated SDK, and creates the folders above it.
     writeFile: (path: string, contents: string) => Promise<void>
     writePrivateFile: (path: string, contents: string) => Promise<void>
+    // Creates a private file unless the path exists, and resolves to false if it does, so it works as a lock.
+    createFile: (path: string, contents: string) => Promise<boolean>
     removeFile: (path: string) => Promise<void>
     readStdin: () => Promise<string>
     // Resolves to false when no browser could be started, for example on a server without one.
@@ -109,7 +111,13 @@ async function tracked<T>(call: () => Promise<T>): Promise<T> {
 function bunSecrets(service: string): Secrets {
     return {
         get: (name) => tracked(() => Bun.secrets.get({ service, name })),
-        set: (name, value) => tracked(() => Bun.secrets.set({ service, name, value })),
+        // Windows only: the default `enterprise` lets a roaming profile copy the item to every machine the
+        // person signs in to. Bun before 1.4.3 ignores the option, so the item still roams there.
+        // TODO: require Bun 1.4.3+ (engines.bun and the flox pin) once hog can move to it.
+        set: (name, value) =>
+            tracked(() =>
+                Bun.secrets.set({ service, name, value, persist: 'local' } as Parameters<typeof Bun.secrets.set>[0])
+            ),
         delete: (name) => tracked(() => Bun.secrets.delete({ service, name })),
     }
 }
@@ -199,6 +207,18 @@ export function processRuntime(): Runtime {
                 await rename(temporary, path)
             } catch (error) {
                 await rm(temporary, { force: true })
+                throw error
+            }
+        },
+        createFile: async (path, contents) => {
+            await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+            try {
+                await writeFile(path, contents, { mode: 0o600, flag: 'wx' })
+                return true
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+                    return false
+                }
                 throw error
             }
         },
