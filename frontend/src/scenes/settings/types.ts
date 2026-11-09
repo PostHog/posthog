@@ -96,6 +96,7 @@ export type SettingSectionId =
     | 'organization-roles'
     | 'organization-access-resolution'
     | 'organization-security'
+    | 'organization-ssf'
     | 'organization-startup-program'
     | 'organization-danger-zone'
     // User
@@ -287,6 +288,7 @@ export type SettingId =
     | 'saml-configuration'
     | 'oidc-configuration'
     | 'scim-configuration'
+    | 'ssf-configuration'
     | 'session-table-version'
     | 'snippet'
     | 'snippet-v2'
