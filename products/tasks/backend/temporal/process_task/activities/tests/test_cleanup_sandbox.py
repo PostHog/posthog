@@ -2,7 +2,7 @@ import os
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from datetime import timedelta
 
 import pytest
@@ -12,6 +12,7 @@ from django.db import OperationalError
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
+from modal.exception import NotFoundError
 from pytest_mock import MockerFixture
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
@@ -439,8 +440,11 @@ class TestCleanupSandboxActivity:
                 finally:
                     # Reap before joining the reader, even if sandbox destruction fails.
                     if command is not None:
-                        command.wait()
+                        # Modal removes the process handle when the sandbox shuts down.
+                        with suppress(NotFoundError):
+                            command.wait()
         finally:
             if output is not None:
-                for _ in output:
-                    pass
+                with suppress(NotFoundError):
+                    for _ in output:
+                        pass
