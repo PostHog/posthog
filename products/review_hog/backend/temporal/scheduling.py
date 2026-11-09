@@ -70,6 +70,10 @@ class ReviewRequestQueue:
                     self.active = replace(self.active, marks_ready=True)
                 return
         key = TRIGGER_AUTOMATIC if request.trigger_source == TRIGGER_AUTOMATIC else request.review_mode
+        waiting = self.pending.get(key)
+        # A later request for the same head replaces the waiting one, but the PR stays ready for review.
+        if waiting is not None and waiting.requested_head_sha == request.requested_head_sha and waiting.marks_ready:
+            request = replace(request, marks_ready=True)
         self.pending[key] = request
 
     def requested_heads(self) -> dict[str, list[str | None]]:

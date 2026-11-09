@@ -117,6 +117,7 @@ class FinishedStandardAutomaticTurn:
     head_sha: str
     run_index: int
     lens_chunks_capped: bool
+    delta_review: bool
     # The turn's own event marked the PR ready at the head the turn reviewed.
     marks_ready: bool
 

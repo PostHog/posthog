@@ -2974,6 +2974,7 @@ def _finish_standard_automatic_turn(input: FinishedStandardAutomaticTurn) -> Non
         head_sha=input.head_sha,
         run_index=input.run_index,
         lens_chunks_capped=input.lens_chunks_capped,
+        delta_review=input.delta_review,
         marks_ready=input.marks_ready,
     )
     if queued:

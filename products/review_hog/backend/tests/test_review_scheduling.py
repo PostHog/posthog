@@ -233,3 +233,25 @@ def test_a_repeated_full_request_waits_when_it_changes_comment_resolution(
     queue.add(request)
 
     assert queue.pending == ({"full": request} if expect_pending else {})
+
+
+def test_a_later_request_for_the_same_waiting_head_keeps_the_pr_ready() -> None:
+    running = ReviewPRWorkflowInputs(
+        team_id=1,
+        user_id=1,
+        owner="PostHog",
+        repo="posthog",
+        pr_number=7,
+        review_mode="flash",
+        trigger_source="automatic",
+        requested_head_sha="a",
+        publish=True,
+    )
+    marked_ready = replace(running, requested_head_sha="b", trigger_action="ready_for_review", marks_ready=True)
+    same_head_push = replace(marked_ready, trigger_action="synchronize", marks_ready=False)
+    queue = ReviewRequestQueue(active=running)
+
+    queue.add(marked_ready)
+    queue.add(same_head_push)
+
+    assert queue.pending == {"automatic": replace(same_head_push, marks_ready=True)}

@@ -760,6 +760,7 @@ def _finished_turn(*, marks_ready: bool) -> FinishedStandardAutomaticTurn:
         head_sha="sha1",
         run_index=1,
         lens_chunks_capped=True,
+        delta_review=False,
         marks_ready=marks_ready,
     )
 
@@ -815,6 +816,20 @@ async def test_review_pr_workflow_records_automatic_standard_coverage_and_starts
     assert recorded["failed"] is fail_dedup
     assert recorded["finished_turns"] == expected_finished
     assert recorded["silent_stamphog"] == expected_silent
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_tells_the_finalize_that_an_automatic_follow_up_was_a_delta_review():
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        review_mode="flash",
+        trigger_source="automatic",
+        review_authored_prs=True,
+        marks_ready=True,
+        automatic_reviewed_head_sha="sha0",
+        gate_delta_review=True,
+    )
+    assert [turn.delta_review for turn in recorded["finished_turns"]] == [True]
 
 
 def test_nudge_stamphog_raises_a_dispatch_error_so_temporal_retries_it():

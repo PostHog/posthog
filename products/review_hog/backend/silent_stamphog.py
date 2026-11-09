@@ -10,14 +10,14 @@ its repository switch, the PR and the head again when its task runs.
 from django.utils import timezone
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
-from products.review_hog.backend.reviewer.persistence import load_valid_findings
+from products.review_hog.backend.reviewer.persistence import load_turn_findings
 from products.review_hog.backend.reviewer.progress import turn_markers
 from products.review_hog.backend.turn_coverage import turn_marker_rows, unread_paths
 from products.stamphog.backend.facade.tasks import queue_silent_review
 
 
 def _record_turn_coverage(
-    *, team_id: int, report_id: str, head_sha: str, run_index: int, lens_chunks_capped: bool
+    *, team_id: int, report_id: str, head_sha: str, run_index: int, lens_chunks_capped: bool, delta_review: bool
 ) -> bool:
     """Record on the turn's marker whether the turn was clean with full coverage, and return that value.
 
@@ -28,8 +28,14 @@ def _record_turn_coverage(
         return False
     clean = (
         not lens_chunks_capped
-        # Every valid finding counts, also one below the urgency threshold that the turn did not post.
-        and not load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index)
+        # A delta turn reads only the change since the previous review, so it never covers the whole PR.
+        and not delta_review
+        # Every valid finding counts, also one below the urgency threshold that the turn did not post. A
+        # finding without a verdict counts too, because validation can give up on its last attempt.
+        and all(
+            verdict is not None and not verdict.is_valid
+            for _, verdict in load_turn_findings(team_id=team_id, report_id=report_id, run_index=run_index)
+        )
         and unread_paths(
             team_id=team_id, report_id=report_id, head_sha=head_sha, marker=turn.marker, since=turn.first_started_at
         )
@@ -51,6 +57,7 @@ def finish_standard_automatic_turn(
     head_sha: str,
     run_index: int,
     lens_chunks_capped: bool,
+    delta_review: bool,
     marks_ready: bool,
 ) -> bool:
     """Record the turn's coverage, and queue the silent stamphog review when the turn's own event marked
@@ -64,6 +71,7 @@ def finish_standard_automatic_turn(
         head_sha=head_sha,
         run_index=run_index,
         lens_chunks_capped=lens_chunks_capped,
+        delta_review=delta_review,
     )
     if not clean or not marks_ready:
         return False

@@ -350,6 +350,8 @@ class TestHeadReviewStatus(BaseTest):
             ("newer_deep_turn_on_the_head", "newer_deep_turn", 1, False, True),
             ("ready_event_of_the_turn_itself", "ready_at_finish", 1, False, True),
             ("ready_event_of_a_turn_with_findings", "ready_at_finish_with_finding", 1, False, False),
+            ("finding_without_a_verdict", "unjudged_finding", 1, False, False),
+            ("delta_review", "delta_review", 1, False, False),
         ]
     )
     @patch("products.review_hog.backend.silent_stamphog.queue_silent_review")
@@ -374,6 +376,22 @@ class TestHeadReviewStatus(BaseTest):
             self._finding(report, "1-a", is_valid=True, priority=IssuePriority.CONSIDER)
         if setup == "invalid_finding":
             self._finding(report, "1-a", is_valid=False)
+        if setup == "unjudged_finding":
+            ReviewReportArtefact.append_finding(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=ReviewIssueFinding(
+                    issue_key="1-a",
+                    run_index=1,
+                    title="t",
+                    file="f.py",
+                    lines=[LineRange(start=1)],
+                    body="b",
+                    suggestion="s",
+                    priority=IssuePriority.CONSIDER,
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
 
         ready_at_finish = setup.startswith("ready_at_finish")
         finish_standard_automatic_turn(
@@ -384,6 +402,7 @@ class TestHeadReviewStatus(BaseTest):
             head_sha=HEAD,
             run_index=run_index,
             lens_chunks_capped=lens_chunks_capped,
+            delta_review=setup == "delta_review",
             marks_ready=ready_at_finish,
         )
         if setup == "newer_deep_turn":
