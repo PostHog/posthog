@@ -1044,6 +1044,11 @@ export interface CodeEmailApi {
     source_url: string | null
     /** When your code first sent under this key. */
     created_at: string
+    /**
+     * Your access level to this email's workflow, such as `viewer` or `editor`. Editing the description, the tags or the source file needs `editor`.
+     * @nullable
+     */
+    user_access_level: string | null
 }
 
 export interface PatchedCodeEmailUpdateApi {

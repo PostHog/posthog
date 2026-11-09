@@ -18,6 +18,16 @@ describe('sourceFile', () => {
             { host: 'gitlab', repo: 'acme/shop/fulfilment', path: 'app/mailers/order_shipped.rb', ref: '4f2c9e1a7b' },
         ],
         [
+            'a GitHub file whose name has a stray percent sign',
+            'https://github.com/acme/web/blob/main/src/emails/100%.tsx',
+            { host: 'github', repo: 'acme/web', path: 'src/emails/100%.tsx', ref: 'main' },
+        ],
+        [
+            'a GitLab file with a broken escape',
+            'https://gitlab.com/acme/web/-/blob/release%ZZ/src/a%ZZ.ts',
+            { host: 'gitlab', repo: 'acme/web', path: 'src/a%ZZ.ts', ref: 'release%ZZ' },
+        ],
+        [
             'a file on another host',
             'https://git.example.com/billing/emails/invoice_paid.py',
             { host: 'other', repo: '', path: 'git.example.com/billing/emails/invoice_paid.py', ref: '' },
