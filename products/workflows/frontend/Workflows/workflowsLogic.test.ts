@@ -264,6 +264,8 @@ describe('workflowsLogic', () => {
         ])('shows the server error and keeps the list when %s fails', async (verb, run, dialogTitle, noun) => {
             useListMocks(500, { detail: 'Workflow is locked' })
             const errorToast = jest.spyOn(lemonToast, 'error')
+            await expectLogic(logic, () => logic.actions.loadWorkflows()).toDispatchActions(['loadWorkflowsSuccess'])
+            const loaded = logic.values.workflows
             logic.actions.selectAllArchivedWorkflows(['flow-1'])
 
             await expectLogic(logic, run).toFinishAllListeners()
@@ -278,7 +280,7 @@ describe('workflowsLogic', () => {
 
             await expectLogic(logic).toNotHaveDispatchedActions(['loadWorkflows', 'clearArchivedWorkflowSelection'])
             expect(writes).toHaveLength(1)
-            expect(logic.values.selectedArchivedCount).toBe(1)
+            expect(logic.values).toMatchObject({ selectedArchivedCount: 1, workflows: loaded })
         })
 
         it.each([
@@ -302,12 +304,15 @@ describe('workflowsLogic', () => {
         it('duplicates a workflow as a draft copy and reloads the list', async () => {
             useListMocks()
 
-            await expectLogic(logic, () => logic.actions.duplicateWorkflow(workflow('active'))).toDispatchActions([
+            const content = { trigger: { type: 'event' }, actions: [{ id: 'exit', type: 'exit' }], tags: ['growth'] }
+            const original = { ...workflow('active'), ...content, team_id: 997, created_at: '2026-01-01T00:00:00Z' }
+
+            await expectLogic(logic, () => logic.actions.duplicateWorkflow(original as HogFlow)).toDispatchActions([
                 'loadWorkflowsSuccess',
             ])
 
             expect(writes).toEqual([
-                { method: 'POST', path: '', body: { name: 'Churn win-back (copy)', status: 'draft', tags: [] } },
+                { method: 'POST', path: '', body: { name: 'Churn win-back (copy)', status: 'draft', ...content } },
             ])
         })
 
