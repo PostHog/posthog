@@ -219,6 +219,10 @@ export type CdpConfig = ClickhouseConfig & {
     // reserve is this fraction of the pod's memory, after an allowance for a full batch without files.
     CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: number
     CDP_EMAIL_ATTACHMENTS_MEMORY_FRACTION: number
+    // Comma-separated team ids, or "*", that may upload and send files. Empty refuses every team.
+    CDP_EMAIL_ATTACHMENTS_TEAMS: string
+    // The bytes of upload URLs a team may get per UTC day. Files already stored do not count.
+    CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: number
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -470,6 +474,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: 10_000,
         CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: 4,
         CDP_EMAIL_ATTACHMENTS_MEMORY_FRACTION: 0.5,
+        CDP_EMAIL_ATTACHMENTS_TEAMS: '',
+        CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: 50_000_000_000,
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

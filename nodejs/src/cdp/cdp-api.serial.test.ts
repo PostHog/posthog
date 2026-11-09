@@ -4,6 +4,7 @@ import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
+import { createHash, randomBytes } from 'node:crypto'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -12,7 +13,7 @@ import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -34,6 +35,7 @@ import {
 } from './_tests/fixtures'
 import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
+import { getDefaultCdpConfig } from './config'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
@@ -41,6 +43,8 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { S3AttachmentStore, buildAttachmentStore } from './services/messaging/attachment-store'
+import { ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX, AttachmentUploads } from './services/messaging/attachment-uploads'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
@@ -3492,6 +3496,235 @@ describe('CDP API', () => {
             // executeCurrentAction advances past the email step after the inline send — the
             // response's nextActionId proves the workflow continued to the next action.
             expect(res.body.nextActionId).toBe('exit')
+        })
+    })
+    describe('transactional email attachment uploads', () => {
+        const LARGE_DAILY_CAP = 50_000_000_000
+        let store: S3AttachmentStore
+        let redis: RedisV2
+        let otherTeamId: number
+
+        // Raw audience literal and claim names: the wire contract with the Django route that mints this token.
+        const mintUploadToken = (
+            teamId: number,
+            claims: Record<string, string> = { kind: 'attachment_upload' },
+            secret = 'local-dev-workflows-transactional-email-jwt'
+        ) =>
+            jwt.sign({ team_id: teamId, ...claims }, secret, {
+                audience: 'posthog:workflows:send_transactional_email',
+                expiresIn: '2m',
+            })
+
+        const requestUploads = (teamId: number, body: object, token = mintUploadToken(teamId)) =>
+            supertest(app)
+                .post(`/api/projects/${teamId}/transactional_email/attachments/uploads`)
+                .set({ Authorization: `Bearer ${token}` })
+                .send(body)
+
+        type TestFile = { bytes: Buffer; sha256: string }
+        const fileOf = (bytes: Buffer): TestFile => ({
+            bytes,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+        })
+        const pdf = (): TestFile => fileOf(Buffer.from(`%PDF-1.4 ${randomBytes(16).toString('hex')}`))
+        const asked = (...files: TestFile[]) => ({
+            files: files.map((f) => ({ sha256: f.sha256, size: f.bytes.length, content_type: 'application/pdf' })),
+        })
+        const sized = (...sizes: number[]) => ({
+            files: sizes.map((size) => ({ sha256: randomBytes(32).toString('hex'), size })),
+        })
+
+        const uploadsFor = (
+            teams: string,
+            {
+                maxBytesPerTeamDay = LARGE_DAILY_CAP,
+                attachmentStore = store as S3AttachmentStore | null,
+                quota = redis,
+            } = {}
+        ): AttachmentUploads => new AttachmentUploads(attachmentStore, quota, { teams, maxBytesPerTeamDay })
+
+        const putBytes = async (slot: Record<string, any>, f: TestFile): Promise<number> =>
+            (
+                await globalThis.fetch(slot.url, {
+                    method: slot.method,
+                    headers: slot.headers,
+                    body: new Uint8Array(f.bytes),
+                })
+            ).status
+
+        beforeAll(() => {
+            store = buildAttachmentStore({
+                ...getDefaultCdpConfig(),
+                CDP_EMAIL_ATTACHMENTS_S3_PREFIX: `attachments-api-test/${Date.now()}`,
+            })!
+            redis = createRedisV2PoolFromConfig({
+                connection: hub.CDP_REDIS_HOST
+                    ? {
+                          url: hub.CDP_REDIS_HOST,
+                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                      }
+                    : { url: hub.REDIS_URL },
+                poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+            })
+        })
+
+        beforeEach(async () => {
+            otherTeamId = await createTeam(hub.postgres, team.organization_id)
+            await deleteKeysWithPrefix(redis, ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX)
+            api['attachmentUploads'] = uploadsFor(`${team.id},${otherTeamId}`)
+        })
+
+        afterAll(() => {
+            store.s3.destroy()
+        })
+
+        it('signs a PUT for a new file, then answers present once its bytes are stored', async () => {
+            const f = pdf()
+
+            const first = await requestUploads(team.id, asked(f))
+
+            expect(first.status).toBe(200)
+            expect(first.body.files).toEqual([
+                {
+                    sha256: f.sha256,
+                    status: 'upload',
+                    url: expect.stringContaining(`/team/${team.id}/${f.sha256}`),
+                    method: 'PUT',
+                    headers: { 'Content-Length': String(f.bytes.length), 'x-amz-checksum-sha256': expect.any(String) },
+                    url_expires_at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+                },
+            ])
+            expect(await putBytes(first.body.files[0], f)).toBe(200)
+
+            const second = await requestUploads(team.id, asked(f))
+
+            expect(second.status).toBe(200)
+            expect(second.body.files).toEqual([
+                { sha256: f.sha256, status: 'present', expires_at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) },
+            ])
+        })
+
+        it('answers upload to another team for a file only this team stored', async () => {
+            const f = pdf()
+            const [slot] = (await requestUploads(team.id, asked(f))).body.files
+            expect(await putBytes(slot, f)).toBe(200)
+
+            const res = await requestUploads(otherTeamId, asked(f))
+
+            expect(res.status).toBe(200)
+            expect(res.body.files).toEqual([
+                expect.objectContaining({
+                    status: 'upload',
+                    url: expect.stringContaining(`/team/${otherTeamId}/${f.sha256}`),
+                }),
+            ])
+        })
+
+        it('refuses a team that is not on the allowlist before reading its files', async () => {
+            const offTheList = await createTeam(hub.postgres, team.organization_id)
+
+            const res = await requestUploads(offTheList, { files: [] })
+
+            expect(res.status).toBe(400)
+            expect(res.body).toEqual({ error: 'field_not_accepted' })
+        })
+
+        it.each([
+            ['no files', { files: [] }],
+            ['more than 10 files', sized(...Array(11).fill(1))],
+            ['a hash that is not 64 lowercase hex characters', { files: [{ sha256: 'A'.repeat(64), size: 1 }] }],
+            ['a size of zero', sized(0)],
+            ['a size that is not a whole number', sized(1.5)],
+        ])('refuses a request with %s', async (_name, body) => {
+            const res = await requestUploads(team.id, body)
+
+            expect(res.status).toBe(400)
+            expect(res.body.error).toBe('invalid_request')
+        })
+
+        // The largest file that fits 40,000,000 bytes after Base64 with line breaks, plus 64 KiB of headers.
+        it.each([
+            ['one file at the largest size that fits', [29_182_875], null],
+            ['one file a byte over it', [29_182_876], 0],
+            ['two files that only fit apart', [10_000_000, 20_000_000], 1],
+        ])('answers %s', async (_name, sizes, largestIndex) => {
+            const body = sized(...sizes)
+
+            const res = await requestUploads(team.id, body)
+
+            if (largestIndex === null) {
+                expect(res.status).toBe(200)
+                expect(res.body.files).toEqual([expect.objectContaining({ status: 'upload' })])
+            } else {
+                expect(res.status).toBe(400)
+                expect(res.body).toEqual({
+                    error: 'message_too_large',
+                    sha256: body.files[largestIndex].sha256,
+                    message_bytes: expect.any(Number),
+                    max_message_bytes: 40_000_000,
+                })
+                expect(res.body.message_bytes).toBeGreaterThan(40_000_000)
+            }
+        })
+
+        it.each([
+            ['a code send token', () => mintUploadToken(team.id, { kind: 'code_send' })],
+            ['a template send token', () => mintUploadToken(team.id, {})],
+            ["another team's token", () => mintUploadToken(otherTeamId)],
+            ['a token signed with another key', () => mintUploadToken(team.id, undefined, 'wrong-key')],
+        ])('refuses %s', async (_name, token) => {
+            const res = await requestUploads(team.id, asked(pdf()), token())
+
+            expect(res.status).toBe(401)
+        })
+
+        it('refuses a team past its daily upload bytes, not another team, and counts neither present files nor refused requests', async () => {
+            api['attachmentUploads'] = uploadsFor(`${team.id},${otherTeamId}`, { maxBytesPerTeamDay: 100 })
+            const stored = pdf()
+            const [slot] = (await requestUploads(team.id, asked(stored))).body.files
+            expect(await putBytes(slot, stored)).toBe(200)
+
+            const presentAgain = await requestUploads(team.id, asked(stored, pdf()))
+            const overTheCap = await requestUploads(team.id, asked(pdf(), pdf()))
+            const smallAfterRefusal = await requestUploads(team.id, asked(fileOf(Buffer.from('ten bytes!'))))
+            const otherTeam = await requestUploads(otherTeamId, asked(pdf(), pdf()))
+
+            expect(presentAgain.status).toBe(200)
+            expect(presentAgain.body.files.map((f: { status: string }) => f.status)).toEqual(['present', 'upload'])
+            expect(overTheCap.status).toBe(429)
+            expect(overTheCap.body).toEqual({ error: 'upload_quota_exceeded', max_bytes_per_day: 100 })
+            expect(smallAfterRefusal.status).toBe(200)
+            expect(otherTeam.status).toBe(200)
+        })
+
+        it.each([
+            ['no attachment store is configured', () => uploadsFor(`${team.id}`, { attachmentStore: null })],
+            [
+                'the attachment store does not answer',
+                () =>
+                    uploadsFor(`${team.id}`, {
+                        attachmentStore: buildAttachmentStore({
+                            ...getDefaultCdpConfig(),
+                            CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://127.0.0.1:9',
+                            CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: 1_000,
+                        }),
+                    }),
+            ],
+            [
+                'the upload counter cannot be read',
+                () =>
+                    uploadsFor(`${team.id}`, {
+                        quota: { useClient: () => Promise.reject(new Error('down')) } as unknown as RedisV2,
+                    }),
+            ],
+        ])('answers 503 delivery_unavailable when %s', async (_name, uploads) => {
+            api['attachmentUploads'] = uploads()
+
+            const res = await requestUploads(team.id, asked(pdf()))
+
+            expect(res.status).toBe(503)
+            expect(res.body).toEqual({ error: 'delivery_unavailable' })
         })
     })
 })
