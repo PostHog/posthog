@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useId } from 'react'
 
-import { NumberFieldGroup, NumberFieldInput, NumberFieldRoot } from '@posthog/quill'
+import { Input } from '@posthog/quill'
 
 import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -17,7 +17,7 @@ export interface PropertyFilterBetweenProps {
     size?: 'xsmall' | 'small' | 'medium'
 }
 
-const RAW_NUMBER_FORMAT: Intl.NumberFormatOptions = { useGrouping: false, maximumFractionDigits: 20 }
+const toNumberOrNull = (value: number): number | null => (Number.isNaN(value) ? null : value)
 
 const usePropertyFilterBetweenLogic = (
     props: PropertyFilterBetweenProps
@@ -36,29 +36,25 @@ export function PropertyFilterBetween({ logicKey, value, onSet, size }: Property
     if (quillSurface) {
         return (
             <div className="flex items-center gap-2">
-                <NumberFieldRoot
+                <Input
+                    type="number"
                     className="min-w-0 flex-1"
-                    value={localMin}
-                    onValueChange={(next: number | null) => setLocalMin(next)}
-                    format={RAW_NUMBER_FORMAT}
-                    allowOutOfRange
-                >
-                    <NumberFieldGroup>
-                        <NumberFieldInput data-attr="prop-val-min" aria-label="Minimum value" placeholder="min" />
-                    </NumberFieldGroup>
-                </NumberFieldRoot>
+                    data-attr="prop-val-min"
+                    aria-label="Minimum value"
+                    placeholder="min"
+                    value={localMin ?? ''}
+                    onChange={(event) => setLocalMin(toNumberOrNull(event.currentTarget.valueAsNumber))}
+                />
                 <span className="font-medium">and</span>
-                <NumberFieldRoot
+                <Input
+                    type="number"
                     className="min-w-0 flex-1"
-                    value={localMax}
-                    onValueChange={(next: number | null) => setLocalMax(next)}
-                    format={RAW_NUMBER_FORMAT}
-                    allowOutOfRange
-                >
-                    <NumberFieldGroup>
-                        <NumberFieldInput data-attr="prop-val-max" aria-label="Maximum value" placeholder="max" />
-                    </NumberFieldGroup>
-                </NumberFieldRoot>
+                    data-attr="prop-val-max"
+                    aria-label="Maximum value"
+                    placeholder="max"
+                    value={localMax ?? ''}
+                    onChange={(event) => setLocalMax(toNumberOrNull(event.currentTarget.valueAsNumber))}
+                />
             </div>
         )
     }
