@@ -51564,24 +51564,6 @@ export namespace Schemas {
       suggestion?: PathCleaningSuggestionIssue | null;
     }
 
-    export type GenerateRequestStepsItem = { [key: string]: unknown };
-
-    export interface GenerateRequest {
-      title?: string;
-      goal?: string;
-      steps?: GenerateRequestStepsItem[];
-    }
-
-    export interface GenerateStepResponse {
-      step_id: string;
-      title: string;
-      description: string;
-    }
-
-    export interface GenerateResponse {
-      steps: GenerateStepResponse[];
-    }
-
     /**
      * Optional translation-only draft survey payload to translate instead of the last saved survey.
      */
