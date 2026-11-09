@@ -3674,6 +3674,63 @@ describe('CDP API', () => {
             expect(res.status).toBe(401)
         })
 
+        it.each([
+            ['answers upload with the idempotency Valkey as its counter', true, 200],
+            ['answers delivery_unavailable without the idempotency Valkey', false, 503],
+        ])('on a cdp-api built from its settings, %s', async (_name, withValkey, status) => {
+            const builtApi = new CdpApi(
+                { ...hub, CDP_EMAIL_ATTACHMENTS_TEAMS: `${team.id}` },
+                { ...cdpDeps, idempotencyValkey: withValkey ? createIdempotencyValkeyPool(hub) : null },
+                { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() }
+            )
+            const builtApp = setupExpressApp()
+            builtApp.use('/', builtApi.router())
+            const builtServer = builtApp.listen(0, () => {})
+
+            try {
+                const res = await supertest(builtApp)
+                    .post(`/api/projects/${team.id}/transactional_email/attachments/uploads`)
+                    .set({ Authorization: `Bearer ${mintUploadToken(team.id)}` })
+                    .send(asked(pdf()))
+
+                expect(res.status).toBe(status)
+            } finally {
+                builtServer.close()
+            }
+        })
+
+        it('lets a request that fits through while larger requests at the same time are refused', async () => {
+            // Signing is local, so the requests reach the counter together.
+            const signsEverything = {
+                prepareUploads: (_teamId: number, files: { sha256: string }[]) =>
+                    Promise.resolve(
+                        files.map(({ sha256 }) => ({
+                            sha256,
+                            status: 'upload' as const,
+                            url: 'https://uploads.example.com',
+                            method: 'PUT' as const,
+                            headers: {},
+                            urlExpiresAt: new Date(),
+                        }))
+                    ),
+            } as unknown as S3AttachmentStore
+            const uploads = uploadsFor(`${team.id}`, { maxBytesPerTeamDay: 100, attachmentStore: signsEverything })
+            const request = (size: number) => uploads.prepare(team.id, sized(size))
+            expect((await request(90)).status).toBe(200)
+
+            const answers = await Promise.all([
+                ...Array.from({ length: 25 }, () => request(20)),
+                request(5),
+                ...Array.from({ length: 25 }, () => request(20)),
+            ])
+
+            expect(answers.map((answer) => answer.status)).toEqual([
+                ...Array(25).fill(429),
+                200,
+                ...Array(25).fill(429),
+            ])
+        })
+
         it('refuses a team past its daily upload bytes, not another team, and counts neither present files nor refused requests', async () => {
             api['attachmentUploads'] = uploadsFor(`${team.id},${otherTeamId}`, { maxBytesPerTeamDay: 100 })
             const stored = pdf()
