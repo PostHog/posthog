@@ -16,6 +16,7 @@ from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.quota import prepare_self_driving_admission
 from products.signals.backend.rated_usage_tasks import report_signals_trial_grant
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation, trial_billing_status
+from products.signals.backend.trial.limits import MAX_TRIAL_GRANTS_PER_ORGANIZATION
 from products.signals.backend.trial.policy import POLICY_VERSION, TrialPolicy, TrialRefused
 from products.signals.backend.usage import TrialUsage, trial_usage
 
@@ -156,7 +157,13 @@ class TrialService:
             SignalScoutConfig.objects.for_team(self.policy.team_id, canonical=True).filter(enabled=True).count()
         )
         ready = billing.ready
-        eligible = bool(decision.enabled and decision.confirmed and grant is None and grants_claimed < 3 and ready)
+        eligible = bool(
+            decision.enabled
+            and decision.confirmed
+            and grant is None
+            and grants_claimed < MAX_TRIAL_GRANTS_PER_ORGANIZATION
+            and ready
+        )
         grant_status = "not_claimed"
         if grant is not None:
             grant_status = "exhausted" if reason else "active"
@@ -167,7 +174,7 @@ class TrialService:
             "legacy_pr_restricted": self_driving_free_trial_enabled(self.team),
             "billing_ready": ready,
             "eligible": eligible,
-            "organization_grants_remaining": 3 - grants_claimed,
+            "organization_grants_remaining": max(0, MAX_TRIAL_GRANTS_PER_ORGANIZATION - grants_claimed),
             "grant_id": grant.id if grant else None,
             "grant_status": grant_status,
             "exhaustion_reason": reason,

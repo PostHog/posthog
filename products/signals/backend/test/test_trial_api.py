@@ -269,17 +269,29 @@ class TestTrialAPI(APIBaseTest):
         assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
         billing.assert_not_called()
 
-    @parameterized.expand([(TrialContinuation.PAID, 201), (TrialContinuation.PAYMENT, 402)])
+    @parameterized.expand(
+        [
+            (continuation, expected_status, existing_grants)
+            for continuation, expected_status in [(TrialContinuation.PAID, 201), (TrialContinuation.PAYMENT, 402)]
+            for existing_grants in [1, 2]
+        ]
+    )
     def test_organization_trial_limit_preserves_paid_activation(
-        self, continuation: TrialContinuation, expected_status: int
+        self, continuation: TrialContinuation, expected_status: int, existing_grants: int
     ) -> None:
-        for index in range(3):
+        for index in range(existing_grants):
             team = Team.objects.create(organization=self.organization, name=f"Trial project {index}")
-            TrialPolicy(team).claim(user_id=self.user.pk)
+            SignalTrialGrant.objects.for_team(team.pk).create(
+                team_id=team.pk, organization_id=self.organization.id, claimed_by_id=self.user.pk
+            )
         with patch(
             "products.signals.backend.trial.billing.TrialBilling.status",
             return_value=TrialBillingStatus(ready=True, continuation=continuation),
         ):
+            status = self.client.get(self.url)
+            assert status.status_code == 200, status.content
+            assert status.json()["eligible"] is False
+            assert status.json()["organization_grants_remaining"] == 0
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/signals/source_configs/",
                 {"source_product": "github", "source_type": "issue", "enabled": True},
@@ -441,12 +453,14 @@ class TestTrialAPI(APIBaseTest):
             status = self.client.get(self.url)
             assert status.status_code == 200
             assert status.json()["eligible"]
+            assert status.json()["organization_grants_remaining"] == 1
             assert status.json()["can_activate"]
             assert status.json()["legacy_pr_restricted"]
             assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
             first = self.client.post(self.url, {}, format="json")
             second = self.client.post(self.url, {}, format="json")
         assert first.status_code == 200, first.content
+        assert first.json()["organization_grants_remaining"] == 0
         assert first.json()["grant_id"] == second.json()["grant_id"]
         assert first.json()["paid_continuation"] == continuation
         assert first.json()["legacy_pr_restricted"] is False
