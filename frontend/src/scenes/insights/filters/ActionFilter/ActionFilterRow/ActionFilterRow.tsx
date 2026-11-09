@@ -537,7 +537,8 @@ export function ActionFilterRow({
     const propertyFiltersButton = quillSurface ? (
         <Button
             key="property-filter"
-            size={propertyFilterCount > 0 ? 'default' : 'icon'}
+            size="icon"
+            indicator={propertyFilterCount > 0 ? 'default' : undefined}
             aria-label={propertyFiltersLabel}
             tooltip={propertyFiltersLabel}
             aria-expanded={propertyFiltersVisible}
@@ -546,7 +547,6 @@ export function ActionFilterRow({
             onClick={togglePropertyFilters}
         >
             <IconFilter />
-            {propertyFilterCount > 0 && <span aria-hidden>{propertyFilterCount}</span>}
         </Button>
     ) : (
         <IconWithCount key="property-filter" count={propertyFilterCount} showZero={false}>
