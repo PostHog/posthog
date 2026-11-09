@@ -113,7 +113,7 @@ class TestFetchBranchTarget(BaseTest):
         # The resolved installation id must reach the compare fetch — dropping it silently turns the
         # calls identity-blind (no egress budget accounting).
         mock_compare.assert_called_once_with(
-            token="tok", repository="o/r", head_branch="feat", installation_id="9876543", review_tests_and_text=False
+            token="tok", repository="o/r", head_branch="feat", installation_id="9876543", review_tests_and_text=True
         )
         row = ReviewReport.objects.for_team(self.team.id).get(id=meta.report_id)
         assert row.pr_number is None

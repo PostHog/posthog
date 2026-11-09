@@ -27,7 +27,7 @@ def load_template_and_schema(prompt_subdir: str) -> tuple[Template, str]:
     prompts_dir = _PROMPTS_DIR / prompt_subdir
     if not prompts_dir.exists():
         raise FileNotFoundError(f"Prompts directory not found at {prompts_dir}")
-    env = Environment(loader=FileSystemLoader(prompts_dir), autoescape=select_autoescape())
+    env = Environment(loader=FileSystemLoader([prompts_dir, _PROMPTS_DIR]), autoescape=select_autoescape())
     try:
         template = env.get_template("prompt.jinja")
     except Exception as e:

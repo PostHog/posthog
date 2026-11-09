@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from parameterized import parameterized
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.reviewer.models import PROMPTS_DIR
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, FileInfo
@@ -80,6 +81,17 @@ def _single_agent_prompt() -> str:
     ).render()
 
 
+def _single_agent_lens_prompt() -> str:
+    return SingleAgentPrompt(
+        repository="o/r",
+        pr_metadata=_pr_metadata(),
+        pr_files=[],
+        prior_findings=[],
+        guidelines="Review contracts and security.",
+        for_lens=True,
+    ).render()
+
+
 def _chunking_prompt() -> str:
     return generate_chunking_prompt(_pr_metadata(), [], [])
 
@@ -140,6 +152,7 @@ class TestPromptInjectionGuards:
         [
             ("issues_review", _issues_review_prompt),
             ("single_agent_review", _single_agent_prompt),
+            ("single_agent_lens", _single_agent_lens_prompt),
             ("chunking", _chunking_prompt),
             ("perspective_selection", _selection_prompt),
             ("issue_validation", _validation_prompt),
@@ -153,3 +166,15 @@ class TestPromptInjectionGuards:
         prompt = render().lower()
         assert "untrusted" in prompt
         assert "instruction" in prompt
+
+    @parameterized.expand(
+        [
+            ("standard_main", _single_agent_prompt),
+            ("standard_lens", _single_agent_lens_prompt),
+            ("deep_review", _issues_review_prompt),
+            ("deep_validation", _validation_prompt),
+        ]
+    )
+    def test_review_prompts_include_the_shared_standards_policy(self, _name: str, render: Callable[[], str]) -> None:
+        policy = (PROMPTS_DIR / "review_standards.md").read_text().strip()
+        assert render().count(policy) == 1

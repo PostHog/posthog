@@ -32,7 +32,6 @@ def _format_diff_section(filename: str, status: str, patch: str) -> str:
 
 class PRFilter:
     def __init__(self, *, review_tests_and_text: bool = False) -> None:
-        # The single-agent design was measured on diffs that kept test and `.txt` files; the pipeline drops them.
         self.review_tests_and_text = review_tests_and_text
 
     def skips(self, filename: str) -> bool:

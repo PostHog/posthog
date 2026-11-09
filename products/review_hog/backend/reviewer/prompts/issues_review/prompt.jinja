@@ -147,12 +147,9 @@ Before analyzing, you MUST investigate:
 
 ### Part B: Issue Identification
 Only after thorough investigation and understanding:
-  - Test files often have different patterns and conventions than production code
-  - Focus your issue detection only on non-test files
-  - However, you may still reference test files for context when validating issues in non-test files
 - **Perspective-Specific Focus**: Concentrate on the issues your perspective skill defines as in-scope
 - Identify what the code is trying to accomplish within the chunk's context
-- Look for potential issues or improvements in non-test files only
+- Review both production and test files in the chunk
 - Before adding any issue to your findings check that issue hasn't already been mentioned in Step 3.
 - Note the specific lines involved
 - Track whether each issue is in changed or unchanged code
@@ -244,7 +241,7 @@ Before finalizing, verify:
 - [ ] Each comment includes specific line references
 - [ ] All critical security/data issues in this chunk are marked as MUST FIX
 - [ ] Comments are instructive and educational
-- [ ] Focused only on business logic within this chunk, not style or test files
+- [ ] Checked applicable repository standards and test claims alongside the perspective's concerns
 - [ ] No issues that duplicate ANY existing comment
 - [ ] If referencing existing discussions, clearly stated what NEW value is being added
 - [ ] Provided actionable feedback rather than vague observations
@@ -253,6 +250,8 @@ Before finalizing, verify:
 
 If any validation fails, revise the affected comments before proceeding.
 </general_analyze_pr_chunk_instructions>
+
+{% include "review_standards.md" %}
 
 <writing_guide>
 Write the prose in each finding — the issue description and the suggested fix — in Simplified Technical English, following the `writing-simplified-technical-english` skill: one meaning per word, active voice, simple tenses, one idea per sentence. A reviewer reads this with no session context, so plain prose lands better than hedged, synonym-rotating text. Keep code snippets, file paths, and identifiers exactly as they appear in the code.

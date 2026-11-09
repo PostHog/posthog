@@ -1,7 +1,7 @@
 ---
 name: review-hog-validation-criteria
 description: >
-  Keeps findings that affect correctness, security, data, API compatibility, or performance.
+  Keeps verified defects and consequential repository standards, maintainability, and test-quality findings.
   Drops speculative issues and style suggestions before publishing.
 metadata:
   owner_team: review_hog
@@ -37,7 +37,9 @@ Keep it if the flagged code, as written and as actually reached, would cause one
 - **Resource / reliability defects** — leaked connections / file handles, unreleased locks,
   swallowed errors that hide failures, missing handling for a failure mode that will occur.
 
-A good "keep" can name the concrete trigger and the concrete consequence ("if `items` is empty this
+Also keep a **standards finding** when the change violates applicable repository guidance or demonstrates a concrete maintenance or test-quality cost. Verify the exact rule, its scope, and exceptions, or identify the repeated edit obligation, contract ambiguity, or outcome the test fails to prove. A production failure is not required. Keep the `[Standards]` title prefix and distinguish required corrections from advisory improvements. Use `code_quality`, `best_practice`, or `testing` as appropriate, and do not raise a standards-only finding to `must_fix`.
+
+A good defect "keep" can name the concrete trigger and the concrete consequence ("if `items` is empty this
 raises `IndexError`", "this query runs once per row → N+1 on the dashboard"). If you can't name both,
 be skeptical.
 

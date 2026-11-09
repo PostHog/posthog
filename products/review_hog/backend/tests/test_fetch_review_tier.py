@@ -127,8 +127,7 @@ class TestFetchDecidesTheTier(BaseTest):
         _arm_set_flag: MagicMock,
     ) -> None:
         # The workflow fans the lens sessions out over this count, so a fetch that leaves it at the
-        # default runs every Flash turn without its lenses and no error shows it. Only the
-        # single-agent design fetches test and `.txt` files, so the design must be known first.
+        # default runs every Flash turn without its lenses and no error shows it.
         # Its prompt reads a left-out diff against the merge base, so the snapshot must keep it.
         coordinator_flag.return_value = coordinator_flag_on
         pr_files = [
@@ -156,9 +155,8 @@ class TestFetchDecidesTheTier(BaseTest):
         # The delta review and the arm sets exist only for separate sessions, so other turns stay in control.
         assert (meta.zero_change_skip, meta.delta_band) == (True, separate_sessions)
         assert meta.arm_set == ("trial" if separate_sessions else CONTROL_ARM_SET)
-        single_agent = review_mode == REVIEW_MODE_FLASH
         assert mock_fetcher.return_value.fetch_pr_data.call_args.kwargs == {
-            "review_tests_and_text": single_agent,
+            "review_tests_and_text": True,
             "with_merge_base": True,
         }
         snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)

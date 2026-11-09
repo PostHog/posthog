@@ -869,7 +869,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     if pr_number is not None:
         fetched = PRFetcher(
             owner=input.owner, repo=input.repo, pr_number=pr_number, token=token, installation_id=installation_id
-        ).fetch_pr_data(review_tests_and_text=single_agent, with_merge_base=True)
+        ).fetch_pr_data(review_tests_and_text=True, with_merge_base=True)
         if fetched.pr_metadata.is_fork:
             raise ApplicationError(
                 f"Refusing to review fork PR #{pr_number} in {input.repository}: a fork's head ref is "
@@ -882,7 +882,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
             repository=input.repository,
             head_branch=input.head_branch or "",
             installation_id=installation_id,
-            review_tests_and_text=single_agent,
+            review_tests_and_text=True,
         )
     head_sha = fetched.pr_metadata.head_sha or ""
     report_id = upsert_review_report(
@@ -1874,7 +1874,7 @@ def _current_pr_comments(input: SandboxStageInput, snapshot: "PRSnapshotArtefact
             )
             if fetcher.fetch_head_sha() == input.head_sha:
                 # A complete read replaces the first one, so a comment deleted during the turn is gone.
-                comments = fetcher.fetch_pr_comments(PRFilter(), raise_errors=True)
+                comments = fetcher.fetch_pr_comments(PRFilter(review_tests_and_text=True), raise_errors=True)
         except Exception:
             logger.warning(
                 "Could not read the PR's comments again; deduplicating against the first read", exc_info=True

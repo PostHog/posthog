@@ -70,8 +70,8 @@ Concentrate primary attention on:
 - File I/O and network operations
 - Configuration / build files (timeout, limit, and bundle-optimization settings)
 
-Detect issues only in non-test files; skip vendor / third-party and generated files except for
-context.
+Skip vendor / third-party and generated files except for context.
+Review changed tests for reliability claims that their assertions do not prove or unnecessary expensive setup, using the shared standards rubric.
 
 ## What to leave to other perspectives
 

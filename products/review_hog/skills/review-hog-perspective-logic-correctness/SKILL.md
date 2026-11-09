@@ -65,9 +65,8 @@ Concentrate on files that carry real logic:
 - API handlers and service implementations
 - Frontend components with logic (not just UI)
 
-Read documentation and pure configuration files for context, but don't raise logic findings on
-them — and detect issues only in non-test files (test files have their own patterns; reference them
-for context when validating a finding in production code).
+Read documentation and pure configuration files for context, but don't raise logic findings on them.
+Review changed tests for claims that their assertions do not prove, using the shared standards rubric.
 
 ## What to leave to other perspectives
 

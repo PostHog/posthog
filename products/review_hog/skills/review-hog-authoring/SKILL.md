@@ -80,7 +80,7 @@ logic-correctness skill's shape:
   cleared against every hunting ground").
 
 The review harness already tells the agent the pipeline mechanics — parallel perspectives, later
-deduplication, severity levels, the non-test-files rule — so the skill carries only the lens;
+deduplication, severity levels, repository standards and test-quality checks — so the skill carries only the lens;
 restating harness rules dilutes it.
 
 ## Writing a blind-spot check

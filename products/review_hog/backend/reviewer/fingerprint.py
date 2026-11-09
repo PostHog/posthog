@@ -169,6 +169,7 @@ class TurnFingerprint:
         hashes = {f"{name}/system": _text_hash(text) for name, text in _REVIEW_TURN_SYSTEM_PROMPTS.items()}
         hashes.update({name: _text_hash(text) for name, text in _REVIEW_TURN_EXTRA_PROMPTS.items()})
         hashes.update(cls._prompt_dir_hashes(_REVIEW_TURN_PROMPT_DIRS))
+        hashes["review_standards.md"] = _text_hash((PROMPTS_DIR / "review_standards.md").read_text())
         return hashes
 
     @classmethod
@@ -182,6 +183,7 @@ class TurnFingerprint:
             )
         hashes["issue_deduplicator/system"] = _text_hash(DEDUP_SYSTEM_PROMPT)
         hashes["sandbox/json_retry"] = _text_hash(JSON_RETRY_PROMPT)
+        hashes["review_standards.md"] = _text_hash((PROMPTS_DIR / "review_standards.md").read_text())
         return hashes
 
     @staticmethod

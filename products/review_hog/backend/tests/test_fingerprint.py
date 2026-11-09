@@ -24,6 +24,7 @@ from products.review_hog.backend.reviewer.constants import (
     reviewhog_version_for_mode,
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
+from products.review_hog.backend.reviewer.models import PROMPTS_DIR
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import persist_pr_snapshot, upsert_review_report
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
@@ -121,6 +122,26 @@ class TestRecordTurnMarker(BaseTest):
         changed = self._record_single_agent(run_index=2)
 
         assert original.version == "reviewhog-flash-2-3"
+        assert changed.fingerprint != original.fingerprint
+
+    @parameterized.expand(
+        [
+            ("standard", REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT),
+            ("deep", REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE),
+        ]
+    )
+    def test_shared_standards_edits_change_each_designs_fingerprint(
+        self, _name: str, review_mode: str, review_design: str
+    ) -> None:
+        original = self._record(run_index=1, review_mode=review_mode, review_design=review_design)
+        with tempfile.TemporaryDirectory() as directory:
+            edited_dir = Path(directory) / "prompts"
+            shutil.copytree(PROMPTS_DIR, edited_dir)
+            policy = edited_dir / "review_standards.md"
+            policy.write_text(policy.read_text() + "\nCheck the required recording outcome.\n")
+            with patch("products.review_hog.backend.reviewer.fingerprint.PROMPTS_DIR", edited_dir):
+                changed = self._record(run_index=2, review_mode=review_mode, review_design=review_design)
+
         assert changed.fingerprint != original.fingerprint
 
     def test_each_arm_of_an_arm_set_splits_the_single_agent_cohort(self) -> None:
