@@ -223,3 +223,8 @@ export const OverviewWithoutWarehouseAccess: Story = {
         await within(canvasElement).findByText('Access denied')
     },
 }
+
+export const OverviewWithoutWarehouseAccessNarrow: Story = {
+    ...OverviewWithoutWarehouseAccess,
+    decorators: [inMainContent('w-128')],
+}
