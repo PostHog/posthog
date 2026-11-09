@@ -66,12 +66,6 @@ const grpcStuckBatches = new Counter({
     help: 'Times a sub-batch stayed in flight past the stuck-batch deadline and started the stuck-batch shutdown',
 })
 
-const grpcStuckDrains = new Counter({
-    name: 'ingestion_api_grpc_stuck_drains_total',
-    help: 'Stuck-batch shutdowns by how the drain of the other sub-batches ended',
-    labelNames: ['outcome'],
-})
-
 const grpcOldestInFlightAge = new Gauge({
     name: 'ingestion_api_grpc_oldest_in_flight_batch_age_seconds',
     help: 'Age of the oldest fed sub-batch that has not settled; the stuck-batch shutdown starts past its deadline',
@@ -761,7 +755,6 @@ export class WorkerIngestServer {
         }
         this.stuckDrainDone = true
         const outcome = drained ? 'drained' : 'timeout'
-        grpcStuckDrains.inc({ outcome })
         logger.error('🧊', `WorkerIngest stuck-batch shutdown: ${outcome}, exiting`, {
             error: error.message,
             fedBatches: this.acceptedBatches.size,

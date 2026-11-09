@@ -425,7 +425,7 @@ describe('WorkerIngestServer', () => {
                     maxConcurrentBatches: 4,
                     capacityRetryMs: 1,
                     pumpIdleMs: 1,
-                    drainTimeoutMs: 5_000,
+                    drainTimeoutMs: 50,
                     ...options,
                 },
                 { driver, feedOrderSentinel: sentinel, onFatal, onStuck, onStuckDrained }
@@ -433,12 +433,22 @@ describe('WorkerIngestServer', () => {
             await watched.start()
         }
 
+        async function settled(condition: () => boolean | Promise<boolean>): Promise<void> {
+            for (let i = 0; i < 100; i++) {
+                if (await condition()) {
+                    return
+                }
+                await new Promise((resolve) => setImmediate(resolve))
+            }
+            throw new Error('condition not met once the event loop went idle')
+        }
+
         async function feedStuckBatch(): Promise<{ collected: Collected; streamId: number }> {
             const source = new FrameSource()
             const collected = collect(watched, source)
             source.push(hello({ consumerId: 'consumer-stuck' }))
             source.push(subBatch(1, [10, 11], { partition: 2 }))
-            await until(() => driver.feeds.length === 1)
+            await settled(() => driver.feeds.length === 1)
             const streamId = driver.feeds[0].streamId
             driver.complete({ streamId, seq: 1, accepted: 2 }, new Deferred<void>().promise)
             return { collected, streamId }
@@ -450,29 +460,41 @@ describe('WorkerIngestServer', () => {
             const fedBefore = driver.feeds.length
             source.push(hello({ consumerId: 'consumer-healthy' }))
             source.push(subBatch(1, [20]))
-            await until(() => driver.feeds.length === fedBefore + 1)
+            await settled(() => driver.feeds.length === fedBefore + 1)
             return { source, collected, streamId: driver.feeds[fedBefore].streamId }
         }
 
+        async function tripWithHealthyBatch(): Promise<{
+            stuck: Awaited<ReturnType<typeof feedStuckBatch>>
+            healthy: Awaited<ReturnType<typeof feedHealthyBatch>>
+        }> {
+            const stuck = await feedStuckBatch()
+            await jest.advanceTimersByTimeAsync(100)
+            const healthy = await feedHealthyBatch()
+            await jest.advanceTimersByTimeAsync(149)
+            expect(onStuck).not.toHaveBeenCalled()
+            await jest.advanceTimersByTimeAsync(1)
+            expect(onStuck).toHaveBeenCalledTimes(1)
+            return { stuck, healthy }
+        }
+
         beforeEach(() => {
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
             onStuck = jest.fn()
             onStuckDrained = jest.fn()
         })
 
         afterEach(async () => {
+            jest.useRealTimers()
             await watched.stop()
             jest.restoreAllMocks()
         })
 
         it('leaves the pool, acks the other sub-batches, then asks the owner to exit', async () => {
             const errorLog = jest.spyOn(logger, 'error')
-            const baseline = await metricValue('ingestion_api_grpc_stuck_drains_total')
             await startWatched({ stuckBatchTimeoutMs: 200, stuckDrainTimeoutMs: 5_000 })
 
-            const stuck = await feedStuckBatch()
-            await new Promise((resolve) => setTimeout(resolve, 100))
-            const healthy = await feedHealthyBatch()
-            await until(() => onStuck.mock.calls.length === 1)
+            const { stuck, healthy } = await tripWithHealthyBatch()
 
             await stuck.collected.ended
             expect(stuck.collected.error?.code).toBe(Code.Unavailable)
@@ -481,19 +503,20 @@ describe('WorkerIngestServer', () => {
                 'WorkerIngest sub-batch stuck',
                 expect.objectContaining({
                     key: `${stuck.streamId}:1`,
+                    inFlightMs: 250,
                     consumerId: 'consumer-stuck',
                     events: 2,
                     offsets: '2:10-11',
                     streamOpen: true,
                 })
             )
-            expect(await metricValue('ingestion_api_grpc_oldest_in_flight_batch_age_seconds')).toBeGreaterThan(0.2)
+            expect(await metricValue('ingestion_api_grpc_oldest_in_flight_batch_age_seconds')).toBe(0.25)
 
             const late = collect(watched, new FrameSource())
             await late.ended
             expect(late.error?.code).toBe(Code.Unavailable)
             healthy.source.push(subBatch(2, [21]))
-            await new Promise((resolve) => setTimeout(resolve, 50))
+            await settled(() => true)
             expect(driver.feeds).toHaveLength(2)
             expect(onStuckDrained).not.toHaveBeenCalled()
 
@@ -501,30 +524,55 @@ describe('WorkerIngestServer', () => {
             await healthy.collected.ended
             expect(healthy.collected.error).toBeNull()
             expect(healthy.collected.acks.map((ack) => [Number(ack.seq), ack.status])).toEqual([[1, SubBatchStatus.OK]])
-            await until(() => onStuckDrained.mock.calls.length === 1)
+            await jest.advanceTimersByTimeAsync(10)
             expect(onStuckDrained).toHaveBeenCalledWith(
                 expect.objectContaining({ message: expect.stringContaining('stuck-batch deadline') })
             )
-            expect(await metricValue('ingestion_api_grpc_stuck_drains_total')).toBe(baseline + 1)
+            expect(errorLog).toHaveBeenCalledWith(
+                '🧊',
+                'WorkerIngest stuck-batch shutdown: drained, exiting',
+                expect.objectContaining({ openStreams: 0 })
+            )
             expect(onFatal).not.toHaveBeenCalled()
         })
 
         it('asks the owner to exit at the drain timeout when another sub-batch never settles', async () => {
-            await startWatched({ stuckBatchTimeoutMs: 200, stuckDrainTimeoutMs: 150 })
+            const errorLog = jest.spyOn(logger, 'error')
+            await startWatched({ stuckBatchTimeoutMs: 200, stuckDrainTimeoutMs: 150, drainTimeoutMs: 60_000 })
 
-            await feedStuckBatch()
-            await new Promise((resolve) => setTimeout(resolve, 100))
-            const healthy = await feedHealthyBatch()
-            await until(() => onStuck.mock.calls.length === 1)
-            const trippedAt = Date.now()
-
-            await until(() => onStuckDrained.mock.calls.length === 1)
-            expect(Date.now() - trippedAt).toBeLessThan(1_000)
+            const { healthy } = await tripWithHealthyBatch()
+            await jest.advanceTimersByTimeAsync(140)
+            expect(onStuckDrained).not.toHaveBeenCalled()
+            await jest.advanceTimersByTimeAsync(10)
+            expect(onStuckDrained).toHaveBeenCalledTimes(1)
             expect(healthy.collected.acks).toEqual([])
+            expect(errorLog).toHaveBeenCalledWith(
+                '🧊',
+                'WorkerIngest stuck-batch shutdown: timeout, exiting',
+                expect.objectContaining({ openStreams: 1 })
+            )
 
-            const stopStarted = Date.now()
-            await watched.stop()
-            expect(Date.now() - stopStarted).toBeLessThan(1_000)
+            let stopped = false
+            void watched.stop().then(() => (stopped = true))
+            await settled(() => stopped)
+        })
+
+        it('measures the deadline per sub-batch, so an idle stream outlives it', async () => {
+            await startWatched({ stuckBatchTimeoutMs: 100 })
+            const source = new FrameSource()
+            const collected = collect(watched, source)
+            source.push(hello())
+            source.push(subBatch(1, [10]))
+            await settled(() => driver.feeds.length === 1)
+            driver.complete({ streamId: driver.feeds[0].streamId, seq: 1, accepted: 1 })
+            await settled(() => collected.acks.length === 1)
+
+            await jest.advanceTimersByTimeAsync(1_000)
+            expect(onStuck).not.toHaveBeenCalled()
+
+            source.end()
+            await collected.ended
+            expect(collected.error).toBeNull()
         })
 
         it('collects every sub-batch of a stream that died, so none of them looks stuck', async () => {
@@ -535,7 +583,7 @@ describe('WorkerIngestServer', () => {
             source.push(hello())
             source.push(subBatch(1, [10]))
             source.push(subBatch(2, [11]))
-            await until(() => driver.feeds.length === 2)
+            await settled(() => driver.feeds.length === 2)
             const streamId = driver.feeds[0].streamId
             source.push(subBatch(4, [12]))
             await collected.ended
@@ -543,47 +591,21 @@ describe('WorkerIngestServer', () => {
 
             driver.complete({ streamId, seq: 1, accepted: 1 })
             driver.complete({ streamId, seq: 2, accepted: 1 })
-            await until(async () => (await metricValue('ingestion_api_batches_in_flight')) === baselineInFlight)
-            await new Promise((resolve) => setTimeout(resolve, 300))
+            await settled(async () => (await metricValue('ingestion_api_batches_in_flight')) === baselineInFlight)
+            await jest.advanceTimersByTimeAsync(1_000)
 
             expect(onStuck).not.toHaveBeenCalled()
         })
 
-        it('never starts when the stuck-batch timeout is 0', async () => {
-            await startWatched({ stuckBatchTimeoutMs: 0, drainTimeoutMs: 50 })
+        it('never starts when the stuck-batch timeout is 0, but still reports the oldest age', async () => {
+            await startWatched({ stuckBatchTimeoutMs: 0 })
             await feedStuckBatch()
-            await new Promise((resolve) => setTimeout(resolve, 300))
+            await jest.advanceTimersByTimeAsync(600_000)
 
             expect(onStuck).not.toHaveBeenCalled()
             expect(onStuckDrained).not.toHaveBeenCalled()
+            expect(await metricValue('ingestion_api_grpc_oldest_in_flight_batch_age_seconds')).toBe(600)
         })
-    })
-
-    it('measures the stuck-batch deadline per sub-batch, so an idle stream outlives it', async () => {
-        const watched = new WorkerIngestServer(
-            { port: 0, maxConcurrentBatches: 4, capacityRetryMs: 1, pumpIdleMs: 1, stuckBatchTimeoutMs: 100 },
-            { driver, feedOrderSentinel: sentinel, onFatal }
-        )
-        await watched.start()
-        try {
-            const source = new FrameSource()
-            const collected = collect(watched, source)
-
-            source.push(hello())
-            source.push(subBatch(1, [10]))
-            await until(() => driver.feeds.length === 1)
-            driver.complete({ streamId: driver.feeds[0].streamId, seq: 1, accepted: 1 })
-            await until(() => collected.acks.length === 1)
-
-            await new Promise((resolve) => setTimeout(resolve, 400))
-            expect(onFatal).not.toHaveBeenCalled()
-
-            source.end()
-            await collected.ended
-            expect(collected.error).toBeNull()
-        } finally {
-            await watched.stop()
-        }
     })
 
     it('nacks a rejected sub-batch before closing the stream', async () => {
