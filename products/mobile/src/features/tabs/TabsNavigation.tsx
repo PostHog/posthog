@@ -5,13 +5,14 @@ import { useMobileProductFlags } from '@/lib/featureFlags'
 import { BottomBar } from './BottomBar'
 import { useNavPins } from './navPinStore'
 import type { TabKey } from './tabHeaderStore'
+import { tabRouteName } from './tabRoutes'
 import { visibleNavPins } from './visibleNavPins'
 
 export function TabsNavigation({ tab, onNavigate }: { tab: TabKey; onNavigate?: (tab: TabKey) => void }): ReactElement {
     const router = useRouter()
     const pins = useNavPins()
     const flags = useMobileProductFlags()
-    const goTo = onNavigate ?? ((tab: TabKey): void => router.navigate(`/(tabs)/${tab}`))
+    const goTo = onNavigate ?? ((tab: TabKey): void => router.navigate(`/(tabs)/${tabRouteName(tab)}`))
     return (
         <BottomBar
             selected={tab === 'inbox' ? 'home' : tab}
