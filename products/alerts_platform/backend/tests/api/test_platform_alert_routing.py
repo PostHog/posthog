@@ -59,9 +59,23 @@ class TestPlatformAlertRouting(APIBaseTest):
             ("Infra", "https://example.com", 1)
         ]
 
-    def test_editing_a_receiver_name_keeps_its_destination_and_deleting_it_removes_its_routes(self) -> None:
+    def test_edits_reach_delivery_and_deleting_a_receiver_removes_its_routes(self) -> None:
         receiver = self._receiver()
-        self.client.post(self.routes_url, {"receiver_id": receiver["id"]}, format="json")
+        route = self.client.post(self.routes_url, {"receiver_id": receiver["id"]}, format="json").json()
+
+        narrowed = self.client.patch(
+            f"{self.routes_url}{route['id']}/", {"matchers": [{"label": "team", "value": "apm"}]}, format="json"
+        )
+        assert narrowed.status_code == status.HTTP_200_OK, narrowed.json()
+        with team_scope(self.team.id):
+            assert [str(r.id) for r in routed_receivers(team_id=self.team.id, labels={"team": "apm"})] == [
+                receiver["id"]
+            ]
+            assert routed_receivers(team_id=self.team.id, labels={"team": "web"}) == ()
+        disabled = self.client.patch(f"{self.routes_url}{route['id']}/", {"enabled": False}, format="json")
+        assert disabled.status_code == status.HTTP_200_OK, disabled.json()
+        with team_scope(self.team.id):
+            assert routed_receivers(team_id=self.team.id, labels={"team": "apm"}) == ()
 
         renamed = self.client.patch(f"{self.receivers_url}{receiver['id']}/", {"name": "Infra pager"}, format="json")
         assert renamed.status_code == status.HTTP_200_OK, renamed.json()
