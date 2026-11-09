@@ -884,6 +884,7 @@ def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     managed = _MANAGED_CODER_DIR / "coder"
     if managed.is_file():
         args += ["--coder-binary-path", str(managed)]
+    args += ["--disable-autostart"]
     args += ["--ssh-option", _encode_ssh_option("ForwardAgent yes")]
     if identity_agent_socket:
         args += ["--ssh-option", _encode_ssh_option(f'IdentityAgent "{identity_agent_socket}"')]

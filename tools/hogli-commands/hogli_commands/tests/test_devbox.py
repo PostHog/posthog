@@ -4331,6 +4331,9 @@ class TestConfigSshArgs:
     def _csv_decode(field: str) -> str:
         return next(csv.reader([field]))[0]
 
+    def test_disables_coder_autostart_over_ssh(self) -> None:
+        assert "--disable-autostart" in coder._config_ssh_args(identity_agent_socket=None)
+
     def test_omits_identity_agent_when_socket_is_none(self) -> None:
         args = coder._config_ssh_args(identity_agent_socket=None)
         decoded = [self._csv_decode(v) for v in self._ssh_option_values(args)]
