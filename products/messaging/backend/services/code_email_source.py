@@ -100,7 +100,8 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], *, shed: bool) -> 
         for line in match.lines
         if _SEND_CALL.search(line.context)
     ]
-    if len(call_sites) > 1:
+    # The link names a file, so a key passed twice in one send block still has one source.
+    if len({(site.repository, site.path) for site in call_sites}) > 1:
         outcome: SourceDetectionOutcome = "several"
     elif shed:
         outcome = "budget"

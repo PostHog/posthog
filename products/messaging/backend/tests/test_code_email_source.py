@@ -46,6 +46,30 @@ class TestRankCallSites(SimpleTestCase):
                 ),
             ),
             (
+                "two_call_sites_in_one_file",
+                [
+                    ExactCodeSearchResult(
+                        matches=[
+                            ExactCodeMatch(
+                                repository="acme/web",
+                                path="src/emails/welcome.ts",
+                                lines=(
+                                    MatchedLine(number=12, context=_SDK_SEND),
+                                    MatchedLine(number=14, context=_SDK_SEND),
+                                ),
+                            )
+                        ],
+                        complete=True,
+                    )
+                ],
+                False,
+                SourceDetection(
+                    outcome="linked",
+                    call_site=CallSite(repository="acme/web", path="src/emails/welcome.ts", line=12),
+                    candidate_files=1,
+                ),
+            ),
+            (
                 "call_sites_in_two_installations",
                 [
                     ExactCodeSearchResult(matches=[_match("app/mailer.py", _RAW_SEND)], complete=True),
