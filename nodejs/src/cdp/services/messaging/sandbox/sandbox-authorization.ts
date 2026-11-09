@@ -1,4 +1,6 @@
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { QueryResultRow } from 'pg'
+
+import { PostgresRouter, PostgresUse, TransactionClient } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 
 import { SandboxTenantMirror } from './sandbox-tenant-admission'
@@ -63,22 +65,10 @@ export async function readSandboxAuthorization(
 ): Promise<SandboxAuthorization> {
     let row: AuthorizationRow | undefined
     try {
-        row = await withDeadline(
-            db.transaction(PostgresUse.COMMON_WRITE, 'sandbox-email-authorization', async (tx) => {
-                await db.query(
-                    tx,
-                    `SET LOCAL statement_timeout = ${AUTHORIZATION_TIMEOUT_MS}`,
-                    undefined,
-                    'sandbox-email-authorization'
-                )
-                const result = await db.query<AuthorizationRow>(
-                    tx,
-                    AUTHORIZATION_QUERY,
-                    [teamId, recipient, tenantName],
-                    'sandbox-email-authorization'
-                )
-                return result.rows[0]
-            }),
+        ;[row] = await queryPrimaryBeforeDeadline<AuthorizationRow>(
+            db,
+            AUTHORIZATION_QUERY,
+            [teamId, recipient, tenantName],
             AUTHORIZATION_TIMEOUT_MS
         )
     } catch (error) {
@@ -121,13 +111,58 @@ function pickStoredAddress(
     return spellings.includes(recipient.trim()) ? recipient.trim() : { reason: 'ambiguous_member' }
 }
 
-async function withDeadline<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+// A connection that arrives after the deadline runs no SQL, and one still busy at the deadline is destroyed rather
+// than returned to the pool, so a stalled database cannot pile abandoned reads onto the shared primary pool.
+async function queryPrimaryBeforeDeadline<Row extends QueryResultRow>(
+    db: PostgresRouter,
+    text: string,
+    values: unknown[],
+    timeoutMs: number
+): Promise<Row[]> {
+    const tag = 'sandbox-email-authorization'
+    let expired = false
     let timer: NodeJS.Timeout | undefined
     const deadline = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs} ms`)), timeoutMs)
+        timer = setTimeout(() => {
+            expired = true
+            reject(new Error(`The ${tag} read passed its ${timeoutMs} ms deadline`))
+        }, timeoutMs)
     })
+    const connecting = db.connect(PostgresUse.COMMON_WRITE)
+    connecting.then(
+        (client) => {
+            if (expired) {
+                client.release()
+            }
+        },
+        () => undefined
+    )
     try {
-        return await Promise.race([work, deadline])
+        const client = await Promise.race([connecting, deadline])
+        let failure: Error | undefined
+        const onClientError = (error: Error): void => {
+            failure = error
+        }
+        client.on('error', onClientError)
+        const tx = new TransactionClient(PostgresUse.COMMON_WRITE, client)
+        try {
+            return await Promise.race([
+                (async () => {
+                    await db.query(tx, 'BEGIN', undefined, tag)
+                    await db.query(tx, `SET LOCAL statement_timeout = ${timeoutMs}`, undefined, tag)
+                    const { rows } = await db.query<Row>(tx, text, values, tag)
+                    await db.query(tx, 'COMMIT', undefined, tag)
+                    return rows
+                })(),
+                deadline,
+            ])
+        } catch (error) {
+            failure ??= error as Error
+            throw error
+        } finally {
+            client.removeListener('error', onClientError)
+            client.release(failure)
+        }
     } finally {
         clearTimeout(timer)
     }

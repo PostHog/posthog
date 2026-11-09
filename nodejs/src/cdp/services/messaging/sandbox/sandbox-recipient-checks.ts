@@ -22,7 +22,7 @@ export type SandboxRecipientCheckRequest = {
 
 export type SandboxRecipientCheck =
     | { ok: true }
-    | { ok: false; reason: 'suppressed' | 'opted_out' | 'frequency_capped' }
+    | { ok: false; reason: 'suppressed' | 'opted_out' | 'frequency_capped' | 'authorization_unavailable' }
 
 export async function checkSandboxRecipient(
     { suppression, recipients }: SandboxRecipientCheckDependencies,
@@ -35,8 +35,13 @@ export async function checkSandboxRecipient(
     if (transactional) {
         return { ok: true }
     }
-    if (await isOptedOut(recipients, { teamId, address, categoryId: categoryId || '$all', optOuts })) {
-        return { ok: false, reason: 'opted_out' }
+    try {
+        if (await isOptedOut(recipients, { teamId, address, categoryId: categoryId || '$all', optOuts })) {
+            return { ok: false, reason: 'opted_out' }
+        }
+    } catch (error) {
+        logger.warn('Could not read sandbox recipient preferences', { teamId, error: String(error) })
+        return { ok: false, reason: 'authorization_unavailable' }
     }
     if (!isTest && (await frequencyCap()).capped) {
         return { ok: false, reason: 'frequency_capped' }
@@ -59,15 +64,10 @@ async function isOptedOut(
     ) {
         return true
     }
-    try {
-        const recipient = await recipients.get({ teamId, identifier: address })
-        return (
-            !!recipient &&
-            (recipients.getPreference(recipient, categoryId) === 'OPTED_OUT' ||
-                recipients.getAllMarketingMessagingPreference(recipient) === 'OPTED_OUT')
-        )
-    } catch (error) {
-        logger.error('Failed to read sandbox recipient preferences', { teamId, error })
-        return false
-    }
+    const recipient = await recipients.get({ teamId, identifier: address })
+    return (
+        !!recipient &&
+        (recipients.getPreference(recipient, categoryId) === 'OPTED_OUT' ||
+            recipients.getAllMarketingMessagingPreference(recipient) === 'OPTED_OUT')
+    )
 }

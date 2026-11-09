@@ -18,7 +18,7 @@ describe('claimSandboxCaps', () => {
     const claim = (caps: { team: number; recipient: number }, storedAddress: string, team = teamId) =>
         claimSandboxCaps(limiter, caps, { organizationId, teamId: team, storedAddress })
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         hub = await createHub()
         redis = createRedisV2PoolFromConfig({
             connection: hub.CDP_REDIS_HOST
@@ -31,6 +31,13 @@ describe('claimSandboxCaps', () => {
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })
         limiter = new RateLimiterService(redis, { name: 'sandbox-email-caps' })
+    })
+
+    afterAll(async () => {
+        await closeHub(hub)
+    })
+
+    beforeEach(() => {
         organizationId = randomUUID()
         teamId = randomInt(1_000_000_000)
     })
@@ -40,7 +47,6 @@ describe('claimSandboxCaps', () => {
         for (const team of [teamId, teamId + 1]) {
             await deleteKeysWithPrefix(redis, `@posthog/sandbox-email/project/${team}`)
         }
-        await closeHub(hub)
     })
 
     it('admits a first send', async () => {

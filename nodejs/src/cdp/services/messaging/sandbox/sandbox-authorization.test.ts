@@ -1,4 +1,6 @@
 import { randomUUID } from 'crypto'
+import { EventEmitter } from 'events'
+import { PoolClient } from 'pg'
 
 import { defaultConfig } from '~/common/config/config'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
@@ -200,23 +202,64 @@ describe('readSandboxAuthorization', () => {
         expect(await read(memberEmail, 2_000_000_001)).toEqual({ ok: false, reason: 'team_not_found' })
     })
 
-    it.each([
-        ['the database fails', () => Promise.reject(new Error('connection lost'))],
-        ['the database never answers', () => new Promise<never>(() => undefined)],
-    ])('reports authorization as unavailable when %s', async (_case, transaction) => {
-        jest.useFakeTimers()
-        try {
-            const broken = { transaction: jest.fn(transaction) } as unknown as PostgresRouter
-            const authorization = readSandboxAuthorization(broken, {
-                teamId: team.id,
-                recipient: memberEmail,
-                tenantName,
-            })
+    describe('when the database stalls', () => {
+        type FakeClient = EventEmitter & { query: jest.Mock; release: jest.Mock }
+
+        const stalledRouter = (
+            connect: () => Promise<FakeClient>
+        ): { router: PostgresRouter; clients: FakeClient[] } => {
+            const router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
+            const clients: FakeClient[] = []
+            jest.spyOn(router, 'connect').mockImplementation(() =>
+                connect().then((client) => {
+                    clients.push(client)
+                    return client as unknown as PoolClient
+                })
+            )
+            return { router, clients }
+        }
+        const fakeClient = (query: () => Promise<unknown>): FakeClient =>
+            Object.assign(new EventEmitter(), { query: jest.fn(query), release: jest.fn() })
+
+        beforeEach(() => jest.useFakeTimers())
+        afterEach(() => jest.useRealTimers())
+
+        it('reports authorization as unavailable when no connection is free, and runs no SQL on one handed over late', async () => {
+            let handOver: () => void = () => undefined
+            const late = fakeClient(() => Promise.resolve({ rows: [] }))
+            const { router, clients } = stalledRouter(
+                () => new Promise<FakeClient>((resolve) => (handOver = () => resolve(late)))
+            )
+
+            const authorization = readSandboxAuthorization(router, { teamId: 1, recipient: memberEmail, tenantName })
+            await jest.advanceTimersByTimeAsync(2_000)
+            expect(await authorization).toEqual({ ok: false, reason: 'authorization_unavailable' })
+
+            handOver()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(clients).toEqual([late])
+            expect(late.query).not.toHaveBeenCalled()
+            expect(late.release.mock.calls).toEqual([[]])
+        })
+
+        it('reports authorization as unavailable when a query stalls, and destroys that connection', async () => {
+            const stalled = fakeClient(() => new Promise<never>(() => undefined))
+            const { router } = stalledRouter(() => Promise.resolve(stalled))
+
+            const authorization = readSandboxAuthorization(router, { teamId: 1, recipient: memberEmail, tenantName })
             await jest.advanceTimersByTimeAsync(2_000)
 
             expect(await authorization).toEqual({ ok: false, reason: 'authorization_unavailable' })
-        } finally {
-            jest.useRealTimers()
-        }
+            expect(stalled.release).toHaveBeenCalledWith(expect.any(Error))
+        })
+
+        it('reports authorization as unavailable when connecting fails', async () => {
+            const { router } = stalledRouter(() => Promise.reject(new Error('connection refused')))
+
+            expect(await readSandboxAuthorization(router, { teamId: 1, recipient: memberEmail, tenantName })).toEqual({
+                ok: false,
+                reason: 'authorization_unavailable',
+            })
+        })
     })
 })

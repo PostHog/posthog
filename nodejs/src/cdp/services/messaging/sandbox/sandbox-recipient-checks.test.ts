@@ -84,6 +84,12 @@ describe('checkSandboxRecipient', () => {
         expect(await check(request)).toEqual({ ok: false, reason })
     })
 
+    it('blocks for a retry when the opt-out lookup fails', async () => {
+        jest.spyOn(recipients, 'get').mockRejectedValue(new Error('connection lost'))
+
+        expect(await check()).toEqual({ ok: false, reason: 'authorization_unavailable' })
+    })
+
     it.each<[string, () => void, Partial<SandboxRecipientCheckRequest>]>([
         ['a complaint on a transactional step', () => (suppressed = 'complaint'), { categoryType: 'transactional' }],
         [
