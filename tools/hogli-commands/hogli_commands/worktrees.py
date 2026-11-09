@@ -69,6 +69,7 @@ from .devbox.config import (
     load_worktree_boxes,
     read_worktree_id,
     saved_worktree_box_cleanup,
+    worktree_prune_lock,
 )
 from .disk_usage import NO_USAGE, DiskUsage, measure_disk_usage
 from .doctor import _format_size
@@ -538,32 +539,41 @@ def worktrees_clean(
         click.echo("Nothing left to remove.")
         return
 
-    reap = _execute(
-        stale,
-        mode,
-        repo_root,
-        before_remove=lambda wt: _stop_worktree_mirrors(
-            [box for box in registered_boxes if box.current_path == wt.path]
-        ),
-    )
-    _add_reclaimed_properties(reap.reclaimed_bytes, reap.removed)
-    if reap.reclaimed_bytes >= 0:
-        summary = f"\n✓ Done. Reclaimed ~{_format_size(reap.reclaimed_bytes)} of disk across {reap.removed}/{len(stale)} worktree(s)."
-    else:
-        summary = f"\n✓ Done. Removed {reap.removed}/{len(stale)} worktree(s) (reclaimed space could not be measured)."
-    failed = reap.failed
-    if failed:
-        summary += f" {failed} could not be fully removed (see warnings above)."
-    click.echo(summary)
+    _remove_worktrees_and_their_boxes(stale, mode, repo_root, registered_boxes, box_action)
 
-    removed_boxes = [box for box in registered_boxes if not box.checkout_path.exists()]
-    if box_action and removed_boxes:
-        _clean_worktree_boxes(removed_boxes, box_action)
-    elif removed_boxes:
-        # A box left alone on purpose must not look like a failed cleanup to a later run.
-        forget_worktree_boxes({box.worktree_path: box.record for box in removed_boxes})
-        names = " ".join(box.workspace for box in removed_boxes)
-        click.echo(f"Left these devboxes as they are. worktrees:clean no longer tracks them: {names}")
+
+def _remove_worktrees_and_their_boxes(
+    stale: list[Worktree], mode: str, repo_root: Path, registered_boxes: list[WorktreeBox], box_action: str | None
+) -> None:
+    with worktree_prune_lock(wait=True):
+        reap = _execute(
+            stale,
+            mode,
+            repo_root,
+            before_remove=lambda wt: _stop_worktree_mirrors(
+                [box for box in registered_boxes if box.current_path == wt.path]
+            ),
+        )
+        _add_reclaimed_properties(reap.reclaimed_bytes, reap.removed)
+        if reap.reclaimed_bytes >= 0:
+            summary = f"\n✓ Done. Reclaimed ~{_format_size(reap.reclaimed_bytes)} of disk across {reap.removed}/{len(stale)} worktree(s)."
+        else:
+            summary = (
+                f"\n✓ Done. Removed {reap.removed}/{len(stale)} worktree(s) (reclaimed space could not be measured)."
+            )
+        failed = reap.failed
+        if failed:
+            summary += f" {failed} could not be fully removed (see warnings above)."
+        click.echo(summary)
+
+        removed_boxes = [box for box in registered_boxes if not box.checkout_path.exists()]
+        if box_action and removed_boxes:
+            _clean_worktree_boxes(removed_boxes, box_action)
+        elif removed_boxes:
+            # A box left alone on purpose must not look like a failed cleanup to a later run.
+            forget_worktree_boxes({box.worktree_path: box.record for box in removed_boxes})
+            names = " ".join(box.workspace for box in removed_boxes)
+            click.echo(f"Left these devboxes as they are. worktrees:clean no longer tracks them: {names}")
 
 
 def _resolve_box_action(stop_boxes: bool, delete_boxes: bool, keep_boxes: bool, mode: str) -> str | None:

@@ -631,7 +631,7 @@ def devbox_worktree_prune(action: str | None, worktree_path: Path | None, dry_ru
     box_action = action or saved_worktree_box_cleanup() or "stop"
     with worktree_prune_lock() as holds_lock:
         if not holds_lock:
-            click.echo("Another prune is running, so this one did nothing.")
+            click.echo("Another prune or `hogli worktrees:clean` is running, so this one did nothing.")
             return
         pruned = prune_boxes_of_removed_worktrees(_detect_local_posthog_checkout(), box_action, worktree_path, dry_run)
     if not pruned:

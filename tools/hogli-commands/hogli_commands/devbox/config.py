@@ -393,13 +393,13 @@ def forget_worktree_boxes(records: Mapping[Path, WorktreeBoxRecord]) -> None:
 
 
 @contextmanager
-def worktree_prune_lock() -> Iterator[bool]:
-    """Yield whether this process holds the prune lock. Two hooks can start a prune for the same new worktree."""
+def worktree_prune_lock(wait: bool = False) -> Iterator[bool]:
+    """Yield whether this process holds the prune lock. Two hooks, or a hook and `worktrees:clean`, can contend for it."""
     path = get_worktree_boxes_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.with_name(f"{path.name}.prune.lock").open("a") as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(lock, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             yield False
             return
