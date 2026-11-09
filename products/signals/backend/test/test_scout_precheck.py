@@ -408,8 +408,10 @@ class TestAnomalyDetectionDefaultPrecheck(ClickhouseTestMixin, BaseTest):
             ),
             # Flagged, but within 30% of its baselines.
             ("flagged_small_move", [*QUIET_SERIES, (1, 110.0, 1)], 30, TEAM, "skip", None),
+            ("flagged_drop_below_floor", [*QUIET_SERIES, (1, 5.0, 1)], 30, TEAM, "run", "scored"),
             ("scored_quiet", [*QUIET_SERIES, (1, 100.0, 0)], 30, TEAM, "skip", None),
             ("no_scores_team_due", [], 30, TEAM, "run", "legacy"),
+            ("few_scored_days_team_due", QUIET_SERIES[-5:], 30, TEAM, "run", "legacy"),
             ("no_scores_team_ran_recently", [], 2, TEAM, "skip", None),
             ("no_scores_background", [], 30, BACKGROUND, "skip", None),
         ]
