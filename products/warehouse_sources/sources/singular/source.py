@@ -21,15 +21,14 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.singular._config import SingularSourceConfig
 from products.warehouse_sources.sources.singular.settings import (
-    DAILY_REPORT,
     DEFAULT_DIMENSIONS,
     DEFAULT_METRICS,
     DESCRIPTIONS,
     ENDPOINTS,
     HISTORY_DAYS,
     INCREMENTAL_FIELDS,
-    LOOKUPS,
     REPORT_LOOKBACK_SECONDS,
+    REPORTS,
 )
 from products.warehouse_sources.sources.singular.singular import (
     ACCESS_ERROR,
@@ -89,7 +88,7 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
         schema_name: str | None = None,
     ) -> bool:
         # A lookup table is one request, so a retry has nothing to continue from.
-        return schema_name not in LOOKUPS
+        return schema_name is None or schema_name in REPORTS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # The raised messages already name the fix and quote Singular's own error text.
@@ -187,7 +186,7 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = build_endpoint_schemas(
-            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={DAILY_REPORT}, descriptions=DESCRIPTIONS
+            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=REPORTS, descriptions=DESCRIPTIONS
         )
         for schema in schemas:
             if schema.supports_incremental:

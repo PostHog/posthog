@@ -688,29 +688,6 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.111
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.112
-  '''
   SELECT "ee_role"."organization_id" AS "role__organization_id",
          "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
@@ -721,7 +698,7 @@
               OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.113
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.112
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -774,7 +751,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.114
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.113
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -794,6 +771,29 @@
          AND ("posthog_organizationmembership"."user_id" = 99999
               OR ("ee_accesscontrol"."organization_member_id" IS NULL
                   AND "ee_accesscontrol"."role_id" IS NULL)))
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.114
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.115
@@ -1940,29 +1940,6 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.132
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.133
-  '''
   SELECT "ee_role"."organization_id" AS "role__organization_id",
          "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
@@ -1973,7 +1950,7 @@
               OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.134
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.133
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -2026,7 +2003,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.135
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.134
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -2046,6 +2023,29 @@
          AND ("posthog_organizationmembership"."user_id" = 99999
               OR ("ee_accesscontrol"."organization_member_id" IS NULL
                   AND "ee_accesscontrol"."role_id" IS NULL)))
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.135
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.136
@@ -2887,29 +2887,6 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.157
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.158
-  '''
   SELECT "ee_role"."organization_id" AS "role__organization_id",
          "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
@@ -2920,7 +2897,7 @@
               OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.159
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.158
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -2973,6 +2950,28 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.159
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE ("ee_accesscontrol"."resource" = 'project'
+         AND "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
+         AND ("posthog_organizationmembership"."user_id" = 99999
+              OR ("ee_accesscontrol"."organization_member_id" IS NULL
+                  AND "ee_accesscontrol"."role_id" IS NULL)))
+  '''
+# ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.16
   '''
   SELECT "posthog_filesystem"."id" AS "id",
@@ -3002,13 +3001,14 @@
          "ee_accesscontrol"."created_at",
          "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE ("ee_accesscontrol"."resource" = 'project'
-         AND "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
-         AND ("posthog_organizationmembership"."user_id" = 99999
-              OR ("ee_accesscontrol"."organization_member_id" IS NULL
-                  AND "ee_accesscontrol"."role_id" IS NULL)))
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.161
@@ -4594,29 +4594,6 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.24
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.25
-  '''
   SELECT "ee_role"."organization_id" AS "role__organization_id",
          "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
@@ -4627,7 +4604,7 @@
               OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.26
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.25
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -4680,7 +4657,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.27
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.26
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -4700,6 +4677,29 @@
          AND ("posthog_organizationmembership"."user_id" = 99999
               OR ("ee_accesscontrol"."organization_member_id" IS NULL
                   AND "ee_accesscontrol"."role_id" IS NULL)))
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.27
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.28
@@ -4830,25 +4830,14 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.3
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
+  SELECT "ee_role"."organization_id" AS "role__organization_id",
+         "ee_rolemembership"."role_id" AS "role_id"
+  FROM "ee_rolemembership"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_rolemembership"."organization_member_id" = "posthog_organizationmembership"."id")
+  INNER JOIN "ee_role" ON ("ee_rolemembership"."role_id" = "ee_role"."id")
+  WHERE ("ee_rolemembership"."user_id" = 99999
+         AND ("ee_rolemembership"."organization_member_id" IS NULL
+              OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.30
@@ -5676,52 +5665,17 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.39
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
+  SELECT "ee_role"."organization_id" AS "role__organization_id",
+         "ee_rolemembership"."role_id" AS "role_id"
+  FROM "ee_rolemembership"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_rolemembership"."organization_member_id" = "posthog_organizationmembership"."id")
+  INNER JOIN "ee_role" ON ("ee_rolemembership"."role_id" = "ee_role"."id")
+  WHERE ("ee_rolemembership"."user_id" = 99999
+         AND ("ee_rolemembership"."organization_member_id" IS NULL
+              OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.4
-  '''
-  SELECT "ee_role"."organization_id" AS "role__organization_id",
-         "ee_rolemembership"."role_id" AS "role_id"
-  FROM "ee_rolemembership"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_rolemembership"."organization_member_id" = "posthog_organizationmembership"."id")
-  INNER JOIN "ee_role" ON ("ee_rolemembership"."role_id" = "ee_role"."id")
-  WHERE ("ee_rolemembership"."user_id" = 99999
-         AND ("ee_rolemembership"."organization_member_id" IS NULL
-              OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.40
-  '''
-  SELECT "ee_role"."organization_id" AS "role__organization_id",
-         "ee_rolemembership"."role_id" AS "role_id"
-  FROM "ee_rolemembership"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_rolemembership"."organization_member_id" = "posthog_organizationmembership"."id")
-  INNER JOIN "ee_role" ON ("ee_rolemembership"."role_id" = "ee_role"."id")
-  WHERE ("ee_rolemembership"."user_id" = 99999
-         AND ("ee_rolemembership"."organization_member_id" IS NULL
-              OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.41
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -5774,7 +5728,60 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.42
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.40
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
+         "posthog_organization"."read_only_mcp_access",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organizationmembership"
+  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_organizationmembership"."user_id" = 99999
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.41
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -5794,6 +5801,29 @@
          AND ("posthog_organizationmembership"."user_id" = 99999
               OR ("ee_accesscontrol"."organization_member_id" IS NULL
                   AND "ee_accesscontrol"."role_id" IS NULL)))
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.42
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.43
@@ -6032,55 +6062,24 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.5
   '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organizationmembership"."invited_by_id",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."is_ai_training_opted_in",
-         "posthog_organization"."is_ai_training_locked",
-         "posthog_organization"."is_ai_training_cta_shown",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."enforce_verified_domains",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_create_projects",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."members_can_see_org_members",
-         "posthog_organization"."uses_most_specific_access_resolution",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."member_notice",
-         "posthog_organization"."read_only_mcp_access",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_pending_deletion",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."has_active_subscription",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organizationmembership"
-  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 99999
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE ("ee_accesscontrol"."resource" = 'project'
+         AND "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
+         AND ("posthog_organizationmembership"."user_id" = 99999
+              OR ("ee_accesscontrol"."organization_member_id" IS NULL
+                  AND "ee_accesscontrol"."role_id" IS NULL)))
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.50
@@ -6379,13 +6378,14 @@
          "ee_accesscontrol"."created_at",
          "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE ("ee_accesscontrol"."resource" = 'project'
-         AND "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
-         AND ("posthog_organizationmembership"."user_id" = 99999
-              OR ("ee_accesscontrol"."organization_member_id" IS NULL
-                  AND "ee_accesscontrol"."role_id" IS NULL)))
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.60
@@ -6687,29 +6687,6 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.65
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.66
-  '''
   SELECT "ee_role"."organization_id" AS "role__organization_id",
          "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
@@ -6720,7 +6697,7 @@
               OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.67
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.66
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -6773,7 +6750,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.68
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.67
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -6793,6 +6770,29 @@
          AND ("posthog_organizationmembership"."user_id" = 99999
               OR ("ee_accesscontrol"."organization_member_id" IS NULL
                   AND "ee_accesscontrol"."role_id" IS NULL)))
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.68
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.69
@@ -8031,29 +8031,6 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.86
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.87
-  '''
   SELECT "ee_role"."organization_id" AS "role__organization_id",
          "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
@@ -8064,7 +8041,7 @@
               OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.88
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.87
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -8117,7 +8094,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.89
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.88
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -8137,6 +8114,29 @@
          AND ("posthog_organizationmembership"."user_id" = 99999
               OR ("ee_accesscontrol"."organization_member_id" IS NULL
                   AND "ee_accesscontrol"."role_id" IS NULL)))
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.89
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.9
@@ -31351,29 +31351,6 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard.4
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
-  '''
-# ---
-# name: TestDashboard.test_retrieve_dashboard.5
-  '''
   SELECT "ee_role"."organization_id" AS "role__organization_id",
          "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
@@ -31384,7 +31361,7 @@
               OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard.6
+# name: TestDashboard.test_retrieve_dashboard.5
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -31437,7 +31414,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard.7
+# name: TestDashboard.test_retrieve_dashboard.6
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -31457,6 +31434,29 @@
          AND ("posthog_organizationmembership"."user_id" = 99999
               OR ("ee_accesscontrol"."organization_member_id" IS NULL
                   AND "ee_accesscontrol"."role_id" IS NULL)))
+  '''
+# ---
+# name: TestDashboard.test_retrieve_dashboard.7
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard.8
@@ -32653,29 +32653,6 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.24
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
-  '''
-# ---
-# name: TestDashboard.test_retrieve_dashboard_list.25
-  '''
   SELECT "ee_role"."organization_id" AS "role__organization_id",
          "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
@@ -32686,7 +32663,7 @@
               OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.26
+# name: TestDashboard.test_retrieve_dashboard_list.25
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -32739,7 +32716,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.27
+# name: TestDashboard.test_retrieve_dashboard_list.26
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -32759,6 +32736,29 @@
          AND ("posthog_organizationmembership"."user_id" = 99999
               OR ("ee_accesscontrol"."organization_member_id" IS NULL
                   AND "ee_accesscontrol"."role_id" IS NULL)))
+  '''
+# ---
+# name: TestDashboard.test_retrieve_dashboard_list.27
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.28
@@ -32877,25 +32877,14 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.3
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
+  SELECT "ee_role"."organization_id" AS "role__organization_id",
+         "ee_rolemembership"."role_id" AS "role_id"
+  FROM "ee_rolemembership"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_rolemembership"."organization_member_id" = "posthog_organizationmembership"."id")
+  INNER JOIN "ee_role" ON ("ee_rolemembership"."role_id" = "ee_role"."id")
+  WHERE ("ee_rolemembership"."user_id" = 99999
+         AND ("ee_rolemembership"."organization_member_id" IS NULL
+              OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.30
@@ -33067,14 +33056,55 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.4
   '''
-  SELECT "ee_role"."organization_id" AS "role__organization_id",
-         "ee_rolemembership"."role_id" AS "role_id"
-  FROM "ee_rolemembership"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_rolemembership"."organization_member_id" = "posthog_organizationmembership"."id")
-  INNER JOIN "ee_role" ON ("ee_rolemembership"."role_id" = "ee_role"."id")
-  WHERE ("ee_rolemembership"."user_id" = 99999
-         AND ("ee_rolemembership"."organization_member_id" IS NULL
-              OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
+         "posthog_organization"."read_only_mcp_access",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organizationmembership"
+  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.40
@@ -33724,29 +33754,6 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.45
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
-  '''
-# ---
-# name: TestDashboard.test_retrieve_dashboard_list.46
-  '''
   SELECT "ee_role"."organization_id" AS "role__organization_id",
          "ee_rolemembership"."role_id" AS "role_id"
   FROM "ee_rolemembership"
@@ -33757,7 +33764,7 @@
               OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.47
+# name: TestDashboard.test_retrieve_dashboard_list.46
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -33810,7 +33817,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.48
+# name: TestDashboard.test_retrieve_dashboard_list.47
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -33832,6 +33839,29 @@
                   AND "ee_accesscontrol"."role_id" IS NULL)))
   '''
 # ---
+# name: TestDashboard.test_retrieve_dashboard_list.48
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
+  '''
+# ---
 # name: TestDashboard.test_retrieve_dashboard_list.49
   '''
   SELECT COUNT(*) AS "__count"
@@ -33848,55 +33878,24 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.5
   '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organizationmembership"."invited_by_id",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."is_ai_training_opted_in",
-         "posthog_organization"."is_ai_training_locked",
-         "posthog_organization"."is_ai_training_cta_shown",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."enforce_verified_domains",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_create_projects",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."members_can_see_org_members",
-         "posthog_organization"."uses_most_specific_access_resolution",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."member_notice",
-         "posthog_organization"."read_only_mcp_access",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_pending_deletion",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."has_active_subscription",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organizationmembership"
-  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 99999
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE ("ee_accesscontrol"."resource" = 'project'
+         AND "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
+         AND ("posthog_organizationmembership"."user_id" = 99999
+              OR ("ee_accesscontrol"."organization_member_id" IS NULL
+                  AND "ee_accesscontrol"."role_id" IS NULL)))
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.50
@@ -34062,13 +34061,14 @@
          "ee_accesscontrol"."created_at",
          "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE ("ee_accesscontrol"."resource" = 'project'
-         AND "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
-         AND ("posthog_organizationmembership"."user_id" = 99999
-              OR ("ee_accesscontrol"."organization_member_id" IS NULL
-                  AND "ee_accesscontrol"."role_id" IS NULL)))
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.7

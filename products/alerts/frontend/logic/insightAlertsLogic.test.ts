@@ -205,6 +205,21 @@ describe('insightAlertsLogic', () => {
         expect(listSpy).toHaveBeenCalledWith(42)
     })
 
+    it('does not list project alerts for an unsaved insight', async () => {
+        const insightLogicProps: InsightLogicProps = { dashboardItemId: 'new' }
+        mountInsightStack(insightLogicProps)
+
+        const alertsLogic = insightAlertsLogic({
+            insightId: undefined as unknown as number,
+            insightLogicProps,
+        })
+        alertsLogic.mount()
+
+        await expectLogic(alertsLogic).toFinishAllListeners().toMatchValues({ alerts: [] })
+        expect(listSpy).not.toHaveBeenCalled()
+        expect(hogFunctionsListSpy).not.toHaveBeenCalled()
+    })
+
     it('uses loadAlertsSuccess from insight.alerts on mount when not deferred and does not call the API for an empty array', async () => {
         const insightLogicProps: InsightLogicProps = {
             dashboardItemId: Insight42,

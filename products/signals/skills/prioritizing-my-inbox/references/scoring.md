@@ -1,6 +1,7 @@
 # Scoring candidates
 
-The score is a first pass.
+The score is a first pass for the hand-built ranking in [pool-and-score.md](pool-and-score.md).
+Use it only on that route, never to reorder the stored personal ranking.
 It turns 60 to 150 candidates into a rough order so you only judge the top 40 or so carefully.
 Adjust the weights when the person's request or the data calls for it, and say what you changed.
 

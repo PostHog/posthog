@@ -1,10 +1,11 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -144,12 +145,16 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     }),
 
     trackedActionToUrl(({ values }) => ({
-        setQuery: () => [
-            urls.persons(),
-            {},
-            equal(values.query, values.defaultQuery) ? {} : { q: values.query },
-            { replace: true },
-        ],
+        setQuery: () => {
+            if (removeProjectIdIfPresent(router.values.location.pathname) === urls.persons()) {
+                return [
+                    urls.persons(),
+                    {},
+                    equal(values.query, values.defaultQuery) ? {} : { q: values.query },
+                    { replace: true },
+                ]
+            }
+        },
     })),
 
     urlToAction(({ actions, values }) => ({

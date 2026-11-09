@@ -169,8 +169,8 @@ def cleanup_stale_expiry_tracking_task() -> None:
     """
     Periodic task to clean up stale entries in the expiry tracking sorted set.
 
-    Removes entries for teams that no longer exist in the database.
-    Runs daily to prevent sorted set bloat from deleted teams.
+    Deletes the cache entries of teams that no longer exist and removes their tracking members.
+    Runs daily, because a refresh can write a deleted team's entry again after the delete path cleared it.
     """
     if not settings.FLAGS_REDIS_URL:
         logger.info("Flags Redis URL not set, skipping expiry tracking cleanup")

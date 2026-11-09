@@ -219,20 +219,12 @@ def count_synthetic_playlist(
         }
 
     # Use the count function for efficient database-level counting
-    count = synthetic_def.count_session_ids(team, user)
-
-    # For watched_count, we still need to load session IDs since we're checking user-specific viewed status
-    # But only if count > 0
-    if count > 0:
-        session_ids = synthetic_def.get_session_ids(team, user)
-        watched_count = len(current_user_viewed(session_ids, user, team))
-    else:
-        watched_count = 0
+    counts = synthetic_def.count_recordings(team, user)
 
     return {
-        "count": count if count > 0 else None,
+        "count": counts.count if counts.count > 0 else None,
         "has_more": False,  # We don't paginate synthetic playlists (yet)
-        "watched_count": watched_count,
+        "watched_count": counts.watched_count,
         "increased": None,  # We don't track historical changes for synthetic playlists
         "last_refreshed_at": None,
     }

@@ -29,6 +29,13 @@ class SlackAppOnboardingInputs:
     start_delay_seconds: int = 0
 
 
+@dataclass(frozen=True)
+class SlackAppWorkFocusInputs:
+    integration_id: int
+    slack_team_id: str
+    slack_user_id: str
+
+
 @frozen
 class SlackAppOnboardingMessage:
     """One message of a person's onboarding thread. For an edit, ``ts`` names the message. ``planned``,
