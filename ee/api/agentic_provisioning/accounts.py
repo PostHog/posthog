@@ -4,7 +4,7 @@ the browser consent detour for partners that can't skip it."""
 from __future__ import annotations
 
 import secrets
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 from django.core.cache import cache
@@ -41,6 +41,9 @@ from ee.api.agentic_provisioning.constants import (
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
 from ee.api.agentic_provisioning.tokens import user_can_access_team
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def partner_label(partner: OAuthApplication | None) -> str:
@@ -263,7 +266,11 @@ class PartnerOrganizationChanged(Exception):
 
 
 def get_or_create_partner_organization_team(
-    user: User, partner: OAuthApplication, approved_organization_id: str | None
+    user: User,
+    partner: OAuthApplication,
+    approved_organization_id: str | None,
+    *,
+    authorize_organization: Callable[[Organization], None],
 ) -> tuple[Team, bool]:
     """Billing works per organization, so the project of a partner that pays for its customers
     must not go in one of the user's own organizations, where the user would pay for the
@@ -281,6 +288,7 @@ def get_or_create_partner_organization_team(
         if (str(organization.id) if organization is not None else None) != approved_organization_id:
             raise PartnerOrganizationChanged
         if organization is not None:
+            authorize_organization(organization)
             team = find_partner_team(locked_user, partner, organization)
             if team is None:
                 team = Team.objects.create_with_data(initiating_user=locked_user, organization=organization)

@@ -20,10 +20,12 @@ class TestSavedQueryIncremental(APIBaseTest):
     def _url(self, suffix: str = "") -> str:
         return f"/api/environments/{self.team.pk}/warehouse_saved_queries/{suffix}"
 
-    def _create(self, query: str = GROUPED, incremental: dict | None = None):
+    def _create(self, query: str = GROUPED, incremental: dict | None = None, sync_frequency: str | None = None):
         payload: dict = {"name": "daily_events", "query": {"kind": "HogQLQuery", "query": query}}
         if incremental is not None:
             payload["incremental"] = incremental
+        if sync_frequency is not None:
+            payload["sync_frequency"] = sync_frequency
         return self.client.post(self._url(), payload)
 
     def test_saving_an_eligible_incremental_config_round_trips(self):
@@ -33,6 +35,47 @@ class TestSavedQueryIncremental(APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
         assert saved_query.incremental_config == {**CONFIG, "lookback_seconds": 0}
         assert response.json()["incremental"]["incremental_key"] == "day"
+
+    @parameterized.expand(
+        [
+            ("incremental_with_a_cadence", CONFIG, "24hour", True),
+            # The SQL editor sends no cadence and calls `materialize` itself, so it must not start a second run.
+            ("incremental_without_a_cadence", CONFIG, None, False),
+            ("incremental_paused", CONFIG, "never", False),
+        ]
+    )
+    def test_creating_an_incremental_view_with_a_cadence_materializes_it(
+        self, _name: str, incremental: dict, sync_frequency: str | None, expect_materialized: bool
+    ):
+        with (
+            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
+            patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule,
+        ):
+            response = self._create(incremental=incremental, sync_frequency=sync_frequency)
+
+        assert response.status_code == 201, response.json()
+        assert bool(response.json()["is_materialized"]) is expect_materialized
+        saved_query = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
+        assert bool(saved_query.is_materialized) is expect_materialized
+        assert any(call.kwargs.get("trigger_immediate_run") for call in schedule.call_args_list) is expect_materialized
+
+    @parameterized.expand(
+        [
+            ("cadence_and_incremental_together", {"incremental": CONFIG, "sync_frequency": "24hour"}, True),
+            ("incremental_alone", {"incremental": CONFIG}, False),
+        ]
+    )
+    def test_updating_a_view_to_incremental_with_a_cadence_materializes_it(
+        self, _name: str, patch_body: dict, expect_materialized: bool
+    ):
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            view_id = self._create().json()["id"]
+            with patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule:
+                response = self.client.patch(self._url(f"{view_id}/"), patch_body)
+
+        assert response.status_code == 200, response.json()
+        assert bool(response.json()["is_materialized"]) is expect_materialized
+        assert any(call.kwargs.get("trigger_immediate_run") for call in schedule.call_args_list) is expect_materialized
 
     @parameterized.expand(
         [
