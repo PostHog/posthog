@@ -137,8 +137,8 @@ function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRe
     const hasStoredOrigins = Object.values(encryptedInputs).some(
         (input) => isRecord(input) && input.allowed_origins !== undefined
     )
-    const origin = hasStoredOrigins ? requestOrigin(request.url) : null
-    if (!origin) {
+    const origins = hasStoredOrigins ? routedOrigins(request) : []
+    if (!origins.length) {
         return []
     }
 
@@ -158,20 +158,47 @@ function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRe
         !knownTexts.has(secret) &&
         sentTexts.some((text) => typeof text === 'string' && text.includes(secret))
 
-    const shownOrigin = withoutSecrets(
-        origin,
-        Object.values(encryptedInputs).flatMap((input) => (isRecord(input) ? textLeaves(input.value) : []))
-    )
+    const secrets = Object.values(encryptedInputs).flatMap((input) => (isRecord(input) ? textLeaves(input.value) : []))
     const carried: CarriedSecret[] = []
     for (const [inputKey, input] of Object.entries(encryptedInputs)) {
         if (!isRecord(input)) {
             continue
         }
         if (named.has(inputKey) || textLeaves(input.value).some(isSent)) {
-            carried.push({ inputKey, origin: shownOrigin, outcome: originOutcome(input.allowed_origins, origin) })
+            const checked = origins.map((origin) => ({ origin, outcome: originOutcome(input.allowed_origins, origin) }))
+            const { origin, outcome } = checked.find(({ outcome }) => outcome === 'mismatch') ?? checked[0]
+            carried.push({ inputKey, origin: withoutSecrets(origin, secrets), outcome })
         }
     }
     return carried
+}
+
+// Headers the HTTP client reads as the request authority. Undici takes the TLS server name and the HTTP/2 `:authority`
+// from `host`, so a request can reach a host other than the one in its URL on a server that routes by either.
+const AUTHORITY_HEADERS = new Set(['host', ':authority'])
+
+/**
+ * The origin of the URL, then one origin for each authority header the request sets. The header keeps the scheme of
+ * the URL, because the connection does.
+ */
+function routedOrigins(request: SecretOriginRequest): string[] {
+    const urlOrigin = requestOrigin(request.url)
+    if (!urlOrigin) {
+        return []
+    }
+    const protocol = new URL(request.url).protocol
+    const overrides = Object.entries(request.headers)
+        .filter(([name, value]) => AUTHORITY_HEADERS.has(name.toLowerCase()) && typeof value === 'string')
+        .map(([, value]) => authorityOrigin(protocol, value))
+    return [urlOrigin, ...overrides]
+}
+
+function authorityOrigin(protocol: string, authority: string): string {
+    const value = authority.trim()
+    // The URL parser reads a host out of userinfo, a path or a fragment, but the server reads the whole value. Such a
+    // value keeps its raw form, which no stored origin can equal.
+    const parsed = /[/?#@\\\s]/.test(value) ? null : requestOrigin(`${protocol}//${value}`)
+    return parsed ?? `${protocol}//${value.toLowerCase()}`
 }
 
 /**

