@@ -290,8 +290,11 @@ describe('WorkerIngestServer', () => {
     it('stop() drains in-flight sub-batch acks before ending streams', async () => {
         const source = new FrameSource()
         const collected = collect(server, source)
+        const idleSource = new FrameSource()
+        const idle = collect(server, idleSource)
 
         source.push(hello())
+        idleSource.push(hello({ consumerId: 'consumer-idle' }))
         source.push(subBatch(1, [10]))
         await until(() => driver.feeds.length === 1)
         const streamId = driver.feeds[0].streamId
@@ -304,6 +307,8 @@ describe('WorkerIngestServer', () => {
         const late = collect(server, new FrameSource())
         await late.ended
         expect(late.error?.code).toBe(Code.Unavailable)
+        await idle.ended
+        expect(idle.error).toBeNull()
 
         driver.complete({ streamId, seq: 1, accepted: 1 })
         await stopping
