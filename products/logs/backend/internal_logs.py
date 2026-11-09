@@ -17,6 +17,13 @@ SOURCE_PATTERN = re.compile(r"^[a-z0-9_]{1,64}\Z")
 INTERNAL_SOURCE_SERVICE_NAMES: dict[str, str] = {
     "hog_flow": "posthog-internal-workflows",
     "hog_function": "posthog-internal-hog-functions",
+    "external_data_jobs": "posthog-internal-data-imports",
+    "data_modeling_run": "posthog-internal-data-modeling",
+    "batch_exports": "posthog-internal-batch-exports",
+    "batch_exports_backfill": "posthog-internal-batch-exports",
+    "dwh_cdp_producer_job": "posthog-internal-warehouse-cdp",
+    "endpoints": "posthog-internal-endpoints",
+    "alert_destination": "posthog-internal-alerts",
 }
 
 
