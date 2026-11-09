@@ -272,8 +272,17 @@ function findReportRank(id: string): {
     listSize: number | null
     section: InboxReportSectionKey | null
     rankerId: string | null
+    personalTier: string | null
+    personalReasonShown: boolean
 } {
-    const notFound = { rank: null, listSize: null, section: null, rankerId: null }
+    const notFound = {
+        rank: null,
+        listSize: null,
+        section: null,
+        rankerId: null,
+        personalTier: null,
+        personalReasonShown: false,
+    }
     const filterValues = inboxFiltersLogic.findMounted()?.values
     if (!filterValues) {
         return notFound
@@ -301,11 +310,16 @@ function findReportRank(id: string): {
             sectionKey,
             listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
         })?.values
+        // The opened report can come from the detail endpoint, which has no personal fields, so they
+        // come from the list row the person saw.
+        const personalSort = filterValues.activeSortField === 'personal'
         return {
             rank: idx + 1,
             listSize: rows.length,
             section: sectionKey,
             rankerId: sectionValues?.loadedRanker ?? null,
+            personalTier: personalSort ? (rows[idx].report.personal_tier ?? null) : null,
+            personalReasonShown: personalSort && !!rows[idx].report.personal_reason,
         }
     }
     return notFound
@@ -356,6 +370,8 @@ function captureOpenWhenRanked(
                 listSize: resolved.listSize,
                 section: resolved.section,
                 rankerId: resolved.rankerId,
+                personalTier: resolved.personalTier,
+                personalReasonShown: resolved.personalReasonShown,
             },
             // The wait puts the capture up to `OPEN_RANK_WAIT_MS` after the report opened, and
             // posthog-js stamps an event at the capture moment. Without the override, a scroll or an

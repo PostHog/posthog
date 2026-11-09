@@ -7,7 +7,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-export const modulesWithStrictBodies = new Set(['email_templates'])
+export const modulesWithStrictBodies = new Set(['email_templates', 'ui_customization'])
 
 /**
  * Resolve the OpenAPI schema path, respecting OPENAPI_SCHEMA_PATH env override.
