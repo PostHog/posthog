@@ -142,7 +142,7 @@ EVERY_15_MINUTES_CADENCE_MINUTES = 15
 # The earliest offset gives ingestion time to deliver the interval that just closed.
 _CHECK_WINDOWS: dict[CalendarInterval, tuple[timedelta, timedelta]] = {
     CalendarInterval.EVERY_15_MINUTES: (timedelta(minutes=1), timedelta(minutes=3)),
-    CalendarInterval.HOURLY: (timedelta(minutes=2), timedelta(minutes=12)),
+    CalendarInterval.HOURLY: (timedelta(minutes=2), timedelta(minutes=56)),
     CalendarInterval.DAILY: (timedelta(minutes=2), timedelta(minutes=58)),
     CalendarInterval.WEEKLY: (timedelta(minutes=2), timedelta(minutes=58)),
     CalendarInterval.MONTHLY: (timedelta(minutes=2), timedelta(minutes=58)),

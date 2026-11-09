@@ -274,7 +274,7 @@ class TestNextCalendarCheckTime:
         [
             # name, interval, cadence, first minute of the window, first minute after it
             ("every_15_minutes", CalendarInterval.EVERY_15_MINUTES, timedelta(minutes=15), 1, 4),
-            ("hourly", CalendarInterval.HOURLY, timedelta(hours=1), 2, 14),
+            ("hourly", CalendarInterval.HOURLY, timedelta(hours=1), 2, 58),
             ("daily", CalendarInterval.DAILY, timedelta(days=1), 2, 60),
             ("weekly", CalendarInterval.WEEKLY, timedelta(weeks=1), 2, 60),
         ]
