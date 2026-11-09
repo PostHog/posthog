@@ -38,6 +38,7 @@ import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonDialogLogic } from 'lib/lemon-ui/LemonDialog/lemonDialogLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
@@ -45,6 +46,7 @@ import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
 import { characterOffsetToUtf16 } from 'lib/monaco/offsets'
+import { uuid } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -144,7 +146,7 @@ import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidatio
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
-import { IncrementalConfigFields } from './IncrementalConfigFields'
+import { IncrementalConfigFields, incrementalFieldErrorFromSave } from './IncrementalConfigFields'
 import { findInnermostSelectAtOffset } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { findSelectionProblem } from './saveCandidateProblems'
@@ -759,6 +761,13 @@ export interface sqlEditorLogicActions {
     maybeLoadConnectionOptions: () => {
         value: true
     } // connectionSelectorLogic
+    createDataWarehouseSavedQueryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // dataWarehouseViewsLogic
     createDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?:
@@ -1403,6 +1412,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 'loadDataWarehouseSavedQueryFolders',
                 'deleteDataWarehouseSavedQuerySuccess',
                 'createDataWarehouseSavedQuerySuccess',
+                'createDataWarehouseSavedQueryFailure',
                 'runDataWarehouseSavedQuery',
                 'materializeDataWarehouseSavedQuery',
                 'updateDataWarehouseSavedQuerySuccess',
@@ -2613,7 +2623,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 posthog.capture('save as view dialog opened')
+                const dialogKey = `save-as-view-${uuid()}`
                 LemonDialog.openForm({
+                    dialogKey,
                     title: 'Save as view',
                     showErrorsOnTouch: true,
                     initialValues: {
@@ -2772,7 +2784,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                       lookback_seconds: incrementalLookbackSeconds ?? 0,
                                   }
                                 : undefined
-                        await asyncActions.saveAsViewSubmit(
+                        const refusal = await asyncActions.saveAsViewSubmit(
                             viewName,
                             shouldMaterialize ?? false,
                             fromDraft,
@@ -2782,6 +2794,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             incremental,
                             description?.trim() || undefined
                         )
+                        const fieldError = incrementalFieldErrorFromSave(refusal)
+                        if (fieldError) {
+                            lemonDialogLogic
+                                .findMounted({ dialogKey })
+                                ?.actions.setFormManualErrors({ [fieldError.field]: fieldError.message })
+                            // Thrown so the dialog stays open for the user to fix the field.
+                            throw refusal
+                        }
                     },
                     shouldAwaitSubmit: true,
                 })
@@ -2824,6 +2844,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     cache.viewNamesToSkipTabBinding.add(name)
                 }
                 try {
+                    cache.saveViewRefusal = null
                     await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({
                         name,
                         query: queryToSave,
@@ -2834,6 +2855,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ...(incremental ? { incremental } : {}),
                         ...(materializeAfterSave ? { deferCreatedToast: true } : {}),
                     })
+                    // The loader reports a failed create through its failure action rather than
+                    // by rejecting. A refusal that names a form field goes back to the save dialog,
+                    // which shows it under that field.
+                    if (incrementalFieldErrorFromSave(cache.saveViewRefusal)) {
+                        cache.viewNamesToSkipTabBinding?.delete(name)
+                        return cache.saveViewRefusal
+                    }
                     captureBIEditorQuerySaved(biEditorState, 'view', 'create')
                     posthog.capture('save as view dialog submitted', {
                         has_description: !!description,
@@ -3443,6 +3471,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setQueryInput('')
                     actions.createTab()
                 }
+            },
+            createDataWarehouseSavedQueryFailure: ({ errorObject }) => {
+                cache.saveViewRefusal = errorObject
             },
             createDataWarehouseSavedQuerySuccess: async ({ dataWarehouseSavedQueries, payload: view }) => {
                 if (view?.name && cache.viewNamesToSkipTabBinding?.has(view.name)) {
