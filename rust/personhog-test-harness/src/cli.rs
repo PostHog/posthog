@@ -145,6 +145,27 @@ pub struct ConsistencyArgs {
     pub read_delay: Duration,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum PropertyStorage {
+    Postgres,
+    Dual,
+    Slatedb,
+}
+
+impl PropertyStorage {
+    pub fn as_env(self) -> &'static str {
+        match self {
+            PropertyStorage::Postgres => "postgres",
+            PropertyStorage::Dual => "dual",
+            PropertyStorage::Slatedb => "slatedb",
+        }
+    }
+
+    pub fn writes_slatedb(self) -> bool {
+        self != PropertyStorage::Postgres
+    }
+}
+
 #[derive(Args, Clone)]
 pub struct GateArgs {
     /// Extra KEY=VALUE environment for spawned leaders — the lever for
@@ -174,6 +195,18 @@ pub struct GateArgs {
     /// Number of leader pods to spawn (ignored with --external-router-url).
     #[arg(long, default_value_t = 2)]
     pub leaders: u32,
+
+    /// Writers in the one consumer group; chaos targets the first.
+    #[arg(long, default_value_t = 1)]
+    pub writers: u32,
+
+    /// The writers' PROPERTY_STORAGE_MODE; with `slatedb`, leaders read SlateDB throughout.
+    #[arg(long, value_enum, default_value_t = PropertyStorage::Postgres)]
+    pub property_storage: PropertyStorage,
+
+    /// When to roll every leader to SlateDB, one at a time. Requires --property-storage dual.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub flip_to_slatedb_after: Option<Duration>,
 
     /// Number of leader-mode routers to spawn. Traffic targets the last
     /// one, which (with 2+ routers) opts out of election candidacy —
@@ -494,6 +527,10 @@ pub struct StackArgs {
     #[arg(long, default_value_t = 1)]
     pub leaders: u32,
 
+    /// See the gate's --property-storage.
+    #[arg(long, value_enum, default_value_t = PropertyStorage::Postgres)]
+    pub property_storage: PropertyStorage,
+
     #[arg(long, default_value_t = 1)]
     pub routers: u32,
 
@@ -553,6 +590,10 @@ pub struct StackArgs {
 
 #[derive(Args, Clone)]
 pub struct TrafficArgs {
+    /// The writers' PROPERTY_STORAGE_MODE, which decides the stores each epoch checks.
+    #[arg(long, env = "TRAFFIC_PROPERTY_STORAGE", value_enum, default_value_t = PropertyStorage::Postgres)]
+    pub property_storage: PropertyStorage,
+
     /// Router serving the personhog stack under continuous test.
     #[arg(long, env = "TRAFFIC_ROUTER_URL")]
     pub router_url: String,

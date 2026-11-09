@@ -81,6 +81,8 @@ pub async fn run(args: StackArgs) -> Result<()> {
     let mut stack = Stack::up(StackConfig {
         bin_dir,
         leaders: args.leaders,
+        writers: 1,
+        property_storage: args.property_storage,
         routers: args.routers,
         partitions: args.partitions,
         kafka_hosts: args.kafka_hosts.clone(),

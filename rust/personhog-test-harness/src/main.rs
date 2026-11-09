@@ -5,6 +5,7 @@ use tracing_subscriber::EnvFilter;
 mod cli;
 mod client;
 mod pool;
+mod property_verify;
 mod publish;
 mod report;
 mod scenarios;

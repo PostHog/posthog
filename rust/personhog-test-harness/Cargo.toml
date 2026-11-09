@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 personhog-common = { path = "../personhog-common" }
 personhog-proto = { path = "../personhog-proto" }
+personhog-property-store = { path = "../personhog-property-store" }
 common-metrics = { path = "../common/metrics" }
 personhog-coordination = { path = "../personhog-coordination" }
 assignment-coordination = { path = "../common/assignment-coordination" }
@@ -22,8 +23,10 @@ humantime = { workspace = true }
 k8s-openapi = { version = "0.24", features = ["latest"] }
 kube = { version = "0.98", features = ["client"] }
 rand = { workspace = true }
+reqwest = { workspace = true }
 rdkafka = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+envconfig = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }

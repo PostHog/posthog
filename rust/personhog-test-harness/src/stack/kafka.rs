@@ -13,7 +13,9 @@ use rdkafka::{Offset, TopicPartitionList};
 
 pub fn base_config(kafka_hosts: &str) -> ClientConfig {
     let mut cfg = ClientConfig::new();
-    cfg.set("bootstrap.servers", kafka_hosts);
+    // `localhost` also resolves to ::1, where a broker published on IPv4 only refuses.
+    cfg.set("bootstrap.servers", kafka_hosts)
+        .set("broker.address.family", "v4");
     cfg
 }
 
@@ -57,8 +59,7 @@ pub async fn group_has_committed_offsets(
 }
 
 fn admin_client(kafka_hosts: &str) -> Result<AdminClient<DefaultClientContext>> {
-    ClientConfig::new()
-        .set("bootstrap.servers", kafka_hosts)
+    base_config(kafka_hosts)
         .create()
         .context("creating kafka admin client")
 }
@@ -157,8 +158,7 @@ fn read_to_end_blocking(
     topic: &str,
     deadline: Duration,
 ) -> Result<Vec<KafkaRecord>> {
-    let consumer: BaseConsumer = ClientConfig::new()
-        .set("bootstrap.servers", kafka_hosts)
+    let consumer: BaseConsumer = base_config(kafka_hosts)
         .set("group.id", "personhog-test-harness-reader")
         .set("enable.auto.commit", "false")
         .set("enable.partition.eof", "true")
