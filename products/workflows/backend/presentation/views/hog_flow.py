@@ -408,7 +408,6 @@ LISTED_ORIGIN_PRODUCTS: list[str] = [
 
 
 WORKFLOWS_LIST_V2_FLAG = "workflows-list-v2"
-WORKFLOWS_PROJECT_FILES_FLAG = "workflows-project-files"
 
 
 def _rolled_out_to(flag: str, user: User, team: Team) -> bool:
@@ -3720,14 +3719,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         validated = super().to_internal_value(data)
         # `_create_in_folder` is the file-system convention, but MCP tools drop underscore fields, so agents send `folder`.
         folder = validated.pop("folder", None)
-        request = self.context.get("request")
-        if (
-            folder
-            and self.instance is None
-            and not validated.get("_create_in_folder")
-            and request is not None
-            and _rolled_out_to(WORKFLOWS_PROJECT_FILES_FLAG, cast(User, request.user), self.context["get_team"]())
-        ):
+        if folder and self.instance is None and not validated.get("_create_in_folder"):
             validated["_create_in_folder"] = folder
         return validated
 
