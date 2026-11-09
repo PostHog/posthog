@@ -441,6 +441,13 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         [
             ("events", "events", True, False, 7000),
             ("join_to_an_unsized_table", "events e JOIN persons p ON p.id = e.person_id", True, False, None),
+            (
+                "self_join_that_also_reads_a_lazy_join",
+                "events JOIN (SELECT uuid AS u FROM events WHERE pdi.person.properties.plan = 'x') b ON events.uuid = b.u",
+                True,
+                False,
+                None,
+            ),
             ("missing_statistics", "events", False, False, None),
             ("statistics_failure", "events", True, True, None),
         ]

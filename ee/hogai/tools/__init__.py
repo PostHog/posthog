@@ -12,7 +12,7 @@ _TOOL_MODULES: dict[str, str] = {
     "CreateInsightTool": ".create_insight",
     "CreateNotebookTool": ".create_notebook",
     "ExecuteSQLMCPTool": ".execute_sql.mcp_tool",
-    "ExplainSQLMCPTool": ".explain_sql.mcp_tool",
+    "ExplainSQLMCPTool": "products.posthog_ai.backend.mcp_tools.explain_sql",
     "ExecuteSQLTool": ".execute_sql.tool",
     "ListDataTool": ".list_data",
     "ListFeatureFlagsTool": ".list_feature_flags",
@@ -66,13 +66,14 @@ def __getattr__(name: str) -> Any:
 
 
 if TYPE_CHECKING:
+    from products.posthog_ai.backend.mcp_tools.explain_sql import ExplainSQLMCPTool as ExplainSQLMCPTool
+
     from .call_mcp_server.tool import CallMCPServerTool as CallMCPServerTool
     from .create_form import CreateFormTool as CreateFormTool
     from .create_insight import CreateInsightTool as CreateInsightTool
     from .create_notebook import CreateNotebookTool as CreateNotebookTool
     from .execute_sql.mcp_tool import ExecuteSQLMCPTool as ExecuteSQLMCPTool
     from .execute_sql.tool import ExecuteSQLTool as ExecuteSQLTool
-    from .explain_sql.mcp_tool import ExplainSQLMCPTool as ExplainSQLMCPTool
     from .list_data import ListDataTool as ListDataTool
     from .list_feature_flags import ListFeatureFlagsTool as ListFeatureFlagsTool
     from .manage_memories import ManageMemoriesTool as ManageMemoriesTool

@@ -11,6 +11,7 @@ from posthog.schema import HogLanguage, HogQLMetadata
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.cost import estimate as estimate_module
 from posthog.hogql.cost.estimate import DEFAULT_RANGE_DAYS, ScanEstimate, TableScanEstimate, estimate_scan
 from posthog.hogql.cost.statistics import EventVolume, FixedStatisticsProvider
 from posthog.hogql.database.database import Database
@@ -271,6 +272,7 @@ class TestEstimateEventsScan(BaseTest):
                 "WITH x AS (SELECT count() AS c FROM events WHERE person_id IN (SELECT id FROM persons)) SELECT c FROM x",
                 False,
             ),
+            ("scalar_cte", "WITH (SELECT count() FROM persons) AS x SELECT x FROM events", False),
         ]
     )
     def test_a_subquery_outside_from_marks_the_estimate_incomplete(self, _name, sql, complete):
@@ -365,6 +367,21 @@ class TestEstimateEventsScan(BaseTest):
         five = self._estimate(chain(5))
         assert five is not None and len(five.tables) == 32
         assert self._estimate(chain(7)) is None
+
+    def test_a_chain_of_self_joined_ctes_without_a_table_is_walked_once_per_cte(self):
+        levels = 20
+        ctes = ["c0 AS (SELECT 1 AS x)"]
+        ctes += [
+            f"c{i} AS (SELECT a.x AS x FROM c{i - 1} a JOIN c{i - 1} b ON a.x = b.x)" for i in range(1, levels + 1)
+        ]
+        sql = f"WITH {', '.join(ctes)} SELECT count() FROM c{levels}"
+
+        with patch("posthog.hogql.cost.estimate._table_scans", wraps=estimate_module._table_scans) as walk:
+            estimate = self._estimate(sql)
+
+        assert estimate is not None and estimate.tables == ()
+        # Re-walking each reference would take 2^20 calls; the scan cap never trips because nothing is scanned.
+        assert walk.call_count <= levels + 2
 
     def test_a_query_with_no_table_has_an_empty_estimate(self):
         assert self._estimate("SELECT 1") == ScanEstimate(rows=0, upper_bound=False, tables=())

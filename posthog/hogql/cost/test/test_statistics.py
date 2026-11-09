@@ -3,7 +3,7 @@ from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.hogql.cost.statistics import (
     EVENT_VOLUME_WINDOW_DAYS,
+    LOOKUP_CONNECT_SECONDS,
     LOOKUP_MAX_EXECUTION_SECONDS,
     ClickHouseStatisticsProvider,
     EventVolume,
@@ -47,9 +48,21 @@ class TestLookupClient(SimpleTestCase):
             patch("posthog.hogql.cost.statistics.make_ch_pool") as make_pool,
         ):
             _lookup_client(1)
+            # make_ch_pool caches a pool per argument set, so the shrinking budget must not reach it as a fraction.
+            _lookup_client(1, 4.3)
+            _lookup_client(1, 4.7)
 
-        make_pool.assert_called_once_with(
-            credential_provider=creds.read_password, send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, user="app"
+        assert (
+            make_pool.call_args_list
+            == [
+                call(
+                    credential_provider=creds.read_password,
+                    send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS,
+                    connect_timeout=LOOKUP_CONNECT_SECONDS,
+                    user="app",
+                )
+            ]
+            * 3
         )
 
     @override_settings(CLICKHOUSE_USE_HTTP=True)
@@ -62,7 +75,12 @@ class TestLookupClient(SimpleTestCase):
             _lookup_client(1)
 
         http_client.assert_called_once_with(
-            send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, pool_mgr="own-pool", user="app", password="tok"
+            send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS,
+            connect_timeout=LOOKUP_CONNECT_SECONDS,
+            query_retries=0,
+            pool_mgr="own-pool",
+            user="app",
+            password="tok",
         )
 
 
@@ -254,6 +272,24 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
             assert ClickHouseStatisticsProvider(today=TODAY).daily_rows(self.team_id, "raw_sessions_v3") == 1.0
 
         assert timeouts == [LOOKUP_MAX_EXECUTION_SECONDS, 1, LOOKUP_MAX_EXECUTION_SECONDS]
+
+    def test_event_volume_cut_short_by_the_budget_is_asked_again(self):
+        cache.delete(f"hogql_cost:event_volume:{self.team_id}")
+        clock = [1000.0]
+
+        def slow_totals(sql: str, params: dict, **kwargs: Any) -> list[tuple]:
+            clock[0] += 4.6
+            return [(TODAY - timedelta(days=1), 7, 1)]
+
+        with (
+            patch("posthog.hogql.cost.statistics.time.monotonic", side_effect=lambda: clock[0]),
+            patch("posthog.hogql.cost.statistics._lookup_client"),
+            patch("posthog.hogql.cost.statistics.sync_execute", side_effect=slow_totals) as execute,
+        ):
+            assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None
+            assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None
+
+        assert execute.call_count == 2
 
     def test_table_rows_refuses_a_table_it_does_not_count(self):
         with patch("posthog.hogql.cost.statistics.sync_execute", wraps=sync_execute) as execute:

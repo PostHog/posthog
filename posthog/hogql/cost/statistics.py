@@ -72,6 +72,9 @@ LOOKUP_MAX_EXECUTION_SECONDS = 5
 # the query needs. A lookup that would get less than the minimum is not started, because it would time out.
 LOOKUP_BUDGET_SECONDS = 5
 LOOKUP_MIN_SECONDS = 0.5
+# Both drivers wait ten seconds for a connection by default, which alone is twice the budget when the offline
+# host drops connection attempts.
+LOOKUP_CONNECT_SECONDS = 1
 # Event names beyond the most common ones are folded into one remainder, so a team that sends many distinct
 # names does not put a huge map through the cache on every query.
 EVENT_VOLUME_MAX_EVENTS = 5_000
@@ -134,6 +137,10 @@ class StatisticsProvider(Protocol):
         ...
 
 
+class _LookupBudgetSpent(Exception):
+    pass
+
+
 @lru_cache(maxsize=1)
 def _lookup_http_pool_mgr() -> Any:
     """The shared HTTP pool blocks on a free slot with no deadline, so a lookup could wait behind unrelated
@@ -151,20 +158,30 @@ def _lookup_http_pool_mgr() -> Any:
 
 
 def _lookup_client(team_id: int, timeout: float = LOOKUP_MAX_EXECUTION_SECONDS) -> AbstractContextManager[Any]:
-    """A client whose socket waits are bounded, so a node that accepts a lookup and stops answering holds the
-    request for seconds, not forever. ``max_execution_time`` bounds the server only; the shared pools wait on
-    the socket without limit. Built the way ``get_pool`` builds the shared one, so a file-backed user keeps
-    its rotating token."""
+    """A client whose connect and socket waits are bounded, so a node that drops or accepts a lookup and stops
+    answering holds the request for seconds, not forever. ``max_execution_time`` bounds the server only; the
+    shared pools wait on the socket without limit. Built the way ``get_pool`` builds the shared one, so a
+    file-backed user keeps its rotating token."""
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         kwargs = get_http_kwargs(workload=Workload.OFFLINE, team_id=team_id, readonly=True)
-        return get_http_client(send_receive_timeout=timeout, pool_mgr=_lookup_http_pool_mgr(), **kwargs)
+        return get_http_client(
+            send_receive_timeout=timeout,
+            connect_timeout=min(LOOKUP_CONNECT_SECONDS, timeout),
+            # A retry would start a second wait after the first one used the budget.
+            query_retries=0,
+            pool_mgr=_lookup_http_pool_mgr(),
+            **kwargs,
+        )
     kwargs = get_kwargs_for_client(workload=Workload.OFFLINE, team_id=team_id, readonly=True)
+    # make_ch_pool caches one pool per distinct argument set for the life of the process. Whole seconds keep
+    # the remaining budget to a few keys; a fractional timeout would leak a new pool on every lookup.
+    timeouts = {"send_receive_timeout": math.ceil(timeout), "connect_timeout": LOOKUP_CONNECT_SECONDS}
     creds = connection_creds(Workload.OFFLINE, ClickHouseUser.DEFAULT)
     if creds is not None and is_file_backed_user(creds, kwargs.get("user")):
         kwargs.pop("password", None)
-        pool = make_ch_pool(credential_provider=creds.read_password, send_receive_timeout=timeout, **kwargs)
+        pool = make_ch_pool(credential_provider=creds.read_password, **timeouts, **kwargs)
     else:
-        pool = make_ch_pool(send_receive_timeout=timeout, **kwargs)
+        pool = make_ch_pool(**timeouts, **kwargs)
     return pool.get_client()
 
 
@@ -318,7 +335,11 @@ class ClickHouseStatisticsProvider:
         timeout = self._lookup_seconds()
         if timeout is None:
             return None
-        volume = self._query_event_volume(team_id, timeout)
+        try:
+            volume = self._query_event_volume(team_id, timeout)
+        except _LookupBudgetSpent:
+            # The event-name lookup never ran, so the team's statistics are unknown, not missing.
+            return None
         if volume is None:
             cache.set(cache_key, _NOTHING, timeout=LOOKUP_RETRY_SECONDS)
         else:
@@ -366,7 +387,7 @@ class ClickHouseStatisticsProvider:
                     return None
                 second_timeout = self._lookup_seconds()
                 if second_timeout is None:
-                    return None
+                    raise _LookupBudgetSpent
                 timeout = second_timeout
                 # nosemgrep: clickhouse-fstring-param-audit - the f-string only interpolates a module constant table name; team_id, the dates and the limit are bound as parameters
                 rows = sync_execute(
@@ -385,6 +406,8 @@ class ClickHouseStatisticsProvider:
                     readonly=True,
                     sync_client=_lookup_client(team_id, timeout),
                 )
+        except _LookupBudgetSpent:
+            raise
         except Exception:
             # Statistics are advisory. Log and let the estimator run without them.
             logger.warning("hogql_cost_event_volume_unavailable", team_id=team_id, exc_info=True)

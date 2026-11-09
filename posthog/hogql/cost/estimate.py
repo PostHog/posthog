@@ -65,11 +65,14 @@ class _TooManyScans(Exception):
 class _ScanBudget:
     def __init__(self, limit: int = MAX_SCANS) -> None:
         self.remaining = limit
+        # Each subquery is walked once, keyed by node identity. A CTE that reads no table charges nothing, so
+        # without this a chain of such CTEs that each join the previous one twice is re-walked exponentially.
+        self.walked: dict[int, list[_EventsScan | _SessionsScan | _OtherScan] | None] = {}
 
-    def take(self) -> None:
-        if self.remaining <= 0:
+    def take(self, count: int = 1) -> None:
+        if self.remaining < count:
             raise _TooManyScans
-        self.remaining -= 1
+        self.remaining -= count
 
 
 # A team's retention rarely exceeds this, and a query with no timestamp bound reads whatever exists.
@@ -245,7 +248,10 @@ class _SubqueryOutsideFromFinder(TraversingVisitor):
             if name not in ("type", "select_from", "ctes") and _holds_select_in(value):
                 self.found = True
         # A CTE body is a select of its own, with its own clauses to check, whether or not FROM refers to it.
+        # A scalar CTE, as in ``WITH (SELECT ...) AS x``, is used as a value, so FROM never reads it.
         for cte in (node.ctes or {}).values():
+            if cte.cte_type != "subquery" and _holds_select_in(cte.expr):
+                self.found = True
             self.visit(cte.expr)
         if node.select_from is not None:
             self.visit(node.select_from)
@@ -303,6 +309,32 @@ class _JoinFinder(TraversingVisitor):
         if node.next_join is not None:
             self.found = True
         super().visit_join_expr(node)
+
+
+def reads_lazy_join(node: ast.Expr) -> bool:
+    """Whether a resolved query reads a field through a lazy join, such as ``pdi.person.properties``. The printer
+    adds a join for each one, and the estimate counts none of them."""
+    return _LazyJoinFinder.found_in(node)
+
+
+class _LazyJoinFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    @classmethod
+    def found_in(cls, node: ast.Expr) -> bool:
+        finder = cls()
+        finder.visit(node)
+        return finder.found
+
+    def visit_field_type(self, node: ast.FieldType) -> None:
+        table_type: ast.Type | None = node.table_type
+        while isinstance(table_type, ast.TableAliasType | ast.VirtualTableType | ast.LazyJoinType):
+            if isinstance(table_type, ast.LazyJoinType):
+                self.found = True
+                return
+            table_type = table_type.table_type
 
 
 def _estimate_events_scan(
@@ -537,7 +569,13 @@ def _table_scans(
             else:
                 scans.append(_OtherScan(name=name, table=source.table))
         else:
-            inner = _table_scans(source, now, context, ctes, budget)
+            if id(source) in budget.walked:
+                inner = budget.walked[id(source)]
+                if inner is not None:
+                    budget.take(len(inner))
+            else:
+                inner = _table_scans(source, now, context, ctes, budget)
+                budget.walked[id(source)] = inner
             if inner is None:
                 return None
             scans.extend(inner)

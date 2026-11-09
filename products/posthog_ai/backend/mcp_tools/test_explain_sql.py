@@ -4,9 +4,10 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.hogql.cost.statistics import EventVolume, FixedStatisticsProvider
+from products.posthog_ai.backend.mcp_tools.explain_sql import ExplainSQLMCPTool, ExplainSQLMCPToolArgs
+
 
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
-from ee.hogai.tools.explain_sql.mcp_tool import ExplainSQLMCPTool, ExplainSQLMCPToolArgs
 
 
 class TestExplainSQLMCPTool(NonAtomicBaseTest):
@@ -66,7 +67,7 @@ class TestExplainSQLMCPTool(NonAtomicBaseTest):
         assert "event names" not in result.content
 
     async def test_denies_a_member_without_query_access(self):
-        with patch("ee.hogai.tools.explain_sql.mcp_tool.UserAccessControl") as access_control:
+        with patch("products.posthog_ai.backend.mcp_tools.explain_sql.UserAccessControl") as access_control:
             access_control.return_value.check_access_level_for_resource.return_value = False
             with self.assertRaises(MaxToolAccessDeniedError):
                 await self.tool.execute(ExplainSQLMCPToolArgs(query="SELECT count() FROM events"))

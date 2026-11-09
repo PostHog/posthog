@@ -30,7 +30,7 @@ from posthog.hogql.constants import (
     get_default_hogql_global_settings,
     get_default_limit_for_context,
 )
-from posthog.hogql.cost.estimate import estimate_scan
+from posthog.hogql.cost.estimate import estimate_scan, reads_lazy_join
 from posthog.hogql.cost.fingerprint import fingerprint_query
 from posthog.hogql.cost.statistics import ClickHouseStatisticsProvider, StatisticsProvider
 from posthog.hogql.database.database import Database
@@ -741,18 +741,22 @@ class HogQLQueryExecutor:
                 resolved = resolve_types(clone_expr(self.select_query), context, dialect="clickhouse")
                 estimate = estimate_scan(resolved, context, self.statistics_provider)
                 # ``read_rows`` covers every table the query touched, so a total that leaves a table out would
-                # be scored against a number it never tried to predict. A join in the printed SQL that the
-                # estimate did not see is a lazy join the printer added, such as person properties read from
-                # the persons table.
+                # be scored against a number it never tried to predict. The printer adds a join for each lazy
+                # join, such as person properties read from the persons table, and the estimate counts none of
+                # them. A join in the printed SQL of a query with no join of its own is one the printer added.
                 if estimate is None or not estimate.complete or not estimate.tables:
                     return None
                 if any(table.precision != "measured" for table in estimate.tables):
+                    return None
+                if reads_lazy_join(resolved):
                     return None
                 if self.clickhouse_sql is not None and "JOIN" in self.clickhouse_sql and not estimate.has_join:
                     return None
                 return estimate.rows
         except Exception:
-            # Advisory statistics must not prevent an otherwise valid query from running.
+            # Advisory statistics must not prevent an otherwise valid query from running. A failure removes the
+            # query from accuracy scoring, so it is logged to tell a broken estimator from missing statistics.
+            logger.warning("hogql_scan_estimate_failed", team_id=self.team.pk, exc_info=True)
             return None
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_sql_query")
