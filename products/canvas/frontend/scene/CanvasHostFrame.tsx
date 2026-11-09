@@ -23,6 +23,7 @@ export interface CanvasHostFrameProps {
     buildId: string | null
     draftSource: CanvasSourceProjectApi | null
     sandboxDocumentUrl: string | null
+    frameDocumentUrl: string | null
 }
 
 /** One rendered canvas, a build or a draft, wired to the host bridge, runtime errors, and comments. */
@@ -33,6 +34,7 @@ export function CanvasHostFrame({
     buildId,
     draftSource,
     sandboxDocumentUrl,
+    frameDocumentUrl,
 }: CanvasHostFrameProps): JSX.Element | null {
     const hostLogic = useMountedLogic(canvasHostLogic(hostProps))
     const { navigate, openExternal, canvasRendered, canvasErrored } = useActions(hostLogic)
@@ -77,6 +79,7 @@ export function CanvasHostFrame({
             <BuiltCanvas
                 key={buildId ?? artifactUrl}
                 artifactUrl={artifactUrl}
+                frameDocumentUrl={frameDocumentUrl}
                 capabilities={capabilities}
                 {...shared}
             />
@@ -86,6 +89,7 @@ export function CanvasHostFrame({
         return (
             <DraftCanvas
                 documentUrl={sandboxDocumentUrl}
+                frameDocumentUrl={frameDocumentUrl}
                 capabilities={draftSource.capabilities}
                 files={draftSource.files}
                 entry="src/canvas.tsx"

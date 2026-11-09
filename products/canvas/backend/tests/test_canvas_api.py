@@ -1109,6 +1109,9 @@ class TestCanvasViewEndpoint(CanvasAPIBaseTest):
         assert re.fullmatch(
             r"http://localhost:8010/canvas-artifacts/sandbox/[0-9a-f]{64}/index\.html", body["sandbox_document_url"]
         )
+        assert re.fullmatch(
+            r"http://localhost:8010/canvas-artifacts/frame/[0-9a-f]{64}/index\.html", body["frame_document_url"]
+        )
 
     def test_view_after_build_returns_artifact_url_and_omits_source(self):
         canvas_id = self._create_canvas()

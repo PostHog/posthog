@@ -1,4 +1,14 @@
-import { CANVAS_CHANNEL } from './canvasProtocol'
+import { CANVAS_CHANNEL, CanvasTheme } from './canvasProtocol'
+
+/**
+ * The wrapper document URL that frames `documentUrl`. The wrapper reads the canvas URL and the
+ * first-paint theme from its fragment, which never reaches the server.
+ */
+export function wrappedCanvasUrl(frameDocumentUrl: string, documentUrl: string, theme: CanvasTheme): string {
+    const url = new URL(frameDocumentUrl)
+    url.hash = new URLSearchParams({ src: documentUrl, theme }).toString()
+    return url.href
+}
 
 /** A port belongs to one document, unlike an iframe's WindowProxy. */
 export class CanvasDocumentBridge {
@@ -11,10 +21,17 @@ export class CanvasDocumentBridge {
         private readonly onConnect: () => void
     ) {
         iframe.addEventListener('load', this.onLoad)
+        window.addEventListener('message', this.onWindowMessage)
     }
 
     post = (message: unknown): void => {
         this.port?.postMessage(message)
+    }
+
+    /** The wrapper document paints its frame in this theme. Only call it when the iframe holds the wrapper. */
+    setWrapperTheme = (theme: CanvasTheme): void => {
+        // nosemgrep: wildcard-postmessage-configuration -- Opaque sandbox origin; the message carries only the theme.
+        this.iframe.contentWindow?.postMessage({ channel: CANVAS_CHANNEL, type: 'set-theme', theme }, '*')
     }
 
     private onLoad = (): void => {
@@ -32,8 +49,22 @@ export class CanvasDocumentBridge {
         this.onConnect()
     }
 
+    // The wrapper document loads once, so the iframe's load event cannot show that the canvas frame
+    // inside it navigated. The wrapper reports that with a "navigated" message instead.
+    private onWindowMessage = (event: MessageEvent): void => {
+        if (
+            event.source === this.iframe.contentWindow &&
+            event.data?.channel === CANVAS_CHANNEL &&
+            event.data?.type === 'navigated'
+        ) {
+            this.port?.close()
+            this.port = null
+        }
+    }
+
     close = (): void => {
         this.iframe.removeEventListener('load', this.onLoad)
+        window.removeEventListener('message', this.onWindowMessage)
         this.port?.close()
         this.port = null
     }

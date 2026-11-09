@@ -11,7 +11,9 @@ from products.canvas.backend.artifacts import (
     ARTIFACT_PERMISSIONS_POLICY as ARTIFACT_PERMISSIONS_POLICY,
     artifact_delivery_origin as artifact_delivery_origin,
     canvas_artifact as _canvas_artifact,
+    canvas_frame_document as _canvas_frame_document,
     canvas_sandbox_document as _canvas_sandbox_document,
+    create_canvas_frame_document_url as create_canvas_frame_document_url,
     create_canvas_sandbox_document_url as create_canvas_sandbox_document_url,
     require_artifact_host as require_artifact_host,
 )
@@ -121,6 +123,21 @@ def render_canvas_sandbox_document(*, host: str, content_hash: str) -> CanvasArt
     request.META["HTTP_HOST"] = host
     try:
         response = _canvas_sandbox_document(request, content_hash)
+    except Http404:
+        return None
+    return CanvasArtifact(
+        status_code=response.status_code,
+        body=response.content,
+        headers=dict(response.items()),
+    )
+
+
+def render_canvas_frame_document(*, host: str, content_hash: str) -> CanvasArtifact | None:
+    """The canvas frame wrapper document for `content_hash`, or None when this host or hash serves none."""
+    request = HttpRequest()
+    request.META["HTTP_HOST"] = host
+    try:
+        response = _canvas_frame_document(request, content_hash)
     except Http404:
         return None
     return CanvasArtifact(

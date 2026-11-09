@@ -49,6 +49,7 @@ function viewResponse(overrides: Partial<CanvasApi> = {}): CanvasViewResponseApi
         source: null,
         layout: null,
         sandbox_document_url: null,
+        frame_document_url: null,
     }
 }
 

@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { CanvasCapabilitiesApi } from '../generated/api.schemas'
 import { translateCanvasRect, translateCanvasTextSelection } from '../sidePanel/comments/canvasCommentThreads'
 import { assertCanvasCapability } from './canvasCapabilities'
-import { CanvasDocumentBridge } from './canvasDocumentBridge'
+import { CanvasDocumentBridge, wrappedCanvasUrl } from './canvasDocumentBridge'
 import { CanvasHostCallbacks, createCanvasHostMessageRouter } from './canvasHostMessageRouter'
 import {
     CANVAS_CHANNEL,
@@ -16,6 +16,8 @@ import {
 export interface DraftCanvasProps extends CanvasHostCallbacks {
     /** The sandbox bootstrap document on the artifact origin. */
     documentUrl: string
+    /** The wrapper document on the artifact origin. When set, the sandbox document renders inside it. */
+    frameDocumentUrl?: string | null
     capabilities: CanvasCapabilitiesApi | null | undefined
     files: Record<string, string>
     entry: string
@@ -30,12 +32,14 @@ export interface DraftCanvasProps extends CanvasHostCallbacks {
 
 /**
  * Renders unbuilt source in the sandbox document, which transpiles it in the browser.
- * The document loads by URL, not as srcdoc, because a srcdoc frame inherits the web
- * app's CSP. The source arrives over a document-bound port after the first load.
+ * The document loads by URL, directly or inside the wrapper document, not as srcdoc,
+ * because a srcdoc frame inherits the web app's CSP. The source arrives over a
+ * document-bound port after the first load.
  * Every data request must be declared by the source project.
  */
 export function DraftCanvas({
     documentUrl,
+    frameDocumentUrl,
     capabilities,
     files,
     entry,
@@ -49,6 +53,11 @@ export function DraftCanvas({
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const bridgeRef = useRef<CanvasDocumentBridge | null>(null)
     const readyRef = useRef(false)
+    // Only the wrapper's fragment carries the theme, so a later theme change must not change the src.
+    const initialTheme = useRef(theme).current
+    const src = frameDocumentUrl
+        ? wrappedCanvasUrl(frameDocumentUrl, `${documentUrl}#bridge=port`, initialTheme)
+        : `${documentUrl}#bridge=port`
     const latest = useRef({
         capabilities,
         files,
@@ -133,7 +142,7 @@ export function DraftCanvas({
             bridgeRef.current = null
         }
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new document needs a fresh listener and ready flag
-    }, [documentUrl])
+    }, [src])
 
     // A new init remounts the canvas app, so only a code change sends one.
     useEffect(() => {
@@ -147,8 +156,11 @@ export function DraftCanvas({
         if (readyRef.current) {
             post({ channel: CANVAS_CHANNEL, type: 'set-theme', theme })
         }
+        if (frameDocumentUrl) {
+            bridgeRef.current?.setWrapperTheme(theme)
+        }
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- post is stable in behavior
-    }, [theme])
+    }, [theme, frameDocumentUrl])
 
     useEffect(() => {
         if (readyRef.current) {
@@ -166,13 +178,13 @@ export function DraftCanvas({
 
     return (
         <iframe
-            key={documentUrl}
+            key={src}
             ref={iframeRef}
             title="Canvas draft"
             // allow-scripts without allow-same-origin keeps the sandbox in an opaque origin.
             // Do not add allow-popups or allow-same-origin.
             sandbox="allow-scripts"
-            src={`${documentUrl}#bridge=port`}
+            src={src}
             referrerPolicy="no-referrer"
             // Without a matching color-scheme the browser paints the frame white before init lands.
             style={{ colorScheme: theme }}

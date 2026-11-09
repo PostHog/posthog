@@ -298,18 +298,17 @@ class TestCanvasSandboxDocument(SimpleTestCase):
         self.assertNotIn("Content-Security-Policy-Report-Only", response)
         csp = [part.strip() for part in response["Content-Security-Policy"].split(";")]
         self.assertIn("sandbox allow-scripts", csp)
-        self.assertIn("frame-ancestors https://app.example https://posthog.com https://preview.posthog.com", csp)
         self.assertIn("default-src 'none'", csp)
         self.assertTrue(any(part.startswith("script-src ") and "https://esm.sh" in part for part in csp))
         for name, directive in {
             "sandbox": "sandbox allow-scripts",
-            "frame-ancestors": "frame-ancestors https://app.example https://posthog.com https://preview.posthog.com",
             "img-src": "img-src data: blob:",
             "form-action": "form-action 'none'",
             "base-uri": "base-uri 'none'",
             "object-src": "object-src 'none'",
         }.items():
             self.assertEqual([part for part in csp if part.split()[0] == name], [directive])
+        self.assertFalse(any(part.startswith("frame-ancestors") for part in csp))
 
     def test_unknown_content_hash_404s(self) -> None:
         response = self.client.get(f"/canvas-artifacts/sandbox/{'0' * 64}/index.html", HTTP_HOST="usercontent.example")

@@ -18,6 +18,7 @@ import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
@@ -183,6 +184,7 @@ export interface canvasSceneLogicValues {
     makePublicOpen: boolean
     runtimeError: string | null
     sandboxDocumentUrl: string | null
+    frameDocumentUrl: string | null
     shouldPoll: boolean
     sidePanelAvailable: boolean
     sidePanelContext: SidePanelSceneContext
@@ -383,6 +385,7 @@ export interface canvasSceneLogicMeta {
         visibility: (canvas: CanvasApi | null, space: CanvasSpace | null) => CanvasVisibility | null
         isCreator: (canvas: CanvasApi | null, user: UserType | null) => boolean
         sandboxDocumentUrl: (view: CanvasViewResponseApi | null) => string | null
+        frameDocumentUrl: (view: CanvasViewResponseApi | null, featureFlags: FeatureFlagsSet) => string | null
         liveBuild: (view: CanvasViewResponseApi | null) => CanvasBuildApi | null
         draftCode: (view: CanvasViewResponseApi | null) => string | null
         liveRenderSource: (liveBuild: CanvasBuildApi | null, view: CanvasViewResponseApi | null) => CanvasRenderSource
@@ -671,6 +674,11 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         sandboxDocumentUrl: [
             (s) => [s.view],
             (view: CanvasViewResponseApi | null): string | null => view?.sandbox_document_url ?? null,
+        ],
+        frameDocumentUrl: [
+            (s) => [s.view, featureFlagLogic.selectors.featureFlags],
+            (view: CanvasViewResponseApi | null, featureFlags: FeatureFlagsSet): string | null =>
+                featureFlags[FEATURE_FLAGS.CANVAS_FRAME_WRAPPER] ? (view?.frame_document_url ?? null) : null,
         ],
         liveBuild: [
             (s) => [s.view],

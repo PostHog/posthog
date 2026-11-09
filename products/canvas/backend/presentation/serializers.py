@@ -1060,6 +1060,15 @@ class CanvasViewResponseSerializer(serializers.Serializer):
             "the artifact origin. Load it by URL, not as srcdoc. Null when artifact delivery is unavailable."
         ),
     )
+    frame_document_url = serializers.CharField(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "URL of the wrapper document, on the artifact origin, that frames a built canvas or the sandbox "
+            "document. Put the canvas URL in its fragment as `src`, and optionally `theme`. "
+            "Null when artifact delivery is unavailable."
+        ),
+    )
 
 
 class CanvasLayoutWithComponentsResponseSerializer(CanvasLayoutResponseSerializer):

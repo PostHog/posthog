@@ -39,10 +39,12 @@ from products.canvas.backend.facade.api import (
     canvas_actions_disabled,
     canvas_connectors_enabled,
     connector_listings,
+    create_canvas_frame_document_url,
     create_canvas_sandbox_document_url,
     has_errors,
     native_connector_listings,
     render_canvas_artifact,
+    render_canvas_frame_document,
     render_canvas_sandbox_document,
     subtract_preexisting_diagnostics,
     validate_layout,
@@ -140,6 +142,17 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
 @xframe_options_exempt
 def canvas_sandbox_document(request: HttpRequest, content_hash: str) -> HttpResponse:
     result = render_canvas_sandbox_document(host=request.get_host(), content_hash=content_hash)
+    if result is None:
+        raise Http404
+    response = HttpResponse(result.body, status=result.status_code)
+    for name, value in result.headers.items():
+        response[name] = value
+    return response
+
+
+@xframe_options_exempt
+def canvas_frame_document(request: HttpRequest, content_hash: str) -> HttpResponse:
+    result = render_canvas_frame_document(host=request.get_host(), content_hash=content_hash)
     if result is None:
         raise Http404
     response = HttpResponse(result.body, status=result.status_code)
@@ -711,6 +724,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             "source": opened.source,
             "layout": opened.layout,
             "sandbox_document_url": create_canvas_sandbox_document_url(),
+            "frame_document_url": create_canvas_frame_document_url(),
         }
         if opened.component_lifecycles is not None:
             instance["component_lifecycles"] = opened.component_lifecycles
