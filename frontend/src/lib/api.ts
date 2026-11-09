@@ -796,10 +796,6 @@ export class ApiRequest {
         return this.events(teamId).addPathComponent(id)
     }
 
-    public tags(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('tags')
-    }
-
     // # Logs
     public logs(projectId?: ProjectType['id']): ApiRequest {
         return this.teamProjectDetail(projectId).addPathComponent('logs')
@@ -3021,12 +3017,6 @@ const api = {
         ): string {
             const params: EventsListQueryParams = { ...filters, limit }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
-        },
-    },
-
-    tags: {
-        async list(projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()): Promise<string[]> {
-            return new ApiRequest().tags(projectId).get()
         },
     },
 

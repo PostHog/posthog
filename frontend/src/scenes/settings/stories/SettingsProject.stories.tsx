@@ -42,8 +42,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     personal_github_connected: false,
                 },
                 '/api/users/@me/integrations/github/install_requests/': { results: [], install_url: null },
-                // The tags field autocompletes from this; unmocked, its error toast lands in the snapshot.
-                '/api/projects/:id/tags': ['eu-region', 'production'],
+                '/api/projects/:id/tags': { results: ['eu-region', 'production'], next: null, count: 2 },
             },
             patch: {
                 // bounce the setting back as is. `updateCurrentTeam` patches the environment for
