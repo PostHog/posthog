@@ -1213,7 +1213,11 @@ class TestAdminConsoleViews(BaseTest):
         with time_machine.travel(now, tick=False):
             live = self.client.get(
                 "/admin/console/tools/recording-deletions/live/runs/",
-                {"team": self.team.pk, "started": workflow_id, "started_at": int(now.timestamp()) - seconds_ago},
+                {
+                    "team": str(self.team.pk),
+                    "started": workflow_id,
+                    "started_at": str(int(now.timestamp()) - seconds_ago),
+                },
             ).content.decode()
 
         assert ("data-refresh-seconds" in live) == refreshes
