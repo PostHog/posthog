@@ -100,8 +100,6 @@ export interface CyclotronV2DequeuedJob {
     ack(): Promise<void>
     fail(): Promise<void>
     reschedule(options?: CyclotronV2RescheduleOptions): Promise<void>
-    // Unlike reschedule() it keeps janitor_touch_count, so a job that keeps killing workers is still poisoned. An email
-    // job goes to the back of its team's turn.
     defer(options: { scheduledAt: Date }): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
