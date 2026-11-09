@@ -6,8 +6,9 @@ from ..message_normalizer.run_limits import check_time_limit
 
 _TOKENS_PER_CLOCK_CHECK: Final = 10_000
 
-# A JSON string, which is skipped, or a JSON number literal.
-_JSON_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?', re.ASCII)
+# A JSON string, which is skipped, or a JSON number literal. The string loop is possessive because a backtracking
+# loop keeps one stack entry per character of the string.
+_JSON_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*+"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?', re.ASCII)
 _DECIMAL = re.compile(r"(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?", re.ASCII)
 
 

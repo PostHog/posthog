@@ -1,3 +1,4 @@
+import tracemalloc
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import Any
@@ -19,7 +20,7 @@ from products.ai_observability.backend.logic.message_normalizer.errors import (
 )
 from products.ai_observability.backend.logic.message_normalizer.normalizer import RecipeNormalizer
 from products.ai_observability.backend.logic.message_normalizer.run_limits import time_limit
-from products.ai_observability.backend.logic.traces.step_messages import ToolValueNestingError, to_messages
+from products.ai_observability.backend.logic.traces.step_messages import UnrenderableToolValueError, to_messages
 
 TEAM_ID = 7
 
@@ -347,7 +348,15 @@ def test_message_ids_count_skipped_engine_messages():
 DEEPLY_NESTED = "[" * 100_000
 
 
-@parameterized.expand([("deeply_nested", DEEPLY_NESTED), ("overflowing_number", '{"limit": 1e400}')])
+@parameterized.expand(
+    [
+        ("deeply_nested", DEEPLY_NESTED),
+        ("overflowing_number", '{"limit": 1e400}'),
+        ("integer_past_64_bits", '{"n": 100000000000000000000}'),
+        ("lone_surrogate", '{"text": "\\ud800"}'),
+        ("lone_surrogate_in_a_key", '{"\\udfff": 1}'),
+    ]
+)
 def test_a_tool_call_argument_that_would_not_survive_parsing_stays_its_raw_text(_name, arguments):
     compat: list[Any] = [
         {
@@ -388,11 +397,33 @@ def nested_lists(depth: int) -> Any:
                 {"role": "tool", "tool_call_id": "c", "content": nested_lists(201)},
             ],
         ),
+        (
+            "integer_past_64_bits",
+            [{"role": "assistant", "content": "", "tool_calls": [{"function": {"arguments": {"n": 10**20}}}]}],
+        ),
+        (
+            "lone_surrogate",
+            [{"role": "assistant", "content": "", "tool_calls": [{"function": {"arguments": {"text": "\ud800"}}}]}],
+        ),
     ]
 )
-def test_an_already_parsed_tool_value_past_the_nesting_bound_fails_the_side(_name, compat):
-    with pytest.raises(ToolValueNestingError):
+def test_an_already_parsed_tool_value_the_response_cannot_hold_fails_the_side(_name, compat):
+    with pytest.raises(UnrenderableToolValueError):
         to_messages(compat, id_prefix="out", source_node_id=None, team_id=TEAM_ID)
+
+
+def test_a_tool_result_with_a_multi_megabyte_string_parses_in_bounded_memory():
+    content = '{"log": "' + "x" * 5_000_000 + '"}'
+
+    tracemalloc.start()
+    try:
+        [message] = to_messages(call_then_result(content), id_prefix="out", source_node_id=None, team_id=TEAM_ID)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert message.parts[0].result == {"log": "x" * 5_000_000}
+    assert peak < 4 * len(content)
 
 
 def test_a_tool_result_longer_than_the_parse_cap_stays_its_raw_text():
