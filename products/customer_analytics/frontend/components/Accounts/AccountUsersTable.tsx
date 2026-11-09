@@ -62,6 +62,8 @@ export function AccountUsersTable({
             columns: {
                 [IMPERSONATE_COLUMN]: {
                     title: 'Actions',
+                    // A numeric 0 is falsy, so DataTable would ignore it and let the button stretch.
+                    width: '0',
                     render: ({ value }) => (
                         <ImpersonateButton externalId={externalId} distinctIds={(value as string[] | null) ?? []} />
                     ),
