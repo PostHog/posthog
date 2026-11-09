@@ -308,6 +308,7 @@ def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> Pl
         owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
         recurrence_unit=c.recurrence_unit,
         anchor_time=c.anchor_time,
+        created_by_id=c.created_by_id,
     )
 
 
@@ -734,6 +735,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             # A source's snooze mutes the whole alert. State is left alone because a muted alert
             # keeps tracking reality.
             "snooze_until": upsert.snooze_until,
+            "created_by_id": upsert.created_by_id,
         }
         if (
             existing is None
@@ -819,6 +821,9 @@ def write_edit(
     if reenabled:
         configuration.next_check_at = now + _REVIVE_FENCE
         update_fields.append("next_check_at")
+        if configuration.first_enabled_at is None:
+            configuration.first_enabled_at = now
+            update_fields.append("first_enabled_at")
     _assign_edit(configuration, edit)
     configuration.save(update_fields=update_fields)
 
@@ -830,6 +835,7 @@ def create_native_configuration(
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
     destinations_owner: PlatformAlertOwner,
+    created_by_id: int | None,
     now: datetime,
 ) -> PlatformAlertConfiguration:
     """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
@@ -840,6 +846,8 @@ def create_native_configuration(
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,
         destinations_owner=destinations_owner,
+        created_by_id=created_by_id,
+        first_enabled_at=now if edit.enabled else None,
     )
     _assign_edit(configuration, edit)
     # The model's own save logs the creation.
@@ -971,6 +979,7 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
         datapoints_to_alarm=upsert.datapoints_to_alarm,
         cooldown_minutes=upsert.cooldown_minutes,
         schedule_restriction=upsert.schedule_restriction,
+        created_by_id=upsert.created_by_id,
         # `update()` skips `auto_now`.
         updated_at=django_timezone.now(),
     )
