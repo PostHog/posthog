@@ -40,7 +40,7 @@ class SlackSettingsAdmin(admin.ModelAdmin):
     def onboarding_status(self, obj: SlackSettings) -> str:
         return onboarding_status_label(obj.onboarding)
 
-    @admin.action(description="Reset onboarding (a new thread and work focus on the next trigger)")
+    @admin.action(description="Reset onboarding (a new thread on the next trigger)")
     def reset_onboarding(self, request: HttpRequest, queryset: QuerySet[SlackSettings]) -> None:
         count = reset_onboarding(list(queryset.values_list("id", flat=True)))
         self.message_user(request, f"Reset the onboarding of {count} {'person' if count == 1 else 'people'}.")

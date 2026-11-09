@@ -320,8 +320,8 @@ def update_onboarding(
 
 
 def reset_onboarding(settings_ids: list[UUID]) -> int:
-    """Forget the onboarding of these settings rows, so each person gets a new thread and work focus on their next
-    trigger. Returns how many rows had an onboarding to forget."""
+    """Forget the onboarding of these settings rows, so each person gets a new thread on their next trigger, and a new
+    work focus the next time they link their account. Returns how many rows had an onboarding to forget."""
     from products.slack_app.backend.models import SlackSettings
 
     return SlackSettings.objects.filter(id__in=settings_ids, onboarding__isnull=False).update(
@@ -332,7 +332,8 @@ def reset_onboarding(settings_ids: list[UUID]) -> int:
 def onboarding_status_label(stored: object) -> str:
     """One short line for staff tools: where the person's onboarding stands."""
     state = parse_onboarding(stored)
-    if state is None:
+    # The work focus stores its outcome in the same field, which is not an onboarding that started.
+    if state is None or (state.started_at is None and state.root_ts is None):
         return "Not started"
     if state.completed:
         return "Nothing to set up" if state.completed_reason == "nothing_to_set_up" else "Done"
