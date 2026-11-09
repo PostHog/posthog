@@ -21,7 +21,6 @@ import {
 import type { PulsePinApi } from 'products/today/frontend/generated/api.schemas'
 
 import { PULSE_TILES, pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
-import { TodayPulseHiddenNumbers } from './TodayPulseHiddenNumbers'
 import {
     EditorGroup,
     changedKey,
@@ -30,6 +29,7 @@ import {
     suggestionsOnHome,
     withoutKeys,
 } from './todayPulseEditorRows'
+import { TodayPulseHiddenNumbers } from './TodayPulseHiddenNumbers'
 
 export function TodayPulseEditor(): JSX.Element {
     const {
