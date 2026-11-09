@@ -16,9 +16,10 @@ from posthog.schema import HogQLQueryModifiers
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import HogQLQueryExecutor
 
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload, get_pool
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -32,6 +33,9 @@ MAX_BYTES_TO_READ: Final = 5 * 1024**3
 _ENTRY_SPAN: Final = "(is_root_span = 1 OR kind IN (2, 5))"
 _ERROR: Final = "status_code = 2"
 _NANOS_PER_MILLISECOND: Final = 1_000_000
+# How long past the server's execution limit a socket read may wait, so a stalled connection fails
+# rather than holding a worker thread after the evaluation activity has timed out.
+_TRANSPORT_MARGIN_SECONDS: Final = 5
 
 
 @frozen
@@ -204,8 +208,7 @@ def run_check_query(
         alert_config_id=configuration_id,
         team_id=str(team.id),
     )
-    started = time.monotonic()
-    response = execute_hogql_query(
+    sql, context = HogQLQueryExecutor(
         query_type="traces_alert_check",
         query=build_check_query(
             team,
@@ -218,7 +221,6 @@ def run_check_query(
         ),
         team=team,
         workload=Workload.LOGS,
-        ch_user=ClickHouseUser.ALERTS_PLATFORM_TRACES,
         # Throw rather than break: a partial read could resolve an alert that is breaching.
         settings=HogQLGlobalSettings(
             max_execution_time=max_execution_time,
@@ -228,12 +230,22 @@ def run_check_query(
         ),
         limit_context=LimitContext.QUERY,
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+    ).generate_clickhouse_sql()
+    pool = get_pool(
+        workload=Workload.LOGS,
+        ch_user=ClickHouseUser.ALERTS_PLATFORM_TRACES,
+        send_receive_timeout=max_execution_time + _TRANSPORT_MARGIN_SECONDS,
     )
+    started = time.monotonic()
+    with pool.get_client() as client:
+        results = sync_execute(
+            sql, context.values, workload=Workload.LOGS, team_id=team.id, readonly=True, sync_client=client
+        )
     duration_ms = int((time.monotonic() - started) * 1000)
     width = len(group_by)
     # An ungrouped query aggregates without GROUP BY, so it returns exactly one row. A grouped one
     # keeps its row past `limit`, so admission sees that group and reports it as overflow when it breaches.
-    rows = (response.results or [])[: None if group_by else 1]
+    rows = (results or [])[: None if group_by else 1]
     groups = tuple(
         GroupValues(
             labels={column: str(value) for column, value in zip(group_by, row[:width])},
@@ -241,7 +253,7 @@ def run_check_query(
         )
         for row in rows
     )
-    truncated = bool(group_by) and len(response.results or []) > limit
+    truncated = bool(group_by) and len(results or []) > limit
     return CheckResult(groups=groups, query_duration_ms=duration_ms, truncated=truncated)
 
 

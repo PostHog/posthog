@@ -585,13 +585,19 @@ def get_pool(
     team_id=None,
     readonly=False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    send_receive_timeout: int | None = None,
 ):
     """
     Returns the right connection pool given a workload.
 
     Note that the same pool should be returned every call.
+
+    send_receive_timeout bounds each socket read and write, which the default pool leaves effectively
+    unbounded, so a stalled connection fails instead of holding its thread. It keys a pool of its own.
     """
     kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+    if send_receive_timeout is not None:
+        kwargs["send_receive_timeout"] = send_receive_timeout
     creds = connection_creds(workload, ch_user)
     # A file-backed user reads its credential fresh on every checkout, so the pool is keyed on
     # identity rather than the rotating credential and stamps the credential in RefreshingChPool.pull.
