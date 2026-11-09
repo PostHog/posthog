@@ -45,6 +45,10 @@ from products.slack_app.backend.temporal.activities import (
     resolve_posthog_code_slack_command_user_activity,
     run_posthog_slack_inbox_onboarding_activity,
 )
+from products.slack_app.backend.temporal.activities.report_implementation import (
+    finish_slack_report_implementation_activity,
+    prepare_slack_report_implementation_activity,
+)
 from products.slack_app.backend.temporal.types import (
     SLACK_APP_PROCESSING_REACTION,
     SLACK_APP_QUEUED_REACTION,
@@ -64,6 +68,8 @@ from products.slack_app.backend.temporal.types import (
 )
 
 SLACK_APP_ACTIVITIES = [
+    prepare_slack_report_implementation_activity,
+    finish_slack_report_implementation_activity,
     process_slack_app_fork_thread_activity,
     classify_untagged_followup_activity,
     request_untagged_followup_confirmation_activity,

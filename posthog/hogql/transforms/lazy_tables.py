@@ -922,8 +922,11 @@ class LazyTableResolver(TraversingVisitor):
             join_ptr = node.select_from
             added = False
             while join_ptr:
+                # The resolver names an unaliased dotted table, such as `posthog.events`, by joining its chain with
+                # `__`.
                 if join_scope.from_table == join_ptr.alias or (
-                    isinstance(join_ptr.table, ast.Field) and join_scope.from_table == join_ptr.table.chain[0]
+                    isinstance(join_ptr.table, ast.Field)
+                    and join_scope.from_table == "__".join(map(str, join_ptr.table.chain))
                 ):
                     # The join's ON constraint may depend on other joins (`constraint_tables`); the
                     # ones that matter here are those earlier in this source table's join chain,
