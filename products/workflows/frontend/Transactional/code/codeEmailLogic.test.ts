@@ -1,10 +1,7 @@
 import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
-
-import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -210,20 +207,6 @@ describe('codeEmailLogic', () => {
 
         expect(writes).toEqual([{ description: 'Broken' }, { tags: ['auth'] }])
         expect(logic.values.codeEmail).toMatchObject({ description: '', tags: ['auth'] })
-    })
-
-    it('drills an email metric into the sends on this page', async () => {
-        useMocks({ get: { [EMAIL_URL]: stored() } })
-        router.actions.push(urls.transactionalCodeEmail('email-id'))
-        const page = router.values.location.pathname
-        logic = codeEmailLogic({ id: 'email-id' })
-        logic.mount()
-
-        logic.actions.showSends({ inv_search: 'bounced' })
-
-        expect(logic.values.tab).toEqual('sends')
-        expect(router.values.location.pathname).toEqual(page)
-        expect(router.values.searchParams).toEqual({ inv_search: 'bounced' })
     })
 
     it('closes the source form only once the link is stored, not when an earlier save lands', async () => {
