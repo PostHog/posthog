@@ -39325,6 +39325,8 @@ export namespace Schemas {
       readonly verified_by: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** @nullable */
+      readonly scheduled_deletion_at: string | null;
       enforcement_mode?: SchemaEnforcementModeEnum;
       /**
          * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
@@ -39370,6 +39372,8 @@ export namespace Schemas {
       readonly verified_by: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** @nullable */
+      readonly scheduled_deletion_at: string | null;
       enforcement_mode?: SchemaEnforcementModeEnum;
       /**
          * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
@@ -51558,24 +51562,6 @@ export namespace Schemas {
       status: string;
       /** The stored suggestion when status is generated, else null. */
       suggestion?: PathCleaningSuggestionIssue | null;
-    }
-
-    export type GenerateRequestStepsItem = { [key: string]: unknown };
-
-    export interface GenerateRequest {
-      title?: string;
-      goal?: string;
-      steps?: GenerateRequestStepsItem[];
-    }
-
-    export interface GenerateStepResponse {
-      step_id: string;
-      title: string;
-      description: string;
-    }
-
-    export interface GenerateResponse {
-      steps: GenerateStepResponse[];
     }
 
     /**
@@ -83284,6 +83270,8 @@ export namespace Schemas {
       readonly verified_by?: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** @nullable */
+      readonly scheduled_deletion_at?: string | null;
       enforcement_mode?: SchemaEnforcementModeEnum;
       /**
          * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
@@ -128029,7 +128017,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.
+     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, and element property filter types.
      */
     properties?: string;
     /**
