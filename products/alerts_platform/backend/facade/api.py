@@ -352,15 +352,21 @@ def update_configuration(
 
 
 def create_configuration(
-    *, team_id: int, source_kind: SourceKind, edit: PlatformAlertConfigurationEdit, created_by_id: int | None
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    edit: PlatformAlertConfigurationEdit,
+    created_by_id: int | None,
+    natively: bool | None = None,
 ) -> PlatformAlertConfigurationView:
-    """Creates an alert the platform owns, with its source's own row when the source keeps one.
+    """Creates an alert the platform owns, with its source's own row when the source keeps one. With
+    `natively`, the caller decides whether that row is skipped.
 
     Raises `PlatformAlertNotEditable` for a kind the API cannot create, `InvalidPlatformAlertEdit` for
     settings its source kind rejects, and `PlatformAlertCreateRefused` when the source refuses.
     """
     return platform_writes.create_configuration(
-        team_id=team_id, source_kind=source_kind, edit=edit, created_by_id=created_by_id
+        team_id=team_id, source_kind=source_kind, edit=edit, created_by_id=created_by_id, natively=natively
     )
 
 
