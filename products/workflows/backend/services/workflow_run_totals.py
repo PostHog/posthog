@@ -10,18 +10,17 @@ from products.workflows.backend.services.batch_run_outcome import RUN_LEVEL_INST
 HOG_FLOW_APP_SOURCE = "hog_flow"
 RUN_OUTCOMES = ["succeeded", "failed"]
 
-# Both series record the same runs, so each day of a workflow comes from one of them: the versioned one when it
-# has rows that day, else the version-agnostic one, which alone holds the days before the versioned mirror shipped.
+# Both series record the same runs, so summing them would count each run twice. Each one also misses runs the other
+# has: the version-agnostic series keys batch runs by run id, and the versioned one holds nothing from before its
+# mirror shipped. So each hour of a workflow counts whichever series recorded more of that outcome.
 RUN_TOTALS_BY_WORKFLOW = """
-    SELECT workflow_id, metric_name, sum(count)
+    SELECT workflow_id, metric_name, sum(runs)
     FROM (
         SELECT
             if(app_source = %(versioned)s, splitByChar('/', app_source_id)[1], app_source_id) AS workflow_id,
-            toStartOfDay(timestamp) AS day,
-            app_source = %(versioned)s AS is_versioned,
+            toStartOfHour(timestamp) AS hour,
             metric_name,
-            sum(count) AS count,
-            max(is_versioned) OVER (PARTITION BY workflow_id, day) AS day_is_versioned
+            greatest(sumIf(count, app_source = %(versioned)s), sumIf(count, app_source = %(unversioned)s)) AS runs
         FROM app_metrics2
         WHERE team_id = %(team_id)s
         AND app_source IN (%(versioned)s, %(unversioned)s)
@@ -29,9 +28,8 @@ RUN_TOTALS_BY_WORKFLOW = """
         AND metric_name IN %(names)s
         AND timestamp >= toDateTime64(%(after)s, 6)
         {before_clause}
-        GROUP BY workflow_id, day, is_versioned, metric_name
+        GROUP BY workflow_id, hour, metric_name
     )
-    WHERE is_versioned = day_is_versioned
     GROUP BY workflow_id, metric_name
 """
 
