@@ -6,6 +6,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -1093,15 +1094,6 @@ def forget_cached_github_tokens(github_integration: GitHubIntegrationBase, repos
     )
 
 
-def installation_confirms_repository_denied(github_integration: GitHubIntegrationBase, repository: str) -> bool:
-    try:
-        response = github_integration.api_request("GET", f"/repos/{repository}", endpoint="/repos/{owner}/{repo}")
-    except Exception:
-        logger.warning("Could not verify GitHub installation access to %s", repository, exc_info=True)
-        return False
-    return response.status_code in (403, 404)
-
-
 def resolve_installation_github_integration(team_id: int, github_integration_id: int) -> GitHubIntegration | None:
     integration = IntegrationManager.github.oauth.get_many(team_id, [github_integration_id]).get(github_integration_id)
     if integration is None:
@@ -1182,7 +1174,7 @@ def can_mint_readonly_github_token(team_id: int) -> bool:
         return False
 
 
-def resolve_readonly_github_integration(team_id: int) -> GitHubIntegration | None:
+def resolve_readonly_github_integration(team_id: int, *, include_unavailable: bool = False) -> GitHubIntegration | None:
     """The team-level integration a read-only mint may use, or None.
 
     Refuses the resolver's org-owner personal-integration fallback (its installation can span
@@ -1194,8 +1186,12 @@ def resolve_readonly_github_integration(team_id: int) -> GitHubIntegration | Non
     # process-task workflow, which imports this module.
     from products.tasks.backend.logic.repo_selection.agent import resolve_team_github_integration  # noqa: PLC0415
 
-    integration = resolve_team_github_integration(team_id)
-    if not isinstance(integration, GitHubIntegration) or integration.installation_unavailable():
+    integration = resolve_team_github_integration(team_id, team_only=True)
+    if integration is None and include_unavailable:
+        integration = resolve_team_github_integration(team_id, team_only=True, include_unavailable=True)
+    if not isinstance(integration, GitHubIntegration) or (
+        not include_unavailable and integration.installation_unavailable()
+    ):
         return None
     return integration
 
@@ -1691,6 +1687,13 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
+    from products.signals.backend.facade.trial import start_task_trial
+
+    trial = bool((ctx.state or {}).get("self_driving_funding", {}).get("funding") == "trial")
+    if trial:
+        start_task_trial(team=task.team, run_id=UUID(str(ctx.run_id)))
+        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access) or ctx.task_runtime == "pi":
+            raise GatewayNotConfiguredError("Trial work requires accounted AI gateway execution")
     if task.is_scout_experiment is True:
         ensure_scout_trial_capture_ready()
         if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
@@ -1790,6 +1793,8 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         raise GatewayTokenUnavailableError(
             "Pi scouts require a scoped AI gateway token", {"team_id": ctx.team_id, "run_id": ctx.run_id}
         )
+    if trial and not env_vars.get("AI_GATEWAY_TOKEN"):
+        raise GatewayNotConfiguredError("Trial work requires accounted AI gateway execution")
     # Retry provisioning if coverage cannot be recorded; otherwise fallback usage can look fully accounted for.
     record_gateway_routing(
         run_id=ctx.run_id,

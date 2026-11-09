@@ -37,7 +37,11 @@ from products.signals.backend.contracts import MonitoringUnresolvedSignalExtra
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
-from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.quota import (
+    SelfDrivingQuotaGate,
+    capture_signal_report_quota_paused,
+    self_driving_quota_gate,
+)
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import forks_recurrence
 from products.signals.backend.report_merge import signal_target_report
@@ -1177,11 +1181,18 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
         # Resolved before the assign transaction: the gates are Redis/Postgres + flag network I/O
         # that must not run while holding the report row lock.
-        quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
+        system_source = system_source_exempt(input.source_product)
+        quota_gate = (
+            SelfDrivingQuotaGate(limited=False, enforced=False)
+            if system_source
+            else await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(
+                team, signal_id=input.signal_id
+            )
+        )
         daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
 
         db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(
-            quota_gate.enforced or daily_gate.limited
+            not system_source and (quota_gate.enforced or daily_gate.limited)
         )
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
@@ -1454,6 +1465,7 @@ async def _complete_signal_batch(batch: list[EmitSignalInputs], reports: dict[st
 async def _process_signal_batch(
     batch: list[EmitSignalInputs],
     cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None,
+    attempts: Optional[list[int]] = None,
 ) -> tuple[int, FetchSignalTypeExamplesOutput]:
     """
     Process a batch of signals with parallel preparation (steps 1-4) and sequential
@@ -1463,12 +1475,18 @@ async def _process_signal_batch(
     Earlier signals in the batch are injected into later signals' candidate sets via
     local cosine distance comparison, eliminating the need for per-signal CH waits
     within a batch.
+
+    Callers that retry a failed batch pass `attempts`, the processing attempt of each signal in
+    batch order. Every failed round captures `signal_dropped` again, and the attempt on each event
+    separates repeated failures of the same signals from distinct lost signals.
     """
     team_id = batch[0].team_id
     original_batch = batch
     # Purely defensive
     if not all(signal.team_id == team_id for signal in batch):
         raise ValueError("All signals in a batch must belong to the same team")
+    if attempts is not None and len(attempts) != len(batch):
+        raise ValueError("attempts must align with the batch")
     dropped = 0
     isolate_refusals = workflow.patched("signals-query-refusal-review-v1")
 
@@ -1546,6 +1564,8 @@ async def _process_signal_batch(
             retained_indices = [i for i, result in enumerate(query_gen_results) if not result.quarantined]
             dropped = len(batch) - len(retained_indices)
             batch = [batch[i] for i in retained_indices]
+            if attempts is not None:
+                attempts = [attempts[i] for i in retained_indices]
             signal_embeddings = [signal_embeddings[i] for i in retained_indices]
             query_gen_results = [query_gen_results[i] for i in retained_indices]
             if not batch:
@@ -1627,7 +1647,13 @@ async def _process_signal_batch(
             team_id=team_id,
             batch_size=len(batch),
         )
-        await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_prep") for signal in batch))
+        signal_attempts: list[int | None] = list(attempts) if attempts is not None else [None] * len(batch)
+        await asyncio.gather(
+            *(
+                capture_signal_dropped(signal, e, stage="grouping_prep", attempt=attempt)
+                for signal, attempt in zip(batch, signal_attempts, strict=True)
+            )
+        )
         raise
 
     # === SEQUENTIAL PHASE (steps 5-7) ===

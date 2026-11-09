@@ -4,6 +4,8 @@ export const nativeIcons = {
     views: require('./native/views.png'),
     errors: require('./native/errors.png'),
     replay: require('./native/replay.png'),
+    webAnalytics: require('./native/web-analytics.png'),
+    live: require('./native/live.png'),
     compose: require('./native/compose.png'),
     filter: require('./native/filter.png'),
     more: require('./native/more.png'),
