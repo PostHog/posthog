@@ -343,22 +343,37 @@ describe('apiStatusLogic', () => {
                 'an environments endpoint of the current project',
                 `/api/environments/${MOCK_TEAM_ID}/dashboards/`,
                 PROJECT_DENIED,
+                403,
                 true,
             ],
             [
                 'a projects endpoint of the current project',
                 `/api/projects/${MOCK_TEAM_ID}/signals/reports/`,
                 PROJECT_DENIED,
+                403,
                 true,
             ],
-            ['an endpoint of another project', '/api/projects/12345/dashboards/', PROJECT_DENIED, false],
+            [
+                'one endpoint while the project still loads',
+                `/api/projects/${MOCK_TEAM_ID}/wizard/runs/`,
+                PROJECT_DENIED,
+                200,
+                false,
+            ],
+            ['an endpoint of another project', '/api/projects/12345/dashboards/', PROJECT_DENIED, 403, false],
             [
                 'a resource-level denial',
                 `/api/projects/${MOCK_TEAM_ID}/insights/1/`,
                 { code: 'permission_denied', detail: 'You do not have viewer access to this resource.' },
+                403,
                 false,
             ],
-        ])('handles a 403 from %s', async (_, path, body, expected) => {
+        ])('handles a 403 from %s', async (_, path, body, projectStatus, expected) => {
+            useMocks({
+                get: {
+                    '/api/projects/:id/': () => [projectStatus, projectStatus === 403 ? PROJECT_DENIED : {}],
+                },
+            })
             const mockResponse = {
                 status: 403,
                 ok: false,
