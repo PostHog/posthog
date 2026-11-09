@@ -24,6 +24,7 @@ from .records import (
 from .routing import SectionRouting
 
 WRITER_IDLE_TIMEOUT_SECONDS = 120
+WRITER_GITHUB_TOKEN_SCOPE = "push"
 PUSH_TO_NEW_BRANCH = "Commit your docs change and push it to a new branch. Do not open a pull request."
 PUSH_TO_CHECKED_OUT_BRANCH = (
     "This branch already backs an open docs pull request. "
@@ -41,6 +42,7 @@ def rerun_state(writer: WriterSettings) -> dict[str, Any]:
     return {
         **no_store_connectors_run_state(),
         "inactivity_timeout_seconds": WRITER_IDLE_TIMEOUT_SECONDS,
+        "github_token_scope": WRITER_GITHUB_TOKEN_SCOPE,
         "pending_dispatch": {"create_pr": False, "posthog_mcp_scopes": [], "user_id": writer.user_id},
     }
 
@@ -134,6 +136,7 @@ def create_writer_task(
         branch=branch,
         start_workflow=start_workflow,
         inactivity_timeout_seconds=WRITER_IDLE_TIMEOUT_SECONDS,
+        github_token_scope=WRITER_GITHUB_TOKEN_SCOPE,
     ).task_id
 
 

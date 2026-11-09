@@ -223,6 +223,7 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
     assert len(run_states) == 2
     assert all(state["config_snapshot"]["connectors"]["mcp_installation_ids"] == [] for state in run_states)
     assert all(state["include_live_context"] is False for state in run_states)
+    assert "push" in [state.get("github_token_scope") for state in run_states]
 
 
 @pytest.mark.django_db
@@ -513,6 +514,7 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
     assert new_run.state["pending_dispatch"]["create_pr"] is False
     assert new_run.state["pending_dispatch"]["posthog_mcp_scopes"] == []
     assert new_run.state["inactivity_timeout_seconds"] == WRITER_IDLE_TIMEOUT_SECONDS
+    assert new_run.state["github_token_scope"] == "push"
     assert new_run.state["config_snapshot"] == {"connectors": {"mcp_installation_ids": []}}
     assert new_run.state["include_live_context"] is False
     task = Task.objects.get(id=started.task_id)
