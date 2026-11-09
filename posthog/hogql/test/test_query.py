@@ -191,7 +191,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             for index, query in enumerate(
                 (
                     "SELECT count() FROM events",
-                    "SELECT count() FROM events WHERE event = 'signup'",
+                    "SELECT count(*) FROM events WHERE event = 'signup'",
                     "SELECT event FROM events",
                 )
             )
@@ -201,6 +201,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([group.query_ids for group in plan.groups], [("0", "1"), ("2",)], plan.rejections)
         self.assertIsNone(plan.groups[0].query.limit)
+        self.assertIsNone(execute_hogql_query(plan.groups[0].query, team=self.team).error)
         self.assertEqual(
             plan.groups[1].query.limit, ast.Constant(value=get_default_limit_for_context(LimitContext.QUERY))
         )

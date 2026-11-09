@@ -208,7 +208,11 @@ class CountBatchPlanner:
                 and (not expr.args or (len(expr.args) == 1 and cls._count_argument(expr.args[0])))
             ):
                 count_position = index
-                argument = expr.args[0] if expr.args and isinstance(expr.args[0], ast.Field) else None
+                argument = (
+                    expr.args[0]
+                    if expr.args and isinstance(expr.args[0], ast.Field) and expr.args[0].chain != ["*"]
+                    else None
+                )
                 columns.append(alias or HogQLPrinter(context=HogQLContext()).visit(expr))
             elif grouped and expr == day:
                 day_alias = alias

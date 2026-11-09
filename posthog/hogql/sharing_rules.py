@@ -42,6 +42,105 @@ def _nodes(value: object) -> Iterator[ast.AST]:
             yield from _nodes(item)
 
 
+class _GroupingBounds:
+    """Decide whether grouping keys have a known small number of values, resolving aliases per SELECT scope.
+
+    The fused query fully sorts the aggregate, so only `event`, date buckets of `timestamp`, and expressions built
+    only from those are safe. Anything this class cannot resolve counts as unbounded.
+    """
+
+    def __init__(self, node: ast.SelectQuery, bucket_functions: frozenset[str]) -> None:
+        self._bucket_functions = bucket_functions
+        self._aliases: list[dict[str, ast.Expr]] = []
+        self._columns: list[set[str]] = []
+        level: ast.SelectQuery | None = node
+        while level is not None:
+            aliases: dict[str, ast.Expr] = {}
+            columns: set[str] = set()
+            for selected in level.select:
+                if isinstance(selected, ast.Alias):
+                    aliases.setdefault(selected.alias, selected.expr)
+                elif (
+                    isinstance(selected, ast.Field) and len(selected.chain) == 1 and isinstance(selected.chain[0], str)
+                ):
+                    columns.add(selected.chain[0])
+            self._aliases.append(aliases)
+            self._columns.append(columns)
+            table = level.select_from.table if level.select_from else None
+            level = table if isinstance(table, ast.SelectQuery) else None
+        # Each alias is judged once, so the work stays linear in the size of the query.
+        self._memo: dict[tuple[str, int, str], bool] = {}
+        self._in_progress: set[tuple[int, str]] = set()
+
+    def _target(self, level: int, field: ast.Field) -> tuple[int, str] | None:
+        """The alias or base column a field reads, as (level, name). Level len(scopes) means the events table."""
+        if not all(isinstance(part, str) for part in field.chain) or not 1 <= len(field.chain) <= 2:
+            return None
+        names = [str(part) for part in field.chain]
+        if "properties" in names:
+            return None
+        name = names[-1]
+        # An unqualified name prefers its own SELECT's alias, unless that alias is the one being resolved.
+        if len(names) == 1 and name in self._aliases[level] and (level, name) not in self._in_progress:
+            return level, name
+        source = level + 1
+        while source < len(self._aliases):
+            if name in self._aliases[source]:
+                return source, name
+            if name not in self._columns[source]:
+                return None
+            source += 1
+        return len(self._aliases), name
+
+    def _resolve(self, kind: str, target: tuple[int, str]) -> bool:
+        level, name = target
+        if level == len(self._aliases):
+            return name == kind
+        key = (kind, level, name)
+        if key in self._memo:
+            return self._memo[key]
+        if (level, name) in self._in_progress:
+            return False
+        self._in_progress.add((level, name))
+        try:
+            expr = self._aliases[level][name]
+            result = self.bounded(level, expr) if kind == "event" else self._is_timestamp(level, expr)
+        finally:
+            self._in_progress.discard((level, name))
+        self._memo[key] = result
+        return result
+
+    def _is_timestamp(self, level: int, expr: ast.Expr) -> bool:
+        if not isinstance(expr, ast.Field) or (target := self._target(level, expr)) is None:
+            return False
+        return self._resolve("timestamp", target)
+
+    def bounded(self, level: int, expr: ast.Expr) -> bool:
+        if isinstance(expr, ast.Constant):
+            return True
+        if isinstance(expr, ast.Alias):
+            return self.bounded(level, expr.expr)
+        if isinstance(expr, ast.Field):
+            target = self._target(level, expr)
+            return target is not None and self._resolve("event", target)
+        if isinstance(expr, ast.Call):
+            if (
+                expr.name in self._bucket_functions
+                and expr.args
+                and self._is_timestamp(level, expr.args[0])
+                and all(isinstance(arg, ast.Constant) for arg in expr.args[1:])
+            ):
+                return True
+            return all(self.bounded(level, arg) for arg in expr.args)
+        if isinstance(expr, ast.CompareOperation):
+            return self.bounded(level, expr.left) and self.bounded(level, expr.right)
+        if isinstance(expr, ast.And | ast.Or | ast.Tuple | ast.Array):
+            return all(self.bounded(level, child) for child in expr.exprs)
+        if isinstance(expr, ast.Not):
+            return self.bounded(level, expr.expr)
+        return False
+
+
 @frozen
 class _TopNQuery:
     query_id: str
@@ -89,68 +188,13 @@ class SameAggregationTopNRule:
         {"toDate", "toStartOfDay", "toStartOfWeek", "toStartOfMonth", "toStartOfQuarter", "toStartOfYear"}
     )
 
-    @staticmethod
-    def _column(field: ast.Field) -> str | None:
-        # A column, optionally qualified by one table or subquery alias. Property reads are never bounded.
-        names = [part for part in field.chain if isinstance(part, str)]
-        if not 1 <= len(names) <= 2 or len(names) != len(field.chain) or "properties" in names:
-            return None
-        return names[-1]
-
-    @classmethod
-    def _is_timestamp(cls, expr: ast.Expr, aliases: dict[str, ast.Expr], expanding: frozenset[str]) -> bool:
-        if not isinstance(expr, ast.Field) or (column := cls._column(expr)) is None:
-            return False
-        if column in aliases and column not in expanding:
-            return cls._is_timestamp(aliases[column], aliases, expanding | {column})
-        return column == "timestamp"
-
-    @classmethod
-    def _bounded(cls, expr: ast.Expr, aliases: dict[str, ast.Expr], expanding: frozenset[str]) -> bool:
-        if isinstance(expr, ast.Constant):
-            return True
-        if isinstance(expr, ast.Alias):
-            return cls._bounded(expr.expr, aliases, expanding)
-        if isinstance(expr, ast.Field):
-            column = cls._column(expr)
-            if column is None:
-                return False
-            if column in aliases and column not in expanding:
-                return cls._bounded(aliases[column], aliases, expanding | {column})
-            return column == "event"
-        if isinstance(expr, ast.Call):
-            if (
-                expr.name in cls.bucket_functions
-                and expr.args
-                and cls._is_timestamp(expr.args[0], aliases, expanding)
-                and all(isinstance(arg, ast.Constant) for arg in expr.args[1:])
-            ):
-                return True
-            return all(cls._bounded(arg, aliases, expanding) for arg in expr.args)
-        if isinstance(expr, ast.CompareOperation):
-            return cls._bounded(expr.left, aliases, expanding) and cls._bounded(expr.right, aliases, expanding)
-        if isinstance(expr, ast.And | ast.Or | ast.Tuple | ast.Array):
-            return all(cls._bounded(child, aliases, expanding) for child in expr.exprs)
-        if isinstance(expr, ast.Not):
-            return cls._bounded(expr.expr, aliases, expanding)
-        return False
-
     @classmethod
     def _has_unbounded_grouping(cls, node: ast.SelectQuery) -> bool:
-        # The fused query fully sorts the aggregate, so only groupings with a known small number of values are safe.
-        aliases: dict[str, ast.Expr] = {}
-        source: ast.SelectQuery | None = node
-        while source is not None:
-            for selected in source.select:
-                if isinstance(selected, ast.Alias):
-                    aliases.setdefault(selected.alias, selected.expr)
-            table = source.select_from.table if source.select_from else None
-            source = table if isinstance(table, ast.SelectQuery) else None
         # A bare integer in GROUP BY is a positional reference to a selected column, not a constant key.
-        return not all(
-            not isinstance(expr, ast.Constant) and cls._bounded(expr, aliases, frozenset())
-            for expr in node.group_by or []
-        )
+        if any(isinstance(expr, ast.Constant) for expr in node.group_by or []):
+            return True
+        bounds = _GroupingBounds(node, cls.bucket_functions)
+        return not all(bounds.bounded(0, expr) for expr in node.group_by or [])
 
     @classmethod
     def _candidate(cls, query: SharingQuery) -> _TopNQuery | str:
