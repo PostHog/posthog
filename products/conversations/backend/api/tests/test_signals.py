@@ -740,7 +740,6 @@ class TestTicketTagAddedEventSignal(APIBaseTest):
         flow_id = "0191d3e0-0000-7000-8000-000000000001"
         token = CONVERSATIONS_TICKETS_PURPOSE.mint({"team_id": self.team.id, "ticket_id": str(self.ticket.id)})
 
-        # The CDP worker sends no session, so the request must not carry the test user's login.
         with self.captureOnCommitCallbacks(execute=True):
             response = APIClient().patch(
                 f"/api/projects/{self.team.id}/internal/conversations/tickets/{self.ticket.id}",
@@ -766,9 +765,8 @@ class TestTicketTagAddedEventSignal(APIBaseTest):
                 "bulk_create",
                 lambda tag, ticket: TaggedItem.objects.bulk_create([TaggedItem.for_content_object(tag, ticket)]),
             ),
-            # Another model's row with the ticket's id as its key, so only the content type tells them apart.
             (
-                "other_model",
+                "other_model_with_the_ticket_uuid",
                 lambda tag, ticket: TaggedItem.objects.create(
                     tag=tag, content_type_id=content_type_id_for_legacy_field("hog_flow"), object_uuid=ticket.id
                 ),
@@ -784,7 +782,6 @@ class TestTicketTagAddedEventSignal(APIBaseTest):
         assert self._tag_added_events(mock_capture) == []
 
     def test_child_environment_ticket_emits_the_event(self, mock_capture):
-        # A tag belongs to the project's root team, while the ticket keeps its environment's team.
         environment = Team.objects.create(organization=self.organization, project=self.project, parent_team=self.team)
         ticket = Ticket.objects.create_with_number(
             team=environment,

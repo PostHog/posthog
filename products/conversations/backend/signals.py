@@ -155,9 +155,8 @@ def emit_ticket_tag_added_event(
 
     def do_emit() -> None:
         try:
-            # The tag row carries the project's root team, while a ticket in a child environment
-            # keeps the environment's. The ticket's UUID already identifies it, and the event goes
-            # to the ticket's own team, so the lookup needs no team filter.
+            # No team filter: a tag row holds the project's root team, but a ticket in a child
+            # environment keeps the environment's team. The UUID alone identifies the ticket.
             ticket = Ticket.objects.select_related("team").filter(id=ticket_id).first()
             if ticket is None:
                 return
