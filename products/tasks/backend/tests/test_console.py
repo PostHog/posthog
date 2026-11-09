@@ -35,11 +35,11 @@ class TestTaskRunLogsConsoleTool(BaseTest):
 
     @patch(f"{_STORAGE}.get_presigned_url", return_value="https://s3.example.test/presigned-link")
     @patch(f"{_STORAGE}.head_object", return_value={"ContentLength": 10})
-    def test_redirects_to_presigned_download_url(self, _mock_head: MagicMock, mock_presigned: MagicMock) -> None:
+    def test_shows_a_presigned_download_link(self, _mock_head: MagicMock, mock_presigned: MagicMock) -> None:
         response = self._download(self.task_run.id)
 
-        assert response.status_code == 302
-        assert response["Location"] == "https://s3.example.test/presigned-link"
+        assert response.status_code == 200
+        assert 'href="https://s3.example.test/presigned-link"' in response.content.decode()
         args, kwargs = mock_presigned.call_args
         assert args[0] == self.task_run.log_url
         assert kwargs["content_disposition"] == f'attachment; filename="run_{self.task_run.id}.jsonl"'

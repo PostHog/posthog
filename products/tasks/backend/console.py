@@ -3,11 +3,11 @@ from typing import cast
 from django import forms
 from django.contrib import messages
 from django.db.models import Model
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse
 
 from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import ConsoleTool, Notice, Page, ToolOperation
+from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
 from posthog.models.user import User
 
 from products.tasks.backend.facade.api import get_desktop_beta_terms_acceptance, revoke_desktop_beta_terms
@@ -22,16 +22,24 @@ class TaskRunForm(forms.Form):
     run = forms.UUIDField(label="Task run ID")
 
 
-def download_logs(request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
+def download_logs(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Page | None:
     assert form is not None
-    link = staff_task_run_log_link(form.cleaned_data["run"], cast(User, request.user))
+    run_id = form.cleaned_data["run"]
+    link = staff_task_run_log_link(run_id, cast(User, request.user))
     if link is None:
         form.add_error("run", "No task run with this ID in your organizations.")
         return HttpResponse(status=404)
     if link.url is None:
         messages.warning(request, link.unavailable_reason or "This run's logs are unavailable.")
         return HttpResponse(status=404)
-    return HttpResponseRedirect(link.url)
+    # console.js disables the submit button on submit, and a redirect to an attachment never reloads the page,
+    # so the link goes on a result page to keep the form usable. Reloading the result page only creates a new link.
+    return Page(
+        blocks=(
+            Notice(text="The download link expires after five minutes. Run the download again for a new link."),
+            Table(columns=("Log",), rows=(Row(cells=(Cell(text=f"run_{run_id}.jsonl", href=link.url),)),)),
+        )
+    )
 
 
 @console.register_tool
