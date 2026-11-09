@@ -11,7 +11,7 @@ use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_coordination::types::{
     AssignmentPrecondition, AssignmentStatus, ChangelogConfig, ChangelogTarget, ClusterEndpoint,
     DrainReport, Generation, HandoffPhase, HandoffState, MigrationPhase, MigrationRequest,
-    MigrationState, PartitionAssignment, SealAck,
+    MigrationState, PartitionAssignment, PropertyStoreLayout, SealAck,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -750,6 +750,75 @@ async fn a_request_that_fails_admission_is_rejected_with_its_reason() {
     assert_eq!(archived.phase, MigrationPhase::Cancelled);
     assert_eq!(archived.blocking, vec!["same_topic".to_string()]);
     assert!(store.list_handoffs().await.unwrap().is_empty());
+    assert_eq!(
+        store.get_changelog_config().await.unwrap().unwrap().epoch,
+        1
+    );
+    cancel.cancel();
+}
+
+#[tokio::test]
+async fn a_migration_the_property_store_layout_cannot_serve_is_rejected() {
+    let Fleet { store, cancel, .. } = fleet("migration-property-layout").await;
+    let layout = |shards: u32, location: &str| PropertyStoreLayout {
+        shards,
+        location: location.to_string(),
+    };
+    assert!(store
+        .verify_property_store_layout(&layout(16, "s3://bucket/props"))
+        .await
+        .is_err());
+    assert_eq!(store.get_property_store_layout().await.unwrap(), None);
+    store
+        .register_property_store_layout(&layout(16, "s3://bucket/props"))
+        .await
+        .unwrap();
+    // The first layout stands; a writer or reader on another count or store refuses to start.
+    for (name, check) in [("require", true), ("verify", false)] {
+        let check = |l: PropertyStoreLayout| {
+            let store = Arc::clone(&store);
+            async move {
+                if check {
+                    store.require_property_store_layout(&l).await
+                } else {
+                    store.verify_property_store_layout(&l).await
+                }
+            }
+        };
+        assert!(
+            check(layout(16, "s3://bucket/props")).await.is_ok(),
+            "{name}"
+        );
+        assert!(
+            check(layout(8, "s3://bucket/props")).await.is_err(),
+            "{name}"
+        );
+        assert!(
+            check(layout(16, "file:///tmp/props")).await.is_err(),
+            "{name}"
+        );
+    }
+    assert_eq!(
+        store.get_property_store_layout().await.unwrap(),
+        Some(layout(16, "s3://bucket/props"))
+    );
+    start_coordinator_with_config(
+        Arc::clone(&store),
+        coordinator_config("coordinator-0", 10, Duration::from_secs(86_400)),
+        Arc::new(StickyBalancedStrategy),
+        cancel.clone(),
+    );
+    wait_for_steady_state(&store, PARTITIONS).await;
+
+    assert!(store
+        .create_migration_request(&request("m-1", 12))
+        .await
+        .unwrap());
+    let archived = wait_for_rejection(&store, "m-1").await;
+    assert_eq!(
+        archived.blocking,
+        vec!["property_store_shards_indivisible".to_string()]
+    );
     assert_eq!(
         store.get_changelog_config().await.unwrap().unwrap().epoch,
         1
