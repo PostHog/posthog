@@ -94,8 +94,8 @@ tools:
             Sends of a template with no category or a transactional one ignore marketing opt-outs, so never file
             marketing email there. A template in a marketing category is refused unless the project can send marketing
             email over the API, and its sends then skip recipients who opted out. The template needs a subject and a
-            body, and the project needs a verified email sender (pass from_integration_id to pick one,
-            otherwise the project's default sender is used). Requires human typed confirmation. The response has
+            body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the
+            project's default sender is used). Requires human typed confirmation. The response has
             transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user
             can review and publish it. Then tell the user what is left: create a project secret API key with
             Transactional email set to Write, and send from their backend with posthog.emails.send in the Node.js or
