@@ -135,6 +135,18 @@ class TestMultiQueryPlanner(SimpleTestCase):
                 "SELECT source.event AS ev, count() AS calls FROM (SELECT distinct_id AS event FROM events) AS source GROUP BY source.event ORDER BY calls LIMIT 2",
             ),
             (
+                "outer_alias_shadows_identifier",
+                "SELECT source.event AS event, count() AS calls FROM (SELECT distinct_id AS event FROM events) AS source GROUP BY source.event ORDER BY calls LIMIT 2",
+            ),
+            (
+                "outer_alias_shadows_property",
+                "SELECT source.event AS event, count() AS calls FROM (SELECT properties.$session_id AS event FROM events) AS source GROUP BY event ORDER BY calls LIMIT 2",
+            ),
+            (
+                "outer_alias_shadows_timestamp",
+                "SELECT toDate(timestamp) AS day, count() AS calls FROM (SELECT source.timestamp AS timestamp FROM (SELECT distinct_id AS timestamp FROM events) AS source) GROUP BY day ORDER BY calls LIMIT 2",
+            ),
+            (
                 "aliased_property_group",
                 "SELECT event, count() AS calls FROM (SELECT properties.tool AS event FROM events) GROUP BY event ORDER BY calls LIMIT 2",
             ),
@@ -161,6 +173,10 @@ class TestMultiQueryPlanner(SimpleTestCase):
     @parameterized.expand(
         [
             ("day_bucket", "SELECT toDate(timestamp) AS day, count() AS calls FROM events GROUP BY day"),
+            (
+                "deep_alias_chain",
+                "SELECT a40, count() AS calls FROM (SELECT event AS a0, ifNull(a0, a0) AS a1, ifNull(a1, a1) AS a2, ifNull(a2, a2) AS a3, ifNull(a3, a3) AS a4, ifNull(a4, a4) AS a5, ifNull(a5, a5) AS a6, ifNull(a6, a6) AS a7, ifNull(a7, a7) AS a8, ifNull(a8, a8) AS a9, ifNull(a9, a9) AS a10, ifNull(a10, a10) AS a11, ifNull(a11, a11) AS a12, ifNull(a12, a12) AS a13, ifNull(a13, a13) AS a14, ifNull(a14, a14) AS a15, ifNull(a15, a15) AS a16, ifNull(a16, a16) AS a17, ifNull(a17, a17) AS a18, ifNull(a18, a18) AS a19, ifNull(a19, a19) AS a20, ifNull(a20, a20) AS a21, ifNull(a21, a21) AS a22, ifNull(a22, a22) AS a23, ifNull(a23, a23) AS a24, ifNull(a24, a24) AS a25, ifNull(a25, a25) AS a26, ifNull(a26, a26) AS a27, ifNull(a27, a27) AS a28, ifNull(a28, a28) AS a29, ifNull(a29, a29) AS a30, ifNull(a30, a30) AS a31, ifNull(a31, a31) AS a32, ifNull(a32, a32) AS a33, ifNull(a33, a33) AS a34, ifNull(a34, a34) AS a35, ifNull(a35, a35) AS a36, ifNull(a36, a36) AS a37, ifNull(a37, a37) AS a38, ifNull(a38, a38) AS a39, ifNull(a39, a39) AS a40 FROM events) GROUP BY a40",
+            ),
             (
                 "qualified_passthrough",
                 "SELECT source.event AS ev, count() AS calls FROM (SELECT event FROM events) AS source GROUP BY source.event",
