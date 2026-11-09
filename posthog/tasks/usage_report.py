@@ -1907,11 +1907,7 @@ def get_teams_with_ai_event_count_in_period(
 
 
 @timed_log()
-def get_teams_with_ai_overage_bytes_in_period(
-    begin: datetime,
-    end: datetime,
-    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report and usage counter contract, like the AI event count above.
-) -> list[tuple[int, int]]:
+def get_teams_with_ai_overage_bytes_in_period(begin: datetime, end: datetime) -> TeamUsageRows:
     # No billing meter reads AI overage yet, so a failure reports no overage instead of aborting the usage report and
     # the quota run for every product. Let failures propagate again before billing meters it, or it under-bills.
     try:
@@ -1923,11 +1919,7 @@ def get_teams_with_ai_overage_bytes_in_period(
 
 
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def _query_teams_with_ai_overage_bytes_in_period(
-    begin: datetime,
-    end: datetime,
-    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report and usage counter contract, like the AI event count above.
-) -> list[tuple[int, int]]:
+def _query_teams_with_ai_overage_bytes_in_period(begin: datetime, end: datetime) -> TeamUsageRows:
     use_new = use_new_events_schema(None)
     event_bytes_expr, _ = get_property_string_expr(
         "events",
