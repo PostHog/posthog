@@ -4,7 +4,6 @@ import {
     RETENTION_RECURRING,
 } from 'lib/constants'
 import { ManipulateType } from 'lib/dayjs'
-import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
 import { RetentionFilter } from '~/queries/schema/schema-general'
 import { RetentionPeriod } from '~/types'
@@ -41,7 +40,11 @@ export const retentionOptionDescriptions = {
         "Users are only counted if their very first occurrence of this event ever matches your filters. If their first-ever event doesn't match, they're excluded entirely.",
 }
 
-export const RETENTION_TIME_WINDOW_MODE_OPTIONS: LemonSelectOptions<NonNullable<RetentionFilter['timeWindowMode']>> = [
+export const RETENTION_TIME_WINDOW_MODE_OPTIONS: {
+    value: NonNullable<RetentionFilter['timeWindowMode']>
+    label: string
+    tooltip: string
+}[] = [
     {
         value: 'strict_calendar_dates',
         label: 'strict calendar intervals',
