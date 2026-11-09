@@ -1,6 +1,8 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import { fullNameOrEmail } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { membersLogic } from '~/models/membersLogic'
 import { OrganizationMemberType } from '~/types'
@@ -72,7 +74,6 @@ export interface catalogMetricsLogicValues {
     checkGroupByMetricId: Record<string, SubjectGroup>
     checksFilter: ChecksFilter
     currentPage: number
-    expandedMetricIds: string[]
     ownerNameByEmail: Record<string, string>
     page: number
     pageCount: number
@@ -93,6 +94,9 @@ export interface catalogMetricsLogicActions {
     clearMetricSelection: () => {
         value: true
     }
+    openMetric: (metric: DataCatalogMetricApi) => {
+        metric: DataCatalogMetricApi
+    }
     setChecksFilter: (checks: ChecksFilter) => {
         checks: ChecksFilter
     }
@@ -105,10 +109,6 @@ export interface catalogMetricsLogicActions {
     }
     setPage: (page: number) => {
         page: number
-    }
-    toggleMetricExpanded: (metricId: string) => {
-        expandable: boolean
-        metricId: string
     }
     toggleMetricSelected: (metricId: string) => {
         metricId: string
@@ -168,18 +168,15 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
         ],
         actions: [membersLogic, ['ensureAllMembersLoaded'], metricsLogic, ['setFilters']],
     })),
-    actions(({ values }) => ({
+    actions({
         toggleSort: (column: MetricsSortColumn) => ({ column }),
         setChecksFilter: (checks: ChecksFilter) => ({ checks }),
         setPage: (page: number) => ({ page }),
-        toggleMetricExpanded: (metricId: string) => ({
-            metricId,
-            expandable: !!values.checkGroupByMetricId[metricId],
-        }),
+        openMetric: (metric: DataCatalogMetricApi) => ({ metric }),
         toggleMetricSelected: (metricId: string) => ({ metricId }),
         setMetricsSelected: (metricIds: string[], selected: boolean) => ({ metricIds, selected }),
         clearMetricSelection: true,
-    })),
+    }),
     reducers({
         sort: [
             DEFAULT_METRICS_SORT as MetricsSort | null,
@@ -191,17 +188,6 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
             DEFAULT_METRIC_CHECKS_FILTER as ChecksFilter,
             {
                 setChecksFilter: (_, { checks }) => checks,
-            },
-        ],
-        expandedMetricIds: [
-            [] as string[],
-            {
-                toggleMetricExpanded: (state, { metricId, expandable }) => {
-                    if (state.includes(metricId)) {
-                        return state.filter((id) => id !== metricId)
-                    }
-                    return expandable ? [...state, metricId] : state
-                },
             },
         ],
         selectedMetricIds: [
@@ -286,6 +272,11 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
             (visibleMetrics: DataCatalogMetricApi[], currentPage: number): DataCatalogMetricApi[] =>
                 itemsOnPage(visibleMetrics, currentPage),
         ],
+    }),
+    listeners({
+        openMetric: ({ metric }) => {
+            router.actions.push(urls.dataCatalogMetric(metric.name))
+        },
     }),
     afterMount(({ actions }) => {
         actions.ensureAllMembersLoaded()

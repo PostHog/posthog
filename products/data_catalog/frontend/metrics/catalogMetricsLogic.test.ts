@@ -1,3 +1,9 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import { router } from 'kea-router'
+
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
@@ -64,15 +70,18 @@ describe('catalogMetricsLogic', () => {
         expect(logic.values.visibleMetrics.map((metric) => metric.id)).toEqual(['metric-proposed'])
     })
 
-    it('counts checks from the health rollup but expands only the metrics whose checks are loaded', () => {
+    it('counts checks from the health rollup for metrics whose checks are not loaded', () => {
         expect(logic.values.checkCountsByMetricId['metric-unlisted']).toEqual({ total: 3, failing: 1 })
+    })
 
-        logic.actions.toggleMetricExpanded('metric-proposed')
-        logic.actions.toggleMetricExpanded('metric-unlisted')
-        expect(logic.values.expandedMetricIds).toEqual([])
+    it('opens the metric detail page', () => {
+        const metric = logic.values.visibleMetrics.find(({ id }) => id === 'metric-approved')!
 
-        logic.actions.toggleMetricExpanded('metric-approved')
-        expect(logic.values.expandedMetricIds).toEqual(['metric-approved'])
+        logic.actions.openMetric(metric)
+
+        expect(router.values.location.pathname).toEqual(
+            `/project/${MOCK_TEAM_ID}${urls.dataCatalogMetric('active_accounts')}`
+        )
     })
 
     it('goes back to the first page when the search changes', () => {

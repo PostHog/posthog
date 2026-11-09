@@ -428,25 +428,6 @@ export const MetricsNarrow: Story = {
     decorators: [inMainContent('w-128')],
 }
 
-export const MetricsExpandedChecks: Story = {
-    parameters: { pageUrl: urls.dataCatalog('metrics') },
-    play: async ({ canvasElement }) => {
-        const toggle = await waitFor(() => {
-            const button = canvasElement.querySelector<HTMLButtonElement>('[data-attr="data-catalog-metrics-expand"]')
-            if (!button) {
-                throw new Error('Checks toggle not rendered yet')
-            }
-            return button
-        })
-        toggle.click()
-        await waitFor(() => {
-            if (!canvasElement.querySelector('[data-attr="data-catalog-metrics-checks-panel"]')) {
-                throw new Error('Checks panel not open yet')
-            }
-        })
-    },
-}
-
 export const Relationships: Story = {
     parameters: { pageUrl: urls.dataCatalog('relationships') },
 }
