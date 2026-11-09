@@ -311,9 +311,10 @@ def update_code_email_labels(
         flow = _code_email_flows(team_id).select_for_update().only("id", "team_id").filter(id=workflow_id).first()
         if flow is None:
             raise WorkflowNotFound()
-        tags_changed = tags is not None and {tagify(tag) for tag in tags} != current_tag_names(flow)
-        if tags_changed:
+        tags_changed = False
+        if tags is not None and {tagify(tag) for tag in tags} != current_tag_names(flow):
             replace_tags_on_object(tags, flow)
+            tags_changed = True
         if description is None and not tags_changed:
             return
         labels = {} if description is None else {"description": description}
