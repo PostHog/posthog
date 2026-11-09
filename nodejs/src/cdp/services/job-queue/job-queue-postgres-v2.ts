@@ -279,8 +279,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         const sanitizedResults = this.sanitizer.sanitizeResults(invocationResults)
 
-        // The batch stops heartbeating once this settles, so it waits for every write before reporting a failed one.
-        const writes = await Promise.allSettled(
+        await everyWrite(
             sanitizedResults.map(async (result) => {
                 const job = this.pendingJobs.get(result.invocation.id)
                 if (!job) {
@@ -300,10 +299,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 }
             })
         )
-        const failed = writes.find((write): write is PromiseRejectedResult => write.status === 'rejected')
-        if (failed) {
-            throw failed.reason
-        }
     }
 
     private async writeResult(job: CyclotronV2DequeuedJob, result: CyclotronJobInvocationResult): Promise<void> {
@@ -367,7 +362,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     public async deferInvocations(
         deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]
     ): Promise<void> {
-        await Promise.all(
+        await everyWrite(
             deferrals.map(async ({ invocation, scheduledAt }) => {
                 const job = this.pendingJobs.get(invocation.id)
                 if (job) {
@@ -405,6 +400,15 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 }
             })
         )
+    }
+}
+
+// The batch stops heartbeating once its writes settle, so a failed write is reported only after every other one landed.
+async function everyWrite(writes: Promise<unknown>[]): Promise<void> {
+    const settled = await Promise.allSettled(writes)
+    const failed = settled.find((write): write is PromiseRejectedResult => write.status === 'rejected')
+    if (failed) {
+        throw failed.reason
     }
 }
 
