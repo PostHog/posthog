@@ -7,6 +7,7 @@ import { isOperatorSemver } from 'lib/utils/operators'
 import { cdpFiltersToSeries, seriesToCdpFilters } from 'scenes/hog-functions/filters/cdpFilterSeries'
 import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { PropValue } from '~/models/propertyDefinitionsModel'
@@ -18,6 +19,17 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
 
 export const WORKFLOW_OPERATOR_ALLOWLIST = Object.values(PropertyOperator).filter((op) => !isOperatorSemver(op))
+
+/** The account group's properties for a person audience picker, or null when people can't be filtered by them. */
+export function useAccountPropertiesGroupType(): TaxonomicFilterGroupType | null {
+    const { currentTeam } = useValues(teamLogic)
+    const enabled = useFeatureFlag('WORKFLOWS_AUDIENCE_GROUP_PROPERTIES')
+    const accountGroupTypeIndex = currentTeam?.customer_analytics_config?.account_group_type_index
+    // People resolve to groups through the membership customer analytics records, which covers its account group only.
+    return enabled && accountGroupTypeIndex != null
+        ? (`${TaxonomicFilterGroupType.GroupsPrefix}_${accountGroupTypeIndex}` as TaxonomicFilterGroupType)
+        : null
+}
 
 function useSampleGlobals(): Record<string, any> {
     const { workflow } = useValues(workflowLogic)
