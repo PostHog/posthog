@@ -262,6 +262,10 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
             cited: true,
             check_failed: false,
             target_best_position: 1,
+            search_queries: [
+                'best open source product analytics for startups 2026',
+                'open source product analytics comparison',
+            ],
             checked_at: '2026-09-29T09:00:00Z',
         },
         {
@@ -269,6 +273,7 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
             cited: false,
             check_failed: false,
             target_best_position: null,
+            search_queries: ['best open source product analytics for startups 2026'],
             checked_at: '2026-09-29T09:00:00Z',
         },
         {
@@ -276,6 +281,7 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
             cited: true,
             check_failed: false,
             target_best_position: 3,
+            search_queries: [],
             checked_at: '2026-09-29T09:00:00Z',
         },
     ],
@@ -293,6 +299,7 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
                 cited: false,
                 check_failed: false,
                 target_best_position: null,
+                search_queries: ['funnel analysis without SQL breakdown by country'],
                 checked_at: '2026-09-28T09:00:00Z',
             },
             {
@@ -300,6 +307,7 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
                 cited: false,
                 check_failed: true,
                 target_best_position: null,
+                search_queries: [],
                 checked_at: '2026-09-28T09:00:00Z',
             },
             {
@@ -307,6 +315,7 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
                 cited: true,
                 check_failed: false,
                 target_best_position: 2,
+                search_queries: [],
                 checked_at: '2026-09-28T09:00:00Z',
             },
         ],
@@ -332,6 +341,7 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
                 cited: false,
                 check_failed: false,
                 target_best_position: null,
+                search_queries: [],
                 checked_at: '2026-09-27T09:00:00Z',
             },
         ],
@@ -350,6 +360,7 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
                 cited: false,
                 check_failed: false,
                 target_best_position: null,
+                search_queries: [],
                 checked_at: '2026-09-19T09:00:00Z',
             },
         ],
