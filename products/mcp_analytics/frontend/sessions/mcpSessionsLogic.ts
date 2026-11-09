@@ -154,9 +154,6 @@ export interface mcpSessionsLogicActions {
     finishLoadingMore: (entry: SessionToolCalls) => {
         entry: SessionToolCalls
     }
-    startLoadingMore: (entry: SessionToolCalls) => {
-        entry: SessionToolCalls
-    }
     generateIntent: (sessionId: string) => string
     generateIntentFailure: (
         error: string,
@@ -271,6 +268,9 @@ export interface mcpSessionsLogicActions {
     }
     setSorting: (sorting: MCPSessionSorting | null) => {
         sorting: MCPSessionSorting | null
+    }
+    startLoadingMore: (entry: SessionToolCalls) => {
+        entry: SessionToolCalls
     }
 }
 
