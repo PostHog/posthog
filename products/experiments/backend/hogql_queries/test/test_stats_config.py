@@ -536,3 +536,32 @@ class TestCupedStatsConfig(SimpleTestCase):
             assert original_frequentist.p_value is not None
             assert translated_frequentist.p_value is not None
             self.assertAlmostEqual(original_frequentist.p_value, translated_frequentist.p_value)
+
+    @parameterized.expand([("bayesian", "bayesian"), ("frequentist", "frequentist")])
+    def test_covariate_without_spread_falls_back_to_unadjusted_test(
+        self, _name: str, method: Literal["bayesian", "frequentist"]
+    ) -> None:
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount")
+        )
+
+        def variant(key: str, mean: float, variance: float) -> ExperimentStatsBase:
+            return ExperimentStatsBase(
+                key=key,
+                number_of_samples=1000,
+                sum=1000 * mean,
+                sum_squares=999 * variance + 1000 * mean**2,
+                covariate_sum=0,
+                covariate_sum_squares=0,
+                covariate_sum_product=0,
+            )
+
+        calculate = get_bayesian_experiment_result if method == "bayesian" else get_frequentist_experiment_result
+        control, test = variant("control", 10, 9), variant("test", 0, 0)
+        with_cuped = calculate(metric, control, [test], stats_config={"cuped": {"enabled": True}})
+        without_cuped = calculate(metric, control, [test], stats_config={"cuped": {"enabled": False}})
+        assert with_cuped.variant_results is not None
+        assert without_cuped.variant_results is not None
+
+        self.assertEqual(with_cuped.variant_results[0], without_cuped.variant_results[0])
+        self.assertIsNone(with_cuped.variant_results[0].significant)

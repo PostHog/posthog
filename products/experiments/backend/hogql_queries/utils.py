@@ -436,6 +436,11 @@ def _apply_cuped_adjustment_if_enabled(
         metric_variant_to_cuped_data(control_variant),
     )
 
+    # With theta = 0 CUPED adjusts nothing, but the adjusted statistics still carry the variance floor. The floor
+    # turns a treatment arm without spread into a decisive result, where the unadjusted test rejects it.
+    if cuped_result.theta == 0.0:
+        return unadjusted
+
     return CupedAdjustment(
         test_stat=cuped_result.treatment_adjusted,
         control_stat=cuped_result.control_adjusted,

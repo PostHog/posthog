@@ -201,7 +201,7 @@ def cuped_adjust(
         sum_of_cross_products=control_cuped.sum_of_cross_products,
     )
     # Treat fitted theta as fixed to first order: randomization makes the population covariate difference zero.
-    # Cov(T_adj - C_adj, C_raw) = -(Var(C_raw) - theta * Cov(C_raw, X_C)) / n_C.
+    # Cov(T_adj - C_adj, C_raw) = -(Var(Y_C) - theta * Cov(Y_C, X_C)) / n_C, with per-observation control moments.
     relative_effect_baseline = RelativeEffectBaseline(
         mean=_get_post_mean(control_post),
         variance=control_post.variance / control_post.n,
