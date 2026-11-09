@@ -550,8 +550,10 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == expected_status
         if in_group:
             preview_content = preview.content.decode()
-            for text in (self.team.name, "Early access features", "Batch exports", "persons database"):
-                assert text in preview_content
+            assert self.team.name in preview_content
+            # The preview links to the counts instead of running them before the confirm.
+            assert f"/admin/console/tools/organization-data/?organization={self.organization.pk}" in preview_content
+            assert "Early access features" not in preview_content
         assert start.called == (
             in_group and not bulk_deletes_paused and not report_error and not pending_before_confirm
         )

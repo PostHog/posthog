@@ -118,7 +118,15 @@ def preview_deletion(request: HttpRequest, obj: Model, form: forms.Form) -> Page
     if len(teams) > len(shown):
         blocks.append(Notice(text=f"Deletion also removes {obj.teams.count() - len(shown)} more teams."))
     if teams:
-        blocks.extend(data_counts(obj))
+        # Exact counts can take long on a large organization, so the preview links to them instead of
+        # blocking the confirm on them.
+        blocks.append(
+            Notice(
+                text="Deletion also removes the team data of these teams.",
+                link_text="See row counts",
+                href=data_tool_url(obj),
+            )
+        )
     return Page(blocks=tuple(blocks))
 
 
