@@ -15,6 +15,8 @@ import {
     useComboboxAnchor,
 } from '@posthog/quill'
 
+const SCROLL_END_THRESHOLD_PX = 64
+
 type TagsComboboxProps = {
     value: string[]
     onChange: (next: string[]) => void
@@ -24,6 +26,9 @@ type TagsComboboxProps = {
     loading?: boolean
     error?: string
     onRetry?: () => void
+    /** Called when the list scrolls near its end, to load the next page. */
+    onScrollEnd?: () => void
+    loadingMore?: boolean
     options?: string[]
     placeholder?: string
     autoFocus?: boolean
@@ -55,6 +60,8 @@ function TagsComboboxInner({
     loading,
     error,
     onRetry,
+    onScrollEnd,
+    loadingMore,
     options = [],
     placeholder,
     autoFocus,
@@ -120,6 +127,8 @@ function TagsComboboxInner({
                 loading={loading}
                 error={error}
                 onRetry={onRetry}
+                onScrollEnd={onScrollEnd}
+                loadingMore={loadingMore}
             />
         </Combobox>
     )
@@ -137,6 +146,8 @@ function TagsComboboxBody({
     loading,
     error,
     onRetry,
+    onScrollEnd,
+    loadingMore,
 }: {
     placeholder?: string
     autoFocus?: boolean
@@ -149,6 +160,8 @@ function TagsComboboxBody({
     loading?: boolean
     error?: string
     onRetry?: () => void
+    onScrollEnd?: () => void
+    loadingMore?: boolean
 }): JSX.Element {
     const anchor = useComboboxAnchor()
     return (
@@ -186,18 +199,36 @@ function TagsComboboxBody({
                             )}
                         </span>
                     ) : loading ? (
-                        <span role="status" aria-label={`Loading ${customValueNoun}s`} className="flex flex-col gap-2">
+                        <div
+                            role="status"
+                            aria-label={`Loading ${customValueNoun}s`}
+                            className="flex w-56 flex-col gap-2"
+                        >
                             <Skeleton className="h-3 w-3/4" />
                             <Skeleton className="h-3 w-1/2" />
                             <Skeleton className="h-3 w-2/3" />
-                        </span>
+                        </div>
                     ) : trimmed ? (
                         `No matching ${customValueNoun}s`
                     ) : (
                         `No ${customValueNoun}s yet`
                     )}
                 </ComboboxEmpty>
-                <ComboboxList>
+                <ComboboxList
+                    onScroll={
+                        onScrollEnd
+                            ? (event) => {
+                                  const list = event.currentTarget
+                                  if (
+                                      list.scrollHeight - list.scrollTop - list.clientHeight <
+                                      SCROLL_END_THRESHOLD_PX
+                                  ) {
+                                      onScrollEnd()
+                                  }
+                              }
+                            : undefined
+                    }
+                >
                     {(item: string) => {
                         if (item === createSentinel) {
                             return (
@@ -213,6 +244,16 @@ function TagsComboboxBody({
                         )
                     }}
                 </ComboboxList>
+                {loadingMore && (
+                    <div
+                        role="status"
+                        aria-label={`Loading more ${customValueNoun}s`}
+                        className="flex flex-col gap-2 p-2"
+                    >
+                        <Skeleton className="h-3 w-3/4" />
+                        <Skeleton className="h-3 w-1/2" />
+                    </div>
+                )}
             </ComboboxContent>
         </>
     )

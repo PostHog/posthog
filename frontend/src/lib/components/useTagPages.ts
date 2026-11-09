@@ -92,7 +92,12 @@ export function useTagPages(logicKey: string, loadTags?: LoadTags): TagPages {
         awaitingFirstPage,
         pageLoading: tagPageLoading,
         error: tagPageError,
-        setOpen: setShowPopover,
+        // LemonInputSelect refocuses after every pick. A repeat open would reset the paging state without loading a page.
+        setOpen: (next) => {
+            if (next !== showPopover) {
+                setShowPopover(next)
+            }
+        },
         // Some inputs report a cleared search as they close, which would leave the next open waiting for a page nobody asked for.
         setSearch: (next) => {
             if (showPopover) {

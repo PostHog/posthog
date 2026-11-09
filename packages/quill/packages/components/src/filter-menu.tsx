@@ -389,7 +389,7 @@ export function FilterSearchSubMenu({
                         </div>
                     ) : loading ? (
                         // A full list while the first page loads; a couple of rows under the list while more load.
-                        <FilterSkeletonRows count={known.length === 0 ? 5 : 2} />
+                        <FilterSkeletonRows count={options.length === 0 ? 5 : 2} />
                     ) : null}
                 </DropdownMenuSubContent>
             </DropdownMenuSub>
