@@ -966,8 +966,9 @@ class MetricQueryRunner:
 
         A sample without a predecessor usually starts a new series, such as a
         counter on a new pod. It counts from zero when its value is small next
-        to the following delta, as in VictoriaMetrics' `increase`. A larger
-        value means the counter ran before we saw it, so the sample is a gap.
+        to the following delta, as in VictoriaMetrics' `increase`. That delta
+        handles a reset like any other sample. A larger value means the counter
+        ran before we saw it, so the sample is a gap.
         """
         step_seconds = _interval_step(self.interval).total_seconds()
         divisor = step_seconds if self.range_function == "rate" else 1.0
@@ -984,7 +985,17 @@ class MetricQueryRunner:
                         multiIf(
                             aggregation_temporality = 'delta', value,
                             isNull(prev_value),
-                                if(abs(value) < 10 * (abs(ifNull(next_value, value) - value) + 1), value, NULL),
+                                if(
+                                    abs(value) < 10 * (
+                                        multiIf(
+                                            isNull(next_value), 0,
+                                            assumeNotNull(next_value) >= value, assumeNotNull(next_value) - value,
+                                            assumeNotNull(next_value)
+                                        ) + 1
+                                    ),
+                                    value,
+                                    NULL
+                                ),
                             value >= assumeNotNull(prev_value), value - assumeNotNull(prev_value),
                             value
                         ) AS contribution

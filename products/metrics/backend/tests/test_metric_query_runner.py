@@ -1421,17 +1421,22 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         rows = self._run("increase")
         self.assertEqual(sum(row["value"] for row in rows), 1.0 + 3.0 + 4.0)
 
-    def test_large_first_value_is_a_counter_seen_late_not_a_new_series(self):
+    @parameterized.expand(
+        [
+            ("keeps_counting", [1_000_000.0, 1_000_010.0, 1_000_020.0], 20.0),
+            # The reset after the first sample must not read as a delta of a million.
+            ("resets_next", [1_000_000.0, 5.0, 15.0], 15.0),
+        ]
+    )
+    def test_large_first_value_is_a_counter_seen_late_not_a_new_series(
+        self, _name: str, values: list[float], expected: float
+    ):
         # A process that counted long before ingestion started must not add its whole history.
         self._seed_counter(
-            [
-                (self.anchor, 1_000_000.0),
-                (self.anchor + dt.timedelta(seconds=15), 1_000_010.0),
-                (self.anchor + dt.timedelta(seconds=30), 1_000_020.0),
-            ]
+            [(self.anchor + dt.timedelta(seconds=15 * index), value) for index, value in enumerate(values)]
         )
         rows = self._run("increase")
-        self.assertEqual(sum(row["value"] for row in rows), 20.0)
+        self.assertEqual(sum(row["value"] for row in rows), expected)
 
     @parameterized.expand(
         [
