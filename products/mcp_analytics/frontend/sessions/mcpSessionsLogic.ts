@@ -45,6 +45,7 @@ export const SESSIONS_PAGE_SIZE = 50
 // How many of a session's tool calls to fetch per request. Each "Load more" appends the
 // next page; the button appears whenever a session has more calls than one page.
 export const TOOL_CALLS_PAGE_SIZE = 100
+export const MAX_CACHED_SESSIONS = 20
 
 // Must stay aligned with SESSION_SORT_FIELDS on the backend (logic.py).
 export type MCPSessionSortColumn =
@@ -72,6 +73,7 @@ export function orderByParam(sorting: MCPSessionSorting | null): MCPSessionOrder
 export interface SessionToolCalls {
     filters: MCPSharedQueryFilters
     refreshCount: number
+    sessionStart: string | undefined
     calls: MCPToolCallApi[]
     hasNext: boolean
 }
@@ -413,10 +415,11 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     }
                     const filters = values.sharedQueryFilters
                     const refreshCount = values.refreshCount
+                    const sessionStart = values.selectedSession?.session_start
                     const page = await fetchToolCallsPage(
                         values.currentProjectId,
                         sessionId,
-                        values.selectedSession?.session_start,
+                        sessionStart,
                         0,
                         filters
                     ).catch((error) => {
@@ -424,10 +427,13 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                         throw error
                     })
                     breakpoint()
-                    const kept = Object.fromEntries(
-                        Object.entries(values.toolCallsBySession).filter(([, entry]) => entry.filters === filters)
-                    )
-                    return { ...kept, [sessionId]: { filters, refreshCount, ...page } }
+                    const kept = Object.entries(values.toolCallsBySession)
+                        .filter(([id, entry]) => id !== sessionId && entry.filters === filters)
+                        .slice(1 - MAX_CACHED_SESSIONS)
+                    return {
+                        ...Object.fromEntries(kept),
+                        [sessionId]: { filters, refreshCount, sessionStart, ...page },
+                    }
                 },
                 // Load more: append the next page at offset = current length.
                 loadMoreToolCalls: async ({ sessionId }) => {
@@ -438,7 +444,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     const page = await fetchToolCallsPage(
                         values.currentProjectId,
                         sessionId,
-                        values.selectedSession?.session_start,
+                        entry.sessionStart,
                         entry.calls.length,
                         entry.filters
                     ).catch((error) => {
@@ -493,6 +499,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             {
                 loadMoreToolCalls: (state, { sessionId }) => ({ ...state, [sessionId]: true as const }),
                 loadMoreToolCallsSuccess: (state, { payload }) => (payload ? without(state, payload.sessionId) : state),
+                loadToolCallsSuccess: (state, { payload }) => (payload ? without(state, payload) : state),
                 clearLoadingMore: (state, { sessionId }) => without(state, sessionId),
             },
         ],
@@ -640,6 +647,14 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => {
+        const isToolCallsCacheFresh = (sessionId: string): boolean => {
+            const entry = values.toolCallsBySession[sessionId]
+            return (
+                entry?.filters === values.sharedQueryFilters &&
+                entry.refreshCount === values.refreshCount &&
+                entry.sessionStart === values.selectedSession?.session_start
+            )
+        }
         const reloadForSharedFilters = (): void => {
             actions.loadSessions()
             if (values.selectedSessionId) {
@@ -661,9 +676,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             setPropertyFilters: reloadForSharedFilters,
             refreshSessions: reloadForSharedFilters,
             selectSession: ({ sessionId }) => {
-                const entry = sessionId ? values.toolCallsBySession[sessionId] : undefined
-                const fresh = entry?.filters === values.sharedQueryFilters && entry.refreshCount === values.refreshCount
-                if (sessionId && !fresh) {
+                if (sessionId && !isToolCallsCacheFresh(sessionId)) {
                     actions.loadToolCalls(sessionId)
                 }
             },
@@ -682,6 +695,12 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     : false
                 if (!stillVisible) {
                     actions.selectSession(sessions[0].session_id)
+                } else if (
+                    values.selectedSessionId &&
+                    values.toolCallsBySession[values.selectedSessionId]?.sessionStart !==
+                        values.selectedSession?.session_start
+                ) {
+                    actions.loadToolCalls(values.selectedSessionId)
                 }
             },
         }

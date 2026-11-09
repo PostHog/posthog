@@ -8,7 +8,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import { mcpAnalyticsSessionsList, mcpAnalyticsSessionsToolCalls } from '../generated/api'
 import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
-import { mcpSessionsLogic } from './mcpSessionsLogic'
+import { MAX_CACHED_SESSIONS, mcpSessionsLogic } from './mcpSessionsLogic'
 
 jest.mock('../generated/api', () => ({
     mcpAnalyticsSessionsList: jest.fn(),
@@ -201,6 +201,24 @@ describe('mcpSessionsLogic', () => {
         consoleErrorSpy.mockRestore()
     })
 
+    it.each([
+        ['the oldest', 0, 1],
+        ['the next oldest', 1, 0],
+    ])('caps the cache at %s session after visiting one more than fit', async (_label, revisited, refetches) => {
+        toolCallsMock.mockResolvedValue({ results: [toolCall('call')], has_next: false })
+        for (let i = 0; i <= MAX_CACHED_SESSIONS; i++) {
+            await expectLogic(logic, () => logic.actions.selectSession(`s${i}`)).toDispatchActions([
+                'loadToolCallsSuccess',
+            ])
+        }
+        toolCallsMock.mockClear()
+
+        logic.actions.selectSession(`s${revisited}`)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toolCallsMock).toHaveBeenCalledTimes(refetches)
+    })
+
     describe('with session A on screen and more calls to load', () => {
         const pending = (): Promise<never> => new Promise(() => {})
 
@@ -262,6 +280,38 @@ describe('mcpSessionsLogic', () => {
 
             expect(logic.values.selectedSessionToolCalls.loadingMore).toBe(true)
             consoleErrorSpy.mockRestore()
+        })
+
+        it.each([
+            ['keeps', '2026-01-01T00:00:00Z', 0],
+            ['moves', '2025-12-20T00:00:00Z', 1],
+        ])('refetches A when a new date range %s its start: %s', async (_label, sessionStart, refetches) => {
+            toolCallsMock.mockClear()
+            toolCallsMock.mockResolvedValue({ results: [toolCall('wider')], has_next: false })
+            listMock.mockResolvedValue({ results: [{ session_id: 'A', session_start: sessionStart }], has_next: false })
+
+            await expectLogic(logic, () => logic.actions.setDateFilter('-90d', null)).toDispatchActions([
+                'loadSessionsSuccess',
+            ])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(toolCallsMock).toHaveBeenCalledTimes(refetches)
+            toolCallsMock.mock.calls.forEach(([, , params]) => expect(params.date_from).toBe(sessionStart))
+        })
+
+        it("stops A's load more spinner when a filter change replaces its first page", async () => {
+            toolCallsMock.mockImplementationOnce(pending)
+            logic.actions.loadMoreToolCalls('A')
+            toolCallsMock.mockResolvedValueOnce({ results: [toolCall('filtered')], has_next: true })
+
+            await expectLogic(logic, () =>
+                mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER])
+            ).toDispatchActions(['loadToolCallsSuccess'])
+
+            expect(logic.values.selectedSessionToolCalls).toMatchObject({
+                calls: [toolCall('filtered')],
+                loadingMore: false,
+            })
         })
 
         it('keeps the cached calls when a refetch fails', async () => {
