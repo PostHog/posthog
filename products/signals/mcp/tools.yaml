@@ -101,8 +101,11 @@ tools:
             history of every series of that insight, and the insight's own query (for example query-trends on the
             insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the
             range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or
-            the project turned scoring off in its self-driving settings; `message` says which. Use `group_by: insight`
-            for one row per insight. A 404 means anomaly search is not available for this project.
+            the project turned scoring off in its self-driving settings; `message` says which. `scoring_enabled: true`
+            does not mean the scores are ready: rely on them only when `scored_history_ready` is true, that is when
+            `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range)
+            is 14 or more. Use `group_by: insight` for one row per insight. A 404 means anomaly search is not available
+            for this project.
         feature_flag: anomalies-search
     inbox-ranking-outcomes-list:
         operation: signals_reports_ranking_outcomes_list
@@ -566,6 +569,10 @@ tools:
             Each row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and
             `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status:
             unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.
+
+            `source_products` and `scout_name` come from a separate read with a short time limit. When the response has
+            `source_metadata_available: false`, that read did not finish, and an empty `source_products` or a null
+            `scout_name` does not mean the report has none. Say so instead of reporting them as values.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues

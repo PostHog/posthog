@@ -14870,6 +14870,10 @@ export namespace Schemas {
       watched_insights: number;
       /** Insights with at least one scored bucket in the range. Results cover only these insights. */
       insights_scored_in_range: number;
+      /** Distinct UTC days with a scored daily bucket of any insight series in the last 28 days. It does not follow the requested range, and it counts scores written before scoring was turned off. */
+      scored_days: number;
+      /** True when `scored_days` is 14 or more. Until then the project has too little scored history to rely on its scores, even when `scoring_enabled` is true. */
+      scored_history_ready: boolean;
       /** The applied start of the range, in the project timezone. */
       date_from: string;
       /** The applied end of the range, in the project timezone. */
@@ -43379,13 +43383,39 @@ export namespace Schemas {
       readonly default_period_deletes: boolean;
     }
 
+    /**
+     * * `1` - 1 month
+     * * `3` - 3 months
+     * * `12` - 1 year
+     * * `24` - 2 years
+     * * `36` - 3 years
+     * * `60` - 5 years
+     * * `84` - 7 years
+     */
+    export type EventsRetentionMonthsEnum = typeof EventsRetentionMonthsEnum[keyof typeof EventsRetentionMonthsEnum];
+
+
+    export const EventsRetentionMonthsEnum = {
+      Number1: 1,
+      Number3: 3,
+      Number12: 12,
+      Number24: 24,
+      Number36: 36,
+      Number60: 60,
+      Number84: 84,
+    } as const;
+
     export interface EventsRetentionUpdate {
-      /**
-         * The period in months, one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.
-         * @minimum 1
-         * @nullable
-         */
-      retention_months: number | null;
+      /** The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.
+       *
+       * * `1` - 1 month
+       * * `3` - 3 months
+       * * `12` - 1 year
+       * * `24` - 2 years
+       * * `36` - 3 years
+       * * `60` - 5 years
+       * * `84` - 7 years */
+      retention_months: EventsRetentionMonthsEnum | null;
     }
 
     export interface ExcerptChoice {
@@ -53174,6 +53204,18 @@ export namespace Schemas {
       state: string | null;
       type: string | null;
       created_at: string | null;
+    }
+
+    export interface HiddenPulseNumber {
+      /** Key of the hidden number: a key metric setting such as signup_event, or insight:<short_id>. */
+      key: string;
+      /** Current name of the number. */
+      name: string;
+    }
+
+    export interface HiddenPulseNumbers {
+      /** Numbers the person hid from the key numbers, oldest first. Numbers the person can no longer see are left out. */
+      hidden: HiddenPulseNumber[];
     }
 
     export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
@@ -71536,6 +71578,19 @@ export namespace Schemas {
          * @nullable
          */
       readonly uses_most_specific_access_resolution: boolean | null;
+      /**
+         * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+         * @maxItems 100
+         * @items.maxLength 64
+         */
+      ip_restrictions?: string[];
+      /** When False, the IP allowlist is kept but not enforced. */
+      ip_restrictions_enabled?: boolean;
+      /**
+         * A warning when the current request's IP address is not in the saved allowlist.
+         * @nullable
+         */
+      readonly ip_restrictions_warning: string | null;
     }
 
     export interface OrganizationAIAccessRequestResponse {
@@ -76694,6 +76749,8 @@ export namespace Schemas {
          * @nullable
          */
       ranking_pill?: boolean | null;
+      /** Whether the rows carry their source metadata. False when the request passed include_source_metadata=false, or when the ClickHouse read failed or took too long. Then each row has an empty source_products and a null scout_name that do not mean the report has none. Load them with source_metadata. */
+      source_metadata_available?: boolean;
     }
 
     export type SignalSourceSyncStatusEnum = typeof SignalSourceSyncStatusEnum[keyof typeof SignalSourceSyncStatusEnum];
@@ -86770,6 +86827,19 @@ export namespace Schemas {
          * @nullable
          */
       readonly uses_most_specific_access_resolution?: boolean | null;
+      /**
+         * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+         * @maxItems 100
+         * @items.maxLength 64
+         */
+      ip_restrictions?: string[];
+      /** When False, the IP allowlist is kept but not enforced. */
+      ip_restrictions_enabled?: boolean;
+      /**
+         * A warning when the current request's IP address is not in the saved allowlist.
+         * @nullable
+         */
+      readonly ip_restrictions_warning?: string | null;
     }
 
     export interface PatchedOrganizationDomain {
@@ -96755,6 +96825,8 @@ export namespace Schemas {
     export interface PulsePins {
       /** Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most 20 entries. */
       pins: PulsePin[];
+      /** Numbers the person hid from the key numbers, oldest first. Suggestions skip them. Change them with the hidden numbers endpoint. */
+      readonly hidden: readonly HiddenPulseNumber[];
     }
 
     /**
@@ -108231,6 +108303,15 @@ export namespace Schemas {
     export interface SetAllServersEnabled {
       /** True enables every MCP server for the team; false disables them all. Applies to every registered server and becomes the default for untouched and future catalog servers. */
       enabled: boolean;
+    }
+
+    export interface SetHiddenPulseNumbers {
+      /**
+         * Keys of every number to hide, oldest first. Replaces the hidden numbers. At most 50 keys.
+         * @maxItems 50
+         * @items.maxLength 200
+         */
+      keys: string[];
     }
 
     /**
