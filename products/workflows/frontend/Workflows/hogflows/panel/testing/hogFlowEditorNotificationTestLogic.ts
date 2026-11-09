@@ -367,6 +367,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                     }
 
                     const testedAction = values.workflow.actions?.find((action) => action.id === values.selectedNodeId)
+                    // nosemgrep: prefer-codegen-api-namespaced-workflows -- The generated hogFlowsInvocationsCreate returns void, and this caller needs the test result.
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
                         configuration:
                             testedAction?.type === 'email_sandbox' && emailToUse
