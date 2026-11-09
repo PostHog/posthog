@@ -1,4 +1,9 @@
+from datetime import UTC, datetime
+from typing import Any
+
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -7,7 +12,9 @@ from langchain_core.messages import (
     AIMessage,
     ToolMessage as LangchainToolMessage,
 )
+from langchain_core.outputs import ChatGeneration, LLMResult
 from langchain_core.prompts import AIMessagePromptTemplate, HumanMessagePromptTemplate
+from langchain_openai import ChatOpenAI
 
 from posthog.schema import (
     ArtifactContentType,
@@ -254,6 +261,24 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(history[2], intermediate_messages[0])
         self.assertEqual(history[3], intermediate_messages[1])
         self.assertEqual(history[4], intermediate_messages[2])
+
+    @patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key"})
+    def test_model_sends_conversation_start_time_on_every_call(self):
+        node = self._get_node()
+        state = AssistantState(messages=[], start_dt=datetime(2026, 1, 5, 9, 0, tzinfo=UTC))
+        sent_instructions: list[str] = []
+
+        def generate(llm: ChatOpenAI, *args: Any, **kwargs: Any) -> LLMResult:
+            sent_instructions.append(llm.model_kwargs["instructions"])
+            return LLMResult(generations=[[ChatGeneration(message=AIMessage(content=""))]])
+
+        with patch("langchain_openai.ChatOpenAI.generate", autospec=True, side_effect=generate):
+            for call_time in ("2026-01-05T09:00:30Z", "2026-01-05T09:04:10Z"):
+                with time_machine.travel(call_time, tick=False):
+                    node._get_model(state).invoke("Plan")
+
+        self.assertEqual(sent_instructions[0], sent_instructions[1])
+        self.assertIn("2026-01-05 09:00:00", sent_instructions[0])
 
 
 @override_settings(IN_UNIT_TESTING=True)
