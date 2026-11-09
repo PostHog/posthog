@@ -23,6 +23,7 @@ import {
     fetchErrorDetail,
     isFetchResponseRetriable,
 } from '../utils/cdp-fetch'
+import { CredentialInjector } from '../utils/credential-auth'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
@@ -55,6 +56,9 @@ export interface HogExecutorAsyncConfig {
     fetchBackoffMaxMs: number
     siteUrl: string
     internalApiBaseUrl: string
+    // Comma-separated team ids, or "*", whose fetches are refused when they send a credential handle to an origin
+    // the credential is not bound to. Other teams send it and count the mismatch.
+    credentialAuthEnforceTeams?: string
 }
 
 /**
@@ -96,7 +100,11 @@ export class HogExecutorAsyncService {
         public readonly hogExecutor: HogExecutorService,
         private config: HogExecutorAsyncConfig,
         private deps: HogExecutorAsyncDependencies
-    ) {}
+    ) {
+        this.credentialInjector = new CredentialInjector(config.credentialAuthEnforceTeams ?? '')
+    }
+
+    private readonly credentialInjector: CredentialInjector
 
     @instrumented('hog-executor.executeWithAsyncFunctions')
     async executeWithAsyncFunctions(
@@ -474,6 +482,29 @@ export class HogExecutorAsyncService {
             signedHeaders = mergeSecretHeaders(signedHeaders, resolved.headers)
         }
 
+        // The credential goes on local copies, never on params, which a retry writes back to the queue as plaintext.
+        let requestUrl = params.url
+        let requestBody = params.body ?? undefined
+        if (params.auth_input) {
+            const resolved = await this.deps.hogInputsService.resolveCredential(
+                invocation.hogFunction,
+                params.auth_input
+            )
+            if ('error' in resolved) {
+                return failSigning(resolved.error)
+            }
+            const applied = this.credentialInjector.apply(
+                invocation.teamId,
+                invocation.hogFunction.id,
+                { url: requestUrl, headers: signedHeaders, body: requestBody },
+                resolved.credential
+            )
+            if (!applied.ok) {
+                return failSigning(applied.error)
+            }
+            ;({ url: requestUrl, headers: signedHeaders, body: requestBody } = applied.request)
+        }
+
         if (params.aws_sigv4) {
             const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
             if (!resolved.ok) {
@@ -481,8 +512,8 @@ export class HogExecutorAsyncService {
             }
             signedHeaders = signAwsRequest({
                 method,
-                url: params.url,
-                body: params.body ?? '',
+                url: requestUrl,
+                body: requestBody ?? '',
                 headers: signedHeaders,
                 credentials: resolved.credentials,
             })
@@ -501,7 +532,7 @@ export class HogExecutorAsyncService {
             }
             signedHeaders = signStandardWebhooksRequest({
                 webhookId: params.standard_webhooks.webhook_id,
-                body: params.body ?? '',
+                body: requestBody ?? '',
                 headers: signedHeaders,
                 key: resolved.key,
             })
@@ -509,12 +540,12 @@ export class HogExecutorAsyncService {
 
         const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
-        if (!['GET', 'HEAD'].includes(method) && params.body) {
-            fetchParams.body = params.body
+        if (!['GET', 'HEAD'].includes(method) && requestBody) {
+            fetchParams.body = requestBody
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
-            url: params.url,
+            url: requestUrl,
             fetchParams,
             templateId,
             teamId: invocation.teamId,

@@ -43,8 +43,8 @@ if (can_customize and not empty(inputs.username)) {
 let res := fetch('https://slack.com/api/chat.postMessage', {
   'body': body,
   'method': 'POST',
+  'auth': inputs.slack_workspace,
   'headers': {
-    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',
     'Content-Type': 'application/json'
   }
 });
@@ -69,6 +69,7 @@ return {'channel': res.body.channel, 'ts': res.body.ts};
             integration: 'slack',
             label: 'Slack workspace',
             requiredScopes: 'chat:write',
+            auth: { scheme: 'bearer' },
             secret: false,
             hidden: false,
             required: true,

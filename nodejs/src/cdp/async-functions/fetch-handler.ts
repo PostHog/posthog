@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
 
 import { registerAsyncFunction } from '../async-function-registry'
+import { credentialHandleInputKey } from '../utils/credential-auth'
 
 registerAsyncFunction('fetch', {
     execute: (args, _context, result) => {
@@ -28,6 +29,11 @@ registerAsyncFunction('fetch', {
         // it's actually set — Zod preserves an `aws_sigv4: undefined` own property
         // on the parsed object, which would otherwise leak into every non-AWS
         // template's queueParameters snapshot.
+        const authInput = fetchOptions?.auth === undefined ? undefined : credentialHandleInputKey(fetchOptions.auth)
+        if (authInput === null) {
+            throw new Error("fetch option 'auth' must be an input that holds a credential, such as inputs.api_key.")
+        }
+
         const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
             url,
@@ -36,6 +42,7 @@ registerAsyncFunction('fetch', {
             headers: pickBy(headers, (v) => typeof v == 'string'),
             ...(fetchOptions?.aws_sigv4 ? { aws_sigv4: fetchOptions.aws_sigv4 } : {}),
             ...(fetchOptions?.secret_headers_input ? { secret_headers_input: fetchOptions.secret_headers_input } : {}),
+            ...(authInput ? { auth_input: authInput } : {}),
             // Mint the webhook id here, once per fetch call, rather than in the
             // executor: it has to survive every retry of this call (the receiver
             // dedupes on it) and it must not be shared with another fetch from the

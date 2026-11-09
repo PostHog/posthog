@@ -210,6 +210,9 @@ export type CdpConfig = ClickhouseConfig & {
     // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
     CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: string
+    // Comma-separated team ids, or "*", whose fetches are refused when a credential handle goes to an origin it is not
+    // bound to. Every other team sends it and counts the mismatch.
+    CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -455,6 +458,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
         CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
         CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: '',
+        CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
