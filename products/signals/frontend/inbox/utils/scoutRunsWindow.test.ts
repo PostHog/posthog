@@ -78,12 +78,14 @@ describe('scoutRunsWindow report channel', () => {
 
     describe('formatRunCost', () => {
         it.each<[number, string]>([
-            [4.0327, '403.27 credits'],
-            [0.0042, '0.42 credits'],
+            [4.0327, '403 credits'],
+            [0.0042, '0 credits'],
+            [0.0075, '1 credit'],
+            [0.015, '2 credits'],
             [0, '0 credits'],
             [0.01, '1 credit'],
             [12.34, '1,234 credits'],
-            [0.000001, '<0.01 credits'],
+            [0.000001, '0 credits'],
         ])('%s → %s', (cost, expected) => {
             expect(formatRunCost(cost)).toEqual(expected)
         })
