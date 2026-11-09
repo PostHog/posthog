@@ -2330,11 +2330,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                 }
                 if (loadFrom !== null) {
-                    // The synthetic selected row (when present) sits before the remote block,
-                    // so it shifts every remote row's display index by one — subtract it along
-                    // with the local rows to recover the true remote offset.
+                    // Leading search rows, local rows and the synthetic selected row all sit before the
+                    // remote block. Subtract each of them to recover the true remote offset.
                     const offset =
-                        (loadFrom || startIndex) - values.localItems.count - (values.items.syntheticSelectedCount ?? 0)
+                        (loadFrom || startIndex) -
+                        values.leadingSearchItems.length -
+                        values.localItems.count -
+                        (values.items.syntheticSelectedCount ?? 0)
                     actions.loadRemoteItems({ offset, limit: values.limit })
                 }
             }

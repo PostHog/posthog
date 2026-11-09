@@ -2129,6 +2129,40 @@ describe('infiniteListLogic', () => {
             expect(results.filter((item) => (item as { name?: string })?.name === 'misc-150-generated')).toHaveLength(1)
         })
 
+        it('fetches the true remote offset when a stand-in row leads a paginated search', async () => {
+            const matches = Array.from({ length: 150 }, (_, i) => ({
+                id: `uuid-feature-flag-${i}`,
+                name: `feature flag event ${i}`,
+                tags: [],
+            }))
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        const offset = Number(url.searchParams.get('offset'))
+                        const limit = Number(url.searchParams.get('limit'))
+                        return [200, { results: matches.slice(offset, offset + limit), count: matches.length }]
+                    },
+                },
+            })
+            logic = logicWith({
+                taxonomicFilterLogicKey: 'stand-in-pagination-test',
+                offerHiddenEventStandIns: true,
+            })
+            await expectLogic(logic, () => logic.actions.setSearchQuery('feature flag')).toDispatchActions([
+                'loadRemoteItemsSuccess',
+            ])
+            expect(isHiddenEventStandIn(logic.values.results[0])).toBe(true)
+
+            await expectLogic(logic, () =>
+                logic.actions.onRowsRendered({ startIndex: 90, stopIndex: 110, overscanStopIndex: 130 })
+            ).toDispatchActions([
+                (action) => action.type === logic.actionTypes.loadRemoteItems && action.payload.offset === 100,
+                'loadRemoteItemsSuccess',
+            ])
+            expect(logic.values.results.filter((item) => item == null)).toHaveLength(0)
+        })
+
         it('leaves relevance ordering alone while searching', async () => {
             logic = logicWith({ value: 'other event', groupType: TaxonomicFilterGroupType.Events })
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
