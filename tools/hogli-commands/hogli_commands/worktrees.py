@@ -816,6 +816,31 @@ def _worktree_came_back(box: WorktreeBox) -> bool:
     return box.worktree_path.exists() or load_worktree_boxes().get(str(box.worktree_path)) != box.record
 
 
+def _ready_to_act_on(
+    box: WorktreeBox,
+    listed: Mapping[str, object],
+    idle_before: float,
+    require_removed: bool,
+    handled: dict[Path, WorktreeBoxRecord],
+) -> bool:
+    if not box.record.owns(listed):
+        click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
+        handled[box.worktree_path] = box.record
+        return False
+    last_used = _box_last_used(listed)
+    if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
+        click.echo(f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone.")
+        return False
+    if require_removed and _worktree_came_back(box):
+        click.echo(f"  {box.workspace} belongs to a worktree at {box.worktree_path} again, so it was left alone.")
+        return False
+    try:
+        mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
+    except SystemExit:
+        click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
+    return True
+
+
 def _clean_hogland_boxes(
     boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool, require_removed: bool
 ) -> None:
@@ -834,23 +859,8 @@ def _clean_hogland_boxes(
             hogland.forget_ssh_entry(box.workspace)
             handled[box.worktree_path] = box.record
             continue
-        if not box.record.owns(devbox):
-            click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
-            handled[box.worktree_path] = box.record
+        if not _ready_to_act_on(box, devbox, idle_before, require_removed, handled):
             continue
-        last_used = _box_last_used(devbox)
-        if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
-            click.echo(
-                f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone."
-            )
-            continue
-        if require_removed and _worktree_came_back(box):
-            click.echo(f"  {box.workspace} belongs to a worktree at {box.worktree_path} again, so it was left alone.")
-            continue
-        try:
-            mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
-        except SystemExit:
-            click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
         try:
             if box_action == "delete":
                 click.echo(f"Deleting Hogland devbox {box.workspace}...")
@@ -892,23 +902,8 @@ def _clean_coder_boxes(
             click.echo(f"  {box.workspace} no longer exists.")
             handled[box.worktree_path] = box.record
             continue
-        if not box.record.owns(workspace):
-            click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
-            handled[box.worktree_path] = box.record
+        if not _ready_to_act_on(box, workspace, idle_before, require_removed, handled):
             continue
-        last_used = _box_last_used(workspace)
-        if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
-            click.echo(
-                f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone."
-            )
-            continue
-        if require_removed and _worktree_came_back(box):
-            click.echo(f"  {box.workspace} belongs to a worktree at {box.worktree_path} again, so it was left alone.")
-            continue
-        try:
-            mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
-        except SystemExit:
-            click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
         try:
             if box_action == "delete":
                 click.echo(f"Deleting devbox {box.workspace}...")
