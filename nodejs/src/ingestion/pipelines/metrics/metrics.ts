@@ -12,6 +12,18 @@ export const metricMessageDlqCounter = new Counter({
     labelNames: ['reason', 'team_id'],
 })
 
+export const metricsAggregationPointsCounter = new Counter({
+    name: 'metrics_ingestion_aggregation_points_total',
+    help: 'Sum points that went into aggregation (stage=in) and the points it produced (stage=out)',
+    labelNames: ['stage'],
+})
+
+export const metricsAggregationSkippedCounter = new Counter({
+    name: 'metrics_ingestion_aggregation_skipped_messages_total',
+    help: 'Messages of an aggregation-enabled team that passed through unchanged because they could not be read',
+    labelNames: ['reason'],
+})
+
 export const metricsBytesReceivedCounter = new Counter({
     name: 'metrics_ingestion_bytes_received_total',
     help: 'Total uncompressed bytes received for metrics ingestion',
