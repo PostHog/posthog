@@ -278,6 +278,25 @@ describe('S3AttachmentStore', () => {
             expect(selfCopiesOf(send, 1, f.sha256)).toBe(copies)
         })
 
+        it('throws unavailable when the copy a use needs does not settle in time', async () => {
+            const f = file()
+            await upload(1, f)
+            const createdAt = await lastModified(1, f.sha256)
+            const send = store.s3.send.bind(store.s3)
+            jest.spyOn(store.s3, 'send').mockImplementation(((command: unknown, ...rest: unknown[]) =>
+                command instanceof CopyObjectCommand
+                    ? new Promise<never>(() => {})
+                    : (send as (...args: unknown[]) => Promise<unknown>)(command, ...rest)) as typeof store.s3.send)
+
+            await expect(
+                use(
+                    storeAt(new Date(createdAt.getTime() + DAY_MS), store.s3, 200),
+                    f.sha256,
+                    new Date(createdAt.getTime() + 37 * DAY_MS + 1000)
+                )
+            ).rejects.toThrow(AttachmentStoreUnavailableError)
+        })
+
         it('keeps a fresh upload through the expiry that prepareUploads answered for it', async () => {
             const f = file()
             await upload(1, f)
