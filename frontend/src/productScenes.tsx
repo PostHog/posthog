@@ -172,6 +172,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
     ReplayVisionObservation: () => import('../../products/replay_vision/frontend/observations/ReplayObservation'),
+    ReplayVisionSimilarSessions: () =>
+        import('../../products/replay_vision/frontend/replay_scanners/SimilarSessionsScene'),
     CodeReview: () => import('../../products/review_hog/frontend/CodeReviewScene'),
     ScoutTrials: () => import('../../products/signals/frontend/inbox/ScoutTrialsScene'),
     Inbox: () => import('../../products/signals/frontend/inbox/InboxScene'),

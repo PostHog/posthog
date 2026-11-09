@@ -301,6 +301,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/pulse': ['Pulse', 'pulse'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
+    '/replay-vision/similar/:observationId': ['ReplayVisionSimilarSessions', 'replayVisionSimilarSessions'],
     '/replay-vision/:id/goal': ['ReplayVisionScannerEditor', 'replayVisionScannerGoal'],
     '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
     '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
@@ -1201,6 +1202,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'replay_vision',
         layout: 'app-container',
     },
+    ReplayVisionSimilarSessions: {
+        name: 'Replay vision similar sessions',
+        projectBased: true,
+        iconType: 'replay_vision',
+        layout: 'app-container',
+    },
     CodeReview: {
         name: 'Code review',
         projectBased: true,
@@ -1968,6 +1975,7 @@ export const productUrls = {
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
     replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
+    replayVisionSimilarSessions: (observationId: string): string => `/replay-vision/similar/${observationId}`,
     codeReview: (): string => '/code-review',
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
     inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
@@ -3247,7 +3255,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Usage', href: urls.replayVisionTab('usage') },
         ],
         sceneKey: 'ReplayVision',
-        sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
+        sceneKeys: ['ReplayVision', 'ReplayVisionScanner', 'ReplayVisionSimilarSessions'],
     },
     {
         path: 'SQL editor',

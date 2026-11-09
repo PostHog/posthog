@@ -39,6 +39,7 @@ import type {
     VisionQuotaApi,
 } from '../generated/api.schemas'
 import { replayScannerLogic } from './replayScannerLogic'
+import { similarSessionsUrl } from './similarSessionsSceneLogic'
 import type { SamplingMode, ScannerConfig, ScannerType } from './types'
 
 const alice: UserBasicApi = {
@@ -1400,6 +1401,30 @@ export const HomeHighlightFeedEmpty: StoryObj = {
     decorators: [
         mswDecorator({
             get: { '/api/projects/:team_id/vision/scanners/highlight_feed/': { results: [] } },
+        }),
+    ],
+}
+
+export const SimilarSessions: StoryObj = {
+    parameters: {
+        pageUrl: similarSessionsUrl({
+            observationId: checkoutGroupMembers[0].id,
+            scannerId: scanners.results[0].id,
+            dateFrom: '-7d',
+            categories: null,
+        }),
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/:id/observations/': {
+                    count: checkoutGroupMembers.length,
+                    next: null,
+                    previous: null,
+                    results: checkoutGroupMembers,
+                },
+            },
         }),
     ],
 }

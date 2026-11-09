@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { useState } from 'react'
 
 import { IconChevronDown, IconPlayFilled } from '@posthog/icons'
@@ -9,13 +8,12 @@ import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import { type ReplayObservationApi, VisionObservationsThumbnailRetrieveSize } from '../../generated/api.schemas'
 import { scannerLabel } from '../../utils/observation'
 import { type HighlightFeedGroupLogicProps, highlightFeedGroupLogic } from '../highlightFeedGroupLogic'
-import { ReplayScannerTab } from '../replayScannerSceneLogic'
+import { similarSessionsUrl } from '../similarSessionsSceneLogic'
 import { observationKeyMomentMs, highlightCardHeadline, highlightFeedObservationUrl } from './HighlightFeedCard'
 
 /** The card's telemetry properties, so group events join the card they came from. */
@@ -135,14 +133,12 @@ function HighlightFeedGroupList({
             {/* The list's own total decides, since dismissed or re-ranked sessions can make it differ from the card's count. */}
             {members && members.total > members.shown.length && (
                 <Link
-                    to={
-                        combineUrl(urls.replayVision(logicProps.scannerId), {
-                            tab: ReplayScannerTab.Observations,
-                            watch_group: logicProps.observationId,
-                            date_from: logicProps.dateFrom,
-                            watch_category: logicProps.categories,
-                        }).url
-                    }
+                    to={similarSessionsUrl({
+                        observationId: logicProps.observationId,
+                        scannerId: logicProps.scannerId,
+                        dateFrom: logicProps.dateFrom,
+                        categories: logicProps.categories ?? null,
+                    })}
                     className="self-start text-sm"
                     data-attr="vision-highlight-feed-group-see-all"
                     onClick={() =>
