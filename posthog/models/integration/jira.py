@@ -19,13 +19,15 @@ logger = structlog.get_logger(__name__)
 
 OPENING_FENCE = re.compile(r"(?P<fence>`{3,})(?P<language>[^`]*)")
 CLOSING_FENCE = re.compile(r"(?P<fence>`{3,})[ \t]*")
-URL = re.compile(r"https?://[^\s<>\"']+")
-# Punctuation that usually ends the sentence around a URL rather than belonging to it.
-URL_TRAILING_PUNCTUATION = ".,;:!?"
+# A backtick ends the URL, so that the closing backtick of inline code stays outside the link.
+URL = re.compile(r"https?://[^\s<>\"'`]+")
+# Punctuation that usually ends the sentence around a URL rather than belonging to it. `*`, `_` and `~` close Markdown
+# emphasis around a URL, and GitHub's autolinks leave them out for the same reason.
+URL_TRAILING_PUNCTUATION = ".,;:!?*_~"
 
 
 def trim_url(url: str) -> str:
-    """Drops trailing sentence punctuation, and a closing parenthesis that has no opening one in the URL.
+    """Drops trailing punctuation, and a closing parenthesis that has no opening one in the URL.
 
     The descriptions are user input of any length, so the parentheses are counted once and the URL is cut once,
     keeping this linear like the fence handling.

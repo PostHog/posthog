@@ -128,6 +128,36 @@ class TestJiraIntegrationModel:
                 ],
             ),
             (
+                "markdown_wrappers_stay_outside_link",
+                "**https://example.com/a** `https://example.com/b` (_https://example.com/c_d_).",
+                [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "**"},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/a",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/a"}}],
+                            },
+                            {"type": "text", "text": "** `"},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/b",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/b"}}],
+                            },
+                            {"type": "text", "text": "` (_"},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/c_d",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/c_d"}}],
+                            },
+                            {"type": "text", "text": "_)."},
+                        ],
+                    }
+                ],
+            ),
+            (
                 "fence_becomes_code_block",
                 'Checkout failed\n\n```\nTypeError: boom\n  File "app.js", line: 3\n```\n\nPostHog issue: https://example.com/issue/1',
                 [
