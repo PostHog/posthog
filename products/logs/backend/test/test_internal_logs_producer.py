@@ -3,6 +3,7 @@ import json
 import random
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 import time_machine
@@ -12,6 +13,8 @@ from prometheus_client import REGISTRY
 
 from products.logs.backend.internal_logs import sign_internal_logs
 from products.logs.backend.internal_logs_producer import (
+    MAX_MESSAGE_LENGTH,
+    GetTeamApiToken,
     InternalLogEntry,
     InternalLogsProducer,
     InternalLogsProducerConfig,
@@ -53,46 +56,66 @@ async def _api_token(team_id: int) -> str | None:
     return "phc_test_token"
 
 
+async def _no_team(team_id: int) -> str | None:
+    return None
+
+
+def _producer(
+    get_team_api_token: GetTeamApiToken = _api_token,
+    max_in_flight: int = 2,
+    max_buffered_bytes: int = 1024 * 1024,
+    retry_timeout_ms: int = 10_000,
+) -> InternalLogsProducer:
+    return InternalLogsProducer(
+        InternalLogsProducerConfig(
+            url=URL,
+            signing_keys="k1,k0",
+            teams="1",
+            max_in_flight=max_in_flight,
+            max_buffered_bytes=max_buffered_bytes,
+            retry_timeout_ms=retry_timeout_ms,
+        ),
+        get_team_api_token,
+    )
+
+
+def _entry(team_id: int = 1, level: str = "info", message: str = "hello") -> InternalLogEntry:
+    return InternalLogEntry(
+        team_id=team_id,
+        log_source_id="flow-1",
+        instance_id="run-1",
+        timestamp=datetime(2025, 1, 15, 12, 37, 11, tzinfo=UTC),
+        level=level,
+        message=message,
+    )
+
+
 @pytest.mark.parametrize(
-    "statuses, max_buffered_bytes, drain_timeout_seconds, expected",
+    "statuses, setup, expected",
     [
-        ([503, 200], 1024 * 1024, 5, {"sent": 1}),
-        ([400], 1024 * 1024, 5, {"rejected": 1}),
-        ([302], 1024 * 1024, 5, {"rejected": 1}),
-        ([], 1, 5, {"dropped": 1}),
-        ([], 1024 * 1024, 0, {"abandoned": 1}),
+        pytest.param([503, 200], {}, {"sent": 1}, id="sent after a retry"),
+        pytest.param([400], {}, {"rejected": 1}, id="rejected"),
+        pytest.param([302], {}, {"rejected": 1}, id="redirect rejected"),
+        pytest.param([503], {"retry_timeout_ms": 50, "jitter": 1.0}, {"failed": 1}, id="retries run out"),
+        pytest.param([], {"get_team_api_token": _no_team}, {"unknown_team": 1}, id="unknown team"),
+        pytest.param([], {"level": None}, {"invalid": 1}, id="invalid record"),
+        pytest.param([], {"max_buffered_bytes": 1}, {"dropped": 1}, id="buffer full"),
+        pytest.param([], {"drain_timeout_seconds": 0}, {"abandoned": 1}, id="drain times out"),
     ],
 )
 async def test_producer_counts_each_record_once_by_outcome(
     monkeypatch: pytest.MonkeyPatch,
     statuses: list[int],
-    max_buffered_bytes: int,
-    drain_timeout_seconds: float,
+    setup: dict[str, Any],
     expected: dict[str, int],
 ) -> None:
-    monkeypatch.setattr(random, "random", lambda: 0.0)
-    producer = InternalLogsProducer(
-        InternalLogsProducerConfig(
-            url=URL,
-            signing_keys="k1,k0",
-            teams="1",
-            max_in_flight=2,
-            max_buffered_bytes=max_buffered_bytes,
-            retry_timeout_ms=10_000,
-        ),
-        _api_token,
+    monkeypatch.setattr(random, "random", lambda: setup.get("jitter", 0.0))
+    producer = _producer(
+        get_team_api_token=setup.get("get_team_api_token", _api_token),
+        max_buffered_bytes=setup.get("max_buffered_bytes", 1024 * 1024),
+        retry_timeout_ms=setup.get("retry_timeout_ms", 10_000),
     )
-    entries = [
-        InternalLogEntry(
-            team_id=team_id,
-            log_source_id="flow-1",
-            instance_id="run-1",
-            timestamp=datetime(2025, 1, 15, 12, 37, 11, tzinfo=UTC),
-            level="info",
-            message="hello",
-        )
-        for team_id in (1, 2)
-    ]
+    entries = [_entry(team_id=team_id, level=setup.get("level", "info")) for team_id in (1, 2)]
     before = _outcome_counts()
 
     with aioresponses() as mocked:
@@ -100,7 +123,7 @@ async def test_producer_counts_each_record_once_by_outcome(
             mocked.post(URL, status=status, headers={"Location": "http://capture-logs.test/elsewhere"})
         producer.enqueue("hog_flow", entries)
         producer.flush()
-        await producer.drain(timeout_seconds=drain_timeout_seconds)
+        await producer.drain(timeout_seconds=setup.get("drain_timeout_seconds", 5))
 
     after = _outcome_counts()
     assert {outcome: after[outcome] - before[outcome] for outcome in OUTCOMES} == {
@@ -115,22 +138,34 @@ async def test_producer_counts_each_record_once_by_outcome(
         assert call.kwargs["headers"]["x-posthog-internal"].startswith("v1.hog_flow.")
 
 
+async def test_producer_splits_large_batches_and_caps_requests_in_flight() -> None:
+    producer = _producer(max_in_flight=1, max_buffered_bytes=16 * 1024 * 1024)
+    in_flight_at_each_call: list[float | None] = []
+    before = _outcome_counts()
+
+    def record_in_flight(url: object, **kwargs: object) -> CallbackResult:
+        in_flight_at_each_call.append(REGISTRY.get_sample_value("logs_internal_producer_in_flight_requests"))
+        return CallbackResult(status=200)
+
+    with aioresponses() as mocked:
+        mocked.post(URL, callback=record_in_flight, repeat=True)
+        producer.enqueue("hog_flow", [_entry(message="x" * MAX_MESSAGE_LENGTH) for _ in range(9)])
+        producer.flush()
+        await producer.drain(timeout_seconds=5)
+
+    calls = [call for url_calls in mocked.requests.values() for call in url_calls]
+    assert [
+        len(json.loads(call.kwargs["data"])["resourceLogs"][0]["scopeLogs"][0]["logRecords"]) for call in calls
+    ] == [7, 2]
+    assert all(len(call.kwargs["data"]) < 2 * 1024 * 1024 for call in calls)
+    assert in_flight_at_each_call == [1, 1]
+    assert _outcome_counts()["sent"] - before["sent"] == 9
+
+
 async def test_producer_signs_each_retry_again() -> None:
     signed_at = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
-    producer = InternalLogsProducer(
-        InternalLogsProducerConfig(
-            url=URL,
-            signing_keys="k1",
-            teams="1",
-            max_in_flight=1,
-            max_buffered_bytes=1024 * 1024,
-            retry_timeout_ms=10_000,
-        ),
-        _api_token,
-    )
-    entry = InternalLogEntry(
-        team_id=1, log_source_id="flow-1", instance_id="run-1", timestamp=signed_at, level="info", message="hello"
-    )
+    producer = _producer(max_in_flight=1)
+    entry = _entry()
 
     with time_machine.travel(signed_at, tick=False) as clock, aioresponses() as mocked:
 

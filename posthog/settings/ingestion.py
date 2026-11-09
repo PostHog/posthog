@@ -83,8 +83,9 @@ LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT = get_from_env("LOGS_INTERNAL_PRODUCER_MAX_
 LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES = get_from_env(
     "LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES", type_cast=int, default=64 * 1024 * 1024
 )
+# The librdkafka default message.timeout.ms, so a record retries as long as the log_entries Kafka write it runs beside.
 LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS = get_from_env(
-    "LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS", type_cast=int, default=60_000
+    "LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS", type_cast=int, default=300_000
 )
 
 # Thread-pool size for capture_internal batch chunk fan-out (default 8, was per-event fan-out pre-v1).
