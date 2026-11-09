@@ -485,12 +485,21 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
     def test_query_edit_past_the_cadence_cap_is_refused_and_can_be_retried(self):
         endpoint, url, edit_query = self._endpoint_with_a_cadence_below_the_floor("floored_repeat_edits")
 
-        with self._plan_floor():
+        with self._plan_floor(), mock.patch("posthog.event_usage.posthoganalytics.capture") as capture:
             self.assertEqual(edit_query("count()").status_code, status.HTTP_200_OK)
             refused = edit_query("count(), 1")
 
             self.assertEqual(refused.status_code, status.HTTP_400_BAD_REQUEST, refused.json())
             self.assertIn("older version of this endpoint", refused.json()["detail"])
+            refusals = [
+                call.kwargs["properties"]
+                for call in capture.call_args_list
+                if call.kwargs.get("event") == "data modeling refresh refused by plan floor"
+            ]
+            self.assertEqual(
+                refusals,
+                [{"requested_cadence": "15min", "plan_floor": "6hour", "refused_by": "endpoint_version_cap"}],
+            )
             current = endpoint.get_version()
             self.assertEqual(current.version, 2)
             self.assertIsNotNone(current.saved_query_id)
@@ -560,6 +569,21 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         endpoint.refresh_from_db()
         for field, value in concurrent_change.items():
             self.assertEqual(getattr(endpoint, field), value)
+
+    def test_query_edit_survives_a_failed_throttle_cache_clear(self):
+        endpoint, _url, edit_query = self._endpoint_with_a_cadence_below_the_floor("cache_clear_failure")
+
+        with (
+            mock.patch(
+                "products.endpoints.backend.logic.crud.clear_endpoint_materialization_cache",
+                side_effect=ConnectionError("redis down"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = edit_query("count()")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(endpoint.get_version().version, 2)
 
     def test_query_edit_refuses_to_carry_a_cadence_while_the_plan_floor_is_unreadable(self):
         endpoint, _url, edit_query = self._endpoint_with_a_cadence_below_the_floor("unreadable_floor_edit")

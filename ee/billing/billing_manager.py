@@ -51,9 +51,9 @@ from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInf
 from ee.billing.grants import EffectiveBillingGrants
 from ee.billing.quota_limiting import (
     BILLING_STATUS_STAMP_KEYS,
-    _usage_patch_expression,
     set_org_usage_summary,
     update_org_billing_quotas,
+    usage_patch_expression,
 )
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -174,7 +174,7 @@ def _patch_usage_unless_a_newer_status_applied(
     if computed_at is not None:
         applied_at = Cast(KeyTextTransform("billing_status_computed_at", "usage"), DateTimeField())
         rows = rows.filter(IsNull(applied_at, True) | LessThanOrEqual(applied_at, computed_at))
-    return rows.update(usage=_usage_patch_expression(ops)) > 0
+    return rows.update(usage=usage_patch_expression(ops)) > 0
 
 
 def _free_trial_active(customer: CustomerInfo) -> bool:

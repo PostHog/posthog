@@ -583,6 +583,8 @@ class TestBillingManager(BaseTest):
 
         organization.refresh_from_db()
         assert organization.billing_package_label() == expected
+        with self.assertNumQueries(0):
+            BillingManager(license).update_org_details(organization, cast(BillingStatus, {"customer": customer}))
 
     def test_package_change_keeps_usage_written_since_the_organization_loaded(self):
         organization = self.organization
