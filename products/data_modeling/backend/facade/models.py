@@ -32,6 +32,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query_draft impor
 from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, LineageIssueKind, Node, NodeType
 from products.data_modeling.backend.models.view_engine import (
+    CONNECTION_SAVE_REASON,
     ViewCapability,
     ViewColumnSource,
     ViewEngine,
@@ -40,6 +41,7 @@ from products.data_modeling.backend.models.view_engine import (
 )
 
 __all__ = [
+    "CONNECTION_SAVE_REASON",
     "DAG",
     "DEFAULT_DAG_NAME",
     "NON_SCHEDULING_EDGES",

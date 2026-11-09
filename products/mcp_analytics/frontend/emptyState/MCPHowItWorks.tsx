@@ -7,7 +7,7 @@ import * as docBrownPng from '@posthog/brand/hoggies/png/doc-brown'
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 import { MCPHowItWorksAskStage } from './MCPHowItWorksAskStage'
 import { MCPHowItWorksDashboardStage } from './MCPHowItWorksDashboardStage'
@@ -36,7 +36,7 @@ const STEP_MS = 4300
 const WALK_MS = 1300
 
 function isStatic(): boolean {
-    return inStorybook() || inStorybookTestRunner() || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    return inStorybook() || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 }
 
 /**

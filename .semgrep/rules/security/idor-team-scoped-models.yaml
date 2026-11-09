@@ -225,7 +225,6 @@ rules:
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |ExternalDataSourceDestination
-                              |ExternalDataSourceInputsBackup
                               |FeatureFlag
                               |FeatureFlagCodeAnalysis
                               |FeatureRequest
@@ -745,7 +744,6 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
-                        |ExternalDataSourceInputsBackup
                         |FeatureFlag
                         |FeatureFlagCodeAnalysis
                         |FeatureRequest
