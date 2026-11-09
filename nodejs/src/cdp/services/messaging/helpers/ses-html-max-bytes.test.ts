@@ -3,6 +3,7 @@ import { defaultConfig } from '~/common/config/config'
 
 import * as emailTracking from '../email-tracking.service'
 import { htmlForSes, tagEmailLinks } from './email-html'
+import { escapeHtml, escapedHtmlByteLength } from './escape-html'
 import { sesHtmlMaxBytes } from './ses-html-max-bytes'
 import { EmailTrackingCodeSigner } from './tracking-code'
 
@@ -59,6 +60,17 @@ describe('sesHtmlMaxBytes', () => {
         )
 
         expect(Buffer.byteLength(sent, 'utf8')).toBeLessThanOrEqual(maxBytes(html, utm))
+    })
+
+    it.each<{ case: string; html: string }>([
+        { case: 'nothing', html: '' },
+        { case: 'no escaped character', html: 'plain text' },
+        { case: 'every escaped character', html: `&<>"'` },
+        { case: 'escaped characters between multi-byte ones', html: `é&ü<€>"😀'中` },
+        { case: 'a lone surrogate beside an ampersand', html: '\ud800&' },
+        { case: 'a body of ampersands', html: '&'.repeat(10_000) },
+    ])('counts the escaped bytes of $case as escaping it would', ({ html }) => {
+        expect(escapedHtmlByteLength(html)).toBe(Buffer.byteLength(escapeHtml(html), 'utf8'))
     })
 
     it('sizes anchors that never close without the link tracking the worker runs', () => {

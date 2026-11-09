@@ -1,7 +1,7 @@
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 
 import { openPixelTag, resolveEmailEngagementDistinctId } from '../email-tracking.service'
-import { escapeHtml } from './escape-html'
+import { escapedHtmlByteLength } from './escape-html'
 import { WORKFLOW_RUN_PARAM } from './link-tags'
 import { maybeAddPreheaderToEmail } from './preheader'
 import { SES_LINK_INDEX_TAG } from './ses'
@@ -18,21 +18,21 @@ export type SesHtmlInputs = {
 const QUOTES_A_RETAGGED_HREF_GAINS = 2
 const SES_LINK_ATTRIBUTE_GROWTH = Math.max(` ses:tags="${SES_LINK_INDEX_TAG}:"`.length, ' ses:no-track'.length)
 const LONGEST_WORKFLOW_VERSION = Number.MAX_SAFE_INTEGER
-const ANCHOR_START = /<a/gi
-
-const anchorCount = (html: string): number => html.match(ANCHOR_START)?.length ?? 0
-
-const bytesWithEveryCharacterEscaped = (html: string): number => Buffer.byteLength(escapeHtml(html), 'utf8')
+const anchorCount = (html: string): number => {
+    const anchorStart = /<a/gi
+    let anchors = 0
+    while (anchorStart.exec(html) !== null) {
+        anchors++
+    }
+    return anchors
+}
 
 const escapedQueryBytes = (params: Record<string, string>): number =>
-    Buffer.byteLength(
-        escapeHtml(
-            Object.entries(params)
-                .filter(([, value]) => value)
-                .map(([key, value]) => `&${key}=${encodeURIComponent(value)}`)
-                .join('')
-        ),
-        'utf8'
+    escapedHtmlByteLength(
+        Object.entries(params)
+            .filter(([, value]) => value)
+            .map(([key, value]) => `&${key}=${encodeURIComponent(value)}`)
+            .join('')
     )
 
 const growthPerAnchor = (utmTags: UtmTags | null, runId: string, anchors: number): number =>
@@ -63,7 +63,7 @@ const longestOpenPixelBytes = (
 export const sesHtmlMaxBytes = (html: string, { utmTags, invocation, signer, preheader }: SesHtmlInputs): number => {
     const anchors = anchorCount(html)
     return (
-        bytesWithEveryCharacterEscaped(html) +
+        escapedHtmlByteLength(html) +
         anchors * growthPerAnchor(utmTags, invocation.id, anchors) +
         longestOpenPixelBytes(invocation, signer) +
         Buffer.byteLength(maybeAddPreheaderToEmail('', preheader), 'utf8')
