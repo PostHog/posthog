@@ -73,7 +73,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         loadToolRows,
         loadSessionRows,
     } = useActions(mcpDashboardOverviewLogic)
-    const { hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
+    const { isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { showAllCards } = useActions(mcpDashboardCardsLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -100,6 +100,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 dataAttrPrefix="mcp-dashboard"
                 actions={
                     <DashboardCardsMenu
+                        cards={MCP_DASHBOARD_CARDS}
                         cardsWithoutData={[
                             ...(hasModelData ? [] : ['model' as const]),
                             ...(hasProtocolVersionData ? [] : ['protocol-version' as const]),
@@ -136,7 +137,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             />
             <MCPAnalyticsFirstLook />
             {showsNoCards &&
-                (hiddenCards.length === MCP_DASHBOARD_CARDS.length ? (
+                (MCP_DASHBOARD_CARDS.every(({ id }) => !isCardVisible(id)) ? (
                     <div className="flex flex-col items-start gap-2" data-attr="mcp-dashboard-all-cards-hidden">
                         <p className="mb-0">All cards are hidden.</p>
                         <LemonButton

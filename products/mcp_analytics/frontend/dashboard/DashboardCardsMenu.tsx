@@ -11,23 +11,30 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill-primitives'
 
-import { MCP_DASHBOARD_CARDS, McpDashboardCardId } from './dashboardCards'
+import { McpDashboardCard, McpDashboardCardId } from './dashboardCards'
 import { mcpDashboardCardsLogic } from './mcpDashboardCardsLogic'
 
-export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: McpDashboardCardId[] }): JSX.Element {
-    const { hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
+export function DashboardCardsMenu({
+    cards,
+    cardsWithoutData = [],
+}: {
+    cards: McpDashboardCard[]
+    cardsWithoutData?: McpDashboardCardId[]
+}): JSX.Element {
+    const { isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { toggleCard, showAllCards } = useActions(mcpDashboardCardsLogic)
+    const hiddenCount = cards.filter(({ id }) => !isCardVisible(id)).length
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
                 render={<Button variant="outline" className="whitespace-nowrap" data-attr="mcp-dashboard-customize" />}
             >
-                {hiddenCards.length > 0 ? `${hiddenCards.length} hidden` : 'Customize'}
+                {hiddenCount > 0 ? `${hiddenCount} hidden` : 'Customize'}
                 <IconChevronDown />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-56">
-                {MCP_DASHBOARD_CARDS.map(({ id, label }) => (
+                {cards.map(({ id, label }) => (
                     <DropdownMenuCheckboxItem
                         key={id}
                         checked={isCardVisible(id)}
@@ -39,7 +46,7 @@ export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: Mcp
                         {label}
                     </DropdownMenuCheckboxItem>
                 ))}
-                {hiddenCards.length > 0 && (
+                {hiddenCount > 0 && (
                     <>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
