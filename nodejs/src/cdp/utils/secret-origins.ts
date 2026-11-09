@@ -29,8 +29,11 @@ export type SecretOriginCheck = {
     refusal: SecretOriginRefusal | null
 }
 
-// `origin` is for display only, so it has the function's secrets redacted.
 type CarriedSecret = { inputKey: string; origin: string; outcome: SecretOriginOutcome }
+
+type CarriedSecrets = { carried: CarriedSecret[]; redact: (origin: string) => string }
+
+const NOTHING_CARRIED: CarriedSecrets = { carried: [], redact: (origin) => origin }
 
 type CheckedHogFunction = Pick<
     HogFunctionType,
@@ -58,10 +61,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/**
- * The origin in the format `url_origin` in products/cdp/backend/secret_origins.py stores. It uses the WHATWG parser
- * that the HTTP client uses, so userinfo, letter case and a default port resolve to the host the request goes to.
- */
+// Must produce the origins that `url_origin` in products/cdp/backend/secret_origins.py stores.
 export function requestOrigin(url: string): string | null {
     let parsed: URL
     try {
@@ -92,6 +92,9 @@ function textLeaves(value: unknown, withKeys = false): string[] {
     if (typeof value === 'string') {
         return [value]
     }
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? [String(value)] : []
+    }
     if (Array.isArray(value)) {
         return value.flatMap((item) => textLeaves(item, withKeys))
     }
@@ -101,11 +104,8 @@ function textLeaves(value: unknown, withKeys = false): string[] {
     return Object.entries(value).flatMap(([key, item]) => [...(withKeys ? [key] : []), ...textLeaves(item, withKeys)])
 }
 
-/**
- * The editor lists the keys of a `secret_<key>` dictionary paired with a plain `<key>` dictionary, as
- * `exposes_secret_dictionary_keys` in products/cdp/backend/validation.py decides. The API hides the keys of every other
- * secret dictionary, so those keys are secret text too.
- */
+// Mirrors `exposes_secret_dictionary_keys` in products/cdp/backend/validation.py. The editor shows only these keys, so
+// the keys of every other secret dictionary are secret text.
 function exposesSecretDictionaryKeys(inputKey: string, schema: HogFunctionInputSchemaType[]): boolean {
     if (!inputKey.startsWith('secret_')) {
         return false
@@ -146,25 +146,22 @@ function originOutcome(allowedOrigins: unknown, origin: string): SecretOriginOut
     return allowedOrigins.includes(origin) ? 'allowed' : 'mismatch'
 }
 
-function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRequest): CarriedSecret[] {
-    // encrypted_inputs stays a ciphertext string when decryption fails, and its entries come from stored JSON.
+function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRequest): CarriedSecrets {
     const encryptedInputs: unknown = hogFunction.encrypted_inputs
     if (!isRecord(encryptedInputs)) {
-        return []
+        return NOTHING_CARRIED
     }
-    // A function whose secrets all predate stored origins can never be refused, so it skips the scan.
     const hasStoredOrigins = Object.values(encryptedInputs).some(
         (input) => isRecord(input) && input.allowed_origins !== undefined
     )
     const origins = hasStoredOrigins ? routedOrigins(request) : []
     if (!origins.length) {
-        return []
+        return NOTHING_CARRIED
     }
 
     const named = namedSecretInputs(request.params)
-    // A key or value the function also holds in its hog code or in a plain input of the function or of a mapping, such
-    // as `Content-Type` or `application/json` in both the plain and the secret headers, is not secret, and sending it
-    // to another origin leaks nothing. Without this, an enforced team could not send such a value to a second origin at all.
+    // Text the function also holds in hog code or a plain input, such as `Content-Type` in both the plain and the secret
+    // headers, leaks nothing. Without this, an enforced team could not send such text to a second origin at all.
     const knownTexts = publicTexts(hogFunction)
     const sentTexts = [
         request.url,
@@ -180,7 +177,6 @@ function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRe
     const schema = hogFunction.inputs_schema ?? []
     const secretTexts = (inputKey: string, input: unknown): string[] =>
         isRecord(input) ? textLeaves(input.value, !exposesSecretDictionaryKeys(inputKey, schema)) : []
-    const secrets = Object.entries(encryptedInputs).flatMap(([inputKey, input]) => secretTexts(inputKey, input))
     const carried: CarriedSecret[] = []
     for (const [inputKey, input] of Object.entries(encryptedInputs)) {
         if (!isRecord(input)) {
@@ -189,20 +185,21 @@ function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRe
         if (named.has(inputKey) || secretTexts(inputKey, input).some(isSent)) {
             const checked = origins.map((origin) => ({ origin, outcome: originOutcome(input.allowed_origins, origin) }))
             const { origin, outcome } = checked.find(({ outcome }) => outcome === 'mismatch') ?? checked[0]
-            carried.push({ inputKey, origin: withoutSecrets(origin, secrets), outcome })
+            carried.push({ inputKey, origin, outcome })
         }
     }
-    return carried
+    let redactor: ((origin: string) => string) | undefined
+    const redact = (origin: string): string =>
+        (redactor ??= secretRedactor(
+            Object.entries(encryptedInputs).flatMap(([inputKey, input]) => secretTexts(inputKey, input))
+        ))(origin)
+    return { carried, redact }
 }
 
 // Headers the HTTP client reads as the request authority. Undici takes the TLS server name and the HTTP/2 `:authority`
 // from `host`, so a request can reach a host other than the one in its URL on a server that routes by either.
 const AUTHORITY_HEADERS = new Set(['host', ':authority'])
 
-/**
- * The origin of the URL, then one origin for each authority header the request sets. The header keeps the scheme of
- * the URL, because the connection does.
- */
 function routedOrigins(request: SecretOriginRequest): string[] {
     const urlOrigin = requestOrigin(request.url)
     if (!urlOrigin) {
@@ -223,18 +220,23 @@ function authorityOrigin(protocol: string, authority: string): string {
     return parsed ?? `${protocol}//${value.toLowerCase()}`
 }
 
-/**
- * A secret in the request host would reach the worker logs and the function's logs through the origin they report.
- * A named input is checked at any length, so every secret is redacted, not only the ones the value scan matches. The
- * URL parser lowercases the host, so the match ignores case. One pass with the longest secret first redacts a secret
- * that contains a shorter one whole, and never matches inside a marker it already inserted.
- */
-function withoutSecrets(origin: string, secrets: string[]): string {
-    const patterns = secrets
+// A named input is checked at any length, so every secret is redacted. Plain string matching, because a regular
+// expression built from a long secret throws, and its message holds the secret.
+function secretRedactor(secrets: string[]): (origin: string) => string {
+    const lowered = [...new Set(secrets.map((secret) => secret.toLowerCase()))]
         .filter((secret) => secret.length > 0)
         .sort((a, b) => b.length - a.length)
-        .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    return patterns.length ? origin.replace(new RegExp(patterns.join('|'), 'gi'), REDACTED) : origin
+    return (origin) => {
+        const text = origin.toLowerCase()
+        let shown = ''
+        let index = 0
+        while (index < text.length) {
+            const secret = lowered.find((candidate) => text.startsWith(candidate, index))
+            shown += secret ? REDACTED : text[index]
+            index += secret ? secret.length : 1
+        }
+        return shown
+    }
 }
 
 type SecretInput = NonNullable<HogFunctionType['inputs']>[string]
@@ -244,12 +246,8 @@ function ownEntry(inputs: unknown, key: string): SecretInput | undefined {
     return isRecord(inputs) && Object.hasOwn(inputs, key) ? (inputs[key] as SecretInput) : undefined
 }
 
-/**
- * The secret inputs a test of an unsaved configuration sends, picked as `HogFunction.move_secret_inputs` picks them on
- * save. Django restores each secret the configuration keeps into its inputs and binds it to the origins of the tested
- * code, so that input wins over the cached function's secret. A cached secret under a key the configuration does not
- * mark secret is dropped, so a test cannot send it under a binding Django never checked.
- */
+// Picks secrets as `HogFunction.move_secret_inputs` does on save, so a test never sends a cached secret under a binding
+// Django did not check for the tested code.
 export function testedSecretInputs(
     configuration: Pick<HogFunctionType, 'inputs' | 'inputs_schema' | 'encrypted_inputs'>
 ): NonNullable<HogFunctionType['encrypted_inputs']> {
@@ -268,7 +266,6 @@ export function testedSecretInputs(
 export class SecretOriginGuard {
     private readonly observedForTeam: (teamId: number) => boolean
     private readonly enforcedForTeam: (teamId: number) => boolean
-    // One line per function, input and origin in the window, because a destination sends on every matching event.
     private readonly warned = new LRUCache<string, true>({ max: 10_000, ttl: 15 * 60 * 1000 })
 
     constructor({ observeTeams, enforceTeams }: { observeTeams: string; enforceTeams: string }) {
@@ -283,8 +280,10 @@ export class SecretOriginGuard {
         }
         const mode = enforced ? 'enforce' : 'observe'
         try {
-            const carried = carriedSecrets(hogFunction, request)
-            const mismatches = carried.filter(({ outcome }) => outcome === 'mismatch')
+            const { carried, redact } = carriedSecrets(hogFunction, request)
+            const mismatches = carried
+                .filter(({ outcome }) => outcome === 'mismatch')
+                .map(({ inputKey, origin }) => ({ inputKey, origin: redact(origin) }))
             for (const { inputKey, origin } of mismatches) {
                 this.warn(hogFunction, inputKey, origin, mode)
             }
@@ -295,8 +294,9 @@ export class SecretOriginGuard {
                 refusal: mode === 'enforce' && refused ? { inputKey: refused.inputKey, origin: refused.origin } : null,
             }
         } catch (error) {
+            // Only the name, because a message can quote the secret text that caused it.
             logger.warn('🦔', '[HogExecutor] Secret origin check skipped due to an internal error', {
-                error: error instanceof Error ? error.message : String(error),
+                error: error instanceof Error ? error.name : 'unknown',
                 teamId: hogFunction.team_id,
                 functionId: hogFunction.id,
             })

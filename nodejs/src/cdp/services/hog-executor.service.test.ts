@@ -1820,6 +1820,9 @@ describe('Hog Executor', () => {
             const HOST_SECRET = 'Sk_Test_Origin_0000000000'
             // Shorter than the value scan matches, so only a named secret input carries it.
             const SHORT_SECRET = 'Qz7x9k'
+            const NUMERIC_SECRET = 418302957716
+            // Longer than a regular expression built from it may be.
+            const LONG_SECRET = 'k'.repeat(40_000)
 
             const readCount = async (outcome: string, mode: string): Promise<number> => {
                 const metric = await secretOriginCheckCounter.get()
@@ -1839,6 +1842,8 @@ describe('Hog Executor', () => {
                 | 'body_beside_bound_secret'
                 | 'dictionary_entry'
                 | 'dictionary_key'
+                | 'numeric_value'
+                | 'numeric_leaf'
                 | 'paired_dictionary_key'
                 | 'plain_value_of_dictionary_entry'
                 | 'hardcoded_value_of_dictionary_entry'
@@ -1903,6 +1908,14 @@ describe('Hog Executor', () => {
                     dictionary_key: {
                         params: { body: JSON.stringify({ [secret]: true }) },
                         inputs: { api_key: { [secret]: 'on' } },
+                    },
+                    numeric_value: {
+                        params: { body: JSON.stringify({ id: NUMERIC_SECRET }) },
+                        inputs: { api_key: NUMERIC_SECRET },
+                    },
+                    numeric_leaf: {
+                        params: { body: JSON.stringify({ id: NUMERIC_SECRET }) },
+                        inputs: { api_key: { account_number: NUMERIC_SECRET } },
                     },
                     // The editor lists the keys of a `secret_<key>` dictionary paired with a plain `<key>` dictionary.
                     paired_dictionary_key: {
@@ -2079,6 +2092,18 @@ describe('Hog Executor', () => {
                     sent: false,
                 },
                 {
+                    case: 'a mismatched numeric secret',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'numeric_value',
+                    sent: false,
+                },
+                {
+                    case: 'a mismatched numeric entry of a secret dictionary',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'numeric_leaf',
+                    sent: false,
+                },
+                {
                     case: 'a key of a paired secret dictionary, which the editor shows',
                     allowed: ['https://elsewhere.example'],
                     carry: 'paired_dictionary_key',
@@ -2195,6 +2220,13 @@ describe('Hog Executor', () => {
                     headers: {},
                     carry: 'dictionary_key',
                     secret: HOST_SECRET,
+                },
+                {
+                    carriedBy: 'the URL as a very long secret',
+                    url: `https://${LONG_SECRET}.evil.example/`,
+                    headers: {},
+                    carry: 'body',
+                    secret: LONG_SECRET,
                 },
                 {
                     carriedBy: 'the URL as a short named secret header',
