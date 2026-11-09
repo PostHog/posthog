@@ -1288,12 +1288,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
         new_path = validate_file_system_path(new_path)
 
+        if instance.type == "folder" and (new_path == instance.path or new_path.startswith(f"{instance.path}/")):
+            return Response({"detail": "Cannot move a folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
+
         self._assure_parent_folders(new_path, cast(User, request.user))
 
         if instance.type == "folder":
-            if new_path == instance.path:
-                return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
-
             with transaction.atomic():
                 qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                 qs = self._scope_by_project_and_environment(qs)
