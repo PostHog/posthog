@@ -276,7 +276,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
             />
             {quillSurface ? (
                 <QuillEditorSelect
-                    value={retentionType ?? ''}
+                    value={retentionType ?? null}
                     onChange={onRetentionTypeChange}
                     options={Object.entries(retentionOptions).map(([key, value]) => ({
                         value: key,

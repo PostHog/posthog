@@ -17,9 +17,10 @@ export interface QuillEditorSelectOption<T extends string | number> {
 }
 
 export interface QuillEditorSelectProps<T extends string | number> {
-    value: T
+    value: T | null
     options: QuillEditorSelectOption<T>[]
     onChange: (value: T) => void
+    placeholder?: string
     className?: string
     'data-attr'?: string
 }
@@ -28,6 +29,7 @@ export function QuillEditorSelect<T extends string | number>({
     value,
     options,
     onChange,
+    placeholder = 'Select a value',
     className,
     'data-attr': dataAttr,
 }: QuillEditorSelectProps<T>): JSX.Element {
@@ -35,7 +37,11 @@ export function QuillEditorSelect<T extends string | number>({
         <Select<T> value={value} onValueChange={(next: T | null) => next !== null && onChange(next)}>
             <SelectTrigger className={cn('min-w-0', className)} data-attr={dataAttr}>
                 <SelectValue className="truncate">
-                    {(selected: T) => options.find((option) => option.value === selected)?.label ?? selected}
+                    {(selected: T | null) =>
+                        options.find((option) => option.value === selected)?.label ?? (
+                            <span className="text-muted-foreground">{placeholder}</span>
+                        )
+                    }
                 </SelectValue>
             </SelectTrigger>
             <SelectContent align="start" alignItemWithTrigger={false}>
