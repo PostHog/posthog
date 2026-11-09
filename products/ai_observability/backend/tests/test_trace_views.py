@@ -50,13 +50,19 @@ SCORE = "00000000-0000-0000-0000-000000000004"
 FEEDBACK = "00000000-0000-0000-0000-000000000005"
 QUESTION = [{"role": "user", "content": "Why did my invoice go up?"}]
 ANSWER = [{"role": "assistant", "content": "Two seats were added."}]
-DEEP_TOOL_CALL_ANSWER = [
-    {
-        "role": "assistant",
-        "content": "",
-        "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "f", "arguments": "[" * 300 + "]" * 300}}],
-    }
-]
+
+
+def _tool_call_answer(arguments: str) -> list[dict[str, object]]:
+    return [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "f", "arguments": arguments}}],
+        }
+    ]
+
+
+DEEP_TOOL_CALL_ANSWER = _tool_call_answer("[" * 300 + "]" * 300)
 TICKET = {"ticket_id": "T-42", "summary": "Refund requested"}
 TICKET_RECIPE = """
 rules:
@@ -365,6 +371,12 @@ class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
         [
             ("conversation", ANSWER, "messages"),
             ("tool call arguments nested past the bound", DEEP_TOOL_CALL_ANSWER, "json"),
+            (
+                "tool call arguments with an integer past 64 bits",
+                _tool_call_answer('{"n": 100000000000000000000}'),
+                "json",
+            ),
+            ("tool call arguments with a lone surrogate", _tool_call_answer('{"text": "\\ud800"}'), "json"),
         ]
     )
     def test_returns_render_ready_content_beside_the_event(

@@ -1,3 +1,4 @@
+import re
 from collections.abc import Sequence
 
 from ...facade import contracts
@@ -13,11 +14,15 @@ _TEXT_ITEM_TYPES = frozenset({"text", "input_text", "output_text"})
 # Pydantic cannot serialize values nested much deeper than this, and one such value would fail the whole response.
 _MAX_TOOL_VALUE_DEPTH = 200
 
+# The response renderer, orjson, encodes no integer outside this range and no string that holds a surrogate code point.
+_RENDERABLE_INTEGERS = range(-(2**63), 2**64)
+_SURROGATE = re.compile("[\ud800-\udfff]")
+
 
 type _CallKey = tuple[int, int]
 
 
-class ToolValueNestingError(RecipeRuntimeError):
+class UnrenderableToolValueError(RecipeRuntimeError):
     pass
 
 
@@ -127,7 +132,7 @@ def _parse_json_text(text: str) -> JsonValue:
         parsed = parse_json_text(text)
     except ValueError:
         return text
-    return parsed if _nesting_depth(parsed) <= _MAX_TOOL_VALUE_DEPTH else text
+    return parsed if _renders(parsed) else text
 
 
 def _tool_value(value: JsonValue) -> JsonValue:
@@ -136,20 +141,29 @@ def _tool_value(value: JsonValue) -> JsonValue:
         if parsed is not value:
             charge_kept_parse(value, parsed)
         return parsed
-    # Text that nests too deep stays text, but a value the engine already parsed has no text to fall back to.
-    if _nesting_depth(value) > _MAX_TOOL_VALUE_DEPTH:
-        raise ToolValueNestingError(f"A tool call value nests deeper than {_MAX_TOOL_VALUE_DEPTH} levels")
+    # Text the response cannot hold stays text, but a value the engine already parsed has no text to fall back to.
+    if not _renders(value):
+        raise UnrenderableToolValueError(
+            f"A tool call value nests deeper than {_MAX_TOOL_VALUE_DEPTH} levels or holds a value the response cannot encode"
+        )
     return value
 
 
-def _nesting_depth(value: JsonValue) -> int:
-    depth = 0
-    containers = [value] if isinstance(value, dict | list) else []
-    while containers:
-        depth += 1
-        children = [child for node in containers for child in (node.values() if isinstance(node, dict) else node)]
-        containers = [child for child in children if isinstance(child, dict | list)]
-    return depth
+def _renders(value: JsonValue) -> bool:
+    pending: list[tuple[JsonValue, int]] = [(value, 0)]
+    while pending:
+        node, depth = pending.pop()
+        if isinstance(node, dict | list):
+            if depth == _MAX_TOOL_VALUE_DEPTH:
+                return False
+            if isinstance(node, dict) and any(_SURROGATE.search(key) for key in node):
+                return False
+            pending.extend((child, depth + 1) for child in (node.values() if isinstance(node, dict) else node))
+        elif isinstance(node, str) and _SURROGATE.search(node):
+            return False
+        elif isinstance(node, int) and node not in _RENDERABLE_INTEGERS:
+            return False
+    return True
 
 
 def _parse_tool_result(result: JsonValue) -> JsonValue:
@@ -157,7 +171,7 @@ def _parse_tool_result(result: JsonValue) -> JsonValue:
     if not isinstance(parsed, dict | list):
         return result
     # The browser parses this response, so a number it would round keeps the result as its exact text. The scan runs
-    # on valid JSON only, because its string pattern backtracks quadratically on malformed text.
+    # on valid JSON only, because its string pattern rescans the rest of malformed text from every unclosed quote.
     return result if isinstance(result, str) and has_lossy_number(result) else parsed
 
 
