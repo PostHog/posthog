@@ -6835,6 +6835,13 @@ class MCPToolFailureItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cause: str = Field(
+        ...,
+        description=(
+            "$mcp_error_message with ids and numbers masked; the grouping key within a"
+            " type. Empty when no message was captured."
+        ),
+    )
     error_status: str = Field(
         ...,
         description=("Raw $mcp_error_status as a string; empty when the bucket has no HTTP status."),
@@ -6859,6 +6866,7 @@ class MCPToolFailureItem(BaseModel):
         ),
     )
     occurrences: int
+    sample_message: str = Field(..., description="Newest raw error message in this group.")
 
 
 class MCPToolNeighborItem(BaseModel):
@@ -30629,6 +30637,13 @@ class MCPToolDescriptionsQuery(BaseModel):
 class MCPToolFailureOccurrencesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    cause: str | None = Field(
+        default=None,
+        description=(
+            "When set, only events whose masked message equals this failures-table"
+            ' `cause` match; "" selects events without a message.'
+        ),
     )
     dateRange: DateRange | None = None
     errorStatus: str | None = Field(
