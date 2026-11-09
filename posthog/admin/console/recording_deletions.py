@@ -1,0 +1,511 @@
+import json
+import uuid
+from datetime import datetime
+from typing import Any, cast
+from urllib.parse import urlencode
+
+from django import forms
+from django.conf import settings
+from django.contrib import messages
+from django.db.models import Model
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.urls import reverse
+from django.utils import timezone
+
+import structlog
+from temporalio.exceptions import WorkflowAlreadyStartedError
+
+from posthog.admin.console.panels import Fact, Operation, Owner, Panel, Tone
+from posthog.admin.console.registry import console
+from posthog.admin.console.tools import Cell, ConsoleTool, Download, GroupRow, Live, Notice, Page, Row, Table
+from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.temporal.session_replay.delete_recordings.staff import (
+    DeletionRequest,
+    DeletionRun,
+    RecordingDeletions,
+    RecordingFilters,
+    describe_query,
+    session_ids_from_csv,
+)
+
+logger = structlog.get_logger(__name__)
+
+REPLAY = Owner(name="Replay", crest="replay")
+TOOL_KEY = "recording-deletions"
+TOOL_URL = f"/admin/console/tools/{TOOL_KEY}/"
+PANEL_KEY = "recordings"
+REFRESH_SECONDS_WHILE_RUNNING = 5
+REFRESH_SECONDS_WHILE_TEMPORAL_IS_AWAY = 30
+PREVIEW_SAMPLE_SIZE = 10
+UNDO_HINT = "Deleted recordings cannot be restored. A dry run deletes nothing."
+STATUS_TONES = {
+    "RUNNING": Tone.INFO,
+    "CONTINUED_AS_NEW": Tone.INFO,
+    "COMPLETED": Tone.SUCCESS,
+    "FAILED": Tone.DESTRUCTIVE,
+    "TERMINATED": Tone.DESTRUCTIVE,
+    "TIMED_OUT": Tone.DESTRUCTIVE,
+    "CANCELED": Tone.WARNING,
+}
+DELETION_TYPES = {
+    "person": "All session recordings for specified person(s)",
+    "team": "All session recordings for project (ID {team_id})",
+    "query": "Session recordings matching filter criteria",
+    "session_ids": "Specified session recordings",
+}
+
+
+class DeletionForm(forms.Form):
+    dry_run = forms.BooleanField(
+        required=False, initial=True, label="Dry run: count the recordings that match and delete nothing"
+    )
+    reason = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log and the deletion certificate."
+    )
+
+
+class ConfirmTeamIdForm(DeletionForm):
+    # These deletions cover more than staff can check by eye, so a real run needs the team ID typed out.
+    confirm_team_id = forms.CharField(
+        required=False,
+        label="Team ID",
+        help_text="Type the ID of this team, shown above, to delete for real. A dry run does not need it.",
+    )
+    field_order = ["dry_run", "confirm_team_id", "reason"]
+
+
+class PersonDeletionForm(DeletionForm):
+    distinct_ids = forms.CharField(widget=forms.Textarea, label="Distinct IDs", help_text="One per line.")
+    field_order = ["distinct_ids", "dry_run", "reason"]
+
+    def clean_distinct_ids(self) -> list[str]:
+        distinct_ids = [line.strip() for line in self.cleaned_data["distinct_ids"].splitlines() if line.strip()]
+        if not distinct_ids:
+            raise forms.ValidationError("Enter at least one distinct ID.")
+        return distinct_ids
+
+
+class FilterDeletionForm(ConfirmTeamIdForm):
+    date_from = forms.CharField(required=False, help_text="Relative, such as -30d, or a date, such as 2024-01-01.")
+    date_to = forms.CharField(required=False, help_text="Leave empty for now.")
+    duration_min = forms.IntegerField(required=False, min_value=0, label="Min duration (seconds)")
+    duration_max = forms.IntegerField(
+        required=False, min_value=0, label="Max duration (seconds)", help_text="Short sessions are often bots."
+    )
+    person_uuid = forms.CharField(required=False, label="Person UUID")
+    platform = forms.ChoiceField(required=False, choices=[("", "Any platform"), ("web", "Web"), ("mobile", "Mobile")])
+    field_order = [
+        "date_from",
+        "date_to",
+        "duration_min",
+        "duration_max",
+        "person_uuid",
+        "platform",
+        "dry_run",
+        "confirm_team_id",
+        "reason",
+    ]
+
+    def clean(self) -> dict[str, Any] | None:
+        cleaned = super().clean()
+        if not self.errors and self.filters().is_empty():
+            raise forms.ValidationError("Set at least one filter.")
+        return cleaned
+
+    def filters(self) -> RecordingFilters:
+        return RecordingFilters(
+            date_from=self.cleaned_data.get("date_from", "").strip(),
+            date_to=self.cleaned_data.get("date_to", "").strip(),
+            duration_min=self.cleaned_data.get("duration_min"),
+            duration_max=self.cleaned_data.get("duration_max"),
+            person_uuid=self.cleaned_data.get("person_uuid", "").strip(),
+            platform=self.cleaned_data.get("platform", ""),
+        )
+
+
+class SessionIdsDeletionForm(DeletionForm):
+    csv_file = forms.FileField(
+        label="CSV file",
+        widget=forms.FileInput(attrs={"accept": ".csv"}),
+        help_text="Session IDs in the first column. A session_id header row is skipped.",
+    )
+    field_order = ["csv_file", "dry_run", "reason"]
+
+    def clean_csv_file(self) -> list[str]:
+        upload = self.cleaned_data["csv_file"]
+        if not (upload.name or "").endswith(".csv"):
+            raise forms.ValidationError("Upload a .csv file.")
+        try:
+            content = upload.read().decode("utf-8")
+        except UnicodeDecodeError:
+            raise forms.ValidationError("The file is not UTF-8 text. Save it as a UTF-8 CSV and upload it again.")
+        session_ids = session_ids_from_csv(content)
+        if not session_ids:
+            raise forms.ValidationError("The file holds no session IDs.")
+        self.cleaned_data["source_filename"] = upload.name
+        return session_ids
+
+
+def _run_key(request: HttpRequest) -> str:
+    # The form nonce names the run, so a double submit of one form starts one deletion. The browser sends the
+    # nonce, so anything that is not a UUID gets a fresh one.
+    try:
+        return str(uuid.UUID(request.POST.get("form_nonce", "")))
+    except ValueError:
+        return str(uuid.uuid4())
+
+
+def _runs_url(team: Team, **params: str) -> str:
+    return f"{TOOL_URL}?{urlencode({'team': team.pk, **params})}"
+
+
+def _deletion_request(request: HttpRequest, team: Team, form: forms.Form) -> DeletionRequest:
+    return DeletionRequest(
+        team=team,
+        workflow_id=RecordingDeletions.workflow_id(team.pk, _run_key(request)),
+        reason=form.cleaned_data["reason"],
+        dry_run=form.cleaned_data["dry_run"],
+        requested_by=cast(User, request.user),
+    )
+
+
+def _typed_team_id_matches(team: Team, form: forms.Form) -> bool:
+    return form.cleaned_data["dry_run"] or form.cleaned_data["confirm_team_id"].strip() == str(team.pk)
+
+
+class StartDeletion:
+    """Runs one kind of deletion, then sends staff to the team's runs, where the new run shows up."""
+
+    def __init__(self, kind: str) -> None:
+        self.kind = kind
+
+    def __call__(self, request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+        assert isinstance(obj, Team) and form is not None
+        if "confirm_team_id" in form.fields and not _typed_team_id_matches(obj, form):
+            messages.error(request, f"Type {obj.pk}, the ID of this team, to delete its recordings.")
+            return HttpResponse(status=400)
+        deletion = _deletion_request(request, obj, form)
+        try:
+            if self.kind == "person":
+                RecordingDeletions.start_for_person(deletion, form.cleaned_data["distinct_ids"])
+            elif self.kind == "team":
+                RecordingDeletions.start_for_team(deletion)
+            elif self.kind == "filters":
+                assert isinstance(form, FilterDeletionForm)
+                RecordingDeletions.start_for_filters(deletion, form.filters())
+            else:
+                RecordingDeletions.start_for_session_ids(
+                    deletion, form.cleaned_data["csv_file"], form.cleaned_data["source_filename"]
+                )
+        except WorkflowAlreadyStartedError:
+            messages.info(request, "This form already started a deletion. It shows in the list below.")
+            return HttpResponseRedirect(_runs_url(obj))
+        except Exception:
+            logger.exception("admin_console_recording_deletion_failed", team_id=obj.pk, kind=self.kind)
+            messages.error(request, "Could not start the deletion. Check the server logs for details.")
+            return HttpResponse(status=502)
+        dry_run = " as a dry run" if deletion.dry_run else ""
+        messages.success(request, f"Started {deletion.workflow_id}{dry_run}.")
+        # Temporal lists a new run only after a moment, so the page names it and keeps refreshing until it shows.
+        return HttpResponseRedirect(_runs_url(obj, started=deletion.workflow_id))
+
+
+class PreviewDeletion:
+    """Shows the scope of a deletion before it starts. The exact recordings are known only once a run counts them."""
+
+    def __init__(self, kind: str) -> None:
+        self.kind = kind
+
+    def __call__(self, request: HttpRequest, obj: Model, form: forms.Form) -> Page:
+        assert isinstance(obj, Team)
+        if "confirm_team_id" in form.fields and not _typed_team_id_matches(obj, form):
+            form.add_error("confirm_team_id", f"Type {obj.pk}, the ID of this team, to delete for real.")
+        dry_run = form.cleaned_data["dry_run"]
+        notice = (
+            "Dry run: nothing is deleted. The run counts the recordings that match, and its certificate says it was a dry run."
+            if dry_run
+            else f"This permanently deletes the recordings below from {obj.name} ({obj.pk}). It cannot be undone."
+        )
+        rows = [
+            Row(cells=(Cell(text="Team"), Cell(text=f"{obj.name} ({obj.pk})"))),
+            *self._scope_rows(obj, form),
+            Row(
+                cells=(
+                    Cell(text="Dry run"),
+                    Cell(text="Yes" if dry_run else "No", tone=None if dry_run else Tone.DESTRUCTIVE),
+                )
+            ),
+            Row(cells=(Cell(text="Reason"), Cell(text=form.cleaned_data["reason"]))),
+        ]
+        return Page(blocks=(Notice(text=notice), Table(columns=("What", "Value"), rows=tuple(rows))))
+
+    def _scope_rows(self, team: Team, form: forms.Form) -> list[Row]:
+        if self.kind == "person":
+            distinct_ids: list[str] = form.cleaned_data["distinct_ids"]
+            return [
+                Row(cells=(Cell(text="Recordings of"), Cell(text=f"{len(distinct_ids):,} distinct IDs"))),
+                Row(cells=(Cell(text="Distinct IDs"), Cell(text=_sample(distinct_ids), mono=True))),
+            ]
+        if self.kind == "team":
+            return [Row(cells=(Cell(text="Recordings"), Cell(text="Every recording of this team", tone=Tone.WARNING)))]
+        if self.kind == "filters":
+            assert isinstance(form, FilterDeletionForm)
+            return [Row(cells=(Cell(text="Recordings matching"), Cell(text=describe_query(form.filters().query()))))]
+        session_ids: list[str] = form.cleaned_data["csv_file"]
+        return [
+            Row(cells=(Cell(text="File"), Cell(text=form.cleaned_data["source_filename"]))),
+            Row(cells=(Cell(text="Session IDs"), Cell(text=f"{len(session_ids):,}"))),
+            Row(cells=(Cell(text="First session IDs"), Cell(text=_sample(session_ids), mono=True))),
+        ]
+
+
+def _sample(values: list[str]) -> str:
+    shown = ", ".join(values[:PREVIEW_SAMPLE_SIZE])
+    hidden = len(values) - PREVIEW_SAMPLE_SIZE
+    return f"{shown}, and {hidden:,} more" if hidden > 0 else shown
+
+
+def _operation(kind: str, key: str, label: str, description: str, form_class: type[forms.Form]) -> Operation:
+    return Operation(
+        key=key,
+        label=label,
+        handler=StartDeletion(kind),
+        danger=True,
+        description=description,
+        form_class=form_class,
+        undo_hint=UNDO_HINT,
+        preview=PreviewDeletion(kind),
+    )
+
+
+@console.register_panel
+class SessionRecordingsPanel(Panel):
+    record = "team"
+    key = PANEL_KEY
+    title = "Session recordings"
+    owner = REPLAY
+    danger = True
+
+    def facts(self, obj: Model) -> list[Fact]:
+        assert isinstance(obj, Team)
+        return [Fact(label="Deletions", value="Runs and deletion certificates", href=_runs_url(obj))]
+
+    def operations(self, obj: Model) -> list[Operation]:
+        return [
+            _operation(
+                "person",
+                "delete-by-person",
+                "Delete recordings of persons",
+                "Deletes every recording of the distinct IDs you list.",
+                PersonDeletionForm,
+            ),
+            _operation(
+                "filters",
+                "delete-by-filters",
+                "Delete recordings by filters",
+                "Deletes the recordings that match the filters you set.",
+                FilterDeletionForm,
+            ),
+            _operation(
+                "session_ids",
+                "delete-by-session-ids",
+                "Delete recordings by session IDs",
+                "Deletes the recordings whose session IDs are in a CSV file.",
+                SessionIdsDeletionForm,
+            ),
+            _operation(
+                "team",
+                "delete-all",
+                "Delete all recordings",
+                "Deletes every recording of this team.",
+                ConfirmTeamIdForm,
+            ),
+        ]
+
+
+def _run_row(team: Team, run: DeletionRun) -> Row:
+    temporal_url = (
+        f"{settings.TEMPORAL_UI_HOST}/namespaces/{settings.TEMPORAL_NAMESPACE}/workflows/{run.workflow_id}/{run.run_id}"
+    )
+    certificate = (
+        Cell(text="View", href=_runs_url(team, certificate=run.workflow_id))
+        if run.status == "COMPLETED"
+        else Cell(text="-", muted=True)
+    )
+    return Row(
+        cells=(
+            Cell(text=run.workflow_id, href=temporal_url, mono=True),
+            Cell(text=run.workflow_type),
+            Cell(text=run.status.replace("_", " ").capitalize(), tone=STATUS_TONES.get(run.status)),
+            Cell(text=run.started.strftime("%Y-%m-%d %H:%M:%S") if run.started else "-", muted=run.started is None),
+            Cell(text=run.closed.strftime("%Y-%m-%d %H:%M:%S") if run.closed else "-", muted=run.closed is None),
+            certificate,
+        )
+    )
+
+
+def _reference(workflow_id: str) -> str:
+    # The workflow ID is delete-recordings-{team_id}-{uuid}, and the certificate names only the UUID.
+    parts = workflow_id.split("-")[-5:]
+    return "-".join(parts) if len(parts) == 5 else workflow_id
+
+
+def _timestamp(value: object) -> str:
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    return value.strftime("%Y-%m-%d %H:%M:%S %Z").strip() if isinstance(value, datetime) else "-"
+
+
+def _fact_row(label: str, value: str) -> Row:
+    return Row(cells=(Cell(text=label, muted=True), Cell(text=value)))
+
+
+def _certificate_rows(team: Team, certificate: dict[str, Any]) -> tuple[Row | GroupRow, ...]:
+    deletion_type = DELETION_TYPES.get(certificate.get("workflow_type", ""), str(certificate.get("workflow_type")))
+    deletion_type = deletion_type.format(team_id=certificate.get("team_id"))
+    if certificate.get("workflow_type") == "session_ids" and certificate.get("source_filename"):
+        deletion_type += f" ({certificate['source_filename']})"
+    scope = [_fact_row("Deletion type", deletion_type)]
+    if certificate.get("reason"):
+        scope.append(_fact_row("Reason", certificate["reason"]))
+    if certificate.get("distinct_ids"):
+        scope.append(_fact_row("Person IDs", ", ".join(certificate["distinct_ids"])))
+    if certificate.get("query"):
+        scope.append(_fact_row("Filter criteria", describe_query(certificate["query"])))
+    return (
+        GroupRow(text="Data subject details"),
+        _fact_row("Organization", team.organization.name),
+        _fact_row("Customer ID", str(team.organization_id)),
+        GroupRow(text="Scope of deletion"),
+        *scope,
+        GroupRow(text="Summary"),
+        _fact_row("Recordings found", str(certificate.get("total_recordings_found", "-"))),
+        _fact_row("Deleted", str(certificate.get("total_deleted", "-"))),
+        _fact_row("Failed", str(certificate.get("total_failed", "-"))),
+        GroupRow(text="Method of deletion"),
+        _fact_row(
+            "Cryptographic erasure",
+            "Encryption keys for the affected session recordings have been permanently destroyed, rendering the "
+            "encrypted recording data unrecoverable.",
+        ),
+        _fact_row(
+            "Deletion from primary database",
+            "Session recording metadata has been permanently deleted from the primary database.",
+        ),
+        GroupRow(text="Timeline"),
+        _fact_row("Deletion started", _timestamp(certificate.get("started_at"))),
+        _fact_row("Deletion completed", _timestamp(certificate.get("completed_at"))),
+        _fact_row("Certificate generated", _timestamp(timezone.now())),
+        GroupRow(text="Data protection officer"),
+        _fact_row("Name", "Charles Cook, VP"),
+        _fact_row("Company", "PostHog, Inc."),
+        _fact_row("Email", "privacy@posthog.com"),
+    )
+
+
+@console.register_tool
+class RecordingDeletionsTool(ConsoleTool):
+    key = TOOL_KEY
+    title = "Recording deletions"
+    owner = REPLAY
+    group = "Data"
+    description = "The recording deletions of one team, followed in Temporal, and their deletion certificates."
+
+    def _team(self, request: HttpRequest) -> Team | None:
+        team_id = request.GET.get("team", "").strip()
+        if not (team_id.isascii() and team_id.isdigit()):
+            return None
+        return Team.objects.select_related("organization").filter(pk=int(team_id)).first()
+
+    def page(self, request: HttpRequest) -> Page:
+        team = self._team(request)
+        if team is None:
+            return Page(
+                blocks=(
+                    Notice(
+                        text="Open this page from the Session recordings panel on a team page.",
+                        link_text="Find a team",
+                        href="/admin/console/",
+                    ),
+                )
+            )
+        workflow_id = request.GET.get("certificate")
+        if workflow_id:
+            return self._certificate_page(request, team, workflow_id)
+        runs = self.live(request, "runs")
+        assert runs is not None
+        team_url = reverse("admin_console_team", kwargs={"pk": team.pk})
+        return Page(
+            blocks=(
+                Notice(
+                    text=f"Deletions of {team.name} ({team.pk}).",
+                    link_text="Back to the team",
+                    href=f"{team_url}#panel-{PANEL_KEY}",
+                ),
+                runs,
+            )
+        )
+
+    def _certificate_page(self, request: HttpRequest, team: Team, workflow_id: str) -> Page:
+        back = Notice(
+            text=f"Certificate of data deletion. Reference: {_reference(workflow_id)}.",
+            link_text="All deletions of this team",
+            href=_runs_url(team),
+        )
+        certificate, error = RecordingDeletions.certificate(team.pk, workflow_id)
+        if certificate is None:
+            return Page(blocks=(back, Notice(text=error or "This run has no certificate.")))
+        download_url = reverse(
+            "admin_console_tool_download", kwargs={"tool_key": TOOL_KEY, "download_key": "certificate"}
+        )
+        blocks: list[Notice | Table] = [
+            back,
+            Notice(
+                text="Print this page to save it as a PDF, or download the certificate as",
+                link_text="JSON",
+                href=f"{download_url}?{urlencode({'team': team.pk, 'certificate': workflow_id})}",
+            ),
+        ]
+        if certificate.get("dry_run"):
+            blocks.append(Notice(text="Dry run: this run deleted nothing."))
+        blocks.append(Table(columns=("Item", "Detail"), rows=_certificate_rows(team, certificate)))
+        return Page(blocks=tuple(blocks))
+
+    def live(self, request: HttpRequest, key: str) -> Live | None:
+        team = self._team(request)
+        if key != "runs" or team is None:
+            return None
+        runs = RecordingDeletions.recent(team.pk)
+        if runs is None:
+            return Live(
+                key="runs",
+                block=Notice(text="Temporal did not answer, so the runs cannot be shown. This retries on its own."),
+                refresh_seconds=REFRESH_SECONDS_WHILE_TEMPORAL_IS_AWAY,
+            )
+        running = any(run.status in ("RUNNING", "CONTINUED_AS_NEW") for run in runs)
+        started = request.GET.get("started")
+        waiting_for_new_run = started is not None and all(run.workflow_id != started for run in runs)
+        return Live(
+            key="runs",
+            block=Table(
+                columns=("Workflow", "Type", "Status", "Started", "Finished", "Certificate"),
+                rows=tuple(_run_row(team, run) for run in runs),
+                empty_text="No deletions have run for this team yet.",
+            ),
+            refresh_seconds=REFRESH_SECONDS_WHILE_RUNNING if running or waiting_for_new_run else None,
+        )
+
+    def download(self, request: HttpRequest, key: str) -> Download | None:
+        team = self._team(request)
+        workflow_id = request.GET.get("certificate", "")
+        if key != "certificate" or team is None or not workflow_id:
+            return None
+        certificate, _error = RecordingDeletions.certificate(team.pk, workflow_id)
+        if certificate is None:
+            return None
+        return Download(
+            filename=f"deletion-certificate-{workflow_id}.json",
+            content_type="application/json",
+            content=json.dumps(certificate, indent=2, default=str),
+        )

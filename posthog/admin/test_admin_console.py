@@ -5,11 +5,12 @@ from pathlib import Path
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management.base import CommandError
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
@@ -35,6 +36,7 @@ from posthog.models.team.team import Team
 from posthog.models.tophog.queries import TopHogFilterOptions
 from posthog.models.user import User
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.temporal.session_replay.delete_recordings.staff import RecordingDeletions
 from posthog.test.persons import create_group_type_mapping, update_group_type_mapping
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
@@ -304,6 +306,7 @@ class TestAdminConsoleViews(BaseTest):
             "Email sending",
             "AI gateway",
             "Project API token",
+            "Session recordings",
         ):
             assert title in content
         assert "Needs attention" in content and "Ingested events:" in content
@@ -358,6 +361,12 @@ class TestAdminConsoleViews(BaseTest):
                 "group-type-mapping/3/edit/?from=ticket",
                 "group-types/edit-3/?from=ticket",
             ),
+            (
+                "whole_page_lands_on_its_panel",
+                "team",
+                "delete-recordings/?from=ticket",
+                "?from=ticket#panel-recordings",
+            ),
             ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
             ("organization_deletion_form", "organization", "trigger-deletion/", "deletion/delete/"),
             (
@@ -390,7 +399,7 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == 200
         content = response.content.decode()
         assert "This is the Django admin" in content
-        for panel_key in ("remote-config", "group-types", "email-sending", "ai-gateway", "api-token"):
+        for panel_key in ("remote-config", "group-types", "email-sending", "ai-gateway", "api-token", "recordings"):
             assert f"/admin/console/teams/{self.team.pk}/#panel-{panel_key}" in content
 
     @parameterized.expand(
@@ -970,3 +979,132 @@ class TestAdminConsoleViews(BaseTest):
         assert "changed since you opened this form" in saved.content.decode()
         updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
         assert updates == []
+
+    @parameterized.expand(
+        [
+            (
+                "person_dry_run",
+                "delete-by-person",
+                {"distinct_ids": "user-1\n\nuser-2\n", "dry_run": "on"},
+                None,
+                "delete-recordings-with-person",
+                {"distinct_ids": ["user-1", "user-2"]},
+            ),
+            (
+                "filters_with_a_bare_relative_date",
+                "delete-by-filters",
+                {"date_from": "-30", "duration_max": "5", "platform": "web", "confirm_team_id": "{team_id}"},
+                None,
+                "delete-recordings-with-query",
+                {
+                    "query": 'date_from=-30d&having_predicates=[{"type": "recording", "key": "duration", "operator": '
+                    '"lt", "value": 5}, {"type": "recording", "key": "snapshot_source", "operator": "exact", '
+                    '"value": ["web"]}]'
+                },
+            ),
+            ("filters_without_a_filter", "delete-by-filters", {"dry_run": "on"}, None, None, None),
+            ("all_without_the_typed_team_id", "delete-all", {"confirm_team_id": "0"}, None, None, None),
+            (
+                "all_with_the_typed_team_id",
+                "delete-all",
+                {"confirm_team_id": "{team_id}"},
+                None,
+                "delete-recordings-with-team",
+                {},
+            ),
+            (
+                "session_ids_from_a_csv",
+                "delete-by-session-ids",
+                {"dry_run": "on"},
+                ("sessions.csv", b"session_id\nsession-a\nsession-b\nsession-a\n"),
+                "delete-recordings-with-session-ids",
+                {"total_session_ids": 2, "source_filename": "sessions.csv"},
+            ),
+            (
+                "session_ids_from_a_file_that_is_not_csv",
+                "delete-by-session-ids",
+                {"dry_run": "on"},
+                ("ids.txt", b"session-a"),
+                None,
+                None,
+            ),
+        ]
+    )
+    @patch("posthog.temporal.session_replay.delete_recordings.staff.store_session_id_chunks")
+    @patch("posthog.temporal.session_replay.delete_recordings.staff.sync_connect")
+    def test_recording_deletions_preview_then_start_the_workflow(
+        self,
+        _name: str,
+        operation_key: str,
+        data: dict[str, str],
+        upload: tuple[str, bytes] | None,
+        expected_workflow: str | None,
+        expected_input: dict[str, object] | None,
+        sync_connect: MagicMock,
+        store_chunks: MagicMock,
+    ) -> None:
+        sync_connect.return_value.start_workflow = AsyncMock()
+        store_chunks.return_value = ("deletion-inputs/run/", 1)
+        url = f"/admin/console/teams/{self.team.pk}/recordings/{operation_key}/"
+        form: dict[str, object] = {
+            key: value.format(team_id=self.team.pk) for key, value in {**data, "reason": "GDPR request"}.items()
+        }
+        if upload is not None:
+            form["csv_file"] = SimpleUploadedFile(upload[0], upload[1], "text/csv")
+
+        preview = self.client.post(url, form)
+        if expected_workflow is None:
+            assert preview.status_code == 400
+            assert not sync_connect.return_value.start_workflow.called
+            return
+        assert preview.status_code == 200
+        assert not sync_connect.return_value.start_workflow.called
+
+        started = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert started.status_code == 302
+        assert started["Location"].startswith(f"/admin/console/tools/recording-deletions/?team={self.team.pk}&started=")
+        workflow, workflow_input = sync_connect.return_value.start_workflow.call_args.args
+        assert workflow == expected_workflow
+        assert workflow_input.team_id == self.team.pk
+        assert workflow_input.config.reason == "GDPR request"
+        assert workflow_input.config.deleted_by == self.user.email
+        for field, value in (expected_input or {}).items():
+            assert getattr(workflow_input, field) == value
+        if upload is not None:
+            assert store_chunks.call_args.args[1] == ["session-a", "session-b"]
+
+    @patch.object(RecordingDeletions, "certificate")
+    def test_recording_deletion_certificates_show_and_download_from_the_old_urls(self, certificate: MagicMock) -> None:
+        workflow_id = f"delete-recordings-{self.team.pk}-0b6c3c5e-6f5a-4a4e-9a51-3c3b2f1c9d10"
+        certificate.return_value = (
+            {
+                "workflow_type": "query",
+                "workflow_id": workflow_id,
+                "team_id": self.team.pk,
+                "dry_run": True,
+                "reason": "GDPR request",
+                "query": 'date_from=-30d&having_predicates=[{"key": "duration", "operator": "lt", "value": 5}]',
+                "started_at": "2026-11-01T10:00:00+00:00",
+                "completed_at": "2026-11-01T10:05:00+00:00",
+                "total_recordings_found": 3,
+                "total_deleted": 0,
+                "total_failed": 0,
+            },
+            None,
+        )
+        old = f"/admin/posthog/team/{self.team.pk}/delete-recordings/certificate/{workflow_id}/"
+
+        page = self.client.get(old, follow=True)
+        download = self.client.get(f"{old}download/", follow=True)
+
+        assert page.redirect_chain == [
+            (f"/admin/console/tools/recording-deletions/?team={self.team.pk}&certificate={workflow_id}", 302)
+        ]
+        content = page.content.decode()
+        assert "Reference: 0b6c3c5e-6f5a-4a4e-9a51-3c3b2f1c9d10" in content
+        assert "Dry run: this run deleted nothing" in content
+        assert "date from: -30d, duration &lt; 5s" in content
+        assert download.status_code == 200
+        assert download["Content-Disposition"] == f'attachment; filename="deletion-certificate-{workflow_id}.json"'
+        assert download.json()["total_recordings_found"] == 3

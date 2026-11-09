@@ -1,0 +1,302 @@
+"""Starting and following recording deletions on behalf of staff, for the PostHog Admin console."""
+
+import io
+import csv
+import json
+import asyncio
+import dataclasses
+from datetime import datetime, timedelta
+from typing import Any
+from urllib import parse
+
+from django.conf import settings
+
+import structlog
+from pydantic import BaseModel
+from temporalio import common
+from temporalio.client import Client, WorkflowExecutionStatus
+from temporalio.common import SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
+
+from posthog.dataclasses import frozen
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
+from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
+from posthog.temporal.session_replay.delete_recordings.object_storage import store_session_id_chunks
+from posthog.temporal.session_replay.delete_recordings.types import (
+    DeletionConfig,
+    RecordingsWithPersonInput,
+    RecordingsWithQueryInput,
+    RecordingsWithSessionIdsInput,
+    RecordingsWithTeamInput,
+)
+
+logger = structlog.get_logger(__name__)
+
+WORKFLOW_TYPES = (
+    "delete-recordings-with-person",
+    "delete-recordings-with-team",
+    "delete-recordings-with-query",
+    "delete-recordings-with-session-ids",
+)
+RECENT_RUNS = 20
+SESSION_ID_CHUNK_SIZE = 10_000
+# Bounds every Temporal read, so a stalled Temporal cannot hold a web worker.
+TEMPORAL_READ_TIMEOUT = timedelta(seconds=5)
+_QUERY_OPERATOR_LABELS = {"lt": "<", "gt": ">", "lte": "<=", "gte": ">=", "exact": "=", "is_not": "!="}
+_QUERY_UNIT_SUFFIXES = {"duration": "s"}
+
+
+@dataclasses.dataclass(frozen=True)
+class ReplayActivityContext(ActivityContextBase):
+    reason: str
+
+
+@frozen
+class DeletionRun:
+    workflow_id: str
+    run_id: str
+    workflow_type: str
+    status: str
+    started: datetime | None
+    closed: datetime | None
+
+
+@frozen
+class DeletionRequest:
+    """Who asked for a deletion, why, and under which workflow ID."""
+
+    team: Team
+    workflow_id: str
+    reason: str
+    dry_run: bool
+    requested_by: User
+
+
+@frozen
+class RecordingFilters:
+    date_from: str = ""
+    date_to: str = ""
+    duration_min: int | None = None
+    duration_max: int | None = None
+    person_uuid: str = ""
+    platform: str = ""
+
+    def is_empty(self) -> bool:
+        return (
+            not any((self.date_from, self.date_to, self.person_uuid, self.platform))
+            and self.duration_min is None
+            and self.duration_max is None
+        )
+
+    def query(self) -> str:
+        """The query string the delete-recordings-with-query workflow reads."""
+        parts = []
+        if self.date_from:
+            parts.append(f"date_from={_relative_date(self.date_from)}")
+        if self.date_to:
+            parts.append(f"date_to={_relative_date(self.date_to)}")
+        if self.person_uuid:
+            parts.append(f"person_uuid={self.person_uuid}")
+        properties: list[dict[str, Any]] = []
+        if self.duration_min is not None:
+            properties.append({"type": "recording", "key": "duration", "operator": "gt", "value": self.duration_min})
+        if self.duration_max is not None:
+            properties.append({"type": "recording", "key": "duration", "operator": "lt", "value": self.duration_max})
+        if self.platform:
+            properties.append(
+                {"type": "recording", "key": "snapshot_source", "operator": "exact", "value": [self.platform]}
+            )
+        if properties:
+            parts.append(f"having_predicates={json.dumps(properties)}")
+        return "&".join(parts)
+
+
+def _relative_date(value: str) -> str:
+    # A bare integer such as "-360" is parsed as an int by query_as_params_to_dict and fails Pydantic
+    # validation downstream, so relative dates need the "d" suffix.
+    return f"{value}d" if value.lstrip("-").isdigit() else value
+
+
+def describe_query(query: str) -> str:
+    """A query string as staff and customers read it, for example "date from: -30d, duration < 5s"."""
+    parts = []
+    for key, value in parse.parse_qsl(query):
+        if key not in ("having_predicates", "properties"):
+            parts.append(f"{key.replace('_', ' ')}: {value}")
+            continue
+        try:
+            for item in json.loads(value):
+                label = item.get("key", "?").replace("_", " ")
+                operator = _QUERY_OPERATOR_LABELS.get(item.get("operator", ""), item.get("operator", "?"))
+                raw_value = item.get("value", "?")
+                shown = ", ".join(raw_value) if isinstance(raw_value, list) else str(raw_value)
+                parts.append(f"{label} {operator} {shown}{_QUERY_UNIT_SUFFIXES.get(item.get('key', ''), '')}")
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            parts.append(f"{key}: {value}")
+    return ", ".join(parts) if parts else query
+
+
+def session_ids_from_csv(content: str) -> list[str]:
+    """The session IDs in the first column, without a session_id header row and without repeats, in file order."""
+    session_ids = []
+    for row in csv.reader(io.StringIO(content)):
+        if not row:
+            continue
+        value = row[0].strip()
+        if value and value.lower() != "session_id":
+            session_ids.append(value)
+    return list(dict.fromkeys(session_ids))
+
+
+class RecordingDeletions:
+    """Starts the delete-recordings Temporal workflows for one team and reads their runs and certificates."""
+
+    @staticmethod
+    def workflow_id(team_id: int, run_key: str) -> str:
+        # The certificate shows the part after the team ID as its reference, so run_key must be a UUID.
+        return f"delete-recordings-{team_id}-{run_key}"
+
+    @staticmethod
+    def recent(team_id: int) -> list[DeletionRun] | None:
+        """The team's latest runs, or None when Temporal cannot be reached."""
+        # The PostHogTeamId search attribute is indexed. A WorkflowId range scan is not, and times out.
+        type_clauses = " OR ".join(f'WorkflowType = "{workflow_type}"' for workflow_type in WORKFLOW_TYPES)
+        query = f"PostHogTeamId = {team_id} AND ({type_clauses})"
+
+        async def fetch(client: Client) -> list[DeletionRun]:
+            runs: list[DeletionRun] = []
+            async for workflow in client.list_workflows(query=query, rpc_timeout=TEMPORAL_READ_TIMEOUT):
+                runs.append(
+                    DeletionRun(
+                        workflow_id=workflow.id,
+                        run_id=workflow.run_id,
+                        workflow_type=workflow.workflow_type,
+                        status=workflow.status.name if workflow.status else "UNKNOWN",
+                        started=workflow.start_time,
+                        closed=workflow.close_time,
+                    )
+                )
+                if len(runs) >= RECENT_RUNS:
+                    break
+            return runs
+
+        try:
+            # Connect before the event loop starts: sync_connect refuses to run inside one.
+            return asyncio.run(fetch(sync_connect()))
+        except Exception:
+            logger.warning("recording_deletion_runs_unavailable", team_id=team_id, exc_info=True)
+            return None
+
+    @staticmethod
+    def certificate(team_id: int, workflow_id: str) -> tuple[dict[str, Any] | None, str | None]:
+        """The certificate a completed run returned, or None and the reason it cannot be shown."""
+        if not workflow_id.startswith(f"delete-recordings-{team_id}-"):
+            return None, "This run does not belong to this team."
+
+        async def fetch(client: Client) -> tuple[dict[str, Any] | None, str | None]:
+            handle = client.get_workflow_handle(workflow_id)
+            description = await handle.describe(rpc_timeout=TEMPORAL_READ_TIMEOUT)
+            if description.status != WorkflowExecutionStatus.COMPLETED:
+                status = description.status.name.lower().replace("_", " ") if description.status else "unknown"
+                return None, f"The run is {status}. Its certificate is ready once it completes."
+            return await handle.result(rpc_timeout=TEMPORAL_READ_TIMEOUT), None
+
+        try:
+            return asyncio.run(fetch(sync_connect()))
+        except Exception:
+            logger.exception("recording_deletion_certificate_unavailable", workflow_id=workflow_id)
+            return (
+                None,
+                "Temporal did not return the certificate. Try again, and check the server logs if it fails again.",
+            )
+
+    @classmethod
+    def start_for_person(cls, request: DeletionRequest, distinct_ids: list[str]) -> None:
+        workflow_input = RecordingsWithPersonInput(
+            team_id=request.team.pk, distinct_ids=distinct_ids, config=cls._config(request)
+        )
+        cls._start(
+            request, "person", "delete-recordings-with-person", workflow_input, distinct_ids_count=len(distinct_ids)
+        )
+
+    @classmethod
+    def start_for_team(cls, request: DeletionRequest) -> None:
+        workflow_input = RecordingsWithTeamInput(team_id=request.team.pk, config=cls._config(request))
+        cls._start(request, "team", "delete-recordings-with-team", workflow_input)
+
+    @classmethod
+    def start_for_filters(cls, request: DeletionRequest, filters: RecordingFilters) -> None:
+        query = filters.query()
+        workflow_input = RecordingsWithQueryInput(team_id=request.team.pk, query=query, config=cls._config(request))
+        cls._start(request, "filters", "delete-recordings-with-query", workflow_input, query=query)
+
+    @classmethod
+    def start_for_session_ids(cls, request: DeletionRequest, session_ids: list[str], source_filename: str) -> None:
+        # Temporal refuses payloads above about 2 MB, so the session IDs go to object storage in chunks.
+        s3_prefix, total_chunks = store_session_id_chunks(request.workflow_id, session_ids, SESSION_ID_CHUNK_SIZE)
+        workflow_input = RecordingsWithSessionIdsInput(
+            team_id=request.team.pk,
+            s3_prefix=s3_prefix,
+            total_chunks=total_chunks,
+            chunk_size=SESSION_ID_CHUNK_SIZE,
+            total_session_ids=len(session_ids),
+            config=cls._config(request),
+            source_filename=source_filename,
+        )
+        cls._start(
+            request,
+            "session_ids",
+            "delete-recordings-with-session-ids",
+            workflow_input,
+            session_ids_count=len(session_ids),
+        )
+
+    @staticmethod
+    def _config(request: DeletionRequest) -> DeletionConfig:
+        return DeletionConfig(reason=request.reason, dry_run=request.dry_run, deleted_by=request.requested_by.email)
+
+    @staticmethod
+    def _start(
+        request: DeletionRequest, kind: str, workflow_name: str, workflow_input: BaseModel, **log_fields: object
+    ) -> None:
+        """Raises WorkflowAlreadyStartedError when a run with this workflow ID exists, so one form starts one run."""
+        team = request.team
+        asyncio.run(
+            sync_connect().start_workflow(
+                workflow_name,
+                workflow_input,
+                id=request.workflow_id,
+                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+                search_attributes=TypedSearchAttributes(
+                    search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.pk)]
+                ),
+                # Temporal reuses a closed workflow's ID by default, so a resubmit after the run ended would run again.
+                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+            )
+        )
+        logger.info(
+            f"delete_recordings_with_{kind}_triggered",
+            team_id=team.pk,
+            workflow_id=request.workflow_id,
+            dry_run=request.dry_run,
+            reason=request.reason,
+            triggered_by=request.requested_by.email,
+            **log_fields,
+        )
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.pk,
+            user=request.requested_by,
+            was_impersonated=False,
+            item_id=request.workflow_id,
+            scope="Replay",
+            activity="bulk_delete_triggered",
+            detail=Detail(
+                name=f"Bulk delete recordings ({kind})",
+                type=f"admin_delete_{kind}",
+                context=ReplayActivityContext(reason=request.reason),
+            ),
+        )

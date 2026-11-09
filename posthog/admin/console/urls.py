@@ -18,6 +18,7 @@ MOVED_TEAM_ACTIONS = {
     "recompute-email-sending-tier": "#panel-email-sending",
     "suspend-email-sending": "email-sending/suspend/",
     "unsuspend-email-sending": "#panel-email-sending",
+    "delete-recordings": "#panel-recordings",
     **{f"group-type-mapping/{index}/edit": f"group-types/edit-{index}/" for index in range(GROUP_TYPES_LIMIT)},
 }
 
@@ -114,6 +115,23 @@ urlpatterns = [
     path(
         "admin/posthog/team/<int:pk>/view-cache/",
         MovedToConsole.page_redirect("The cached config view", "/admin/console/tools/remote-config-cache/?team={pk}"),
+    ),
+    path(
+        "admin/posthog/team/<int:pk>/delete-recordings/workflows/",
+        MovedToConsole.page_redirect("Recording deletion runs", "/admin/console/tools/recording-deletions/?team={pk}"),
+    ),
+    path(
+        "admin/posthog/team/<int:pk>/delete-recordings/certificate/<str:workflow_id>/",
+        MovedToConsole.page_redirect(
+            "Deletion certificates", "/admin/console/tools/recording-deletions/?team={pk}&certificate={workflow_id}"
+        ),
+    ),
+    path(
+        "admin/posthog/team/<int:pk>/delete-recordings/certificate/<str:workflow_id>/download/",
+        MovedToConsole.page_redirect(
+            "Deletion certificate downloads",
+            "/admin/console/tools/recording-deletions/download/certificate/?team={pk}&certificate={workflow_id}",
+        ),
     ),
     path(
         "admin/posthog/organization/bulk-deactivate/",
