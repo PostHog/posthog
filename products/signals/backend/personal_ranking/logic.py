@@ -93,7 +93,6 @@ _MODEL_ORDER_REASON = "Kept in inbox order."
 _NEEDS_YOU_REASONS = {
     "waiting_on_input": "Waiting on your input.",
     "claimed": "You claimed this report.",
-    "suggested_reviewer": "You're a suggested reviewer.",
 }
 
 
@@ -187,7 +186,9 @@ class PersonalRankingBuild:
 
 
 def model_order_reason(candidate: Candidate) -> str:
-    return next((_NEEDS_YOU_REASONS[kind] for kind in candidate.needs_you), _MODEL_ORDER_REASON)
+    return next(
+        (_NEEDS_YOU_REASONS[kind] for kind in candidate.needs_you if kind in _NEEDS_YOU_REASONS), _MODEL_ORDER_REASON
+    )
 
 
 def may_call_model(team: Team, *, summary_ready: bool) -> bool:
