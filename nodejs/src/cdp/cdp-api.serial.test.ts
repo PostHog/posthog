@@ -2548,6 +2548,10 @@ describe('CDP API', () => {
             ],
             ['a code send for a local template', { tracking: { captureEngagement: false } }],
             [
+                'a code send without open and click tracking',
+                { ...codeSend, tracking: { captureEngagement: true, trackOpensAndClicks: false } },
+            ],
+            [
                 'a code send with copies to addresses that use atext symbols',
                 { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
             ],

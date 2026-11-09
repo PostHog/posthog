@@ -2326,6 +2326,34 @@ describe('EmailService', () => {
                 }
             )
 
+            it.each([
+                { trackOpensAndClicks: false, configurationSet: 'posthog-messaging-untracked', tracked: false },
+                { trackOpensAndClicks: true, configurationSet: 'posthog-messaging', tracked: true },
+                { trackOpensAndClicks: undefined, configurationSet: 'posthog-messaging', tracked: true },
+            ])(
+                'sends a code send with trackOpensAndClicks $trackOpensAndClicks through $configurationSet',
+                async ({ trackOpensAndClicks, configurationSet, tracked }) => {
+                    service['sesConfig'].sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
+                    jest.spyOn(
+                        (service as any).teamWorkflowsConfigService,
+                        'shouldCaptureEngagementEvents'
+                    ).mockResolvedValue(true)
+                    invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+                    invocation.state.send = { tracking: { captureEngagement: true, trackOpensAndClicks } }
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect(result.error).toBeUndefined()
+                    const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                    expect(sentCommand.input.ConfigurationSetName).toEqual(configurationSet)
+                    const sentHtml: string = sentCommand.input.Content.Simple.Body.Html.Data
+                    expect(sentHtml === trackableHtml).toBe(!tracked)
+                    expect(result.capturedPostHogEvents[0].properties).toMatchObject({
+                        $email_tracking_enabled: tracked,
+                    })
+                }
+            )
+
             it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()

@@ -38,7 +38,10 @@ export const AcceptedSendSchema = z
         replyTo: z.array(z.string()).readonly().optional(),
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
-        tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
+        tracking: z
+            .object({ captureEngagement: z.boolean(), trackOpensAndClicks: z.boolean().optional() })
+            .strict()
+            .readonly(),
     })
     .strict()
     .readonly()
