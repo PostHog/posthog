@@ -253,20 +253,23 @@ describe('Inbox setup', () => {
     )
 
     it.each([
-        ['button', true, null, false],
-        ['github_return', true, null, false],
-        ['button', false, null, false],
-        ['github_return', false, null, false],
-        ['button', true, true, false],
-        ['button', false, false, false],
-        ['button', false, null, true],
-        ['button', true, null, true],
+        ['button', true, null, false, null],
+        ['github_return', true, null, false, null],
+        ['button', false, null, false, null],
+        ['github_return', false, null, false, null],
+        ['button', true, true, false, null],
+        ['button', false, false, false, null],
+        ['button', false, null, true, null],
+        ['button', true, null, true, null],
+        ['github_return', true, null, false, 'return'],
+        ['github_return', true, null, false, 'without_github'],
     ] as const)(
-        'activates through %s with usage-based pricing %s and saved implementation %s and GitHub-optional pilot %s',
-        async (entry, usageBasedPricing, savedImplementation, pilot) => {
+        'activates through %s with usage-based pricing %s, saved implementation %s, GitHub-optional pilot %s, and agent marker %s',
+        async (entry, usageBasedPricing, savedImplementation, pilot, agentSetup) => {
             githubOptional = pilot
-            if (pilot) {
-                router.actions.replace('/inbox', { agent_setup: 'without_github' })
+            const expectedOrigin = pilot || agentSetup ? 'agent' : 'app'
+            if (pilot || agentSetup) {
+                router.actions.replace('/inbox', { agent_setup: agentSetup ?? 'without_github' })
             }
             const capture = jest.spyOn(posthog, 'capture')
             featureFlagLogic.actions.setFeatureFlags([], {
@@ -285,8 +288,14 @@ describe('Inbox setup', () => {
                 expect(logic.values.savedState?.draft?.automatic_implementation).toBe(savedImplementation)
             }
             if (entry === 'github_return') {
+                const callback = new URL(logic.values.quickSetupGithubReturnUrl, window.location.origin)
                 await connectGithub()
-                router.actions.replace(router.values.location.pathname, { onboarding_step: 'quick' })
+                expect(savedDraft).toBeNull()
+                logic.unmount()
+                router.actions.replace(callback.pathname, Object.fromEntries(callback.searchParams))
+                logic = inboxSetupLogic()
+                logic.mount()
+                await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
                 await waitFor(() => expect(logic.values.shouldResumeQuickSetup).toBe(true))
                 logic.actions.resumeQuickSetup()
                 logic.actions.resumeQuickSetup()
@@ -296,11 +305,14 @@ describe('Inbox setup', () => {
             }
             expect(logic.values.quickActivationPending).toBe(true)
             await waitFor(() => expect(logic.values.completed).toBe(true))
-            await waitFor(() => expect(router.values.searchParams.agent_setup).toBe(pilot ? 'complete' : undefined))
+            await waitFor(() =>
+                expect(router.values.searchParams.agent_setup).toBe(expectedOrigin === 'agent' ? 'complete' : undefined)
+            )
             expect(inventoryRequests).toBeGreaterThan(0)
             expect(logic.values.quickActivationPending).toBe(false)
             expect(enabledScouts).toEqual(['signals-scout-general'])
             expect(logic.values.savedState?.draft?.automatic_implementation).toBe(!pilot && !usageBasedPricing)
+            expect(logic.values.savedState?.draft?.onboarding_origin).toBe(expectedOrigin)
             expect(logic.values.savedState?.draft?.suggestions.map((item) => item.skill_name)).toEqual([
                 'signals-scout-general',
             ])
@@ -316,7 +328,7 @@ describe('Inbox setup', () => {
                         setup_mode: 'quick',
                         flow_version: 'ui-first-v1',
                         inbox_client: 'cloud',
-                        onboarding_origin: pilot ? 'agent' : 'app',
+                        onboarding_origin: expectedOrigin,
                         activation_source: entry,
                         self_driving_ubp: usageBasedPricing,
                         automatic_implementation: !pilot && !usageBasedPricing,
