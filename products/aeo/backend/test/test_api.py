@@ -802,6 +802,45 @@ class TestAEOPromptAPI(APIBaseTest):
         ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_rankings_use_the_competitors_confirmed_in_the_catalog(self) -> None:
+        ids = self._import_prompts([{"prompt": "funnels?"}])
+        with team_scope(self.team.pk):
+            AEOBrand.objects.create(
+                team=self.team,
+                name="Acme",
+                domain="acme.co.uk",
+                kind="competitor",
+                status="confirmed",
+                source="manual",
+                aliases=["Acme Ltd"],
+            )
+            AEOBrand.objects.create(
+                team=self.team,
+                name="Rival",
+                domain="rival.io",
+                kind="competitor",
+                status="suggested",
+                source="citations",
+            )
+        self._record_check(
+            ids["funnels?"],
+            "claude-web-search",
+            minutes_ago=10,
+            answer_text="Acme Ltd is popular.",
+            cited_urls=["https://rival.io/x"],
+        )
+        self._record_check(ids["funnels?"], "exa-answer", minutes_ago=20, answer_text="Nothing here.")
+
+        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
+            rankings = self.client.get(f"{self.url}rankings/").json()
+
+        assert rankings["competitors_confirmed"] is True
+        assert [(row["domain"], row["name"], row["answers_mentioning"]) for row in rankings["brands"]] == [
+            ("acme.co.uk", "Acme", 1),
+            ("example.com", "example", 0),
+        ]
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_rankings_compare_the_brand_with_competitors_from_cited_domains(self) -> None:
         ids = self._import_prompts([{"prompt": "funnels?"}, {"prompt": "replay?"}])
         day = 24 * 60
@@ -842,6 +881,7 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         rankings = response.json()
         assert (rankings["window_from"], rankings["window_to"], rankings["answers"]) == ("2026-09-21", "2026-10-20", 3)
+        assert rankings["competitors_confirmed"] is False
         assert [
             (
                 row["domain"],
@@ -957,6 +997,8 @@ class TestAEOPromptAPI(APIBaseTest):
         }
         competitors = self.client.get(f"{url}?kind=competitor").json()["results"]
         assert [brand["domain"] for brand in competitors] == ["amplitude.com"]
+        searched = self.client.get(f"{url}?search=STAT").json()["results"]
+        assert [brand["domain"] for brand in searched] == ["statsig.com"]
 
     @parameterized.expand([("get", None), ("patch", {"status": "ignored"})])
     def test_another_teams_brand_is_not_found(self, method: str, body: dict | None) -> None:

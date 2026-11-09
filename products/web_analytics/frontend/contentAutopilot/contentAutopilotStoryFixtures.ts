@@ -720,6 +720,7 @@ export const EXAMPLE_PROMPT_SET_RANKINGS: AEOPromptSetRankingsApi = {
     window_from: RANKED_DAYS[0],
     window_to: RANKED_DAYS[RANKED_DAYS.length - 1],
     answers: 2468,
+    competitors_confirmed: false,
     brands: RANKED_BRANDS,
     daily: RANKED_DAYS.flatMap((date, index) =>
         RANKED_BRANDS.map((brand, brandIndex) => ({
