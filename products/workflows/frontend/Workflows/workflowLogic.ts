@@ -682,6 +682,60 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
+                                inputs: {
+                                    email: {
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: {
+                                            design?: any
+                                            html?: string | undefined
+                                            preheader?: string | undefined
+                                            subject?: string | undefined
+                                            text?: string | undefined
+                                            to?:
+                                                | {
+                                                      email: string
+                                                      name?: string | undefined
+                                                  }
+                                                | undefined
+                                        }
+                                    }
+                                }
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'email_sandbox'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
                                 reason?: string | undefined
                             }
                             created_at?: number | undefined
@@ -1567,6 +1621,60 @@ export interface workflowLogicActions {
                                 | null
                                 | undefined
                             type: 'delay'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: {
+                                    email: {
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: {
+                                            design?: any
+                                            html?: string | undefined
+                                            preheader?: string | undefined
+                                            subject?: string | undefined
+                                            text?: string | undefined
+                                            to?:
+                                                | {
+                                                      email: string
+                                                      name?: string | undefined
+                                                  }
+                                                | undefined
+                                        }
+                                    }
+                                }
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'email_sandbox'
                             updated_at?: number | undefined
                         }
                       | {
@@ -2475,6 +2583,28 @@ export interface workflowLogicActions {
                   max_delay_duration?: string | undefined
               }
             | {
+                  inputs: {
+                      email: {
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: {
+                              design?: any
+                              html?: string | undefined
+                              preheader?: string | undefined
+                              subject?: string | undefined
+                              text?: string | undefined
+                              to?:
+                                  | {
+                                        email: string
+                                        name?: string | undefined
+                                    }
+                                  | undefined
+                          }
+                      }
+                  }
+                  message_category_id?: string | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+              }
+            | {
                   cohort_id: number | null
                   transition: 'entered' | 'left'
                   type: 'cohort'
@@ -2885,6 +3015,28 @@ export interface workflowLogicActions {
                         }
                       | undefined
                   max_delay_duration?: string | undefined
+              }
+            | {
+                  inputs: {
+                      email: {
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: {
+                              design?: any
+                              html?: string | undefined
+                              preheader?: string | undefined
+                              subject?: string | undefined
+                              text?: string | undefined
+                              to?:
+                                  | {
+                                        email: string
+                                        name?: string | undefined
+                                    }
+                                  | undefined
+                          }
+                      }
+                  }
+                  message_category_id?: string | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
               }
             | {
                   cohort_id: number | null
