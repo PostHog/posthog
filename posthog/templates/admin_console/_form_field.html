@@ -19,6 +19,14 @@
                       rows="3"
                       {% if field.field.required %}required{% endif %}
                       {% if field.errors %}aria-invalid="true"{% endif %}>{{ field.value|default_if_none:"" }}</textarea>
+        {% elif field.widget_type == "file" %}
+            <input id="{{ field.id_for_label }}"
+                   name="{{ field.html_name }}"
+                   type="file"
+                   class="quill-input"
+                   {% if field.field.widget.attrs.accept %}accept="{{ field.field.widget.attrs.accept }}"{% endif %}
+                   {% if field.field.required %}required{% endif %}
+                   {% if field.errors %}aria-invalid="true"{% endif %} />
         {% elif field.widget_type == "select" %}
             <select id="{{ field.id_for_label }}"
                     name="{{ field.html_name }}"

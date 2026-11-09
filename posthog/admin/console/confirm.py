@@ -1,10 +1,24 @@
+import secrets
+
 from django import forms
 from django.core import signing
+from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
 from django.http import HttpRequest, QueryDict
+from django.utils.datastructures import MultiValueDict
+
+from posthog.dataclasses import frozen
 
 # Long enough to read a preview, short enough that a forgotten tab cannot confirm a stale one tomorrow.
 MAX_AGE_SECONDS = 15 * 60
 SALT = "posthog.admin.console.confirm"
+UPLOAD_CACHE_PREFIX = "admin_console_confirm_upload:"
+
+
+@frozen
+class ConfirmedInput:
+    data: QueryDict
+    files: MultiValueDict[str, UploadedFile]
 
 
 class ConfirmationToken:
@@ -14,6 +28,9 @@ class ConfirmationToken:
     input the preview showed. The token is signed, not encrypted: a form with a preview must not hold secrets.
     It is bound to the staff member, the operation and its target, so it cannot confirm anything else. The
     handler still checks the current state, because the records may have changed since the preview.
+
+    A browser cannot send an uploaded file again from the confirm page, so the token names a cache entry that
+    holds the file until the token expires.
     """
 
     def __init__(self, request: HttpRequest, target: str, operation_key: str) -> None:
@@ -27,10 +44,23 @@ class ConfirmationToken:
 
     def sign(self, form: forms.Form) -> str:
         data = {name: self.request.POST.getlist(name) for name in form.fields if name in self.request.POST}
-        return signing.dumps({**self.scope, "data": data}, salt=SALT)
+        uploads = {}
+        for name in form.fields:
+            upload = self.request.FILES.get(name)
+            if upload is None:
+                continue
+            upload.seek(0)
+            cache_key = UPLOAD_CACHE_PREFIX + secrets.token_urlsafe(32)
+            cache.set(
+                cache_key,
+                {"name": upload.name, "content_type": upload.content_type, "content": upload.read()},
+                MAX_AGE_SECONDS,
+            )
+            uploads[name] = cache_key
+        return signing.dumps({**self.scope, "data": data, "uploads": uploads}, salt=SALT)
 
-    def load(self, token: str) -> QueryDict | None:
-        """The submitted form data, or None when the token is forged, expired, or made for something else."""
+    def load(self, token: str) -> ConfirmedInput | None:
+        """The submitted form input, or None when the token is forged, expired, or made for something else."""
         try:
             payload = signing.loads(token, salt=SALT, max_age=MAX_AGE_SECONDS)
         except signing.BadSignature:
@@ -40,4 +70,10 @@ class ConfirmationToken:
         data = QueryDict(mutable=True)
         for name, values in payload.get("data", {}).items():
             data.setlist(name, values)
-        return data
+        files: MultiValueDict[str, UploadedFile] = MultiValueDict()
+        for name, cache_key in payload.get("uploads", {}).items():
+            upload = cache.get(cache_key)
+            if upload is None:
+                return None
+            files[name] = SimpleUploadedFile(upload["name"], upload["content"], upload["content_type"])
+        return ConfirmedInput(data=data, files=files)

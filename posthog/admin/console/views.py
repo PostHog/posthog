@@ -12,6 +12,7 @@ from django.db.models import Model, Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.datastructures import MultiValueDict
 from django.views.decorators.http import require_safe
 
 import structlog
@@ -302,8 +303,14 @@ class ConfirmStep:
     def __init__(self, request: HttpRequest, confirmation: ConfirmationToken) -> None:
         self.confirmation = confirmation
         self.token = request.POST.get("confirm_token") if request.method == "POST" else None
-        submitted = request.POST if request.method == "POST" else None
-        self.data: QueryDict | None = confirmation.load(self.token) if self.token is not None else submitted
+        self.data: QueryDict | None = None
+        self.files: MultiValueDict | None = None
+        if self.token is not None:
+            confirmed = confirmation.load(self.token)
+            if confirmed is not None:
+                self.data, self.files = confirmed.data, confirmed.files
+        elif request.method == "POST":
+            self.data, self.files = request.POST, request.FILES
 
     @property
     def confirmed(self) -> bool:
@@ -312,6 +319,11 @@ class ConfirmStep:
     @property
     def expired(self) -> bool:
         return self.confirmed and self.data is None
+
+    def bind(self, operation: Operation | ToolOperation) -> forms.Form | None:
+        if operation.form_class is None:
+            return None
+        return operation.form_class(self.data, self.files, initial=operation.form_initial)
 
     def render_expired(self, request: HttpRequest) -> HttpResponse:
         messages.error(request, "This confirmation expired or was made for something else. Review the change again.")
@@ -356,9 +368,7 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
     step = ConfirmStep(request, ConfirmationToken(request, f"{record_type.key}:{obj.pk}:{panel.key}", operation.key))
     if step.expired:
         return step.render_expired(request)
-    form = None
-    if operation.form_class is not None:
-        form = operation.form_class(step.data, initial=operation.form_initial)
+    form = step.bind(operation)
     title = record_type.title(obj)
     target = OperationTarget(
         kicker="This acts on",
@@ -465,6 +475,18 @@ def tool_live(request: HttpRequest, tool_key: str, live_key: str) -> HttpRespons
     return response
 
 
+@require_safe
+def tool_download(request: HttpRequest, tool_key: str, download_key: str) -> HttpResponse:
+    """A file a tool hands staff. It reads only, like the tool page that links to it."""
+    download = _get_tool(tool_key).download(request, download_key)
+    if download is None:
+        raise Http404("Unknown download")
+    response = HttpResponse(download.content, content_type=download.content_type)
+    response["Content-Disposition"] = f'attachment; filename="{download.filename}"'
+    response["Cache-Control"] = "no-store"
+    return response
+
+
 def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) -> HttpResponse:
     tool = _get_tool(tool_key)
     operation = next((op for op in tool.operations(request) if op.key == operation_key), None)
@@ -492,9 +514,7 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
     if step.expired:
         return step.render_expired(request)
 
-    form = None
-    if operation.form_class is not None:
-        form = operation.form_class(step.data, initial=operation.form_initial)
+    form = step.bind(operation)
     context = _operation_context(target, operation, form, request)
     if request.method == "GET":
         return render(request, "admin_console/operation.html", context)

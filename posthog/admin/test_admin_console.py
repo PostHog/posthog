@@ -24,7 +24,7 @@ from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
-from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
+from posthog.admin.console.tools import Cell, ConsoleTool, Download, Live, Notice, Page, Paging, Row, Table
 from posthog.csp_middleware import CSPMiddleware
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
@@ -198,6 +198,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
+            ),
+            (
+                "download_name_that_would_break_the_header",
+                lambda: Download(filename='certificate".json', content_type="application/json", content="{}"),
+                "only letters",
             ),
         ]
     )
