@@ -322,6 +322,31 @@ describe('CyclotronJobQueuePostgresV2', () => {
 
             expect(bulkCreateJobs).not.toHaveBeenCalled()
         })
+
+        it('settles once every write of the batch settled, then reports the one that failed', async () => {
+            const { queue } = createQueue()
+            let finishSecond: () => void = () => {}
+            const failing = createDequeuedJob({ ack: jest.fn().mockRejectedValue(new Error('connection reset')) })
+            const pending = createDequeuedJob({
+                ack: jest.fn(() => new Promise<void>((resolve) => (finishSecond = resolve))),
+            })
+            for (const job of [failing, pending]) {
+                ;(queue as any).pendingJobs.set(job.id, job)
+            }
+
+            const written = queue.queueInvocationResults(
+                [failing, pending].map((job) =>
+                    createResult({ invocation: { ...baseInvocation, id: job.id }, finished: true })
+                )
+            )
+            let settled = false
+            void written.catch(() => undefined).finally(() => (settled = true))
+            await new Promise((resolve) => setImmediate(resolve))
+            expect(settled).toBe(false)
+            finishSecond()
+
+            await expect(written).rejects.toThrow('connection reset')
+        })
     })
 
     describe('dequeueInvocations', () => {

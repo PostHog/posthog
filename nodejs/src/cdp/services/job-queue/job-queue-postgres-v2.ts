@@ -277,7 +277,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         const sanitizedResults = this.sanitizer.sanitizeResults(invocationResults)
 
-        await Promise.all(
+        // The batch stops heartbeating once this settles, so it waits for every write before reporting a failed one.
+        const writes = await Promise.allSettled(
             sanitizedResults.map(async (result) => {
                 const job = this.pendingJobs.get(result.invocation.id)
                 if (!job) {
@@ -297,6 +298,10 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 }
             })
         )
+        const failed = writes.find((write): write is PromiseRejectedResult => write.status === 'rejected')
+        if (failed) {
+            throw failed.reason
+        }
     }
 
     private async writeResult(job: CyclotronV2DequeuedJob, result: CyclotronJobInvocationResult): Promise<void> {
