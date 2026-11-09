@@ -7,12 +7,14 @@ export function agentPrompt(codeEmail: CodeEmailApi): string {
     const file = codeEmail.source_url ? parseSourceFile(codeEmail.source_url) : null
     const where = !file
         ? `Find the code that sends it with that template_key.`
-        : [
-              `It is built in the file ${quoted(file.path)}`,
-              file.repo ? ` in the repository ${quoted(file.repo)}` : '',
-              file.ref ? ` on ${quoted(file.ref)}` : '',
-              '.',
-          ].join('')
+        : file.host === 'other'
+          ? `It is built in the file at the link ${quoted(file.url)}.`
+          : [
+                `It is built in the file ${quoted(file.path)}`,
+                file.repo ? ` in the repository ${quoted(file.repo)}` : '',
+                file.ref ? ` on ${quoted(file.ref)}` : '',
+                '.',
+            ].join('')
     return [
         `Change the email that our code sends through PostHog with the template_key ${quoted(codeEmail.key)}.`,
         where,

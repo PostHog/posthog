@@ -306,6 +306,14 @@ describe('codeEmailLogic', () => {
                 stored({ source_url: 'https://github.com/acme/web/blob/main/src/emails/password-reset.tsx' }),
                 'It is built in the file "src/emails/password-reset.tsx" in the repository "acme/web" on "main".',
             ],
+            [
+                'an email linked on another code host',
+                stored({
+                    source_url:
+                        'https://dev.azure.com/acme/web/_git/web?path=/src/emails/password-reset.tsx&version=GBmain',
+                }),
+                'It is built in the file at the link "https://dev.azure.com/acme/web/_git/web?path=/src/emails/password-reset.tsx&version=GBmain".',
+            ],
             ['an unlinked email', stored(), 'Find the code that sends it with that template_key.'],
         ])('copies where to find %s and keeps its template_key', async (_name, codeEmail, where) => {
             useMocks({ get: { [EMAIL_URL]: codeEmail } })
