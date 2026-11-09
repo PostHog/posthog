@@ -242,6 +242,26 @@ describe('SandboxEmailService', () => {
         expect(deps.claimCaps).not.toHaveBeenCalled()
     })
 
+    it('reuses a cap claim held after an SES throttle only for the recipient it was claimed for', async () => {
+        const deps = fakeDeps({
+            ses: { send: jest.fn().mockResolvedValue({ status: 'retry', reason: 'ses_throttled' }) },
+        })
+        const service = new SandboxEmailService(deps)
+
+        const throttled = await service.send(request())
+        expect(throttled).toEqual({ status: 'retry', reason: 'ses_throttled', capsClaimedFor: expect.any(String) })
+        const capsClaimedFor = (throttled as { capsClaimedFor: string }).capsClaimedFor
+
+        await service.send(request({ capsClaimedFor }))
+        expect(deps.claimCaps).toHaveBeenCalledTimes(1)
+
+        deps.authorize.mockResolvedValue({ ...member, storedAddress: 'other@example.com' })
+        await service.send(
+            request({ capsClaimedFor, email: { to: { email: 'other@example.com' }, subject: 'Hi', text: 'Hello' } })
+        )
+        expect(deps.claimCaps).toHaveBeenCalledTimes(2)
+    })
+
     it('hands the run opt-outs, category, and frequency cap to the recipient check', async () => {
         const deps = fakeDeps()
         const frequencyCap = jest.fn()

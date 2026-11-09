@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -27,7 +28,7 @@ export const SANDBOX_INTEGRATION_ID = 'posthog-managed-sandbox'
 export type SandboxSendOutcome =
     | { status: 'accepted'; messageId: string }
     | { status: 'skipped' | 'failed'; reason: string }
-    | { status: 'retry'; reason: string; capsClaimed?: true }
+    | { status: 'retry'; reason: string; capsClaimedFor?: string }
 
 export type SandboxSendRequest = {
     teamId: number
@@ -42,8 +43,8 @@ export type SandboxSendRequest = {
     categoryType?: 'marketing' | 'transactional'
     optOuts?: MessageOptOutRecord[]
     frequencyCap?: () => Promise<FrequencyCapCheck>
-    /** An earlier attempt of this step visit already holds the daily cap tokens. */
-    capsClaimed?: boolean
+    /** The recipient an earlier attempt of this step visit holds daily cap tokens for, from `capsClaimedFor`. */
+    capsClaimedFor?: string
 }
 
 export type SandboxEmailServiceDeps = {
@@ -121,7 +122,8 @@ export class SandboxEmailService {
         if (!tenant.ok) {
             return refusal(tenant.reason)
         }
-        if (!request.capsClaimed) {
+        const capsClaimedFor = capClaimHolder(authorization.organizationId, authorization.storedAddress)
+        if (request.capsClaimedFor !== capsClaimedFor) {
             const caps = await this.deps.claimCaps({
                 organizationId: authorization.organizationId,
                 teamId: request.teamId,
@@ -148,7 +150,9 @@ export class SandboxEmailService {
             isTest,
             ...(parentRunId ? { parentRunId } : {}),
         })
-        return sent.status === 'retry' ? { ...sent, capsClaimed: true } : sent
+        // A throttle means SES refused the message, so its tokens still cover the next attempt. A transient
+        // failure may follow an acceptance, so the next attempt claims again.
+        return sent.status === 'retry' && sent.reason === 'ses_throttled' ? { ...sent, capsClaimedFor } : sent
     }
 
     /** Checks the trimmed address, and also the rendered spelling its unsubscribe link carries when the two differ. */
@@ -183,6 +187,10 @@ export class SandboxEmailService {
 }
 
 const NO_FREQUENCY_CAP = (): Promise<FrequencyCapCheck> => Promise.resolve({ capped: false })
+
+function capClaimHolder(organizationId: string, storedAddress: string): string {
+    return createHash('sha256').update(`${organizationId}/${storedAddress.toLowerCase()}`).digest('hex')
+}
 
 function refusal(reason: string): SandboxSendOutcome {
     return RETRYABLE_REFUSALS.has(reason) ? { status: 'retry', reason } : { status: 'skipped', reason }

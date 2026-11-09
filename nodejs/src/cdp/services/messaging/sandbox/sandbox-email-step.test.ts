@@ -220,6 +220,18 @@ describe('SandboxEmailSendStep', () => {
             'email_sandbox_sent',
             2,
         ],
+        [
+            'SES may have accepted a send before failing transiently, with one daily cap token left',
+            (): void => {
+                let tokens = 1
+                serviceOverrides.claimCaps = () =>
+                    Promise.resolve(tokens-- > 0 ? { ok: true } : { ok: false, reason: 'daily_cap_reached' })
+                ses.send.mockResolvedValueOnce({ status: 'retry', reason: 'ses_transient' })
+            },
+            { status: 'skipped', reason: 'daily_cap_reached' },
+            'email_sandbox_blocked',
+            1,
+        ],
     ])('stores the outcome when %s and continues past it', async (_name, arrange, stepResult, metric, sesCalls) => {
         arrange()
         const executor = buildExecutor()

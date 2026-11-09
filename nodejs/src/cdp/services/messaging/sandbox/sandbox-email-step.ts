@@ -46,9 +46,7 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             })
         }
         result.invocation.state.currentAction!.sandboxEmailRetries = retries + 1
-        if (attempt.capsClaimed) {
-            result.invocation.state.currentAction!.sandboxEmailCapsClaimed = true
-        }
+        result.invocation.state.currentAction!.sandboxEmailCapsClaimedFor = attempt.capsClaimedFor
         return { retryAt: DateTime.now().plus({ milliseconds: sandboxRetryDelayMs(retries) }) }
     }
 
@@ -73,7 +71,7 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             categoryId: action.config.message_category_id,
             categoryType: action.config.message_category_type,
             optOuts: invocation.state.messageOptOuts,
-            capsClaimed: invocation.state.currentAction?.sandboxEmailCapsClaimed,
+            capsClaimedFor: invocation.state.currentAction?.sandboxEmailCapsClaimedFor,
             frequencyCap: () =>
                 this.deps.recipientPreferences.checkMarketingFrequencyCap({
                     teamId: invocation.teamId,
