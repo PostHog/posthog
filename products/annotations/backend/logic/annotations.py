@@ -23,7 +23,7 @@ from products.annotations.backend.facade.contracts import (
 )
 from products.annotations.backend.facade.enums import AnnotationScope
 from products.annotations.backend.models.annotation import Annotation
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.product_analytics.backend.facade.models import Insight
 
 _PARENT_FIELDS = ("id", "team_id", "created_by_id", "deleted")
@@ -118,8 +118,12 @@ def get_annotation(
 
 
 def find_dashboard_parent(*, team_id: int, dashboard_id: int) -> AnnotationParent | None:
-    rows = Dashboard.objects_including_soft_deleted.filter(id=dashboard_id, team_id=team_id).values(*_PARENT_FIELDS)
-    return next((AnnotationParent(**row) for row in rows), None)
+    dashboard = dashboards_api.get_dashboard(team_id=team_id, dashboard_id=dashboard_id, include_deleted=True)
+    if dashboard is None:
+        return None
+    return AnnotationParent(
+        id=dashboard.id, team_id=dashboard.team_id, created_by_id=dashboard.created_by_id, deleted=dashboard.deleted
+    )
 
 
 def find_insight_parent(*, team_id: int, insight_id: int) -> AnnotationParent | None:
@@ -127,7 +131,7 @@ def find_insight_parent(*, team_id: int, insight_id: int) -> AnnotationParent | 
     return next((AnnotationParent(**row) for row in rows), None)
 
 
-def _stored_parent(parent: Dashboard | Insight | None) -> AnnotationParent | None:
+def _stored_parent(parent: Insight | None) -> AnnotationParent | None:
     if parent is None:
         return None
     return AnnotationParent(
@@ -164,7 +168,9 @@ def _check_write(*, team_id: int, current: Annotation | None, write: AnnotationW
     dashboard = _parent_after_write(
         write=write,
         field="dashboard_id",
-        stored=_stored_parent(current.dashboard) if current is not None else None,
+        stored=find_dashboard_parent(team_id=team_id, dashboard_id=current.dashboard_id)
+        if current is not None and current.dashboard_id is not None
+        else None,
         find=lambda dashboard_id: find_dashboard_parent(team_id=team_id, dashboard_id=dashboard_id),
         not_found="Dashboard not found.",
     )

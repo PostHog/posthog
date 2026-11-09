@@ -159,7 +159,7 @@ func DockerComposeUpWithRetry(maxAttempts int) error {
 	logger.WriteString("Starting PostHog containers...\n")
 
 	cmd, args := GetDockerComposeCommand()
-	fullArgs := append(args, "-f", "docker-compose.yml", "up", "-d", "--no-build", "--pull", "always")
+	fullArgs := append(args, "-f", "docker-compose.yml", "up", "-d", "--no-build", "--pull", "always", "--remove-orphans")
 
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {

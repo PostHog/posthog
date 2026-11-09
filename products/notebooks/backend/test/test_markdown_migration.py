@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
@@ -533,3 +534,49 @@ class TestNotebookMarkdownMigration(BaseTest):
         assert f'<mention id="{outside_user.id}">@member</mention>' in notebook.text_content
         assert "Leaked" not in notebook.text_content
         assert "leaked@example.com" not in notebook.text_content
+
+
+class TestNotebookMarkdownMigrationTool(BaseTest):
+    TOOL_URL = "/admin/console/tools/notebook-markdown-migration/"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+    def test_old_stats_url_lands_on_the_tool_with_its_team(self) -> None:
+        response = self.client.get(f"/admin/notebook-markdown-migration/stats/?team_id={self.team.id}")
+
+        assert response.status_code == 302
+        assert response["Location"] == f"{self.TOOL_URL}?team_id={self.team.id}"
+
+    @patch("products.notebooks.backend.markdown_collab.publish_notebook_update")
+    def test_convert_previews_without_changes_then_converts_on_confirm(self, _mock_publish) -> None:
+        notebook = Notebook.objects.create(
+            team=self.team,
+            title="Convert from the console",
+            content={"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "body"}]}]},
+            version=3,
+        )
+        convert_url = f"{self.TOOL_URL}convert/"
+
+        preview = self.client.post(
+            convert_url, {"team_id": str(self.team.id), "batch_size": "10", "reason": "Markdown rollout"}
+        )
+        notebook.refresh_from_db()
+
+        assert preview.status_code == 200
+        assert "Convert from the console" in preview.content.decode()
+        assert notebook.version == 3
+
+        token = re.search(r'name="confirm_token" value="([^"]+)"', preview.content.decode())
+        assert token is not None
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(convert_url, {"confirm_token": token.group(1)})
+        notebook.refresh_from_db()
+
+        assert response.status_code == 302
+        assert response["Location"] == f"{self.TOOL_URL}?team_id={self.team.id}"
+        assert notebook.version == 4
+        assert notebook.content["content"][0]["type"] == "ph-markdown-notebook"

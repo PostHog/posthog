@@ -87,6 +87,16 @@ function isFocusedCell(focus: FlameFocus, cell: FlameCell): boolean {
     return focus?.kind === 'bundle' && cell.kind === 'bundle' && cell.index === focus.first && cell.last === focus.last
 }
 
+function sameFocus(a: FlameFocus, b: FlameFocus): boolean {
+    if (a?.kind === 'node' && b?.kind === 'node') {
+        return a.index === b.index
+    }
+    if (a?.kind === 'bundle' && b?.kind === 'bundle') {
+        return a.first === b.first && a.last === b.last
+    }
+    return a === b
+}
+
 function idToKey(id: string | null | undefined): FocusKey {
     return id ? { kind: 'node', id } : null
 }
@@ -165,11 +175,17 @@ function FlameGraphInner<Meta = unknown>({
     search,
     defaultFocusedId,
     tooltip,
+    onFocusChange,
     className,
     dataAttr,
 }: Omit<FlameGraphProps<Meta>, 'onError'>): React.ReactElement {
     const theme = useResolvedChartTheme(themeProp)
-    const { diff: diffConfig, valueFormatter = defaultValueFormatter, maxHeight = DEFAULT_MAX_HEIGHT } = config ?? {}
+    const {
+        diff: diffConfig,
+        valueFormatter = defaultValueFormatter,
+        maxHeight = DEFAULT_MAX_HEIGHT,
+        groupColors,
+    } = config ?? {}
     const threshold = Math.max(0, diffConfig?.threshold ?? DEFAULT_THRESHOLD)
     const minCount = Math.max(0, diffConfig?.minCount ?? 0)
 
@@ -188,9 +204,9 @@ function FlameGraphInner<Meta = unknown>({
         [paletteKey, theme.backgroundColor, theme.tooltipColor]
     )
     const colors = useMemo(
-        () => computeFlameColors(tree, colorBy, theme, ink, diff),
+        () => computeFlameColors(tree, colorBy, theme, ink, diff, groupColors),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [tree, colorBy, paletteKey, ink, diff]
+        [tree, colorBy, paletteKey, ink, diff, groupColors]
     )
     const shades = useMemo(() => createFlameShades(ink), [ink])
     const fitter = useMemo(() => createLabelFitter(), [tree]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -229,6 +245,20 @@ function FlameGraphInner<Meta = unknown>({
     const geometry = useMemo<FlameRowGeometry>(() => ({ rowHeight: ROW_HEIGHT, rowCount }), [rowCount])
 
     const scrollTopRef = useRef(0)
+    const viewportRef = useRef<HTMLDivElement>(null)
+    const initialFocusDepth = focusNodeIndex >= 0 ? tree.depth[focusNodeIndex] : 0
+    const initialScrollTopRef = useRef(
+        (initialFocusDepth + 1) * ROW_HEIGHT > viewportHeight
+            ? Math.min(initialFocusDepth * ROW_HEIGHT, contentHeight - viewportHeight)
+            : 0
+    )
+    useLayoutEffect(() => {
+        const viewport = viewportRef.current
+        if (viewport && initialScrollTopRef.current > 0) {
+            viewport.scrollTop = initialScrollTopRef.current
+            scrollTopRef.current = viewport.scrollTop
+        }
+    }, [])
     const cellsRef = useRef<{ cells: FlameCell[]; tree: FlameTree<unknown> | null }>({ cells: [], tree: null })
     const paintRafRef = useRef<number | null>(null)
     const [hoverState, setHover] = useState<HoverState | null>(null)
@@ -348,10 +378,27 @@ function FlameGraphInner<Meta = unknown>({
         }
     }, [overlayCtx, dimensions, hoverRect, ink, theme.skipDraw])
 
-    const changeFocus = useCallback((next: FocusKey): void => {
-        setHover(null)
-        setFocusKey(next)
-    }, [])
+    const changeFocus = useCallback(
+        (next: FocusKey): void => {
+            setHover(null)
+            setFocusKey(next)
+            if (!onFocusChange) {
+                return
+            }
+            const nextFocus = keyToFocus(tree, next)
+            if (sameFocus(nextFocus, focus)) {
+                return
+            }
+            onFocusChange(
+                nextFocus === null
+                    ? null
+                    : nextFocus.kind === 'node'
+                      ? { kind: 'node', node: nodeDatum(tree, nextFocus.index, diff) }
+                      : { kind: 'bundle', bundle: bundleDatum(tree, nextFocus.first, nextFocus.last, diff) }
+            )
+        },
+        [onFocusChange, tree, focus, diff]
+    )
 
     const hitAt = useCallback(
         (clientX: number, clientY: number): HoverState | null => {
@@ -550,6 +597,7 @@ function FlameGraphInner<Meta = unknown>({
                     ) : null}
                     <ChartLegendLayout legend={showLegend ? legend : null} position="bottom" align="start" gap={6}>
                         <div
+                            ref={viewportRef}
                             className="relative w-full overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] outline-none focus-visible:ring-2 focus-visible:ring-(--color-graph-crosshair)"
                             style={{ height: viewportHeight, containerType: 'size' }}
                             tabIndex={0}
