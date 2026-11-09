@@ -89,6 +89,7 @@ import {
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
     captureExperimentHealthFindingShown,
+    captureExperimentHealthRechecked,
     experimentHealthUi,
     experimentWarningFromHealth,
     exposureHealthEventProperties,
@@ -2579,6 +2580,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         await breakpoint(300)
                     }
                     cache.healthCheckInputs = healthCheckInputs(values.experiment)
+                    // The loader keeps the previous answer until this request succeeds, so this is the health
+                    // before the edit.
+                    const healthBefore = values.experimentHealth
                     // Timed here rather than in the success listener, which would have to read a start time off
                     // `cache` that a superseded request can overwrite.
                     const startedAt = performance.now()
@@ -2601,6 +2605,8 @@ export const experimentLogic = kea<experimentLogicType>([
                             values.browserNoMetricsWarning,
                             Math.round(performance.now() - startedAt)
                         )
+                    } else {
+                        captureExperimentHealthRechecked(values.experiment, healthBefore, health, values.healthUi)
                     }
                     return health
                 },
