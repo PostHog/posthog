@@ -290,7 +290,6 @@ class TurnMarker:
     # When the marker row was written, which is just before the turn's review sessions start.
     started_at: datetime
     review_design: str = REVIEW_DESIGN_PIPELINE
-    # Recorded at the end of a Standard automatic turn only. See `TurnMarkerArtefact.clean_full_coverage`.
     clean_full_coverage: bool | None = None
 
 

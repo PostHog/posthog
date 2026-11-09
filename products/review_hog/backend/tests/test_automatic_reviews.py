@@ -378,7 +378,6 @@ class TestAuthoredPRReviewTask(BaseTest):
 
         process_authored_pr_event.run(**self._queued_event(draft=drafts))
 
-        # A draft that opened is not ready for review yet, so its turn alone never starts a silent stamphog review.
         start.assert_called_once_with(
             **self._expected_start(team_id=self.team.id, user_id=self.user.id, marks_ready=not drafts)
         )

@@ -381,7 +381,6 @@ class TestHeadReviewStatus(BaseTest):
             lens_chunks_capped=lens_chunks_capped,
         )
         if setup == "newer_deep_turn":
-            # A Deep turn on the same head records nothing, so it cannot replace the automatic turn's answer.
             self._add_marker(report, 2, REVIEW_MODE_FULL)
             ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(run_count=2)
         start_silent_stamphog(team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD)
