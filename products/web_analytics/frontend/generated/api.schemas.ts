@@ -130,6 +130,8 @@ export interface AEOPromptEngineCheckApi {
      * @nullable
      */
     target_best_position: number | null
+    /** The web searches the engine ran while answering, in the order it ran them. Empty when it ran none or the check failed. */
+    search_queries: string[]
     /** When the check ran. */
     checked_at: string
 }
