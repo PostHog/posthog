@@ -59,7 +59,8 @@ OPERATORS: Final = (
 )
 
 # YAML aliases share one node, so a small team recipe can describe an exponentially large tree. The parser does not
-# cap aliases, so the compiler counts every node it builds or keeps, literal payloads included, and stops here.
+# cap aliases, so the compiler counts every node it builds or keeps, literal payloads, rules, followups and path
+# segments included, and stops here. Each count comes before the allocation it pays for.
 COMPILE_NODE_BUDGET: Final = 100_000
 
 # The ASCII flag keeps `\w` to the identifier characters JavaScript's `\w` matches.
@@ -135,14 +136,15 @@ class _RecipeCompiler:
                 raise RecipeCompileError(f"Recipe '{recipe_id}' rule[{index}]: {error}") from error
         return Recipe(id=recipe_id, rules=tuple(rules))
 
-    def _count(self) -> None:
-        self._nodes += 1
+    def _count(self, nodes: int = 1) -> None:
+        self._nodes += nodes
         if self._nodes > COMPILE_NODE_BUDGET:
             raise RecipeCompileError(
                 f"the recipe compiles to more than {COMPILE_NODE_BUDGET} nodes; remove YAML aliases or simplify it"
             )
 
     def _rule(self, raw: object) -> Rule:
+        self._count()
         items = _as_mapping(raw)
         if items is None:
             raise RecipeCompileError("rule must be a mapping")
@@ -169,6 +171,7 @@ class _RecipeCompiler:
         return tuple(self._followup(item) for item in raw)
 
     def _followup(self, raw: object) -> Followup:
+        self._count()
         items = _as_mapping(raw)
         if items is None:
             raise RecipeCompileError("followup entry must be a mapping")
@@ -233,6 +236,7 @@ class _RecipeCompiler:
         return tuple(names)
 
     def _emit_spec(self, raw: object) -> EmitSpec:
+        self._count()
         items = _as_mapping(raw)
         if items is None:
             raise RecipeCompileError("emit must be a mapping")
@@ -302,7 +306,7 @@ class _RecipeCompiler:
         if value == "$":
             return SelfExpr()
         if _PATH.fullmatch(value):
-            return PathExpr(segments=tuple(value[2:].split(".")))
+            return self._path(value[2:])
         if _ROOTLESS_FIELD.match(value):
             raise RecipeCompileError(
                 f"'{value}' is not a valid value expression. Use '$.{value[1:]}' for a field read, or '$' for the whole input."
@@ -316,12 +320,18 @@ class _RecipeCompiler:
         cursor = 0
         for match in _INTERP.finditer(value):
             if match.start() > cursor:
+                self._count()
                 parts.append(value[cursor : match.start()])
-            parts.append(PathExpr(segments=tuple(match.group(1).split("."))))
+            parts.append(self._path(match.group(1)))
             cursor = match.end()
         if cursor < len(value):
+            self._count()
             parts.append(value[cursor:])
         return InterpExpr(parts=tuple(parts))
+
+    def _path(self, dotted: str) -> PathExpr:
+        self._count(dotted.count(".") + 1)
+        return PathExpr(segments=tuple(dotted.split(".")))
 
     def _operator(self, operator: str, payload: object) -> Expr:
         match operator:

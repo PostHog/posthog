@@ -1,7 +1,7 @@
 import re
 
 from ruamel.yaml import YAML
-from ruamel.yaml.constructor import SafeConstructor
+from ruamel.yaml.constructor import DuplicateKeyError, SafeConstructor
 from ruamel.yaml.error import YAMLError
 
 from .errors import RecipeCompileError
@@ -21,8 +21,22 @@ class _RecipeConstructor(SafeConstructor):
         if not _YAML_1_2_CORE_INT.fullmatch(text):
             return text
         if text.startswith(("0o", "0x")):
-            return int(text[2:], 8 if text[1] == "o" else 16)
+            value = int(text[2:], 8 if text[1] == "o" else 16)
+            # Python reads hex and octal of any length, but writes no integer past its decimal digit limit as text, and
+            # the compiler writes keys and values as JSON text. `str` raises here the ValueError that a decimal literal
+            # of that length raises in `int`, so the recipe fails to load instead of failing later.
+            str(value)
+            return value
         return int(text)
+
+    # ruamel writes both values into its duplicate-key message. A value built from nested aliases is shared in memory
+    # but its text grows exponentially with the source, so the message names only the key.
+    def check_mapping_key(self, node, key_node, mapping, key, value):
+        if key in mapping:
+            raise DuplicateKeyError(
+                "while constructing a mapping", node.start_mark, f'found duplicate key "{key}"', key_node.start_mark
+            )
+        return True
 
     def construct_yaml_float(self, node):
         text = self.construct_scalar(node)
@@ -45,7 +59,8 @@ def load_recipe_yaml(source: str) -> object:
     yaml.Constructor = _RecipeConstructor
     try:
         return yaml.load(source)
-    # ruamel's constructors raise plain ValueError and TypeError on some user input, such as an oversized integer
-    # or a list used as a mapping key, and a team recipe must only ever fail as a compile error.
-    except (YAMLError, RecursionError, ValueError, TypeError) as error:
+    # ruamel raises plain Python errors on some user input: ValueError for an oversized integer, TypeError for a list
+    # used as a mapping key, LookupError for a malformed `!!bool` or `!!float` scalar, and AssertionError for a `%YAML`
+    # version other than 1.1 or 1.2. A team recipe must only ever fail as a compile error.
+    except (YAMLError, RecursionError, ValueError, TypeError, LookupError, AssertionError) as error:
         raise RecipeCompileError(f"Recipe YAML does not parse: {error}") from error
