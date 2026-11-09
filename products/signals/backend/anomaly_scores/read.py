@@ -44,7 +44,6 @@ SCORED_INTERVALS = frozenset(DEFAULT_PROFILE.intervals)
 # The event scan reaches this far past the range, so a row whose timestamp ingestion moved stays in the scan.
 TIMESTAMP_DRIFT = datetime.timedelta(hours=1)
 # A project's scores are ready to rely on once this many days of the window have a scored daily bucket.
-# The anomaly detection scout uses the same numbers, so the two cannot drift apart.
 SCORED_HISTORY_WINDOW = datetime.timedelta(days=28)
 SCORED_HISTORY_READY_DAYS = 14
 
