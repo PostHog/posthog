@@ -11,7 +11,7 @@ import {
 } from '../hogflows/batch-resolver.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, EMAIL_ATTACHMENTS_MAX_AGE_MS, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager } from './manager'
+import { CyclotronV2Manager, assignEmailDequeueSeq } from './manager'
 import {
     CYCLOTRON_COUNTER_MAX,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
@@ -1930,22 +1930,38 @@ describe('Cyclotron V2', () => {
                 expect(await readTeamCounter(teamId)).toBe(3n)
             })
 
-            it("starts a new team's counter at the existing max (Hatchet p_max_assigned)", async () => {
-                // Without this, a brand-new tenant's burst would slot in at
-                // counter=1 and cut ahead of every established team's
-                // in-flight emails. Hatchet's pattern: first-ever insert for
-                // a team starts at `MAX(counter) + 1` across the table, so
-                // they line up *next to* existing teams instead of jumping
-                // the queue. Subsequent emails for that team keep
-                // incrementing normally.
-                await manager.bulkCreateJobs([{ teamId: 1, queueName: EMAIL_QUEUE }])
-                await manager.bulkCreateJobs([{ teamId: 1, queueName: EMAIL_QUEUE }])
-                // Team 2's first ever email → counter = max(2) + 1 = 3, not 1.
-                await manager.bulkCreateJobs([{ teamId: 2, queueName: EMAIL_QUEUE }])
+            it.each([
+                [
+                    'bulkCreateJobs',
+                    async (teamId: number): Promise<void> => {
+                        await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
+                    },
+                ],
+                [
+                    'assignEmailDequeueSeq (reschedule into email)',
+                    async (teamId: number): Promise<void> => {
+                        await assignEmailDequeueSeq(assertPool, teamId)
+                    },
+                ],
+            ])(
+                "starts a new team's counter at the existing max (Hatchet p_max_assigned) via %s",
+                async (_path, assignOne) => {
+                    // Without this, a brand-new tenant's burst would slot in at
+                    // counter=1 and cut ahead of every established team's
+                    // in-flight emails. Hatchet's pattern: first-ever insert for
+                    // a team starts at `MAX(counter) + 1` across the table, so
+                    // they line up *next to* existing teams instead of jumping
+                    // the queue. Subsequent emails for that team keep
+                    // incrementing normally.
+                    await assignOne(1)
+                    await assignOne(1)
+                    // Team 2's first ever email → counter = max(2) + 1 = 3, not 1.
+                    await assignOne(2)
 
-                expect(await readTeamCounter(1)).toBe(2n)
-                expect(await readTeamCounter(2)).toBe(3n)
-            })
+                    expect(await readTeamCounter(1)).toBe(2n)
+                    expect(await readTeamCounter(2)).toBe(3n)
+                }
+            )
 
             it("doesn't let a new team's batch cut ahead of an established team's in-flight email", async () => {
                 // The inversion scenario the Hatchet pattern is designed to fix:

@@ -781,12 +781,12 @@ export interface HogFunctionMaskedSecretApi {
 }
 
 /**
- * Map of hog function UUIDs to their new execution_order values.
+ * Map of hog function UUIDs to their new execution_order values, from 0 to 32767.
  */
 export type PatchedHogFunctionRearrangeApiOrders = { [key: string]: number }
 
 export interface PatchedHogFunctionRearrangeApi {
-    /** Map of hog function UUIDs to their new execution_order values. */
+    /** Map of hog function UUIDs to their new execution_order values, from 0 to 32767. */
     orders?: PatchedHogFunctionRearrangeApiOrders
 }
 
