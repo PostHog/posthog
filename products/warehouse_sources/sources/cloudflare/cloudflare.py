@@ -65,7 +65,7 @@ class CloudflarePaginator(PageNumberPaginator):
         if not self._has_next_page or not data:
             return
         try:
-            values = find_values(self.total_path, response.json())
+            values = find_values(self.total_path, response.json()) if self.total_path else []
         except Exception:
             values = []
         total_pages = values[0] if values else None

@@ -464,7 +464,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     def _error_redaction_values(self, instance: ExternalDataSource) -> frozenset[str]:
         cached = getattr(instance, "_error_redaction_values", None)
         if cached is None:
-            cached = helpers.get_error_redaction_values(instance)
+            try:
+                job_inputs = self._source_inputs(instance)
+            except UnreadableSourceInputsError:
+                job_inputs = {}
+            cached = helpers.get_error_redaction_values(instance, job_inputs)
             instance._error_redaction_values = cached  # type: ignore[attr-defined]
         return cached
 
