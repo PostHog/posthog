@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 
 import { Logo } from '@posthog/brand/logo'
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom'
@@ -57,23 +57,10 @@ function writePng(relativePath, svg) {
     writeFileSync(new URL(relativePath, root), execFileSync('rsvg-convert', { input: serialize(svg) }))
 }
 
-switch (process.argv[2]) {
-    case 'app': {
-        const logos = { light: renderLogos(false), dark: renderLogos(true) }
-        writeFileSync(new URL('src/ui/icons/brandLogos.json', root), `${JSON.stringify(logos, null, 4)}\n`)
-        writePng('assets/splash-icon-dark.png', renderLogo(Logo.Logomark, true, 1040, 560))
-        break
-    }
-    case 'icon': {
-        const svg = renderLogo(Logo.Logomark, true, 1024, 1024)
-        svg.setAttribute('viewBox', '-6.5 -18.5 65 65')
-        const production = 'assets/app.icon/Assets/logo-dark.png'
-        writePng(production, svg)
-        for (const variant of ['dev', 'preview']) {
-            copyFileSync(new URL(production, root), new URL(`assets/app-${variant}.icon/Assets/logo-dark.png`, root))
-        }
-        break
-    }
-    default:
-        throw new Error('Usage: pnpm brand:generate app|icon')
+if (process.argv[2] !== 'app') {
+    throw new Error('Usage: pnpm brand:generate app')
 }
+
+const logos = { light: renderLogos(false), dark: renderLogos(true) }
+writeFileSync(new URL('src/ui/icons/brandLogos.json', root), `${JSON.stringify(logos, null, 4)}\n`)
+writePng('assets/splash-icon-dark.png', renderLogo(Logo.Logomark, true, 1040, 560))
