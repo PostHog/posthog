@@ -6,7 +6,7 @@ from pathlib import Path
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
 from django.contrib import admin
@@ -38,12 +38,16 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
+from posthog.models.project_secret_api_key import RevokedTeamSecretToken
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.personhog_client.fake_client import get_active_fake
 from posthog.session.models import Session
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.persons import create_group_type_mapping, update_group_type_mapping
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
@@ -53,7 +57,7 @@ from ee.billing.quota_limiting import QuotaResource
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
 PROJECT_PANEL_TITLES = ("Overview", "Deletion")
-USER_PANEL_TITLES = ("Overview", "Organizations", "Sign-in", "Deletion")
+USER_PANEL_TITLES = ("Overview", "Organizations", "Sign-in", "Personal API keys", "Deletion")
 CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
 REBUILD = "pnpm --filter=@posthog/frontend build:admin-console"
 
@@ -314,6 +318,7 @@ class TestAdminConsoleViews(BaseTest):
             "Email sending",
             "AI gateway",
             "Project API token",
+            "Project secret API keys",
         ):
             assert title in content
         assert "Needs attention" in content and "Ingested events:" in content
@@ -1062,3 +1067,77 @@ class TestAdminConsoleUserDeletion(BaseTest):
 
         assert not user_admin.has_delete_permission(request, self.target)
         assert "delete_selected" not in user_admin.get_actions(request)
+
+
+class TestAdminConsoleApiKeys(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+    def _personal_key(self) -> PersonalAPIKey:
+        token = generate_random_token_personal()
+        return PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Leaked key",
+            secure_value=hash_key_value(token),
+            mask_value=mask_key_value(token),
+            scopes=["*"],
+        )
+
+    @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
+    def test_rolling_a_personal_api_key_notifies_the_user(self, exposed: MagicMock) -> None:
+        key = self._personal_key()
+        old_secure_value, old_mask_value = key.secure_value, key.mask_value
+
+        response = self.client.post(
+            f"/admin/console/users/{self.user.pk}/personal-api-keys/roll/",
+            {"key": key.pk, "exposed_at": "https://example.com/leak", "reason": "Found in a public repo"},
+        )
+
+        assert response.status_code == 302
+        key.refresh_from_db()
+        assert key.secure_value != old_secure_value
+        assert key.last_rolled_at is not None
+        exposed.assert_called_once_with(
+            self.user.id, key.id, old_mask_value, "This key was detected at https://example.com/leak."
+        )
+
+    @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
+    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
+    def test_revoking_a_secret_api_key_rolls_it_or_deletes_a_legacy_mirror(
+        self, psak_exposed: MagicMock, legacy_exposed: MagicMock
+    ) -> None:
+        key, _ = create_project_secret_api_key(team=self.team, created_by=self.user, label="Admin key")
+        old_secure_value = key.secure_value
+        legacy_token = "phs_legacy_token_mirrored_in_console"
+        self.team.secret_api_token = legacy_token
+        self.team.save()
+        mirrored, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy key", value=legacy_token)
+        url = f"/admin/console/teams/{self.team.pk}/secret-api-keys/revoke/"
+
+        rolled = self.client.post(url, {"key": key.pk, "exposed_at": "", "reason": "Found in a public repo"})
+        deleted = self.client.post(url, {"key": mirrored.pk, "exposed_at": "", "reason": "Found in a public repo"})
+
+        assert (rolled.status_code, deleted.status_code) == (302, 302)
+        key.refresh_from_db()
+        assert key.secure_value != old_secure_value
+        psak_exposed.assert_called_once_with(self.team.id, key.id, ANY, "")
+        assert not type(mirrored).objects.filter(pk=mirrored.pk).exists()
+        assert RevokedTeamSecretToken.objects.for_team(self.team.id).filter().exists()
+        legacy_exposed.assert_called_once()
+
+    @parameterized.expand([("personal", "personalapikey"), ("project_secret", "projectsecretapikey")])
+    def test_an_old_roll_url_lands_on_the_panel_of_the_key_owner(self, kind: str, model_name: str) -> None:
+        if kind == "personal":
+            key: Model = self._personal_key()
+            expected = f"/admin/console/users/{self.user.pk}/?from=ticket#panel-personal-api-keys"
+        else:
+            key, _ = create_project_secret_api_key(team=self.team, created_by=self.user)
+            expected = f"/admin/console/teams/{self.team.pk}/?from=ticket#panel-secret-api-keys"
+
+        response = self.client.post(f"/admin/posthog/{model_name}/{key.pk}/roll/?from=ticket")
+
+        assert response.status_code == 302
+        assert response["Location"] == expected

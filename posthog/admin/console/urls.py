@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import path, re_path
 
 from posthog.admin.console import views
-from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.console.moved import MovedKeyActions, MovedToConsole
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.constants import GROUP_TYPES_LIMIT
 
@@ -112,6 +112,15 @@ urlpatterns = [
         )
         for old, target in MOVED_USER_ACTIONS.items()
     ],
+    # API keys have no console page of their own. Their actions moved to the page of the user or team that owns them.
+    path(
+        "admin/posthog/personalapikey/<str:pk>/roll/",
+        admin.site.admin_view(MovedToConsole.owner_redirect(MovedKeyActions.personal_api_key)),
+    ),
+    path(
+        "admin/posthog/projectsecretapikey/<str:pk>/roll/",
+        admin.site.admin_view(MovedToConsole.owner_redirect(MovedKeyActions.project_secret_api_key)),
+    ),
     *[
         path(
             f"admin/posthog/datadeletionrequest/<uuid:pk>/{old}/",
