@@ -14870,6 +14870,10 @@ export namespace Schemas {
       watched_insights: number;
       /** Insights with at least one scored bucket in the range. Results cover only these insights. */
       insights_scored_in_range: number;
+      /** Distinct UTC days with a scored daily bucket of any insight series in the last 28 days. It does not follow the requested range, and it counts scores written before scoring was turned off. */
+      scored_days: number;
+      /** True when `scored_days` is 14 or more. Until then the project has too little scored history to rely on its scores, even when `scoring_enabled` is true. */
+      scored_history_ready: boolean;
       /** The applied start of the range, in the project timezone. */
       date_from: string;
       /** The applied end of the range, in the project timezone. */
