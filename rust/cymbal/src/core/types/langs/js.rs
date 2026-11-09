@@ -430,8 +430,7 @@ mod test {
 
     #[tokio::test]
     async fn dart2js_frames_look_back_to_the_nearest_earlier_mapping() {
-        // Line 1 (0-based) has one token, at `A.err`, so nothing on that line maps the `throw`
-        // before it.
+        // Line 1 (0-based) has one token, at `A.err`, after the `throw`.
         let unmapped_line_start = ("function main(){\n  throw A.err()}", "AAAA;QACQ");
         // Line 1 starts with a token at the same location as the last token of line 0.
         let repeated_location = ("function main(){throw A.err(\n1)}", "AAAA,iBACE;AAAA");

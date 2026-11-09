@@ -17,7 +17,7 @@ use serde::Deserialize;
 use sourcemap::{DecodedMap, SourceMap};
 use sqlx::PgPool;
 use symbolic::sourcemapcache::{
-    SourceLocation, SourceMapCache, SourceMapCacheWriter, SourcePosition,
+    ScopeLookupResult, SourceLocation, SourceMapCache, SourceMapCacheWriter, SourcePosition,
 };
 use tracing::{debug, info, warn};
 
@@ -118,9 +118,7 @@ pub struct OwnedSourceMapCache {
     /// dart2js minified names mapping (minified -> original) for Flutter Web support.
     /// Parsed from the x_org_dartlang_dart2js.minified_names.global extension.
     dart_minified_names: Option<HashMap<String, String>>,
-    /// Positions of the column-only segments in a dart2js map, which end the mapping before them.
-    /// `Some` for every map with the `x_org_dartlang_dart2js` key, also when that extension has no
-    /// minified names and `dart_minified_names` is `None`.
+    /// Column-only segments, which end the mapping before them. `Some` for every dart2js map.
     dart2js_unmapped_segments: Option<Vec<SourcePosition>>,
     /// Decompressed byte count from the symbol_data container, used for cache memory accounting.
     decompressed_bytes: usize,
@@ -189,14 +187,11 @@ impl OwnedSourceMapCache {
         self.dart_minified_names.as_ref()
     }
 
-    /// Finds the nearest mapping on an earlier generated line, for a dart2js frame that `lookup`
-    /// did not match. symbolic only matches a token on the frame's own line, but dart2js leaves many
-    /// lines without a token, and the cache writer drops a line's first token when it repeats the
-    /// previous token's location (getsentry/symbolic#1110). The walk stops, without a result, at a
-    /// column-only segment, because that segment ends the mapping before it. When the frame's line
-    /// has a mapped token, the walk also stops at a token in another scope than the last token on
-    /// that line. When the frame's line has no mapped token, nothing checks the scope. Other maps
-    /// keep the strict match, so that a mismatched map gives no location instead of a wrong one.
+    /// For a dart2js frame that `lookup` missed: symbolic matches only the frame's own line, and
+    /// dart2js leaves many lines without a token (see also getsentry/symbolic#1110). The walk stops
+    /// at a column-only segment, and at a token whose scope name differs from the frame line's.
+    /// Only names compare, because the cache keeps no function ranges. Other maps keep the strict
+    /// match, so that a mismatched map gives no location instead of a wrong one.
     pub fn dart2js_lookback<'a>(
         &self,
         smc: &'a SourceMapCache<'_>,
@@ -225,10 +220,9 @@ impl OwnedSourceMapCache {
             if frame_line_scope.is_some_and(|scope| scope != location.scope()) {
                 outcome = "other_scope";
             } else {
-                outcome = if frame_line_scope.is_some() {
-                    "hit"
-                } else {
-                    "hit_unscoped"
+                outcome = match frame_line_scope {
+                    Some(ScopeLookupResult::NamedScope(_)) => "hit",
+                    _ => "hit_unscoped",
                 };
                 found = Some(location);
             }
