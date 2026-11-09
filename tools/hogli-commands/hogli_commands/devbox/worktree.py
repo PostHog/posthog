@@ -60,6 +60,7 @@ from .config import (
     saved_worktree_box_cleanup,
     saved_worktree_provider,
     worktree_box_claimant,
+    worktree_prune_lock,
 )
 from .sync import _REMOTE_REPO_PATH, _detect_local_posthog_checkout, ensure_hogland_sync_session, ensure_sync_session
 
@@ -390,7 +391,10 @@ def _reset_recreated_mirror(target: _WorktreeTarget) -> None:
     "--on-clean",
     type=click.Choice([*WORKTREE_BOX_CLEANUP_ACTIONS, "keep"]),
     default=None,
-    help="Save what `hogli worktrees:clean` does with a worktree's devbox when it removes the worktree.",
+    help=(
+        "Save what `hogli worktrees:clean` does with a worktree's devbox when it removes the worktree. "
+        "With --auto, only saves the setting."
+    ),
 )
 @click.option(
     "--auto",
@@ -432,6 +436,9 @@ def devbox_worktree(
         if provider is not None:
             save_worktree_provider(provider)
             click.echo(f"Worktree devboxes now run on {provider}.")
+        if on_clean is not None:
+            _save_on_clean(on_clean)
+            click.echo(f"`hogli worktrees:clean` now does this with a removed worktree's devbox: {on_clean}.")
         return
 
     root = _detect_local_posthog_checkout()
@@ -539,11 +546,16 @@ def _claim_box(
     )
     if owner is not None:
         _fail(f"Devbox '{target.workspace_name}' belongs to the worktree at {owner}. Pick another `--label`.")
+    if on_clean is not None:
+        _save_on_clean(on_clean)
+    return git_dir, worktree_id
+
+
+def _save_on_clean(on_clean: str) -> None:
     if on_clean == "keep":
         clear_worktree_box_cleanup()
-    elif on_clean is not None:
+    else:
         save_worktree_box_cleanup(on_clean)
-    return git_dir, worktree_id
 
 
 def _drop_abandoned_mirror(target: _WorktreeTarget) -> None:
@@ -617,7 +629,11 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
 @click.option("--dry-run", is_flag=True, help="Print the boxes without changing anything")
 def devbox_worktree_prune(action: str | None, worktree_path: Path | None, dry_run: bool) -> None:
     box_action = action or saved_worktree_box_cleanup() or "stop"
-    pruned = prune_boxes_of_removed_worktrees(_detect_local_posthog_checkout(), box_action, worktree_path, dry_run)
+    with worktree_prune_lock() as holds_lock:
+        if not holds_lock:
+            click.echo("Another prune or `hogli worktrees:clean` is running, so this one did nothing.")
+            return
+        pruned = prune_boxes_of_removed_worktrees(_detect_local_posthog_checkout(), box_action, worktree_path, dry_run)
     if not pruned:
         click.echo("No devboxes belong to removed worktrees.")
 
@@ -708,7 +724,10 @@ def _claim_auto_start(git_dir: Path) -> bool:
 
 @click.command(
     name="devbox:worktree:auto",
-    help="Start devbox:worktree in the background for this new worktree, if `devbox:worktree --auto` covers it",
+    help=(
+        "Start devbox:worktree in the background for this new worktree, if `devbox:worktree --auto` covers it, "
+        "and prune the boxes of removed worktrees, if `--on-clean` is saved"
+    ),
 )
 @click.option(
     "--source",
@@ -717,6 +736,7 @@ def _claim_auto_start(git_dir: Path) -> bool:
     help="The tool that created the worktree. Defaults to the tool whose folder holds it.",
 )
 def devbox_worktree_auto(source: str | None) -> None:
+    _prune_in_background()
     enabled = saved_worktree_auto_sources()
     if not enabled:
         return
@@ -744,3 +764,19 @@ def devbox_worktree_auto(source: str | None) -> None:
         (git_dir / _AUTO_STARTED_NAME).unlink(missing_ok=True)
         raise
     click.echo(f"hogli: creating a devbox for this worktree in the background. Log: {log_path}")
+
+
+def _prune_in_background() -> None:
+    """Act on the boxes of worktrees that a tool with no removal hook, such as Claude Code, already deleted."""
+    if saved_worktree_box_cleanup() is None or not load_worktree_boxes():
+        return
+    log_path = get_worktree_boxes_path().with_name(_TEARDOWN_LOG_NAME)
+    with log_path.open("ab") as log:
+        subprocess.Popen(
+            [sys.executable, "-P", "-m", "hogli", "devbox:worktree:prune"],
+            cwd=_detect_local_posthog_checkout(),
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
