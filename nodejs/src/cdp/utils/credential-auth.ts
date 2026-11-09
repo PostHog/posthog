@@ -33,7 +33,6 @@ export type CredentialOutcome =
     | { ok: true; request: CredentialRequest }
     | { ok: false; error: string; request?: undefined }
 
-// The value code sees for an input whose credential the worker applies. It names the input and holds no secret.
 export const CREDENTIAL_HANDLE_KEY = '$credential'
 
 export const credentialHandle = (inputKey: string): Record<string, string> => ({ [CREDENTIAL_HANDLE_KEY]: inputKey })
@@ -57,7 +56,6 @@ export const INTEGRATION_AUTH: Record<string, IntegrationAuthRule> = {
     slack: { declaration: { scheme: 'bearer' }, origins: () => ['https://slack.com'] },
 }
 
-// Fields a connection resolves to code in handle mode: its config, without anything that can hold a credential.
 const CREDENTIAL_CONFIG_FIELDS = new Set(['access_token', 'access_token_raw', 'refresh_token', 'id_token'])
 
 export function publicIntegrationConfig(
@@ -141,7 +139,6 @@ function withBodyPath(body: string | undefined, path: string, value: string): st
     return JSON.stringify(parsed)
 }
 
-// Code may set the same header, parameter or body key, so the worker overwrites it rather than add a second one.
 export function applyCredential(request: CredentialRequest, credential: ResolvedCredential): CredentialOutcome {
     const { declaration, secret } = credential
     switch (declaration.scheme) {
@@ -188,10 +185,7 @@ export const credentialAuthCounter = new Counter({
     labelNames: ['outcome', 'mode'],
 })
 
-/**
- * Applies a credential to a request whose origin it is bound to. An observed team still sends a mismatched request
- * with the credential, so a binding that misses an origin shows in the metric before enforcement breaks a delivery.
- */
+// An observed team still sends a mismatched request, so a binding that misses an origin shows in the metric first.
 export class CredentialInjector {
     private readonly enforcedForTeam: (teamId: number) => boolean
 
