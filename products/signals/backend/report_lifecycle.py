@@ -2,9 +2,9 @@ from collections.abc import Collection, Iterable
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import Q, TextChoices
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportCheck
 from products.signals.backend.report_content_gates import (
     organization_report_monitoring_enabled,
     team_report_monitoring_enabled,
@@ -13,14 +13,40 @@ from products.signals.backend.report_content_gates import (
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
-    from products.signals.backend.models import SignalReportCheck
-
 
 def effective_report_status(status: str, *, team_id: int, monitoring_enabled: bool | None = None) -> str:
     if status != SignalReport.Status.MONITORING:
         return status
     enabled = team_report_monitoring_enabled(team_id) if monitoring_enabled is None else monitoring_enabled
     return status if enabled else SignalReport.Status.RESOLVED
+
+
+class CheckLaneBlock(TextChoices):
+    LEFT_MONITORING = "left_monitoring", "Report left Monitoring"
+    METRIC_NEEDS_MONITORING = "metric_needs_monitoring", "Metric checks run only during Monitoring"
+    CHILD_ENVIRONMENT = "child_environment", "Follow-up scouts do not run in child environments"
+
+
+def post_monitoring_check_block(
+    report: SignalReport, kind: str, *, monitoring_enabled: bool | None = None
+) -> CheckLaneBlock | None:
+    """Why a check of `kind` on this resolved report has no executor, or None when one runs it.
+
+    Enabled Monitoring runs checks only during Monitoring and never after exit. With Monitoring
+    disabled, only `agent` checks on a resolved report dispatch, and never on a child environment.
+    An archived report is judged by the status a restore returns it to.
+    """
+    status = report.status_before_suppression if report.status == SignalReport.Status.SUPPRESSED else report.status
+    if status not in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
+        return None
+    enabled = team_report_monitoring_enabled(report.team_id) if monitoring_enabled is None else monitoring_enabled
+    if enabled:
+        return CheckLaneBlock.LEFT_MONITORING if status == SignalReport.Status.RESOLVED else None
+    if kind != SignalReportCheck.Kind.AGENT:
+        return CheckLaneBlock.METRIC_NEEDS_MONITORING
+    if report.team.parent_team_id is not None:
+        return CheckLaneBlock.CHILD_ENVIRONMENT
+    return None
 
 
 def legacy_agent_checks_enabled(report: SignalReport) -> bool:
