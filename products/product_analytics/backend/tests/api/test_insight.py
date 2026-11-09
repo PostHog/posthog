@@ -76,7 +76,11 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
-from products.product_analytics.backend.presentation.insight import InsightSerializer, chart_display_filter
+from products.product_analytics.backend.presentation.insight import (
+    InsightSerializer,
+    InsightViewSet,
+    chart_display_filter,
+)
 from products.subscriptions.backend.facade.testing import (
     create_subscription,
     create_subscription_delivery,
@@ -1886,6 +1890,25 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 }
             ],
         )
+
+    def test_patch_does_not_restore_a_field_changed_since_the_read(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight name", "description": "old description"})
+        original_get_object = InsightViewSet.get_object
+
+        def get_object_then_land_a_concurrent_write(viewset):
+            insight = original_get_object(viewset)
+            Insight.objects.filter(pk=insight.pk).update(description="written by another request")
+            return insight
+
+        with patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_write):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "renamed"}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        insight = Insight.objects.get(pk=insight_id)
+        assert insight.name == "renamed"
+        assert insight.description == "written by another request"
 
     def test_update_insight(self) -> None:
         with time_machine.travel("2012-01-14T03:21:34.000Z", tick=False) as frozen_time:
