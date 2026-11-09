@@ -87,8 +87,8 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
                 repository="acme/web",
                 path="src/send.ts",
                 lines=(
-                    MatchedLine(number=4, context="\n".join(sender_lines)),
-                    MatchedLine(number=7, context="\n".join(sender_lines[1:])),
+                    MatchedLine(number=4, text=sender_lines[3], context="\n".join(sender_lines)),
+                    MatchedLine(number=7, text=sender_lines[6], context="\n".join(sender_lines[1:])),
                 ),
             )
         ]
