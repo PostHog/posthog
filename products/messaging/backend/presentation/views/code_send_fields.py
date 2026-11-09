@@ -144,6 +144,39 @@ def _decoded_size(content: str) -> int:
         raise serializers.ValidationError("The content isn't valid base64.", code="not_base64") from None
 
 
+@frozen
+class AttachmentSize:
+    count: int | None
+    bytes: int | None
+
+
+BASE64_ALPHABET = re.compile(r"[A-Za-z0-9+/]*={0,2}")
+
+
+def attachment_size(body: Any) -> AttachmentSize:
+    if not isinstance(body, Mapping):
+        return AttachmentSize(count=None, bytes=None)
+    attachments = body.get("attachments")
+    if attachments is None:
+        return AttachmentSize(count=0, bytes=0)
+    if not isinstance(attachments, list):
+        return AttachmentSize(count=None, bytes=None)
+    sizes = [
+        _base64_decoded_length(attachment.get("content")) if isinstance(attachment, Mapping) else None
+        for attachment in attachments
+    ]
+    if any(size is None for size in sizes):
+        return AttachmentSize(count=len(attachments), bytes=None)
+    return AttachmentSize(count=len(attachments), bytes=sum(size or 0 for size in sizes))
+
+
+def _base64_decoded_length(content: Any) -> int | None:
+    if not isinstance(content, str) or len(content) % 4 or not BASE64_ALPHABET.fullmatch(content):
+        return None
+    padding = 2 if content.endswith("==") else 1 if content.endswith("=") else 0
+    return len(content) // 4 * 3 - padding
+
+
 class AttachmentListField(serializers.ListField):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(

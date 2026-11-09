@@ -1,4 +1,5 @@
 import json
+import base64
 from collections.abc import Callable
 from typing import Any, get_args
 from uuid import UUID, uuid4
@@ -41,6 +42,10 @@ from products.messaging.backend.tests.test_code_send_fields import ADDRESS_VERDI
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
+
+TWO_FILES = [{"filename": "a.csv", "content": "YSxi"}, {"filename": "notes.txt", "content": "aGk="}]
+CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
+CDP_REPLAYS = MagicMock(status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True})
 
 
 @frozen
@@ -933,6 +938,91 @@ class TestTransactionalEmail(APIBaseTest):
         assert (body["code"], body["attr"]) == ("invalid_request", "attachments")
         assert body["why"] and body["fix"]
         assert capture.call_args.kwargs["properties"]["error_code"] == "field_not_accepted"
+
+    @parameterized.expand(
+        [
+            ("queued", "code", {"attachments": TWO_FILES}, CDP_ACCEPTS, 202, ("queued", None, 2, 5)),
+            ("replayed", "code", {}, {"return_value": CDP_REPLAYS}, 202, ("replayed", None, 0, 0)),
+            (
+                "refused_by_the_pipeline",
+                "code",
+                {"attachments": TWO_FILES},
+                {"return_value": MagicMock(status_code=422, json=lambda: {"error": "recipient_suppressed"})},
+                422,
+                ("rejected", "recipient_suppressed", 2, 5),
+            ),
+            (
+                "pipeline_unavailable",
+                "code",
+                {"attachments": TWO_FILES},
+                {"side_effect": requests.ReadTimeout()},
+                503,
+                ("unavailable", None, 2, 5),
+            ),
+            (
+                "attachments_over_the_size_limit",
+                "code",
+                {"attachments": [{"filename": "a.pdf", "content": base64.b64encode(b"x" * 600_000).decode()}]},
+                CDP_ACCEPTS,
+                400,
+                ("rejected", "attachments_too_large", 1, 600_000),
+            ),
+            (
+                "too_many_attachments",
+                "code",
+                {"attachments": [{"filename": "notes.txt", "content": "aGk="}] * 11},
+                CDP_ACCEPTS,
+                400,
+                ("rejected", "max_length", 11, 22),
+            ),
+            (
+                "an_attachment_that_is_not_base64",
+                "code",
+                {"attachments": [{"filename": "a.pdf", "content": "not base64!"}]},
+                CDP_ACCEPTS,
+                400,
+                ("rejected", "not_base64", 1, None),
+            ),
+            ("template_send", "template", {}, CDP_ACCEPTS, 202, ("queued", None, 0, 0)),
+            (
+                "template_send_to_an_invalid_recipient",
+                "template",
+                {"to": "not an address"},
+                CDP_ACCEPTS,
+                400,
+                ("rejected", "invalid_input", 0, 0),
+            ),
+        ]
+    )
+    def test_reports_the_attachments_of_every_send_outcome(
+        self, mock_post, _flag, capture, _name, route, fields, pipeline, expected_status, expected
+    ):
+        mock_post.configure_mock(**pipeline)
+
+        if route == "code":
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(**fields), format="json"
+            )
+        else:
+            response = self.client.post(self.url, {**self.body, **fields}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        reported = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "transactional email api send"
+        ]
+        assert [
+            (
+                properties["route"],
+                properties.get("addressed_by"),
+                properties["outcome"],
+                properties.get("error_code"),
+                properties["attachment_count"],
+                properties["attachment_bytes"],
+            )
+            for properties in reported
+        ] == [("send_email" if route == "code" else "template", "template_key" if route == "code" else None, *expected)]
 
     @parameterized.expand(
         [
