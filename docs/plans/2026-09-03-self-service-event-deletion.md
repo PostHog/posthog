@@ -32,10 +32,10 @@ This plan extends that workflow. It does not introduce a second deletion system.
 
 ## Proposed customer flow
 
-1. The customer writes and runs a HogQL query in the SQL editor.
-2. The customer chooses **Delete matching events** from the existing save menu.
+1. The customer opens **Data deletion** in project settings and chooses **New deletion request**.
+2. The customer writes and runs a HogQL query in the editor on the new request page.
 3. PostHog validates the current query and calculates a preview count.
-4. A confirmation dialog explains that deletion is irreversible and runs during the next deletion window.
+4. The confirmation step explains that deletion is irreversible and runs during the next deletion window.
 5. Submission creates an immutable `DataDeletionRequest` for the current project and user.
 6. The existing approval workflow approves the request automatically or routes it for operator review.
 7. A Dagster job executes one ClickHouse `INSERT ... SELECT` to queue the selected UUIDs.
@@ -243,18 +243,67 @@ Regardless of policy, product-created requests always use deferred execution.
 
 ## Frontend
 
-Add **Delete matching events** to the SQL editor save menu. Keep the action behind a feature flag during rollout.
+Deleting events is rare and destructive, so it lives in project settings, not in the SQL editor's save menu.
+That menu is already crowded, and a prominent entry point would suggest an everyday action.
 
-The action is available only when:
+### Settings section
 
-- The current query has run successfully.
-- The current editor contents match the last successful run.
-- The user has the deletion permission.
-- The result has one UUID-compatible column.
+Add a **Data deletion** section to project settings.
+Show it only with the `self-service-data-deletion` flag and access to the `data_deletion` resource.
 
-The confirmation dialog shows the query snapshot, match count, selection time, approval expectation, and next deletion window. It requires explicit confirmation and keeps the submit action disabled while the request is in flight.
+The section lists the project's deletion requests with status, selected count, submitter, creation time, and approval time.
+Expanding a request shows its read-only query snapshot.
+Do not expose raw queued UUIDs.
 
-After submission, navigate to a deletion-request detail surface showing status, selected count, submission time, approval state, queueing state, and expected deletion timing. Do not expose raw queued UUIDs.
+Each status has a short explanation.
+`pending` means the request waits for PostHog review, because every self-service request needs manual approval.
+
+A **New deletion request** button opens the new request page.
+When the project already has five active requests, the button is disabled and says why, rather than failing after submission.
+
+### New request page
+
+The new request page is a full-width scene, not a settings panel, because the editor and its results need the width.
+It embeds the existing `SQLEditor` in embedded mode with:
+
+- One statement per query.
+- No AI tools or agent hints.
+- No variables in the first release.
+
+The page explains the one-UUID-column rule and shows examples.
+A customer who already has event UUIDs can list them inline:
+
+```sql
+SELECT arrayJoin([
+    toUUID('0190a1b2-0000-7000-8000-000000000001'),
+    toUUID('0190a1b2-0000-7000-8000-000000000002')
+]) AS uuid
+```
+
+The query payload limit caps an inline list, so a long list needs several requests.
+
+**Check matching events** calls the preview endpoint and shows the count.
+It runs only on request, not on every query run, because preview is rate-limited.
+
+The confirmation step shows the query snapshot, match count, selection time, approval expectation, and next deletion window.
+The customer types `delete events` to enable submission.
+Submission sends a `submission_id` generated when the page opens, so a double click returns the same request.
+The submit button stays disabled while the request is in flight.
+
+After submission, the page returns to the settings section and highlights the new request.
+
+### Later
+
+A later release may add an **Open in data deletion** action to the SQL editor's overflow menu.
+It copies the current query into the new request page.
+It does not go in the save menu.
+
+### Code placement
+
+The frontend is core code, like the API, so it lives in `frontend/src/scenes/data-deletion/`.
+That folder holds the settings section, the new request scene, and their logics.
+`SettingsMap.tsx` imports the section from there.
+If a product team adopts the feature, the folder moves into that product.
 
 ## Activity and audit trail
 
@@ -314,10 +363,10 @@ Application code fails closed when the dedicated credentials are absent.
 
 ### 7. Frontend PR
 
-- Add the SQL editor menu action and confirmation dialog.
-- Add the deletion request status surface.
+- Add the **Data deletion** project settings section with the request list.
+- Add the new request page with the embedded editor, preview, and `delete events` confirmation.
 - Add feature-flag and permission gates.
-- Document the customer workflow.
+- Document the customer workflow, including how to submit a list of known event UUIDs.
 
 ### 8. Broader operational rollout
 
@@ -375,6 +424,7 @@ Application code fails closed when the dedicated credentials are absent.
 User-facing documentation must explain:
 
 - The required one-column UUID result.
+- How to submit a list of known event UUIDs, and the payload limit on an inline list.
 - Who can submit a deletion request.
 - When the UUID selection becomes fixed.
 - Whether approval is automatic or manual.
@@ -386,7 +436,7 @@ Operational documentation must cover credential provisioning, resource limits, r
 
 ## Open questions
 
-1. Which product should own the frontend implementation and long-term API maintenance?
+1. Which team should own the feature and long-term API maintenance? The first frontend lives in core code until a team adopts it.
 2. What preview count or query-cost thresholds should permit automatic approval after the manual-approval rollout?
 3. Which regular HogQL resources should the dedicated executor principal be able to read as the supported query surface expands?
 4. Does the queue dictionary need an explicit `GROUP BY team_id, uuid` for retry duplicates?
