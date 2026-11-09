@@ -71,10 +71,14 @@ export interface quickScannerLogicActions {
     }
     createScannerSuccess: (
         createdScanner: ReplayScannerApi | null,
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         createdScanner: ReplayScannerApi | null
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     loadEstimate: () => {
         value: true
@@ -88,10 +92,14 @@ export interface quickScannerLogicActions {
     }
     loadEstimateSuccess: (
         estimate: EstimateResponseApi | null,
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         estimate: EstimateResponseApi | null
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     reportOpenScanner: () => {
         value: true
