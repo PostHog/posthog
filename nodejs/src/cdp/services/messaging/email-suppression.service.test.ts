@@ -636,4 +636,63 @@ describe('EmailSuppressionService', () => {
             }
         )
     })
+
+    describe('when a read fails', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            ['the team list read fails', 'loadSuppressed', true, false, false, 'throws'],
+            [
+                'the global list read fails for an unlisted address',
+                'loadGlobalHardBounces',
+                false,
+                true,
+                false,
+                'throws',
+            ],
+            [
+                "the global list read fails and the team's own entry blocks",
+                'loadGlobalHardBounces',
+                true,
+                false,
+                true,
+                true,
+            ],
+            [
+                "the global list read fails and the team's own entry allows transactional email",
+                'loadGlobalHardBounces',
+                true,
+                true,
+                false,
+                'throws',
+            ],
+        ] as const)(
+            'isSuppressed fails open and lookupSuppression refuses to guess when %s',
+            async (_label, failingTag, complained, transactional, failOpen, strict) => {
+                const email = `unreadable-${failingTag}-${complained}-${transactional}-${team.id}@example.com`
+                const newService = (): EmailSuppressionService =>
+                    new EmailSuppressionService(hub.postgres, {
+                        ...emailSuppressionConfigFromEnv(),
+                        globalHardBounceEnforce: true,
+                    })
+                if (complained) {
+                    await newService().recordComplaints(team.id, [email], 'abuse')
+                }
+                const query = hub.postgres.query.bind(hub.postgres)
+                jest.spyOn(hub.postgres, 'query').mockImplementation((...args: Parameters<typeof query>) =>
+                    args[3] === failingTag ? Promise.reject(new Error('connection lost')) : query(...args)
+                )
+
+                expect(await newService().isSuppressed(team.id, email, { transactional })).toBe(failOpen)
+                const lookup = newService().lookupSuppression(team.id, email, { transactional })
+                if (strict === 'throws') {
+                    await expect(lookup).rejects.toThrow()
+                } else {
+                    expect(await lookup).toBe(strict)
+                }
+            }
+        )
+    })
 })

@@ -8,7 +8,7 @@ import { SandboxRecipientCheckRequest, checkSandboxRecipient } from './sandbox-r
 const address = 'member@example.com'
 
 describe('checkSandboxRecipient', () => {
-    let suppressed: 'none' | 'complaint' | 'hard_bounce'
+    let suppressed: 'none' | 'complaint' | 'hard_bounce' | 'unreadable'
     let preferences: Record<string, PreferenceStatus>
     let frequencyCap: jest.Mock<Promise<FrequencyCapCheck>, []>
     let recipients: RecipientsManagerService
@@ -17,8 +17,12 @@ describe('checkSandboxRecipient', () => {
         checkSandboxRecipient(
             {
                 suppression: {
-                    isSuppressed: (_teamId, _email, { transactional = false } = {}) =>
-                        Promise.resolve(suppressed === 'hard_bounce' || (suppressed === 'complaint' && !transactional)),
+                    lookupSuppression: (_teamId, _email, { transactional = false } = {}) =>
+                        suppressed === 'unreadable'
+                            ? Promise.reject(new Error('connection lost'))
+                            : Promise.resolve(
+                                  suppressed === 'hard_bounce' || (suppressed === 'complaint' && !transactional)
+                              ),
                 },
                 recipients,
             },
@@ -84,10 +88,17 @@ describe('checkSandboxRecipient', () => {
         expect(await check(request)).toEqual({ ok: false, reason })
     })
 
-    it('blocks for a retry when the opt-out lookup fails', async () => {
-        jest.spyOn(recipients, 'get').mockRejectedValue(new Error('connection lost'))
-
-        expect(await check()).toEqual({ ok: false, reason: 'authorization_unavailable' })
+    it.each<[string, () => void, Partial<SandboxRecipientCheckRequest>]>([
+        ['the opt-out lookup', () => jest.spyOn(recipients, 'get').mockRejectedValue(new Error('connection lost')), {}],
+        ['the suppression lookup', () => (suppressed = 'unreadable'), {}],
+        [
+            'the suppression lookup on a transactional step',
+            () => (suppressed = 'unreadable'),
+            { categoryType: 'transactional' },
+        ],
+    ])('blocks for a retry when %s fails', async (_case, arrange, request) => {
+        arrange()
+        expect(await check(request)).toEqual({ ok: false, reason: 'authorization_unavailable' })
     })
 
     it.each<[string, () => void, Partial<SandboxRecipientCheckRequest>]>([

@@ -6,7 +6,7 @@ import { EmailSuppressionService } from '../email-suppression.service'
 import { FrequencyCapCheck } from '../recipient-preferences.service'
 
 export type SandboxRecipientCheckDependencies = {
-    suppression: Pick<EmailSuppressionService, 'isSuppressed'>
+    suppression: Pick<EmailSuppressionService, 'lookupSuppression'>
     recipients: Pick<RecipientsManagerService, 'get' | 'getPreference' | 'getAllMarketingMessagingPreference'>
 }
 
@@ -29,18 +29,18 @@ export async function checkSandboxRecipient(
     { teamId, address, categoryId, categoryType, optOuts, isTest, frequencyCap }: SandboxRecipientCheckRequest
 ): Promise<SandboxRecipientCheck> {
     const transactional = categoryType === 'transactional'
-    if (await suppression.isSuppressed(teamId, address, { transactional })) {
-        return { ok: false, reason: 'suppressed' }
-    }
-    if (transactional) {
-        return { ok: true }
-    }
     try {
+        if (await suppression.lookupSuppression(teamId, address, { transactional })) {
+            return { ok: false, reason: 'suppressed' }
+        }
+        if (transactional) {
+            return { ok: true }
+        }
         if (await isOptedOut(recipients, { teamId, address, categoryId: categoryId || '$all', optOuts })) {
             return { ok: false, reason: 'opted_out' }
         }
     } catch (error) {
-        logger.warn('Could not read sandbox recipient preferences', { teamId, error: String(error) })
+        logger.warn('Could not read sandbox recipient suppression or preferences', { teamId, error: String(error) })
         return { ok: false, reason: 'authorization_unavailable' }
     }
     if (!isTest && (await frequencyCap()).capped) {
