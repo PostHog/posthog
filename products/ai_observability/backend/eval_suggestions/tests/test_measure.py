@@ -1,4 +1,5 @@
 import json
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -266,6 +267,26 @@ def test_run_check_maps_each_verdict(_name: str, source: str, failed: bool | Non
     [outcome] = run_check(compile_check(check), [sampled])
 
     assert outcome.failed is failed
+
+
+def test_a_check_stops_at_the_deadline() -> None:
+    sampled = SampledTrace(
+        trace=LLMTrace(id="t", createdAt=AT.isoformat(), distinctId="u", events=[]),
+        held_out=False,
+        spans_days=False,
+        segments={},
+        segment_values={},
+        raw_segment_values={},
+        raw_segments={},
+        final_text="",
+        turn_text="",
+        user_messages=1,
+        has_tool_results=False,
+        input_tokens=0,
+    )
+    check = AdaptedCheck(key="k", name="n", description="d", source="return true", template_key="", severity=1.0)
+
+    assert run_check(compile_check(check), [sampled], deadline=time.monotonic() - 1) == []
 
 
 @parameterized.expand(

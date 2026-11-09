@@ -7,6 +7,7 @@ most recent day with traffic is held out so stage 6 can re-test each check on tr
 import re
 import json
 import math
+import time
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime, timedelta
@@ -464,9 +465,13 @@ class Measurement:
     held_out: list[Outcome]
 
 
-def run_check(bytecode: list[Any], traces: Sequence[SampledTrace]) -> list[Outcome]:
+def run_check(bytecode: list[Any], traces: Sequence[SampledTrace], deadline: float | None = None) -> list[Outcome]:
+    """Outcomes in trace order. Past `deadline`, a time.monotonic() value, it stops and returns the ones so far."""
     outcomes = []
     for sampled in traces:
+        # Each trace can run up to the 10s Hog limit, so a long sample would outlast the activity.
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         globals_dict = build_trace_hog_globals(sampled.trace, sampled.trace.id, bytecode=bytecode)
         result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=True)
         verdict = result.get("verdict") if not result.get("error") else None
@@ -481,13 +486,15 @@ def run_check(bytecode: list[Any], traces: Sequence[SampledTrace]) -> list[Outco
     return outcomes
 
 
-def measure(checks: Sequence[AdaptedCheck], sample: TraceSample) -> list[Measurement]:
+def measure(checks: Sequence[AdaptedCheck], sample: TraceSample, deadline: float | None = None) -> list[Measurement]:
     measurements = []
     for check in checks:
         bytecode = compile_check(check)
         measurements.append(
             Measurement(
-                check=check, main=run_check(bytecode, sample.main), held_out=run_check(bytecode, sample.held_out)
+                check=check,
+                main=run_check(bytecode, sample.main, deadline),
+                held_out=run_check(bytecode, sample.held_out, deadline),
             )
         )
     return measurements
