@@ -14,7 +14,7 @@ const LIQUID_PARSE_LIMIT_CHARS = 5_000_000
 const LIQUID_MEMORY_LIMIT_UNITS = 1_000_000
 // Time and output are budgeted per invocation, not per template, because one invocation renders
 // every string leaf of every liquid input and those leaves would otherwise each get a full budget.
-const LIQUID_RENDER_LIMIT_MS = 500
+export const LIQUID_RENDER_LIMIT_MS = 500
 const LIQUID_OUTPUT_LIMIT_CHARS = 10_000_000
 
 const LIQUID_TAG_CLOSERS: Record<string, string> = { '{': '}}', '%': '%}' }

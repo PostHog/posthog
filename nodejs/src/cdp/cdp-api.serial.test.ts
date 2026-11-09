@@ -46,6 +46,7 @@ import {
     ATTACHMENT_CONTENT_ID_MAX_LENGTH,
     ATTACHMENT_CONTENT_TYPE_MAX_LENGTH,
     ATTACHMENT_FILENAME_MAX_LENGTH,
+    EMAIL_SIZING_BUDGET_MS,
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
@@ -66,6 +67,7 @@ import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watch
 import { template as emailTemplate } from './templates/_destinations/email/email.template'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { LIQUID_RENDER_LIMIT_MS } from './utils/liquid'
 
 // Email MX validation runs on every email send, so without a mock the test-panel
 // email tests would do live DNS lookups for their fixture recipients (and
@@ -3420,6 +3422,52 @@ describe('CDP API', () => {
                     expect((await sendWithFiles(key, [reference(invoice)], options)).status).toBe(202)
                 }
             )
+
+            it('refuses a send with files whose email steps outlast the sizing budget, and its key sends once they render in time', async () => {
+                const emailStep = {
+                    type: 'function_email',
+                    config: { template_id: 'template-email', inputs: {}, message_category_type: 'transactional' },
+                } as const
+                const emailStepsThatOutlastTheBudget = EMAIL_SIZING_BUDGET_MS / LIQUID_RENDER_LIMIT_MS + 1
+                const earlierEmails = Array.from(
+                    { length: emailStepsThatOutlastTheBudget - 1 },
+                    (_, index) => `email_${index}`
+                )
+                const flow = await flowThrough(
+                    Object.fromEntries(earlierEmails.map((id) => [id, emailStep])),
+                    [...earlierEmails, 'email'].map((id, index, ids) =>
+                        step(index === 0 ? 'trigger' : ids[index - 1], id)
+                    )
+                )
+                const options = { ...contentOf('x'), flowId: flow.id }
+                const realNow = performance.now.bind(performance)
+                let renderedMs = 0
+                const clock = jest.spyOn(performance, 'now').mockImplementation(() => realNow() + renderedMs)
+                const functions = api['hogFlowFunctionsService']
+                const render = functions.buildHogFunctionInvocation.bind(functions)
+                const rendersThatUseTheirWholeBudget = jest
+                    .spyOn(functions, 'buildHogFunctionInvocation')
+                    .mockImplementation(async (...args) => {
+                        const rendered = await render(...args)
+                        renderedMs += LIQUID_RENDER_LIMIT_MS
+                        return rendered
+                    })
+                const key = newKey()
+
+                const refused = await sendWithFiles(key, [reference(invoice)], options)
+                rendersThatUseTheirWholeBudget.mockRestore()
+                clock.mockRestore()
+                const retried = await sendWithFiles(key, [reference(invoice)], options)
+
+                expect(refused.status).toBe(400)
+                expect(refused.body).toEqual({
+                    error: 'email_render_too_slow',
+                    reason: expect.any(String),
+                    fix: expect.any(String),
+                })
+                expect(retried.status).toBe(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            })
         })
 
         it.each<[string, () => { payload: Record<string, unknown>; verify?: () => void }]>([

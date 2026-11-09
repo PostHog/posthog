@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { setImmediate as nextEventLoopTurn } from 'timers/promises'
 import express from 'ultimate-express'
 import { z } from 'zod'
 
@@ -64,6 +65,7 @@ import {
     AcceptedSend,
     AcceptedSendRequestSchema,
     CODE_SEND_TOKEN_CLAIMS,
+    EMAIL_SIZING_BUDGET_MS,
     TEMPLATE_SEND_TOKEN_CLAIMS,
     TransactionalEmailOutcome,
     TransactionalEmailRequest,
@@ -82,6 +84,8 @@ import { TeamWorkflowsConfigService } from './services/managers/team-workflows-c
 import {
     ATTACHMENT_VERIFICATION_DEADLINE_MS,
     AttachmentUploads,
+    MessageBodySizing,
+    SendRefusal,
     countUploadRequest,
 } from './services/messaging/attachment-uploads'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
@@ -199,6 +203,15 @@ function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort
 }
 
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
+
+const EMAIL_RENDER_TOO_SLOW: SendRefusal = {
+    status: 400,
+    body: {
+        error: 'email_render_too_slow',
+        reason: `Rendering the email steps of this workflow took longer than ${EMAIL_SIZING_BUDGET_MS} ms, so the size of this email with its files could not be checked.`,
+        fix: 'Send this email without files, or simplify the email templates of this workflow.',
+    },
+}
 
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 
@@ -1548,18 +1561,28 @@ export class CdpApi {
             }
         }
 
-    private async messageBodyBytes(hogFlow: HogFlow, invocation: CyclotronJobInvocationHogFlow): Promise<number[]> {
+    private async messageBodyBytes(
+        hogFlow: HogFlow,
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<MessageBodySizing> {
         const steps = emailStepsReachableFromTrigger(hogFlow)
         if (steps.length === 0) {
-            return sendBodyBytes(invocation)
+            return { bodyBytes: sendBodyBytes(invocation) }
         }
+        const sizingEndsAt = performance.now() + EMAIL_SIZING_BUDGET_MS
         const bodyBytesPerStep: number[][] = []
         for (const step of steps) {
+            await nextEventLoopTurn()
+            if (performance.now() >= sizingEndsAt) {
+                return { refused: EMAIL_RENDER_TOO_SLOW }
+            }
             bodyBytesPerStep.push(await this.emailStepBodyBytes(hogFlow, invocation, step))
         }
-        return bodyBytesPerStep.reduce((largest, bodyBytes) =>
-            estimateMessageBytes(bodyBytes) > estimateMessageBytes(largest) ? bodyBytes : largest
-        )
+        return {
+            bodyBytes: bodyBytesPerStep.reduce((largest, bodyBytes) =>
+                estimateMessageBytes(bodyBytes) > estimateMessageBytes(largest) ? bodyBytes : largest
+            ),
+        }
     }
 
     private async emailStepBodyBytes(

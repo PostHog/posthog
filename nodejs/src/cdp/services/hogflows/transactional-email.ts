@@ -7,8 +7,10 @@ import {
     MAX_EMAIL_ATTACHMENTS,
 } from '~/cdp/schema/cyclotron'
 import { SHA256_HEX } from '~/cdp/services/messaging/attachment-store'
+import { LIQUID_RENDER_LIMIT_MS } from '~/cdp/utils/liquid'
 
 export const MAX_COPY_RECIPIENTS = 10
+export const EMAIL_SIZING_BUDGET_MS = 2 * LIQUID_RENDER_LIMIT_MS
 export const ATTACHMENT_FILENAME_MAX_LENGTH = 255
 export const ATTACHMENT_CONTENT_TYPE_MAX_LENGTH = 78
 export const ATTACHMENT_CONTENT_ID_MAX_LENGTH = 78
@@ -250,6 +252,7 @@ export type TransactionalEmailOutcome =
     | 'field_not_accepted'
     | 'attachment_not_uploaded'
     | 'message_too_large'
+    | 'email_render_too_slow'
     | 'delivery_unavailable'
     | 'error'
 

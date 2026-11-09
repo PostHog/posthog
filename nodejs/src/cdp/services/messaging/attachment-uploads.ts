@@ -40,8 +40,12 @@ export type AttachmentUploadsSettings = { teams: string; maxBytesPerTeamDay: num
 export type UploadsAnswer = { status: number; body: Record<string, unknown> }
 export type SendRefusal = {
     status: number
-    body: { error: 'attachment_not_uploaded' | 'message_too_large' | 'delivery_unavailable'; [key: string]: unknown }
+    body: {
+        error: 'attachment_not_uploaded' | 'message_too_large' | 'email_render_too_slow' | 'delivery_unavailable'
+        [key: string]: unknown
+    }
 }
+export type MessageBodySizing = { bodyBytes: number[] } | { refused: SendRefusal }
 export type AcceptedSendFiles = { files: EmailAttachmentMetadata[]; attachmentBytes: number }
 
 const DJANGO_SEND_TIMEOUT_MS = 10_000
@@ -140,7 +144,7 @@ export class AttachmentUploads {
     public async acceptSend(
         teamId: number,
         refs: AttachmentRef[],
-        messageBodyBytes: () => Promise<number[]>,
+        sizeMessageBodies: () => Promise<MessageBodySizing>,
         deadline: AbortSignal
     ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
         const store = this.store
@@ -150,7 +154,7 @@ export class AttachmentUploads {
         try {
             return await settleBeforeAbortEvenWhileCredentialsStall(
                 deadline,
-                this.verifySend(store, teamId, refs, messageBodyBytes, deadline)
+                this.verifySend(store, teamId, refs, sizeMessageBodies, deadline)
             )
         } catch (error) {
             if (deadline.aborted) {
@@ -164,7 +168,7 @@ export class AttachmentUploads {
         store: AttachmentStore,
         teamId: number,
         refs: AttachmentRef[],
-        messageBodyBytes: () => Promise<number[]>,
+        sizeMessageBodies: () => Promise<MessageBodySizing>,
         deadline: AbortSignal
     ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
         deadline.throwIfAborted()
@@ -183,16 +187,19 @@ export class AttachmentUploads {
             return { refused: { status: 400, body: { error: verified.refusal, sha256: verified.sha256 } } }
         }
         deadline.throwIfAborted()
-        let bodySizes: number[]
+        let sizing: MessageBodySizing
         try {
-            bodySizes = await messageBodyBytes()
+            sizing = await sizeMessageBodies()
         } catch (error) {
             return { refused: unavailable(teamId, 'Could not load the email step of a send', error) }
         }
         deadline.throwIfAborted()
+        if ('refused' in sizing) {
+            return sizing
+        }
         const sizes = verified.files.map((file) => file.sizeBytes)
         const attachmentBytes = sizes.reduce((total, size) => total + size, 0)
-        const messageBytes = estimateMessageBytes([...sizes, ...bodySizes])
+        const messageBytes = estimateMessageBytes([...sizes, ...sizing.bodyBytes])
         if (messageBytes > MESSAGE_MAX_BYTES) {
             return {
                 refused: {
