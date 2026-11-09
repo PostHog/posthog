@@ -35,6 +35,7 @@ const FACETS: FacetDefinition<Item>[] = [
         aliases: ['phase'],
         label: 'Stage',
         description: 'Found by typing',
+        pinnedValues: ['first'],
         getValues: () => ['one'],
         resolveValue: (value) => (value === 'first' ? 'one' : value),
     },
@@ -111,6 +112,15 @@ describe('facetSearchBarLogic', () => {
         logic.actions.setInput(typed)
         expect(logic.values.suggestions.filter((s) => s.kind === 'facet').map((s) => [s.label, s.nextInput])).toEqual([
             [key, key],
+        ])
+    })
+
+    it('offers a pinned value first, counted by the value it resolves to', () => {
+        mountWith({ filters: [], text: '' })
+        logic.actions.setInput('stageName:')
+        expect(logic.values.suggestions.map((s) => [s.kind, s.label, s.count])).toEqual([
+            ['value', 'first', 4],
+            ['value', 'one', 4],
         ])
     })
 

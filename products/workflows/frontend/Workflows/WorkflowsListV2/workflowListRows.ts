@@ -29,7 +29,7 @@ export interface WorkflowListRow {
 // and `Previous owner:` don't count.
 const OWNER_PATTERN = /(?<=^[\s>*•-]*|[.(,;|]\s*)owner:\s*@([\w.-]+)/gim
 
-function creatorHandle(user: UserBasicApi | null): string | null {
+export function creatorHandle(user: Pick<UserBasicApi, 'first_name' | 'email'> | null): string | null {
     if (!user) {
         return null
     }

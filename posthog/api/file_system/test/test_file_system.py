@@ -175,6 +175,14 @@ class TestFileSystemAPI(APIBaseTest):
             set(results),
             {f"Reports/{name}" for name, _, _, _ in entries} | {"Reports/Other notebook", "Reports/Other insight"},
         )
+        self.assertEqual(
+            {path: item["team_id"] for path, item in results.items()},
+            {
+                **{f"Reports/{name}": self.team.id for name, _, _, _ in entries},
+                "Reports/Other notebook": sibling_team.id,
+                "Reports/Other insight": sibling_team.id,
+            },
+        )
         for name, entry_type, _, content_type in entries:
             expected_meta = {"label": "example"}
             if entry_type == "insight":
@@ -1703,8 +1711,9 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertIn("Docs/FileA", paths)
         self.assertIn("Docs/FileB", paths)
 
+    @parameterized.expand([("path",), ("-path",)])
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_list_annotates_resolved_user_access_level(self, mock_flag):
+    def test_list_annotates_resolved_user_access_level(self, order_by, mock_flag):
         blocked_dashboard = Dashboard.objects.create(team=self.team, name="Blocked", created_by=self.other_user)
         FileSystem.objects.create(
             team=self.team,
@@ -1714,11 +1723,26 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
             ref=str(blocked_dashboard.pk),
             created_by=self.other_user,
         )
+        owned_dashboard = Dashboard.objects.create(team=self.team, name="Owned", created_by=self.user)
+        moved = FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(owned_dashboard.pk)).update(
+            path="Docs/Owned", depth=2
+        )
+        self.assertEqual(moved, 1)
+        # Another spelling of the same pk, filed by someone else. Either order of the two rows
+        # must resolve both to the owner's level.
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Owned copy",
+            depth=2,
+            type="dashboard",
+            ref=f"0{owned_dashboard.pk}",
+            created_by=self.other_user,
+        )
         # Resource-level "none" doesn't exclude rows from the tree, so the annotation is
         # what tells the UI to grey them out
         self._create_access_control(resource="dashboard", resource_id=None, access_level="none")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?order_by={order_by}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
@@ -1726,6 +1750,8 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         # file_b's tree row was created by someone else, but the user created the dashboard itself
         self.assertEqual(levels["Docs/FileB"], "manager")
         self.assertEqual(levels["Docs/Blocked"], "none")
+        self.assertEqual(levels["Docs/Owned"], "manager")
+        self.assertEqual(levels["Docs/Owned copy"], "manager")
         self.assertIsNone(levels["Docs"])  # folders have no access controls
 
     @patch("posthoganalytics.feature_enabled", return_value=True)

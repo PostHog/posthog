@@ -7,6 +7,7 @@ import { AiFirstCreateScene } from 'scenes/max/aiFirstCreate/AiFirstCreateScene'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
+import { newWorkflowFolder } from './newWorkflowFolder'
 import { workflowHandoffInFolder } from './newWorkflowHandoff'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { NewWorkflowModal } from './NewWorkflowModal'
@@ -19,7 +20,7 @@ export function NewWorkflowAgent(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const folder =
         featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES] && featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
-            ? new URLSearchParams(location.search).get('_create_in_folder')
+            ? newWorkflowFolder(location.search)
             : null
 
     return (

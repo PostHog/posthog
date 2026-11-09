@@ -16,6 +16,7 @@ import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
 
 import type { HogFlowTemplate } from './hogflows/types'
+import { newWorkflowFolder, newWorkflowFolderParam } from './newWorkflowFolder'
 import { parseFacetQuery } from './WorkflowsListV2/FacetSearchBar/facetQuery'
 import { buildWorkflowListFacets } from './WorkflowsListV2/workflowListFacets'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
@@ -24,16 +25,15 @@ function newWorkflowFolderParams(
     searchParams: Record<string, unknown>,
     projectBrowser: boolean
 ): Record<string, string> {
-    const carriedFolder = new URLSearchParams(router.values.location.search).get('_create_in_folder')
     if (!projectBrowser) {
         return {}
     }
-    const folder =
-        carriedFolder ??
-        parseFacetQuery(typeof searchParams.q === 'string' ? searchParams.q : '', buildWorkflowListFacets([])).find(
-            (filter) => filter.facet === 'in' && !filter.negated
-        )?.value
-    return folder && folder !== 'Unfiled' ? { _create_in_folder: folder } : {}
+    return newWorkflowFolderParam(
+        newWorkflowFolder() ??
+            parseFacetQuery(typeof searchParams.q === 'string' ? searchParams.q : '', buildWorkflowListFacets([])).find(
+                (filter) => filter.facet === 'in' && !filter.negated
+            )?.value
+    )
 }
 
 /** The new-workflow URL for an entry that means "start from nothing", the only kind the composer answers. */

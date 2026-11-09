@@ -203,24 +203,33 @@ describe('workflowsListV2Logic', () => {
         ])
     })
 
+    const LIN_SYNC: [string, string[]] = ['Lin', ['wf-sync']]
+    const ADA_OWNS: [string, string[]] = ['Ada', ['wf-page-two', 'wf-renewal', 'wf-old-promo']]
+
     it.each([
-        ['createdBy:me', 'createdBy:me'],
-        ['CREATEDBY:me', 'createdBy:me'],
-        ['created-by:me', 'createdBy:me'],
-        ['by:me', 'createdBy:me'],
-        ['Author:me', 'createdBy:me'],
-        ['user:me', 'createdBy:me'],
-        ['type:messaging createdBy:me', 'createdBy:me'],
-    ])('reads %s as the signed-in user and links to %s', async (q, canonical) => {
-        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: FIXTURE_USERS.lin.uuid, first_name: 'Lin' })
+        ['createdBy:me', 'createdBy:me', ...LIN_SYNC],
+        ['CREATEDBY:ME', 'createdBy:me', ...LIN_SYNC],
+        ['created-by:me', 'createdBy:me', ...LIN_SYNC],
+        ['by:me', 'createdBy:me', ...LIN_SYNC],
+        ['Author:me', 'createdBy:me', ...LIN_SYNC],
+        ['user:me', 'createdBy:me', ...LIN_SYNC],
+        ['type:messaging createdBy:me', 'createdBy:me', ...LIN_SYNC],
+        ['owner:me', 'owner:me', ...ADA_OWNS],
+        ['owner:@Me', 'owner:me', ...ADA_OWNS],
+    ])('reads %s as the signed-in user and links to %s', async (q, canonical, viewer, ids) => {
+        const { uuid, email, first_name } =
+            viewer === 'Ada' ? FIXTURE_USERS.ada : { ...FIXTURE_USERS.lin, first_name: 'Lin' }
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid, email, first_name: first_name ?? '' })
         router.actions.push(urls.workflows(), { q })
         logic = workflowsListV2Logic()
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
-        expect(shownIds(logic)).toEqual(['wf-sync'])
+        expect(shownIds(logic)).toEqual(ids)
         expect(router.values.searchParams).toEqual({ q: canonical })
-        expect(logic.values.facets.find((facet) => facet.key === 'createdBy')?.formatValue?.('me')).toEqual('Lin')
+        const facet = logic.values.facets.find((facet) => facet.key === canonical.split(':')[0])
+        expect(facet?.formatValue?.('me')).toEqual('Me')
+        expect(facet?.pinnedValues).toEqual(['me'])
     })
 
     it('follows next links for as many pages as the project has', async () => {
