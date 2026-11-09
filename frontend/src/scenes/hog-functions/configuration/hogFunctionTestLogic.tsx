@@ -30,8 +30,8 @@ import {
     SecretReentrySource,
     hogFunctionSecretReentryLogic,
 } from './hogFunctionSecretReentryLogic'
+import { InputRefusal, parseConnectionRefusal, parseSecretReentryRefusal } from './inputRefusal'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
-import { SecretReentryRefusal, parseSecretReentryRefusal } from './secretReentryRefusal'
 
 export type HogFunctionTestInvocationForm = {
     globals: string // CyclotronJobInvocationGlobals
@@ -143,18 +143,21 @@ export interface hogFunctionTestLogicActions {
     setSampleGlobals: (sampleGlobals: CyclotronJobInvocationGlobals | null) => {
         sampleGlobals: CyclotronJobInvocationGlobals | null
     } // hogFunctionConfigurationLogic
+    showConnectionRefusal: (refusal: InputRefusal) => {
+        refusal: InputRefusal
+    } // hogFunctionConfigurationLogic
     touchConfigurationField: (key: string) => {
         key: string
     } // hogFunctionConfigurationLogic
     requireSecretReentry: (
-        refusal: SecretReentryRefusal,
+        refusal: InputRefusal,
         source: SecretReentrySource,
         onContinue: (entered: EnteredSecretInputs) => void,
         configuration?: SecretReentryConfiguration | null | undefined
     ) => {
         configuration: SecretReentryConfiguration | null | undefined
         onContinue: (entered: EnteredSecretInputs) => void
-        refusal: SecretReentryRefusal
+        refusal: InputRefusal
         source: SecretReentrySource
     } // hogFunctionSecretReentryLogic
     cancelSampleGlobalsLoading: () => {
@@ -284,7 +287,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         ],
         actions: [
             hogFunctionConfigurationLogic(props),
-            ['touchConfigurationField', 'loadSampleGlobalsSuccess', 'loadSampleGlobals', 'setSampleGlobals'],
+            [
+                'touchConfigurationField',
+                'loadSampleGlobalsSuccess',
+                'loadSampleGlobals',
+                'setSampleGlobals',
+                'showConnectionRefusal',
+            ],
             hogFunctionSecretReentryLogic(props),
             ['requireSecretReentry'],
         ],
@@ -553,6 +562,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                     const refusal = parseSecretReentryRefusal(e)
                     if (refusal) {
                         actions.requireSecretReentry(refusal, 'test', () => actions.submitTestInvocation())
+                        return
+                    }
+                    const connectionRefusal = parseConnectionRefusal(e)
+                    if (connectionRefusal) {
+                        actions.showConnectionRefusal(connectionRefusal)
                         return
                     }
                     lemonToast.error(testInvocationFailureMessage(e))

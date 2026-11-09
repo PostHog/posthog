@@ -13,7 +13,7 @@ import {
     hogFunctionConfigurationLogic,
     hogFunctionConfigurationLogicKey,
 } from './hogFunctionConfigurationLogic'
-import { SecretReentryRefusal, parseSecretReentryRefusal } from './secretReentryRefusal'
+import { InputRefusal, parseSecretReentryRefusal } from './inputRefusal'
 
 // Save and test send the form, so the entered secret goes into the form. Publish sends the staged draft,
 // which the form does not hold, so the entered secret goes with the publish request instead.
@@ -51,7 +51,7 @@ function textEntries(input: CyclotronJobInputType | undefined): Record<string, s
 // The dialog types text, so it asks only for a secret stored as text or as a dictionary of text.
 function secretReentryPrompt(
     configuration: SecretReentryConfiguration,
-    { key, detail }: SecretReentryRefusal,
+    { key, detail }: InputRefusal,
     source: SecretReentrySource
 ): SecretReentryPrompt | null {
     const schema = configuration.inputs_schema?.find((s) => s.key === key)
@@ -129,14 +129,14 @@ export interface hogFunctionSecretReentryLogicActions {
         prompt: SecretReentryPrompt
     }
     requireSecretReentry: (
-        refusal: SecretReentryRefusal,
+        refusal: InputRefusal,
         source: SecretReentrySource,
         onContinue: (entered: EnteredSecretInputs) => void,
         configuration?: SecretReentryConfiguration | null
     ) => {
         configuration: SecretReentryConfiguration | null | undefined
         onContinue: (entered: EnteredSecretInputs) => void
-        refusal: SecretReentryRefusal
+        refusal: InputRefusal
         source: SecretReentrySource
     }
     setSecretEntry: (
@@ -189,7 +189,7 @@ export const hogFunctionSecretReentryLogic = kea<hogFunctionSecretReentryLogicTy
     actions({
         // `configuration` is what the refused request sent, when that is not the form: the staged draft for publish.
         requireSecretReentry: (
-            refusal: SecretReentryRefusal,
+            refusal: InputRefusal,
             source: SecretReentrySource,
             onContinue: (entered: EnteredSecretInputs) => void,
             configuration?: SecretReentryConfiguration | null

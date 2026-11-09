@@ -100,8 +100,8 @@ import {
 import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from '../filters/matchingFilters'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
+import { InputRefusal, parseSecretReentryRefusal } from './inputRefusal'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
-import { parseSecretReentryRefusal } from './secretReentryRefusal'
 
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
@@ -665,6 +665,9 @@ export interface hogFunctionConfigurationLogicActions {
     setShowSource: (showSource: boolean) => {
         showSource: boolean
     }
+    showConnectionRefusal: (refusal: InputRefusal) => {
+        refusal: InputRefusal
+    }
     setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => {
         configuration: HogFunctionConfigurationType | null
     }
@@ -938,6 +941,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSampleGlobalsError: (error) => ({ error }),
         setSampleGlobals: (sampleGlobals: CyclotronJobInvocationGlobals | null) => ({ sampleGlobals }),
         setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
+        showConnectionRefusal: (refusal: InputRefusal) => ({ refusal }),
         setOldHogCode: (oldHogCode: string) => ({ oldHogCode }),
         setNewHogCode: (newHogCode: string) => ({ newHogCode }),
         clearHogCodeDiff: true,
@@ -2066,6 +2070,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
         upsertHogFunctionSuccess: () => {
             actions.resetForm()
+        },
+
+        showConnectionRefusal: ({ refusal }) => {
+            if (!values.configuration.inputs_schema?.some((schema) => schema.key === refusal.key)) {
+                lemonToast.error(refusal.detail)
+                return
+            }
+            const manualErrors = values.configurationManualErrors
+            actions.setConfigurationManualErrors({
+                ...manualErrors,
+                inputs: { ...manualErrors.inputs, [refusal.key]: refusal.detail },
+            })
         },
 
         upsertHogFunctionFailure: ({ errorObject }) => {

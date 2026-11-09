@@ -248,26 +248,29 @@ const GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH: Record<string, 
 }
 
 /*
-Write actions whose owning logic asks for the secret again after a 400 with code `secret_reentry_required`.
+Write actions whose owning logic handles a 400 that refuses to send a credential to a new host: it asks for
+the secret again (`secret_reentry_required`), or marks the connection input (`integration_origin_refused`).
 The 400 asks for user input, so it is not reported as an exception. Owned by hogFunctionSecretReentryLogic's
-upsertHogFunctionFailure listener. The backend raises the code in products/cdp/backend/api/hog_function.py.
+and hogFunctionConfigurationLogic's upsertHogFunctionFailure listeners. The backend raises the codes in
+products/cdp/backend/api/hog_function.py.
 */
-const SECRET_REENTRY_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+const ORIGIN_REFUSAL_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     upsertHogFunction: 'scenes.pipeline.hogFunctionConfigurationLogic',
 }
+const ORIGIN_REFUSAL_CODES = new Set(['secret_reentry_required', 'integration_origin_refused'])
 
-function isSelfHandledSecretReentry(error: any, actionKey: string, logicPath: string): boolean {
+function isSelfHandledOriginRefusal(error: any, actionKey: string, logicPath: string): boolean {
     return (
         error?.status === 400 &&
-        error?.code === 'secret_reentry_required' &&
-        isOwnedByLogic(SECRET_REENTRY_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+        ORIGIN_REFUSAL_CODES.has(error?.code) &&
+        isOwnedByLogic(ORIGIN_REFUSAL_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
     )
 }
 
 function isSelfHandledBadRequest(error: any, actionKey: string, logicPath: string): boolean {
     return (
         (error?.status === 400 && isOwnedByLogic(VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)) ||
-        isSelfHandledSecretReentry(error, actionKey, logicPath)
+        isSelfHandledOriginRefusal(error, actionKey, logicPath)
     )
 }
 
