@@ -73,7 +73,7 @@ export class Clickhouse {
     }
 
     close(): void {
-        this.client.close()
+        void this.client.close()
     }
 
     // Memoized so repeated truncates don't re-query the database name. The

@@ -8,7 +8,7 @@ import { OOB_DOMAINS, checkOobDomain, matchedOobDomain } from './oob-domains'
 // Python reads this file at runtime, so it is the one source of truth for the list. Reading the
 // file itself, rather than parsing Python, keeps the test green through a rename or a reformat on
 // either side and red only when the two lists differ.
-const DOMAINS_JSON = path.resolve(__dirname, '../../../../posthog/security/crosslang/oob_domains.json')
+const DOMAINS_JSON = path.resolve(__dirname, '../../../../../posthog/security/crosslang/oob_domains.json')
 
 describe('oob-domains', () => {
     it('mirrors posthog/security/crosslang/oob_domains.json', () => {

@@ -1622,6 +1622,18 @@ test('the crate inventory holds every crate the determinator can name', () => {
     assert.deepEqual(missing, [], 'these workspace members are absent from the crate inventory')
 })
 
+// Ingestion's crates are workspace members under ingestion/rust, so the
+// determinator names them like any other crate; their lane is ingestion's.
+test('an affected ingestion crate claims the ingestion lane, not a crate target', () => {
+    const context = buildContext(REPO_ROOT)
+    assert.equal(context.rustInventory.ingestionCrates.has('capture'), true)
+    const targets = computeTargets(['rust/common/kafka/src/lib.rs'], {
+        ...context,
+        rustAffectedCrates: ['common-kafka', 'capture', 'cymbal'],
+    })
+    assert.deepEqual(targets, [INGESTION, 'rust:crate:common-kafka', 'rust:crate:cymbal'])
+})
+
 // The consumer lanes are declared rather than derived, so a second dependent
 // appearing anywhere in the pnpm workspace has to fail here. Reads the real
 // workspace for that reason: a synthetic one cannot notice the new dependent.
@@ -2366,7 +2378,7 @@ test('the AI research pipelines inside the ingestion tree have a lane of their o
 // and the hog engine is linked into the ingestion package, so each side still
 // claims the other's lanes for the files that cross.
 test('the unpublished package paths claim their consumers as well', () => {
-    const common = computeTargets(['ingestion/node/packages/common/src/utils/logger.ts'], CONTEXT)
+    const common = computeTargets(['nodejs/packages/common/src/utils/logger.ts'], CONTEXT)
     assert.equal(common.includes(INGESTION), true)
     for (const lane of NODE_LANES) {
         assert.equal(common.includes(lane), true)

@@ -1425,9 +1425,14 @@ function touchesContractSurface(product, file, contractSurfaces) {
 // Discovers workspace crates as (directory, crate name) pairs. Crate names can
 // differ from directory names, and file paths only carry the directory, so both
 // are needed to translate a changed path into a crate.
+// Ingestion's crates live under ingestion/rust but are members of the rust/
+// workspace, so their directories are recorded relative to rust/ exactly as the
+// workspace manifest lists them.
+const RUST_CRATE_ROOTS = ['rust', 'ingestion/rust']
+
 function discoverRustCrates(repoRoot) {
     const crates = []
-    const walk = (dir, depth) => {
+    const walk = (dir, depth, root) => {
         if (depth > 3) {
             return
         }
@@ -1437,10 +1442,10 @@ function discoverRustCrates(repoRoot) {
             }
             const full = path.join(dir, entry.name)
             if (entry.isDirectory()) {
-                walk(full, depth + 1)
+                walk(full, depth + 1, root)
             } else if (entry.name === 'Cargo.toml') {
                 const relative = path.relative(path.join(repoRoot, 'rust'), dir)
-                if (!relative) {
+                if (!relative || relative === '..') {
                     continue
                 }
                 const name = parseCrateName(fs.readFileSync(full, 'utf8'))
@@ -1448,12 +1453,16 @@ function discoverRustCrates(repoRoot) {
                     // A package.json beside the Cargo.toml means the crate also
                     // builds an npm package, so its lane extends past rust/.
                     const publishesNpmPackage = fs.existsSync(path.join(dir, 'package.json'))
-                    crates.push({ dir: relative, name, publishesNpmPackage })
+                    crates.push({ dir: relative, name, publishesNpmPackage, ingestion: root === 'ingestion/rust' })
                 }
             }
         }
     }
-    walk(path.join(repoRoot, 'rust'), 0)
+    for (const root of RUST_CRATE_ROOTS) {
+        if (fs.existsSync(path.join(repoRoot, root))) {
+            walk(path.join(repoRoot, root), 0, root)
+        }
+    }
     return crates
 }
 
@@ -1487,12 +1496,13 @@ function loadRustInventory(repoRoot) {
         }
         const crateNames = new Set(crates.map((crate) => crate.name))
         const nativeBindings = new Set(crates.filter((crate) => crate.publishesNpmPackage).map((crate) => crate.name))
+        const ingestionCrates = new Set(crates.filter((crate) => crate.ingestion).map((crate) => crate.name))
         // Longest directory first so rust/common/hogvm resolves to its own crate
         // rather than to rust/common.
         const byDir = crates
             .map((crate) => ({ dir: crate.dir, name: crate.name }))
             .sort((a, b) => b.dir.length - a.dir.length)
-        return { crateNames, byDir, nativeBindings }
+        return { crateNames, byDir, nativeBindings, ingestionCrates }
     } catch (error) {
         console.error(`Rust crate inventory unavailable (${error.message}); widening to every target`)
         return null
@@ -1544,7 +1554,7 @@ const INGESTION_AI_RESEARCH_DIRS = [
 // Until @posthog/node-common and @posthog/ingestion are published, nodejs
 // consumes them from the workspace, so a change to either still runs the
 // nodejs suites. Each entry goes once its consumers pin a version.
-const INGESTION_EXPORTS = ['ingestion/node/packages/common/', 'ingestion/node/packages/ingestion/src/ingestion/']
+const INGESTION_EXPORTS = ['ingestion/node/packages/ingestion/src/ingestion/']
 
 function ingestionLaneFor(file) {
     if (/^\.github\/workflows\/_?ingestion-[^/]+\.yml$/.test(file)) {
@@ -2090,7 +2100,7 @@ function computeTargets(changedFiles, context) {
             for (const lane of nodeLanesForSource(file, context)) {
                 targets.add(lane)
             }
-            if (file.startsWith('nodejs/packages/hog-engine/')) {
+            if (file.startsWith('nodejs/packages/hog-engine/') || file.startsWith('nodejs/packages/common/')) {
                 targets.add(INGESTION)
             }
             continue
@@ -2302,8 +2312,10 @@ function computeTargets(changedFiles, context) {
             answer && answer.length > 0 && rustSeeds.every((seed) => answer.includes(seed))
                 ? answer
                 : [...rustInventory.crateNames]
+        // An affected ingestion crate is ingestion's lane; the crate targets are the rest of the workspace.
+        const ingestionCrates = rustInventory.ingestionCrates || new Set()
         for (const crate of affectedCrates) {
-            targets.add(rustCrate(crate))
+            targets.add(ingestionCrates.has(crate) ? INGESTION : rustCrate(crate))
         }
         // A crate that also builds an npm package compiles into a native module
         // the JS workspace imports, so the radius does not end at rust/. The

@@ -1,6 +1,6 @@
 import http from 'http'
 
-import { getDefaultConfig } from '~/common/config/config'
+import { getDefaultConfig } from '~/config/config'
 
 import { ServerLifecycle } from './base-server'
 

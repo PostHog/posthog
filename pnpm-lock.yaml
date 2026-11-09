@@ -1574,193 +1574,6 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
-  ingestion/node/packages/common:
-    dependencies:
-      '@bufbuild/protobuf':
-        specifier: 2.11.0
-        version: 2.11.0
-      '@clickhouse/client':
-        specifier: 1.12.0
-        version: 1.12.0
-      '@connectrpc/connect':
-        specifier: 2.1.1
-        version: 2.1.1(@bufbuild/protobuf@2.11.0)
-      '@connectrpc/connect-node':
-        specifier: 2.1.1
-        version: 2.1.1(patch_hash=a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4)(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
-      '@maxmind/geoip2-node':
-        specifier: 3.5.0
-        version: 3.5.0
-      '@opentelemetry/api':
-        specifier: 1.9.0
-        version: 1.9.0
-      '@opentelemetry/auto-instrumentations-node':
-        specifier: 0.76.0
-        version: 0.76.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.0))(supports-color@10.2.2)
-      '@opentelemetry/exporter-trace-otlp-grpc':
-        specifier: 0.218.0
-        version: 0.218.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/resources':
-        specifier: 2.0.1
-        version: 2.0.1(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-metrics':
-        specifier: 2.7.1
-        version: 2.7.1(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-node':
-        specifier: 0.218.0
-        version: 0.218.0(@opentelemetry/api@1.9.0)(supports-color@10.2.2)
-      '@opentelemetry/sdk-trace-node':
-        specifier: 2.0.1
-        version: 2.0.1(@opentelemetry/api@1.9.0)
-      '@opentelemetry/semantic-conventions':
-        specifier: 1.36.0
-        version: 1.36.0
-      '@pyroscope/nodejs':
-        specifier: 0.5.0
-        version: 0.5.0(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)
-      cors:
-        specifier: 2.8.5
-        version: 2.8.5
-      fastpriorityqueue:
-        specifier: 0.7.5
-        version: 0.7.5
-      generic-pool:
-        specifier: 3.9.0
-        version: 3.9.0
-      ioredis:
-        specifier: 4.28.5
-        version: 4.28.5(supports-color@10.2.2)
-      ipaddr.js:
-        specifier: 2.2.0
-        version: 2.2.0
-      lodash:
-        specifier: 4.18.1
-        version: 4.18.1
-      lru-cache:
-        specifier: 11.0.2
-        version: 11.0.2
-      luxon:
-        specifier: 3.5.0
-        version: 3.5.0
-      node-rdkafka:
-        specifier: v3.6.1
-        version: 3.6.1
-      node-schedule:
-        specifier: 2.1.1
-        version: 2.1.1
-      pg:
-        specifier: 8.10.0
-        version: 8.10.0
-      pino:
-        specifier: 8.11.0
-        version: 8.11.0
-      pino-pretty:
-        specifier: 9.4.0
-        version: 9.4.0
-      posthog-node:
-        specifier: 5.61.2
-        version: 5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
-      prom-client:
-        specifier: 14.2.0
-        version: 14.2.0
-      re2:
-        specifier: 1.27.0
-        version: 1.27.0
-      snappy:
-        specifier: 7.2.2
-        version: 7.2.2
-      ultimate-express:
-        specifier: 2.0.9
-        version: 2.0.9
-      undici:
-        specifier: 8.10.1
-        version: 8.10.1
-      zod:
-        specifier: 4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@bufbuild/protoc-gen-es':
-        specifier: ^2.11.0
-        version: 2.16.0(@bufbuild/protobuf@2.11.0)(supports-color@10.2.2)
-      '@trivago/prettier-plugin-sort-imports':
-        specifier: ^5.2.2
-        version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)
-      '@types/cors':
-        specifier: 2.8.19
-        version: 2.8.19
-      '@types/ioredis':
-        specifier: 4.28.10
-        version: 4.28.10
-      '@types/jest':
-        specifier: 30.0.0
-        version: 30.0.0
-      '@types/lodash':
-        specifier: 4.17.16
-        version: 4.17.16
-      '@types/long':
-        specifier: 4.0.2
-        version: 4.0.2
-      '@types/luxon':
-        specifier: 3.4.2
-        version: 3.4.2
-      '@types/node':
-        specifier: 26.6.5
-        version: 26.6.5
-      '@types/node-schedule':
-        specifier: 2.1.0
-        version: 2.1.0
-      '@types/pg':
-        specifier: 8.6.6
-        version: 8.6.6
-      '@types/supertest':
-        specifier: 6.0.2
-        version: 6.0.2
-      eslint-plugin-no-only-tests:
-        specifier: ^3.1.0
-        version: 3.3.0
-      jest:
-        specifier: 30.0.5
-        version: 30.0.5(@types/node@26.6.5)(esbuild-register@3.6.0(esbuild@0.28.1)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@26.6.5)(typescript@6.0.3))
-      jest-junit:
-        specifier: 16.0.0
-        version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
-      node-fetch:
-        specifier: 2.6.9
-        version: 2.6.9(encoding@0.1.13)
-      oxlint:
-        specifier: 1.72.0
-        version: 1.72.0(oxlint-tsgolint@7.0.2001)
-      oxlint-plugin-eslint:
-        specifier: 1.72.0
-        version: 1.72.0
-      oxlint-tsgolint:
-        specifier: 7.0.2001
-        version: 7.0.2001
-      prettier:
-        specifier: ~3.6.2
-        version: 3.6.2
-      supertest:
-        specifier: 7.2.2
-        version: 7.2.2(supports-color@10.2.2)
-      ts-jest:
-        specifier: 29.4.9
-        version: 29.4.9(@babel/core@7.29.0(supports-color@10.2.2))(@jest/transform@30.0.5(supports-color@10.2.2))(@jest/types@30.4.1)(babel-jest@30.0.5(@babel/core@7.29.0(supports-color@10.2.2))(supports-color@10.2.2))(esbuild@0.28.1)(jest-util@30.0.5)(jest@30.0.5(@types/node@26.6.5)(esbuild-register@3.6.0(esbuild@0.28.1)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@26.6.5)(typescript@6.0.3)))(typescript@6.0.3)
-      ts-node:
-        specifier: 10.9.1
-        version: 10.9.1(@swc/core@1.15.18)(@types/node@26.6.5)(typescript@6.0.3)
-      tsc-alias:
-        specifier: 1.8.16
-        version: 1.8.16
-      tsconfig-paths:
-        specifier: 4.2.0
-        version: 4.2.0
-      tsx:
-        specifier: 4.20.5
-        version: 4.20.5
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-
   ingestion/node/packages/ingestion:
     dependencies:
       '@aws-sdk/client-dynamodb':
@@ -1798,7 +1611,7 @@ importers:
         version: link:../../../../nodejs/packages/hog-engine
       '@posthog/node-common':
         specifier: workspace:*
-        version: link:../common
+        version: link:../../../../nodejs/packages/common
       '@posthog/replay-anonymizer':
         specifier: workspace:*
         version: link:../../../../rust/replay-anonymizer-node
@@ -2078,7 +1891,7 @@ importers:
         version: link:../ingestion/node/packages/ingestion
       '@posthog/node-common':
         specifier: workspace:*
-        version: link:../ingestion/node/packages/common
+        version: link:packages/common
       '@posthog/replay-anonymizer':
         specifier: workspace:*
         version: link:../rust/replay-anonymizer-node
@@ -2399,6 +2212,193 @@ importers:
         specifier: ^4.7.0
         version: 4.20.5
 
+  nodejs/packages/common:
+    dependencies:
+      '@bufbuild/protobuf':
+        specifier: 2.11.0
+        version: 2.11.0
+      '@clickhouse/client':
+        specifier: 1.12.0
+        version: 1.12.0
+      '@connectrpc/connect':
+        specifier: 2.1.1
+        version: 2.1.1(@bufbuild/protobuf@2.11.0)
+      '@connectrpc/connect-node':
+        specifier: 2.1.1
+        version: 2.1.1(patch_hash=a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4)(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
+      '@maxmind/geoip2-node':
+        specifier: 3.5.0
+        version: 3.5.0
+      '@opentelemetry/api':
+        specifier: 1.9.0
+        version: 1.9.0
+      '@opentelemetry/auto-instrumentations-node':
+        specifier: 0.76.0
+        version: 0.76.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.0))(supports-color@10.2.2)
+      '@opentelemetry/exporter-trace-otlp-grpc':
+        specifier: 0.218.0
+        version: 0.218.0(@opentelemetry/api@1.9.0)
+      '@opentelemetry/resources':
+        specifier: 2.0.1
+        version: 2.0.1(@opentelemetry/api@1.9.0)
+      '@opentelemetry/sdk-metrics':
+        specifier: 2.7.1
+        version: 2.7.1(@opentelemetry/api@1.9.0)
+      '@opentelemetry/sdk-node':
+        specifier: 0.218.0
+        version: 0.218.0(@opentelemetry/api@1.9.0)(supports-color@10.2.2)
+      '@opentelemetry/sdk-trace-node':
+        specifier: 2.0.1
+        version: 2.0.1(@opentelemetry/api@1.9.0)
+      '@opentelemetry/semantic-conventions':
+        specifier: 1.36.0
+        version: 1.36.0
+      '@pyroscope/nodejs':
+        specifier: 0.5.0
+        version: 0.5.0(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)
+      cors:
+        specifier: 2.8.5
+        version: 2.8.5
+      fastpriorityqueue:
+        specifier: 0.7.5
+        version: 0.7.5
+      generic-pool:
+        specifier: 3.9.0
+        version: 3.9.0
+      ioredis:
+        specifier: 4.28.5
+        version: 4.28.5(supports-color@10.2.2)
+      ipaddr.js:
+        specifier: 2.2.0
+        version: 2.2.0
+      lodash:
+        specifier: 4.18.1
+        version: 4.18.1
+      lru-cache:
+        specifier: 11.0.2
+        version: 11.0.2
+      luxon:
+        specifier: 3.5.0
+        version: 3.5.0
+      node-rdkafka:
+        specifier: v3.6.1
+        version: 3.6.1
+      node-schedule:
+        specifier: 2.1.1
+        version: 2.1.1
+      pg:
+        specifier: 8.10.0
+        version: 8.10.0
+      pino:
+        specifier: 8.11.0
+        version: 8.11.0
+      pino-pretty:
+        specifier: 9.4.0
+        version: 9.4.0
+      posthog-node:
+        specifier: 5.61.2
+        version: 5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+      prom-client:
+        specifier: 14.2.0
+        version: 14.2.0
+      re2:
+        specifier: 1.27.0
+        version: 1.27.0
+      snappy:
+        specifier: 7.2.2
+        version: 7.2.2
+      ultimate-express:
+        specifier: 2.0.9
+        version: 2.0.9
+      undici:
+        specifier: 8.10.1
+        version: 8.10.1
+      zod:
+        specifier: 4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@bufbuild/protoc-gen-es':
+        specifier: ^2.11.0
+        version: 2.16.0(@bufbuild/protobuf@2.11.0)(supports-color@10.2.2)
+      '@trivago/prettier-plugin-sort-imports':
+        specifier: ^5.2.2
+        version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)
+      '@types/cors':
+        specifier: 2.8.19
+        version: 2.8.19
+      '@types/ioredis':
+        specifier: 4.28.10
+        version: 4.28.10
+      '@types/jest':
+        specifier: 30.0.0
+        version: 30.0.0
+      '@types/lodash':
+        specifier: 4.17.16
+        version: 4.17.16
+      '@types/long':
+        specifier: 4.0.2
+        version: 4.0.2
+      '@types/luxon':
+        specifier: 3.4.2
+        version: 3.4.2
+      '@types/node':
+        specifier: 26.6.5
+        version: 26.6.5
+      '@types/node-schedule':
+        specifier: 2.1.0
+        version: 2.1.0
+      '@types/pg':
+        specifier: 8.6.6
+        version: 8.6.6
+      '@types/supertest':
+        specifier: 6.0.2
+        version: 6.0.2
+      eslint-plugin-no-only-tests:
+        specifier: ^3.1.0
+        version: 3.3.0
+      jest:
+        specifier: 30.0.5
+        version: 30.0.5(@types/node@26.6.5)(esbuild-register@3.6.0(esbuild@0.28.1)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@26.6.5)(typescript@6.0.3))
+      jest-junit:
+        specifier: 16.0.0
+        version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
+      node-fetch:
+        specifier: 2.6.9
+        version: 2.6.9(encoding@0.1.13)
+      oxlint:
+        specifier: 1.72.0
+        version: 1.72.0(oxlint-tsgolint@7.0.2001)
+      oxlint-plugin-eslint:
+        specifier: 1.72.0
+        version: 1.72.0
+      oxlint-tsgolint:
+        specifier: 7.0.2001
+        version: 7.0.2001
+      prettier:
+        specifier: ~3.6.2
+        version: 3.6.2
+      supertest:
+        specifier: 7.2.2
+        version: 7.2.2(supports-color@10.2.2)
+      ts-jest:
+        specifier: 29.4.9
+        version: 29.4.9(@babel/core@7.29.0(supports-color@10.2.2))(@jest/transform@30.0.5(supports-color@10.2.2))(@jest/types@30.4.1)(babel-jest@30.0.5(@babel/core@7.29.0(supports-color@10.2.2))(supports-color@10.2.2))(esbuild@0.28.1)(jest-util@30.0.5)(jest@30.0.5(@types/node@26.6.5)(esbuild-register@3.6.0(esbuild@0.28.1)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@26.6.5)(typescript@6.0.3)))(typescript@6.0.3)
+      ts-node:
+        specifier: 10.9.1
+        version: 10.9.1(@swc/core@1.15.18)(@types/node@26.6.5)(typescript@6.0.3)
+      tsc-alias:
+        specifier: 1.8.16
+        version: 1.8.16
+      tsconfig-paths:
+        specifier: 4.2.0
+        version: 4.2.0
+      tsx:
+        specifier: 4.20.5
+        version: 4.20.5
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   nodejs/packages/hog-engine:
     dependencies:
       '@google-cloud/pubsub':
@@ -2443,7 +2443,7 @@ importers:
         version: 3.5.0
       '@posthog/node-common':
         specifier: workspace:*
-        version: link:../../../ingestion/node/packages/common
+        version: link:../common
       '@trivago/prettier-plugin-sort-imports':
         specifier: ^5.2.2
         version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)
@@ -28684,7 +28684,7 @@ snapshots:
 
   '@jest/pattern@30.0.1':
     dependencies:
-      '@types/node': 22.18.8
+      '@types/node': 26.6.5
       jest-regex-util: 30.0.1
 
   '@jest/pattern@30.4.0':
@@ -28964,7 +28964,7 @@ snapshots:
       '@jest/schemas': 30.0.5
       '@types/istanbul-lib-coverage': 2.0.6
       '@types/istanbul-reports': 3.0.4
-      '@types/node': 22.18.8
+      '@types/node': 26.6.5
       '@types/yargs': 17.0.33
       chalk: 4.1.2
 
@@ -34474,7 +34474,7 @@ snapshots:
 
   '@types/yauzl@2.10.3':
     dependencies:
-      '@types/node': 22.18.8
+      '@types/node': 26.6.5
     optional: true
 
   '@types/zxcvbn@4.4.1': {}
@@ -42069,7 +42069,7 @@ snapshots:
       semver: 7.8.0
       tar: 7.5.15
       tinyglobby: 0.2.17
-      undici: 8.10.1
+      undici: 8.12.2
       which: 7.0.0
 
   node-int64@0.4.0: {}

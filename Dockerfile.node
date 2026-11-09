@@ -51,7 +51,7 @@ COPY ./nodejs/packages/hog-engine/ ./nodejs/packages/hog-engine/
 COPY ./nodejs/package.json ./nodejs/tsconfig.json ./nodejs/
 COPY ./common/replay-shared/package.json ./common/replay-shared/
 COPY ./common/replay-headless/package.json ./common/replay-headless/
-COPY ./ingestion/node/packages/common/ ./ingestion/node/packages/common/
+COPY ./nodejs/packages/common/ ./nodejs/packages/common/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Use system librdkafka from Confluent (2.12.0) instead of bundled version
@@ -174,9 +174,9 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/hog-engin
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/dist /code/common/hogvm/typescript/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/node_modules /code/common/hogvm/typescript/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/package.json /code/common/hogvm/typescript/package.json
-COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/dist /code/ingestion/node/packages/common/dist
-COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/package.json /code/ingestion/node/packages/common/package.json
-COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/node_modules /code/ingestion/node/packages/common/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/common/dist /code/nodejs/packages/common/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/common/package.json /code/nodejs/packages/common/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/common/node_modules /code/nodejs/packages/common/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/dist /code/nodejs/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/node_modules /code/nodejs/node_modules

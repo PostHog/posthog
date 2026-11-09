@@ -4,7 +4,7 @@ packages:
     - common/hogvm/typescript
     - nodejs/packages/hog-engine
     # Ingestion's shared library, consumed here as a workspace package until it is published.
-    - ingestion/node/packages/common
+    - nodejs/packages/common
     - ingestion/node/packages/ingestion
     - common/plugin_transpiler
     - common/storybook

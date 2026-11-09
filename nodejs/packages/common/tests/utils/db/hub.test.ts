@@ -1,4 +1,4 @@
-import { createEventsToDropByToken } from '~/common/utils/db/hub'
+import { createEventsToDropByToken } from '~/utils/db/hub'
 
 describe('createEventsToDropByToken', () => {
     it('should split tokens on comma', () => {
