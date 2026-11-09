@@ -10,11 +10,10 @@ export function releaseStage(product: ReleaseStageProduct, selfDrivingUsageDispl
     if (product.category === ProductItemCategory.UNRELEASED) {
         return 'internal'
     }
-    const stage = product.tags?.[0] ?? null
-    if (stage === 'beta' && product.sceneKey === 'Inbox' && selfDrivingUsageDisplay) {
-        return null
+    if (product.sceneKey === 'Inbox') {
+        return selfDrivingUsageDisplay ? null : 'beta'
     }
-    return stage
+    return product.tags?.[0] ?? null
 }
 
 /**

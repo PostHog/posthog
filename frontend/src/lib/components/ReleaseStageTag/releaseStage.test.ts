@@ -13,21 +13,34 @@ describe('releaseStage', () => {
         expect(releaseStage(product)).toEqual(expected)
     })
 
-    test.each<[string | null, string | null | undefined, ReleaseStage | null, boolean]>([
-        ['Pulse', 'Pulse', 'internal', false],
-        ['Inbox', 'Self-driving inbox', 'beta', false],
-        ['Inbox', 'Self-driving inbox', null, true],
-        ['CustomerAnalytics', 'Customer analytics', 'beta', false],
-        ['CustomerAnalytics', 'Customer analytics', 'beta', true],
-        ['CustomerAnalyticsAccount', 'Acme Inc', null, false],
-        ['Dashboard', 'Dashboard', null, false],
-        ['AIObservability', 'AI observability', null, false],
-        ['AIObservabilityTags', 'Taggers', 'alpha', false],
-        ['SQLEditor', 'SQL editor', null, false],
-        ['Pulse', undefined, null, false],
-        [null, 'Pulse', null, false],
-    ])('the %s scene titled %s shows %s with usage display %s', (sceneId, title, expected, selfDrivingUsageDisplay) => {
+    test.each<[string | null, string | null | undefined, ReleaseStage | null]>([
+        ['Pulse', 'Pulse', 'internal'],
+        ['CustomerAnalytics', 'Customer analytics', 'beta'],
+        ['CustomerAnalyticsAccount', 'Acme Inc', null],
+        ['Dashboard', 'Dashboard', null],
+        ['AIObservability', 'AI observability', null],
+        ['AIObservabilityTags', 'Taggers', 'alpha'],
+        ['SQLEditor', 'SQL editor', null],
+        ['Pulse', undefined, null],
+        [null, 'Pulse', null],
+    ])('the %s scene titled %s shows %s', (sceneId, title, expected) => {
         const product = releaseStageProductForScene(sceneId, title)
+        expect(product ? releaseStage(product) : null).toEqual(expected)
+    })
+
+    test.each<[boolean, ReleaseStage | null]>([
+        [false, 'beta'],
+        [true, null],
+    ])('self-driving with usage display %s shows %s', (selfDrivingUsageDisplay, expected) => {
+        const product = releaseStageProductForScene('Inbox', 'Self-driving inbox')
         expect(product ? releaseStage(product, selfDrivingUsageDisplay) : null).toEqual(expected)
+        expect(
+            releaseStage({ category: ProductItemCategory.TOOLS, sceneKey: 'Inbox' }, selfDrivingUsageDisplay)
+        ).toEqual(expected)
+    })
+
+    test('usage display preserves other beta products', () => {
+        const product = releaseStageProductForScene('CustomerAnalytics', 'Customer analytics')
+        expect(product ? releaseStage(product, true) : null).toEqual('beta')
     })
 })
