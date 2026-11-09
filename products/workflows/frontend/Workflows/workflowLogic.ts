@@ -17,7 +17,6 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
@@ -32,6 +31,7 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 import {
     hogFlowsCreate,
     hogFlowsResumeEmailSending,
+    hogFlowsRunCreate,
     hogFlowsSchedulesCreate,
     hogFlowsSchedulesDestroy,
 } from 'products/workflows/frontend/generated/api'
@@ -5111,27 +5111,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
 
-            const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
-
             lemonToast.info('Triggering workflow...')
 
             try {
-                const response = await fetch(webhookUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        user_id: values.user?.email,
-                        $variables: variables,
-                    }),
-                    credentials: 'omit',
-                })
-
-                // fetch rejects only on a network failure, so a refused webhook resolves here too.
-                if (!response.ok) {
-                    throw new Error(`the webhook returned ${response.status}`)
-                }
+                // An authenticated call, so only a user who can edit the workflow starts a run.
+                await hogFlowsRunCreate(String(ApiConfig.getCurrentTeamId()), values.workflow.id, { variables })
 
                 lemonToast.success('Workflow triggered', {
                     button: {
@@ -5140,7 +5124,12 @@ export const workflowLogic = kea<workflowLogicType>([
                     },
                 })
             } catch (e) {
-                lemonToast.error('Error triggering workflow: ' + (e as Error).message)
+                lemonToast.error('Error triggering workflow: ' + (e as Error).message, {
+                    button: {
+                        label: 'View logs',
+                        action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
+                    },
+                })
                 return
             }
         },

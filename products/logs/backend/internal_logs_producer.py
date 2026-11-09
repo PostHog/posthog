@@ -34,6 +34,8 @@ MAX_REQUEST_RECORD_BYTES = 1024 * 1024
 # A JSON-escaped code point takes at most 6 bytes, so a message cut to this length always fits in one request.
 MAX_MESSAGE_LENGTH = 128 * 1024
 
+# The librdkafka default request.timeout.ms, and above the time capture-logs waits for its own Kafka write.
+ATTEMPT_TIMEOUT_SECONDS = 30
 RETRY_BASE_DELAY_MS = 100
 RETRY_MAX_DELAY_MS = 5_000
 DRAIN_POLL_SECONDS = 0.05
@@ -286,7 +288,9 @@ class InternalLogsProducer:
                     "Authorization": f"Bearer {api_token}",
                     INTERNAL_LOGS_HTTP_HEADER: sign_internal_logs(self._config.signing_keys, source, team_id),
                 },
-                timeout=aiohttp.ClientTimeout(total=max(0.001, deadline - time.monotonic())),
+                timeout=aiohttp.ClientTimeout(
+                    total=max(0.001, min(ATTEMPT_TIMEOUT_SECONDS, deadline - time.monotonic()))
+                ),
                 # A redirect turns the POST into a GET without a body, which can still answer 200.
                 allow_redirects=False,
             ) as response:

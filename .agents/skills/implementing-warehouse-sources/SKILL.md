@@ -421,8 +421,6 @@ Override `credential_kind` in your `source.py` when the default is wrong:
 
 A subclass inherits the override of its parent, so a subclass of an overriding source sets its own kind (`NeonSource` returns `neon`, not the `postgresql` of `PostgresSource`).
 
-The `reconcile_warehouse_source_credentials` command checks that each `*_integration_id` field and each `credentials_integration_id` column points at an `Integration` row. When your source keeps its OAuth rows in another model, override `integration_id_fields_point_at_integrations` to return `False` (`CustomSource` does this).
-
 The result is frozen in the generated file `facade/credential_kinds.py` (`CREDENTIAL_KINDS`), because a kind is stored data. Never change the kind of a released source. A test fails when the file is out of date, when a kind is longer than 32 characters, or when two source types share a kind.
 
 Each credential kind also has a default auth type: the `credential_auth_type` property on the source class. The default on `BaseSource` (`derive_credential_auth_type` in `products/warehouse_sources/sources/common/credential_auth_type.py`) reads the connection fields:
@@ -485,13 +483,13 @@ A source's typed-in connection fields go to one `Integration` row of the source'
 
 #### Stripped sources
 
-An operator command strips each source after its `credentials_integration_id` column is verified. A source with typed-in credentials needs a column that points at a row with the same connection fields. An OAuth source needs a column that holds its in-use OAuth pointer. The command refuses a source without a reference (run the backfill first). It removes the connection fields, or the OAuth pointers (also stale ones under options that are not selected), from `job_inputs` and sets the store key `connection_fields_stripped_at`. A store write strips each new source, and each source that it updates, when the inputs hold typed-in connection fields or an OAuth pointer.
+The store strips each new source, and each source that it updates, when the inputs hold typed-in connection fields or an OAuth pointer. It removes the connection fields, or the OAuth pointers (also stale ones under options that are not selected), from `job_inputs` and sets the store key `connection_fields_stripped_at`.
 
 - On a stripped source, `job_inputs` on the model holds no connection field and no OAuth pointer. The row and the column are the only copy. Never write a connection field or an OAuth pointer to `job_inputs` yourself.
 - `load`, `aload` and `load_many` merge the row, the column and `job_inputs`. The OAuth pointer goes back at the path of the in-use OAuth field, so the parsed config and the API form do not change. The result never holds the marker key.
 - `save`, `asave`, `assign` and `create` write the connection fields of a stripped source only to the row, and its OAuth pointer only to the column. If the row write fails, the call raises before `job_inputs` changes. A change to a shared row raises `SharedCredentialsError` unless the API request confirms it, because a skipped write would lose the change.
 - `update_runtime` keeps the marker. Write runtime keys only with `update_runtime`.
-- When a typed-in source would read as an OAuth source without its connection fields (Slack: a pasted token wins over its legacy pointer), the strip also sets the store key `connection_fields_stripped_typed_in`, so the source stays typed-in. If your `in_use_oauth_slot` override reads a connection field, it gets this for free; do not read the key in source code.
+- When a typed-in source would read as an OAuth source without its connection fields (Slack: a pasted token wins over its legacy pointer), the store also sets the store key `connection_fields_stripped_typed_in`, so the source stays typed-in. If your `in_use_oauth_slot` override reads a connection field, it gets this for free; do not read the key in source code.
 - `list_sources_using_integration` and the integrations SDK usages find a stripped source by its column. The inputs search also sees a stripped OAuth source, because `load_many` puts its pointer back.
 
 #### OAuth pointers
@@ -503,29 +501,6 @@ A source's OAuth field (`SourceFieldOauthConfig`, a `*_integration_id` input) ca
 - `source.oauth_pointer_paths` gives every path that can hold a pointer, also the stale ones.
 - The default walks the form (`sources/common/oauth_pointers.py`). It reads only the shape that `serialize_config` writes: a select as a mapping with `selection`, a switch group as a mapping with `enabled`. Any other shape (a flat legacy key, a select stored as a string) raises `OAuthPointerShapeError`. Callers then leave the source alone. They never guess.
 - Override `in_use_oauth_slot` and `oauth_pointer_paths` on your source class only for a pointer that no form field declares. Slack does this for its legacy `slack_integration_id`, which a pasted `slack_access_token` overrides.
-
-#### Backfill outcomes for legacy OAuth tokens
-
-`backfill_warehouse_source_credentials` moves legacy OAuth tokens that sit in `job_inputs` into an OAuth `Integration` row.
-A source opts in with two hooks on its class: `has_legacy_oauth_tokens(job_inputs)` (no network) and `adopt_legacy_oauth(job_inputs)` (can call the provider). HubSpot is the only source that uses them.
-
-- `hubspot_legacy_adopted`: the source has `hubspot_secret_key` and `hubspot_refresh_token` and no `hubspot_integration_id`. With `--execute`, the command exchanges the refresh token, reads the hub id from HubSpot, and reuses the `hubspot` row of the team for that hub id or creates one. It then sets `hubspot_integration_id` and the column, and removes the two legacy keys. Preview only counts. `reconcile_warehouse_source_credentials --verify` reports it as `legacy_oauth_tokens_in_job_inputs`.
-- `skipped_legacy_token_unusable`: HubSpot rejected the token, returned no hub id, or the inputs changed during the run. The command writes nothing. A later run tries again. Only a confirmed rejection of the refresh token (`invalid_grant`, `BAD_REFRESH_TOKEN` or `BAD_HUB`) makes the grant unusable. Any other failure, such as a network error, a 408, a 429, a 5xx, a malformed body or a refusal of PostHog's app credentials (`invalid_client`), is a retryable error: the backfill counts it as `failed`, and the cleanup command counts it as `skipped_transient`.
-
-#### Cleanup of dead credentials
-
-`cleanup_dead_warehouse_source_credentials` clears credentials that no sync can use. Some sources hold legacy OAuth tokens that HubSpot no longer accepts, or an integration pointer whose row is gone. These sources block a clean `reconcile_warehouse_source_credentials --verify`.
-
-A source is dead only when both rules hold:
-
-- Its credentials are dead. Either it holds legacy OAuth tokens (`has_legacy_oauth_tokens`) and `adopt_legacy_oauth` raises `LegacyOAuthGrantUnusable`, or its column or its in-use OAuth pointer names no integration row of the team. A source that still has a live reference is left alone.
-- No schema with `should_sync` synced in the last `--idle-days` days (default 30), and no schema is running.
-
-Preview is the default and makes no network call. With `--execute`, the command takes the source lock, writes a backup with the model of the strip command, removes the legacy token keys (`legacy_oauth_keys()` of the source class) and the dangling pointers at their real paths, clears a dangling column, and sets the marker `dead_credentials_cleared_at`. It never deletes a source, a schema or a row. Output is counts only. Stripped sources are skipped.
-
-- The backfill skips a marked source (`skipped_cleaned`), and `reconcile --verify` treats it as clean.
-- `restore_warehouse_source_connection_fields` puts the backed-up `job_inputs` back and removes the marker.
-- Do not write the marker key from source code. `SourceInputsStore` hides it from readers and keeps it on save.
 
 ## Implementing `source_for_pipeline`
 

@@ -19,6 +19,9 @@ hogli devbox:doctor              # read-only health check: tailnet access, reach
 hogli devbox:exec -- bash -lc 'gh auth status'   # run one command on the box and get its exit code
 ```
 
+Project tools such as `pnpm` and `pytest` are on `PATH` only inside PostHog's flox environment.
+Add `--flox` to run the command in `~/posthog` inside it, for example `hogli devbox:exec --flox -- pnpm --filter=@posthog/frontend typescript:check`.
+
 `devbox:doctor` is the first thing to run when a devbox command misbehaves. It names the likely cause, most often the wrong tailnet, instead of failing cryptically.
 
 ## Common scenarios
@@ -69,7 +72,7 @@ Mirror your local PostHog checkout to a devbox with `hogli devbox:sync`. Local i
 hogli devbox:start                                   # ensure the box is running
 hogli devbox:sync                                    # create the mirror (idempotent)
 # edit files locally — changes propagate within seconds
-hogli devbox:exec -- bash -lc 'cd ~/posthog && pnpm --filter=@posthog/frontend typescript:check'
+hogli devbox:exec --flox -- pnpm --filter=@posthog/frontend typescript:check
 hogli devbox:sync --status                           # check sync state
 hogli devbox:sync --terminate                        # tear down when done
 ```
@@ -77,7 +80,7 @@ hogli devbox:sync --terminate                        # tear down when done
 `devbox:open --vscode` / `--cursor` / `--herdr` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth. For a worktree's devbox, the warning names the worktree to edit instead.
 
 **One devbox per git worktree** —
-Run `hogli devbox:worktree` from a linked worktree to give it its own labeled box and sync mirror. The label comes from the branch name, shortened with a hash when it would push the workspace name past Coder's 32-character limit. Re-running reuses the same box and mirror. `--clone-from <label>` creates the box with `devbox:clone`, and `--dry-run` prints the plan.
+Run `hogli devbox:worktree` from a linked worktree to give it its own labeled box and sync mirror. The label comes from the branch name without a leading `<coder-user>/`, shortened with a hash when it would push the workspace name past Coder's 32-character limit. Re-running reuses the same box and mirror. Inside that worktree, commands such as `devbox:exec`, `devbox:ssh` and `devbox:status` target its box without `-n <label>` and print which box they picked, and `-n @<coder-user>` targets your default box. When that box was deleted, they stop and point to `hogli devbox:worktree` to create it again. `--clone-from <label>` creates the box with `devbox:clone`, and `--dry-run` prints the plan.
 
 `hogli worktrees:clean --mode full --stop-boxes` (or `--delete-boxes`) also stops (or deletes) the box of each worktree it removes. Save a default with `hogli devbox:worktree --on-clean stop|delete|keep`, and override it with `--keep-boxes`. Only boxes that `devbox:worktree` set up are touched.
 It also handles boxes whose worktree was already removed some other way, but only once the box itself has not been used since the `--before` cutoff.
