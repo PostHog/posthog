@@ -10,14 +10,14 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalSpend
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
 from products.signals.backend.trial.models import SignalTrialGrant
-from products.signals.backend.trial.policy import TrialPolicy
+from products.signals.backend.trial.policy import PRICING_LAUNCHED_AT, TrialPolicy
 from products.signals.backend.usage import trial_usage
 from products.skills.backend.models.skills import LLMSkill
 
@@ -520,7 +520,19 @@ class TestTrialAPI(APIBaseTest):
         assert response.json()["grant_id"] == str(grant.id)
         assert response.json()["grant_status"] == "active"
 
+    @parameterized.expand([("created_before_launch", -1, True), ("created_after_launch", 1, False)])
+    def test_pricing_flag_identity_depends_on_org_qualification(
+        self, _name: str, days_from_launch: int, uses_member: bool
+    ) -> None:
+        Organization.objects.filter(id=self.organization.id).update(
+            created_at=PRICING_LAUNCHED_AT + timedelta(days=days_from_launch)
+        )
+        TrialPolicy(self.team).flag_decision()
+        expected = self.user.distinct_id if uses_member else str(self.organization.id)
+        assert self.flag_mock.call_args.args == ("self-driving-ubp", expected)
+
     def test_flag_off_hides_offer_and_prevents_activation_for_claimed_projects(self) -> None:
+        Organization.objects.filter(id=self.organization.id).update(created_at=PRICING_LAUNCHED_AT - timedelta(days=30))
         User.objects.create_and_join(self.organization, "later-member@example.com", None)
         deactivated = User.objects.create_and_join(self.organization, "deactivated-member@example.com", None)
         deactivated.is_active = False

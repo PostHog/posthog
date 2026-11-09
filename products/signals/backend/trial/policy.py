@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
+from datetime import UTC, datetime
 from uuid import UUID
 
 from django.core.cache import cache
@@ -22,6 +23,7 @@ from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.usage import trial_usage
 
 TRIAL_FLAG = "self-driving-ubp"
+PRICING_LAUNCHED_AT = datetime(2026, 11, 9, 15, 26, tzinfo=UTC)
 POLICY_VERSION = 1
 logger = structlog.get_logger(__name__)
 
@@ -44,9 +46,15 @@ class TrialFlagDecision:
 def pricing_flag_distinct_id(organization_id: UUID) -> str:
     # The pricing flag matches grandfathered orgs through a person cohort, so it needs the distinct id
     # of a real person, not the org id. One fixed member per org gives every caller the same answer,
-    # including pipeline work that has no request user.
+    # including pipeline work that has no request user. An org created after the pricing launch cannot
+    # be grandfathered, so it uses the org id, which no cohort matches. Otherwise a cohort member would
+    # pass grandfathered pricing to every new org they create.
     distinct_id = (
-        OrganizationMembership.objects.filter(organization_id=organization_id, user__is_active=True)
+        OrganizationMembership.objects.filter(
+            organization_id=organization_id,
+            organization__created_at__lt=PRICING_LAUNCHED_AT,
+            user__is_active=True,
+        )
         .order_by("joined_at", "id")
         .values_list("user__distinct_id", flat=True)
         .first()
