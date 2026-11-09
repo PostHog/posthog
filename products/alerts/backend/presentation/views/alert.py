@@ -914,6 +914,14 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
         team = self.context["get_team"]()
+        # Again under the lock, because `validate` checked before this transaction began.
+        if msg := AlertConfiguration.create_limit_error(
+            team_id=team.id,
+            organization=team.organization,
+            calculation_interval=validated_data.get("calculation_interval", AlertCalculationInterval.DAILY),
+            enabled=validated_data.get("enabled", True) is True,
+        ):
+            raise ValidationError({"alert": [msg]})
         if DetectorType.LLM.value in _detector_types(validated_data.get("detector_config")):
             insight = validated_data["insight"]
             if not lock_insight_for_evaluation(team_id=team.id, insight_id=insight.id):
@@ -921,7 +929,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             insight.refresh_from_db()
             _reject_deleted_insight(insight)
             validated_data = self.validate(validated_data)
-        current_count = AlertConfiguration.objects.filter(team_id=team.id).count()
+        current_count = AlertConfiguration.team_alert_count(team.id)
         check_count_limit(
             team=team,
             key=LimitKey.MAX_ALERTS_PER_TEAM,
