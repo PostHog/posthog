@@ -15,7 +15,7 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalResult, capture_internal
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups as build_groups
 from posthog.models.group.util import get_groups_by_identifiers
@@ -23,7 +23,6 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_persons_by_distinct_ids
-from posthog.models.tag import Tag
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
@@ -624,27 +623,31 @@ def capture_ticket_assigned(
 
 def capture_ticket_tag_added(
     ticket: Ticket,
-    tag: Tag,
+    tag_id: str,
+    tag_name: str,
     actor: User | None = None,
     actor_type: ActorType = "system",
     workflow_id: str | None = None,
-) -> None:
+    event_uuid: str | None = None,
+    timestamp: str | None = None,
+) -> CaptureInternalResult:
     properties = _get_ticket_base_properties(ticket)
-    properties["tag"] = tag.name
-    properties["tag_id"] = str(tag.id)
+    properties["tag"] = tag_name
+    properties["tag_id"] = tag_id
     properties["workflow_id"] = workflow_id
     properties.update(_get_actor_properties(actor, actor_type))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
     if ticket.organization_id:
         properties["organization_id"] = ticket.organization_id
 
-    capture_internal(
+    return capture_internal(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_tag_added",
         event_source=EVENT_SOURCE,
         distinct_id=_get_actor_distinct_id(ticket, actor, actor_type),
-        timestamp=None,
+        timestamp=timestamp,
         properties=properties,
+        event_uuid=event_uuid,
     )
 
 

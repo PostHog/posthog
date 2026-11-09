@@ -10,7 +10,6 @@ from django.core.cache import cache
 from parameterized import parameterized
 
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.tag import Tag
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 
@@ -141,9 +140,9 @@ class TestConversationEvents(BaseTest):
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_tag_added(self, _name, organization_id, mock_capture):
         self.ticket.organization_id = organization_id
-        tag = Tag(name="sf-lead")
+        tag_id = str(uuid.uuid4())
 
-        capture_ticket_tag_added(self.ticket, tag, actor=self.user, actor_type="user")
+        capture_ticket_tag_added(self.ticket, tag_id=tag_id, tag_name="sf-lead", actor=self.user, actor_type="user")
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args.kwargs
@@ -152,7 +151,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["distinct_id"] == self.user.distinct_id
         properties = call_kwargs["properties"]
         assert properties["tag"] == "sf-lead"
-        assert properties["tag_id"] == str(tag.id)
+        assert properties["tag_id"] == tag_id
         assert properties["customer_distinct_id"] == self.ticket.distinct_id
         assert properties.get("organization_id") == organization_id
         assert "$groups" not in properties
@@ -272,7 +271,7 @@ class TestConversationEvents(BaseTest):
             ("capture_ticket_status_changed", capture_ticket_status_changed, ["new", "pending"]),
             ("capture_ticket_priority_changed", capture_ticket_priority_changed, [None, "high"]),
             ("capture_ticket_assigned", capture_ticket_assigned, ["user", "123"]),
-            ("capture_ticket_tag_added", capture_ticket_tag_added, [Tag(name="sf-lead")]),
+            ("capture_ticket_tag_added", capture_ticket_tag_added, ["tag-id", "sf-lead"]),
         ]
     )
     @patch("products.conversations.backend.events.capture_internal")
@@ -395,7 +394,7 @@ class TestConversationEvents(BaseTest):
                 "capture_ticket_tag_added",
                 capture_ticket_tag_added,
                 "$conversation_ticket_tag_added",
-                [Tag(name="sf-lead")],
+                ["tag-id", "sf-lead"],
             ),
             ("capture_message_sent", capture_message_sent, "$conversation_message_sent", ["msg-id", "content"]),
             (

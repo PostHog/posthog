@@ -1,16 +1,20 @@
 import uuid
 from collections.abc import Mapping
-from typing import Any
+from contextlib import nullcontext
+from typing import Any, cast
 
+import pytest
 from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.db import transaction
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.api.capture import CaptureInternalResult
 from posthog.models.comment import Comment
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
@@ -27,6 +31,7 @@ from products.conversations.backend.models import (
     Ticket,
 )
 from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.tasks.ticket_events import emit_ticket_tag_added
 
 
 # Patch on_commit to execute immediately in tests
@@ -699,6 +704,17 @@ class TestTicketTagAddedEventSignal(APIBaseTest):
             channel_source=Channel.WIDGET,
         )
 
+    def _task_kwargs(self, item: TaggedItem) -> dict[str, Any]:
+        return {
+            "tagged_item_id": str(item.id),
+            "ticket_id": str(self.ticket.id),
+            "tag_id": str(item.tag_id),
+            "tag_name": "sf-lead",
+            "actor_id": None,
+            "workflow_id": None,
+            "timestamp": "2026-11-09T12:00:00+00:00",
+        }
+
     @staticmethod
     def _tag_added_events(mock_capture: MagicMock) -> list[Mapping[str, Any]]:
         return [
@@ -796,14 +812,68 @@ class TestTicketTagAddedEventSignal(APIBaseTest):
         [event] = self._tag_added_events(mock_capture)
         assert (event["token"], event["properties"]["ticket_id"]) == (environment.api_token, str(ticket.id))
 
-    def test_capture_failure_does_not_break_the_tag_write(self, mock_capture):
-        mock_capture.side_effect = RuntimeError("capture is down")
+    def test_tagging_queues_the_capture_instead_of_sending_it_inline(self, mock_capture):
         tag = Tag.objects.create(name="sf-lead", team=self.team)
 
-        with self.captureOnCommitCallbacks(execute=True):
-            self.ticket.tagged_items.get_or_create(tag=tag)
+        with patch("products.conversations.backend.signals.emit_ticket_tag_added") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                item, _ = self.ticket.tagged_items.get_or_create(tag=tag)
 
-        mock_capture.assert_called_once()
+        mock_capture.assert_not_called()
+        mock_task.delay.assert_called_once_with(
+            tagged_item_id=str(item.id),
+            ticket_id=str(self.ticket.id),
+            tag_id=str(tag.id),
+            tag_name="sf-lead",
+            actor_id=None,
+            workflow_id=None,
+            timestamp=ANY,
+        )
+
+    @parameterized.expand(
+        [
+            ("transport_error", CaptureInternalResult(status_code=0, error={"error": "transport_error"}), 0, "retry"),
+            ("server_error", CaptureInternalResult(status_code=503, error={"error": "unavailable"}), 0, "retry"),
+            ("rate_limited", CaptureInternalResult(status_code=429, error={"error": "rate_limited"}), 0, "retry"),
+            ("request_timeout", CaptureInternalResult(status_code=408, error={"error": "timeout"}), 0, "retry"),
+            ("bad_request", CaptureInternalResult(status_code=400, error={"error": "invalid"}), 0, "report"),
+            ("billing_limited", CaptureInternalResult(status_code=402, error={"error": "billing_limit"}), 0, "skip"),
+            ("dropped", CaptureInternalResult(status_code=200, dropped=["event"]), 0, "report"),
+            ("retries_exhausted", CaptureInternalResult(status_code=503, error={"error": "unavailable"}), 5, "report"),
+        ]
+    )
+    def test_task_retries_only_a_capture_that_can_succeed_later(self, mock_capture, _name, result, retries, outcome):
+        mock_capture.return_value = result
+        item, _ = self.ticket.tagged_items.get_or_create(tag=Tag.objects.create(name="sf-lead", team=self.team))
+        task_kwargs = self._task_kwargs(item)
+
+        with patch("products.conversations.backend.tasks.ticket_events.capture_exception") as mock_report:
+            with pytest.raises(Retry) if outcome == "retry" else nullcontext():
+                cast(Any, emit_ticket_tag_added).apply(kwargs=task_kwargs, retries=retries)
+
+        assert mock_report.called == (outcome == "report")
+        sent = mock_capture.call_args.kwargs
+        assert (sent["event_uuid"], sent["timestamp"]) == (str(item.id), task_kwargs["timestamp"])
+
+    @parameterized.expand([("first_retry", 0, 60), ("third_retry", 2, 240)])
+    def test_task_waits_longer_before_each_retry(self, mock_capture, _name, retries, wait_seconds):
+        mock_capture.return_value = CaptureInternalResult(status_code=503, error={"error": "unavailable"})
+        item, _ = self.ticket.tagged_items.get_or_create(tag=Tag.objects.create(name="sf-lead", team=self.team))
+
+        with pytest.raises(Retry) as retry:
+            cast(Any, emit_ticket_tag_added).apply(kwargs=self._task_kwargs(item), retries=retries)
+
+        assert retry.value.when == wait_seconds
+
+    def test_queueing_failure_does_not_break_the_tag_write(self, mock_capture):
+        tag = Tag.objects.create(name="sf-lead", team=self.team)
+
+        with patch("products.conversations.backend.signals.emit_ticket_tag_added") as mock_task:
+            mock_task.delay.side_effect = ConnectionError("broker is down")
+            with self.captureOnCommitCallbacks(execute=True):
+                self.ticket.tagged_items.get_or_create(tag=tag)
+
+        assert self.ticket.tagged_items.filter(tag=tag).exists()
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
