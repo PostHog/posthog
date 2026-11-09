@@ -11,18 +11,21 @@ const pgClientErrorsCounter = new Counter({
     labelNames: ['pool'],
 })
 
-function ignoreError(): void {}
-
 export function createCyclotronPool(name: CyclotronPoolName, config: PoolConfig): Pool {
     const pool = new Pool(config)
+    const reported = new WeakSet<PoolClient>()
 
-    const reportDroppedClient = (error: Error): void => {
+    const reportDroppedClient = (error: Error, client: PoolClient): void => {
+        if (reported.has(client)) {
+            return
+        }
+        reported.add(client)
         pgClientErrorsCounter.labels({ pool: name }).inc()
         logger.warn('🔌', 'Cyclotron Postgres client dropped', { pool: name, error: String(error) })
     }
 
-    pool.on('connect', (client: PoolClient) => client.once('error', reportDroppedClient).on('error', ignoreError))
-    pool.on('error', ignoreError)
+    pool.on('connect', (client) => client.on('error', (error) => reportDroppedClient(error, client)))
+    pool.on('error', reportDroppedClient)
 
     return pool
 }
