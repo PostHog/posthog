@@ -30,6 +30,8 @@ jest.mock('products/ui_customization/frontend/SidebarAgentListener', () => ({
 
 describe('Analytics sidebar options', () => {
     beforeEach(() => {
+        // The layout persists per person, so one test's saved layout would leak into the next.
+        localStorage.clear()
         initKeaTests()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.UI_CUSTOMIZATION]: true })
     })
@@ -60,7 +62,7 @@ describe('Analytics sidebar options', () => {
         expect(SidebarAgentListener).not.toHaveBeenCalled()
     })
 
-    it('opens PostHog AI in the side panel, so the sidebar stays in view while it changes', () => {
+    it('offers only personalization before a layout is saved, and opens PostHog AI in the side panel', () => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.UI_CUSTOMIZATION]: true,
             [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
@@ -68,6 +70,7 @@ describe('Analytics sidebar options', () => {
         sidePanelStateLogic.mount()
         router.actions.push(urls.analyticsList())
         const { container } = render(<TodayAnalyticsSidebar />)
+        expect(container.querySelector('[data-attr="analytics-sidebar-reset"]')).toBeNull()
 
         fireEvent.click(container.querySelector('[data-attr="analytics-sidebar-customize"]')!)
 
