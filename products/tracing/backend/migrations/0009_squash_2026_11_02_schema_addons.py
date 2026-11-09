@@ -76,7 +76,7 @@ class Migration(migrations.Migration):
         ("slack_app", "0001_squash_2026_11_02_initial"),
         ("streamlit_apps", "0006_squash_2026_11_02_finalize_fks"),
         ("surveys", "0001_squash_2026_11_02_initial"),
-        ("tasks", "0152_squash_2026_11_02_finalize_fks"),
+        ("tasks", "0153_squash_2026_11_02_finalize_fks"),
         ("today", "0001_squash_2026_11_02_initial"),
         ("tracing", "0001_squash_2026_11_02_initial"),
         ("tracing", "0007_tracesretentionrule"),

@@ -78102,6 +78102,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack
+     */
+    export type TaskClientEnum = typeof TaskClientEnum[keyof typeof TaskClientEnum];
+
+
+    export const TaskClientEnum = {
+      PosthogDesktop: 'posthog_desktop',
+      PosthogMobile: 'posthog_mobile',
+      PosthogWeb: 'posthog_web',
+      Slack: 'slack',
+    } as const;
+
+    /**
      * @nullable
      */
     export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
@@ -78167,6 +78183,18 @@ export namespace Schemas {
        * * `posthog_mobile` - PostHog Mobile
        * * `posthog_web` - PostHog Web */
       client_provenance?: TaskClientProvenanceEnum | null;
+      /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web
+       * * `slack` - Slack */
+      last_client?: TaskClientEnum | null;
+      /**
+         * When the latest person turn from `last_client` arrived.
+         * @nullable
+         */
+      last_client_at?: string | null;
     }
 
     /**
@@ -78237,6 +78265,18 @@ export namespace Schemas {
        * * `posthog_mobile` - PostHog Mobile
        * * `posthog_web` - PostHog Web */
       client_provenance?: TaskClientProvenanceEnum | null;
+      /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web
+       * * `slack` - Slack */
+      last_client?: TaskClientEnum | null;
+      /**
+         * When the latest person turn from `last_client` arrived.
+         * @nullable
+         */
+      last_client_at?: string | null;
       /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
       readonly description_preview: string;
     }
@@ -112730,6 +112770,18 @@ export namespace Schemas {
        * * `posthog_mobile` - PostHog Mobile
        * * `posthog_web` - PostHog Web */
       client_provenance?: TaskClientProvenanceEnum | null;
+      /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web
+       * * `slack` - Slack */
+      last_client?: TaskClientEnum | null;
+      /**
+         * When the latest person turn from `last_client` arrived.
+         * @nullable
+         */
+      last_client_at?: string | null;
       /** Error returned when the task was created but its first run could not start. */
       run_error?: string;
     }
@@ -113926,6 +113978,18 @@ export namespace Schemas {
        * * `posthog_mobile` - PostHog Mobile
        * * `posthog_web` - PostHog Web */
       client_provenance?: TaskClientProvenanceEnum | null;
+      /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web
+       * * `slack` - Slack */
+      last_client?: TaskClientEnum | null;
+      /**
+         * When the latest person turn from `last_client` arrived.
+         * @nullable
+         */
+      last_client_at?: string | null;
       /** Error returned when the run could not start. */
       run_error?: string;
       /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
