@@ -2,13 +2,12 @@
 import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
-import { HeadObjectCommand } from '@aws-sdk/client-s3'
+import { CopyObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
 import { createHash, randomBytes } from 'node:crypto'
 import { Counter, register } from 'prom-client'
 import supertest from 'supertest'
-import { setTimeout as delay } from 'timers/promises'
 import express from 'ultimate-express'
 
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
@@ -2957,7 +2956,18 @@ describe('CDP API', () => {
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
             })
 
-            const slowStoreCallMs = ATTACHMENT_VERIFICATION_DEADLINE_MS * 0.8
+            const realAbortSignalTimeout = AbortSignal.timeout.bind(AbortSignal)
+            let verificationDeadline = new AbortController()
+            const expireTheVerificationDeadline = (): void =>
+                verificationDeadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
+            const holdTheVerificationDeadline = (): jest.SpyInstance =>
+                jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+                    if (ms !== ATTACHMENT_VERIFICATION_DEADLINE_MS) {
+                        return realAbortSignalTimeout(ms)
+                    }
+                    verificationDeadline = new AbortController()
+                    return verificationDeadline.signal
+                })
             const storeCallsAfterTheDeadline: string[] = []
             const abandonedWorkRan = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
             const heldUntilReleased = <T>(): { held: Promise<T>; release: (value: T) => void } => {
@@ -2988,21 +2998,35 @@ describe('CDP API', () => {
                     },
                 ],
                 [
-                    'an attachment store too slow to check and keep a file before the deadline',
+                    'an attachment store whose COPY outlasts the deadline, on a file that needs keeping',
                     () => {
+                        const { held, release } = heldUntilReleased<void>()
                         const send = attachmentStore.s3.send.bind(attachmentStore.s3) as (
                             ...args: unknown[]
                         ) => Promise<Record<string, unknown>>
-                        const slowStore = (
+                        const outlastingCopy = (
                             jest.spyOn(attachmentStore.s3, 'send') as jest.SpyInstance
                         ).mockImplementation(async (command: unknown, options: unknown) => {
-                            await delay(slowStoreCallMs)
+                            if (verificationDeadline.signal.aborted) {
+                                storeCallsAfterTheDeadline.push((command as object).constructor.name)
+                            }
+                            if (command instanceof CopyObjectCommand) {
+                                expireTheVerificationDeadline()
+                                await held
+                                return {}
+                            }
                             const output = await send(command, options)
                             return command instanceof HeadObjectCommand
                                 ? { ...output, LastModified: new Date(Date.now() - ATTACHMENT_LIFETIME_MS) }
                                 : output
                         })
-                        return Promise.resolve({ fix: () => slowStore.mockRestore() })
+                        return Promise.resolve({
+                            fix: async () => {
+                                release()
+                                await abandonedWorkRan()
+                                outlastingCopy.mockRestore()
+                            },
+                        })
                     },
                 ],
                 [
@@ -3013,6 +3037,7 @@ describe('CDP API', () => {
                             jest.spyOn(attachmentStore.s3, 'send') as jest.SpyInstance
                         ).mockImplementation(async (command: unknown) => {
                             if (command instanceof HeadObjectCommand) {
+                                expireTheVerificationDeadline()
                                 await held
                                 return {
                                     ContentLength: invoice.size,
@@ -3035,7 +3060,12 @@ describe('CDP API', () => {
                     'an attachment store that answers only after the deadline',
                     () => {
                         const { held, release } = heldUntilReleased<AcceptedForSend>()
-                        const answersLate = { acceptForSend: () => held } as unknown as S3AttachmentStore
+                        const answersLate = {
+                            acceptForSend: () => {
+                                expireTheVerificationDeadline()
+                                return held
+                            },
+                        } as unknown as S3AttachmentStore
                         api['attachmentUploads'] = attachmentsFor(`${team.id}`, answersLate)
                         return Promise.resolve({
                             fix: async () => {
@@ -3069,24 +3099,23 @@ describe('CDP API', () => {
                     },
                 ],
             ])(
-                'answers 503 within the deadline when %s, warns, stops checking, and its key sends once that is fixed',
+                'answers 503 when %s without waiting on held work, warns, starts nothing after the answer, and its key sends once that is fixed',
                 async (_name, arrange) => {
+                    const deadlines = holdTheVerificationDeadline()
                     const warn = jest.spyOn(logger, 'warn')
                     storeCallsAfterTheDeadline.length = 0
                     const { options, fix } = await arrange()
                     const key = newKey()
 
-                    const startedAt = Date.now()
                     const refused = await sendWithFiles(key, [reference(invoice)], options)
-                    const refusedAfterMs = Date.now() - startedAt
                     const bodiesLoadedAfterTheAnswer = jest.spyOn(api as any, 'messageBodies')
                     await fix()
                     const bodiesLoadedBeforeTheRetry = bodiesLoadedAfterTheAnswer.mock.calls.length
                     const retried = await sendWithFiles(key, [reference(invoice)], options)
+                    deadlines.mockRestore()
 
                     expect(refused.status).toBe(503)
                     expect(refused.body).toEqual({ error: 'delivery_unavailable' })
-                    expect(refusedAfterMs).toBeLessThan(ATTACHMENT_VERIFICATION_DEADLINE_MS + 1_000)
                     expect(storeCallsAfterTheDeadline).toEqual([])
                     expect(bodiesLoadedBeforeTheRetry).toBe(0)
                     expect(warn).toHaveBeenCalledWith(
