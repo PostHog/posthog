@@ -167,15 +167,17 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("workflow_too_deep", "hog_flows", "/".join(["Level"] * 51)),
-            ("workflow_too_long", "hog_flows", "a" * 4001),
-            ("template_too_deep", "messaging_templates", "/".join(["Level"] * 51)),
-            ("template_too_long", "messaging_templates", "a" * 4001),
+            ("workflow_too_deep", "hog_flows", "_create_in_folder", "/".join(["Level"] * 51)),
+            ("workflow_too_long", "hog_flows", "_create_in_folder", "a" * 4001),
+            ("workflow_folder_alias_too_deep", "hog_flows", "folder", "/".join(["Level"] * 51)),
+            ("workflow_folder_alias_too_long", "hog_flows", "folder", "a" * 4001),
+            ("template_too_deep", "messaging_templates", "_create_in_folder", "/".join(["Level"] * 51)),
+            ("template_too_long", "messaging_templates", "_create_in_folder", "a" * 4001),
         ]
     )
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_create_in_folder_rejects_paths_past_the_tree_limits(
-        self, _name: str, resource: str, folder: str, _reload: MagicMock
+        self, _name: str, resource: str, field: str, folder: str, _reload: MagicMock
     ) -> None:
         payload = {
             "hog_flows": {
@@ -187,11 +189,11 @@ class TestWorkflowFolders(APIBaseTest):
         }[resource]
 
         created = self.client.post(
-            f"/api/projects/{self.team.id}/{resource}/", {**payload, "_create_in_folder": folder}, format="json"
+            f"/api/projects/{self.team.id}/{resource}/", {**payload, field: folder}, format="json"
         )
 
         self.assertEqual(created.status_code, 400, created.content)
-        self.assertEqual(created.json()["attr"], "_create_in_folder")
+        self.assertEqual(created.json()["attr"], field)
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="folder").exists())
 
     def test_disabled_files_do_not_leave_an_empty_unfiled_tree(self) -> None:

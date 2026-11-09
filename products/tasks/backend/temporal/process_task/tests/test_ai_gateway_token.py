@@ -1379,19 +1379,35 @@ class TestSlackAppMint:
 
         organization = Organization.objects.create(name="Quota Org")
         team = Team.objects.create(organization=organization, name="Quota Team")
-        with patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=True) as quota:
+        ai_credits_limited = {QuotaResource.AI_CREDITS: True, QuotaResource.POSTHOG_CODE_CREDITS: False}
+        with patch(
+            "ee.billing.quota_limiting.get_fresh_team_limited_resources", return_value=ai_credits_limited
+        ) as quota:
             assert _team_credit_refusal(team.id, "ai_credits") == "ai_credits_exhausted"
             assert _team_credit_refusal(team.id + 10_000, "ai_credits") is None
-        quota.assert_called_once_with(team.api_token, QuotaResource.AI_CREDITS)
-        with patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=False) as quota:
             assert _team_credit_refusal(team.id, "posthog_code_credits") is None
-        quota.assert_called_once_with(team.api_token, QuotaResource.POSTHOG_CODE_CREDITS)
+        assert [lookup.args for lookup in quota.call_args_list] == [(team.api_token,), (team.api_token,)]
+
+    @pytest.mark.django_db
+    def test_quota_check_ignores_a_stale_cached_limit(self):
+        from ee.billing.quota_limiting import QuotaResource
+
+        organization = Organization.objects.create(name="Just Paid Org")
+        team = Team.objects.create(organization=organization, name="Just Paid Team")
+        with (
+            patch("ee.billing.quota_limiting.is_team_limited", return_value=True),
+            patch(
+                "ee.billing.quota_limiting.get_fresh_team_limited_resources",
+                return_value={QuotaResource.AI_CREDITS: False},
+            ),
+        ):
+            assert _team_credit_refusal(team.id, "ai_credits") is None
 
     @pytest.mark.django_db
     def test_deactivated_org_refuses_before_the_bucket_is_read(self):
         organization = Organization.objects.create(name="Gone Org", is_active=False)
         team = Team.objects.create(organization=organization, name="Gone Team")
-        with patch("ee.billing.quota_limiting.is_team_over_credit_budget") as quota:
+        with patch("ee.billing.quota_limiting.get_fresh_team_limited_resources") as quota:
             assert _team_credit_refusal(team.id, "ai_credits") == "org_deactivated"
         quota.assert_not_called()
 
