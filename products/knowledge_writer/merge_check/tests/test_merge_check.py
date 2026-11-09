@@ -223,16 +223,26 @@ def test_an_unindexed_merge_retries_instead_of_recording_no_pull_request() -> No
 
 
 @pytest.mark.parametrize("comparison_with_default_branch", ["ahead", "diverged"])
-def test_a_merge_into_a_branch_that_never_reached_the_default_branch_is_not_judged(
+def test_a_merge_into_a_branch_that_never_reached_the_default_branch_is_retried_then_recorded(
     comparison_with_default_branch: str,
 ) -> None:
     commit_sha = "f" * 40
+    github = FakePostHogGitHub(commit_sha, comparison_with_default_branch=comparison_with_default_branch)
 
     with pytest.raises(MergeNotOnDefaultBranch):
         run_merge_check(
             landed(commit_sha, pull_request_number=7),
-            is_final_attempt=True,
-            github=FakePostHogGitHub(commit_sha, comparison_with_default_branch=comparison_with_default_branch),
+            is_final_attempt=False,
+            github=github,
             http=fake_sitemap(),
             anthropic_client=judge_returning_malformed_output(),
         )
+    report = run_merge_check(
+        landed(commit_sha, pull_request_number=7),
+        is_final_attempt=True,
+        github=github,
+        http=fake_sitemap(),
+        anthropic_client=judge_returning_malformed_output(),
+    )
+
+    assert (report.needs_docs, report.reason) == (False, "not_on_default_branch")

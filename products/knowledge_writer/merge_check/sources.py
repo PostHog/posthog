@@ -81,6 +81,10 @@ class PersonalTokenGitHub:
         )
 
 
+class UnexpectedGitHubResponse(Exception):
+    pass
+
+
 def read_github(
     github: GitHubReader,
     path: str,
@@ -141,8 +145,13 @@ def read_numbered_pull_request(github: GitHubReader, change: LandedChange) -> di
 
 
 def reached_default_branch(github: GitHubReader, repository: str, listed: Mapping[str, Any], commit_sha: str) -> bool:
-    default_branch = listed["base"]["repo"]["default_branch"]
-    if listed["base"]["ref"] == default_branch:
+    base = listed.get("base") or {}
+    default_branch = (base.get("repo") or {}).get("default_branch")
+    if not isinstance(default_branch, str):
+        raise UnexpectedGitHubResponse(
+            f"pull request for {commit_sha} in {repository} has no base repository default branch"
+        )
+    if base.get("ref") == default_branch:
         return True
     response = read_github(
         github,
@@ -150,7 +159,10 @@ def reached_default_branch(github: GitHubReader, repository: str, listed: Mappin
         endpoint="/repos/{owner}/{repo}/compare/{basehead}",
         params={"per_page": 1},
     )
-    return response.json()["status"] in ("behind", "identical")
+    status = response.json().get("status")
+    if not isinstance(status, str):
+        raise UnexpectedGitHubResponse(f"compare of {default_branch}...{commit_sha} in {repository} returned no status")
+    return status in ("behind", "identical")
 
 
 def find_merged_pull_request(github: GitHubReader, repository: str, commit_sha: str) -> MergedPullRequest | None:

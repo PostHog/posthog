@@ -18,9 +18,9 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from ...merge_check.check import MergeNotOnDefaultBranch, run_merge_check
+from ...merge_check.check import run_merge_check
 from ...merge_check.judge import judge_client
-from ...merge_check.sources import LandedChange
+from ...merge_check.sources import LandedChange, UnexpectedGitHubResponse
 from ..adapters.registry import REGISTRY
 from ..facade.contracts import AdapterVerdict
 from ..facade.enums import DocsRequestSource
@@ -37,7 +37,7 @@ GITHUB_READ_ERRORS = (
     GitHubRateLimitError,
     GitHubEgressBudgetExhausted,
 )
-MERGE_CHECK_RETRYABLE_ERRORS = (*GITHUB_READ_ERRORS, httpx.HTTPError, APIError)
+MERGE_CHECK_RETRYABLE_ERRORS = (*GITHUB_READ_ERRORS, httpx.HTTPError, APIError, UnexpectedGitHubResponse)
 
 
 LEGACY_MERGE_CHECK_REPOSITORY = "PostHog/posthog"  # inputs started before pushes named the repository
@@ -109,8 +109,6 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
                 http=http,
                 anthropic_client=anthropic_client,
             )
-    except MergeNotOnDefaultBranch:
-        return
     except MERGE_CHECK_RETRYABLE_ERRORS as error:
         if not is_final_attempt:
             raise
