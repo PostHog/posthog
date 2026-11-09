@@ -52,6 +52,32 @@ let current: SessionTokens | null = null
 let generation = 0
 let storageQueue: Promise<void> = Promise.resolve()
 
+/** `session`: a sign in, sign out or restore. `refresh`: the same session with rotated tokens. */
+export type SessionTokensChange = 'session' | 'refresh'
+
+const tokenListeners = new Set<(change: SessionTokensChange) => void>()
+
+/**
+ * Calls `listener` after the in-memory tokens change. Features that keep a copy of the session, such as the home screen
+ * widget, subscribe here so auth does not import them.
+ */
+export function onSessionTokensChanged(listener: (change: SessionTokensChange) => void): () => void {
+    tokenListeners.add(listener)
+    return () => {
+        tokenListeners.delete(listener)
+    }
+}
+
+function publishTokens(change: SessionTokensChange): void {
+    for (const listener of tokenListeners) {
+        try {
+            listener(change)
+        } catch {
+            // A listener failure must not fail the sign in, refresh or sign out that changed the tokens.
+        }
+    }
+}
+
 function serializeStorage<T>(work: () => Promise<T>): Promise<T> {
     const result = storageQueue.then(work, work)
     storageQueue = result.then(
@@ -82,6 +108,7 @@ export function setSessionTokens(tokens: SessionTokens | null, owner: SessionIde
     identity = owner ? Object.freeze({ ...owner }) : null
     current = tokens
     generation += 1
+    publishTokens('session')
 }
 
 // expo-secure-store has no web implementation. The web build is a dev and preview target, so it keeps tokens in
@@ -177,6 +204,7 @@ export async function loadTokens(): Promise<SessionTokens | null> {
     current = validOwner ? tokens : null
     identity = validOwner ? Object.freeze({ ...owner }) : null
     generation += 1
+    publishTokens('session')
     return current
 }
 
@@ -189,6 +217,7 @@ export async function saveTokens(tokens: SessionTokens, owner: SessionIdentity |
         await writeItem(STORAGE_KEY, storedSession(tokens, owner))
         current = tokens
         identity = owner ? Object.freeze({ ...owner }) : null
+        publishTokens('refresh')
     })
 }
 
@@ -231,6 +260,7 @@ export async function saveRefreshedTokens(tokens: SessionTokens, expectedGenerat
             return false
         }
         current = tokens
+        publishTokens('refresh')
         return true
     })
 }
@@ -239,6 +269,7 @@ export async function clearTokens(): Promise<void> {
     current = null
     identity = null
     generation += 1
+    publishTokens('session')
     try {
         await serializeStorage(() => deleteItem(STORAGE_KEY))
     } catch {

@@ -82,6 +82,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
+from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.models import Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
@@ -219,6 +220,7 @@ from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
 )
+from posthog.organization_caching import access_cache
 from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
@@ -229,7 +231,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 from posthog.test import flush_lock_guard
 from posthog.test.assert_faster_than import assert_faster_than
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -1090,6 +1092,7 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
 
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
+            get_ip_restrictions_for_principal(self.user)
 
     def create_organization_with_features(self, features):
         organization = Organization.objects.create(name="Test Organization")
@@ -1672,6 +1675,32 @@ def snapshot_postgres_queries(fn):
     return wrapped
 
 
+@contextmanager
+def count_organization_access_cache_round_trips() -> Iterator[Callable[..., int]]:
+    # The local memory test cache implements get_many with one get per key, unlike Redis MGET.
+    unpatched_get = access_cache.get
+    missing = object()
+    with (
+        patch.object(access_cache, "get", wraps=access_cache.get) as get,
+        patch.object(
+            access_cache,
+            "get_many",
+            side_effect=lambda keys: {
+                key: value for key in keys if (value := unpatched_get(key, missing)) is not missing
+            },
+        ) as get_many,
+    ):
+        # IP policies share the backend but not the organization-access key namespace.
+        def count(key_prefix: str | None = "organization_access:") -> int:
+            if key_prefix is None:
+                return get.call_count + get_many.call_count
+            return sum(call.args[0].startswith(key_prefix) for call in get.call_args_list) + sum(
+                any(key.startswith(key_prefix) for key in call.args[0]) for call in get_many.call_args_list
+            )
+
+        yield count
+
+
 def reset_unusable_db_connections() -> None:
     """Close any DB connection whose underlying handle is dead or left in an errored state
     by an earlier test, so Django transparently reconnects on next use.
@@ -1931,8 +1960,7 @@ def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
+    return create_action(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
 
 
 class ClickhouseTestMixin(QueryMatchingTest):

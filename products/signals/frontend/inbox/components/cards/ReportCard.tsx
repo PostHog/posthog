@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { memo } from 'react'
 
-import { IconHide, IconUndo } from '@posthog/icons'
+import { IconEye, IconHide, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -34,6 +34,7 @@ import {
 import { useReportClaim } from '../badges/useReportClaim'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardRankingPill } from './ReportCardRankingPill'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
@@ -115,6 +116,8 @@ function ReportCardRaw({
     preview = false,
     selectable = false,
     rankingSortField = null,
+    rankingPill = false,
+    personalSort = false,
     timestampField = 'updated_at',
     hideOwnClaim = false,
 }: {
@@ -132,6 +135,10 @@ function ReportCardRaw({
     selectable?: boolean
     /** The active model sort, if any. The meta row then shows the report's probability for that head. */
     rankingSortField?: InboxRankingSortField | null
+    /** The Recommended list asked for score pills. The meta row then shows all three scores. A model sort shows its own tag instead. */
+    rankingPill?: boolean
+    /** The list is in the user's personal order. The card then shows the report's tier and the reason for its place. */
+    personalSort?: boolean
     /** The time the card shows. Match it to the active time sort, so the list reads in order. */
     timestampField?: 'created_at' | 'updated_at'
     /** Hide the user's own claim marker, for views where every card is theirs. */
@@ -156,6 +163,7 @@ function ReportCardRaw({
     // per team as the metric quality is verified.
     const showImpactColumn = useFeatureFlag('SIGNALS_REPORT_METRICS')
     const detailUrl = inboxReportDetailUrl(report.id, backUrl)
+    const personalReason = personalSort ? report.personal_reason : null
 
     const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
         report.id,
@@ -207,10 +215,6 @@ function ReportCardRaw({
     )
     const cardBody = (
         <>
-            <div className="w-6 shrink-0">
-                {report.priority && <SignalReportPriorityBadge priority={report.priority} />}
-            </div>
-
             <div className={clsx('flex flex-col gap-1.5 min-w-0 flex-1', showImpactColumn && 'self-stretch')}>
                 {/* Keep the title clear of the PR badge. With the impact column shown the badge sits
                     over that column from `@lg` up, so only the stacked width needs the reserved space. */}
@@ -223,6 +227,12 @@ function ReportCardRaw({
                         hasPr && showImpactColumn && '@lg:pr-0'
                     )}
                 >
+                    {/* Inline like ConventionalCommitScopeTag, so wrapped title lines use the full width. */}
+                    {report.priority && (
+                        <span className="mr-1.5 inline-flex align-middle">
+                            <SignalReportPriorityBadge priority={report.priority} size="small" />
+                        </span>
+                    )}
                     {cardTitle}
                 </div>
 
@@ -256,6 +266,13 @@ function ReportCardRaw({
                         showImpactColumn ? 'mt-auto pt-1' : 'mt-1.5'
                     )}
                 >
+                    {report.status === SignalReportStatus.MONITORING && (
+                        <Tooltip title="The fix is being monitored.">
+                            <span className="flex shrink-0 items-center text-success" aria-label="Monitoring">
+                                <IconEye className="text-base" />
+                            </span>
+                        </Tooltip>
+                    )}
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
                     {outcomeLabel && (
@@ -276,7 +293,11 @@ function ReportCardRaw({
                         </Tooltip>
                     )}
                     <SignalReportBillingBadge report={report} />
-                    {rankingSortField && <ReportCardRankingTag report={report} sortField={rankingSortField} />}
+                    {rankingSortField ? (
+                        <ReportCardRankingTag report={report} sortField={rankingSortField} />
+                    ) : rankingPill ? (
+                        <ReportCardRankingPill report={report} personalSort={personalSort} />
+                    ) : null}
                     {!showImpactColumn && (
                         <span className="ml-auto flex shrink-0 items-center gap-2">
                             {claimAvatar}
@@ -288,6 +309,14 @@ function ReportCardRaw({
                         </span>
                     )}
                 </div>
+                {personalReason && (
+                    <p
+                        className="m-0 min-w-0 line-clamp-2 break-words text-xs leading-snug text-tertiary"
+                        data-attr="inbox-personal-reason"
+                    >
+                        {personalReason}
+                    </p>
+                )}
             </div>
 
             {/* Reserved even with no figure to show: the fixed width keeps every row's figure and

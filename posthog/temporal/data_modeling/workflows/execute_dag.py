@@ -1,4 +1,5 @@
 import json
+import uuid
 import asyncio
 import datetime as dt
 import dataclasses
@@ -50,6 +51,9 @@ MAX_CONCURRENT_CHILDREN = 10
 TRINO_SHADOW_MAX_CONCURRENT_CHILDREN = 25
 TRINO_SHADOW_CONCURRENCY_PATCH = "data-modeling-trino-shadow-concurrency"
 
+TRINO_CHILD_LOCK_PATCH = "data-modeling-trino-child-lock"
+BUILT_BY_ANOTHER_RUN_SKIP_REASON = "Being built by another run"
+
 KILL_SWITCH_WINDOW_PATCH = "data-modeling-kill-switch-window"
 # Under a ClickHouse kill switch a DAG run starts fewer materializations at once, so the CPU that the
 # switch frees goes to interactive queries. A node that waits for a slot waits inside this workflow and
@@ -77,18 +81,27 @@ def trino_shadow_workflow_id(workflow_id: str, dag_id: str) -> str:
     return f"execute-dag-trino-{dag_id}"
 
 
-def manual_trino_workflow_id(dag_id: str) -> str:
-    """The fixed id of a Trino run that a person starts by hand.
+def trino_build_workflow_id(dag_id: str, node_id: str) -> str:
+    """The fixed id of the Trino build of one node.
 
-    It shares the `execute-dag-trino-{dag_id}` prefix with the scheduled shadows, so one
-    visibility query finds every Trino run of the DAG.
+    Temporal runs one workflow per id at a time, so a second run that reaches this node while the
+    first still builds it cannot start a build of its own. Cancelling a Trino build does not stop
+    its SQL, so this refusal is the only thing that keeps two runs from writing one table at once.
+    The `materialize-view-{dag_id}-{node_id}` prefix is shared with ClickHouse builds, which is
+    what preemption, job lookups and the abandoned-job reaper match on.
     """
-    return f"execute-dag-trino-{dag_id}-manual"
+    return f"materialize-view-{dag_id}-{node_id}-trino"
 
 
-def trino_runs_of_dag_query(dag_id: str) -> str:
-    prefix = f"execute-dag-trino-{dag_id}"
-    return f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~" AND ExecutionStatus = "Running"'
+def manual_trino_workflow_id(dag_id: str) -> str:
+    """A new id for a Trino run that a person starts by hand.
+
+    Each manual run gets its own id, so manual runs of different models can overlap. The fixed
+    build id of each node keeps two runs from building one model at once. The id shares the
+    `execute-dag-trino-{dag_id}` prefix with the scheduled shadows, so one visibility query
+    finds every Trino run of the DAG.
+    """
+    return f"execute-dag-trino-{dag_id}-manual-{uuid.uuid4()}"
 
 
 async def _kill_switch_child_limit(team_id: int) -> int:
@@ -432,6 +445,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         max_concurrent_children = MAX_CONCURRENT_CHILDREN
         if managed_warehouse_only and temporalio.workflow.patched(TRINO_SHADOW_CONCURRENCY_PATCH):
             max_concurrent_children = TRINO_SHADOW_MAX_CONCURRENT_CHILDREN
+        # Histories from before the patch must replay their timestamped child ids.
+        trino_build_lock = managed_warehouse_only and temporalio.workflow.patched(TRINO_CHILD_LOCK_PATCH)
         # Histories from before the patch keep the semaphore, because its wake-up order decides the
         # order of child-start commands, and replay must reproduce that order.
         child_window: asyncio.Semaphore | _KillSwitchChildWindow
@@ -547,15 +562,36 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                             skip_reason="Upstream Trino materialization unavailable",
                             trino_materialized=False,
                         )
-                    handle = await temporalio.workflow.start_child_workflow(
-                        MaterializeViewWorkflow.run,
-                        child_inputs,
-                        id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
-                        parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
-                        retry_policy=temporalio.common.RetryPolicy(
-                            maximum_attempts=1,  # retries handled within child workflow
-                        ),
+                    child_id = (
+                        trino_build_workflow_id(inputs.dag_id, node_id)
+                        if trino_build_lock
+                        else f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}"
                     )
+                    try:
+                        handle = await temporalio.workflow.start_child_workflow(
+                            MaterializeViewWorkflow.run,
+                            child_inputs,
+                            id=child_id,
+                            parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+                            retry_policy=temporalio.common.RetryPolicy(
+                                maximum_attempts=1,  # retries handled within child workflow
+                            ),
+                        )
+                    except WorkflowAlreadyStartedError:
+                        if not trino_build_lock:
+                            raise
+                        temporalio.workflow.logger.info(
+                            f"Node {node_id} is being built on Trino by another run, skipping",
+                            extra=inputs.properties_to_log,
+                        )
+                        skipped_trino_jobs.append(SkippedDataModelingNode(node_id=node_id, built_by_another_run=True))
+                        return NodeResult(
+                            node_id=node_id,
+                            success=False,
+                            skipped=True,
+                            skip_reason=BUILT_BY_ANOTHER_RUN_SKIP_REASON,
+                            trino_materialized=False,
+                        )
                     try:
                         result: MaterializeViewWorkflowResult = await handle
                         if trino_skip is not None and result.trino_materialized is False:
@@ -616,7 +652,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     unavailable_trino_nodes.discard(nr.node_id)
                 if nr.trino_materialized is False or (not managed_warehouse_only and nr.trino_materialized is None):
                     unavailable_trino_nodes.add(nr.node_id)
-                if not nr.success:
+                # A node another run builds did not fail. Its dependents skip through unavailable_trino_nodes instead.
+                if not nr.success and nr.skip_reason != BUILT_BY_ANOTHER_RUN_SKIP_REASON:
                     failed_node_set.add(nr.node_id)
                     if nr.quality_failed:
                         quality_failed_node_set.add(nr.node_id)
@@ -645,6 +682,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     dag_id=inputs.dag_id,
                     engine=DataModelingJobEngine.MANAGED_WAREHOUSE.value,
                     skipped_nodes=skipped_trino_jobs,
+                    run_started_at=start_time.isoformat(),
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),

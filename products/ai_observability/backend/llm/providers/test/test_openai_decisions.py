@@ -2,7 +2,6 @@ import json
 import asyncio
 from collections.abc import Iterator
 from contextlib import nullcontext
-from ipaddress import ip_address
 
 import pytest
 from unittest.mock import patch
@@ -20,6 +19,7 @@ from posthog.llm.system_one import (
     ScoreAnswer,
     ScoreQuestion,
 )
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -36,7 +36,7 @@ from products.ai_observability.backend.llm.providers.openai_decisions import Ope
 
 @pytest.fixture(autouse=True)
 def pin_endpoint() -> Iterator[None]:
-    with patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}):
+    with mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]):
         yield
 
 
@@ -252,9 +252,7 @@ def test_http_errors_keep_retryable_and_terminal_failures_distinct(
 def test_transport_failure_is_retryable(error: httpx.RequestError | None) -> None:
     with (
         patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=error),
-        patch("posthog.security.url_validation.resolve_host_ips", return_value=set())
-        if error is None
-        else nullcontext(),
+        mock_anti_ssrf_dns_lookup(resolves_to=[]) if error is None else nullcontext(),
         pytest.raises(ProviderConnectionError),
     ):
         OpenAIDecisionAdapter().evaluate(

@@ -24,12 +24,13 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.property import action_to_expr
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
-from posthog.models import Entity, Team
+from posthog.models import Team
 from posthog.types import AnyPropertyFilter
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 logger = structlog.get_logger(__name__)
 
@@ -207,27 +208,35 @@ def poe_is_active(team: Team) -> bool:
 
 
 def _node_from_entity(raw_entity: dict[str, Any]) -> EventsNode | ActionsNode | DataWarehouseNode:
-    entity = Entity(raw_entity)
+    entity_id = raw_entity.get("id")
+    entity_type = raw_entity.get("type")
+    custom_name = raw_entity.get("custom_name")
+    if custom_name is not None:
+        custom_name = str(custom_name).strip() or None
     # Replay selects sessions and never aggregates, so the entity's math fields have no effect on
     # the node and are left out.
     shared: dict[str, Any] = {
-        "name": entity.name,
-        "custom_name": entity.custom_name,
+        "name": raw_entity.get("name"),
+        "custom_name": custom_name,
         "properties": clean_entity_properties(raw_entity.get("properties")),
     }
 
-    if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        return ActionsNode(id=entity.id, **shared)
-    if entity.type == TREND_FILTER_TYPE_DATA_WAREHOUSE:
+    if entity_type == TREND_FILTER_TYPE_ACTIONS:
+        return ActionsNode(id=entity_id, **shared)
+    if entity_type == TREND_FILTER_TYPE_DATA_WAREHOUSE:
         return DataWarehouseNode(
-            id=entity.id,
-            id_field=entity.id_field,
-            distinct_id_field=entity.distinct_id_field,
-            timestamp_field=entity.timestamp_field,
-            table_name=entity.table_name,
+            id=entity_id,
+            id_field=raw_entity.get("id_field"),
+            distinct_id_field=raw_entity.get("distinct_id_field"),
+            timestamp_field=raw_entity.get("timestamp_field"),
+            table_name=raw_entity.get("table_name"),
             **shared,
         )
-    return EventsNode(event=entity.id, **shared)
+    if entity_type != TREND_FILTER_TYPE_EVENTS:
+        raise ValueError(f"Unsupported entity type: {entity_type}")
+    # _entity_to_expr matches events on the node name, so an unnamed event entity takes its event as the name.
+    shared["name"] = shared["name"] or ("All events" if entity_id is None else str(entity_id))
+    return EventsNode(event=entity_id, **shared)
 
 
 def _entity_to_expr(entity: EventsNode | ActionsNode, team: Team) -> ast.Expr:
@@ -235,8 +244,8 @@ def _entity_to_expr(entity: EventsNode | ActionsNode, team: Team) -> ast.Expr:
     if entity.kind == "ActionsNode":
         # Scoped to the project, not the team, because environments in a project share actions.
         try:
-            action = Action.objects.get(pk=entity.id, team__project_id=team.project_id)
-        except Action.DoesNotExist:
+            action = get_action(action_id=entity.id, project_id=team.project_id)
+        except ActionNotFound:
             raise ValidationError(f"Action ID {entity.id} does not exist!")
         return action_to_expr(action)
     else:

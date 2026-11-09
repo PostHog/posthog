@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -21,7 +21,9 @@ import {
     SchemaIncrementalFieldsResponse,
 } from '~/types'
 
+import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
+import { externalDataSchemasHistoryTableDestroy } from 'products/warehouse_sources/frontend/generated/api'
 
 export const SCHEMA_SCENE_TABS = ['configuration', 'syncs', 'metrics', 'data-quality', 'history'] as const
 export type SchemaSceneTab = (typeof SCHEMA_SCENE_TABS)[number]
@@ -88,6 +90,9 @@ export interface schemaSceneLogicActions {
         tab: 'configuration' | 'data-quality' | 'history' | 'metrics' | 'syncs'
     }
     cancelSchema: (schema: ExternalDataSourceSchema) => {
+        schema: ExternalDataSourceSchema
+    }
+    deleteHistoryTable: (schema: ExternalDataSourceSchema) => {
         schema: ExternalDataSourceSchema
     }
     deleteTable: (schema: ExternalDataSourceSchema) => {
@@ -193,6 +198,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         cancelSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
+        deleteHistoryTable: (schema: ExternalDataSourceSchema) => ({ schema }),
         refreshSchemas: true,
     }),
     loaders(({ props }) => ({
@@ -332,31 +338,46 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         updateSchema: async ({ schema }) => {
-            const current = values.schemaData
-            if (current) {
-                actions.loadSchemaSuccess({ ...current, ...schema })
+            const runUpdate = async (): Promise<void> => {
+                const current = values.schemaData
+                if (current) {
+                    actions.loadSchemaSuccess({ ...current, ...schema })
+                }
+                try {
+                    await api.externalDataSchemas.update(schema.id, buildSchemaUpdatePayload(schema))
+                } catch (e: any) {
+                    lemonToast.error(e?.message || "Can't update schema at this time")
+                } finally {
+                    actions.loadSchema()
+                }
             }
-            try {
-                await api.externalDataSchemas.update(schema.id, buildSchemaUpdatePayload(schema))
-            } catch (e: any) {
-                lemonToast.error(e?.message || "Can't update schema at this time")
-            } finally {
-                actions.loadSchema()
+            const turnsSyncingOn = schema.should_sync && !values.schemaData?.should_sync
+            if (turnsSyncingOn && schema.pending_self_managed_table) {
+                confirmPendingSelfManagedSync(1, () => void runUpdate())
+                return
             }
+            await runUpdate()
         },
         reloadSchema: async ({ schema }) => {
-            const current = values.schemaData
-            if (current) {
-                actions.loadSchemaSuccess({ ...current, status: ExternalDataSchemaStatus.Running })
+            const runReload = async (): Promise<void> => {
+                const current = values.schemaData
+                if (current) {
+                    actions.loadSchemaSuccess({ ...current, status: ExternalDataSchemaStatus.Running })
+                }
+                try {
+                    await api.externalDataSchemas.reload(schema.id)
+                    posthog.capture('schema reloaded', { sourceType: values.source?.source_type })
+                } catch (e: any) {
+                    lemonToast.error(e?.message || 'Cant reload schema at this time')
+                } finally {
+                    actions.loadSchema()
+                }
             }
-            try {
-                await api.externalDataSchemas.reload(schema.id)
-                posthog.capture('schema reloaded', { sourceType: values.source?.source_type })
-            } catch (e: any) {
-                lemonToast.error(e?.message || 'Cant reload schema at this time')
-            } finally {
-                actions.loadSchema()
+            if (schema.pending_self_managed_table) {
+                confirmPendingSelfManagedSync(1, () => void runReload())
+                return
             }
+            await runReload()
         },
         resyncSchema: async ({ schema }) => {
             const current = values.schemaData
@@ -392,6 +413,16 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 lemonToast.success(`Data for ${schema.label ?? schema.name} has been deleted`)
             } catch (e: any) {
                 lemonToast.error(e?.message || "Can't delete data at this time")
+            } finally {
+                actions.loadSchema()
+            }
+        },
+        deleteHistoryTable: async ({ schema }) => {
+            try {
+                await externalDataSchemasHistoryTableDestroy(String(ApiConfig.getCurrentTeamId()), schema.id)
+                lemonToast.success(`${schema.registered_history_table_name ?? 'The history table'} has been deleted`)
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || "Can't delete the history table at this time")
             } finally {
                 actions.loadSchema()
             }

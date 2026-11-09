@@ -39,7 +39,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.schema.flag_evaluations import add_events_list_fields_to_flag_evaluations
+from posthog.hogql.database.schema.flag_evaluations import join_persons_to_flag_evaluations
 from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BUFFER_DAYS
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
@@ -54,20 +54,22 @@ from posthog.hogql.visitor import clear_locations
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 from posthog.models.group.util import create_group
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.property import TableColumn
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_group_type_mapping, create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import insert_static_cohort
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.data_tools.backend.models.expression import DataWarehouseExpression
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
@@ -268,13 +270,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         modifiers: HogQLQueryModifiers | None = None,
         mode: FlagEvaluationsMode = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
     ) -> HogQLQueryResponse:
+        # The force-events switch does not move FLAG_EVALUATIONS_ONLY. The events-side baseline therefore runs on mode 1.
         OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": mode if rewrite else FlagEvaluationsMode.READ_FLAG_EVALUATIONS},
         )
-        with patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: rewrite and key == "hogql-flag-calls-from-flag-evaluations",
-        ):
+        with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", not rewrite):
             return execute_hogql_query(query, team=self.team, filters=filters, modifiers=modifiers, pretty=False)
 
     def _override(self, person_id: uuid.UUID, version: int, is_deleted: bool = False) -> None:
@@ -552,17 +553,18 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [(name, prop, expected_rows, False) for name, prop, expected_rows in FILTER_CASES]
-        # The events list reads `person` through a persons join instead of the stored properties.
+        # The events list and the joined persons mode read `person` through a persons join instead of the stored
+        # properties.
         + [
-            (f"{name}_events_list", prop, expected_rows, True)
+            (f"{name}_persons_join", prop, expected_rows, True)
             for name, prop, expected_rows in FILTER_CASES
             if name == "person"
         ]
     )
-    def test_filter_resolves_with_and_without_the_events_list_fields(
-        self, _name: str, prop, expected_rows: int, events_list_fields: bool
+    def test_filter_resolves_with_and_without_the_persons_join(
+        self, _name: str, prop, expected_rows: int, joins_persons: bool
     ):
-        # Insights read the table without the events list fields. A test account filter of any type must resolve
+        # Insights on most teams read the table without the persons join. A test account filter of any type must resolve
         # there too, or every flag calls insight that filters out test accounts fails.
         create_person(team=self.team, uuid=str(self.person_id), properties={"email": "probe@example.com"})
         create_group_type_mapping(
@@ -587,8 +589,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             return_value=True,
         ):
             database = Database.create_for(team=self.team)
-            if events_list_fields:
-                add_events_list_fields_to_flag_evaluations(database)
+            if joins_persons:
+                join_persons_to_flag_evaluations(database)
             response = execute_hogql_query(
                 f"SELECT {', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)} FROM posthog.flag_evaluations AS flag_evaluations "
                 "WHERE uuid = {row_uuid} AND {filter}",
@@ -727,7 +729,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert f"toIntervalDay({SESSION_BUFFER_DAYS})" in clickhouse
 
-    def test_flag_call_query_on_events_reads_no_flag_evaluations_with_the_flag_off(self):
+    def test_flag_call_query_on_events_reads_no_flag_evaluations_when_reads_are_forced_to_events(self):
         assert self._query_events(FLAG_CALLS_ON_EVENTS, rewrite=False).results == [(0,)]
 
     @parameterized.expand(
@@ -921,6 +923,31 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, "current@example.com"),
+            ("properties_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, "probe@example.com"),
+        ]
+    )
+    def test_swapped_person_properties_come_from_where_the_persons_on_events_mode_reads_them(
+        self, _name: str, persons_on_events_mode: PersonsOnEventsMode, expected_email: str
+    ):
+        # The person merged into another one after the call. The join must key on the corrected person_id.
+        merged_person_id = uuid.uuid4()
+        self._override(merged_person_id, version=1)
+        create_person(team=self.team, uuid=str(self.person_id), properties={"email": "before-merge@example.com"})
+        create_person(team=self.team, uuid=str(merged_person_id), properties={"email": "current@example.com"})
+        flush_persons_and_events()
+
+        response = self._query_events(
+            f"SELECT person.properties.email FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=persons_on_events_mode),
+        )
+
+        assert response.clickhouse is not None
+        assert "FROM flag_evaluations" in response.clickhouse
+        assert response.results == [(expected_email,)]
+
+    @parameterized.expand(
+        [
             (
                 "event_time_group_properties",
                 f"SELECT distinct_id, goe_0.properties FROM events WHERE {FLAG_CALL_CONJUNCTS}",
@@ -950,6 +977,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 PersonsOnEventsMode.DISABLED,
             ),
             (
+                "person_properties_through_distinct_ids",
+                f"SELECT person.properties.email FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+                "a name in it would read a different column",
+                PersonsOnEventsMode.DISABLED,
+            ),
+            (
                 "posthog_events_person_id_through_distinct_ids",
                 f"SELECT person_id FROM posthog.events WHERE {FLAG_CALL_CONJUNCTS}",
                 "a name in it would read a different column",
@@ -962,12 +995,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "AND posthog.events.properties.$feature_flag = 'probe-flag' "
                 "AND posthog__events.timestamp >= now() - INTERVAL 7 DAY",
                 "starts with posthog.events reads another table",
-            ),
-            (
-                "current_person_properties",
-                f"SELECT person.properties.email FROM events WHERE {FLAG_CALL_CONJUNCTS}",
-                "a name in it would read a different column",
-                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
             ),
             (
                 "select_star_next_to_a_join",
@@ -993,7 +1020,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
         assert (
             self._query_events(query, modifiers=modifiers, mode=mode).clickhouse
-            == self._query_events(query, rewrite=False, modifiers=modifiers, mode=mode).clickhouse
+            == self._query_events(query, rewrite=False, modifiers=modifiers).clickhouse
         )
         with self.assertRaisesRegex(QueryError, error):
             self._query_events(query, modifiers=modifiers)
@@ -1262,8 +1289,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             self._query_events("SELECT distinct_id FROM calls")
 
     def test_view_that_names_flag_calls_only_through_an_action_raises(self):
-        action = Action.objects.create(team=self.team, steps_json=[{"event": "$feature_flag_called"}])
-        self._create_view("calls", f"SELECT distinct_id FROM events WHERE matchesAction({action.pk})")
+        action = create_action(team=self.team, steps_json=[{"event": "$feature_flag_called"}])
+        self._create_view("calls", f"SELECT distinct_id FROM events WHERE matchesAction({action.id})")
 
         with self.assertRaisesRegex(QueryError, "it reads the saved view calls, which reads them from events"):
             self._query_events("SELECT distinct_id FROM calls")
@@ -1514,7 +1541,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             "AND properties.$feature_flag = 'TRUE' AND timestamp >= now() - INTERVAL 7 DAY"
         )
 
-        from_events = self._query_events(query, rewrite=False, mode=mode).results
+        from_events = self._query_events(query, rewrite=False).results
 
         swapped = self._query_events(query, mode=mode)
 
@@ -1549,7 +1576,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 event_uuid=str(row_uuid),
             )
             flush_persons_and_events()
-            from_events = self._query_events(query, rewrite=False, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+            from_events = self._query_events(query, rewrite=False)
             rewritten = self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
 
         assert from_events.results == [(expected_count,)]
@@ -1596,7 +1623,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
         mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
 
-        from_events = self._query_events(query, rewrite=False, modifiers=modifiers, mode=mode)
+        from_events = self._query_events(query, rewrite=False, modifiers=modifiers)
         rewritten = self._query_events(query, modifiers=modifiers, mode=mode)
 
         assert rewritten.results == from_events.results

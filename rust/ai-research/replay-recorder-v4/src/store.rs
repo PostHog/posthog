@@ -11,6 +11,8 @@ pub trait BlobStore: Send + Sync {
     /// Writes an object that must not exist yet. The recorder names every object uniquely, so an existing one means
     /// the SDK retried this same write, and the first write stands.
     async fn put_new(&self, bucket: &str, key: &str, body: Vec<u8>) -> Result<(), StoreError>;
+
+    async fn put(&self, bucket: &str, key: &str, body: Vec<u8>) -> Result<(), StoreError>;
 }
 
 pub struct S3Store {
@@ -47,5 +49,17 @@ impl BlobStore for S3Store {
             }
             Err(error) => Err(StoreError(error.to_string())),
         }
+    }
+
+    async fn put(&self, bucket: &str, key: &str, body: Vec<u8>) -> Result<(), StoreError> {
+        self.client
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .body(body.into())
+            .send()
+            .await
+            .map(|_| ())
+            .map_err(|error| StoreError(error.to_string()))
     }
 }

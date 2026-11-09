@@ -266,8 +266,14 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
+        if (params.copy_access_rules_to_history !== undefined) {
+            body['copy_access_rules_to_history'] = params.copy_access_rules_to_history
+        }
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
+        }
+        if (params.masked_columns !== undefined) {
+            body['masked_columns'] = params.masked_columns
         }
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters

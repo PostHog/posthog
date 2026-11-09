@@ -3,11 +3,12 @@ import { Fragment } from 'react'
 
 import { Button, Skeleton, Text, TooltipProvider, cn } from '@posthog/quill'
 
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+import { SidebarSection, SidebarSectionProps } from '~/layout/today/sidebar/SidebarSection'
+
 import { TodayChatRow } from './TodayChatRow'
 import { TodayListAppearanceDialog } from './TodayListAppearanceDialog'
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
-import { TodayPaneSearchList } from './TodayPaneSearchList'
-import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
 import { TodaySessionBulkBar } from './TodaySessionBulkBar'
 import { TodaySessionRow } from './TodaySessionRow'
@@ -102,7 +103,7 @@ export function TodaySpacesSidebar(): JSX.Element {
     const layout = useTodaySectionLayout(layoutSections)
     const sectionLayout = (
         id: TodayWorkSectionId
-    ): Pick<TodayPaneSectionProps, 'open' | 'height' | 'animate' | 'resizer' | 'resizing' | 'contentRef'> => {
+    ): Pick<SidebarSectionProps, 'open' | 'height' | 'animate' | 'resizer' | 'resizing' | 'contentRef'> => {
         const index = layoutSections.findIndex((section) => section.id === id)
         const section = layoutSections[index]
         const previous = index > 0 ? layoutSections[index - 1] : null
@@ -208,7 +209,7 @@ export function TodaySpacesSidebar(): JSX.Element {
         return (
             <TooltipProvider>
                 <div className="TodayPane" data-quill>
-                    <TodayPaneSearchList
+                    <SidebarSearchList
                         query={recentQuery}
                         onQueryChange={setRecentQuery}
                         searchLabel="Search chats"
@@ -224,7 +225,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                         <div className="flex flex-col gap-px" data-attr={`today-spaces-tab-panel-${shownSection}`}>
                             {shownSection === 'pinned' ? pinnedBody : recentBody}
                         </div>
-                    </TodayPaneSearchList>
+                    </SidebarSearchList>
                     <TodaySessionBulkBar />
                     <TodayListAppearanceDialog />
                 </div>
@@ -235,7 +236,7 @@ export function TodaySpacesSidebar(): JSX.Element {
     return (
         <TooltipProvider>
             <div className="TodayPane" data-quill>
-                <TodayPaneSearchList
+                <SidebarSearchList
                     query={recentQuery}
                     onQueryChange={setRecentQuery}
                     searchLabel="Search chats"
@@ -245,7 +246,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                 >
                     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" ref={layout.measureRefs.area}>
                         {hasPinned && (
-                            <TodayPaneSection
+                            <SidebarSection
                                 label="Pinned"
                                 {...sectionLayout('pinned')}
                                 count={pinnedItems.length}
@@ -253,9 +254,9 @@ export function TodaySpacesSidebar(): JSX.Element {
                                 dataAttr="today-section-pinned"
                             >
                                 {pinnedRows}
-                            </TodayPaneSection>
+                            </SidebarSection>
                         )}
-                        <TodayPaneSection
+                        <SidebarSection
                             label="Recent"
                             {...sectionLayout('recent')}
                             count={recentItems.length}
@@ -264,9 +265,9 @@ export function TodaySpacesSidebar(): JSX.Element {
                             dataAttr="today-section-recent"
                         >
                             {recentBody}
-                        </TodayPaneSection>
+                        </SidebarSection>
                     </div>
-                </TodayPaneSearchList>
+                </SidebarSearchList>
                 <TodaySessionBulkBar />
                 <TodayListAppearanceDialog />
             </div>

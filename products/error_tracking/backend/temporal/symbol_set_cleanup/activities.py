@@ -3,7 +3,6 @@ import datetime
 from itertools import batched
 from uuid import UUID
 
-from django.conf import settings
 from django.db import DEFAULT_DB_ALIAS, close_old_connections, models, transaction
 from django.db.models import F, Q
 from django.db.models.lookups import GreaterThan
@@ -14,6 +13,7 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 
+from products.error_tracking.backend.logic import read_database
 from products.error_tracking.backend.models import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
@@ -38,10 +38,6 @@ class _CleanupTotals:
     deleted: int = 0
     db_failed: int = 0
     storage_failed: int = 0
-
-
-def _cleanup_read_database() -> str:
-    return "replica" if "replica" in settings.DATABASES else DEFAULT_DB_ALIAS
 
 
 def _cleanup_branches(inputs: SymbolSetCleanupInputs) -> list[Q]:
@@ -71,7 +67,7 @@ def _after_cursor(cursor: tuple[datetime.datetime | None, datetime.datetime, UUI
 
 def _bucket_queryset(*, query_filter: Q, bucket: int) -> models.QuerySet[ErrorTrackingSymbolSet]:
     return (
-        ErrorTrackingSymbolSet.objects.using(_cleanup_read_database())
+        ErrorTrackingSymbolSet.objects.using(read_database())
         .alias(cleanup_bucket=symbol_set_cleanup_bucket_expression())
         .filter(query_filter, cleanup_bucket=bucket)
         .order_by(

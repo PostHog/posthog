@@ -1,0 +1,13 @@
+import { useWindowDimensions } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useDisplayRegions } from '@/ui/displayRegionContext'
+import { adaptiveLayout } from './adaptiveLayout'
+import { useNativeRail } from './useNativeRail'
+
+export function useAppLayout(): ReturnType<typeof adaptiveLayout> {
+    const { width, height } = useWindowDimensions()
+    const { left, right } = useSafeAreaInsets()
+    const regions = useDisplayRegions()
+    const nativeRail = useNativeRail()
+    return adaptiveLayout(width, height, left, right, regions, nativeRail)
+}

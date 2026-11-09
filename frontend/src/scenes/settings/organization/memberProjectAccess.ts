@@ -41,6 +41,8 @@ export function describeProjectAccessSource(
                 : 'Organization admins always have full access'
         case 'creator':
             return 'Created this project'
+        case 'org_membership':
+            return 'Based on organization membership'
         case 'system_default':
             return 'No access rules set'
     }

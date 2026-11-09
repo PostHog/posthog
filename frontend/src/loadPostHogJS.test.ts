@@ -1,4 +1,4 @@
-import posthog from 'posthog-js'
+import posthog, { CaptureResult, PostHogConfig } from 'posthog-js'
 
 import { AppContext } from '~/types'
 
@@ -70,17 +70,7 @@ describe('loadPostHogJS', () => {
         })
     })
 
-    it.each([
-        ['hobby with self-capture', { run_mode: 'HOBBY' }, true, false],
-        ['hobby with Cloud assets', { run_mode: 'HOBBY' }, false, undefined],
-        ['US cloud', { run_mode: 'US' }, false, undefined],
-        ['EU cloud', { run_mode: 'EU' }, false, undefined],
-        ['cloud development', { run_mode: 'DEV' }, false, undefined],
-        ['local development', { run_mode: 'LOCAL' }, false, undefined],
-        ['E2E', { run_mode: 'E2E' }, false, undefined],
-        ['older app context', {}, false, undefined],
-        ['missing app context', undefined, false, undefined],
-    ] as const)('selects script versioning for %s', (_, context, selfCapture, expected) => {
+    function initConfigFor(context: Partial<AppContext> | undefined, selfCapture: boolean): Partial<PostHogConfig> {
         const original = {
             key: window.JS_POSTHOG_API_KEY,
             host: window.JS_POSTHOG_HOST,
@@ -95,17 +85,48 @@ describe('loadPostHogJS', () => {
         jest.mocked(posthog.init).mockClear()
         try {
             loadPostHogJS()
-            const config = jest.mocked(posthog.init).mock.calls[0][1]
-            if (expected === undefined) {
-                expect(config).not.toHaveProperty('strict_script_versioning')
-            } else {
-                expect(config).toHaveProperty('strict_script_versioning', expected)
-            }
+            return jest.mocked(posthog.init).mock.calls[0][1] ?? {}
         } finally {
             window.JS_POSTHOG_API_KEY = original.key
             window.JS_POSTHOG_HOST = original.host
             window.JS_POSTHOG_SELF_CAPTURE = original.selfCapture
             window.POSTHOG_APP_CONTEXT = original.context
         }
+    }
+
+    it.each([
+        ['hobby with self-capture', { run_mode: 'HOBBY' }, true, false],
+        ['hobby with Cloud assets', { run_mode: 'HOBBY' }, false, undefined],
+        ['US cloud', { run_mode: 'US' }, false, undefined],
+        ['EU cloud', { run_mode: 'EU' }, false, undefined],
+        ['cloud development', { run_mode: 'DEV' }, false, undefined],
+        ['local development', { run_mode: 'LOCAL' }, false, undefined],
+        ['E2E', { run_mode: 'E2E' }, false, undefined],
+        ['older app context', {}, false, undefined],
+        ['missing app context', undefined, false, undefined],
+    ] as const)('selects script versioning for %s', (_, context, selfCapture, expected) => {
+        const config = initConfigFor(context, selfCapture)
+        if (expected === undefined) {
+            expect(config).not.toHaveProperty('strict_script_versioning')
+        } else {
+            expect(config).toHaveProperty('strict_script_versioning', expected)
+        }
+    })
+
+    it.each([
+        ['local development sending to Cloud', { run_mode: 'LOCAL' }, false, false],
+        ['local development with self-capture', { run_mode: 'LOCAL' }, true, true],
+        ['US cloud', { run_mode: 'US' }, false, true],
+        ['hobby with Cloud assets', { run_mode: 'HOBBY' }, false, true],
+    ] as const)('filters exceptions for %s', (_, context, selfCapture, sent) => {
+        const beforeSend = [initConfigFor(context, selfCapture).before_send ?? []].flat()
+        const exception = { uuid: 'example', event: '$exception', properties: {} } as CaptureResult
+        const pageview = { ...exception, event: '$pageview' }
+
+        const runFilters = (event: CaptureResult): CaptureResult | null =>
+            beforeSend.reduce<CaptureResult | null>((current, filter) => (current ? filter(current) : null), event)
+
+        expect(runFilters(exception) !== null).toBe(sent)
+        expect(runFilters(pageview)).not.toBeNull()
     })
 })

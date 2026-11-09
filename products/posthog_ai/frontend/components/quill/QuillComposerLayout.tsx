@@ -118,11 +118,11 @@ export function QuillComposerLayout({
                     <InputGroupAddon
                         ref={chipsRowRef}
                         align="block-start"
-                        className="min-h-0 overflow-hidden data-[ready=true]:transition-[height] data-[ready=true]:duration-200 data-[ready=true]:ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none!"
+                        className="min-h-0 overflow-hidden px-1.5 data-[ready=true]:transition-[height] data-[ready=true]:duration-200 data-[ready=true]:ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none!"
                     >
                         <div
                             ref={chipsContentRef}
-                            className="flex w-full flex-wrap items-center gap-2 pt-2.5 pb-1.5 [&_.LemonTag]:h-6 [&_.LemonTag]:gap-1 [&_.LemonTag]:rounded-sm [&_.LemonTag]:px-2 [&_.LemonTag]:text-xs *:transition-[opacity,translate] *:duration-[180ms] *:ease-[cubic-bezier(0.19,1,0.22,1)] *:starting:-translate-y-1 *:starting:opacity-0 motion-reduce:*:transition-[opacity] motion-reduce:*:starting:translate-y-0"
+                            className="flex w-full flex-wrap items-center gap-2 py-1.5 [&_.LemonTag]:h-6 [&_.LemonTag]:gap-1 [&_.LemonTag]:rounded-sm [&_.LemonTag]:px-2 [&_.LemonTag]:text-xs *:transition-[opacity,translate] *:duration-[180ms] *:ease-[cubic-bezier(0.19,1,0.22,1)] *:starting:-translate-y-1 *:starting:opacity-0 motion-reduce:*:transition-[opacity] motion-reduce:*:starting:translate-y-0"
                         >
                             {chips}
                         </div>

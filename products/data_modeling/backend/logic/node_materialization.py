@@ -1,14 +1,18 @@
+import math
 import asyncio
+from collections.abc import Set as AbstractSet
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
+from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError
 
 from posthog.hogql.database.database import Database
 
@@ -22,7 +26,7 @@ from posthog.temporal.data_modeling.workflows.execute_dag import (
     TRINO_SHADOW_RUN_TIMEOUT,
     ExecuteDAGInputs,
     manual_trino_workflow_id,
-    trino_runs_of_dag_query,
+    trino_build_workflow_id,
 )
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
@@ -31,14 +35,23 @@ from products.data_modeling.backend.facade.contracts import (
     ManagedWarehouseUnavailableError,
     MaterializationAlreadyRunningError,
     MaterializationForbiddenError,
+    MaterializationRanRecentlyError,
     MaterializationRunDirection,
 )
 from products.data_modeling.backend.graph import Graph
+from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, humanize_cadence
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
 from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
 from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
-from products.data_modeling.backend.models import DataModelingJobEngine, Node
+from products.data_modeling.backend.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
+    Node,
+    NodeType,
+)
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 
 logger = structlog.get_logger(__name__)
@@ -46,11 +59,23 @@ logger = structlog.get_logger(__name__)
 
 RELATED_RUN_EDIT_ACCESS_REFUSAL = "You need edit access to every view in this run."
 MANAGED_WAREHOUSE_UNAVAILABLE_REFUSAL = "This organization has no managed warehouse set up."
+# A manual run gets the same floor as a schedule, so a script calling run in a loop cannot rebuild a view
+# more often than the shortest schedule a person may pick.
+MANUAL_RUN_MIN_INTERVAL = min(SCHEDULABLE_BUCKETS)
+RAN_RECENTLY_REFUSAL = (
+    f"This view ran less than {humanize_cadence(MANUAL_RUN_MIN_INTERVAL)} ago, so it can't run again yet."
+)
+RELATED_RUN_RAN_RECENTLY_REFUSAL = (
+    f"Every view in this run ran less than {humanize_cadence(MANUAL_RUN_MIN_INTERVAL)} ago, so it can't run again yet. "
+    "To retry a failed view now, run that view on its own."
+)
+# A DAG run treats plain views as ephemeral and records no job for them, so they cannot show a recent run.
+DAG_BUILT_NODE_TYPES = SAVED_QUERY_NODE_TYPES - {NodeType.VIEW}
 # Long enough for the state changes that follow the start to commit before the workflow first reads them.
 MANUAL_TRINO_RUN_START_DELAY = timedelta(seconds=5)
-TRINO_RUN_ALREADY_RUNNING_REFUSAL = (
-    "A managed warehouse run is already in progress for this project's models. Try again once it finishes."
-)
+MAX_NAMED_BUILDING_MODELS = 5
+BUILDING_LOOKUP_CONCURRENCY = 20
+BUILDING_LOOKUP_TIMEOUT = timedelta(seconds=5)
 
 
 def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_id: int | None = None) -> None:
@@ -86,6 +111,67 @@ def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_
             retry_policy=RetryPolicy(maximum_attempts=1),  # retries handled within the workflow
         )
     )
+
+
+def _latest_runs_inside_limit(
+    team_id: int,
+    saved_query_ids: AbstractSet[UUID | str],
+    *,
+    now: datetime,
+    ignored_statuses: frozenset[str] = frozenset(),
+) -> list[tuple[str, datetime]]:
+    """The status and start of the latest ClickHouse run of each view inside MANUAL_RUN_MIN_INTERVAL.
+
+    A query edit after that run started removes the view, because that run did not build the new query.
+    """
+    latest_runs = (
+        DataModelingJob.objects.filter(
+            team_id=team_id,
+            saved_query_id__in=saved_query_ids,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            created_at__gt=now - MANUAL_RUN_MIN_INTERVAL,
+        )
+        .exclude(status__in=ignored_statuses)
+        .order_by("saved_query_id", "-created_at")
+        .distinct("saved_query_id")
+        .values_list("status", "created_at", "saved_query__query_updated_at")
+    )
+    return [
+        (status, started_at)
+        for status, started_at, query_updated_at in latest_runs
+        if query_updated_at is None or query_updated_at <= started_at
+    ]
+
+
+def _seconds_until_limit_ends(started_at: datetime, now: datetime) -> int:
+    return math.ceil((started_at + MANUAL_RUN_MIN_INTERVAL - now).total_seconds())
+
+
+def raise_if_ran_recently(team_id: int, saved_query_id: UUID | str) -> None:
+    """Refuse a manual run of one view inside the limit. A failed or cancelled latest run can retry at once."""
+    now = timezone.now()
+    for status, started_at in _latest_runs_inside_limit(
+        team_id, {saved_query_id}, now=now, ignored_statuses=frozenset({DataModelingJobStatus.SKIPPED})
+    ):
+        if status in (DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED):
+            raise MaterializationRanRecentlyError(
+                RAN_RECENTLY_REFUSAL, retry_after_seconds=_seconds_until_limit_ends(started_at, now)
+            )
+
+
+def _raise_if_every_view_ran_recently(team_id: int, saved_query_ids: AbstractSet[UUID | str]) -> None:
+    """Refuse a manual run when every view it would build had a run inside the limit, whatever that run's status.
+
+    A failed or skipped view counts here, or one broken view would lift the limit for every view it runs with.
+    The wait is for the view that leaves the limit first, because a retry can succeed from that moment.
+    """
+    now = timezone.now()
+    latest_runs = _latest_runs_inside_limit(team_id, saved_query_ids, now=now)
+    if latest_runs and len(latest_runs) == len(saved_query_ids):
+        raise MaterializationRanRecentlyError(
+            RELATED_RUN_RAN_RECENTLY_REFUSAL,
+            retry_after_seconds=min(_seconds_until_limit_ends(started_at, now) for _, started_at in latest_runs),
+        )
 
 
 def _get_node(team_id: int, node_id: UUID | str) -> Node:
@@ -148,6 +234,12 @@ def run_related_node_materializations(
 ) -> list[str]:
     node = _get_node(team_id, node_id)
     node_ids = _related_node_ids(node, direction=direction, user=user, hidden_types=hidden_types)
+    built_saved_query_ids = set(
+        Node.objects.filter(team_id=team_id, id__in=node_ids, type__in=DAG_BUILT_NODE_TYPES)
+        .exclude(saved_query__deleted=True)
+        .values_list("saved_query_id", flat=True)
+    )
+    _raise_if_every_view_ran_recently(team_id, built_saved_query_ids)
 
     # The workflow skips suspended nodes, so an explicit run must resume every selected node first.
     unsuspend_nodes(Node.objects.filter(team_id=node.team_id, id__in=node_ids), by="manual_run")
@@ -175,6 +267,38 @@ def run_related_node_materializations(
     return sorted(node_ids)
 
 
+async def _nodes_building_on_trino(temporal: Client, dag_id: str, node_ids: list[str]) -> list[str]:
+    """The nodes whose fixed Trino build id has a running workflow.
+
+    This check only gives a clear error before the run starts. The fixed build id is the lock, so a node
+    whose build cannot be read counts as free, and the run skips that node if another run holds it.
+    Lookups are bounded in number and time, so a large selection cannot flood Temporal or stall the request.
+    """
+
+    limit = asyncio.Semaphore(BUILDING_LOOKUP_CONCURRENCY)
+
+    async def is_building(node_id: str) -> bool:
+        try:
+            async with limit:
+                description = await temporal.get_workflow_handle(trino_build_workflow_id(dag_id, node_id)).describe(
+                    rpc_timeout=BUILDING_LOOKUP_TIMEOUT
+                )
+        except RPCError:
+            return False
+        return description.status == WorkflowExecutionStatus.RUNNING
+
+    building = await asyncio.gather(*(is_building(node_id) for node_id in node_ids))
+    return [node_id for node_id, is_busy in zip(node_ids, building) if is_busy]
+
+
+def _models_building_refusal(team_id: int, node_ids: list[str]) -> str:
+    names = sorted(Node.objects.filter(team_id=team_id, id__in=node_ids).values_list("name", flat=True))
+    named = ", ".join(names[:MAX_NAMED_BUILDING_MODELS])
+    if len(names) > MAX_NAMED_BUILDING_MODELS:
+        named += f" and {len(names) - MAX_NAMED_BUILDING_MODELS} more"
+    return f"Another managed warehouse run is building {named}. Try again once it finishes."
+
+
 def run_trino_node_materializations(
     team_id: int,
     node_id: UUID | str,
@@ -187,11 +311,12 @@ def run_trino_node_materializations(
     """Build the node, and optionally its upstreams or downstreams, on the managed warehouse only.
 
     Runs the same managed_warehouse_only DAG run as the scheduled Trino shadow, so ClickHouse is not
-    touched. Refuses while any Trino run of the DAG is in progress, because two runs would write the
-    same Trino tables at once.
+    touched. Refuses while another run builds one of the selected models on Trino. Runs of other
+    models can overlap, because the fixed build id of each node already stops two runs from writing
+    one Trino table at once.
 
-    `full_refresh` drops the node's Trino watermark, and only after every refusal, including losing the
-    race for the run slot, so a refused run does not turn the next scheduled shadow into a full rebuild.
+    `full_refresh` drops the node's Trino watermark, and only after every refusal, so a refused run
+    does not turn the next scheduled shadow into a full rebuild.
     The run starts a few seconds late, so the state changes commit before the workflow reads them.
     """
     node = _get_node(team_id, node_id)
@@ -214,30 +339,22 @@ def run_trino_node_materializations(
         shadow=True,
         manually_triggered_by_id=user.pk,
     )
-    # The scheduled shadow guards overlap only per tier, by its fixed id, so ask Temporal about every tier.
-    running = asyncio.run(temporal.count_workflows(query=trino_runs_of_dag_query(dag_id)))
-    if running.count > 0:
-        raise MaterializationAlreadyRunningError(TRINO_RUN_ALREADY_RUNNING_REFUSAL)
+    building = asyncio.run(_nodes_building_on_trino(temporal, dag_id, sorted(node_ids)))
+    if building:
+        raise MaterializationAlreadyRunningError(_models_building_refusal(node.team_id, building))
 
-    # Take the run slot before changing any state, so a run that loses the race for it changes nothing. The
-    # start is delayed so that the changes below commit before the workflow reads them.
-    try:
-        handle = asyncio.run(
-            temporal.start_workflow(
-                "data-modeling-execute-dag",
-                asdict(inputs),
-                # A fixed id makes Temporal refuse a second manual run that slipped past the count above.
-                id=manual_trino_workflow_id(dag_id),
-                task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
-                id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=TRINO_SHADOW_RUN_TIMEOUT,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                start_delay=MANUAL_TRINO_RUN_START_DELAY,
-            )
+    # The start is delayed so that the changes below commit before the workflow reads them.
+    handle = asyncio.run(
+        temporal.start_workflow(
+            "data-modeling-execute-dag",
+            asdict(inputs),
+            id=manual_trino_workflow_id(dag_id),
+            task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
+            execution_timeout=TRINO_SHADOW_RUN_TIMEOUT,
+            retry_policy=RetryPolicy(maximum_attempts=1),
+            start_delay=MANUAL_TRINO_RUN_START_DELAY,
         )
-    except WorkflowAlreadyStartedError:
-        raise MaterializationAlreadyRunningError(TRINO_RUN_ALREADY_RUNNING_REFUSAL)
+    )
 
     try:
         with transaction.atomic():
