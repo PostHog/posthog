@@ -24,7 +24,7 @@ import { workflowsSavedViewsLogic } from './workflowsSavedViewsLogic'
 const PAGE_SIZE = 100
 
 export function WorkflowsListV2(): JSX.Element {
-    const { viewFilters } = useValues(workflowsSavedViewsLogic)
+    const { viewFilters, viewsResolving } = useValues(workflowsSavedViewsLogic)
     const {
         projectFilesEnabled,
         rows,
@@ -88,6 +88,18 @@ export function WorkflowsListV2(): JSX.Element {
                         Retry
                     </LemonButton>
                 </div>
+            )
+        }
+        if (viewsResolving) {
+            return (
+                <LemonTable
+                    size="small"
+                    dataSource={[]}
+                    loading
+                    columns={buildWorkflowsListV2Columns(shownColumns, metricsLoading)}
+                    nouns={['workflow', 'workflows']}
+                    data-attr="workflows-list-v2-views-loading"
+                />
             )
         }
         const searchPending = serverSearchStatus === 'pending'
@@ -187,7 +199,7 @@ export function WorkflowsListV2(): JSX.Element {
                     <div className="min-w-0 flex-1 @container">
                         <WorkflowFolderDropMonitor />
                         <WorkflowFolderToolbar />
-                        {(loadFailed && !listLoaded) || browserLoadFailed || metricsFailed ? (
+                        {(loadFailed && !listLoaded) || browserLoadFailed || metricsFailed || viewsResolving ? (
                             renderBody()
                         ) : (
                             <WorkflowFolderContents />

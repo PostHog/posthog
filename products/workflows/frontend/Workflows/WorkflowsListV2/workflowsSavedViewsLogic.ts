@@ -94,6 +94,7 @@ export interface workflowsSavedViewsLogicValues {
     viewCounts: Record<string, number>
     viewFilters: FacetFilter[]
     views: WorkflowSavedView[]
+    viewsResolving: boolean
     writeDisabledReason: string | undefined
 }
 
@@ -230,6 +231,11 @@ export interface workflowsSavedViewsLogicMeta {
         ) => FacetFilter[]
         enabled: (featureFlags: FeatureFlagsSet, receivedFeatureFlags: boolean) => boolean
         available: (enabled: boolean, savedViews: WorkflowViewApi[] | null) => boolean
+        viewsResolving: (
+            enabled: boolean,
+            savedViews: WorkflowViewApi[] | null,
+            savedViewsLoadFailed: boolean
+        ) => boolean
         writeDisabledReason: (currentTeamId: number | null, user: UserType | null) => string | undefined
         views: (savedViews: WorkflowViewApi[] | null) => WorkflowSavedView[]
         activeView: (views: WorkflowSavedView[], activeViewId: string) => WorkflowSavedView
@@ -443,6 +449,12 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         available: [
             (s) => [s.enabled, s.savedViews],
             (enabled: boolean, savedViews: WorkflowViewApi[] | null): boolean => enabled && savedViews !== null,
+        ],
+        // Until the views answer, the list cannot know which view applies, so it shows no rows to act on.
+        viewsResolving: [
+            (s) => [s.enabled, s.savedViews, s.savedViewsLoadFailed],
+            (enabled: boolean, savedViews: WorkflowViewApi[] | null, loadFailed: boolean): boolean =>
+                enabled && savedViews === null && !loadFailed,
         ],
         writeDisabledReason: [
             (s) => [s.currentTeamId, s.user],

@@ -1,41 +1,57 @@
+import { useActions, useValues } from 'kea'
+
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { PENDING_ACTION_REASONS, SavedViewAction, WorkflowSavedView } from './workflowSavedViews'
+import { openDeleteWorkflowSavedViewDialog, openWorkflowSavedViewDialog } from './openWorkflowSavedViewDialog'
+import { PENDING_ACTION_REASONS, SavedViewAction } from './workflowSavedViews'
+import { workflowsSavedViewsLogic } from './workflowsSavedViewsLogic'
 
-export interface WorkflowSavedViewActionsProps {
-    activeView: WorkflowSavedView
-    isModified: boolean
-    hasAdditions: boolean
-    activeViewConflicted: boolean
-    canUpdateActiveView: boolean
-    activeViewChanges: string[]
-    pendingAction: SavedViewAction | null
-    writeDisabledReason?: string
-    sharedSaveDisabledReason?: string
-    onReset: () => void
-    onSaveAs: () => void
-    onSave: () => void
-    onRename: () => void
-    onDelete: () => void
+// The dialogs stay open on a failed save, so the user can fix the name or retry.
+async function keepDialogOpenOnFailure(
+    mutate: (onFailure: (failure: unknown) => void) => Promise<void>
+): Promise<void> {
+    let failure: unknown = null
+    await mutate((reported) => {
+        failure = reported
+    })
+    if (failure) {
+        throw failure
+    }
 }
 
-export function WorkflowSavedViewActions({
-    activeView,
-    isModified,
-    hasAdditions,
-    activeViewConflicted,
-    canUpdateActiveView,
-    activeViewChanges,
-    pendingAction,
-    writeDisabledReason,
-    sharedSaveDisabledReason,
-    onReset,
-    onSaveAs,
-    onSave,
-    onRename,
-    onDelete,
-}: WorkflowSavedViewActionsProps): JSX.Element {
+export function WorkflowSavedViewActions(): JSX.Element {
+    const {
+        activeView,
+        isModified,
+        hasAdditions,
+        activeViewConflicted,
+        canUpdateActiveView,
+        activeViewChanges,
+        pendingAction,
+        writeDisabledReason,
+        sharedSaveDisabledReason,
+    } = useValues(workflowsSavedViewsLogic)
+    const { resetView, updateActiveView } = useActions(workflowsSavedViewsLogic)
+    const onReset = (): void => resetView()
+    const onSaveAs = (): void =>
+        openWorkflowSavedViewDialog((name) =>
+            keepDialogOpenOnFailure((onFailure) => workflowsSavedViewsLogic.asyncActions.saveViewAs(name, onFailure))
+        )
+    const onSave = (): void => updateActiveView()
+    const onRename = (): void =>
+        openWorkflowSavedViewDialog(
+            (name) =>
+                keepDialogOpenOnFailure((onFailure) =>
+                    workflowsSavedViewsLogic.asyncActions.renameView(activeView.id, name, onFailure)
+                ),
+            activeView.name
+        )
+    const onDelete = (): void =>
+        openDeleteWorkflowSavedViewDialog(
+            activeView.name,
+            async () => await workflowsSavedViewsLogic.asyncActions.deleteView(activeView.id)
+        )
     const changed = activeViewChanges.join(', ')
     const startedBy = (...actions: SavedViewAction[]): boolean =>
         pendingAction !== null && actions.includes(pendingAction)

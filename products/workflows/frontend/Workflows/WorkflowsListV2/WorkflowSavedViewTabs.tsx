@@ -2,22 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { openDeleteWorkflowSavedViewDialog, openWorkflowSavedViewDialog } from './openWorkflowSavedViewDialog'
 import { WorkflowSavedViewActions } from './WorkflowSavedViewActions'
 import { WorkflowSavedViewTabsRow } from './WorkflowSavedViewTabsRow'
 import { workflowsSavedViewsLogic } from './workflowsSavedViewsLogic'
-
-async function keepDialogOpenOnFailure(
-    mutate: (onFailure: (failure: unknown) => void) => Promise<void>
-): Promise<void> {
-    let failure: unknown = null
-    await mutate((reported) => {
-        failure = reported
-    })
-    if (failure) {
-        throw failure
-    }
-}
 
 export function WorkflowSavedViewTabs(): JSX.Element | null {
     const {
@@ -27,17 +14,12 @@ export function WorkflowSavedViewTabs(): JSX.Element | null {
         viewCounts,
         isModified,
         activeViewChanges,
-        activeView,
-        canUpdateActiveView,
         activeViewConflicted,
-        pendingAction,
-        sharedSaveDisabledReason,
-        writeDisabledReason,
         savedViewsLoadFailed,
         savedViewsLoading,
         hasAdditions,
     } = useValues(workflowsSavedViewsLogic)
-    const { applyView, resetView, updateActiveView, loadSavedViews } = useActions(workflowsSavedViewsLogic)
+    const { applyView, loadSavedViews } = useActions(workflowsSavedViewsLogic)
     if (savedViewsLoadFailed) {
         return (
             <LemonBanner type="warning" className="mb-3">
@@ -69,41 +51,7 @@ export function WorkflowSavedViewTabs(): JSX.Element | null {
                         <WorkflowSavedViewTabsRow {...rowProps} max={7 - saveRoom} />
                     </div>
                 </div>
-                <WorkflowSavedViewActions
-                    activeView={activeView}
-                    isModified={isModified}
-                    hasAdditions={hasAdditions}
-                    activeViewConflicted={activeViewConflicted}
-                    canUpdateActiveView={canUpdateActiveView}
-                    activeViewChanges={activeViewChanges}
-                    pendingAction={pendingAction}
-                    sharedSaveDisabledReason={sharedSaveDisabledReason}
-                    writeDisabledReason={writeDisabledReason}
-                    onReset={() => resetView()}
-                    onSaveAs={() =>
-                        openWorkflowSavedViewDialog((name) =>
-                            keepDialogOpenOnFailure((onFailure) =>
-                                workflowsSavedViewsLogic.asyncActions.saveViewAs(name, onFailure)
-                            )
-                        )
-                    }
-                    onSave={updateActiveView}
-                    onRename={() =>
-                        openWorkflowSavedViewDialog(
-                            (name) =>
-                                keepDialogOpenOnFailure((onFailure) =>
-                                    workflowsSavedViewsLogic.asyncActions.renameView(activeView.id, name, onFailure)
-                                ),
-                            activeView.name
-                        )
-                    }
-                    onDelete={() =>
-                        openDeleteWorkflowSavedViewDialog(
-                            activeView.name,
-                            async () => await workflowsSavedViewsLogic.asyncActions.deleteView(activeView.id)
-                        )
-                    }
-                />
+                <WorkflowSavedViewActions />
             </div>
         </div>
     )

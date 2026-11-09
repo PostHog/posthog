@@ -289,6 +289,47 @@ describe('WorkflowsScene', () => {
         expect(document.body).not.toHaveTextContent('Nothing matches')
     })
 
+    it.each([
+        ['the flat list', false],
+        ['the folder view', true],
+    ])('shows no rows in %s until the saved view from a view link applies', async (_, folders) => {
+        let release: () => void = () => {}
+        const viewsAnswer = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        useMocks({ get: emptyProjectFiles })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/workflow_views/': async () => {
+                    await viewsAnswer
+                    return [200, paginated([])]
+                },
+            },
+            post: { '/api/projects/:team_id/workflow_views/initialize/': () => [403, {}] },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS]: true,
+            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: folders,
+        })
+        router.actions.push(urls.workflows(), { view: 'drafts' })
+        render(
+            <Provider>
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
+            </Provider>
+        )
+        await waitFor(() => expect(workflowsListV2Logic.values.listLoaded).toBe(true))
+        await waitFor(() =>
+            expect(document.querySelector('[data-attr="workflows-list-v2-views-loading"]')).not.toBeNull()
+        )
+        expect(shownRowNames()).toEqual([])
+
+        release()
+        await waitFor(() => expect(shownRowNames()).toEqual(['Renewal reminder', 'Sync accounts to CRM']))
+    })
+
     it('keeps the Customer.io import next to the folder view', async () => {
         useMocks({ get: emptyProjectFiles })
         featureFlagLogic.actions.setFeatureFlags([], {
