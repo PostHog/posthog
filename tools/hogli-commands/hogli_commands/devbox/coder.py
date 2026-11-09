@@ -288,20 +288,24 @@ def _raise_build_terminated(signum: int, _frame: object) -> NoReturn:
     raise _BuildTerminated(signum)
 
 
+def _echo_best_effort(message: str) -> None:
+    with contextlib.suppress(OSError):
+        click.echo(message, err=True)
+
+
 def _cancel_build(proc: subprocess.Popen[str]) -> None:
     if proc.poll() is not None:
         return
     with _signal_handlers(signal.SIG_IGN, _STOP_SIGNALS):
-        click.echo("\nCanceling the Coder build...", err=True)
         proc.send_signal(signal.SIGINT)
+        _echo_best_effort("\nCanceling the Coder build...")
         try:
             proc.communicate(timeout=_BUILD_CANCEL_TIMEOUT)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.communicate()
-            click.echo(
-                "The Coder build did not stop. Check `coder provisioner jobs list` for a job that is still pending.",
-                err=True,
+            _echo_best_effort(
+                "The Coder build did not stop. Check `coder provisioner jobs list` for a job that is still pending."
             )
 
 
@@ -358,14 +362,14 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
                     m = _STEP_RE.match(line)
                     if m:
                         status = m.group(1).strip()
-    except KeyboardInterrupt:
-        _stop_spinner()
-        _cancel_build(proc)
-        raise
     except _BuildTerminated as terminated:
         _stop_spinner()
         _cancel_build(proc)
         raise SystemExit(128 + terminated.signum)
+    except BaseException:
+        _stop_spinner()
+        _cancel_build(proc)
+        raise
     finally:
         _stop_spinner()
 

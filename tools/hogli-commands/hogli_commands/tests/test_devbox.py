@@ -492,11 +492,12 @@ class TestCoderConfig:
             coder._run_build(["coder", "start", "devbox-test-user"])
 
     @pytest.mark.parametrize(
-        "signum, expected",
+        "signum, expected, terminal_closes",
         [
-            (signal.SIGINT, KeyboardInterrupt),
-            (signal.SIGTERM, SystemExit),
-            (signal.SIGHUP, SystemExit),
+            (signal.SIGINT, KeyboardInterrupt, False),
+            (signal.SIGTERM, SystemExit, False),
+            (signal.SIGHUP, SystemExit, False),
+            (signal.SIGHUP, SystemExit, True),
         ],
     )
     def test_run_build_interrupts_coder_when_hogli_is_stopped(
@@ -505,6 +506,7 @@ class TestCoderConfig:
         tmp_path: Path,
         signum: int,
         expected: type[BaseException],
+        terminal_closes: bool,
     ) -> None:
         canceled_marker = tmp_path / "canceled"
         fake_coder = (
@@ -519,10 +521,15 @@ class TestCoderConfig:
         )
         monkeypatch.setattr(coder, "_resolve_coder", lambda args: [sys.executable, "-c", fake_coder])
         real_echo = coder.click.echo
+        terminal_closed = False
 
         def echo_then_signal(message: object = None, **kwargs: Any) -> None:
+            nonlocal terminal_closed
+            if terminal_closed:
+                raise OSError(errno.EIO, "Input/output error")
             real_echo(message, **kwargs)
             if message == "ready\n":
+                terminal_closed = terminal_closes
                 os.kill(os.getpid(), signum)
 
         monkeypatch.setattr(coder.click, "echo", echo_then_signal)
