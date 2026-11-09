@@ -47,6 +47,9 @@ class Command(BaseCommand):
         ids = options["saved_query_ids"]
         output: Path | None = options["output"]
         previous = _read_rows(output) if output is not None and output.exists() else []
+        if options["explain"]:
+            # A row that only compiled has not been planned yet, so an explain run checks it again.
+            previous = [row for row in previous if not (row.ok and row.stage == TrinoCompileCheckStage.COMPILE)]
         rows = list(previous)
         sink = output.open("a") if output is not None else None
         try:
@@ -103,18 +106,25 @@ def _row_json(row: TrinoCompileCheckRow) -> dict[str, Any]:
 
 
 def _read_rows(path: Path) -> list[TrinoCompileCheckRow]:
-    rows = []
-    for line in path.read_text().splitlines():
+    rows: dict[str, TrinoCompileCheckRow] = {}
+    lines = path.read_text().splitlines()
+    for index, line in enumerate(lines):
         if not line.strip():
             continue
-        data = json.loads(line)
-        rows.append(
-            TrinoCompileCheckRow(
-                saved_query_id=data["saved_query_id"],
-                name=data["name"],
-                stage=TrinoCompileCheckStage(data["stage"]),
-                error_code=data["error_code"],
-                message=data["message"],
-            )
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            if index != len(lines) - 1:
+                raise
+            # An interrupted write leaves a partial last record. Drop it so the run can append again.
+            path.write_text("".join(f"{kept}\n" for kept in lines[:index]))
+            break
+        # A model checked again later, such as by an explain run, keeps only its latest row.
+        rows[data["saved_query_id"]] = TrinoCompileCheckRow(
+            saved_query_id=data["saved_query_id"],
+            name=data["name"],
+            stage=TrinoCompileCheckStage(data["stage"]),
+            error_code=data["error_code"],
+            message=data["message"],
         )
-    return rows
+    return list(rows.values())

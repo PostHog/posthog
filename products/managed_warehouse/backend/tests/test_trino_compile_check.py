@@ -98,6 +98,8 @@ class TestTrinoCompileCheck(BaseTest):
             output = Path(directory) / "rows.jsonl"
             call_command("check_trino_compile", team_id=self.team.pk, limit=1, output=output)
             assert [json.loads(line)["name"] for line in output.read_text().splitlines()] == ["a_good"]
+            with output.open("a") as file:
+                file.write('{"saved_query_id": "trunc')
 
             with (
                 patch(
@@ -106,7 +108,29 @@ class TestTrinoCompileCheck(BaseTest):
                 ) as compile_query,
                 self.assertRaises(SystemExit),
             ):
-                call_command("check_trino_compile", team_id=self.team.pk, output=output)
+                call_command("check_trino_compile", team_id=self.team.pk, limit=1, output=output)
 
             assert compile_query.call_count == 1
             assert [json.loads(line)["name"] for line in output.read_text().splitlines()] == ["a_good", "b_refused"]
+
+    def test_explain_run_rechecks_models_that_only_compiled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "rows.jsonl"
+            call_command("check_trino_compile", team_id=self.team.pk, limit=1, output=output)
+
+            cursor = MagicMock()
+            connection = MagicMock()
+            connection.cursor.return_value = cursor
+            with patch(
+                "products.managed_warehouse.backend.trino_compile_check.connect_managed_warehouse_trino"
+            ) as connect:
+                connect.return_value.__enter__.return_value = connection
+                call_command(
+                    "check_trino_compile",
+                    team_id=self.team.pk,
+                    saved_query_ids=str(self.good.id),
+                    explain=True,
+                    output=output,
+                )
+
+            assert any(call.args[0].startswith("EXPLAIN") for call in cursor.execute.call_args_list)

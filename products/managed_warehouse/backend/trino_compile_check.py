@@ -82,8 +82,7 @@ def check_trino_compile(
 
     Yields one row per saved query as soon as it is checked, so a caller can keep partial results.
     """
-    skipped = set(skip_ids)
-    saved_queries = [sq for sq in _load_saved_queries(team.pk, saved_query_ids, limit) if str(sq.id) not in skipped]
+    saved_queries = _load_saved_queries(team.pk, saved_query_ids, limit, skip_ids)
     connection_context = (
         connect_managed_warehouse_trino(
             str(team.organization_id), principal=f"posthog:trino-compile-check:team:{team.pk}"
@@ -97,7 +96,7 @@ def check_trino_compile(
 
 
 def _load_saved_queries(
-    team_id: int, saved_query_ids: Sequence[str] | None, limit: int | None
+    team_id: int, saved_query_ids: Sequence[str] | None, limit: int | None, skip_ids: Iterable[str]
 ) -> list[DataWarehouseSavedQuery]:
     from products.data_modeling.backend.facade.models import (  # noqa: PLC0415 -- the facade loads lazily
         DataWarehouseSavedQuery,
@@ -106,6 +105,7 @@ def _load_saved_queries(
     queryset = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).order_by("name")
     if saved_query_ids is not None:
         queryset = queryset.filter(id__in=saved_query_ids)
+    queryset = queryset.exclude(id__in=list(skip_ids))
     return list(queryset[:limit] if limit is not None else queryset)
 
 
