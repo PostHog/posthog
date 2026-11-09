@@ -16,9 +16,9 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.22.1",
-    "@modelcontextprotocol/ext-apps": "^1.1.2",
-    "@modelcontextprotocol/sdk": "^1.12.1",
-    "@pierre/diffs": "^1.2.10",
+    "@modelcontextprotocol/ext-apps": "^1.7.5",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@pierre/diffs": "^1.2.11",
     "@posthog/agent": "link:../../../../packages/agent/packages/agent",
     "@posthog/api-client": "workspace:*",
     "@posthog/di": "workspace:*",
@@ -26,18 +26,18 @@
     "@posthog/shared": "workspace:*",
     "@posthog/workspace-client": "workspace:*",
     "@tanstack/react-query": "catalog:",
-    "fuse.js": "^7.1.0",
-    "immer": "^11.1.3",
+    "fuse.js": "^7.3.0",
+    "immer": "^11.2.9",
     "inversify": "catalog:",
     "reflect-metadata": "catalog:",
-    "yaml": "^2.9.0",
+    "yaml": "^2.9.1",
     "zod": "^4.1.12",
     "zustand": "^4.5.0"
   },
   "devDependencies": {
     "@posthog/tsconfig": "workspace:*",
     "typescript": "catalog:",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   },
   "files": [
     "src/**/*"

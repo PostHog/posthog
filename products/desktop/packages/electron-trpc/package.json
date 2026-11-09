@@ -29,15 +29,15 @@
     "clean": "node ../../scripts/rimraf.mjs dist .turbo"
   },
   "devDependencies": {
-    "@trpc/client": "^11.8.0",
-    "@trpc/server": "^11.8.0",
+    "@trpc/client": "^11.22.1",
+    "@trpc/server": "^11.22.1",
     "@types/node": "^24.0.0",
-    "@vitest/coverage-v8": "^4.1.8",
-    "electron": "^42.11.16",
+    "@vitest/coverage-v8": "^4.1.12",
+    "electron": "^42.11.18",
     "superjson": "^2.2.2",
     "typescript": "^5.8.3",
     "vite": "^7.0.0",
-    "vitest": "^4.1.8",
+    "vitest": "^4.1.12",
     "zod": "^4.2.0"
   },
   "peerDependencies": {

@@ -19,10 +19,10 @@
   "devDependencies": {
     "@posthog/tsconfig": "workspace:*",
     "prettier": "3.8.1",
-    "tsx": "^4.22.3",
+    "tsx": "^4.23.15",
     "typed-openapi": "2.2.7",
     "typescript": "catalog:",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   },
   "files": [
     "src/**/*"
