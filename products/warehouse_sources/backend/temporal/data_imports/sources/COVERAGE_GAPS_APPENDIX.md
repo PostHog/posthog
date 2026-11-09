@@ -11167,14 +11167,14 @@ Note: Used the official index, then parsed OpenAPI blocks in its linked referenc
 
 ## SimpleCast — **thin**
 
-Today (1): `podcasts`
+Today (6): `downloads`, `episode_downloads`, `episode_listeners`, `episodes`, `listeners`, `podcasts`
 
 Diffed against: <https://apidocs.simplecast.com/api/collections/10068189/T1DsAGJy?environment=8772875-0af62042-2b99-470c-8cdc-df8cd9c2cead&segregateAuth=true&versionTag=latest>
 
-- [ ] `podcasts/{podcast_id}/episodes (GET)` — the core entity — a podcasts-only table has one row per show and nothing to analyze (high)
-- [ ] `analytics/downloads (GET)` — downloads over time, the headline metric of the entire product (high)
-- [ ] `analytics/episodes (GET, plus /average_downloads, /hours_listened, /listeners, /top_10)` — per-episode download and listening figures — the grain every podcast analysis starts from (high)
-- [ ] `analytics/listeners (GET, plus /last_7 and analytics/podcasts/listeners)` — unique listener counts, the audience-size metric distinct from downloads (high)
+- [x] `podcasts/{podcast_id}/episodes (GET)` — the core entity — a podcasts-only table has one row per show and nothing to analyze (high)
+- [x] `analytics/downloads (GET)` — downloads over time, the headline metric of the entire product (high)
+- [x] `analytics/episodes (GET, plus /average_downloads, /hours_listened, /listeners, /top_10)` — per-episode download and listening figures — the grain every podcast analysis starts from (high)
+- [x] `analytics/listeners (GET, plus /last_7 and analytics/podcasts/listeners)` — unique listener counts, the audience-size metric distinct from downloads (high)
 - [ ] `podcasts/{podcast_id}/seasons (GET) and seasons/{season_id}/episodes (GET)` — lookup resolving the season an episode belongs to, needed for any season-over-season comparison (medium)
 - [ ] `analytics/technology/* (GET: applications, browsers, devices, device_class, listening_methods, network_types, operating_systems, providers, web_players)` — listening-platform breakdown dimensions — which apps and devices the audience uses (medium)
 - [ ] `analytics/location (GET)` — geographic breakdown of the audience (medium)
