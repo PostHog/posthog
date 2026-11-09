@@ -5,6 +5,7 @@ import { fireEvent, render } from '@testing-library/react'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
+import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
 import { RawLoad } from '../types'
 import { DatasetButtonSlot } from './DatasetButtonSlot'
 import { makeRawNode } from './testFixtures'
@@ -69,6 +70,46 @@ describe('DatasetButtonSlot', () => {
         if (expected === 'nothing') {
             expect(container).toBeEmptyDOMElement()
         }
+    })
+
+    it.each<[string, AccessControlLevel, (placeholder: Element) => void, boolean]>([
+        [
+            'opens for a click before the read finishes',
+            AccessControlLevel.Editor,
+            (button) => fireEvent.click(button),
+            true,
+        ],
+        [
+            'opens for a press that the swap interrupts before its click',
+            AccessControlLevel.Editor,
+            (button) => fireEvent.mouseDown(button),
+            true,
+        ],
+        [
+            'stays closed after a click and then a press elsewhere',
+            AccessControlLevel.Editor,
+            (button) => {
+                fireEvent.click(button)
+                fireEvent.pointerDown(document.body)
+            },
+            false,
+        ],
+        [
+            'stays closed for a press by a viewer',
+            AccessControlLevel.Viewer,
+            (button) => fireEvent.mouseDown(button),
+            false,
+        ],
+    ])('after the swap the dropdown %s', (_name, level, interact, opens) => {
+        setAiObservabilityAccess(level)
+        const { container, rerender } = render(
+            <DatasetButtonSlot raw={{ status: 'loading' }} source={null} onLoad={jest.fn()} />
+        )
+        interact(container.querySelector('[data-attr="save-to-dataset-placeholder"]')!)
+
+        rerender(<DatasetButtonSlot raw={ready} source={source} onLoad={jest.fn()} />)
+
+        expect(saveToDatasetButtonLogic.findMounted()?.values.dropdownVisible).toBe(opens)
     })
 
     it('disables the placeholder like the real button for a viewer', () => {

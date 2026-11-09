@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { IconDatabase } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -24,11 +24,30 @@ const RETRY_TEXT = "Couldn't load this step's event. Click to try again."
 
 // The button needs the step's raw event, which is read when the user reaches for it. The real button is a different
 // DOM element from the placeholder, so the swap drops keyboard focus and the click that started the read. The slot
-// remembers that intent and gives focus to the real button, and opens its dropdown for a click.
+// remembers that intent and gives focus to the real button, and opens its dropdown for a press.
 export function DatasetButtonSlot({ raw, source, onLoad }: DatasetButtonSlotProps): JSX.Element | null {
     const slotRef = useRef<HTMLSpanElement>(null)
     const intent = useRef<Intent>('none')
     const ready = source !== null
+    const disabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.LlmAnalytics,
+        AccessControlLevel.Editor
+    )
+
+    useEffect(() => {
+        if (ready) {
+            return
+        }
+        // A press anywhere else means the user moved on. Blur cannot tell this apart from the swap, because a press on
+        // text that cannot take focus also moves focus to nothing.
+        const cancelOnPressElsewhere = (event: PointerEvent): void => {
+            if (!(event.target instanceof Node && slotRef.current?.contains(event.target))) {
+                intent.current = 'none'
+            }
+        }
+        document.addEventListener('pointerdown', cancelOnPressElsewhere, true)
+        return () => document.removeEventListener('pointerdown', cancelOnPressElsewhere, true)
+    }, [ready])
 
     useEffect(() => {
         if (!ready || intent.current === 'none') {
@@ -71,26 +90,29 @@ export function DatasetButtonSlot({ raw, source, onLoad }: DatasetButtonSlotProp
                 }
             }}
         >
-            <AccessControlAction
-                resourceType={AccessControlResourceType.LlmAnalytics}
-                minAccessLevel={AccessControlLevel.Editor}
-            >
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    icon={loading ? <Spinner /> : <IconDatabase />}
-                    aria-busy={loading}
-                    tooltip={failed ? RETRY_TEXT : undefined}
-                    aria-label={failed ? `Add to dataset. ${RETRY_TEXT}` : undefined}
-                    onClick={() => {
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                icon={loading ? <Spinner /> : <IconDatabase />}
+                aria-busy={loading}
+                disabledReason={disabledReason}
+                tooltip={failed ? RETRY_TEXT : undefined}
+                aria-label={failed ? `Add to dataset. ${RETRY_TEXT}` : undefined}
+                // The read can finish while the button is held down. The swap then removes the pressed element, so
+                // its click never fires, and the press itself has to record the intent.
+                onMouseDown={(event) => {
+                    if (event.button === 0 && !disabledReason) {
                         intent.current = 'open'
-                        onLoad()
-                    }}
-                    data-attr="save-to-dataset-placeholder"
-                >
-                    Add to dataset
-                </LemonButton>
-            </AccessControlAction>
+                    }
+                }}
+                onClick={() => {
+                    intent.current = 'open'
+                    onLoad()
+                }}
+                data-attr="save-to-dataset-placeholder"
+            >
+                Add to dataset
+            </LemonButton>
         </span>
     )
 }
