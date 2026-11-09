@@ -144,6 +144,6 @@ tools:
     warehouse-suggestions-surface-more:
         operation: warehouse_suggestions_surface_more_create
         enabled: false
-        disabled_reason: >-
+        disabled_reason:
             The button behind this endpoint relaxes the daily limit for a person browsing the page. Agents already
             list every open suggestion, so they gain nothing from showing more.
