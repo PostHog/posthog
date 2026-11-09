@@ -103,12 +103,13 @@ def _chained_resource(
     assert config.parent is not None and config.parent_param is not None
     pages = STATUSPAGE_ENDPOINTS[_PARENT_ENDPOINT]
     middle = STATUSPAGE_ENDPOINTS[config.parent]
+    child_params: dict[str, Any] = {
+        "page_id": {"type": "resolve", "resource": middle.name, "field": "page_id"},
+        config.parent_param: {"type": "resolve", "resource": middle.name, "field": "id"},
+    }
     child_endpoint: dict[str, Any] = {
         "path": config.path,
-        "params": {
-            "page_id": {"type": "resolve", "resource": middle.name, "field": "page_id"},
-            config.parent_param: {"type": "resolve", "resource": middle.name, "field": "id"},
-        },
+        "params": child_params,
         "response_actions": [
             *_RETRY_ACTIONS,
             *({"status_code": status, "action": "ignore"} for status in config.ignore_statuses),
@@ -117,7 +118,7 @@ def _chained_resource(
     if config.single_object:
         child_endpoint |= {"paginator": "single_page", "data_selector": None, "data_selector_required": False}
     else:
-        child_endpoint["params"][config.page_size_param] = config.page_size
+        child_params[config.page_size_param] = config.page_size
 
     return cast(
         Resource,
@@ -279,6 +280,8 @@ def statuspage_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
+        # A chained fan-out saves no cursor, so a shutdown hand-off would restart it from the top.
+        supports_resume=config.parent is None,
     )
 
 

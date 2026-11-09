@@ -198,6 +198,8 @@ class TestSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == config.primary_key
         assert response.sort_mode == "asc"
+        # Chained endpoints save no cursor, so the pipeline must not hand them off as resumable.
+        assert response.supports_resume is (config.parent is None)
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [config.partition_key]
