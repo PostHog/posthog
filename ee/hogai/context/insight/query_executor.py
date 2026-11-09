@@ -263,7 +263,9 @@ class AssistantQueryExecutor:
         _utc_now_datetime: Current UTC datetime for time-based calculations
     """
 
-    WAIT_TIME_S = 0.5
+    FIRST_POLL_INTERVAL_S = 0.05
+    POLL_BACKOFF_COEFFICIENT = 1.5
+    MAX_POLL_INTERVAL_S = 0.5
 
     def __init__(
         self,
@@ -512,6 +514,7 @@ class AssistantQueryExecutor:
                     polling_start = time.time()
                     poll_count = 0
                     total_wait_s = 0.0
+                    poll_interval_s = self.FIRST_POLL_INTERVAL_S
 
                     if debug_timing:
                         logger.warning(
@@ -519,17 +522,18 @@ class AssistantQueryExecutor:
                         )
 
                     # Poll async query until completion
-                    # Total wait time: 5 minutes with linear increments
+                    # Total wait time: 5 minutes with increments growing up to MAX_POLL_INTERVAL_S
                     while total_wait_s <= 60 * 5:
                         poll_count += 1
-                        total_wait_s += self.WAIT_TIME_S
+                        total_wait_s += poll_interval_s
 
                         if poll_count % 10 == 0 and debug_timing:  # Log every 10 polls
                             logger.warning(
                                 f"{TIMING_LOG_PREFIX} Polling attempt {poll_count}, total wait: {total_wait_s:.1f}s"
                             )
 
-                        await asyncio.sleep(self.WAIT_TIME_S)  # wait in seconds
+                        await asyncio.sleep(poll_interval_s)  # wait in seconds
+                        poll_interval_s = min(poll_interval_s * self.POLL_BACKOFF_COEFFICIENT, self.MAX_POLL_INTERVAL_S)
 
                         status_check_start = time.time()
                         # Fast operation–Redis access

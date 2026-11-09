@@ -11,18 +11,31 @@ from products.warehouse_sources.sources.sdk import (
     IncrementalConfig,
     JSONResponsePaginator,
     Resource,
+    ResponseAction,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_chained_resource,
     make_tracked_session,
+    rename_parent_fields,
     rest_api_resource,
     rest_api_resources,
 )
-from products.warehouse_sources.sources.surveymonkey.settings import DEFAULT_PAGE_SIZE, SURVEYMONKEY_ENDPOINTS
+from products.warehouse_sources.sources.surveymonkey.settings import (
+    DEFAULT_PAGE_SIZE,
+    MESSAGING_COLLECTOR_TYPES,
+    SURVEYMONKEY_ENDPOINTS,
+    SurveyMonkeyEndpointConfig,
+)
 
 # SurveyMonkey lists wrap rows in a `data` array and expose the next page as a full URL under
 # `links.next`; the client walks that URL until it's absent.
 _SURVEYS_INCLUDE = "date_created,date_modified,response_count,question_count"
+
+# A collector or message removed between its listing and the child fetch must not sink the run.
+_IGNORE_NOT_FOUND: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+_COLLECTOR_ID_RENAMES = {"id": "collector_id", "survey_id": "survey_id"}
+_MESSAGE_ID_RENAMES = {"id": "message_id", "collector_id": "collector_id", "survey_id": "survey_id"}
 
 
 @dataclasses.dataclass(frozen=False)
@@ -158,13 +171,20 @@ def _parent_surveys_resource() -> EndpointResource:
     }
 
 
+def _list_params(config: SurveyMonkeyEndpointConfig) -> dict[str, Any]:
+    params: dict[str, Any] = dict(config.extra_params)
+    if config.page_size is not None:
+        params["per_page"] = config.page_size
+    return params
+
+
 def _fanout_child_resource(endpoint: str, incremental: IncrementalConfig | None) -> EndpointResource:
     config = SURVEYMONKEY_ENDPOINTS[endpoint]
     child_endpoint: Endpoint = {
         "path": config.path,
         "params": {
             "survey_id": {"type": "resolve", "resource": "surveys", "field": "id"},
-            "per_page": config.page_size,
+            **_list_params(config),
         },
         "data_selector": "data",
     }
@@ -191,6 +211,90 @@ def _questions_resource() -> EndpointResource:
         },
         "data_map": _explode_questions,
     }
+
+
+def _messaging_collectors(row: dict[str, Any]) -> list[dict[str, Any]]:
+    # Weblink, popup and other collectors have no messages or recipients, so they are dropped
+    # before the child fetch rather than spending a call each.
+    if row.get("type") not in MESSAGING_COLLECTOR_TYPES:
+        return []
+    if "_surveys_id" in row:
+        row["survey_id"] = row.pop("_surveys_id")
+    return [row]
+
+
+def _messaging_collectors_resource() -> EndpointResource:
+    endpoint: Endpoint = {
+        "path": SURVEYMONKEY_ENDPOINTS["collectors"].path,
+        "params": {
+            "survey_id": {"type": "resolve", "resource": "surveys", "field": "id"},
+            "per_page": DEFAULT_PAGE_SIZE,
+            "include": "type",
+        },
+        "data_selector": "data",
+        "response_actions": _IGNORE_NOT_FOUND,
+    }
+    return {
+        "name": "collectors",
+        "include_from_parent": ["id"],
+        "endpoint": endpoint,
+        "data_map": _messaging_collectors,
+    }
+
+
+def _collector_child_resource(config: SurveyMonkeyEndpointConfig) -> EndpointResource:
+    params: dict[str, Any] = {
+        "collector_id": {"type": "resolve", "resource": "collectors", "field": "id"},
+        **_list_params(config),
+    }
+    endpoint: Endpoint = {
+        "path": config.path,
+        "params": params,
+        "data_selector": "data",
+        "response_actions": _IGNORE_NOT_FOUND,
+    }
+    return {"name": config.name, "include_from_parent": ["id", "survey_id"], "endpoint": endpoint}
+
+
+def _message_stats_resource(config: SurveyMonkeyEndpointConfig) -> EndpointResource:
+    endpoint: Endpoint = {
+        "path": config.path,
+        "params": {
+            "collector_id": {"type": "resolve", "resource": "collector_messages", "field": "collector_id"},
+            "message_id": {"type": "resolve", "resource": "collector_messages", "field": "id"},
+        },
+        # The stats body is one object of counts, not a paged list.
+        "data_selector": None,
+        "paginator": "single_page",
+        "response_actions": _IGNORE_NOT_FOUND,
+    }
+    return {"name": config.name, "include_from_parent": ["id", "collector_id", "survey_id"], "endpoint": endpoint}
+
+
+def _collector_chain_resource(endpoint: str, client_config: ClientConfig, team_id: int, job_id: str) -> Resource:
+    config = SURVEYMONKEY_ENDPOINTS[endpoint]
+    resources: list[EndpointResource] = [_parent_surveys_resource(), _messaging_collectors_resource()]
+    if endpoint == "collector_message_stats":
+        messages_resource = _collector_child_resource(SURVEYMONKEY_ENDPOINTS["collector_messages"])
+        # The stats path binds the collector id, so the message rows carry it under a plain name.
+        messages_resource["data_map"] = rename_parent_fields("collectors", _COLLECTOR_ID_RENAMES)
+        resources += [messages_resource, _message_stats_resource(config)]
+        parent_name, renames = "collector_messages", _MESSAGE_ID_RENAMES
+    else:
+        resources.append(_collector_child_resource(config))
+        parent_name, renames = "collectors", _COLLECTOR_ID_RENAMES
+
+    chained = build_chained_resource(
+        resources=resources,
+        child_name=endpoint,
+        parent_name=parent_name,
+        parent_field_renames=renames,
+        client_config=client_config,
+        team_id=team_id,
+        job_id=job_id,
+    )
+    assert isinstance(chained, Resource)
+    return chained
 
 
 def surveymonkey_source(
@@ -233,6 +337,8 @@ def surveymonkey_source(
             resume_hook=save_simple,
             initial_paginator_state=(resume.paginator_state if resume is not None else None),
         )
+    elif config.is_collector_fanout:
+        resource = _collector_chain_resource(endpoint, client_config, team_id, job_id)
     else:
         child_resource = (
             _questions_resource() if endpoint == "survey_questions" else _fanout_child_resource(endpoint, incremental)
@@ -260,7 +366,7 @@ def surveymonkey_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_key,
         sort_mode="asc",
         partition_count=1,
         partition_size=1,
