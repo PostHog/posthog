@@ -43,7 +43,12 @@ from posthog.models.user import User
 from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
 from ee.billing.grants import EffectiveBillingGrants
-from ee.billing.quota_limiting import BILLING_STATUS_STAMP_KEYS, set_org_usage_summary, update_org_billing_quotas
+from ee.billing.quota_limiting import (
+    BILLING_STATUS_STAMP_KEYS,
+    _patch_organization_usage_jsonb,
+    set_org_usage_summary,
+    update_org_billing_quotas,
+)
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -905,23 +910,30 @@ class BillingManager:
                 org_modified = True
 
         package = _billing_package(data)
-        if (
+        package_changed = (
             package is not None
             and organization.usage is not None
             and organization.usage.get(BILLING_PACKAGE_USAGE_KEY) != package
-        ):
+        )
+        if package_changed:
             organization.usage[BILLING_PACKAGE_USAGE_KEY] = package
-            org_modified = True
 
-        # The stamp goes out only with a save that a change already needs. A save for the stamp
+        # The stamp goes out only with a write that a change already needs. A save for the stamp
         # alone writes this in-memory copy back over counters and quota markers that the quota
         # run wrote in the meantime.
-        if org_modified and computed_at is not None and organization.usage is not None:
+        stamped = (org_modified or package_changed) and computed_at is not None and organization.usage is not None
+        if stamped:
             organization.usage["billing_status_computed_at"] = computed_at.isoformat()
             organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
         if org_modified:
             organization.save()
+        elif package_changed:
+            stamp_keys = BILLING_STATUS_STAMP_KEYS if stamped else ()
+            _patch_organization_usage_jsonb(
+                organization,
+                [([key], organization.usage[key]) for key in (BILLING_PACKAGE_USAGE_KEY, *stamp_keys)],
+            )
 
         if events_retention_changed:
             apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
