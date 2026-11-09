@@ -101,6 +101,7 @@ import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
 import { PosthogJwtAudience } from './utils/jwt-utils'
 import { ScopedServiceJwt } from './utils/scoped-service-jwt'
+import { testedSecretInputs } from './utils/secret-origins'
 import { parseWorkflowStepDispatchKey } from './utils/workflow-step-dispatch-key'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
@@ -642,6 +643,9 @@ export class CdpApi {
                 ...hogFunction,
                 ...configuration,
                 team_id: team.id,
+            }
+            if (configuration) {
+                compoundConfiguration.encrypted_inputs = testedSecretInputs(compoundConfiguration)
             }
 
             let logs: MinimalLogEntry[] = []

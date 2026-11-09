@@ -29,6 +29,7 @@ export type SecretOriginCheck = {
     refusal: SecretOriginRefusal | null
 }
 
+// `origin` is for display only, so it has the function's secrets redacted.
 type CarriedSecret = { inputKey: string; origin: string; outcome: SecretOriginOutcome }
 
 type CheckedHogFunction = Pick<
@@ -38,6 +39,8 @@ type CheckedHogFunction = Pick<
 
 // A shorter value matches too much unrelated text in a URL, header or body, such as a JSON key or a path segment.
 const MIN_SCANNED_SECRET_LENGTH = 8
+
+const REDACTED = '***REDACTED***'
 
 export const secretOriginCheckCounter = new Counter({
     name: 'cdp_secret_origin_check_total',
@@ -144,22 +147,62 @@ function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRe
     // `application/json` in both the plain and the secret headers, is not secret, and sending it to another origin
     // leaks nothing. Without this, an enforced team could not send such a value to a second origin at all.
     const knownTexts = publicTexts(hogFunction)
-    const sentTexts = [request.url, ...Object.values(request.headers), request.body ?? '']
+    const sentTexts = [
+        request.url,
+        ...Object.keys(request.headers),
+        ...Object.values(request.headers),
+        request.body ?? '',
+    ]
     const isSent = (secret: string): boolean =>
         secret.length >= MIN_SCANNED_SECRET_LENGTH &&
         !knownTexts.has(secret) &&
         sentTexts.some((text) => typeof text === 'string' && text.includes(secret))
 
+    const shownOrigin = withoutSecrets(
+        origin,
+        Object.values(encryptedInputs).flatMap((input) => (isRecord(input) ? textLeaves(input.value) : []))
+    )
     const carried: CarriedSecret[] = []
     for (const [inputKey, input] of Object.entries(encryptedInputs)) {
         if (!isRecord(input)) {
             continue
         }
         if (named.has(inputKey) || textLeaves(input.value).some(isSent)) {
-            carried.push({ inputKey, origin, outcome: originOutcome(input.allowed_origins, origin) })
+            carried.push({ inputKey, origin: shownOrigin, outcome: originOutcome(input.allowed_origins, origin) })
         }
     }
     return carried
+}
+
+/**
+ * A secret in the request host would reach the worker logs and the function's logs through the origin they report.
+ * The URL parser lowercases the host, so the match ignores case.
+ */
+function withoutSecrets(origin: string, secrets: string[]): string {
+    return secrets
+        .filter((secret) => secret.length >= MIN_SCANNED_SECRET_LENGTH)
+        .reduce((shown, secret) => shown.replaceAll(secret.toLowerCase(), REDACTED), origin)
+}
+
+/**
+ * The secret inputs a test of an unsaved configuration sends, picked as `HogFunction.move_secret_inputs` picks them on
+ * save. Django restores each secret the configuration keeps into its inputs and binds it to the origins of the tested
+ * code, so that input wins over the cached function's secret. A cached secret under a key the configuration does not
+ * mark secret is dropped, so a test cannot send it under a binding Django never checked.
+ */
+export function testedSecretInputs(
+    configuration: Pick<HogFunctionType, 'inputs' | 'inputs_schema' | 'encrypted_inputs'>
+): NonNullable<HogFunctionType['encrypted_inputs']> {
+    const stored: unknown = configuration.encrypted_inputs
+    const storedInputs = isRecord(stored) ? (stored as NonNullable<HogFunctionType['encrypted_inputs']>) : {}
+    const tested: NonNullable<HogFunctionType['encrypted_inputs']> = {}
+    for (const { key, secret } of configuration.inputs_schema ?? []) {
+        const input = configuration.inputs?.[key] ?? storedInputs[key]
+        if (secret && input) {
+            tested[key] = input
+        }
+    }
+    return tested
 }
 
 // Fails open on an internal error, because a refused request is a lost delivery.

@@ -105,13 +105,11 @@ export interface HogExecutorAsyncDependencies {
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
     maxAsyncFunctions?: number
     maxFetchRetries?: number
-    // Set only by the editor's test panel ("Run test"), marking this invocation as a test send. Three
+    // Set only by the editor's test panel ("Run test"), marking this invocation as a test send. Two
     // effects: emails run inline via EmailService instead of routing to the email queue (the test
     // endpoint executes in-process and never enqueues to cyclotron, so routing would leave the job
-    // unworked), messaging channels skip metrics/assets so a test doesn't pollute the workflow's
-    // Metrics and Assets tabs, and the secret origin check is skipped. The test endpoint binds the
-    // configuration's secrets before it forwards them, but the check reads the cached function's older
-    // bindings, so it would refuse, count and warn about a secret entered again for a new address.
+    // unworked), and messaging channels skip metrics/assets so a test doesn't pollute the workflow's
+    // Metrics and Assets tabs.
     isTest?: boolean
 }
 
@@ -416,7 +414,7 @@ export class HogExecutorAsyncService {
     @instrumented('hog-executor.executeFetch')
     async executeFetch(
         invocation: CyclotronJobInvocationHogFunction,
-        options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries' | 'isTest'>
+        options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries'>
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const templateId = invocation.hogFunction.template_id ?? 'unknown'
         if (invocation.queueParameters?.type !== 'fetch') {
@@ -552,22 +550,20 @@ export class HogExecutorAsyncService {
             fetchParams.body = requestBody
         }
 
-        if (!options?.isTest) {
-            const originCheck = this.secretOriginGuard.check(invocation.hogFunction, {
-                url: params.url,
-                headers: signedHeaders,
-                body: requestBody,
-                params,
-            })
-            if (!invocation.state.attempts) {
-                countSecretOriginCheck(originCheck)
-            }
-            const { refusal } = originCheck
-            if (refusal) {
-                return failFetch(
-                    `Refused to send the request to ${refusal.origin} because it contains the secret input ${refusal.inputKey}, which can only be sent to the addresses saved with it. To send it to ${refusal.origin}, enter the secret again in this destination and save.`
-                )
-            }
+        const originCheck = this.secretOriginGuard.check(invocation.hogFunction, {
+            url: params.url,
+            headers: signedHeaders,
+            body: requestBody,
+            params,
+        })
+        if (!invocation.state.attempts) {
+            countSecretOriginCheck(originCheck)
+        }
+        const { refusal } = originCheck
+        if (refusal) {
+            return failFetch(
+                `Refused to send the request to ${refusal.origin} because it contains the secret input ${refusal.inputKey}, which can only be sent to the addresses saved with it. To send it to ${refusal.origin}, enter the secret again in this destination and save.`
+            )
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({

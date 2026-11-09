@@ -1829,6 +1829,7 @@ describe('Hog Executor', () => {
             type Carry =
                 | 'body'
                 | 'secret_headers'
+                | 'header_name'
                 | 'aws_sigv4'
                 | 'standard_webhooks'
                 | 'body_beside_bound_secret'
@@ -1862,6 +1863,7 @@ describe('Hog Executor', () => {
                             other_key: { value: 'unsent_secret_value', allowed_origins: ['https://elsewhere.example'] },
                         },
                     },
+                    header_name: { params: { headers: { [secret]: '1' } }, inputs: { api_key: secret } },
                     secret_headers: {
                         params: { secret_headers_input: 'api_key' },
                         inputs: { api_key: { Authorization: `Bearer ${secret}` } },
@@ -1958,33 +1960,23 @@ describe('Hog Executor', () => {
                     config: { secretOriginCheckObserveTeams: '', secretOriginCheckEnforceTeams: '' },
                     allowed: [],
                     attempts: 0,
-                    isTest: false,
                     warns: false,
                 },
-                { case: 'a retry', config: {}, allowed: [], attempts: 1, isTest: false, warns: true },
+                { case: 'a retry', config: {}, allowed: [], attempts: 1, warns: true },
                 {
                     case: 'secrets saved before binding',
                     config: {},
                     allowed: undefined,
                     attempts: 0,
-                    isTest: false,
                     warns: false,
                 },
-                {
-                    case: 'a test invocation of an enforced team',
-                    config: { secretOriginCheckEnforceTeams: '*' },
-                    allowed: [],
-                    attempts: 0,
-                    isTest: true,
-                    warns: false,
-                },
-            ])('sends and counts nothing when $case', async ({ config, allowed, attempts, isTest, warns }) => {
+            ])('sends and counts nothing when $case', async ({ config, allowed, attempts, warns }) => {
                 const warn = jest.spyOn(logger, 'warn')
                 const invocation = await secretInvocation(`${baseUrl}/`, allowed)
                 invocation.state.attempts = attempts
                 const before = await readTotal()
 
-                const result = await createExecutor(hub.encryptedFields, config).executeFetch(invocation, { isTest })
+                const result = await createExecutor(hub.encryptedFields, config).executeFetch(invocation)
 
                 expect(mockRequest).toHaveBeenCalledTimes(1)
                 expect(result.error).toBeUndefined()
@@ -2029,6 +2021,12 @@ describe('Hog Executor', () => {
                     case: 'a mismatched secret header',
                     allowed: ['https://elsewhere.example'],
                     carry: 'secret_headers',
+                    sent: false,
+                },
+                {
+                    case: 'a mismatched secret in a header name',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'header_name',
                     sent: false,
                 },
                 {
@@ -2115,6 +2113,25 @@ describe('Hog Executor', () => {
 
                 expect(fetch).toHaveBeenCalledTimes(sent ? 1 : 0)
                 expect(result.error === undefined).toBe(sent)
+            })
+
+            it('enforce: leaves a secret in the host out of the refusal and the warning', async () => {
+                const secret = 'Sk_Test_Origin_0000000000'
+                const warn = jest.spyOn(logger, 'warn')
+                const invocation = await secretInvocation(
+                    `https://${secret}.evil.example/`,
+                    ['https://good.example'],
+                    'body',
+                    secret
+                )
+
+                const result = await enforcingExecutor().executeFetch(invocation)
+
+                expect(result.logs.map((log) => log.message)).toEqual([
+                    expect.stringContaining('https://***REDACTED***.evil.example'),
+                ])
+                expect(warn.mock.calls.some(([, , context]) => context?.inputKey === 'api_key')).toBe(true)
+                expect(JSON.stringify([result.logs, warn.mock.calls]).toLowerCase()).not.toContain(secret.toLowerCase())
             })
 
             it.each([
