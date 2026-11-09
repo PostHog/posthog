@@ -46,6 +46,20 @@ class Priority(models.TextChoices):
     CRITICAL = "critical", "Critical"
 
 
+class TicketBriefItemKind(models.TextChoices):
+    DASHBOARD = "dashboard", "Dashboard"
+    EXPERIMENT = "experiment", "Experiment"
+    FEATURE_FLAG = "feature_flag", "Feature flag"
+    INSIGHT = "insight", "Insight"
+    PROJECT = "project", "Project"
+    REPLAY = "replay", "Replay"
+    SURVEY = "survey", "Survey"
+    # Not a PostHog object: a GitHub pull request, a vulnerability report, a status page.
+    # Customers cite these often enough that without a kind for them the link is dropped.
+    EXTERNAL = "external", "External link"
+    OTHER = "other", "Other"
+
+
 class TicketMessageType(models.TextChoices):
     CUSTOMER_MESSAGE = "customer_message", "Customer message"
     SENT_REPLY = "sent_reply", "Sent reply"
