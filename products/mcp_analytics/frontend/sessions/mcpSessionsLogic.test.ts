@@ -236,6 +236,34 @@ describe('mcpSessionsLogic', () => {
             expect(logic.values.selectedSessionToolCalls.loadingMore).toBe(expected)
         })
 
+        it.each([
+            ['fails', (other: { reject: (e: Error) => void }) => other.reject(new Error('Unavailable'))],
+            ['succeeds', (other: { resolve: (v: any) => void }) => other.resolve({ results: [], has_next: false })],
+        ])("keeps A's load more spinning when B's load more %s first", async (_label, settle) => {
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+            toolCallsMock.mockResolvedValueOnce({ results: [toolCall('b1')], has_next: true })
+            await expectLogic(logic, () => logic.actions.selectSession('B')).toDispatchActions(['loadToolCallsSuccess'])
+            let otherRequest: { resolve: (v: any) => void; reject: (e: Error) => void } = {
+                resolve: () => {},
+                reject: () => {},
+            }
+            toolCallsMock.mockImplementationOnce(pending)
+            toolCallsMock.mockImplementationOnce(
+                () => new Promise((resolve, reject) => (otherRequest = { resolve, reject }))
+            )
+            logic.actions.selectSession('A')
+            logic.actions.loadMoreToolCalls('A')
+            logic.actions.selectSession('B')
+            logic.actions.loadMoreToolCalls('B')
+
+            settle(otherRequest)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            logic.actions.selectSession('A')
+
+            expect(logic.values.selectedSessionToolCalls.loadingMore).toBe(true)
+            consoleErrorSpy.mockRestore()
+        })
+
         it('keeps the cached calls when a refetch fails', async () => {
             const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
             toolCallsMock.mockRejectedValueOnce(new Error('Unavailable'))
