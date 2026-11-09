@@ -18,14 +18,14 @@ import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 
 import { holdUntilSettled } from './in-flight-registry'
 
-const DAY_MS = 24 * 60 * 60 * 1000
-// The bucket's one lifecycle rule deletes an object this long after its creation. A self-copy resets the creation.
+const MINUTE_MS = 60 * 1000
+const DAY_MS = 24 * 60 * MINUTE_MS
 export const ATTACHMENT_LIFETIME_MS = 37 * DAY_MS
-const UPLOAD_URL_LIFETIME_MS = 15 * 60 * 1000
-// A presigned URL stops working when the credentials that signed it expire, so they must outlive the URL.
-const SIGNING_CREDENTIALS_MIN_LIFETIME_MS = 16 * 60 * 1000
-// The S3 client refreshes cached credentials 5 minutes before they expire.
-const S3_CLIENT_REFRESH_WINDOW_MS = 5 * 60 * 1000
+const LAST_MODIFIED_PRECISION_MS = 1000
+const UPLOAD_URL_LIFETIME_MS = 15 * MINUTE_MS
+const SIGNING_CREDENTIALS_MIN_LIFETIME_MS = UPLOAD_URL_LIFETIME_MS + MINUTE_MS
+const S3_CLIENT_REFRESHES_CREDENTIALS_BEFORE_EXPIRY_MS = 5 * MINUTE_MS
+const METADATA_REPLACED_SO_S3_ACCEPTS_A_SELF_COPY = 'REPLACE'
 const PRESENT_MIN_REMAINING_MS = UPLOAD_URL_LIFETIME_MS + DAY_MS
 const SHA256_HEX = /^[0-9a-f]{64}$/
 
@@ -149,7 +149,7 @@ export class S3AttachmentStore implements AttachmentStore {
         const checksum = Buffer.from(sha256, 'hex').toString('base64')
         const urlExpiresAt = new Date(this.now().getTime() + UPLOAD_URL_LIFETIME_MS)
         try {
-            const url = await settleBefore(
+            const url = await settleBeforeAbortEvenWhileCredentialsStall(
                 AbortSignal.timeout(this.config.timeoutMs),
                 getSignedUrl(
                     this.signer,
@@ -159,12 +159,7 @@ export class S3AttachmentStore implements AttachmentStore {
                         ContentLength: size,
                         ChecksumSHA256: checksum,
                     }),
-                    {
-                        expiresIn: UPLOAD_URL_LIFETIME_MS / 1000,
-                        // The checksum stays a signed header, so the bucket refuses a body whose SHA-256 differs from the key.
-                        signableHeaders: new Set(['content-length', 'x-amz-checksum-sha256']),
-                        unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
-                    }
+                    { expiresIn: UPLOAD_URL_LIFETIME_MS / 1000, ...checksumSignedSoTheBucketRefusesAnotherBody() }
                 )
             )
             return {
@@ -201,14 +196,13 @@ export class S3AttachmentStore implements AttachmentStore {
                 `A file can be kept until ${this.latestKeepable().toISOString()} at the latest, not ${needsUntil.toISOString()}`
             )
         }
-        await Promise.all(toCopy.map(({ key }) => this.copyOntoItself(key)))
+        await Promise.all(toCopy.map(({ key }) => this.restartLifetimeBySelfCopy(key)))
         attachmentStoreFiles.labels({ operation, outcome: 'copied' }).inc(toCopy.length)
         attachmentStoreFiles.labels({ operation, outcome: 'kept' }).inc(files.length - toCopy.length)
     }
 
-    // A self-copy keeps a file for one lifetime from the copy. S3 stores the copy's time to the second.
     private latestKeepable(): Date {
-        return new Date(this.now().getTime() + ATTACHMENT_LIFETIME_MS - 1000)
+        return new Date(this.now().getTime() + ATTACHMENT_LIFETIME_MS - LAST_MODIFIED_PRECISION_MS)
     }
 
     private key(teamId: number, sha256: Sha256Hex): string {
@@ -221,7 +215,7 @@ export class S3AttachmentStore implements AttachmentStore {
     private async head(key: string): Promise<HeadObjectCommandOutput | null> {
         const signal = AbortSignal.timeout(this.config.timeoutMs)
         try {
-            return await settleBefore(
+            return await settleBeforeAbortEvenWhileCredentialsStall(
                 signal,
                 this.s3.send(new HeadObjectCommand({ Bucket: this.config.bucket, Key: key, ChecksumMode: 'ENABLED' }), {
                     abortSignal: signal,
@@ -235,20 +229,18 @@ export class S3AttachmentStore implements AttachmentStore {
         }
     }
 
-    private async copyOntoItself(key: string): Promise<void> {
+    private async restartLifetimeBySelfCopy(key: string): Promise<void> {
         const { bucket } = this.config
         const signal = AbortSignal.timeout(this.config.timeoutMs)
         try {
-            await settleBefore(
+            await settleBeforeAbortEvenWhileCredentialsStall(
                 signal,
                 this.s3.send(
                     new CopyObjectCommand({
                         Bucket: bucket,
                         Key: key,
-                        // S3 URL-decodes CopySource, unlike Key.
-                        CopySource: `${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`,
-                        // S3 refuses a copy onto itself that changes nothing.
-                        MetadataDirective: 'REPLACE',
+                        CopySource: urlEncodedCopySource(bucket, key),
+                        MetadataDirective: METADATA_REPLACED_SO_S3_ACCEPTS_A_SELF_COPY,
                         ChecksumAlgorithm: 'SHA256',
                     }),
                     { abortSignal: signal }
@@ -261,7 +253,7 @@ export class S3AttachmentStore implements AttachmentStore {
 
     private async get(key: string, sha256: Sha256Hex, signal: AbortSignal): Promise<Uint8Array> {
         try {
-            const bytes = await settleBefore(
+            const bytes = await settleBeforeAbortEvenWhileCredentialsStall(
                 signal,
                 this.s3
                     .send(new GetObjectCommand({ Bucket: this.config.bucket, Key: key }), { abortSignal: signal })
@@ -282,9 +274,18 @@ export class S3AttachmentStore implements AttachmentStore {
 const expiryOf = (head: HeadObjectCommandOutput): Date =>
     new Date((head.LastModified?.getTime() ?? 0) + ATTACHMENT_LIFETIME_MS)
 
-// The SDK checks an abort signal only once a request goes out, so a credential refresh that stalls before it
-// would hold the call past its deadline. Signing takes no signal at all.
-export function settleBefore<T>(signal: AbortSignal, promise: Promise<T>): Promise<T> {
+const checksumSignedSoTheBucketRefusesAnotherBody = (): {
+    signableHeaders: Set<string>
+    unhoistableHeaders: Set<string>
+} => ({
+    signableHeaders: new Set(['content-length', 'x-amz-checksum-sha256']),
+    unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
+})
+
+const urlEncodedCopySource = (bucket: string, key: string): string =>
+    `${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`
+
+export function settleBeforeAbortEvenWhileCredentialsStall<T>(signal: AbortSignal, promise: Promise<T>): Promise<T> {
     holdUntilSettled(promise)
     return new Promise<T>((resolve, reject) => {
         const abort = (): void => reject(signal.reason)
@@ -315,8 +316,18 @@ type SigningCredentialsProvider = (options?: { forceRefresh?: boolean }) => Prom
 const outlivesAnUploadUrl = ({ expiration }: SigningCredentials): boolean =>
     !expiration || expiration.getTime() - Date.now() >= SIGNING_CREDENTIALS_MIN_LIFETIME_MS
 
-// The default chain answers a forced refresh without caching it, so the signer must keep the refreshed credentials.
-// They are reported as expiring early, which makes the client's own refresh window as long as an upload URL needs.
+const expiringWhenTheClientMustRefreshThemForAnUploadUrl = (credentials: SigningCredentials): SigningCredentials =>
+    credentials.expiration
+        ? {
+              ...credentials,
+              expiration: new Date(
+                  credentials.expiration.getTime() -
+                      SIGNING_CREDENTIALS_MIN_LIFETIME_MS +
+                      S3_CLIENT_REFRESHES_CREDENTIALS_BEFORE_EXPIRY_MS
+              ),
+          }
+        : credentials
+
 export function credentialsThatOutliveUploadUrls(base: SigningCredentialsProvider): SigningCredentialsProvider {
     return async () => {
         const cached = await base()
@@ -324,16 +335,7 @@ export function credentialsThatOutliveUploadUrls(base: SigningCredentialsProvide
         if (!outlivesAnUploadUrl(credentials)) {
             throw new Error('The signing credentials expire before an upload URL would, even after a refresh')
         }
-        return credentials.expiration
-            ? {
-                  ...credentials,
-                  expiration: new Date(
-                      credentials.expiration.getTime() -
-                          SIGNING_CREDENTIALS_MIN_LIFETIME_MS +
-                          S3_CLIENT_REFRESH_WINDOW_MS
-                  ),
-              }
-            : credentials
+        return expiringWhenTheClientMustRefreshThemForAnUploadUrl(credentials)
     }
 }
 

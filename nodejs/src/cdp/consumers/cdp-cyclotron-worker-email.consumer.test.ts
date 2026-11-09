@@ -16,7 +16,7 @@ import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2'
 import { v2JobToInvocation } from '../services/job-queue/job-queue-postgres-v2'
-import { settleBefore } from '../services/messaging/attachment-store'
+import { settleBeforeAbortEvenWhileCredentialsStall } from '../services/messaging/attachment-store'
 import {
     InFlightLimits,
     InFlightRegistry,
@@ -310,7 +310,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                 jest.spyOn(worker, 'processInvocations').mockImplementation(async (invocations) => {
                     const deadline = new AbortController()
                     deadline.abort(new Error('deadline'))
-                    await settleBefore(deadline.signal, call).catch(() => undefined)
+                    await settleBeforeAbortEvenWhileCredentialsStall(deadline.signal, call).catch(() => undefined)
                     return resultsOf(invocations)
                 })
 
@@ -341,7 +341,9 @@ describe('CdpCyclotronWorkerEmail', () => {
                     }
                     const deadline = new AbortController()
                     deadline.abort(new Error('deadline'))
-                    await settleBefore(deadline.signal, stalledCall).catch(() => undefined)
+                    await settleBeforeAbortEvenWhileCredentialsStall(deadline.signal, stalledCall).catch(
+                        () => undefined
+                    )
                     return resultsOf(invocations)
                 })
 
