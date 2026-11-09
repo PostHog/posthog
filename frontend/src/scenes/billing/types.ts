@@ -12,7 +12,7 @@ export type BillingGaugeItemType = {
     value: number
 }
 
-export type BillingSectionId = 'overview' | 'usage' | 'spend' | 'alerts'
+export type BillingSectionId = 'overview' | 'usage' | 'spend' | 'alerts' | 'help'
 
 export interface BillingFilters {
     usage_types?: string[]

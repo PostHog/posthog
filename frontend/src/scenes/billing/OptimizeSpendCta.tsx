@@ -19,7 +19,7 @@ function OptimizeSpendCtaForProject({ projectId, userId }: { projectId: string; 
     }
 
     return (
-        <div className="mt-6 max-w-300">
+        <>
             <div
                 className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-surface-primary p-4"
                 data-attr="billing-optimize-spend"
@@ -41,7 +41,7 @@ function OptimizeSpendCtaForProject({ projectId, userId }: { projectId: string; 
                 </LemonButton>
             </div>
             <WizardSpendAuditModal projectId={projectId} userId={userId} />
-        </div>
+        </>
     )
 }
 
