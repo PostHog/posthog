@@ -306,7 +306,8 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
 }
 
-.TodayPulseCard .TodayChange {
+.TodayPulseCard .TodayChange,
+.TodayNewsBriefs .TodayChange {
     font-size: inherit;
     color: inherit;
 }
@@ -1037,4 +1038,24 @@ html[data-today-transition]::view-transition-new(root) {
     margin: 28px -8px 0;
     background: color-mix(in oklab, var(--foreground) 4.5%, transparent);
     border-radius: calc(var(--radius-sm) + 8px);
+}
+
+.TodayHome--news {
+    .TodayHome__greeting {
+        justify-content: space-between;
+        margin-bottom: 2px;
+    }
+
+    .TodayHome__composer {
+        margin-top: 36px;
+    }
+
+    .TodayHome__body {
+        gap: 36px;
+        margin-top: 36px;
+    }
+
+    .TodayJumpList {
+        margin-bottom: -8px;
+    }
 }

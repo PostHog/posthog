@@ -362,6 +362,294 @@ export interface HighlightsApi {
     pins: HighlightPinApi[]
 }
 
+/**
+ * * `not_started` - Not started
+ * * `computing` - Computing
+ * * `ready` - Ready
+ * * `skipped` - Skipped
+ * * `failed` - Failed
+ */
+export type NewsStatusEnumApi = (typeof NewsStatusEnumApi)[keyof typeof NewsStatusEnumApi]
+
+export const NewsStatusEnumApi = {
+    NotStarted: 'not_started',
+    Computing: 'computing',
+    Ready: 'ready',
+    Skipped: 'skipped',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `quiet` - Not enough news today
+ * * `ai_not_approved` - AI data processing is off
+ * * `few_people` - Fewer than 2 people use Today
+ * * `no_access` - No story the viewer can see
+ * * `property_rules` - Some properties are hidden from some people
+ * * `environment` - News covers only the main environment of a project
+ */
+export type NewsSkipReasonEnumApi = (typeof NewsSkipReasonEnumApi)[keyof typeof NewsSkipReasonEnumApi]
+
+export const NewsSkipReasonEnumApi = {
+    Quiet: 'quiet',
+    AiNotApproved: 'ai_not_approved',
+    FewPeople: 'few_people',
+    NoAccess: 'no_access',
+    PropertyRules: 'property_rules',
+    Environment: 'environment',
+} as const
+
+/**
+ * * `risk` - Risk
+ * * `good` - Good
+ * * `neutral` - Neutral
+ */
+export type NewsToneEnumApi = (typeof NewsToneEnumApi)[keyof typeof NewsToneEnumApi]
+
+export const NewsToneEnumApi = {
+    Risk: 'risk',
+    Good: 'good',
+    Neutral: 'neutral',
+} as const
+
+/**
+ * * `line` - Line
+ * * `grouped_bars` - Grouped bars
+ * * `split` - Split
+ */
+export type NewsChartKindEnumApi = (typeof NewsChartKindEnumApi)[keyof typeof NewsChartKindEnumApi]
+
+export const NewsChartKindEnumApi = {
+    Line: 'line',
+    GroupedBars: 'grouped_bars',
+    Split: 'split',
+} as const
+
+export interface NewsChartItemApi {
+    /** The value now. */
+    value: number
+    /**
+     * The value in the earlier period. Null when the chart has no before.
+     * @nullable
+     */
+    before?: number | null
+    /** What the bar or part stands for. */
+    label: string
+}
+
+export interface NewsChartApi {
+    /** `line` for a daily trend, `grouped_bars` for before and after, `split` for parts of a whole.
+     *
+     * * `line` - Line
+     * * `grouped_bars` - Grouped bars
+     * * `split` - Split */
+    kind: NewsChartKindEnumApi
+    /** What the chart shows, with its unit and time range. */
+    caption: string
+    /** Unit of the values, for example `people` or `USD`. */
+    unit: string
+    /** One label per value in `values`. */
+    labels: string[]
+    /** Daily values for a trend, oldest first. */
+    values: number[]
+    /** Bars or parts for charts that are not a trend. */
+    items: NewsChartItemApi[]
+    /**
+     * True when a rise is good news, false when a rise is bad news, for example errors or cost. Null when neither.
+     * @nullable
+     */
+    higher_is_good: boolean | null
+}
+
+export interface NewsLeadStoryApi {
+    /** Stable id of the item behind the story, for example error:<issue id>. */
+    id: string
+    /** Product the story is about, for example error_tracking. */
+    product: string
+    /** Display name of the product. */
+    product_label: string
+    /** One sentence headline. AI writes it from the facts. */
+    title: string
+    /** One or two short sentences. AI writes them from the facts. */
+    summary: string
+    /**
+     * Change in percent against what the number's recent trend predicts. Null when the story combines several facts.
+     * @nullable
+     */
+    change: number | null
+    /** `risk` when something got worse, `good` when it got better, `neutral` otherwise. It comes from the fact, not the AI.
+     *
+     * * `risk` - Risk
+     * * `good` - Good
+     * * `neutral` - Neutral */
+    tone: NewsToneEnumApi
+    /** A neutral question about the story to prefill in the task composer. The person reads it before sending. */
+    dive_prompt: string
+    /**
+     * Path in the app to the object, relative to the project.
+     * @nullable
+     */
+    url?: string | null
+    /** The chart for the story. Null when the story has no chart. */
+    chart?: NewsChartApi | null
+    /** Label of the number on the lead chart. Empty when the lead fact has no number. */
+    metric_label: string
+    /** Formatted number on the lead chart. Empty when the lead fact has no number. */
+    metric_value: string
+    /** Values for the lead chart, oldest first. Empty when there is no chart. */
+    series: number[]
+    /** One label per value in `series`, oldest first. */
+    series_labels: string[]
+}
+
+export interface NewsStoryApi {
+    /** Stable id of the item behind the story, for example error:<issue id>. */
+    id: string
+    /** Product the story is about, for example error_tracking. */
+    product: string
+    /** Display name of the product. */
+    product_label: string
+    /** One sentence headline. AI writes it from the facts. */
+    title: string
+    /** One or two short sentences. AI writes them from the facts. */
+    summary: string
+    /**
+     * Change in percent against what the number's recent trend predicts. Null when the story combines several facts.
+     * @nullable
+     */
+    change: number | null
+    /** `risk` when something got worse, `good` when it got better, `neutral` otherwise. It comes from the fact, not the AI.
+     *
+     * * `risk` - Risk
+     * * `good` - Good
+     * * `neutral` - Neutral */
+    tone: NewsToneEnumApi
+    /** A neutral question about the story to prefill in the task composer. The person reads it before sending. */
+    dive_prompt: string
+    /**
+     * Path in the app to the object, relative to the project.
+     * @nullable
+     */
+    url?: string | null
+    /** The chart for the story. Null when the story has no chart. */
+    chart?: NewsChartApi | null
+}
+
+export interface NewsBriefApi {
+    /** Stable id of the item behind the brief, for example error:<issue id>. */
+    id: string
+    /** The number the brief is about, usually people affected in the last 24 hours. */
+    value: number
+    /** Short words that follow the number, for example `couldn't open recordings`. */
+    text: string
+    /**
+     * Change in percent against what the number's recent trend predicts. Null when the item is new or grouped.
+     * @nullable
+     */
+    change: number | null
+    /** True when almost nothing like this happened in the last 14 days. */
+    is_new: boolean
+    /** `risk` when something got worse, `good` when it got better, `neutral` otherwise.
+     *
+     * * `risk` - Risk
+     * * `good` - Good
+     * * `neutral` - Neutral */
+    tone: NewsToneEnumApi
+    /** Daily values over the last 14 days, oldest first. Empty when there is no chart. */
+    series: number[]
+    /** One date label per value in `series`, oldest first. */
+    series_labels: string[]
+}
+
+/**
+ * * `worse` - Worse
+ * * `better` - Better
+ * * `same` - No change
+ * * `ended` - Ended
+ */
+export type NewsOngoingStatusEnumApi = (typeof NewsOngoingStatusEnumApi)[keyof typeof NewsOngoingStatusEnumApi]
+
+export const NewsOngoingStatusEnumApi = {
+    Worse: 'worse',
+    Better: 'better',
+    Same: 'same',
+    Ended: 'ended',
+} as const
+
+export interface NewsOngoingStoryApi {
+    /** Stable id of the item behind the story. */
+    id: string
+    /** Product the story is about, for example error_tracking. */
+    product: string
+    /** Display name of the product. */
+    product_label: string
+    /** The headline of the running story. */
+    title: string
+    /** How many editions ran the story, counting this one. */
+    day: number
+    /** `worse`, `better`, `same` or `ended`, against the last edition.
+     *
+     * * `worse` - Worse
+     * * `better` - Better
+     * * `same` - No change
+     * * `ended` - Ended */
+    status: NewsOngoingStatusEnumApi
+    /** Color of the status, from the status.
+     *
+     * * `risk` - Risk
+     * * `good` - Good
+     * * `neutral` - Neutral */
+    tone: NewsToneEnumApi
+    /** A neutral question about the story to prefill in the task composer. */
+    dive_prompt: string
+    /** Daily values over the last 14 days, oldest first. */
+    series: number[]
+    /** One date label per value in `series`, oldest first. */
+    series_labels: string[]
+    /** What changed since the last edition, in one short sentence. */
+    update: string
+}
+
+export interface NewsEditionApi {
+    /** Id of the edition. Store it to know which edition the person read. */
+    id: string
+    /** Always false for a generated edition. */
+    is_sample: boolean
+    /** The day the edition is for, in the project's timezone. */
+    period_start: string
+    /** The most important story of the day. */
+    lead: NewsLeadStoryApi
+    /** Up to 4 more new stories, most important first. */
+    stories: NewsStoryApi[]
+    /** Up to 3 smaller items, each a number, a short label and a chart. */
+    briefs: NewsBriefApi[]
+    /** Up to 4 short updates on stories that earlier editions ran and that still go on. */
+    ongoing: NewsOngoingStoryApi[]
+    /** Up to 3 stories about the trends of the week. They can repeat on several days. */
+    this_week: NewsStoryApi[]
+}
+
+export interface TodayNewsApi {
+    /** `ready` when today's edition is in `edition`. `not_started` when nobody opened today's news yet: write it with the write action. `computing` while an agent writes today's edition, which takes a few minutes: poll again every 5 seconds. `skipped` when there is no edition today, see `skip_reason`. `failed` when writing failed: it can be tried again after an hour.
+     *
+     * * `not_started` - Not started
+     * * `computing` - Computing
+     * * `ready` - Ready
+     * * `skipped` - Skipped
+     * * `failed` - Failed */
+    status: NewsStatusEnumApi
+    /** Why there is no edition when the status is `skipped`. Null otherwise.
+     *
+     * * `quiet` - Not enough news today
+     * * `ai_not_approved` - AI data processing is off
+     * * `few_people` - Fewer than 2 people use Today
+     * * `no_access` - No story the viewer can see
+     * * `property_rules` - Some properties are hidden from some people
+     * * `environment` - News covers only the main environment of a project */
+    skip_reason: NewsSkipReasonEnumApi | null
+    /** Today's edition when the status is `ready`. Otherwise the latest earlier edition, dated by `period_start`, or null. */
+    edition: NewsEditionApi | null
+}
+
 export interface PulsePinApi {
     /**
      * Key of the number to keep: a key metric setting such as signup_event, or insight:<short_id>.

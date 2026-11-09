@@ -16305,6 +16305,7 @@ export namespace Schemas {
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
      * * `feature_flags` - Feature Flags
+     * * `today_news` - Today News
      */
     export type TaskOriginProductEnum =
         | "onboarding"
@@ -16335,7 +16336,8 @@ export namespace Schemas {
         | "metrics_import"
         | "knowledge_writer"
         | "context_layer"
-        | "feature_flags";
+        | "feature_flags"
+        | "today_news";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -19654,7 +19656,8 @@ export namespace Endpoints {
                     | "metrics_import"
                     | "knowledge_writer"
                     | "context_layer"
-                    | "feature_flags";
+                    | "feature_flags"
+                    | "today_news";
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;

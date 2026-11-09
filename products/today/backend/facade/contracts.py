@@ -22,6 +22,11 @@ from .enums import (
     HighlightUnit,
     ImpactNumberKey,
     KeyClauseRole,
+    NewsChartKind,
+    NewsOngoingStatus,
+    NewsSkipReason,
+    NewsStatus,
+    NewsTone,
     PulseSlotStatus,
 )
 
@@ -336,3 +341,99 @@ class HighlightSource:
     # Today skips the source when the viewer's API scopes or access controls do not cover these.
     scopes: tuple[str, ...] = ()
     pulse_order: int = 0
+
+
+@dataclass(frozen=True)
+class NewsChartItem:
+    label: str
+    value: float
+    before: float | None = None
+
+
+@dataclass(frozen=True)
+class NewsChart:
+    kind: NewsChartKind
+    caption: str
+    unit: str = ""
+    labels: list[str] = field(default_factory=list)
+    values: list[float] = field(default_factory=list)
+    items: list[NewsChartItem] = field(default_factory=list)
+    higher_is_good: bool | None = None
+
+
+@dataclass(frozen=True)
+class NewsStory:
+    id: str
+    product: str
+    product_label: str
+    title: str
+    summary: str
+    change: float | None
+    tone: NewsTone
+    dive_prompt: str
+    url: str | None = None
+    chart: NewsChart | None = None
+
+
+@dataclass(frozen=True)
+class NewsOngoingStory:
+    id: str
+    product: str
+    product_label: str
+    title: str
+    update: str
+    day: int
+    status: NewsOngoingStatus
+    tone: NewsTone
+    dive_prompt: str
+    series: list[float] = field(default_factory=list)
+    series_labels: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class NewsLeadStory:
+    id: str
+    product: str
+    product_label: str
+    title: str
+    summary: str
+    change: float | None
+    tone: NewsTone
+    dive_prompt: str
+    metric_label: str
+    metric_value: str
+    series: list[float]
+    series_labels: list[str]
+    url: str | None = None
+    chart: NewsChart | None = None
+
+
+@dataclass(frozen=True)
+class NewsBrief:
+    id: str
+    value: int
+    text: str
+    change: float | None
+    is_new: bool
+    tone: NewsTone
+    series: list[float]
+    series_labels: list[str]
+
+
+@dataclass(frozen=True)
+class NewsEdition:
+    id: str
+    is_sample: bool
+    period_start: date
+    lead: NewsLeadStory
+    stories: list[NewsStory]
+    briefs: list[NewsBrief]
+    ongoing: list[NewsOngoingStory] = field(default_factory=list)
+    this_week: list[NewsStory] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class TodayNews:
+    status: NewsStatus
+    skip_reason: NewsSkipReason | None
+    edition: NewsEdition | None

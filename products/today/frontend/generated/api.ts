@@ -19,6 +19,7 @@ import type {
     ReportPageApi,
     SetHiddenPulseNumbersApi,
     TodayHighlightsRetrieveParams,
+    TodayNewsApi,
     TodayReportsKeyClausesRetrieveParams,
 } from './api.schemas'
 
@@ -88,6 +89,36 @@ export const todayHighlightsRetrieve = async (
     return apiMutator<HighlightsApi>(getTodayHighlightsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTodayNewsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/today/news/`
+}
+
+/**
+ * Today's news edition for the whole project: a lead story, up to 4 more stories, ongoing stories, the trends of the week and briefs. An AI agent writes one edition per project and day, from the last 24 hours, when the first person opens the news with `news/write`. This call never starts it. `ready` returns today's edition. `not_started`, `computing` and `failed` return the latest earlier edition, or null, so poll every 5 seconds while the status is `computing`. Stories about data the person cannot see are left out. `skipped` with a reason when the day was quiet, AI data processing is off, or fewer than 2 people use Today. 404 when the person does not have the news.
+ * @summary Get today's project news
+ */
+export const todayNewsRetrieve = async (projectId: string, options?: RequestInit): Promise<TodayNewsApi> => {
+    return apiMutator<TodayNewsApi>(getTodayNewsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTodayNewsWriteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/today/news/write/`
+}
+
+/**
+ * Starts the AI agent that writes today's edition and returns `computing`. Writing takes a few minutes, so poll the news every 5 seconds while the status is `computing`. It starts at most one run per project and day, and tries again only after a failed run is an hour old. It starts nothing when the edition is ready, the daily limit is reached, or AI data processing is off, and then returns the same as the news call. 404 when the person does not have the news.
+ * @summary Start writing today's news
+ */
+export const todayNewsWriteCreate = async (projectId: string, options?: RequestInit): Promise<TodayNewsApi> => {
+    return apiMutator<TodayNewsApi>(getTodayNewsWriteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

@@ -5,7 +5,7 @@ from django.db import models
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import uuid7
 
-from .facade.enums import HighlightsStatus
+from .facade.enums import HighlightsStatus, NewsStatus
 
 
 class TodayHighlights(ProductTeamModel):
@@ -43,3 +43,38 @@ class TodayPulsePins(ProductTeamModel):
 
     def __str__(self) -> str:
         return f"{self.user_id} {len(self.pins)} pins"
+
+
+class NewsPeriod(models.TextChoices):
+    DAY = "day", "Day"
+
+
+class NewsEditionStatus(models.TextChoices):
+    COMPUTING = NewsStatus.COMPUTING.value, "Computing"
+    READY = NewsStatus.READY.value, "Ready"
+    SKIPPED = NewsStatus.SKIPPED.value, "Skipped"
+    FAILED = NewsStatus.FAILED.value, "Failed"
+
+
+class TodayNewsEdition(ProductTeamModel):
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    period = models.CharField(max_length=8, choices=NewsPeriod.choices, default=NewsPeriod.DAY.value)
+    period_start = models.DateField()
+    status = models.CharField(max_length=16, choices=NewsEditionStatus.choices, default=NewsStatus.COMPUTING.value)
+    skip_reason = models.CharField(max_length=32, blank=True, default="")
+    facts = models.JSONField(default=dict)
+    content = models.JSONField(default=dict)
+    model = models.CharField(max_length=64, blank=True, default="")
+    input_tokens = models.IntegerField(null=True, blank=True)
+    output_tokens = models.IntegerField(null=True, blank=True)
+    error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    ready_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(ProductTeamModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "period", "period_start"], name="today_news_one_per_period"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.period_start} {self.status}"

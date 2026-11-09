@@ -1,8 +1,12 @@
 """Workflow names and inputs. Light on purpose: the API imports this to start workflows."""
 
 import dataclasses
+from datetime import timedelta
 
 HIGHLIGHTS_WORKFLOW_NAME = "today-compute-highlights"
+WRITE_NEWS_WORKFLOW_NAME = "today-news-agent"
+WRITE_NEWS_WORKFLOW_TIMEOUT = timedelta(minutes=16)
+MAX_NEWS_ERROR_LENGTH = 2000
 
 
 @dataclasses.dataclass(frozen=True)
@@ -70,3 +74,23 @@ class FinalizeHighlightsInputs:
 
 def highlights_workflow_id(team_id: int, user_id: int, highlights_id: str) -> str:
     return f"today-highlights-{team_id}-{user_id}-{highlights_id}"
+
+
+@dataclasses.dataclass(frozen=True)
+class WriteNewsInputs:
+    team_id: int
+    user_id: int
+    edition_id: str
+    claimed_at: str
+
+
+@dataclasses.dataclass(frozen=True)
+class FailNewsInputs:
+    team_id: int
+    edition_id: str
+    error: str
+    claimed_at: str
+
+
+def write_news_workflow_id(team_id: int, edition_id: str, attempt: int) -> str:
+    return f"today-news-agent-{team_id}-{edition_id}-{attempt}"

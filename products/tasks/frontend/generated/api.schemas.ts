@@ -1526,6 +1526,7 @@ export interface PaginatedTaskListItemListApi {
  * * `knowledge_writer` - Knowledge Writer
  * * `context_layer` - Context Layer
  * * `feature_flags` - Feature Flags
+ * * `today_news` - Today News
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -1559,6 +1560,7 @@ export const TaskOriginProductEnumApi = {
     KnowledgeWriter: 'knowledge_writer',
     ContextLayer: 'context_layer',
     FeatureFlags: 'feature_flags',
+    TodayNews: 'today_news',
 } as const
 
 /**
@@ -1728,7 +1730,8 @@ export interface TaskCreateApi {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
-     * * `feature_flags` - Feature Flags */
+     * * `feature_flags` - Feature Flags
+     * * `today_news` - Today News */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1993,7 +1996,8 @@ export interface TaskWriteApi {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
-     * * `feature_flags` - Feature Flags */
+     * * `feature_flags` - Feature Flags
+     * * `today_news` - Today News */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2133,7 +2137,8 @@ export interface PatchedTaskWriteApi {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
-     * * `feature_flags` - Feature Flags */
+     * * `feature_flags` - Feature Flags
+     * * `today_news` - Today News */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -5433,6 +5438,7 @@ export type SandboxCustomImagesListParams = {
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
      * * `feature_flags` - Feature Flags
+     * * `today_news` - Today News
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct
@@ -5471,6 +5477,7 @@ export const SandboxCustomImagesListOriginProduct = {
     KnowledgeWriter: 'knowledge_writer',
     ContextLayer: 'context_layer',
     FeatureFlags: 'feature_flags',
+    TodayNews: 'today_news',
 } as const
 
 export type SandboxListParams = {
@@ -5621,6 +5628,7 @@ export type TasksListParams = {
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
      * * `feature_flags` - Feature Flags
+     * * `today_news` - Today News
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5774,6 +5782,7 @@ export const TasksListExcludeOriginProduct = {
     KnowledgeWriter: 'knowledge_writer',
     ContextLayer: 'context_layer',
     FeatureFlags: 'feature_flags',
+    TodayNews: 'today_news',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]

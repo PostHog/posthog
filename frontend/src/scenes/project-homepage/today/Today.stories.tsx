@@ -26,6 +26,8 @@ import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { HighlightsApi } from 'products/today/frontend/generated/api.schemas'
 
+import { NEWS_EDITION, NEWS_FRONT_PAGE_EDITION } from './todayTestFixtures'
+
 const ADA = {
     id: 1,
     uuid: 'user-ada',
@@ -1510,5 +1512,47 @@ export const HomeWithComposer: Story = {
             FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
             FEATURE_FLAGS.PHAI_SANDBOX_MODE,
         ],
+    },
+}
+
+const NEWS_FLAGS = [
+    FEATURE_FLAGS.TODAY_RAIL_NAV,
+    FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
+    FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+    FEATURE_FLAGS.TODAY_NEWS,
+]
+export const HomeWithNewsFrontPage: Story = {
+    decorators: [
+        keepNumbers([]),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/news/': {
+                    status: 'ready',
+                    skip_reason: null,
+                    edition: NEWS_FRONT_PAGE_EDITION,
+                },
+            },
+        }),
+    ],
+    parameters: { featureFlags: NEWS_FLAGS },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: /The news/ }))
+        await within(document.body).findByRole('dialog')
+    },
+}
+
+export const HomeWithNewsWriting: Story = {
+    decorators: [
+        keepNumbers([]),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/news/': { status: 'computing', skip_reason: null, edition: NEWS_EDITION },
+            },
+        }),
+    ],
+    parameters: { featureFlags: NEWS_FLAGS, mockDate: '2026-09-29 09:00:00' },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: /The news/ }))
+        await within(document.body).findByRole('dialog')
     },
 }

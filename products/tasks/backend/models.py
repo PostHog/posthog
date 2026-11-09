@@ -481,6 +481,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Code analysis of a flag's branches, and the pull request that removes a stale flag. Reserved: only the
         # feature flag code analysis endpoints create these.
         FEATURE_FLAGS = "feature_flags", "Feature Flags"
+        TODAY_NEWS = "today_news", "Today News"
 
     # Origins set only by server-side flows. The task write serializer rejects them from API callers.
     SERVER_ONLY_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
@@ -520,6 +521,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             OriginProduct.CONTEXT_LAYER,
             # Only the feature flag code analysis endpoints set it, after their own repository check.
             OriginProduct.FEATURE_FLAGS,
+            OriginProduct.TODAY_NEWS,
         }
     )
 
@@ -1432,7 +1434,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     @staticmethod
     def _github_resolution_allowed(origin_product: str, *, has_repository: bool) -> bool:
         # Repo-less tokens are unscoped. Scouts are listed so their read-only token keeps refreshing.
-        if origin_product == Task.OriginProduct.ACCOUNT_AUDIT:
+        if origin_product in (Task.OriginProduct.ACCOUNT_AUDIT, Task.OriginProduct.TODAY_NEWS):
             return False
         return has_repository or origin_product in (
             Task.OriginProduct.USER_CREATED,

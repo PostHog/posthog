@@ -610,6 +610,7 @@ class TestMintableGate:
             ("business_knowledge", True),
             ("context_layer", True),
             ("task_analysis", True),
+            ("today_news", True),
             ("image_builder", False),
             ("user_created", False),
             (None, False),

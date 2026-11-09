@@ -9,6 +9,7 @@ logger = structlog.get_logger(__name__)
 
 TODAY_RAIL_NAV_FLAG = "today-rail-nav"
 TODAY_REPORT_JEV_FLAG = "today-report-jev"
+TODAY_NEWS_FLAG = "today-news"
 
 
 def is_enabled_for(user: User, team: Team) -> bool:
@@ -50,3 +51,11 @@ def may_ask_jev(user: User, team: Team) -> bool:
 
 def _may_send_to_ai(user: User, team: Team) -> bool:
     return bool(team.organization.is_ai_data_processing_approved and user.teams.filter(id=team.id).exists())
+
+
+def news_enabled_for(user: User, team: Team) -> bool:
+    return all(_flag_on(flag, user, team) for flag in (TODAY_NEWS_FLAG, TODAY_RAIL_NAV_FLAG))
+
+
+def news_may_use_ai(team: Team) -> bool:
+    return bool(team.organization.is_ai_data_processing_approved)

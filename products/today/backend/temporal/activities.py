@@ -5,14 +5,22 @@ from functools import partial
 import temporalio.activity
 
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.utils import close_db_connections, on_asyncify_pool
 
 from ..logic import highlights, pinned
+from ..logic.news import (
+    editions as news,
+    runner as news_runner,
+)
 from .inputs import (
+    FailNewsInputs,
     FinalizeHighlightsInputs,
     HighlightSourceInputs,
     HighlightSourceResult,
     ResolvePinsInputs,
     ResolvePinsResult,
+    WriteNewsInputs,
 )
 
 
@@ -30,3 +38,15 @@ async def resolve_pins_activity(inputs: ResolvePinsInputs) -> ResolvePinsResult:
 @temporalio.activity.defn
 async def finalize_highlights_activity(inputs: FinalizeHighlightsInputs) -> None:
     await database_sync_to_async(highlights.finalize, thread_sensitive=False)(inputs)
+
+
+@temporalio.activity.defn
+@close_db_connections
+async def write_news_activity(inputs: WriteNewsInputs) -> None:
+    async with Heartbeater():
+        await news_runner.write_edition(inputs)
+
+
+@temporalio.activity.defn
+async def fail_news_activity(inputs: FailNewsInputs) -> None:
+    await on_asyncify_pool(news.mark_failed)(inputs)

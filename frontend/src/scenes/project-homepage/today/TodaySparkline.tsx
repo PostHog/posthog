@@ -19,12 +19,14 @@ export function TodaySparkline({
     tone,
     emphasizeLast,
     formatValue,
+    fromZero = false,
 }: {
     values: number[]
     labels: string[]
     tone: TodayTone
     emphasizeLast: number
     formatValue?: (value: number) => string
+    fromZero?: boolean
 }): JSX.Element {
     const theme = useChartTheme()
     const palette = useTodayTonePalette()
@@ -32,7 +34,13 @@ export function TodaySparkline({
     const from = Math.max(0, values.length - 1 - emphasizeLast)
     const series = useMemo<Series[]>(
         () => [
-            { key: 'trend', label: 'Value', data: values, color: palette.line },
+            {
+                key: 'trend',
+                label: 'Value',
+                data: values,
+                color: palette.line,
+                fill: fromZero ? { opacity: 0.12 } : undefined,
+            },
             {
                 key: 'recent',
                 label: 'Recent',
@@ -41,7 +49,7 @@ export function TodaySparkline({
                 visibility: { tooltip: false },
             },
         ],
-        [values, from, palette, tone]
+        [values, from, palette, tone, fromZero]
     )
     const config = useChartConfig<LineChartConfig>(
         () => ({
@@ -52,11 +60,11 @@ export function TodaySparkline({
             showTickMarks: false,
             showCrosshair: !!formatValue,
             curve: 'linear',
-            floatBaseline: true,
+            floatBaseline: !fromZero,
             margins: { top: 4, right: 4, bottom: 4, left: 1 },
             tooltip: { enabled: !!formatValue, placement: 'follow-data' },
         }),
-        [formatValue]
+        [formatValue, fromZero]
     )
     const tooltip = useCallback(
         (context: TooltipContext): JSX.Element | null => {

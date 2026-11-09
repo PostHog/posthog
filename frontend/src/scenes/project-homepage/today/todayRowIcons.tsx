@@ -3,6 +3,8 @@ import {
     IconDatabase,
     IconDecisionTree,
     IconFlask,
+    IconGlobe,
+    IconLlmAnalytics,
     IconMessage,
     IconRewindPlay,
     IconSupport,
@@ -34,11 +36,13 @@ const PRODUCT_ICONS: Record<string, TodayRowIcon> = {
     conversations: { color: 'var(--color-product-support-light)', glyph: <IconSupport /> },
     error_tracking: { color: 'var(--color-product-error-tracking-light)', glyph: <IconWarning /> },
     experiments: { color: 'var(--color-product-experiments-light)', glyph: <IconFlask /> },
+    llm_analytics: { color: 'var(--color-product-llm-analytics-light)', glyph: <IconLlmAnalytics /> },
     feature_flags: { color: 'var(--color-product-feature-flags-light)', glyph: <IconToggle /> },
     replay: REPLAY,
     surveys: { color: 'var(--color-product-surveys-light)', glyph: <IconMessage /> },
     warehouse_sources: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
     warehouse_suggestions: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
+    web_analytics: { color: 'var(--color-product-web-analytics-light)', glyph: <IconGlobe /> },
     workflows: { color: 'var(--color-product-workflows-light)', glyph: <IconDecisionTree /> },
 }
 
@@ -57,6 +61,10 @@ export function reportIcon(report: Pick<SignalReport, 'source_products'>): Today
     return sourceIcon(report.source_products?.[0])
 }
 
+export function productIcon(product: string | null | undefined): TodayRowIcon {
+    return (product ? PRODUCT_ICONS[product] : undefined) ?? ANALYTICS
+}
+
 export function highlightIcon(item: Pick<HighlightItemApi, 'source' | 'product'>): TodayRowIcon {
-    return SOURCE_ICONS[item.source] ?? (item.product ? PRODUCT_ICONS[item.product] : undefined) ?? ANALYTICS
+    return SOURCE_ICONS[item.source] ?? productIcon(item.product)
 }

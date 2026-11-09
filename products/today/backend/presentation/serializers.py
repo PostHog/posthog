@@ -20,6 +20,13 @@ from ..facade.contracts import (
     ImpactNumber,
     ImpactWorking,
     KeyClause,
+    NewsBrief,
+    NewsChart,
+    NewsChartItem,
+    NewsEdition,
+    NewsLeadStory,
+    NewsOngoingStory,
+    NewsStory,
     PageLink,
     PreviewLine,
     PullRequestLink,
@@ -31,6 +38,7 @@ from ..facade.contracts import (
     ReportPage,
     SignalPreview,
     SignalView,
+    TodayNews,
 )
 from ..facade.enums import (
     CitedSource,
@@ -45,6 +53,11 @@ from ..facade.enums import (
     HighlightUnit,
     ImpactNumberKey,
     KeyClauseRole,
+    NewsChartKind,
+    NewsOngoingStatus,
+    NewsSkipReason,
+    NewsStatus,
+    NewsTone,
     PulseSlotStatus,
 )
 
@@ -533,3 +546,172 @@ class HighlightsSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = Highlights
+
+
+class NewsChartItemSerializer(DataclassSerializer):
+    value = serializers.FloatField(help_text="The value now.")
+    before = serializers.FloatField(
+        allow_null=True, required=False, help_text="The value in the earlier period. Null when the chart has no before."
+    )
+
+    class Meta:
+        dataclass = NewsChartItem
+        extra_kwargs = {"label": {"help_text": "What the bar or part stands for."}}
+
+
+class NewsChartSerializer(DataclassSerializer):
+    kind = serializers.ChoiceField(
+        choices=NewsChartKind.choices,
+        help_text="`line` for a daily trend, `grouped_bars` for before and after, `split` for parts of a whole.",
+    )
+    caption = serializers.CharField(allow_blank=True, help_text="What the chart shows, with its unit and time range.")
+    unit = serializers.CharField(allow_blank=True, help_text="Unit of the values, for example `people` or `USD`.")
+    labels = serializers.ListField(child=serializers.CharField(), help_text="One label per value in `values`.")
+    values = serializers.ListField(child=serializers.FloatField(), help_text="Daily values for a trend, oldest first.")
+    items = NewsChartItemSerializer(many=True, help_text="Bars or parts for charts that are not a trend.")
+    higher_is_good = serializers.BooleanField(
+        allow_null=True,
+        help_text="True when a rise is good news, false when a rise is bad news, for example errors or cost. Null when neither.",
+    )
+
+    class Meta:
+        dataclass = NewsChart
+
+
+class NewsStorySerializer(DataclassSerializer):
+    id = serializers.CharField(help_text="Stable id of the item behind the story, for example error:<issue id>.")
+    product = serializers.CharField(help_text="Product the story is about, for example error_tracking.")
+    product_label = serializers.CharField(help_text="Display name of the product.")
+    title = serializers.CharField(help_text="One sentence headline. AI writes it from the facts.")
+    summary = serializers.CharField(help_text="One or two short sentences. AI writes them from the facts.")
+    change = serializers.FloatField(
+        allow_null=True,
+        help_text="Change in percent against what the number's recent trend predicts. Null when the story combines several facts.",
+    )
+    tone = serializers.ChoiceField(
+        choices=NewsTone.choices,
+        help_text="`risk` when something got worse, `good` when it got better, `neutral` otherwise. It comes from the fact, not the AI.",
+    )
+    dive_prompt = serializers.CharField(
+        help_text="A neutral question about the story to prefill in the task composer. The person reads it before sending."
+    )
+    url = serializers.CharField(
+        allow_null=True, required=False, help_text="Path in the app to the object, relative to the project."
+    )
+    chart = NewsChartSerializer(
+        allow_null=True, required=False, help_text="The chart for the story. Null when the story has no chart."
+    )
+
+    class Meta:
+        dataclass = NewsStory
+
+
+class NewsOngoingStorySerializer(DataclassSerializer):
+    id = serializers.CharField(help_text="Stable id of the item behind the story.")
+    product = serializers.CharField(help_text="Product the story is about, for example error_tracking.")
+    product_label = serializers.CharField(help_text="Display name of the product.")
+    title = serializers.CharField(help_text="The headline of the running story.")
+    day = serializers.IntegerField(help_text="How many editions ran the story, counting this one.")
+    status = serializers.ChoiceField(
+        choices=NewsOngoingStatus.choices,
+        help_text="`worse`, `better`, `same` or `ended`, against the last edition.",
+    )
+    tone = serializers.ChoiceField(choices=NewsTone.choices, help_text="Color of the status, from the status.")
+    dive_prompt = serializers.CharField(help_text="A neutral question about the story to prefill in the task composer.")
+    series = serializers.ListField(
+        child=serializers.FloatField(), help_text="Daily values over the last 14 days, oldest first."
+    )
+    series_labels = serializers.ListField(
+        child=serializers.CharField(), help_text="One date label per value in `series`, oldest first."
+    )
+
+    class Meta:
+        dataclass = NewsOngoingStory
+        extra_kwargs = {"update": {"help_text": "What changed since the last edition, in one short sentence."}}
+
+
+class NewsLeadStorySerializer(NewsStorySerializer):
+    metric_label = serializers.CharField(
+        allow_blank=True, help_text="Label of the number on the lead chart. Empty when the lead fact has no number."
+    )
+    metric_value = serializers.CharField(
+        allow_blank=True, help_text="Formatted number on the lead chart. Empty when the lead fact has no number."
+    )
+    series = serializers.ListField(
+        child=serializers.FloatField(),
+        help_text="Values for the lead chart, oldest first. Empty when there is no chart.",
+    )
+    series_labels = serializers.ListField(
+        child=serializers.CharField(), help_text="One label per value in `series`, oldest first."
+    )
+
+    class Meta:
+        dataclass = NewsLeadStory
+
+
+class NewsBriefSerializer(DataclassSerializer):
+    id = serializers.CharField(help_text="Stable id of the item behind the brief, for example error:<issue id>.")
+    value = serializers.IntegerField(
+        help_text="The number the brief is about, usually people affected in the last 24 hours."
+    )
+    text = serializers.CharField(
+        help_text="Short words that follow the number, for example `couldn't open recordings`."
+    )
+    change = serializers.FloatField(
+        allow_null=True,
+        help_text="Change in percent against what the number's recent trend predicts. Null when the item is new or grouped.",
+    )
+    is_new = serializers.BooleanField(help_text="True when almost nothing like this happened in the last 14 days.")
+    tone = serializers.ChoiceField(
+        choices=NewsTone.choices,
+        help_text="`risk` when something got worse, `good` when it got better, `neutral` otherwise.",
+    )
+    series = serializers.ListField(
+        child=serializers.FloatField(),
+        help_text="Daily values over the last 14 days, oldest first. Empty when there is no chart.",
+    )
+    series_labels = serializers.ListField(
+        child=serializers.CharField(), help_text="One date label per value in `series`, oldest first."
+    )
+
+    class Meta:
+        dataclass = NewsBrief
+
+
+class NewsEditionSerializer(DataclassSerializer):
+    id = serializers.CharField(help_text="Id of the edition. Store it to know which edition the person read.")
+    is_sample = serializers.BooleanField(help_text="Always false for a generated edition.")
+    period_start = serializers.DateField(help_text="The day the edition is for, in the project's timezone.")
+    lead = NewsLeadStorySerializer(help_text="The most important story of the day.")
+    stories = NewsStorySerializer(many=True, help_text="Up to 4 more new stories, most important first.")
+    briefs = NewsBriefSerializer(
+        many=True, help_text="Up to 3 smaller items, each a number, a short label and a chart."
+    )
+    ongoing = NewsOngoingStorySerializer(
+        many=True, help_text="Up to 4 short updates on stories that earlier editions ran and that still go on."
+    )
+    this_week = NewsStorySerializer(
+        many=True, help_text="Up to 3 stories about the trends of the week. They can repeat on several days."
+    )
+
+    class Meta:
+        dataclass = NewsEdition
+
+
+class TodayNewsSerializer(DataclassSerializer):
+    status = serializers.ChoiceField(
+        choices=NewsStatus.choices,
+        help_text="`ready` when today's edition is in `edition`. `not_started` when nobody opened today's news yet: write it with the write action. `computing` while an agent writes today's edition, which takes a few minutes: poll again every 5 seconds. `skipped` when there is no edition today, see `skip_reason`. `failed` when writing failed: it can be tried again after an hour.",
+    )
+    skip_reason = serializers.ChoiceField(
+        choices=NewsSkipReason.choices,
+        allow_null=True,
+        help_text="Why there is no edition when the status is `skipped`. Null otherwise.",
+    )
+    edition = NewsEditionSerializer(
+        allow_null=True,
+        help_text="Today's edition when the status is `ready`. Otherwise the latest earlier edition, dated by `period_start`, or null.",
+    )
+
+    class Meta:
+        dataclass = TodayNews

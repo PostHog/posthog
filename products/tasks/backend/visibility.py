@@ -39,6 +39,7 @@ PRODUCT_PRIVATE_ORIGIN_PRODUCTS = [
     Task.OriginProduct.BUSINESS_KNOWLEDGE,
     Task.OriginProduct.ACCOUNT_AUDIT,
     Task.OriginProduct.METRICS_IMPORT,
+    Task.OriginProduct.TODAY_NEWS,
 ]
 
 

@@ -36,6 +36,7 @@ from .serializers import (
     ReportKeyClausesSerializer,
     ReportPageSerializer,
     SetHiddenPulseNumbersSerializer,
+    TodayNewsSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -88,8 +89,8 @@ def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = ["excerpt_choice", "highlights", "pulse_pins"]
-    scope_object_write_actions = ["set_pulse_pins", "set_hidden_pulse_numbers"]
+    scope_object_read_actions = ["excerpt_choice", "highlights", "news", "pulse_pins"]
+    scope_object_write_actions = ["set_pulse_pins", "set_hidden_pulse_numbers", "write_news"]
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action in ("set_pulse_pins", "set_hidden_pulse_numbers"):
@@ -99,6 +100,12 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def _jev_user(self) -> User:
         user = cast(User, self.request.user)
         if not api.may_ask_jev(user, self.team):
+            raise NotFound()
+        return user
+
+    def _news_user(self) -> User:
+        user = cast(User, self.request.user)
+        if not api.news_enabled_for(user, self.team):
             raise NotFound()
         return user
 
@@ -125,6 +132,30 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             refresh=request.validated_query_data["refresh"],
         )
         return Response(HighlightsSerializer(found).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=TodayNewsSerializer)},
+        summary="Get today's project news",
+        description="Today's news edition for the whole project: a lead story, up to 4 more stories, ongoing stories, the trends of the week and briefs. An AI agent writes one edition per project and day, from the last 24 hours, when the first person opens the news with `news/write`. This call never starts it. `ready` returns today's edition. `not_started`, `computing` and `failed` return the latest earlier edition, or null, so poll every 5 seconds while the status is `computing`. Stories about data the person cannot see are left out. `skipped` with a reason when the day was quiet, AI data processing is off, or fewer than 2 people use Today. 404 when the person does not have the news.",
+    )
+    @action(detail=False, methods=["get"], url_path="news")
+    def news(self, request: Request, **kwargs) -> Response:
+        user = self._news_user()
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        found = api.get_news(team=self.team, user=user, scopes=None if scopes is None else frozenset(scopes))
+        return Response(TodayNewsSerializer(found).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=TodayNewsSerializer)},
+        summary="Start writing today's news",
+        description="Starts the AI agent that writes today's edition and returns `computing`. Writing takes a few minutes, so poll the news every 5 seconds while the status is `computing`. It starts at most one run per project and day, and tries again only after a failed run is an hour old. It starts nothing when the edition is ready, the daily limit is reached, or AI data processing is off, and then returns the same as the news call. 404 when the person does not have the news.",
+    )
+    @action(detail=False, methods=["post"], url_path="news/write", required_scopes=["today:write", "query:read"])
+    def write_news(self, request: Request, **kwargs) -> Response:
+        user = self._news_user()
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        found = api.write_news(team=self.team, user=user, scopes=None if scopes is None else frozenset(scopes))
+        return Response(TodayNewsSerializer(found).data)
 
     @validated_request(
         responses={200: OpenApiResponse(response=PulsePinsSerializer)},

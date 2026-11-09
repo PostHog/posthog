@@ -78,3 +78,39 @@ class HighlightInterval(LabeledStrEnum):
     DAY = "day", "Day"
     WEEK = "week", "Week"
     MONTH = "month", "Month"
+
+
+class NewsStatus(LabeledStrEnum):
+    NOT_STARTED = "not_started", "Not started"
+    COMPUTING = "computing", "Computing"
+    READY = "ready", "Ready"
+    SKIPPED = "skipped", "Skipped"
+    FAILED = "failed", "Failed"
+
+
+class NewsSkipReason(LabeledStrEnum):
+    QUIET = "quiet", "Not enough news today"
+    AI_NOT_APPROVED = "ai_not_approved", "AI data processing is off"
+    FEW_PEOPLE = "few_people", "Fewer than 2 people use Today"
+    NO_ACCESS = "no_access", "No story the viewer can see"
+    PROPERTY_RULES = "property_rules", "Some properties are hidden from some people"
+    ENVIRONMENT = "environment", "News covers only the main environment of a project"
+
+
+class NewsChartKind(LabeledStrEnum):
+    LINE = "line", "Line"
+    GROUPED_BARS = "grouped_bars", "Grouped bars"
+    SPLIT = "split", "Split"
+
+
+class NewsOngoingStatus(LabeledStrEnum):
+    WORSE = "worse", "Worse"
+    BETTER = "better", "Better"
+    SAME = "same", "No change"
+    ENDED = "ended", "Ended"
+
+
+class NewsTone(LabeledStrEnum):
+    RISK = "risk", "Risk"
+    GOOD = "good", "Good"
+    NEUTRAL = "neutral", "Neutral"

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useLayoutEffect, useRef } from 'react'
 
-import { Text } from '@posthog/quill'
+import { Text, cn } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
@@ -11,6 +11,7 @@ import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { TodayHomeComposer } from './TodayHomeComposer'
 import { reportIdFromPath, todayLogic } from './todayLogic'
+import { TodayNewsButton } from './TodayNewsButton'
 import { TodayPulseSection } from './TodayPulseSection'
 import { TodayRecents } from './TodayRecents'
 import { TodaySampleBanner } from './TodaySampleBanner'
@@ -45,6 +46,7 @@ export function TodayHomePage(): JSX.Element {
     const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
     const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
+    const todayNews = useFeatureFlag('TODAY_NEWS') && postHogAiTasks
 
     useLayoutEffect(() => {
         pulseViewMounted(useSampleData)
@@ -91,13 +93,14 @@ export function TodayHomePage(): JSX.Element {
     }, [returnFocusReportId, setReturnFocusReportId])
 
     return (
-        <div ref={rootRef} className="TodayHome Today__page" data-quill>
+        <div ref={rootRef} className={cn('TodayHome Today__page', todayNews && 'TodayHome--news')} data-quill>
             <TodaySampleBanner />
             <section className="TodayHome__intro" aria-label="Today">
                 <div className="TodayHome__greeting">
                     <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">
                         {greeting}
                     </Text>
+                    {todayNews ? <TodayNewsButton /> : null}
                 </div>
                 <TodayMetaLine />
                 {postHogAiTasks ? <TodayHomeComposer /> : null}
