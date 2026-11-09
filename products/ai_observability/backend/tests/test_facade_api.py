@@ -1,3 +1,4 @@
+import json
 import tempfile
 from collections.abc import Callable
 from contextlib import suppress
@@ -681,6 +682,14 @@ class TestTraceExportFile(TraceEventsMixin, ClickhouseTestMixin, APIBaseTest):
         root, generation = file.nodes[0].event, file.nodes[2].event
         assert root is not None and root.properties["$ai_input_state"] == {"question": "Why?"}
         assert generation is not None and generation.properties["$ai_input"] == QUESTION
+
+    def test_export_writes_raw_nodes(self) -> None:
+        content = read_export_asset_content(team_id=self.team.pk, asset_id=self._export().id)
+        assert content is not None
+
+        nodes = json.loads(content)["nodes"]
+
+        assert [sorted(node) for node in nodes] == [["event", "id", "kind"]] * 4
 
     def test_a_trace_over_the_event_limit_exports_what_was_read_and_says_so(self) -> None:
         with patch.object(trace_queries, "MAX_TRACE_EVENTS", 2):

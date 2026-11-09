@@ -8,7 +8,7 @@ from posthog.dataclasses import frozen
 
 from .errors import RecipeRuntimeError
 from .expressions import Expr
-from .roles import normalize_role
+from .roles import THINKING_ROLE, TOOL_RESULT_ROLE, normalize_role
 from .rules import NO_MATCH, DispatchResult, EmitSpec, NoMatch, Recipe, RoleTag, Rule
 from .run_limits import charge_messages, charge_operations, charge_output, run_limits
 from .scope import Scope
@@ -40,8 +40,8 @@ ROLE_TAG_ROLES: Final[Mapping[RoleTag, str]] = MappingProxyType(
         "assistant": "assistant",
         "system": "system",
         "tool": "tool",
-        "thinking": "assistant (thinking)",
-        "tool_result": "assistant (tool result)",
+        "thinking": THINKING_ROLE,
+        "tool_result": TOOL_RESULT_ROLE,
     }
 )
 
