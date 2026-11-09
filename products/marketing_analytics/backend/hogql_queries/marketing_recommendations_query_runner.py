@@ -21,6 +21,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import create_default_modifiers_for_team, execute_hogql_query
 
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -39,6 +40,13 @@ from products.warehouse_sources.backend.facade.api import (
     list_schemas_for_source,
     list_sources,
 )
+
+
+@frozen
+class GoogleAdsSessions:
+    total: int
+    with_keyword: int
+
 
 ROW_LIMIT = 50000
 RECOMMENDATION_SOURCE_TYPES = ("GoogleAds", "GoogleSearchConsole")
@@ -259,7 +267,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         return campaigns
 
     @cached_property
-    def _google_ads_sessions(self) -> tuple[int, int]:
+    def _google_ads_sessions(self) -> GoogleAdsSessions:
         # gclid is the one parameter every auto-tagged Google Ads click carries, so it finds paid sessions without
         # relying on the UTMs this rule checks. It cannot tell ad accounts apart, so every account shares the count.
         rows = self._select(
@@ -271,11 +279,13 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             """,
             "sessions",
         )
-        return (int(rows[0][0] or 0), int(rows[0][1] or 0)) if rows else (0, 0)
+        if not rows:
+            return GoogleAdsSessions(total=0, with_keyword=0)
+        return GoogleAdsSessions(total=int(rows[0][0] or 0), with_keyword=int(rows[0][1] or 0))
 
     def _keyword_tracking(self, source: MarketingAnalyticsRecommendationsSource) -> KeywordTracking | None:
-        sessions, with_keyword = self._google_ads_sessions
-        if not sessions:
+        sessions = self._google_ads_sessions
+        if not sessions.total:
             return None
         name, template, suffix = None, None, None
         table = source.customerTable
@@ -292,8 +302,8 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 name, template, suffix = rows[0]
         return KeywordTracking(
             account_name=name or self._account_label(source),
-            sessions=sessions,
-            sessions_with_keyword=with_keyword,
+            sessions=sessions.total,
+            sessions_with_keyword=sessions.with_keyword,
             account_tracking_url_template=template or None,
             account_final_url_suffix=suffix or None,
         )
