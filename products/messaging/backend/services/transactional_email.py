@@ -586,8 +586,8 @@ def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
         {
             "sha256": attachment.sha256,
             "filename": attachment.filename,
-            "contentType": attachment.content_type,
-            "contentId": attachment.content_id,
+            "content_type": attachment.content_type,
+            "content_id": attachment.content_id,
         }
     )
 

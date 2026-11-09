@@ -698,7 +698,7 @@ class TestTransactionalEmail(APIBaseTest):
                     "cc": ["copy@example.com"],
                     "bcc": ["audit@example.com", "archive@example.com"],
                     "attachments": [
-                        {"sha256": CSV, "filename": "a.csv", "contentType": "text/csv", "contentId": "a"},
+                        {"sha256": CSV, "filename": "a.csv", "content_type": "text/csv", "content_id": "a"},
                         {"sha256": NOTES, "filename": "notes.txt"},
                     ],
                 },
