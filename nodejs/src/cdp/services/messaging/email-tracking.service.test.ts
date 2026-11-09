@@ -926,6 +926,50 @@ describe('EmailTrackingService', () => {
                     expect(recordedMetrics()).toEqual(bounceMetrics)
                 })
 
+                it('queues a sensitive email click without its subject or link secrets and still records it', async () => {
+                    const trackingCode = signer.generate({
+                        functionId: hogFunction.id,
+                        id: invocationId,
+                        teamId: team.id,
+                    })
+                    const subject = 'Your login code is 482913'
+                    await postEnvelope({
+                        Type: 'Notification',
+                        MessageId: new UUIDT().toString(),
+                        TopicArn: sesTopicArn,
+                        Message: JSON.stringify({
+                            eventType: 'Click',
+                            mail: {
+                                timestamp: '2024-01-01T00:00:00.000Z',
+                                source: 'sender@posthog.com',
+                                messageId: 'ses-message-id',
+                                destination: ['user@example.com'],
+                                headers: [
+                                    { name: TRACKING_CODE_HEADER_NAME, value: trackingCode },
+                                    { name: 'Subject', value: subject },
+                                ],
+                                commonHeaders: { subject },
+                                tags: { ph_sensitive: ['true'] },
+                            },
+                            click: {
+                                link: 'https://app.example.com/reset/Xk3pR9mQ2a?token=s3cret',
+                                timestamp: '2024-01-01T00:00:00.000Z',
+                            },
+                        }),
+                    })
+
+                    const queued = queuedNotifications()
+                    const queuedValue = queued.map((m) => m.value?.toString()).join()
+                    expect(queuedValue).not.toContain('482913')
+                    expect(queuedValue).not.toContain('s3cret')
+                    expect(queuedValue).not.toContain('Xk3pR9mQ2a')
+
+                    await consumer.processBatch(queued)
+
+                    const clicks = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    expect(clicks.map((m) => [m.value.metric_name, m.value.count])).toEqual([['email_link_clicked', 1]])
+                })
+
                 it.each<[string, () => Promise<Message>]>([
                     ['is not JSON', () => Promise.resolve(rawMessage('not json'))],
                     ['is not an SNS envelope', () => Promise.resolve(rawMessage('{}'))],

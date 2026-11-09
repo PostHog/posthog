@@ -377,6 +377,55 @@ const unwrapTrackingRedirect = (link: string): string => {
  */
 export const resolveClickDestination = (link: string): string => removeWorkflowRunTag(unwrapTrackingRedirect(link))
 
+const isSensitiveMail = (mail: { tags?: Record<string, unknown> } | undefined): boolean => {
+    const values = mail?.tags?.[SES_SENSITIVE_TAG]
+    return Array.isArray(values) && values[0] === 'true'
+}
+
+// Applied to its own output, it returns that output, so a link redacted before queueing records the same value.
+const sensitiveClickLink = (link: string): string => sensitiveLinkOrigin(resolveClickDestination(link))
+
+type LooseSesRecord = {
+    mail?: { tags?: Record<string, unknown>; commonHeaders?: Record<string, unknown>; headers?: unknown }
+    click?: { link?: unknown }
+}
+
+/**
+ * The notification without the subject and click link secrets of a sensitive email, by the rules
+ * `handleWebhook` applies when it records. A queued notification waits on a Kafka topic, so these
+ * secrets must not reach it. A Message that does not parse, or is not from a sensitive email, is
+ * returned unchanged, so recording handles it as it handles the original.
+ */
+export const redactSensitiveNotification = (envelope: SnsEnvelope): SnsEnvelope => {
+    let record: LooseSesRecord
+    try {
+        record = parseJSON(envelope.Message)
+    } catch {
+        return envelope
+    }
+    if (!record || typeof record !== 'object' || !isSensitiveMail(record.mail)) {
+        return envelope
+    }
+    const { mail, click } = record
+    const { subject: _subject, ...commonHeaders } = mail?.commonHeaders ?? {}
+    const redacted: LooseSesRecord = {
+        ...record,
+        mail: {
+            ...mail,
+            ...(mail?.commonHeaders ? { commonHeaders } : {}),
+            ...(Array.isArray(mail?.headers)
+                ? {
+                      headers: mail.headers.filter((header) => String(header?.name ?? '').toLowerCase() !== 'subject'),
+                  }
+                : {}),
+        },
+        ...(click && typeof click.link === 'string'
+            ? { click: { ...click, link: sensitiveClickLink(click.link) } }
+            : {}),
+    }
+    return { ...envelope, Message: JSON.stringify(redacted) }
+}
+
 // Bounds how much of a URL rides in the app_metrics2 sort key. Long enough to stay recognizable in
 // the UI, short enough that a pathological query-less URL can't bloat the index.
 const MAX_LINK_URL_LENGTH = 200
@@ -520,6 +569,8 @@ export const formatSesEventLogs = (rec: SesEventRecord): SesEventLogLine[] => {
 // Any AWS account can send it when the topic allowlist is empty, so it is sanitized like other SES fields.
 const plainTextPrefix = (message: string): string | undefined =>
     /^\s*[{[]/.test(message) ? undefined : sanitizeSesField(message, 200)
+
+const UNSIGNED_RAW_DELIVERY = { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
 
 export class SesWebhookHandler {
     certCache: Record<string, Promise<string> | undefined> = {}
@@ -693,13 +744,16 @@ export class SesWebhookHandler {
         return lines.join('\n') + '\n'
     }
 
-    async verifyDelivery(opts: {
-        body: unknown
-        verifySignature?: boolean
-    }): Promise<{ status: number; body: unknown } | { snsMessageId?: string }> {
-        const parsed = this.parseIncomingBody(opts.body)
-        const answer = await this.verifyAndConfirm(parsed, opts.verifySignature)
-        return answer ?? { snsMessageId: 'envelope' in parsed ? parsed.envelope.MessageId : undefined }
+    /** Verifies a signed notification and returns the envelope to queue, with sensitive fields redacted. */
+    async verifyDelivery(body: unknown): Promise<{ status: number; body: unknown } | { envelope: SnsEnvelope }> {
+        const parsed = this.parseIncomingBody(body)
+        const answer = await this.verifyAndConfirm(parsed, true)
+        if (answer) {
+            return answer
+        }
+        return parsed.mode === 'sns'
+            ? { envelope: redactSensitiveNotification(parsed.envelope) }
+            : UNSIGNED_RAW_DELIVERY
     }
 
     private async verifyAndConfirm(
@@ -712,7 +766,7 @@ export class SesWebhookHandler {
         // Raw deliveries carry no signature, so a required verification rejects them to block forged events.
         if (verifySignature) {
             if (!('envelope' in parsed)) {
-                return { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
+                return UNSIGNED_RAW_DELIVERY
             }
             logger.info('[SesWebhookHandler] verifying signature', {
                 type: parsed.envelope.Type,
@@ -923,7 +977,7 @@ export class SesWebhookHandler {
             // their delivery/open/click metrics — otherwise a draft/never-enabled workflow shows
             // email activity in its Metrics tab. Bounce-driven opt-outs below still apply.
             if (metricName && !isTest) {
-                const isSensitive = rec.mail.tags?.[SES_SENSITIVE_TAG]?.[0] === 'true'
+                const isSensitive = isSensitiveMail(rec.mail)
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],
                     $email_message_id: rec.mail.messageId,
@@ -938,8 +992,9 @@ export class SesWebhookHandler {
                     timestamp = rec.open.timestamp
                 } else if ('click' in rec && rec.click) {
                     timestamp = rec.click.timestamp
-                    const destination = resolveClickDestination(rec.click.link)
-                    properties.$link_url = isSensitive ? sensitiveLinkOrigin(destination) : destination
+                    properties.$link_url = isSensitive
+                        ? sensitiveClickLink(rec.click.link)
+                        : resolveClickDestination(rec.click.link)
                     const linkIndex = rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0]
                     if (linkIndex !== undefined) {
                         properties.$link_index = linkIndex
@@ -996,7 +1051,7 @@ export class SesWebhookHandler {
                             actionId,
                             rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0] ?? '',
                             isSensitive
-                                ? sensitiveLinkOrigin(resolveClickDestination(rec.click.link))
+                                ? sensitiveClickLink(rec.click.link)
                                 : normalizeClickUrl(resolveClickDestination(rec.click.link))
                         ),
                         timestamp,

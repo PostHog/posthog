@@ -13,6 +13,10 @@ import { counterParseError } from './metrics'
 
 type SkipReason = 'unparseable' | 'not_an_sns_envelope' | 'invalid_ses_event' | 'rejected'
 
+// Each notification records serially with several datastore round trips, so a batch of the default
+// CONSUMER_BATCH_SIZE could outrun the consumer's heartbeat health check. This bound keeps a batch well inside it.
+const SES_NOTIFICATIONS_PER_BATCH = 50
+
 // A notification that can never record is logged, counted and skipped, so one bad message cannot hold its
 // partition. SNS drops a notification the same way after its last retry.
 // Any other error fails the batch so Kafka redelivers it, because a datastore or Kafka failure, such as a deploy
@@ -26,6 +30,7 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
         this.kafkaConsumer = createKafkaConsumer({
             groupId: 'cdp-ses-webhooks-consumer',
             topic: config.CDP_SES_WEBHOOKS_TOPIC,
+            fetchBatchSize: SES_NOTIFICATIONS_PER_BATCH,
         })
     }
 

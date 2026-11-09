@@ -623,7 +623,7 @@ export class EmailTrackingService {
             throw error
         }
         if (this.sesWebhooksOutputs) {
-            return await this.queueSesNotification(req.body, body, this.sesWebhooksOutputs)
+            return await this.queueSesNotification(body, this.sesWebhooksOutputs)
         }
         const recording = await this.recordSesNotification({ body, verifySignature: true })
         switch (recording.outcome) {
@@ -651,13 +651,12 @@ export class EmailTrackingService {
 
     // A failed produce throws, so the webhook answers 5xx and SNS retries the notification.
     private async queueSesNotification(
-        rawBody: string,
         body: unknown,
         outputs: IngestionOutputs<SesWebhooksOutput>
     ): Promise<{ status: number; message?: unknown }> {
         let verified: Awaited<ReturnType<SesWebhookHandler['verifyDelivery']>>
         try {
-            verified = await this.sesWebhookHandler.verifyDelivery({ body, verifySignature: true })
+            verified = await this.sesWebhookHandler.verifyDelivery(body)
         } catch (error) {
             countSesWebhookError(error)
             throw error
@@ -667,8 +666,8 @@ export class EmailTrackingService {
         }
         try {
             await outputs.produce(SES_WEBHOOKS_OUTPUT, {
-                key: verified.snsMessageId ? Buffer.from(verified.snsMessageId) : null,
-                value: Buffer.from(rawBody),
+                key: Buffer.from(verified.envelope.MessageId),
+                value: Buffer.from(JSON.stringify(verified.envelope)),
             })
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: 'ses_queue_failed', source: 'ses' })
