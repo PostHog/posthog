@@ -2356,11 +2356,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         prepare_and_print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
 
+    @parameterized.expand([("persons",), ("posthog.persons",)])
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_database_warehouse_joins_persons_poe_v1(self):
+    def test_database_warehouse_joins_persons_poe_v1(self, source_table_name):
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name="persons",
+            source_table_name=source_table_name,
             source_table_key="properties.email",
             joining_table_name="groups",
             joining_table_key="key",
@@ -3734,14 +3735,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             sync_type_config={"schema_metadata": {"foreign_keys": foreign_keys}},
         )
 
-    @parameterized.expand([("root_name", "events"), ("posthog_qualified_name", ["posthog", "events"])])
-    def test_deferred_foreign_keys_wire_for_a_table_reached_through_a_data_warehouse_join(self, _name, source_table):
+    @parameterized.expand(
+        [
+            ("events", "events"),
+            ("events", ["posthog", "events"]),
+            ("posthog.events", "events"),
+            ("posthog.events", ["posthog", "events"]),
+        ]
+    )
+    def test_deferred_foreign_keys_wire_for_a_table_reached_through_a_data_warehouse_join(
+        self, join_source_table_name, source_table
+    ):
         self._postgres_warehouse_source_with_foreign_key(
             foreign_keys=[{"column": "team_id", "target_table": "posthog_team", "target_column": "id"}]
         )
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name="events",
+            source_table_name=join_source_table_name,
             source_table_key="event",
             joining_table_name="postgres.ph3.posthog_activitylog",
             joining_table_key="id",
