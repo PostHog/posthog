@@ -622,4 +622,49 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
         { domain: 'example.com', answers: 984, share_of_answers: 0.4, is_target: true },
         { domain: 'community.example.org', answers: 590, share_of_answers: 0.24, is_target: false },
     ],
+    top_searches: [
+        {
+            query: 'open source product analytics',
+            prompts: 9,
+            answers: 214,
+            cited: 131,
+            engines: ['claude-web-search', 'exa-answer', 'openai-web-search'],
+            top_prompts: [
+                {
+                    id: '00000000-0000-4000-8000-000000000301',
+                    text: 'What is the best open source product analytics tool for a small startup?',
+                },
+                {
+                    id: '00000000-0000-4000-8000-000000000302',
+                    text: 'How do I track funnels without writing SQL, and can I break the results down by country and browser?',
+                },
+            ],
+        },
+        {
+            query: 'session replay mask inputs',
+            prompts: 4,
+            answers: 88,
+            cited: 12,
+            engines: ['claude-web-search', 'openai-web-search'],
+            top_prompts: [
+                {
+                    id: '00000000-0000-4000-8000-000000000303',
+                    text: 'Which session replay tools let me mask sensitive inputs by default?',
+                },
+            ],
+        },
+        {
+            query: 'free feature flag service',
+            prompts: 3,
+            answers: 61,
+            cited: 0,
+            engines: ['exa-answer'],
+            top_prompts: [
+                {
+                    id: '00000000-0000-4000-8000-000000000304',
+                    text: 'Is there a free alternative to paid feature flag services?',
+                },
+            ],
+        },
+    ],
 }

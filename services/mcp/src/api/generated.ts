@@ -459,6 +459,28 @@ export namespace Schemas {
       active_prompts: number;
     }
 
+    export interface AEOPromptSetSearchPrompt {
+      /** The prompt id (a UUID). */
+      id: string;
+      /** The prompt's current text. */
+      text: string;
+    }
+
+    export interface AEOPromptSetSearch {
+      /** Up to 5 prompts whose answers ran this search, the ones that ran it most first. */
+      top_prompts: AEOPromptSetSearchPrompt[];
+      /** The web search an engine ran while answering, lowercased with whitespace collapsed. */
+      query: string;
+      /** Distinct prompts whose answers ran this search in the window. */
+      prompts: number;
+      /** Answered checks in the window that ran this search. */
+      answers: number;
+      /** Of those answers, how many cited a URL on the project's target domains. */
+      cited: number;
+      /** Answer engines that ran this search, ordered by engine. */
+      engines: string[];
+    }
+
     export interface AEOPromptSetOverview {
       /** Checks across the prompt set in the last 'days' days. */
       current: AEOPromptSetCounts;
@@ -470,6 +492,8 @@ export namespace Schemas {
       topics: AEOPromptSetTopicCounts[];
       /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
       top_domains: AEOPromptSetDomain[];
+      /** The 20 web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project. */
+      top_searches: AEOPromptSetSearch[];
       /** Length of each window in days. */
       days: number;
       /** First day of the current window, in the project's timezone. */
@@ -110090,6 +110114,39 @@ export namespace Schemas {
       readonly previous_secret_valid_until: string | null;
     }
 
+    /**
+     * * `unavailable` - unavailable
+     * * `rendering` - rendering
+     * * `ready` - ready
+     */
+    export type SnapshotStatusEnum = typeof SnapshotStatusEnum[keyof typeof SnapshotStatusEnum];
+
+
+    export const SnapshotStatusEnum = {
+      Unavailable: 'unavailable',
+      Rendering: 'rendering',
+      Ready: 'ready',
+    } as const;
+
+    export interface SiteSnapshot {
+      /** `ready` when the snapshot image can be loaded, `rendering` while it is being created, `unavailable` when no recent session recording matches the survey or the user cannot view recordings.
+       *
+       * * `unavailable` - unavailable
+       * * `rendering` - rendering
+       * * `ready` - ready */
+      status: SnapshotStatusEnum;
+      /**
+         * ID of the exported image. Load it from the exports content endpoint once the status is `ready`.
+         * @nullable
+         */
+      exported_asset_id: number | null;
+      /**
+         * URL of the page the snapshot shows. Null when the status is `unavailable`.
+         * @nullable
+         */
+      page_url: string | null;
+    }
+
     export interface SlackAppChannelJoinResult {
       /** Slack channel ID. */
       channel_id: string;
@@ -137567,6 +137624,25 @@ export namespace Schemas {
      */
     until?: string;
     };
+
+    export type SurveysSiteSnapshotRetrieveParams = {
+    /**
+     * Which viewport to show. Desktop picks a page viewed in a window at least 1024px wide, mobile one at most 767px wide.
+     *
+     * * `desktop` - Desktop
+     * * `mobile` - Mobile
+     * @minLength 1
+     */
+    device: SurveysSiteSnapshotRetrieveDevice;
+    };
+
+    export type SurveysSiteSnapshotRetrieveDevice = typeof SurveysSiteSnapshotRetrieveDevice[keyof typeof SurveysSiteSnapshotRetrieveDevice];
+
+
+    export const SurveysSiteSnapshotRetrieveDevice = {
+      Desktop: 'desktop',
+      Mobile: 'mobile',
+    } as const;
 
     export type SurveysStatsRetrieveParams = {
     /**
