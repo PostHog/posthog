@@ -138,6 +138,79 @@ describe('codeEmailLogic', () => {
         expect(logic.values.saving).toBe(false)
     })
 
+    it('shows the stored values after a failed save and still sends the edit queued behind it', async () => {
+        const writes: PatchedCodeEmailUpdateApi[] = []
+        const releaseFirst = deferred()
+        let gets = 0
+        useMocks({
+            get: { [EMAIL_URL]: () => (++gets === 1 ? [200, stored()] : [500, {}]) },
+            patch: {
+                [EMAIL_URL]: async ({ request }) => {
+                    const fields = (await request.json()) as PatchedCodeEmailUpdateApi
+                    writes.push(fields)
+                    if (writes.length === 1) {
+                        await releaseFirst.promise
+                        return [400, { detail: 'Too long' }]
+                    }
+                    return [200, stored(fields)]
+                },
+            },
+        })
+        logic = codeEmailLogic({ id: 'email-id' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.updateCodeEmail({ description: 'Broken' })
+        logic.actions.updateCodeEmail({ tags: ['auth'] })
+        releaseFirst.resolve()
+        await expectLogic(logic).toDispatchActions(['updateCodeEmailFailure'])
+        expect(logic.values.codeEmail).toMatchObject({ description: '', tags: ['auth'] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(writes).toEqual([{ description: 'Broken' }, { tags: ['auth'] }])
+        expect(logic.values.codeEmail).toMatchObject({ description: '', tags: ['auth'] })
+        expect(logic.values.saving).toBe(false)
+    })
+
+    it('reads the email back after a failed save without replacing an edit made meanwhile', async () => {
+        const writes: PatchedCodeEmailUpdateApi[] = []
+        const readBackStarted = deferred()
+        const releaseReadBack = deferred()
+        let gets = 0
+        useMocks({
+            get: {
+                [EMAIL_URL]: async () => {
+                    if (++gets > 1) {
+                        readBackStarted.resolve()
+                        await releaseReadBack.promise
+                    }
+                    return [200, stored()]
+                },
+            },
+            patch: {
+                [EMAIL_URL]: async ({ request }) => {
+                    const fields = (await request.json()) as PatchedCodeEmailUpdateApi
+                    writes.push(fields)
+                    return writes.length === 1 ? [500, {}] : [200, stored(fields)]
+                },
+            },
+        })
+        logic = codeEmailLogic({ id: 'email-id' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.updateCodeEmail({ description: 'Broken' })
+        await readBackStarted.promise
+        logic.actions.updateCodeEmail({ tags: ['auth'] })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(writes).toHaveLength(1)
+        releaseReadBack.resolve()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(writes).toEqual([{ description: 'Broken' }, { tags: ['auth'] }])
+        expect(logic.values.codeEmail).toMatchObject({ description: '', tags: ['auth'] })
+    })
+
     it('drills an email metric into the sends on this page', async () => {
         useMocks({ get: { [EMAIL_URL]: stored() } })
         router.actions.push(urls.transactionalCodeEmail('email-id'))
