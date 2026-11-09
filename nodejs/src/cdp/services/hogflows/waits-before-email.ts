@@ -10,23 +10,34 @@ const WAITING_ACTION_TYPES: ReadonlySet<HogFlowAction['type']> = new Set([
 
 const canWait = (action: HogFlowAction): boolean => WAITING_ACTION_TYPES.has(action.type) || frequencyCapCanHold(action)
 
-export const stepThatCanWaitBeforeEmail = (hogFlow: HogFlow): HogFlowAction | null => {
-    const actions = new Map(hogFlow.actions.map((action) => [action.id, action]))
+const reachableFrom = (hogFlow: HogFlow, startIds: string[]): Set<string> => {
     const reached = new Set<string>()
-    const toVisit = hogFlow.actions.filter((action) => action.type === 'trigger').map((action) => action.id)
+    const toVisit = [...startIds]
     while (toVisit.length > 0) {
         const id = toVisit.pop()!
-        const action = actions.get(id)
-        if (reached.has(id) || !action) {
+        if (reached.has(id)) {
             continue
         }
         reached.add(id)
-        if (canWait(action)) {
-            return action
-        }
-        if (action.type !== 'function_email') {
-            toVisit.push(...hogFlow.edges.filter((edge) => edge.from === id).map((edge) => edge.to))
-        }
+        toVisit.push(...hogFlow.edges.filter((edge) => edge.from === id).map((edge) => edge.to))
     }
-    return null
+    return reached
+}
+
+const holdsAnEmail = (hogFlow: HogFlow, action: HogFlowAction): boolean => {
+    if (action.type === 'function_email') {
+        return true
+    }
+    const after = reachableFrom(hogFlow, [action.id])
+    return hogFlow.actions.some((later) => later.type === 'function_email' && after.has(later.id))
+}
+
+export const stepThatCanWaitBeforeEmail = (hogFlow: HogFlow): HogFlowAction | null => {
+    const triggers = hogFlow.actions.filter((action) => action.type === 'trigger').map((action) => action.id)
+    const reachable = reachableFrom(hogFlow, triggers)
+    return (
+        hogFlow.actions.find(
+            (action) => reachable.has(action.id) && canWait(action) && holdsAnEmail(hogFlow, action)
+        ) ?? null
+    )
 }

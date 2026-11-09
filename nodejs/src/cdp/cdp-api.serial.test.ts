@@ -2950,6 +2950,24 @@ describe('CDP API', () => {
                         ),
                 ],
                 [
+                    'a delay between a first email and a second one',
+                    () =>
+                        flowThrough(
+                            {
+                                first: {
+                                    type: 'function_email',
+                                    config: {
+                                        template_id: 'template-email',
+                                        inputs: {},
+                                        message_category_type: 'transactional',
+                                    },
+                                },
+                                delay,
+                            },
+                            [step('trigger', 'first'), step('first', 'delay'), step('delay', 'email')]
+                        ),
+                ],
+                [
                     'an email step the frequency cap can hold',
                     () => flowThrough({}, [step('trigger', 'email')], 'marketing'),
                 ],
