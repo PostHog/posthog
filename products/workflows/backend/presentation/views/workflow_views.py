@@ -41,6 +41,7 @@ class WorkflowViewFacet(TextChoices):
     HEALTH = "health"
     CREATED_BY = "createdBy"
     TAG = "tag"
+    IN = "in"
 
 
 class WorkflowViewColumn(TextChoices):
@@ -53,11 +54,20 @@ class WorkflowViewColumn(TextChoices):
 
 
 class WorkflowViewFilterSerializer(serializers.Serializer):
-    facet = serializers.ChoiceField(choices=WorkflowViewFacet.choices, help_text="Supported workflow list facet.")
+    facet = serializers.ChoiceField(
+        choices=WorkflowViewFacet.choices,
+        help_text="Supported workflow list facet. The in facet takes a folder path and must be negated.",
+    )
     value = serializers.CharField(
         max_length=256, trim_whitespace=False, help_text="Facet value; createdBy accepts me for the current viewer."
     )
     negated = serializers.BooleanField(default=False, help_text="Exclude workflows matching this facet value.")
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # An open folder is navigation, so a view keeps only the folders it hides.
+        if attrs["facet"] == WorkflowViewFacet.IN and not attrs.get("negated", False):
+            raise serializers.ValidationError("A view can hide a folder with -in:, but it can't open one.")
+        return attrs
 
 
 class WorkflowViewStateSerializer(serializers.Serializer):

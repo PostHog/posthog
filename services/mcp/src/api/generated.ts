@@ -80899,6 +80899,7 @@ export namespace Schemas {
      * * `health` - Health
      * * `createdBy` - Created By
      * * `tag` - Tag
+     * * `in` - In
      */
     export type WorkflowViewFacetEnum = typeof WorkflowViewFacetEnum[keyof typeof WorkflowViewFacetEnum];
 
@@ -80911,10 +80912,11 @@ export namespace Schemas {
       Health: 'health',
       CreatedBy: 'createdBy',
       Tag: 'tag',
+      In: 'in',
     } as const;
 
     export interface WorkflowViewFilter {
-      /** Supported workflow list facet.
+      /** Supported workflow list facet. The in facet takes a folder path and must be negated.
        *
        * * `status` - Status
        * * `kind` - Kind
@@ -80922,7 +80924,8 @@ export namespace Schemas {
        * * `owner` - Owner
        * * `health` - Health
        * * `createdBy` - Created By
-       * * `tag` - Tag */
+       * * `tag` - Tag
+       * * `in` - In */
       facet: WorkflowViewFacetEnum;
       /**
          * Facet value; createdBy accepts me for the current viewer.
