@@ -311,6 +311,12 @@ class TestManagedWarehouseConsolePanel(BaseTest):
         content = self.client.get(self.organization_url).content.decode()
         assert "Start view translation" not in content and "Retry failed view translations" not in content
 
+        ManagedWarehouseViewTranslationJob.objects.filter(id=retry_job.id).update(
+            status=ManagedWarehouseViewTranslationJob.Status.COMPLETED
+        )
+        content = self.client.get(self.organization_url).content.decode()
+        assert "Start view translation" in content and "Retry failed view translations" not in content
+
     def test_enable_backfill_calls_helper_bypassing_flag(self) -> None:
         self._server()
         with patch(

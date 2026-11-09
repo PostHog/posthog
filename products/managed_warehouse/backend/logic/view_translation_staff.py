@@ -18,6 +18,7 @@ RETRYABLE_STATUSES = [
     ManagedWarehouseViewTranslationResult.Status.FAILED,
     ManagedWarehouseViewTranslationResult.Status.STALE,
 ]
+ACTIVE_JOB_CONSTRAINT = "unique_active_mw_view_translation_job"
 ALREADY_RUNNING = "This organization already has a pending or running translation job. Wait for it to finish."
 
 
@@ -38,14 +39,9 @@ class ViewTranslationStaff:
         latest = jobs.first()
         if latest is None:
             return None
-        retry_job_id = (
-            ManagedWarehouseViewTranslationResult.all_teams.filter(
-                job__organization_id=organization_id, status__in=RETRYABLE_STATUSES
-            )
-            .order_by("-job__created_at")
-            .values_list("job_id", flat=True)
-            .first()
-        )
+        has_retryable_results = ManagedWarehouseViewTranslationResult.all_teams.filter(
+            job=latest, status__in=RETRYABLE_STATUSES
+        ).exists()
         return ViewTranslationSummary(
             latest_status=latest.get_status_display(),
             total_count=latest.total_count,
@@ -53,7 +49,7 @@ class ViewTranslationStaff:
             failed_count=latest.failed_count,
             stale_count=latest.stale_count,
             active=latest.status in ACTIVE_STATUSES,
-            retry_job_id=retry_job_id,
+            retry_job_id=latest.id if has_retryable_results else None,
         )
 
     @staticmethod
@@ -66,8 +62,10 @@ class ViewTranslationStaff:
                     **fields,
                 )
                 transaction.on_commit(partial(_start_translation_job, job.id, organization_id))
-        except IntegrityError:
+        except IntegrityError as error:
             # The unique constraint on active jobs settles a race between two staff starting a job at once.
+            if ACTIVE_JOB_CONSTRAINT not in str(error):
+                raise
             return None
         return job
 

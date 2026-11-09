@@ -529,5 +529,5 @@ class ViewTranslationSummary:
     stale_count: int
     # True while a job is pending or running. An organization runs one job at a time.
     active: bool
-    # The newest job with failed or stale views, which a retry starts from. None when nothing can be retried.
+    # The latest job, when it has failed or stale views to retry. None otherwise.
     retry_job_id: UUID | None
