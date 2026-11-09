@@ -51,6 +51,7 @@ SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
 SLACK_APP_LINK_SEARCH_SCOPES_FLAG = "slack-app-link-search-scopes"
+SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -192,6 +193,14 @@ def is_slack_app_link_search_scopes_enabled(integration: IntegrationRecord) -> b
         SLACK_APP_LINK_SEARCH_SCOPES_FLAG,
         integration,
         failure_log_key="slack_app_link_search_scopes_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_connect_tool_from_chat_enabled(integration: IntegrationRecord) -> bool:
+    return _workspace_flag_enabled(
+        SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG,
+        integration,
+        failure_log_key="slack_app_connect_tool_from_chat_feature_flag_check_failed",
     )
 
 
