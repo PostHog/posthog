@@ -207,6 +207,7 @@ def test_refresh_does_not_retry_non_transient_error():
     [
         "expired access/refresh token",
         "inactive user",
+        "activation secret invalid",
     ],
 )
 def test_auth_error_is_non_retryable(error_description: str):

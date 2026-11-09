@@ -20,20 +20,33 @@ interface TileSpec {
     format: (n: number) => string
     color: string
     loading: boolean
+    failed?: boolean
+    onRetry?: () => void
     summaryLabel: string
     // Overrides the summary caption — used to flag a tile whose value isn't
     // scoped by the dashboard filters.
     subtitle?: string
 }
 
+// A tile that reads two queries reruns only the one that failed, so the other's pending request isn't duplicated.
+export function retryFailedSources(sources: { failed?: boolean; retry?: () => void }[]): void {
+    for (const { failed, retry } of sources) {
+        if (failed) {
+            retry?.()
+        }
+    }
+}
+
 export function kpiTileUrls(searchParams: Record<string, any>): {
     sessions: string
+    erroredSessions: string
     toolQuality: string
     intentClustering: string
 } {
     const { landing: _landing, search: _search, ...sharedParams } = searchParams
     return {
         sessions: combineUrl(urls.mcpAnalyticsSessions(), sharedParams).url,
+        erroredSessions: combineUrl(urls.mcpAnalyticsSessions(), { ...sharedParams, has_errors: 'true' }).url,
         toolQuality: combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url,
         intentClustering: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
     }
@@ -60,6 +73,8 @@ function KPITile({
                 className="transition-transform group-hover/tile:-translate-y-0.5"
                 label={tile.label}
                 loading={tile.loading}
+                failed={tile.failed}
+                onRetry={tile.onRetry}
                 value={metric.value}
                 data={metric.sparkline}
                 labels={metric.sparklineLabels}
@@ -89,6 +104,10 @@ export function KpiTiles({
     intentClusterCount,
     kpisLoading,
     usersLoading,
+    kpisFailed,
+    usersFailed,
+    onRetryKpis,
+    onRetryUsers,
     showIntentClusters,
     theme,
     interval,
@@ -99,6 +118,10 @@ export function KpiTiles({
     intentClusterCount: KPIMetric
     kpisLoading: boolean
     usersLoading: boolean
+    kpisFailed?: boolean
+    usersFailed?: boolean
+    onRetryKpis?: () => void
+    onRetryUsers?: () => void
     showIntentClusters: boolean
     theme: ChartTheme
     interval: IntervalType
@@ -109,6 +132,7 @@ export function KpiTiles({
 }): JSX.Element {
     const {
         sessions: sessionsHref,
+        erroredSessions: erroredSessionsHref,
         toolQuality: toolQualityHref,
         intentClustering: intentClusteringHref,
     } = kpiTileUrls(useValues(router).searchParams)
@@ -122,6 +146,8 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[2],
             loading: usersLoading,
+            failed: usersFailed,
+            onRetry: onRetryUsers,
             summaryLabel: 'Total',
         },
         {
@@ -131,6 +157,8 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            failed: kpisFailed,
+            onRetry: onRetryKpis,
             summaryLabel: 'Total',
         },
         {
@@ -140,16 +168,20 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            failed: kpisFailed,
+            onRetry: onRetryKpis,
             summaryLabel: 'Total',
         },
         {
             label: 'Error rate',
             metric: kpis.errorRatePct,
-            href: sessionsHref,
+            href: erroredSessionsHref,
             format: (n) => formatPercentage(n, { compact: true }),
             color: theme.colors[4],
             loading: kpisLoading,
-            summaryLabel: 'Latest',
+            failed: kpisFailed,
+            onRetry: onRetryKpis,
+            summaryLabel: 'Overall',
         },
         {
             label: 'p95 latency',
@@ -157,8 +189,14 @@ export function KpiTiles({
             href: toolQualityHref,
             format: formatMs,
             color: theme.colors[0],
-            loading: kpisLoading,
-            summaryLabel: 'Latest',
+            loading: kpisLoading || usersLoading,
+            failed: kpisFailed || usersFailed,
+            onRetry: () =>
+                retryFailedSources([
+                    { failed: kpisFailed, retry: onRetryKpis },
+                    { failed: usersFailed, retry: onRetryUsers },
+                ]),
+            summaryLabel: 'Overall',
         },
         ...(showIntentClusters
             ? [

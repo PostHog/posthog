@@ -30,7 +30,7 @@ from posthog.schema import (
 
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -45,6 +45,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.contracts import Action
 from products.actions.backend.facade.testing import create_action, update_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.health.context import ConditionSetTraffic
@@ -549,7 +550,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         # Query count must stay flat as rows grow — five experiments must not cost more than one.
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
         # The list serializer stamps no calculation keys, so the saved metrics cost no extra query.
-        self.assertEqual(len(five_rows.captured_queries), 14)
+        self.assertEqual(len(five_rows.captured_queries), 13)
 
     def test_experiment_detail_with_saved_metrics_reads_each_relation_once(self) -> None:
         experiment = self._create_fully_populated_experiment(0)
@@ -566,7 +567,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # The saved-metric fingerprints reuse the prefetched links and add one read of the team's
         # experiment settings, whatever the number of saved metrics.
-        with self.assertNumQueries(16):
+        with self.assertNumQueries(15):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -811,6 +812,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 },
             },
         )
+        FeatureFlagEvaluationContext.objects.create(
+            feature_flag=flag, evaluation_context=EvaluationContext.objects.create(team=self.team, name="web-app")
+        )
         experiment = Experiment.objects.create(
             team=self.team,
             name="health-findings",
@@ -862,6 +866,27 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                     "shipped_variant": None,
                 },
                 "rule": None,
+            },
+        )
+        # The condition set added after launch has no rollout percentage, which the flag service reads as 100.
+        added_condition = (
+            [{"rollout_percentage": 100.0, "property_count": 1, "aggregation_group_type_index": None}]
+            if _name == "condition_added_after_launch"
+            else []
+        )
+        self.assertEqual(
+            health["setup"],
+            {
+                "release_conditions": [
+                    {"rollout_percentage": 100.0, "property_count": 0, "aggregation_group_type_index": None},
+                    *added_condition,
+                ],
+                "early_exit": False,
+                "bucketing_identifier": "distinct_id",
+                "aggregation_group_type_index": None,
+                "evaluation_runtime": "all",
+                "evaluation_contexts": ["web-app"],
+                "ensure_experience_continuity": False,
             },
         )
 
@@ -3912,7 +3937,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # TODO: Make sure permission bool doesn't cause n + 1
         # +1 query for survey internal flag IDs lookup, +1 for the project's replay gates
-        with self.assertNumQueries(20):
+        with self.assertNumQueries(19):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
