@@ -336,6 +336,25 @@ describe('LiquidRenderer', () => {
             expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toThrow(expectedError)
         })
 
+        it('reads thread CPU time periodically rather than at every template node', () => {
+            // A frozen clock means no sample interval passes during the render, so only the reads at the start
+            // and end of the render remain. The loop below gives LiquidJS 10,000 nodes to check.
+            const now = performance.now()
+            const clockSpy = jest.spyOn(performance, 'now').mockReturnValue(now)
+            const cpuSpy = jest.spyOn(process, 'threadCpuUsage')
+            try {
+                const result = LiquidRenderer.renderWithHogFunctionGlobals(
+                    '{% for i in (1..10000) %}{{ i }}{% endfor %}',
+                    globals
+                )
+                expect(result.endsWith('999910000')).toBe(true)
+                expect(cpuSpy.mock.calls.length).toBeLessThan(10)
+            } finally {
+                clockSpy.mockRestore()
+                cpuSpy.mockRestore()
+            }
+        })
+
         it('does not count wall-clock time that the worker spends on other work', () => {
             // Each clock read jumps a second, as when a busy or throttled worker stalls between template nodes.
             let now = performance.now()

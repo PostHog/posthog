@@ -36,11 +36,21 @@ const threadCpuMs = (): number => {
 export const isLiquidRenderTimeLimitError = (error: unknown): boolean =>
     error instanceof Error && error.message.includes(LIQUID_RENDER_LIMIT_MESSAGE)
 
-// LiquidJS checks its render limit against wall-clock time between template nodes. This replaces it on
-// the render context with the same check against thread CPU time, and keeps the LiquidJS error message.
+// LiquidJS checks its render limit between template nodes and passes the wall-clock time to each check. This
+// replaces it on the render context with the same check against thread CPU time, and keeps the LiquidJS error
+// message. Reading thread CPU time is a syscall, so a check reads it only when this much wall-clock time has
+// passed since the last read. Thread CPU time cannot advance faster than wall-clock time, so a render can run
+// at most this long past the limit before a check sees it.
+const LIQUID_RENDER_CPU_SAMPLE_INTERVAL_MS = 5
+
 const cpuTimeRenderLimit = (limitMs: number): Context['renderLimit'] => {
     const deadline = threadCpuMs() + limitMs
-    const check = (): void => {
+    let lastSampledAt = performance.now()
+    const check = (now: number): void => {
+        if (now - lastSampledAt < LIQUID_RENDER_CPU_SAMPLE_INTERVAL_MS) {
+            return
+        }
+        lastSampledAt = now
         if (threadCpuMs() > deadline) {
             throw new Error(LIQUID_RENDER_LIMIT_MESSAGE)
         }
