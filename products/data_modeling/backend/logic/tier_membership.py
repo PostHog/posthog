@@ -15,6 +15,7 @@ import dataclasses
 from datetime import timedelta
 
 from temporalio.client import Client, ScheduleActionStartWorkflow, ScheduleListActionStartWorkflow
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
@@ -93,7 +94,11 @@ async def _decode_node_ids(temporal: Client, action: object) -> list[str] | None
 
 
 async def read_live_tiers(temporal: Client, dag_id: str) -> list[LiveTier]:
-    """List a DAG's execute-dag schedules and read each one's live node set from Temporal."""
+    """List a DAG's execute-dag schedules and read each one's live node set from Temporal.
+
+    The listing is eventually consistent, so it can name a schedule that is already gone. That
+    schedule runs nothing, so it is left out.
+    """
     tiers: list[LiveTier] = []
     schedules = await temporal.list_schedules(query=f"{POSTHOG_DAG_ID_KEY.name} = '{dag_id}'")
     async for listing in schedules:
@@ -103,7 +108,12 @@ async def read_live_tiers(temporal: Client, dag_id: str) -> list[LiveTier]:
             and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
         ):
             continue
-        described = await temporal.get_schedule_handle(listing.id).describe()
+        try:
+            described = await temporal.get_schedule_handle(listing.id).describe()
+        except RPCError as error:
+            if error.status != RPCStatusCode.NOT_FOUND:
+                raise
+            continue
         node_ids = await _decode_node_ids(temporal, described.schedule.action)
         tiers.append(
             LiveTier(

@@ -358,6 +358,27 @@ export function inheritedCadence(
     }
 }
 
+function strandedPinReason(stranded: NodePinBlockerApi): string {
+    const view = stranded.name ? `downstream view ${stranded.name}` : 'a downstream view'
+    return `Can't pin: ${view} reads fresh data only through this view`
+}
+
+function pinTooltip(
+    cadence: DataModelingSyncInterval,
+    option: SyncFrequencyBoundsApi['options'][number],
+    delayedViews: { name: string }[] | undefined
+): string {
+    const delayed = delayedViews?.map((view) => view.name) ?? []
+    const names = delayed.length ? delayed : option.blocker ? [option.blocker.name] : []
+    const who =
+        names.length > 1
+            ? `Downstream views ${names.join(', ')} refresh`
+            : names.length === 1
+              ? `Downstream view ${names[0]} refreshes`
+              : 'A downstream view refreshes'
+    return `Pin this view to every ${CADENCE_LABELS[cadence]}. ${who} more often and will read older data from it.`
+}
+
 export function buildOptions(
     bounds?: SyncFrequencyBoundsApi | null,
     {
@@ -380,26 +401,22 @@ export function buildOptions(
 
     return bounds.options.map((option) => {
         const cadence = option.cadence as DataModelingSyncInterval
+        // A pin holds a view back from its consumers, and the plan floor applies to it all the same.
+        if (option.blocked_by === 'plan') {
+            return { ...segment(cadence), disabledReason: blockedReason(option, bounds) }
+        }
         const stranded = pinBlockedBy[cadence]
         // A pinned view has no consumer ceiling, so the bounds alone never mark a slower cadence as needing a pin.
         if (canPin && stranded && (pinned || needsPin(unpinnedBy, cadence))) {
             return {
                 ...segment(cadence),
-                disabledReason: `Can't pin: ${stranded.name ? `downstream view ${stranded.name}` : 'a downstream view'} reads fresh data only through this view`,
+                disabledReason: strandedPinReason(stranded),
             }
         }
         if (canPin && needsPin(unpinnedBy, cadence)) {
-            const delayed = pinDelays[cadence]?.map((view) => view.name) ?? []
-            const names = delayed.length ? delayed : option.blocker ? [option.blocker.name] : []
-            const who =
-                names.length > 1
-                    ? `Downstream views ${names.join(', ')} refresh`
-                    : names.length === 1
-                      ? `Downstream view ${names[0]} refreshes`
-                      : 'A downstream view refreshes'
             return {
                 ...segment(cadence),
-                tooltip: `Pin this view to every ${CADENCE_LABELS[cadence]}. ${who} more often and will read older data from it.`,
+                tooltip: pinTooltip(cadence, option, pinDelays[cadence]),
             }
         }
         return {
@@ -420,6 +437,7 @@ function pinnedSegment(
     const cadence = option.value
     return {
         ...option,
+        disabledReason: canUnpin ? undefined : option.disabledReason,
         label: (
             <span className="inline-flex items-center gap-0.5">
                 {CADENCE_SEGMENTS[cadence]}
@@ -434,7 +452,7 @@ function pinnedSegment(
     }
 }
 
-function withPinnedSegment(
+export function withPinnedSegment(
     options: LemonSegmentedButtonOption<DataModelingSyncInterval>[],
     selected: DataModelingSyncInterval | undefined,
     { canUnpin }: { canUnpin: boolean }
@@ -458,6 +476,9 @@ function blockedReason(option: SyncFrequencyBoundsApi['options'][number], bounds
     const name = option.blocker?.name
     if (option.blocked_by === 'source' && bounds.floor) {
         return name ? `More often than upstream source ${name} syncs` : 'More often than the upstream sources sync'
+    }
+    if (option.blocked_by === 'plan') {
+        return 'More often than your plan allows'
     }
     if (option.blocked_by === 'consumer' && bounds.ceiling) {
         return name ? `Too slow for downstream view ${name}` : 'Too slow for a downstream view'

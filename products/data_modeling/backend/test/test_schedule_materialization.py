@@ -244,3 +244,18 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.refresh_from_db()
         assert self.sq.is_materialized is True
         assert self.sq.sync_frequency_interval == timedelta(hours=12)
+
+    def test_unreadable_plan_floor_turns_off_a_query_with_no_schedule_behind_it(self):
+        node = Node.objects.get(saved_query=self.sq)
+        self.sq.is_materialized = True
+        self.sq.sync_frequency_interval = None
+        self.sq.save(update_fields=["is_materialized", "sync_frequency_interval"])
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value=set()),
+            mock.patch("posthoganalytics.get_feature_flag_result", side_effect=RuntimeError("flags down")),
+        ):
+            self.sq.schedule_materialization()
+        self.sq.refresh_from_db()
+        assert self.sq.is_materialized is False
+        node.refresh_from_db()
+        assert get_declared_target(node) is None

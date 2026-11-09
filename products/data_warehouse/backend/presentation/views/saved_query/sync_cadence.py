@@ -69,7 +69,13 @@ class SyncFrequencyBoundSerializer(serializers.Serializer):
 
 class SyncFrequencyBlockedBy(models.TextChoices):
     SOURCE = "source", "source"
+    PLAN = "plan", "plan"
     CONSUMER = "consumer", "consumer"
+
+
+class SyncFrequencyClampReason(models.TextChoices):
+    SOURCE = "source", "source"
+    PLAN = "plan", "plan"
 
 
 class SyncFrequencyOptionSerializer(serializers.Serializer):
@@ -79,13 +85,14 @@ class SyncFrequencyOptionSerializer(serializers.Serializer):
         choices=SyncFrequencyBlockedBy.choices,
         allow_null=True,
         help_text="Which side withholds this cadence: 'source' when no upstream source syncs that "
-        "often, 'consumer' when a downstream view or endpoint refreshes more often than this. "
-        "Null when the cadence is allowed.",
+        "often, 'plan' when the organization's plan does not allow refreshing that often, 'consumer' "
+        "when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.",
     )
     blocker = SyncFrequencyBlockerSerializer(
         allow_null=True,
-        help_text="The source or consumer named in `blocked_by`. Null when allowed, and also when the "
-        "blocker sits outside the caller's access grants, where `blocked_by` still gives the direction.",
+        help_text="The source or consumer named in `blocked_by`. Null when allowed, when `blocked_by` is "
+        "'plan', and also when the blocker sits outside the caller's access grants, where `blocked_by` "
+        "still gives the direction.",
     )
     speeds_up = SyncFrequencyBlockerSerializer(
         many=True,
@@ -96,6 +103,22 @@ class SyncFrequencyOptionSerializer(serializers.Serializer):
     speeds_up_withheld = serializers.BooleanField(
         help_text="True when at least one view this cadence speeds up sits outside the caller's access "
         "grants, so `speeds_up` is incomplete."
+    )
+
+
+class SyncFrequencyEffectiveSerializer(serializers.Serializer):
+    cadence = serializers.ChoiceField(
+        choices=SavedQuerySyncFrequency.choices,
+        help_text="The `sync_frequency` value the view refreshes at now. The saved `sync_frequency` is "
+        "never rewritten, so this differs from it when something holds the view back, and is finer "
+        "than it when a downstream view or endpoint needs fresher data.",
+    )
+    reason = serializers.ChoiceField(
+        choices=SyncFrequencyClampReason.choices,
+        allow_null=True,
+        help_text="Why `cadence` is slower than the view would otherwise refresh: 'plan' when the "
+        "organization's plan does not allow refreshing that often, 'source' when the upstream sources "
+        "do not sync that often. Null when nothing holds the view back.",
     )
 
 
@@ -120,10 +143,20 @@ class SyncFrequencyBoundsSerializer(serializers.Serializer):
         help_text="The fastest bound: no cadence finer than this is allowed, because the source named "
         "here does not sync more often. Null when no source withholds a cadence.",
     )
+    plan_floor = SyncFrequencyBoundSerializer(
+        allow_null=True,
+        help_text="The fastest cadence the organization's plan allows: no cadence finer than this can be "
+        "saved. `blocker` is always null. Null when the plan withholds no cadence.",
+    )
     ceiling = SyncFrequencyBoundSerializer(
         allow_null=True,
         help_text="The slowest bound: no cadence coarser than this is allowed, because the consumer "
         "named here refreshes that often. Null when no consumer withholds a cadence.",
+    )
+    effective = SyncFrequencyEffectiveSerializer(
+        allow_null=True,
+        help_text="How often the view actually refreshes, and what holds it back when something does. "
+        "Null when no schedule runs the view, and outside 'tiered' mode.",
     )
     best_effort_sources = SyncFrequencyBlockerSerializer(
         many=True,
@@ -140,7 +173,8 @@ class SyncFrequencyBoundsSerializer(serializers.Serializer):
 SYNC_FREQUENCY_BOUNDS_HELP_TEXT = (
     "Which cadences this view can actually be set to, and what withholds the rest. Computed from the "
     "view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences "
-    "set a ceiling. Read-only, and present on retrieve, create and update responses only."
+    "set a ceiling, and the organization's plan can set a floor too. Read-only, and present on "
+    "retrieve, create and update responses only."
 )
 
 
@@ -150,7 +184,9 @@ def _unbounded_frequency_payload(mode: str) -> dict[str, Any]:
         "frequency_mode": mode,
         "options": [],
         "floor": None,
+        "plan_floor": None,
         "ceiling": None,
+        "effective": None,
         "best_effort_sources": [],
         "best_effort_sources_withheld": False,
     }
@@ -241,7 +277,13 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
             return []
         return sorted(resolved.speeds_up.get(option.value, ()))
 
+    def effective(value: Any) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        return {"cadence": sync_frequency_interval_to_sync_frequency(value.cadence), "reason": value.reason}
+
     best_effort = sorted(resolved.best_effort_source_ids)
+    plan_floor = resolved.bounds.plan_floor
     options = []
     for option in resolved.bounds.options:
         sped_up_ids = sped_up(option)
@@ -259,7 +301,9 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
         "frequency_mode": "tiered",
         "options": options,
         "floor": bound(resolved.bounds.floor),
+        "plan_floor": {"label": humanize_cadence(plan_floor), "blocker": None} if plan_floor is not None else None,
         "ceiling": bound(resolved.bounds.ceiling),
+        "effective": effective(resolved.effective),
         "best_effort_sources": [blocker(node_id) for node_id in best_effort if node_id in visible_names],
         "best_effort_sources_withheld": any(node_id not in visible_names for node_id in best_effort),
     }

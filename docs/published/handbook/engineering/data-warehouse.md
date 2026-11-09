@@ -36,6 +36,14 @@ Direct-connection catalogs contain no authored models and are exempt from the re
 
 This reservation does not add qualified names to existing models or require a namespace on new models.
 
+## Model refresh minimums
+
+The `data-modeling-refresh-floor` flag evaluates locally using `organization_plan` (`free`, `paid`, or `unknown`) and `organization_package` (`paid`, `none`, or `unknown`). Billing sync reads the package from the `billing_plan` that billing sends: `teams`, `boost`, `scale`, or `enterprise` reads as `paid`, and so does an active trial of one of those. A `billing_plan` of `free` or `paid` reads as `none`. A status without a `billing_plan` keeps the last known package. Organizations that no billing status has named a plan for remain `unknown`, so run `sync_from_billing` before you target `organization_package`.
+
+The proposed rollout targets free organizations with a `1hour` minimum and paid organizations with `organization_package=none` with a `30min` minimum. Paid organizations with a package retain the existing `15min` minimum. Do not target an unknown plan or unknown paid-package status with the no-package rule. These are flag targeting rules and payloads, not hardcoded defaults.
+
+Each variant payload contains `min_interval` and `clamp_existing`. `min_interval` can't be coarser than `7day`, the coarsest cadence an endpoint can use, and a coarser value counts as an invalid payload. With `clamp_existing: false`, existing faster cadences keep running. With `clamp_existing: true`, schedules run at the minimum while preserving the saved cadence. Deploying the code alone does not enable the rollout.
+
 ## Model materialization usage
 
 The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.
