@@ -260,14 +260,28 @@ describe('sourceManagementLogic', () => {
         // The sources list shows its self-managed section only while one of these tables is left.
         expect(logic.values.hasSelfManagedTables).toBe(expected.length > 0)
     })
+    const unchanged = (): Promise<{ fingerprint: string }> => Promise.resolve({ fingerprint: 'fp-1' })
+
     it.each([
-        ['unchanged', () => Promise.resolve({ fingerprint: 'fp-1' }), false],
-        ['changed', () => Promise.resolve({ fingerprint: 'fp-2' }), true],
-        ['unavailable', () => Promise.reject(new Error('offline')), true],
-    ])('refetches the sources list on a poll only when the sync state is %s', async (_, nextState, refetches) => {
+        ['the sync state is unchanged', unchanged, (): void => {}, false],
+        ['the sync state changed', () => Promise.resolve({ fingerprint: 'fp-2' }), (): void => {}, true],
+        ['the sync state is unavailable', () => Promise.reject(new Error('offline')), (): void => {}, true],
+        [
+            'an optimistic update replaced the list',
+            unchanged,
+            (): void => {
+                logic.actions.loadSourcesSuccess({ ...logic.values.dataWarehouseSources!, results: [] })
+            },
+            true,
+        ],
+        ['the last list request failed', unchanged, (): void => logic.actions.loadSourcesFailure('boom'), true],
+    ])('decides whether a poll refetches the sources list when %s', async (_, nextState, changeList, refetches) => {
         router.actions.push('/data-management/sources')
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadSourcesSuccess']).toMatchValues({ sourcesFingerprint: 'fp-1' })
+        await expectLogic(logic)
+            .toDispatchActions(['loadSourcesSuccess', 'setFingerprintedSources'])
+            .toMatchValues({ fingerprintedSources: expect.objectContaining({ fingerprint: 'fp-1' }) })
+        changeList()
         ;(externalDataSourcesSyncStateRetrieve as jest.Mock).mockImplementation(nextState)
 
         logic.actions.pollSources()
@@ -278,40 +292,6 @@ describe('sourceManagementLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['scheduleSourcesPoll'])
                 .toNotHaveDispatchedActions(['loadSources'])
-        }
-    })
-    it('drops the fingerprint when the list request fails, so the next poll refetches the list', async () => {
-        router.actions.push('/data-management/sources')
-        jest.spyOn(api.externalDataSources, 'list').mockRejectedValue(new Error('boom'))
-
-        logic.mount()
-
-        await expectLogic(logic).toDispatchActions(['loadSourcesFailure']).toMatchValues({ sourcesFingerprint: null })
-    })
-
-    it('reuses a slow fingerprint once a poll has read it before reloading', async () => {
-        router.actions.push('/data-management/sources')
-        ;(externalDataSourcesSyncStateRetrieve as jest.Mock).mockImplementation(
-            () => new Promise((resolve) => setTimeout(() => resolve({ fingerprint: 'fp-slow' }), 500))
-        )
-        const listSources = jest.spyOn(api.externalDataSources, 'list')
-        jest.useFakeTimers()
-        try {
-            logic.mount()
-            await jest.advanceTimersByTimeAsync(600)
-            // Read alongside the list and slower than its debounce, so it may be newer than the list.
-            expect(logic.values.sourcesFingerprint).toBeNull()
-
-            logic.actions.pollSources()
-            await jest.advanceTimersByTimeAsync(1000)
-            expect(logic.values.sourcesFingerprint).toEqual('fp-slow')
-            const listLoads = listSources.mock.calls.length
-
-            logic.actions.pollSources()
-            await jest.advanceTimersByTimeAsync(1000)
-            expect(listSources).toHaveBeenCalledTimes(listLoads)
-        } finally {
-            jest.useRealTimers()
         }
     })
 })

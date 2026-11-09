@@ -121,8 +121,6 @@ export interface sourcesDataLogicActions {
 
 export type sourcesDataLogicType = MakeLogicType<sourcesDataLogicValues, sourcesDataLogicActions>
 
-export const SOURCES_LOAD_DEBOUNCE_MS = 300
-
 export const sourcesDataLogic = kea<sourcesDataLogicType>([
     path(['products', 'dataWarehouse', 'sourcesDataLogic']),
     actions({
@@ -135,7 +133,7 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
             null as PaginatedResponse<ExternalDataSource> | null,
             {
                 loadSources: async (_, breakpoint) => {
-                    await breakpoint(SOURCES_LOAD_DEBOUNCE_MS)
+                    await breakpoint(300)
                     actions.abortAnyRunningQuery()
 
                     const controller = new AbortController()
