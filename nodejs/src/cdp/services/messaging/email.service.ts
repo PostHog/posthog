@@ -587,6 +587,15 @@ export class EmailService {
             const from = this.resolveFromSender(integration, params.from, addLog)
             sendingDomain = from.email.split('@').pop()?.toLowerCase() ?? ''
 
+            // Runs before the suppression check and the rate limits, so a job that can only fail claims no
+            // rate-limit token and is never rescheduled to wait for one.
+            if (params.attachments?.length) {
+                failureReason = EMAIL_ATTACHMENTS_MISSING
+                throw new Error(
+                    `${EMAIL_ATTACHMENTS_MISSING}: the attachment files of this email are no longer stored, so it was not sent without them.`
+                )
+            }
+
             // An empty `to` comes from the customer's data (a person without an email property, or no
             // person at all), not from a fault in the send path. SES rejects it as an invalid address,
             // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
@@ -789,13 +798,6 @@ export class EmailService {
                           }),
                       }
                     : utmTaggedParams
-
-            if (params.attachments?.length) {
-                failureReason = EMAIL_ATTACHMENTS_MISSING
-                throw new Error(
-                    `${EMAIL_ATTACHMENTS_MISSING}: the attachment files of this email are no longer stored, so it was not sent without them.`
-                )
-            }
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':

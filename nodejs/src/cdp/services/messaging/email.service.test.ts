@@ -1368,22 +1368,6 @@ describe('EmailService', () => {
             })
         })
 
-        it('fails a queued email that lists files as attachments_missing and sends nothing', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1 },
-                attachments: [
-                    { filename: 'report.pdf', contentType: 'application/pdf', sizeBytes: 7, sha256: 'a'.repeat(64) },
-                ],
-            })
-
-            const result = await service.executeSendEmail(invocation)
-
-            expect(sendEmailSpy).not.toHaveBeenCalled()
-            expect(result.finished).toBe(true)
-            expect(result.error).toMatch(/^attachments_missing: /)
-        })
-
         const sesAccepts = (): void => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
         }
@@ -1418,6 +1402,16 @@ describe('EmailService', () => {
                 ],
             })
         }
+
+        it('fails a queued email that lists files as attachments_missing and sends nothing', async () => {
+            filesListed()
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(sendEmailSpy).not.toHaveBeenCalled()
+            expect(result.finished).toBe(true)
+            expect(result.error).toMatch(/^attachments_missing: /)
+        })
 
         it.each([
             ['a transactional email that SES accepts', TRANSACTIONAL_EMAIL_EVENT, false, sesAccepts, 'sent', ''],
