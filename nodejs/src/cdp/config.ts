@@ -205,8 +205,6 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
     // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
-    // The bucket that holds the files of code sends. Empty in production leaves the endpoints and credentials to the
-    // SDK's regional default and the pod's role. PUBLIC_ENDPOINT is the host a presigned upload URL names.
     CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string
     CDP_EMAIL_ATTACHMENTS_S3_REGION: string
     CDP_EMAIL_ATTACHMENTS_S3_PREFIX: string

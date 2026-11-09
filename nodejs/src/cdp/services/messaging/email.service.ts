@@ -30,7 +30,7 @@ import {
     AttachmentStore,
     AttachmentStoreUnavailableError,
     LoadedAttachment,
-    settleBefore,
+    settleBeforeAbortEvenWhileCredentialsStall,
 } from './attachment-store'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
@@ -1525,7 +1525,7 @@ export class EmailService {
         const sendStartedAt = performance.now()
         try {
             const response = deadline
-                ? await settleBefore(deadline, this.sesV2Client.send(command, { abortSignal: deadline }))
+                ? await settleBeforeAbortEvenWhileCredentialsStall(deadline, this.sesV2Client.send(command, { abortSignal: deadline }))
                 : await this.sesV2Client.send(command)
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
