@@ -1,6 +1,6 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
+import { MessageRejected, SESv2Client, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { createHash, randomBytes } from 'node:crypto'
 import { register } from 'prom-client'
@@ -1559,11 +1559,13 @@ describe('EmailService', () => {
                         ),
                 ],
                 [
-                    'the SES call hangs',
-                    () =>
-                        sendEmailSpy.mockImplementation((_command, options: { abortSignal: AbortSignal }) =>
-                            rejectOnAbort(options.abortSignal)
-                        ),
+                    'the SES client never gets its credentials',
+                    () => {
+                        service.sesV2Client = new SESv2Client({
+                            region: 'us-east-1',
+                            credentials: () => new Promise<never>(() => {}),
+                        })
+                    },
                 ],
             ])('reschedules the send as a load retry when %s past the deadline', async (_name, hang) => {
                 service['sesConfig'].attachmentSendDeadlineMs = 100

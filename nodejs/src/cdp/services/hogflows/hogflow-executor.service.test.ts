@@ -3594,7 +3594,10 @@ if (not res.success) { throw Error(res.error) }`,
             expect(mockPushProviderFetch).toHaveBeenCalledTimes(4)
         })
 
-        it('keeps the team cap label on the delayed email only, not on the email after it', async () => {
+        it.each([
+            ['the team cap label', { teamCapped: true }],
+            ['the attachment load retry count', { attachmentLoadTries: 10 }],
+        ])('keeps %s on the email it belongs to, not on the email after it', async (_name, perSendMetadata) => {
             await insertEmailSetup('ses')
             const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
             sesSend
@@ -3625,8 +3628,8 @@ if (not res.success) { throw Error(res.error) }`,
             })
 
             const routed = await executor.execute(invocation)
-            // As if the team sending cap had delayed email_1 on the email queue.
-            routed.invocation.queueMetadata = { ...routed.invocation.queueMetadata, teamCapped: true }
+            // As if email_1 had been delayed on the email queue.
+            routed.invocation.queueMetadata = { ...routed.invocation.queueMetadata, ...perSendMetadata }
 
             const result = await executor.execute(routed.invocation)
 

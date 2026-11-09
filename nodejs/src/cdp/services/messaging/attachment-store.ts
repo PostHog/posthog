@@ -267,7 +267,7 @@ const expiryOf = (head: HeadObjectCommandOutput): Date =>
 
 // The SDK checks an abort signal only once a request goes out, so a credential refresh that stalls before it
 // would hold the call past its deadline. Signing takes no signal at all.
-function settleBefore<T>(signal: AbortSignal, promise: Promise<T>): Promise<T> {
+export function settleBefore<T>(signal: AbortSignal, promise: Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
         const abort = (): void => reject(signal.reason)
         promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
