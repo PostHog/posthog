@@ -2,6 +2,7 @@ from io import StringIO
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -19,6 +20,10 @@ from products.warehouse_sources.backend.logic.source_credentials import Warehous
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# These tests check the stored credentials, so raw saves keep their inputs as they are.
+pytestmark = pytest.mark.raw_warehouse_source_credentials
+
 
 POSTGRES_INPUTS: dict[str, Any] = {
     "host": "db.example.com",
