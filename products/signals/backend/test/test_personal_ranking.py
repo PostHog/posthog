@@ -20,7 +20,7 @@ import httpx
 from openai import APITimeoutError, BadRequestError, omit
 from parameterized import parameterized
 
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.redis import TEST_clear_clients
 from posthog.token_bucket import TEST_reset_scripts
 
@@ -1237,12 +1237,11 @@ class TestPersonalListSort(APIBaseTest):
         }
         return PersonalInboxRanking.objects.create(
             team=self.team,
-            user=self.user,
             input_hash="h",
             model="m",
             prompt_version=1,
             status="ok",
-            **{**defaults, **kwargs},
+            **{"user": self.user, **defaults, **kwargs},
         )
 
     def _list(self, **params: Any) -> dict[str, Any]:
@@ -1306,6 +1305,39 @@ class TestPersonalListSort(APIBaseTest):
             row["inbox_merge_key"] for row in base["results"]
         ]
         assert all(row["personal_reason"] is None for row in body["results"])
+        assert (self.gather.call_count, self.delay.call_count) == (0, 0)
+
+    def test_teammate_scope_reads_the_teammate_ranking(self) -> None:
+        r0, r1, r2, r3, _ = self.reports
+        teammate = User.objects.create(email="teammate@example.com")
+        OrganizationMembership.objects.create(user=teammate, organization=self.organization)
+        for report in (r0, r1, r2, r3):
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"user_uuid": str(teammate.uuid)}]),
+            )
+        self._ranking([r0, r1], [])
+        row = self._ranking([r3, r2], [r1], user=teammate)
+
+        body = self._list(sort="personal", scope="teammate", teammate_uuid=teammate.uuid)
+
+        assert self._ids(body)[:3] == [str(r3.id), str(r2.id), str(r1.id)]
+        assert set(self._ids(body)) == {str(r0.id), str(r1.id), str(r2.id), str(r3.id)}
+        assert (body["ranker"], body["ranking_id"]) == ("personal", str(row.id))
+        assert (body["results"][0]["personal_tier"], body["results"][0]["personal_reason"]) == ("top", "reason R3")
+        assert (self.gather.call_count, self.delay.call_count) == (0, 0)
+
+    def test_teammate_scope_outside_the_organization_falls_back_to_the_recommended_order(self) -> None:
+        r0, r1, *_ = self.reports
+        outsider = User.objects.create(email="outsider@example.com")
+        self._ranking([r0], [])
+        self._ranking([r1, r0], [], user=outsider)
+
+        body = self._list(sort="personal", scope="teammate", teammate_uuid=outsider.uuid)
+
+        assert (body["ranker"], body["ranking_id"]) == ("priority", None)
         assert (self.gather.call_count, self.delay.call_count) == (0, 0)
 
     def test_later_pages_keep_the_order_of_the_first_page_after_a_rebuild(self) -> None:
