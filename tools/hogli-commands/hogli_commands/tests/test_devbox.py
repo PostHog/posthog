@@ -508,8 +508,9 @@ class TestCoderConfig:
     ) -> None:
         canceled_marker = tmp_path / "canceled"
         fake_coder = (
-            "import signal, sys, time\n"
+            "import os, signal, sys, time\n"
             "def cancel(*_):\n"
+            f"    os.kill(os.getppid(), {int(signum)})\n"
             f"    open({str(canceled_marker)!r}, 'w').close()\n"
             "    sys.exit(1)\n"
             "signal.signal(signal.SIGINT, cancel)\n"

@@ -265,37 +265,44 @@ class _BuildTerminated(Exception):
         self.signum = signum
 
 
+_STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
 @contextlib.contextmanager
-def _terminate_signals_raise() -> Iterator[None]:
+def _signal_handlers(
+    handler: Callable[[int, Any], object] | signal.Handlers, signums: tuple[signal.Signals, ...]
+) -> Iterator[None]:
     if threading.current_thread() is not threading.main_thread():
         yield
         return
 
-    def _raise(signum: int, _frame: object) -> NoReturn:
-        raise _BuildTerminated(signum)
-
-    previous = {signum: signal.signal(signum, _raise) for signum in (signal.SIGTERM, signal.SIGHUP)}
+    previous = {signum: signal.signal(signum, handler) for signum in signums}
     try:
         yield
     finally:
-        for signum, handler in previous.items():
-            signal.signal(signum, handler)
+        for signum, previous_handler in previous.items():
+            signal.signal(signum, previous_handler)
+
+
+def _raise_build_terminated(signum: int, _frame: object) -> NoReturn:
+    raise _BuildTerminated(signum)
 
 
 def _cancel_build(proc: subprocess.Popen[str]) -> None:
     if proc.poll() is not None:
         return
-    click.echo("\nCanceling the Coder build...", err=True)
-    proc.send_signal(signal.SIGINT)
-    try:
-        proc.communicate(timeout=_BUILD_CANCEL_TIMEOUT)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.communicate()
-        click.echo(
-            "The Coder build did not stop. Check `coder provisioner jobs list` for a job that is still pending.",
-            err=True,
-        )
+    with _signal_handlers(signal.SIG_IGN, _STOP_SIGNALS):
+        click.echo("\nCanceling the Coder build...", err=True)
+        proc.send_signal(signal.SIGINT)
+        try:
+            proc.communicate(timeout=_BUILD_CANCEL_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            click.echo(
+                "The Coder build did not stop. Check `coder provisioner jobs list` for a job that is still pending.",
+                err=True,
+            )
 
 
 def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.CompletedProcess[str]:
@@ -325,7 +332,7 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
             spinner.join()
 
     try:
-        with _terminate_signals_raise():
+        with _signal_handlers(_raise_build_terminated, (signal.SIGTERM, signal.SIGHUP)):
             if verbose:
                 for line in proc.stdout:
                     captured.append(line)
