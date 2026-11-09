@@ -114,6 +114,17 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
         "cache_read_input_token_cost": 1e-06,
         "cache_creation_input_token_cost": 1.25e-05,
     },
+    "claude-fable-5-2": {
+        **CLAUDE_5_CAPABILITIES,
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        "max_input_tokens": 1_000_000,
+        "max_output_tokens": 128_000,
+        "input_cost_per_token": 8e-06,
+        "output_cost_per_token": 4e-05,
+        "cache_read_input_token_cost": 2e-07,
+        "cache_creation_input_token_cost": 1e-05,
+    },
     "claude-opus-5-5": {
         **CLAUDE_5_CAPABILITIES,
         "litellm_provider": "anthropic",
