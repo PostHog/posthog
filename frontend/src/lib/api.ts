@@ -94,6 +94,7 @@ import {
     CustomerProfileConfigType,
     CyclotronJobFiltersType,
     CyclotronJobTestInvocationResult,
+    DashboardActivitySummary,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
     DashboardTemplateType,
@@ -3414,6 +3415,10 @@ const api = {
 
         async get(id: number): Promise<DashboardType> {
             return new ApiRequest().dashboardsDetail(id).get()
+        },
+
+        async activitySummary(id: number): Promise<DashboardActivitySummary> {
+            return new ApiRequest().dashboardsDetail(id).withAction('activity_summary').get()
         },
 
         async createUnlistedDashboard(tag: string): Promise<DashboardType> {
