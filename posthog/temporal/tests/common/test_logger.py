@@ -772,6 +772,13 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
         assert row[6].isoformat() == "2024-01-01T00:00:00+00:00"
 
 
+def test_resolve_log_source_unmapped_workflow_type():
+    assert resolve_log_source("ducklake-copy-data-imports", "ducklake-copy-123") == (
+        "temporal_workflow",
+        "ducklake-copy-data-imports",
+    )
+
+
 def test_resolve_log_source_dwh_cdp_producer_job():
     source, source_id = resolve_log_source(
         "dwh-cdp-producer-job", "dwh-cdp-producer-job-019bdc25-3569-0000-9f32-e7d02775304b"

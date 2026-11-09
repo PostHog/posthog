@@ -860,7 +860,7 @@ BATCH_EXPORT_WORKFLOW_TYPES = {
 }
 
 
-def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None, str | None]:
+def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str, str]:
     """Resolves `log_source` and `log_source_id` from workflow parameters.
 
     This function is used to resolve parameters for ingesting logs into the
@@ -873,13 +873,12 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
     `log_source` and `log_source_id`. So, we concentrate the hard-coded resolution here
     to make it easy to find and update.
 
-    Returns:
-        A tuple of strings, if we could resolve `log_source` and `log_source_id` else a
-        tuple of `None`.
-    """
-    log_source_id: str | None = None
-    log_source: str | None = None
+    A workflow type with no branch here gets `temporal_workflow`, with the workflow type as
+    its `log_source_id`, so its lines still reach the team's logs.
 
+    Returns:
+        A tuple of `log_source` and `log_source_id`.
+    """
     if workflow_type == "backfill-batch-export":
         # This works because the WorkflowID is made up like f"{batch_export_id}-Backfill-{data_interval_end}"
         log_source_id = workflow_id.split("-Backfill")[0]
@@ -907,5 +906,8 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
         # date. Plus one more leaves us at the end of right at the end of 'batch_export_id'.
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
         log_source = "batch_exports"
+    else:
+        log_source_id = workflow_type
+        log_source = "temporal_workflow"
 
     return (log_source, log_source_id)
