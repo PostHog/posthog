@@ -56,6 +56,10 @@
             "format": "email",
             "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
             "type": "string"
+        },
+        "track_opens_and_clicks": {
+            "description": "Whether the email your code rendered carries open and click tracking: a tracking pixel, and links rewritten to count clicks. Defaults to true. With false, the email goes out without either, so PostHog can't count its opens and clicks. Independent of `capture_engagement`, which decides whether engagement events are captured on the recipient's person.",
+            "type": "boolean"
         }
     },
     "required": ["to", "template_key", "subject"],

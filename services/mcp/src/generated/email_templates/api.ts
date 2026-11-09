@@ -74,6 +74,12 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .describe(
             'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.'
         ),
+    track_opens_and_clicks: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether the email your code rendered carries open and click tracking: a tracking pixel, and links rewritten to count clicks. Defaults to true. With false, the email goes out without either, so PostHog can't count its opens and clicks. Independent of `capture_engagement`, which decides whether engagement events are captured on the recipient's person."
+        ),
     from: zod
         .string()
         .max(messagingSendEmailCreateBodyFromMax)

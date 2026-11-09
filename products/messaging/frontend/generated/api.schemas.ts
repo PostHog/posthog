@@ -150,6 +150,8 @@ export interface SendEmailApi {
     attachments?: EmailAttachmentApi[] | null
     /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
     capture_engagement?: boolean
+    /** Whether the email your code rendered carries open and click tracking: a tracking pixel, and links rewritten to count clicks. Defaults to true. With false, the email goes out without either, so PostHog can't count its opens and clicks. Independent of `capture_engagement`, which decides whether engagement events are captured on the recipient's person. */
+    track_opens_and_clicks?: boolean
     /**
      * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
      * @maxLength 1024
