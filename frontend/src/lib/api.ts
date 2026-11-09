@@ -4983,6 +4983,8 @@ const api = {
             include_source_metadata?: 'true' | 'false'
             /** ISO 8601 datetime. Keeps reports created at or after it. */
             created_after?: string
+            /** For `sort=personal`: the `ranking_id` of the first page, so later pages keep its order. */
+            ranking_id?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },

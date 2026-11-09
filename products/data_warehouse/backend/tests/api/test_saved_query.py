@@ -2671,9 +2671,18 @@ class TestSavedQuery(APIBaseTest):
                 team=self.team,
                 saved_query=saved_query,
                 status=status,
+                engine=DataModelingJobEngine.CLICKHOUSE,
                 last_run_at=now - timedelta(hours=i),
             )
             runs.append(run)
+
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.RUNNING,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            last_run_at=now + timedelta(hours=1),
+        )
 
         # Test run_history endpoint
         response = self.client.get(

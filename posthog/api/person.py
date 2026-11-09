@@ -742,9 +742,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.property_access_control import get_restricted_property_names
+        from products.event_definitions.backend.models import PropertyDefinition
 
         user = self.request.user if self.request.user.is_authenticated else None
         context["restricted_person_properties"] = get_restricted_property_names(
@@ -1341,9 +1340,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
             # Check field-level access control: return empty results for restricted properties
-            from posthog.models import PropertyDefinition
-
             from products.access_control.backend.property_access_control import get_restricted_property_names
+            from products.event_definitions.backend.models import PropertyDefinition
 
             user = request.user if request.user.is_authenticated else None
             restricted = get_restricted_property_names(
@@ -1698,9 +1696,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def _get_non_writable_person_properties(self, request: request.Request) -> set[str]:
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.property_access_control import get_non_writable_property_names
+        from products.event_definitions.backend.models import PropertyDefinition
 
         user = request.user if request.user.is_authenticated else None
         return get_non_writable_property_names(
@@ -1977,7 +1974,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         tags=["persons"],
     )
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
-    def properties_at_time(self, request: request.Request) -> response.Response:
+    def properties_at_time(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         """
         Get person properties as they existed at a specific point in time.
 
@@ -2059,13 +2056,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 timestamp=timestamp,
                 distinct_ids=distinct_ids_queried,
                 include_set_once=include_set_once,
+                user=cast(User, request.user),
             )
 
-            # Serialize the person object
-            person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
+            serializer_context = {**self.get_serializer_context(), "get_team": lambda: self.team}
+            person_data = PersonSerializer(person, context=serializer_context).data
 
-            # Replace current properties with point-in-time properties
-            person_data["properties"] = point_in_time_properties
+            # The serializer only filtered the current properties, not these reconstructed ones.
+            restricted_person_properties = serializer_context.get("restricted_person_properties") or set()
+            person_data["properties"] = {
+                k: v for k, v in point_in_time_properties.items() if k not in restricted_person_properties
+            }
 
             # Add metadata about the point-in-time query
             person_data["point_in_time_metadata"] = {

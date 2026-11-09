@@ -344,14 +344,19 @@ jobs:
               # to remote.origin.fetch and pull every branch.
               run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
-            - name: Compute schema cache key from merge-base
+            - name: Compute schema cache key
               id: schema-key
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' || github.event_name == 'schedule'
               env:
+                  EVENT_NAME: ${{ github.event_name }}
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
-                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
-                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ "$EVENT_NAME" = schedule ]; then
+                      MERGE_BASE=$(git rev-parse HEAD)
+                  else
+                      # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                      MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  fi
                   if [ -z "$MERGE_BASE" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -378,7 +383,8 @@ jobs:
                   # and the migrate top-ups only apply forward, so they cannot repair a
                   # dump that is newer than the code.
                   HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
-                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                  # Scheduled reruns require matching inputs even when the checkout is recent.
+                  if [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
                   # Match the inputs and hashing in .depot/workflows/ci-backend.yml to find its schema dump.
@@ -417,10 +423,22 @@ jobs:
             test_paths: ${{ steps.classify.outputs.test_paths }}
             matrix_include: ${{ steps.classify.outputs.matrix_include }}
         steps:
+            # Fetch the working tree at depth 1 to avoid a second request for all its blobs.
+            # The selector adds blobless history after checkout, as backend discovery does.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
+
+            - name: Fetch history without file contents
+              shell: bash
+              run: |
+                  for attempt in 1 2 3; do
+                      if git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"; then
+                          exit 0
+                      fi
+                      if [ "$attempt" -lt 3 ]; then
+                          sleep 10
+                      fi
+                  done
+                  exit 1
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
@@ -617,7 +635,9 @@ jobs:
                       psql -U posthog -c "CREATE DATABASE test_dagster;"
 
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != '' }}
+              if: ${{ (github.event_name == 'pull_request' || github.event_name == 'schedule') && needs.changes.outputs.schema_cache_key != '' }}
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
               with:
@@ -637,7 +657,7 @@ jobs:
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
               id: prime-schema
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' }}
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
@@ -659,7 +679,7 @@ jobs:
               # process runs it, and pytest must not carry it through the test phase.
               # pytest --reuse-db adopts the DB like the PR prime above; any failure
               # falls back to the in-pytest migrate.
-              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              if: ${{ steps.prime-schema.outputs.restored != 'true' }}
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |

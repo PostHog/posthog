@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any, Final
 from uuid import UUID
 
+from django.db.models import BooleanField, F, Func, QuerySet, Value
+
 from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_EVENT_IDS,
     DestinationBucket,
@@ -211,6 +213,26 @@ def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
     return min(buckets, key=_BUCKET_ORDER.index, default=DestinationBucket.STOCK)
 
 
+def alert_has_enabled_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> bool:
+    """Whether an enabled function takes the alert's events, bound to it on any template or unbound.
+
+    Wider than `count_active_alert_destinations`, which counts only known templates bound to the alert.
+    """
+    bound = (
+        owned_alert_destinations_qs(
+            team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
+        )
+        .filter(enabled=True, **_RECEIVES_ALERT_EVENTS)
+        .exists()
+    )
+    return (
+        bound
+        or _unbound_alert_event_functions(
+            team_id=team_id, allowed_event_ids=allowed_event_ids, include_disabled=False
+        ).exists()
+    )
+
+
 def unbound_alert_destinations(
     *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool = False
 ) -> tuple[UUID, ...]:
@@ -220,8 +242,28 @@ def unbound_alert_destinations(
     alert, so it would stop sending at cutover. A function bound to a deleted alert receives
     nothing, so it is not unbound.
     """
+    return tuple(
+        _unbound_alert_event_functions(
+            team_id=team_id, allowed_event_ids=allowed_event_ids, include_disabled=include_disabled
+        )
+        .order_by("created_at", "id")
+        .values_list("id", flat=True)
+    )
+
+
+# Only an exact match on one alert id scopes a function to that alert. Any other operator, such as
+# `is_not`, still lets it fire for other alerts.
+_BOUND_TO_ONE_ALERT_PATH: Final = (
+    '$.properties[*] ? (@.key == "alert_id" && (!(exists(@.operator)) || @.operator == "exact")'
+    ' && @.value.type() == "string")'
+)
+
+
+def _unbound_alert_event_functions(
+    *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool
+) -> QuerySet[HogFunction]:
     enabled = {} if include_disabled else {"enabled": True}
-    candidates = (
+    return (
         HogFunction.objects.filter(
             _allowed_event_filter(allowed_event_ids),
             team_id=team_id,
@@ -229,10 +271,16 @@ def unbound_alert_destinations(
             **enabled,
             **_RECEIVES_ALERT_EVENTS,
         )
-        .order_by("created_at", "id")
-        .values_list("id", "filters")
+        .annotate(
+            bound_to_one_alert=Func(
+                F("filters"),
+                Value(_BOUND_TO_ONE_ALERT_PATH),
+                function="jsonb_path_exists",
+                output_field=BooleanField(),
+            )
+        )
+        .filter(bound_to_one_alert=False)
     )
-    return tuple(function_id for function_id, filters in candidates if not _bound_to_one_alert(filters))
 
 
 def _filter_event_ids(filters: Any) -> frozenset[str]:
@@ -250,19 +298,6 @@ def _named_alert_ids(filters: Any) -> set[str]:
         for prop in properties or ()
         if isinstance(prop, dict) and prop.get("key") == "alert_id" and isinstance(prop.get("value"), str)
     }
-
-
-def _bound_to_one_alert(filters: Any) -> bool:
-    # Only an exact match on one alert id scopes a function to that alert. Any other operator,
-    # such as `is_not`, still lets it fire for other alerts.
-    properties = filters.get("properties") if isinstance(filters, dict) else None
-    return any(
-        isinstance(prop, dict)
-        and prop.get("key") == "alert_id"
-        and prop.get("operator", "exact") == "exact"
-        and isinstance(prop.get("value"), str)
-        for prop in properties or ()
-    )
 
 
 def _hold_backs(
