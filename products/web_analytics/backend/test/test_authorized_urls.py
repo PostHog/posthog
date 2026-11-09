@@ -7,10 +7,11 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import EventDefinition, Team
+from posthog.models import Team
 from posthog.models.health_issue import HealthIssue
 from posthog.tasks.health_checks import evaluate_health_check_for_team
 
+from products.event_definitions.backend.models import EventDefinition
 from products.web_analytics.backend.temporal.health_checks.authorized_urls import AuthorizedUrlsCheck
 
 

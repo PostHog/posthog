@@ -1,7 +1,7 @@
 from posthog.constants import PAGEVIEW_EVENT, SCREEN_EVENT
-from posthog.models import EventDefinition, Team
+from posthog.models import Team
 
-from products.event_definitions.backend.models.property_definition import effective_project_id_expr
+from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 
 
 def teams_expecting_web_events(team_ids: list[int]) -> list[int]:

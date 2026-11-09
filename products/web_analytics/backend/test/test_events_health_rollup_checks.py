@@ -5,11 +5,11 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from parameterized import parameterized
 
-from posthog.models import EventDefinition
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 from posthog.temporal.health_checks.rollups.tests.helpers import window_ending_yesterday
 
+from products.event_definitions.backend.models import EventDefinition
 from products.web_analytics.backend.models.health_rollups import EventsHealthDaily, SessionIdState
 from products.web_analytics.backend.temporal.health_checks.no_live_events import NoLiveEventsCheck
 from products.web_analytics.backend.temporal.health_checks.no_pageleave_events import NoPageleaveEventsCheck
