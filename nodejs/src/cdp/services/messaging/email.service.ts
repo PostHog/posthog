@@ -41,12 +41,11 @@ import {
     resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
+import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
-import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
-import { addUtmTagsToEmail, addWorkflowRunTagToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
 import {
     PreferencesTokenSource,
@@ -168,7 +167,7 @@ export class SESThrottleError extends Error {
 const EMAIL_ATTACHMENTS_MISSING = 'attachments_missing'
 const EMAIL_ATTACHMENT_UNAVAILABLE = 'attachment_unavailable'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
-const DEFAULT_ATTACHMENT_SEND_DEADLINE_MS = 20_000
+export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
 
 class EmailSendDeadlineError extends Error {
     constructor(cause: unknown) {
@@ -538,6 +537,22 @@ export class EmailService {
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
     }
 
+    private utmTaggingFor(
+        invocation: CyclotronJobInvocationHogFunction,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): UtmTagging | null {
+        const tags = utmTagsFor(invocation, (key, message) =>
+            addLog('warn', `Used the default ${key} because its value has an error: ${message}`)
+        )
+        return tags
+            ? {
+                  tags,
+                  siteUrl: this.siteUrl,
+                  fixedScanner: buildIntegerMatcher(this.sesConfig.utmLinkScannerTeams, true)(invocation.teamId),
+              }
+            : null
+    }
+
     private tagsLinksWithWorkflowRun(
         invocation: CyclotronJobInvocationHogFunction,
         trackingEnabled: boolean,
@@ -839,46 +854,21 @@ export class EmailService {
                     : { ...deliverableParams, replyTo: integration.config.reply_to }
 
             // Tagged before click tracking wraps the links, so the tags land on the destination URL.
-            const metadata = invocation.hogFunction.metadata
-            const utmTaggedParams =
-                metadata?.utm_tags_enabled === true && params.html
-                    ? {
-                          ...paramsWithReplyTo,
-                          html: addUtmTagsToEmail(
-                              params.html,
-                              resolveUtmTags(
-                                  {
-                                      utm_source: 'posthog',
-                                      utm_medium: 'email',
-                                      utm_campaign: metadata.hog_flow_name ?? invocation.hogFunction.name,
-                                      utm_content: metadata.hog_flow_action_name ?? '',
-                                  },
-                                  renderUtmOverrides(metadata.utm_params, invocation.state.globals, (key, message) =>
-                                      addLog(
-                                          'warn',
-                                          `Used the default ${key} because its value has an error: ${message}`
-                                      )
-                                  )
-                              ),
-                              this.siteUrl,
-                              buildIntegerMatcher(this.sesConfig.utmLinkScannerTeams, true)(invocation.teamId)
-                          ),
-                      }
-                    : paramsWithReplyTo
-            const sendParams =
-                utmTaggedParams.html && this.tagsLinksWithWorkflowRun(invocation, trackingEnabled, isTest)
-                    ? {
-                          ...utmTaggedParams,
-                          html: addWorkflowRunTagToEmail(utmTaggedParams.html, {
-                              runId: invocation.id,
-                              senderEmail: from.email,
-                              siteUrl: this.siteUrl,
-                          }),
-                      }
-                    : utmTaggedParams
+            const sendParams = paramsWithReplyTo.html
+                ? {
+                      ...paramsWithReplyTo,
+                      html: tagEmailLinks(
+                          paramsWithReplyTo.html,
+                          this.utmTaggingFor(invocation, addLog),
+                          this.tagsLinksWithWorkflowRun(invocation, trackingEnabled, isTest)
+                              ? { runId: invocation.id, senderEmail: from.email, siteUrl: this.siteUrl }
+                              : null
+                      ),
+                  }
+                : paramsWithReplyTo
 
             const deadline = params.attachments?.length
-                ? AbortSignal.timeout(this.sesConfig.attachmentSendDeadlineMs ?? DEFAULT_ATTACHMENT_SEND_DEADLINE_MS)
+                ? AbortSignal.timeout(this.sesConfig.attachmentSendDeadlineMs ?? ATTACHMENT_SEND_DEADLINE_MS)
                 : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
 
@@ -1420,25 +1410,14 @@ export class EmailService {
         )
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
-        const htmlBody = params.html
-            ? {
-                  Html: {
-                      Data: maybeAddPreheaderToEmail(
-                          trackingEnabled
-                              ? addTrackingToEmail(
-                                    params.html,
-                                    result.invocation,
-                                    this.trackingCodeSigner,
-                                    isTest,
-                                    'ses'
-                                )
-                              : params.html,
-                          params.preheader
-                      ),
-                      Charset: 'UTF-8',
-                  },
-              }
-            : {}
+        const html = params.html
+            ? htmlForSes(
+                  params.html,
+                  trackingEnabled ? { invocation: result.invocation, signer: this.trackingCodeSigner, isTest } : null,
+                  params.preheader
+              )
+            : null
+        const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 
         const sendEmailParams: SendEmailCommandInput = {
             FromEmailAddress: formatMailbox(from.name, from.email),
