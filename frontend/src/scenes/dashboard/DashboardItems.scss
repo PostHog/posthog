@@ -179,12 +179,14 @@
     opacity: 0.8;
     transition: none;
     will-change: transform;
+}
 
-    // The tile stays under the pointer, so its chart would show tooltips and hover states mid-drag. The tile itself
-    // keeps pointer events, which also stops the tiles under it from reacting.
-    > * {
-        pointer-events: none;
-    }
+// The tile stays under the pointer, so its chart would show tooltips and hover states mid-drag. The tile itself
+// keeps pointer events, which also stops the tiles under it from reacting. The drag start handler sets this class
+// after the drag threshold. The grid adds `react-draggable-dragging` on mouse-down, and blocking pointer events
+// from then on would retarget the click that starts click-to-move.
+.react-grid-item.dashboard-tile-moving > * {
+    pointer-events: none;
 }
 
 .react-grid-item.dropping {

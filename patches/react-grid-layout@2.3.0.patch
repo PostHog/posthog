@@ -34,10 +34,10 @@ index 23399ca..3d8af96 100644
          };
        }
        resizePositionRef.current = updatedSize;
+       const containerHeight = node?.offsetParent?.clientHeight ?? 0;
 +      if (elementRef.current instanceof HTMLElement) {
 +        Object.assign(elementRef.current.style, createStyle(updatedSize));
 +      }
-       const containerHeight = node?.offsetParent?.clientHeight ?? 0;
        const rawSize = chunkVJJIA3HC_js.calcWHRaw(
          positionParams,
 @@ -464,7 +479,8 @@ function GridItemInner(props) {
@@ -99,10 +99,10 @@ index 5d3ee00..604e3d7 100644
          };
        }
        resizePositionRef.current = updatedSize;
+       const containerHeight = node?.offsetParent?.clientHeight ?? 0;
 +      if (elementRef.current instanceof HTMLElement) {
 +        Object.assign(elementRef.current.style, createStyle(updatedSize));
 +      }
-       const containerHeight = node?.offsetParent?.clientHeight ?? 0;
        const rawSize = calcWHRaw(
          positionParams,
 @@ -457,7 +472,8 @@ function GridItemInner(props) {
