@@ -15,6 +15,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -354,7 +355,7 @@ function isIndexed(entry: FileSystemEntry): boolean {
     return entry.type === 'folder' || WORKFLOW_FILE_TYPES.includes(entry.type ?? '')
 }
 
-/** The last copy of each folder and workflow file the shared tree held. Moves and deletes update it, a full load replaces it, and a file also leaves when its folder, still held and fully loaded, no longer lists it. */
+/** The last copy of each file the shared tree held, other products' files included, so a prune cannot turn their folders into empty workflow folders. Moves and deletes update it, a full load replaces its folders and workflow files, and a file also leaves when its folder, still held and fully loaded, no longer lists it. */
 function fileIndex(cache: Record<string, any>): Map<string, FileSystemEntry> {
     cache.fileIndex ??= new Map<string, FileSystemEntry>()
     return cache.fileIndex
@@ -410,7 +411,7 @@ function relevantFolderPaths(items: FileSystemEntry[], hasUnfiledWorkflows: bool
     return [...paths].sort((a, b) => a.localeCompare(b))
 }
 
-/** Validates a folder name under `parent`. A rename passes its own path so a case-only change is not a collision. */
+/** A rename passes its own path so a case-only change is not a collision. */
 export function folderNameError(
     rawName: string,
     parent: string,
@@ -566,7 +567,10 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                             hasMore: false,
                             lastCount: entries.length,
                         })
-                        cache.fileIndex = new Map(entries.filter(isIndexed).map((entry) => [entry.id, entry]))
+                        cache.fileIndex = new Map([
+                            ...[...fileIndex(cache)].filter(([, entry]) => !isIndexed(entry)),
+                            ...entries.filter(isIndexed).map((entry): [string, FileSystemEntry] => [entry.id, entry]),
+                        ])
                         return true
                     }
                     throw new Error('Project files kept changing while the folders loaded')
@@ -586,6 +590,10 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         const entries = await listAllFiles(String(values.currentTeamId), OTHER_FILES_SEARCH, breakpoint)
                         if (changeCount(cache) !== changesBefore) {
                             continue
+                        }
+                        const index = fileIndex(cache)
+                        for (const entry of entries.filter((file) => !file.shortcut)) {
+                            index.set(entry.id, entry)
                         }
                         projectTreeDataLogic.actions.addLoadedResults({
                             searchTerm: '',
@@ -1072,7 +1080,8 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 })
                 actions.revealFolder(path)
             } catch (error) {
-                lemonToast.error("Couldn't create the folder")
+                const reason = error instanceof ApiError ? error.detail : null
+                lemonToast.error(`Couldn't create the folder. ${reason || 'Try again.'}`)
                 actions.setFolderCreationError(error)
             } finally {
                 actions.setCreatingFolder(false)
@@ -1122,7 +1131,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 }
             }
             for (const entry of present.values()) {
-                if (isIndexed(entry)) {
+                if (isIndexed(entry) || !entry.shortcut) {
                     index.set(entry.id, entry)
                 }
             }

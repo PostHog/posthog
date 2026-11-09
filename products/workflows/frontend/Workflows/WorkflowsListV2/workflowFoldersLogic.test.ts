@@ -166,13 +166,21 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).toContain('Billing/Invoices')
     })
 
-    it('reports a failed folder creation and allows retry', async () => {
+    it.each([
+        [
+            'the reason the server gives',
+            400,
+            { detail: 'Path has too many levels.' },
+            "Couldn't create the folder. Path has too many levels.",
+        ],
+        ['a retry when the server gives no reason', 500, {}, "Couldn't create the folder. Try again."],
+    ])('reports a failed folder creation with %s and allows retry', async (_, status, body, message) => {
         await expectLogic(logic).toFinishAllListeners()
         const toast = jest.spyOn(lemonToast, 'error')
-        useMocks({ post: { '/api/projects/:team_id/file_system/': () => [500, { detail: 'Unavailable' }] } })
+        useMocks({ post: { '/api/projects/:team_id/file_system/': () => [status, body] } })
         await logic.asyncActions.createFolder('Invoices', 'Billing')
         expect(logic.values.folderCreationError).toBeTruthy()
-        expect(toast).toHaveBeenCalledWith("Couldn't create the folder")
+        expect(toast).toHaveBeenCalledWith(message)
         expect(logic.values.creatingFolder).toBe(false)
         toast.mockRestore()
     })
@@ -330,10 +338,12 @@ describe('workflowFoldersLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Billing')
         const { projectTreeDataLogic } = await import('~/layout/panel-layout/ProjectTree/projectTreeDataLogic')
+        expect(logic.values.folderPaths).not.toContain('Reports')
         projectTreeDataLogic.actions.pruneClosedFolders(['project://'])
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.folderCounts.Billing).toBe(3)
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
+        expect(logic.values.folderPaths).not.toContain('Reports')
     })
 
     it('puts back the files the shared tree prunes without asking the server again', async () => {
