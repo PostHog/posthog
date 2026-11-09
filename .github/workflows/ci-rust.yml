@@ -913,31 +913,7 @@ jobs:
               env:
                   # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
                   OPENSSL_NO_VENDOR: '1'
-              run: |
-                  check_packages=(
-                      -p affected-services
-                      -p cymbal
-                      -p deltalite-python
-                      -p feature-flags
-                      -p ingestion-consumer
-                      -p replay-anonymizer-node
-                  )
-
-                  full_graph=$(mktemp)
-                  clippy_graph=$(mktemp)
-                  check_graph=$(mktemp)
-                  full_units=$(mktemp)
-                  covered_units=$(mktemp)
-
-                  RUSTC_BOOTSTRAP=1 cargo check --all-features --unit-graph -Z unstable-options --locked > "$full_graph"
-                  RUSTC_BOOTSTRAP=1 cargo clippy --all-targets --all-features --unit-graph -Z unstable-options --locked > "$clippy_graph"
-                  RUSTC_BOOTSTRAP=1 cargo check --all-features "${check_packages[@]}" --unit-graph -Z unstable-options --locked > "$check_graph"
-
-                  jq -c '.units[] | del(.dependencies)' "$full_graph" | sort -u > "$full_units"
-                  jq -c '.units[] | del(.dependencies)' "$clippy_graph" "$check_graph" | sort -u > "$covered_units"
-                  test "$(comm -23 "$full_units" "$covered_units" | wc -l)" -eq 0
-
-                  cargo check --all-features "${check_packages[@]}"
+              run: cargo check --all-features
 
             - name: Install cargo-binstall
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
