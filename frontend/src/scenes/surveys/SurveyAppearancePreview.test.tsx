@@ -9,7 +9,6 @@ import { SurveyPosition, SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 
 jest.mock('posthog-js/dist/surveys-preview', () => ({
-    renderFeedbackWidgetPreview: jest.fn(),
     renderSurveysPreview: jest.fn(),
 }))
 

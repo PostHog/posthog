@@ -1,4 +1,4 @@
-import { renderFeedbackWidgetPreview, renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
+import { renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { objectClean } from 'lib/utils/objects'
@@ -37,7 +37,6 @@ export function SurveyAppearancePreview({
     positionStyles = DEFAULT_POSITION_STYLES,
 }: Props): JSX.Element {
     const surveyPreviewRef = useRef<HTMLDivElement>(null)
-    const feedbackWidgetPreviewRef = useRef<HTMLDivElement>(null)
 
     const sanitizedSurvey = useMemo(() => {
         const sanitized = sanitizeSurvey({
@@ -61,13 +60,6 @@ export function SurveyAppearancePreview({
                 onPreviewSubmit,
                 onPreviewBack,
                 positionStyles,
-            })
-        }
-
-        if (feedbackWidgetPreviewRef.current) {
-            renderFeedbackWidgetPreview({
-                survey: sanitizedSurvey,
-                root: feedbackWidgetPreviewRef.current,
             })
         }
     }, [survey, previewPageIndex, onPreviewSubmit, onPreviewBack, positionStyles]) // oxlint-disable-line react-hooks/exhaustive-deps
