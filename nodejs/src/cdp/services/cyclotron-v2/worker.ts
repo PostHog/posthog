@@ -232,6 +232,7 @@ export class CyclotronV2Worker {
     protected readonly batchMaxSize: number
     protected readonly pollDelayMs: number
     private readonly heartbeatTimeoutMs: number
+    private readonly releaseWriteHeartbeatLimitMs: number
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
 
@@ -245,6 +246,7 @@ export class CyclotronV2Worker {
         this.batchMaxSize = config.batchMaxSize ?? 100
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
+        this.releaseWriteHeartbeatLimitMs = config.releaseWriteHeartbeatLimitMs ?? 20000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
         // Fair (per-team round-robin) dequeue is the email queue's ordering.
         // `dequeue_seq` is only ever assigned for email jobs (see
@@ -429,7 +431,8 @@ export class CyclotronV2Worker {
     protected wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
         const pool = this.pool
         const lockId = row.lock_id
-        let released = false
+        const releaseWriteHeartbeatLimitMs = this.releaseWriteHeartbeatLimitMs
+        let releaseStartedAt: number | null = null
         let releaseWritten = false
 
         if (row.transition_count >= CYCLOTRON_TRANSITION_CHURN_THRESHOLD) {
@@ -437,11 +440,14 @@ export class CyclotronV2Worker {
         }
 
         const releaseGuard = (method: string) => {
-            if (released) {
+            if (releaseStartedAt !== null) {
                 throw new Error(`Job ${row.id} already released, cannot call ${method}`)
             }
-            released = true
+            releaseStartedAt = Date.now()
         }
+
+        const releaseWriteOutlivedHeartbeats = (): boolean =>
+            releaseStartedAt !== null && Date.now() - releaseStartedAt > releaseWriteHeartbeatLimitMs
 
         const releaseWrite =
             <A extends unknown[]>(method: string, write: (...args: A) => Promise<unknown>) =>
@@ -591,7 +597,7 @@ export class CyclotronV2Worker {
             }),
 
             async heartbeat(): Promise<void> {
-                if (releaseWritten) {
+                if (releaseWritten || releaseWriteOutlivedHeartbeats()) {
                     throw new Error(`Job ${row.id} already released, cannot heartbeat`)
                 }
                 await pool.query(
@@ -632,7 +638,7 @@ export class CyclotronV2Worker {
                     if (selfRow.rows[0].cancel_requested_at !== null) {
                         await client.query('ROLLBACK')
                         // The job was never released — hand it back to the caller to dispose.
-                        released = false
+                        releaseStartedAt = null
                         return { newJobIds: [], cancelRequested: true }
                     }
 
