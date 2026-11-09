@@ -5,14 +5,13 @@ import argparse
 from pathlib import Path
 
 
-def build_bundle(repo: Path, yaml_source: Path, output: Path) -> None:
+def build_bundle(source_dir: Path, yaml_source: Path, output: Path) -> None:
     sources = {
-        "__main__.py": repo / "products/signals/scripts/score_assignees.py",
-        "LICENSE.PostHog": repo / "LICENSE",
+        "__main__.py": source_dir / "score_assignees.py",
         "LICENSE.PyYAML": yaml_source / "LICENSE",
     }
     for package, directory in (
-        ("owners_yaml", repo / "packages/owners-yaml/owners_yaml"),
+        ("owners_yaml", source_dir / "owners_yaml"),
         ("yaml", yaml_source / "lib/yaml"),
     ):
         sources.update({f"{package}/{path.name}": path for path in directory.glob("*.py")})
@@ -27,8 +26,8 @@ def build_bundle(repo: Path, yaml_source: Path, output: Path) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", type=Path, required=True)
+    parser.add_argument("--source-dir", type=Path, required=True)
     parser.add_argument("--yaml-source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    build_bundle(args.repo, args.yaml_source, args.output)
+    build_bundle(args.source_dir, args.yaml_source, args.output)

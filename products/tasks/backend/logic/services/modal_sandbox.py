@@ -779,7 +779,6 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
 
     if template == SandboxTemplate.DEFAULT_BASE:
         for relative_path in (
-            "LICENSE",
             "products/signals/scripts/score_assignees.py",
             "products/tasks/backend/sandbox/images/build_assignee_evidence.py",
         ):

@@ -413,7 +413,6 @@ class TestLocalModalBuildContext:
             assert (root / "products/tasks/backend/sandbox/images/build_assignee_evidence.py").is_file()
             assert (root / "products/signals/scripts/score_assignees.py").is_file()
             assert (root / "packages/owners-yaml/owners_yaml/resolver.py").is_file()
-            assert (root / "LICENSE").is_file()
         finally:
             shutil.rmtree(context_dir, ignore_errors=True)
             _prepare_local_modal_build_context.cache_clear()

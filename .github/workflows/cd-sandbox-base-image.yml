@@ -21,7 +21,6 @@ on:
             - 'products/posthog_ai/scripts/**'
             - 'products/signals/scripts/**'
             - 'packages/owners-yaml/owners_yaml/**'
-            - 'LICENSE'
             # The notebook image bakes this package and stamps its content hash.
             - 'products/notebooks/backend/sandbox/kernel/**'
             - 'products/notebooks/backend/kernel_package.py'
@@ -93,7 +92,6 @@ jobs:
                         - 'products/posthog_ai/scripts/**'
                         - 'products/signals/scripts/**'
                         - 'packages/owners-yaml/owners_yaml/**'
-                        - 'LICENSE'
                         - 'products/notebooks/backend/sandbox/kernel/**'
                         - 'products/notebooks/backend/kernel_package.py'
                       skills_source:
@@ -146,7 +144,6 @@ jobs:
                     products/posthog_ai/scripts
                     products/signals/scripts
                     packages/owners-yaml/owners_yaml
-                    LICENSE
                     products/notebooks/backend/sandbox/kernel
                     products/notebooks/backend/kernel_package.py
                   )
