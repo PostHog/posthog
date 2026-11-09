@@ -26,7 +26,7 @@ jest.mock('./cdp-base.consumer', () => {
 })
 
 jest.mock('pg', () => {
-    const Pool = jest.fn()
+    const Pool = jest.fn(() => ({ on: jest.fn() }))
     return { Pool }
 })
 

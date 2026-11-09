@@ -43,13 +43,11 @@ pub struct Cli {
     rate_limit: Option<usize>,
 
     /// Load PostHog credentials from this dotenv-style file when not present in the process
-    /// environment. Prefer this over the `--env-file` alias: the npm package runs the binary
-    /// through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling.
+    /// environment.
     /// Also settable as `POSTHOG_CLI_DOTENV_FILE`, for callers that control the environment but
     /// not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh).
     #[arg(
         long = "dotenv-file",
-        alias = "env-file",
         value_name = "PATH",
         env = "POSTHOG_CLI_DOTENV_FILE"
     )]
@@ -613,6 +611,18 @@ mod tests {
             arg.get_env(),
             Some(std::ffi::OsStr::new("POSTHOG_CLI_DOTENV_FILE"))
         );
+    }
+
+    #[test]
+    fn dotenv_file_flag_has_no_env_file_spelling() {
+        let cli = Cli::try_parse_from(["posthog-cli", "--dotenv-file", ".env", "login"]).unwrap();
+        assert_eq!(cli.env_file, Some(PathBuf::from(".env")));
+
+        let err = Cli::try_parse_from(["posthog-cli", "--env-file", ".env", "login"])
+            .err()
+            .expect("--env-file is not a supported spelling");
+        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
+        assert!(err.to_string().contains("--dotenv-file"));
     }
 
     #[test]

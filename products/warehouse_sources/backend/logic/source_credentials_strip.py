@@ -14,7 +14,7 @@ the check or replaces the stripped value with a full one, which a later run stri
 """
 
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -27,7 +27,10 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationReference
 
-from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.contracts import (
+    DEAD_CREDENTIALS_CLEARED_KEY,
+    UnreadableSourceInputsError,
+)
 from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
 from products.warehouse_sources.backend.logic.source_credentials import (
     CredentialsNotFoundError,
@@ -38,7 +41,6 @@ from products.warehouse_sources.backend.logic.source_credentials_rollout import 
     connection_fields_equal,
     in_use_oauth_slot,
     is_stripped,
-    read_enabled,
     stripped_at_now,
 )
 from products.warehouse_sources.backend.logic.source_credentials_sync import next_source_batch, stored_connection_fields
@@ -55,7 +57,6 @@ logger = structlog.get_logger(__name__)
 
 STRIPPED = "stripped"
 ALREADY_STRIPPED = "already_stripped"
-SKIPPED_READ_FLAG_OFF = "skipped_read_flag_off"
 SKIPPED_NO_ROW_NEEDED = "skipped_no_row_needed"
 SKIPPED_NO_REFERENCE = "skipped_no_reference"
 SKIPPED_MISSING_ROW = "skipped_missing_row"
@@ -94,11 +95,11 @@ def strip_connection_fields(
 ) -> OutcomeCounts:
     """Strip each non-deleted source that passes all checks. With ``execute`` false, only count.
 
-    The checks, in order: the read flag is on for the team, and `job_inputs` decodes and is not stripped. For an
-    OAuth source, `job_inputs` holds an in-use pointer and the column holds the same row. For a source with
-    typed-in connection fields, the column holds a reference, and the row it points at exists, is readable and
-    holds the same connection fields as `job_inputs`. Then the backup is written (a strip after a restore
-    replaces it), and then `job_inputs` loses its connection fields and its OAuth pointers.
+    The checks, in order: `job_inputs` decodes and is not stripped. For an OAuth source, `job_inputs` holds an
+    in-use pointer and the column holds the same row. For a source with typed-in connection fields, the column
+    holds a reference, and the row it points at exists, is readable and holds the same connection fields as
+    `job_inputs`. Then the backup is written (a strip after a restore replaces it), and then `job_inputs` loses
+    its connection fields and its OAuth pointers.
     """
     counts: OutcomeCounts = Counter()
     last_id: UUID | None = None
@@ -173,8 +174,6 @@ def prune_backups(*, execute: bool, older_than_days: int, batch_size: int = 1000
 
 
 def _strip_one(source: ExternalDataSource, execute: bool) -> str:
-    if not read_enabled(source.team_id):
-        return SKIPPED_READ_FLAG_OFF
     if not execute:
         outcome, _ = _check(source)
         return outcome
@@ -258,6 +257,13 @@ def _restore_one(source_id: UUID, team_id: int, execute: bool, prefer_backup: bo
             return SKIPPED_GONE
         stored_inputs = SourceInputsStore.load_stored(source)
         if not is_stripped(stored_inputs):
+            if DEAD_CREDENTIALS_CLEARED_KEY in stored_inputs:
+                backup = _backup_of(source)
+                if backup is None:
+                    return NO_CREDENTIALS
+                if execute:
+                    SourceInputsStore.write_restored(source, _merge_cleanup_backup(stored_inputs, backup.inputs))
+                return RESTORED_FROM_BACKUP
             return NOT_STRIPPED
         slot = in_use_oauth_slot(str(source.source_type), stored_inputs)
         if slot is not None:
@@ -313,6 +319,19 @@ def _restore_oauth(
     if execute:
         SourceInputsStore.write_restored(source, with_pointer_at(stored_inputs, slot, integration_id))
     return outcome
+
+
+def _merge_cleanup_backup(current: Mapping[str, Any], backup: Mapping[str, Any]) -> dict[str, Any]:
+    """Put back only what the dead-credentials cleanup removed: keys that the current inputs lack, also in nested
+    groups. Settings and runtime state written since the cleanup stay, and so does a pointer that a reconnect
+    wrote."""
+    merged = dict(backup)
+    for key, value in current.items():
+        old = backup.get(key)
+        merged[key] = (
+            _merge_cleanup_backup(value, old) if isinstance(value, Mapping) and isinstance(old, Mapping) else value
+        )
+    return merged
 
 
 def _backup_of(source: ExternalDataSource) -> ExternalDataSourceInputsBackup | None:

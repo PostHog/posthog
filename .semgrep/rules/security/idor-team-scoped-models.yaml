@@ -67,7 +67,7 @@ rules:
                               |AccountTrackRuleRun
                               |AccountView
                               |Action
-                              |ActionSelectorMatchChange
+                              |AEOBrand
                               |AEOCitationCheck
                               |AEOPrompt
                               |AEOPromptVersion
@@ -147,6 +147,7 @@ rules:
                               |DAG
                               |TodayHighlights
                               |TodayPulsePins
+                              |UserInterfaceFragment
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -435,6 +436,7 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |SignalTrialGrant
                               |LegacySignalSpend
 
                               |AnomalyScoringState
@@ -511,6 +513,8 @@ rules:
                               |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
+                              |WarehouseMigration
+                              |WarehouseMigrationItem
                               |WarehouseSuggestion
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
@@ -590,7 +594,6 @@ rules:
                         |AccountTrackRuleRun
                         |AccountView
                         |Action
-                        |ActionSelectorMatchChange
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential
@@ -667,6 +670,7 @@ rules:
                         |DAG
                         |TodayHighlights
                         |TodayPulsePins
+                        |UserInterfaceFragment
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
@@ -945,6 +949,7 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |SignalTrialGrant
                         |LegacySignalSpend
 
                         |AnomalyScoringState
@@ -1020,6 +1025,8 @@ rules:
                         |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
+                        |WarehouseMigration
+                        |WarehouseMigrationItem
                         |WarehouseSuggestion
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
@@ -1420,6 +1427,7 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationIPRestrictions
                               |OrganizationEventsRetentionConfig
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
@@ -1503,6 +1511,7 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationIPRestrictions
                         |OrganizationEventsRetentionConfig
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
