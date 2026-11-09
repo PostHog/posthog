@@ -62,7 +62,7 @@ export interface exceptionCardLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         issueId: (issueId: string) => string
         logsEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        traceTabEnabled: (logsEnabled: any) => boolean
+        traceTabEnabled: (logsEnabled: boolean) => boolean
         loading: (loading: boolean) => boolean
         onShowOnlyWithRecording: (arg: any) => (() => void) | null
     }

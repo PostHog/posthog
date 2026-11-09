@@ -54,7 +54,9 @@ describe('traceEmbedLogic', () => {
         getTraceSpy.mockResolvedValueOnce({ results: [span('A1'), span('B1')], hasMore: false, nextOffset: null })
         const logic = traceEmbedLogic(props)
 
-        await expectLogic(logic, () => logic.mount()).toDispatchActions(['loadTraceSpansSuccess'])
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadTraceSpansSuccess'])
 
         expect(traceViewLogic({ id: props.viewId }).values.selectedSpan?.span_id).toBe('B1')
         expect(captureSpy).toHaveBeenCalledWith(
@@ -73,7 +75,9 @@ describe('traceEmbedLogic', () => {
         getTraceSpy.mockRejectedValueOnce(new Error('boom'))
         const logic = traceEmbedLogic(props)
 
-        await expectLogic(logic, () => logic.mount())
+        await expectLogic(logic, () => {
+            logic.mount()
+        })
             .toDispatchActions(['loadTraceSpansFailure'])
             .toMatchValues({ traceSpansFailed: true })
         expect(captureSpy).toHaveBeenCalledWith('tracing trace embed load failed', { surface: 'exception_card' })
