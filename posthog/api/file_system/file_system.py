@@ -36,8 +36,10 @@ from rest_framework.response import Response
 from posthog.api.file_system.access_levels import (
     FileSystemAccessLevelSerializerMixin,
     _coerce_refs_for_lookup,
+    canonical_file_system_ref,
     denied_short_id_refs,
     entries_missing_access_level,
+    file_system_ref_canonical_pattern,
     filter_workflow_files_by_access_level,
 )
 from posthog.api.file_system.deletion import (
@@ -160,6 +162,31 @@ class FileSystemFrequentQuerySerializer(serializers.Serializer):
     )
 
 
+def _stored_spellings(team_id: int, file_type: str, refs: set[str]) -> dict[str, set[str]]:
+    """For each canonical ref, every stored ref of this type that reaches the same object.
+
+    Rows written before refs were canonicalized can spell a key in any form its lookup field accepts,
+    such as a UUID in upper case or in braces, or an integer with leading zeros. One query per type finds
+    the rows not in canonical spelling, so it covers a whole deletion batch, and the canonical check maps
+    each of them to its object.
+    """
+    spellings = {ref: {ref} for ref in refs}
+    canonical_pattern = file_system_ref_canonical_pattern(file_type)
+    if not refs or canonical_pattern is None:
+        return spellings
+    other_spellings = (
+        FileSystem.objects.filter(team_id=team_id, type=file_type, shortcut=False, ref__isnull=False)
+        .exclude(ref__regex=canonical_pattern)
+        .values_list("ref", flat=True)
+        .distinct()
+    )
+    for stored in other_spellings:
+        canonical = canonical_file_system_ref(file_type, stored)
+        if canonical in spellings:
+            spellings[canonical].add(stored)
+    return spellings
+
+
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
     team_id = serializers.IntegerField(
         read_only=True, help_text="The environment the object belongs to. A project lists every environment's files."
@@ -204,6 +231,16 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         if len(json.dumps(meta, default=str).encode()) > MAX_META_BYTES:
             raise serializers.ValidationError(f"Meta must be smaller than {MAX_META_BYTES / 1_000_000:g} MB.")
         return meta
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Deletion counts the rows that share a ref to decide whether the object goes too, so every
+        # row has to store one spelling of it. A UUID without hyphens otherwise reaches the same
+        # object as its canonical row but counts as a separate object.
+        attrs = super().validate(attrs)
+        entry_type = attrs.get("type") or (self.instance.type if self.instance else None)
+        if attrs.get("ref") and entry_type:
+            attrs["ref"] = canonical_file_system_ref(entry_type, attrs["ref"])
+        return attrs
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
         if "path" in validated_data:
@@ -460,6 +497,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         accessible_team_ids = self._accessible_team_ids
         if accessible_team_ids is not None:
             queryset = queryset.filter(team_id__in=accessible_team_ids)
+        if not self._workflow_files_enabled:
+            return self.user_access_control.filter_and_annotate_file_system_queryset(
+                queryset, extra_denied_refs=self._denied_short_id_refs
+            )
         queryset = filter_workflow_files_by_access_level(queryset, self.user_access_control, self.team.project_id)
         return self.user_access_control.filter_and_annotate_file_system_queryset(
             queryset, extra_denied_refs=self._denied_short_id_refs, resolved_types=WORKFLOW_FILE_SYSTEM_TYPES
@@ -1101,8 +1142,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # would treat unrelated rows as references to one object.
         entries_by_group: dict[tuple[int, str, Optional[str], str], list[FileSystem]] = {}
         for current in entries_to_check:
-            group_key = (current.team_id, current.type, current.ref, "" if current.ref else str(current.id))
+            ref = canonical_file_system_ref(current.type, current.ref) if current.ref else current.ref
+            group_key = (current.team_id, current.type, ref, "" if current.ref else str(current.id))
             entries_by_group.setdefault(group_key, []).append(current)
+
+        refs_by_type: dict[tuple[int, str], set[str]] = {}
+        for team_id, file_type, ref, _row_key in entries_by_group:
+            if ref:
+                refs_by_type.setdefault((team_id, file_type), set()).add(ref)
+        spellings_by_type = {key: _stored_spellings(key[0], key[1], refs) for key, refs in sorted(refs_by_type.items())}
 
         objects_to_delete: builtins.list[tuple[str, str, int]] = []
         reaches_backing_object: dict[UUID, bool] = {}
@@ -1115,7 +1163,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         for (team_id, file_type, ref, _row_key), group in sorted(
             entries_by_group.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or "", kv[0][3])
         ):
-            if ref is None:
+            if not ref:
                 # No ref means no shared backing object, so there is no sibling set to count and
                 # nothing for a concurrent delete to race us to. Locking on (team, type, NULL)
                 # would instead row-lock every ref-less row of this type in the team for the rest
@@ -1126,10 +1174,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # so a concurrent request deleting a sibling row locks the same row set in the
                 # same order and blocks on it, rather than each request locking a different subset
                 # and deadlocking against the other.
+                spellings = spellings_by_type[(team_id, file_type)][ref] | {row.ref for row in group if row.ref}
                 sibling_ids = {
                     row.id
                     for row in FileSystem.objects.select_for_update()
-                    .filter(team_id=team_id, type=file_type, ref=ref, shortcut=False)
+                    .filter(team_id=team_id, type=file_type, ref__in=spellings, shortcut=False)
                     .order_by("id")
                 }
                 remaining = len(sibling_ids - ids_to_remove)

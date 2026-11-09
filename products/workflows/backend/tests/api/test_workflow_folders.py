@@ -12,7 +12,6 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -20,6 +19,14 @@ class TestWorkflowFolders(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         flag = patch("posthoganalytics.feature_enabled", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+    def _local_flag_answer(self, local: bool | None) -> None:
+        flag = patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda *args, only_evaluate_locally=False, **kwargs: local if only_evaluate_locally else True,
+        )
         flag.start()
         self.addCleanup(flag.stop)
 
@@ -118,46 +125,135 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(alias_deleted.status_code, 404, alias_deleted.content)
         self.assertTrue(HogFlow.objects.filter(pk=workflow.id).exists())
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_disabled_files_do_not_leave_an_empty_unfiled_tree(self, _flag: MagicMock) -> None:
-        create_message_template_for_test(team_id=self.team.id, name="Synthetic email", content={})
+    @parameterized.expand(
+        [
+            ("api_alias_deleted", "api", "alias"),
+            ("legacy_alias_deleted", "upper_hex", "alias"),
+            ("canonical_deleted_beside_upper_hex_alias", "upper_hex", "canonical"),
+            ("canonical_deleted_beside_braced_alias", "braced", "canonical"),
+            ("canonical_deleted_beside_urn_alias", "urn", "canonical"),
+        ]
+    )
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_deleting_one_spelling_of_a_workflow_ref_keeps_the_workflow_and_the_other_file(
+        self, _name: str, spelling: str, deleted_row: str, _reload: MagicMock
+    ) -> None:
+        workflow = HogFlow.objects.create(team=self.team, name="Renewal", created_by=self.user)
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        canonical_id = FileSystem.objects.get(team=self.team, type="hog_flow", ref=str(workflow.id)).id
+        if spelling == "api":
+            created = self.client.post(
+                files_url, {"path": "Renewal copy", "type": "hog_flow", "ref": workflow.id.hex}, format="json"
+            )
+            self.assertEqual(created.status_code, 201, created.content)
+            self.assertEqual(created.json()["ref"], str(workflow.id))
+            alias_id = created.json()["id"]
+        else:
+            stored_ref = {
+                "upper_hex": workflow.id.hex.upper(),
+                "braced": f"{{{workflow.id}}}",
+                "urn": f"urn:uuid:{workflow.id}",
+            }[spelling]
+            alias_id = FileSystem.objects.create(
+                team=self.team, path="Renewal copy", depth=1, type="hog_flow", ref=stored_ref, shortcut=False
+            ).id
+        deleted_id, kept_id = (alias_id, canonical_id) if deleted_row == "alias" else (canonical_id, alias_id)
+
+        deleted = self.client.delete(f"{files_url}{deleted_id}/")
+
+        self.assertEqual(deleted.status_code, 204, deleted.content)
+        self.assertTrue(HogFlow.objects.filter(pk=workflow.id).exists())
+        self.assertTrue(FileSystem.objects.filter(pk=kept_id).exists())
+
+    @parameterized.expand(
+        [
+            ("workflow_too_deep", "hog_flows", "/".join(["Level"] * 51)),
+            ("workflow_too_long", "hog_flows", "a" * 4001),
+            ("template_too_deep", "messaging_templates", "/".join(["Level"] * 51)),
+            ("template_too_long", "messaging_templates", "a" * 4001),
+        ]
+    )
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_create_in_folder_rejects_paths_past_the_tree_limits(
+        self, _name: str, resource: str, folder: str, _reload: MagicMock
+    ) -> None:
+        payload = {
+            "hog_flows": {
+                "name": "Bounded",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            "messaging_templates": {"name": "Bounded", "type": "email"},
+        }[resource]
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/{resource}/", {**payload, "_create_in_folder": folder}, format="json"
+        )
+
+        self.assertEqual(created.status_code, 400, created.content)
+        self.assertEqual(created.json()["attr"], "_create_in_folder")
+        self.assertFalse(FileSystem.objects.filter(team=self.team, type="folder").exists())
+
+    def test_disabled_files_do_not_leave_an_empty_unfiled_tree(self) -> None:
+        self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Synthetic email", "type": "email"},
+            format="json",
+        )
         for path in ("Unfiled", "Unfiled/Email templates"):
             FileSystem.objects.create(team=self.team, path=path, depth=len(path.split("/")), type="folder")
-        response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"search": "Unfiled"})
-        self.assertEqual(response.json()["results"], [])
-        FileSystem.objects.filter(team=self.team, type="message_template").delete()
-        response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "Unfiled"})
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"search": "Unfiled"})
+            self.assertEqual(response.json()["results"], [])
+            FileSystem.objects.filter(team=self.team, type="message_template").delete()
+            response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "Unfiled"})
         self.assertEqual([entry["path"] for entry in response.json()["results"]], ["Unfiled"])
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_disabled_project_files_leave_tree_search_and_unfiled_unchanged(self, _flag: MagicMock) -> None:
-        with patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers"):
-            workflow = HogFlow.objects.create(team=self.team, name="Synthetic welcome")
-        template_id = create_message_template_for_test(team_id=self.team.id, name="Synthetic email", content={})
-        FileSystem.objects.create(team=self.team, path="Unfiled", depth=1, type="folder")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_disabled_project_files_write_no_rows_and_hide_the_ones_filed_earlier(self, _reload: MagicMock) -> None:
+        trigger = [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}]
+        hog_flows_url = f"/api/projects/{self.team.id}/hog_flows/"
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        filed = HogFlow.objects.create(team=self.team, name="Synthetic welcome", created_by=self.user)
+        self.client.post(templates_url, {"name": "Synthetic email", "type": "email"}, format="json")
+        workflow_files = FileSystem.objects.filter(team=self.team, type__in=["hog_flow", "message_template"])
+        self.assertEqual(workflow_files.count(), 2)
         FileSystem.objects.create(team=self.team, path="Unfiled/Workflows", depth=2, type="folder")
         FileSystem.objects.create(team=self.team, path="Unfiled/Email templates", depth=2, type="folder")
         notebook = FileSystem.objects.create(
             team=self.team, path="Unfiled/Synthetic notebook", depth=2, type="notebook", ref="invented"
         )
         files_url = f"/api/projects/{self.team.id}/file_system/"
-        for params in ({}, {"search": "Synthetic"}, {"parent": "Unfiled", "depth": "2"}):
-            response = self.client.get(files_url, params)
-            self.assertEqual(response.status_code, 200)
-            rows = response.json()["results"]
-            self.assertFalse(any(row["type"] in ("hog_flow", "message_template") for row in rows))
-            self.assertFalse(any(row["path"] in ("Unfiled/Workflows", "Unfiled/Email templates") for row in rows))
-            self.assertTrue(any(row["id"] == str(notebook.id) for row in rows))
-        ranked = self.client.get(f"{files_url}search/", {"search": "Synthetic"}).json()["results"]
-        self.assertEqual([result["entry"]["id"] for result in ranked], [str(notebook.id)])
-        FileSystem.objects.filter(team=self.team, type__in=["hog_flow", "message_template"]).delete()
-        response = self.client.get(f"{files_url}unfiled/")
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(FileSystem.objects.filter(team=self.team, type__in=["hog_flow", "message_template"]).exists())
-        self.assertTrue(HogFlow.objects.filter(team=self.team, id=workflow.id).exists())
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            unfiled_workflow = self.client.post(
+                hog_flows_url,
+                {"name": "Synthetic dark", "_create_in_folder": "Campaigns", "actions": trigger, "edges": []},
+                format="json",
+            )
+            unfiled_template = self.client.post(
+                templates_url, {"name": "Synthetic dark email", "type": "email"}, format="json"
+            )
+            filed.name = "Synthetic renamed"
+            filed.save()
+            for params in ({}, {"search": "Synthetic"}, {"parent": "Unfiled", "depth": "2"}):
+                response = self.client.get(files_url, params)
+                self.assertEqual(response.status_code, 200)
+                rows = response.json()["results"]
+                self.assertFalse(any(row["type"] in ("hog_flow", "message_template") for row in rows))
+                self.assertFalse(any(row["path"] in ("Unfiled/Workflows", "Unfiled/Email templates") for row in rows))
+                self.assertTrue(any(row["id"] == str(notebook.id) for row in rows))
+            ranked = self.client.get(f"{files_url}search/", {"search": "Synthetic"}).json()["results"]
+            self.assertEqual([result["entry"]["id"] for result in ranked], [str(notebook.id)])
+            self.assertEqual(self.client.get(f"{files_url}unfiled/").status_code, 200)
+
+        self.assertEqual(unfiled_workflow.status_code, 201, unfiled_workflow.content)
+        self.assertEqual(unfiled_template.status_code, 201, unfiled_template.content)
         self.assertEqual(
-            self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template_id}/").status_code, 200
+            sorted(workflow_files.values_list("path", flat=True)),
+            ["Unfiled/Email templates/Synthetic email", "Unfiled/Workflows/Synthetic renamed"],
         )
+        self.assertFalse(FileSystem.objects.filter(team=self.team, path="Campaigns").exists())
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_other_workflow_product_surfaces_are_not_filed_as_workflows(self, _reload: MagicMock) -> None:
@@ -180,8 +276,7 @@ class TestWorkflowFolders(APIBaseTest):
             )
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_disabled_files_survive_recursive_folder_deletion(self, _flag: MagicMock, _reload: MagicMock) -> None:
+    def test_disabled_files_survive_recursive_folder_deletion(self, _reload: MagicMock) -> None:
         workflow = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/",
             {
@@ -199,19 +294,21 @@ class TestWorkflowFolders(APIBaseTest):
         ).json()
         files_url = f"/api/projects/{self.team.id}/file_system/"
         FileSystem.objects.create(team=self.team, path="Campaigns", depth=1, type="folder")
-        folder = self.client.get(files_url, {"path": "Campaigns"}).json()["results"][0]
-        preview = self.client.post(f"{files_url}{folder['id']}/count/").json()
-        self.assertEqual(preview["count"], 0)
-        refused = self.client.delete(f"{files_url}{folder['id']}/?recursive=false")
-        self.assertEqual(refused.status_code, 409, refused.content)
-        deleted = self.client.delete(f"{files_url}{folder['id']}/?recursive=true")
-        self.assertEqual(deleted.status_code, 204, deleted.content)
-        self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow['id']}/").status_code, 200)
-        self.assertEqual(
-            self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/").status_code, 200
-        )
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            paths = {row["path"] for row in self.client.get(files_url).json()["results"]}
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            folder = self.client.get(files_url, {"path": "Campaigns"}).json()["results"][0]
+            preview = self.client.post(f"{files_url}{folder['id']}/count/").json()
+            self.assertEqual(preview["count"], 0)
+            refused = self.client.delete(f"{files_url}{folder['id']}/?recursive=false")
+            self.assertEqual(refused.status_code, 409, refused.content)
+            deleted = self.client.delete(f"{files_url}{folder['id']}/?recursive=true")
+            self.assertEqual(deleted.status_code, 204, deleted.content)
+            self.assertEqual(
+                self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow['id']}/").status_code, 200
+            )
+            self.assertEqual(
+                self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/").status_code, 200
+            )
+        paths = {row["path"] for row in self.client.get(files_url).json()["results"]}
         self.assertTrue({"Campaigns", "Campaigns/Hidden workflow", "Campaigns/Hidden email"} <= paths)
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
@@ -240,7 +337,9 @@ class TestWorkflowFolders(APIBaseTest):
         activity = self.client.get(f"/api/projects/{self.team.id}/activity_log", {"scope": "HogFlow"}).json()["results"]
         self.assertTrue(any(entry["item_id"] == workflow_id and entry["activity"] == "deleted" for entry in activity))
 
-    def test_email_template_can_be_created_and_moved_in_project_files(self) -> None:
+    @parameterized.expand([("flag_on", True), ("local_evaluation_inconclusive", None)])
+    def test_email_template_can_be_created_and_moved_in_project_files(self, _name: str, local: bool | None) -> None:
+        self._local_flag_answer(local)
         created = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
             {"name": "Welcome email", "type": "email", "_create_in_folder": "Campaigns"},
@@ -260,34 +359,49 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("_create_in_folder", False, "Campaigns/Retention/Renewal"),
-            ("folder", True, "Campaigns/Retention/Renewal"),
-            ("folder", False, "Unfiled/Workflows/Renewal"),
+            ("create_in_folder", "_create_in_folder", True),
+            ("create_in_folder_local_evaluation_inconclusive", "_create_in_folder", None),
+            ("folder", "folder", True),
+            ("folder_local_evaluation_inconclusive", "folder", None),
         ]
     )
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_new_workflow_is_created_in_the_requested_project_folder(
-        self, field: str, project_files: bool, path: str, _reload: MagicMock
+        self, _name: str, field: str, local: bool | None, _reload: MagicMock
     ) -> None:
-        with patch(
-            "posthoganalytics.feature_enabled",
-            side_effect=lambda key, *args, **kwargs: key == "workflows-project-files" and project_files,
-        ):
+        self._local_flag_answer(local)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/",
+            {
+                "name": "Renewal",
+                field: "Campaigns/Retention",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        files = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": created.json()["id"]}
+        ).json()["results"]
+        self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
+
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_folder_files_nothing_while_project_files_are_off(self, _reload: MagicMock) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=False):
             created = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/",
                 {
                     "name": "Renewal",
-                    field: "Campaigns/Retention",
+                    "folder": "Campaigns/Retention",
                     "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
                     "edges": [],
                 },
                 format="json",
             )
         self.assertEqual(created.status_code, 201, created.content)
-        files = self.client.get(
-            f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": created.json()["id"]}
-        ).json()["results"]
-        self.assertEqual([file["path"] for file in files], [path])
+        self.assertFalse(FileSystem.objects.filter(team=self.team, type="hog_flow", ref=created.json()["id"]).exists())
+        self.assertFalse(FileSystem.objects.filter(team=self.team, path__startswith="Campaigns").exists())
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_workflow_move_survives_reload_and_rename(self, _reload: MagicMock) -> None:

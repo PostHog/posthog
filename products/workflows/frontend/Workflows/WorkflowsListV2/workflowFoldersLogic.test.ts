@@ -583,10 +583,27 @@ describe('workflowFoldersLogic', () => {
         expect(folderNameError(name, '', paths, renaming)).toEqual(error)
     })
 
-    it('reports a failed folder index and recovers on retry', async () => {
+    it.each([
+        ['every scan fails', false],
+        ["only the other products' scan fails, before the folder scans answer", true],
+    ])('reports a failed folder index when %s, and recovers on retry', async (_, folderScansSucceed) => {
         await expectLogic(logic).toFinishAllListeners()
-        useMocks({ get: { '/api/projects/:team_id/file_system/': () => [500, { detail: 'Unavailable' }] } })
-        await expectLogic(logic, () => logic.actions.loadBrowser()).toFinishAllListeners()
+        let releaseFolderScans!: () => void
+        const folderScansHeld = new Promise<void>((resolve) => (releaseFolderScans = resolve))
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    if ((new URL(request.url).searchParams.get('search') ?? '').startsWith('-')) {
+                        return [500, { detail: 'Unavailable' }]
+                    }
+                    await folderScansHeld
+                    return folderScansSucceed ? [200, paginated([])] : [500, { detail: 'Unavailable' }]
+                },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.loadBrowser()).toDispatchActions(['loadOtherFilesFailure'])
+        releaseFolderScans()
+        await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.browserLoadFailed).toBe(true)
         useMocks({ get: { '/api/projects/:team_id/file_system/': () => [200, paginated([])] } })
         await expectLogic(logic, () => logic.actions.loadBrowser()).toFinishAllListeners()
