@@ -522,8 +522,7 @@ def code_send_category_id(team_id: int, category: str | None) -> UUID | None:
     return category_id
 
 
-def _require_template_category(category: str | None) -> None:
-    # Only transactional templates can be sent, so a template send can only name that category.
+def _require_transactional_category(category: str | None) -> None:
     if category is not None and category != TRANSACTIONAL_CATEGORY:
         raise CategoryMismatch(TRANSACTIONAL_CATEGORY)
 
@@ -547,7 +546,7 @@ def send_transactional_email(
             hog_flow_id = _transactional_workflow_id(team.id, model)
         else:
             hog_flow_id = _transactional_workflow_id(team.id, template)
-        _require_template_category(category)
+        _require_transactional_category(category)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 
@@ -607,7 +606,12 @@ def _has_unsubscribe_link(email: CodeEmail) -> bool:
 def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
     accepted: dict[str, Any] = {
         "content": _without_empty(
-            {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
+            {
+                "subject": email.subject,
+                "html": email.html,
+                "text": email.text
+                or text_from_html(email.html, keep_unsubscribe_link=email.message_category_id is not None),
+            }
         ),
         "from": _without_empty(_code_send_sender(team_id, email.sender)),
         "tracking": {"captureEngagement": email.capture_engagement},

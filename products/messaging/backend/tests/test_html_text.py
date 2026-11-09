@@ -28,11 +28,6 @@ class TestTextFromHtml(SimpleTestCase):
                 '<a href="https://example.com">https://example.com</a>',
                 "https://example.com",
             ),
-            (
-                "unsubscribe_link_keeps_its_placeholder",
-                '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-                "Unsubscribe ({{ unsubscribe_url }})",
-            ),
             ("hidden_parts_are_dropped", "<style>p{color:red}</style><script>x()</script><p>Hi</p>", "Hi"),
             ("entities_are_decoded", "<p>Tom &amp; Jerry&nbsp;&lt;3</p>", "Tom & Jerry <3"),
             ("source_whitespace_collapses", "<p>Hi\n      Jane</p>\n\n\n<p>Bye</p>", "Hi Jane\n\nBye"),
@@ -42,6 +37,17 @@ class TestTextFromHtml(SimpleTestCase):
     )
     def test_derives_readable_text(self, _name, html, expected):
         assert text_from_html(html) == expected
+
+    @parameterized.expand(
+        [
+            ("marketing_send", True, "Unsubscribe ({{ unsubscribe_url }})"),
+            ("transactional_send", False, "Unsubscribe"),
+        ]
+    )
+    def test_keeps_the_unsubscribe_placeholder_link_only_when_asked(self, _name, keep, expected):
+        html = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+
+        assert text_from_html(html, keep_unsubscribe_link=keep) == expected
 
     @parameterized.expand(
         [

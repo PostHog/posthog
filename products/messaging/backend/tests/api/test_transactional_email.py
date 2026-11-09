@@ -39,6 +39,7 @@ from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_API_FLAG,
 )
 from products.messaging.backend.services import transactional_email
+from products.messaging.backend.services.html_text import UNSUBSCRIBE_PLACEHOLDER
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
 from products.messaging.backend.tests.test_code_send_fields import ADDRESS_VERDICTS
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
@@ -733,7 +734,11 @@ class TestTransactionalEmail(APIBaseTest):
         [
             ("left_out", {}, False),
             ("null", {"category": None}, False),
-            ("transactional", {"category": "transactional"}, False),
+            (
+                "transactional_with_the_placeholder",
+                {"category": "transactional", "html": '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'},
+                False,
+            ),
             (
                 "marketing_key",
                 {"category": "newsletter", "html": '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'},
@@ -760,6 +765,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         sent = json.loads(mock_post.call_args.kwargs["data"])["send"]
         assert sent.get("messageCategoryId") == (str(newsletter.id) if marketing else None)
+        assert bool(UNSUBSCRIBE_PLACEHOLDER.search(sent["content"]["text"])) == marketing
         assert capture.call_args.kwargs["properties"]["category_type"] == (
             "marketing" if marketing else "transactional"
         )
@@ -844,7 +850,6 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         if expected_status == status.HTTP_400_BAD_REQUEST:
             assert response.json()["code"] == "unknown_category"
-            # The project has this category, so the refusal must not send the caller looking for it.
             assert "no marketing message category" not in response.json()["detail"]
         assert mock_post.called == (expected_status == status.HTTP_202_ACCEPTED)
 
