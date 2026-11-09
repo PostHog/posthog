@@ -40,9 +40,16 @@ def _code_email(key: TransactionalEmailKey, workflow: CodeEmailWorkflow) -> Code
         tags=workflow.tags,
         sensitive=workflow.sensitive,
         source_url=key.source_url,
-        source_origin=CodeEmailSourceOrigin(key.source_origin),
+        source_origin=_source_origin(key),
         created_at=key.created_at,
     )
+
+
+def _source_origin(key: TransactionalEmailKey) -> CodeEmailSourceOrigin | None:
+    if key.source_origin:
+        return CodeEmailSourceOrigin(key.source_origin)
+    # Keys linked before source_origin existed have a link and no origin, and only a person could set those links.
+    return CodeEmailSourceOrigin.MANUAL if key.source_url else None
 
 
 def list_code_emails(team_id: int, *, viewable_workflow_ids: Collection[str]) -> list[CodeManagedEmail]:

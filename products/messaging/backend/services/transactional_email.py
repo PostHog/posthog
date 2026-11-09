@@ -443,8 +443,11 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
             )
         hog_flow_id = create_code_email_workflow(team_id=team_id, key=key)
         key_id = str(keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id).id)
-        # robust=True logs a failed publish instead of raising it, so detection can never fail a send.
-        transaction.on_commit(lambda: detect_code_email_source_task.delay(team_id, key_id), robust=True)
+        # retry=False makes a broker failure raise at once instead of holding the send in the publish retry loop,
+        # and robust=True logs that failure instead of raising it, so detection can never fail or delay a send.
+        transaction.on_commit(
+            lambda: detect_code_email_source_task.apply_async(args=(team_id, key_id), retry=False), robust=True
+        )
         return hog_flow_id
 
 

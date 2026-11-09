@@ -71,6 +71,7 @@ const noLink: CodeEmailApi = {
     description: '',
     tags: [],
     source_url: null,
+    source_origin: null,
 }
 
 const Template: StoryFn<{

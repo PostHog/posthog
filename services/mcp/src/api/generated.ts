@@ -26476,11 +26476,11 @@ export namespace Schemas {
          * @nullable
          */
       source_url: string | null;
-      /** How `source_url` was set: `manual` when a person linked it, `detected` when PostHog found the file in a connected GitHub repository. Setting `source_url` makes it `manual`.
+      /** How `source_url` was set: `manual` when a person linked or unlinked it, `detected` when PostHog found the file in a connected GitHub repository. Setting `source_url` makes it `manual`. Null when no link was ever set or cleared.
        *
        * * `manual` - Manual
        * * `detected` - Detected from GitHub */
-      source_origin: CodeEmailSourceOriginEnum;
+      readonly source_origin: CodeEmailSourceOriginEnum | null;
       /** When your code first sent under this key. */
       created_at: string;
     }

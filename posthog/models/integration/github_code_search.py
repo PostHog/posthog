@@ -25,6 +25,7 @@ _IGNORED_BY_GITHUB = re.compile(r'["\\]')
 @frozen
 class MatchedLine:
     number: int
+    text: str
     context: str
 
 
@@ -49,7 +50,7 @@ class GitHubExactCodeSearch:
         """Find the files in GitHub's index of each default branch that hold ``literal`` exactly.
 
         ``literal`` must not sit inside a longer run of letters, digits, ``_`` or ``-``. Each
-        matched line comes with up to ``CONTEXT_LINES`` lines on either side.
+        matched line comes with its text and up to ``CONTEXT_LINES`` lines on either side.
         ``complete`` is False when GitHub did not return every candidate, a candidate could not be
         read, or a file held more than ``MAX_MATCHED_LINES_PER_FILE`` matches, so a caller can tell
         "nowhere" from "not found in what was searched".
@@ -108,6 +109,7 @@ class GitHubExactCodeSearch:
         return tuple(
             MatchedLine(
                 number=index + 1,
+                text=file_lines[index],
                 context="\n".join(file_lines[max(0, index - CONTEXT_LINES) : index + CONTEXT_LINES + 1]),
             )
             for index in islice(matching, MAX_MATCHED_LINES_PER_FILE + 1)

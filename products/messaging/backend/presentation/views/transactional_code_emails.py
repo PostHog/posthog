@@ -56,8 +56,11 @@ class CodeEmailSerializer(serializers.Serializer):
     )
     source_origin = serializers.ChoiceField(
         choices=CodeEmailSourceOrigin.choices,
-        help_text="How `source_url` was set: `manual` when a person linked it, `detected` when PostHog found the "
-        "file in a connected GitHub repository. Setting `source_url` makes it `manual`.",
+        read_only=True,
+        allow_null=True,
+        help_text="How `source_url` was set: `manual` when a person linked or unlinked it, `detected` when PostHog "
+        "found the file in a connected GitHub repository. Setting `source_url` makes it `manual`. Null when no link "
+        "was ever set or cleared.",
     )
     created_at = serializers.DateTimeField(help_text="When your code first sent under this key.")
 
