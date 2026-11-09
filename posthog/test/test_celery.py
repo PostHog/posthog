@@ -6,12 +6,11 @@ from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 import posthoganalytics
-from celery.signals import worker_init
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 import posthog.celery
-from posthog.celery import _initialize_worker_metrics, on_worker_process_shutdown
+from posthog.celery import _initialize_worker_metrics, freeze_objects_before_pool_forks, on_worker_process_shutdown
 from posthog.celery_task_names import (
     VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
     VERIFY_FLAGS_CACHE_TASK_NAME,
@@ -21,11 +20,11 @@ from posthog.tasks.tasks import clickhouse_errors_count
 
 
 class TestFreezeBeforePoolForks(TestCase):
-    def test_worker_init_freezes_the_objects_the_pool_will_inherit(self) -> None:
+    def test_freezes_the_objects_the_pool_will_inherit(self) -> None:
         gc.unfreeze()
         self.addCleanup(gc.unfreeze)
 
-        worker_init.send(sender=None)
+        freeze_objects_before_pool_forks()
 
         self.assertGreater(gc.get_freeze_count(), 0)
 
