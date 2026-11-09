@@ -34,6 +34,13 @@ const jobLatenessHistogram = new Histogram({
 
 export const CONSUMER_STOP_DEADLINE_MS = 25_000
 
+function priorityPersistedOnlyAcrossEmailQueueTransitions(
+    invocation: CyclotronJobInvocation,
+    fromQueue: string
+): number | undefined {
+    return invocation.queue === 'email' || fromQueue === 'email' ? invocation.queuePriority : undefined
+}
+
 async function settleBefore(deadline: number, work: Promise<unknown>): Promise<boolean> {
     let timer: NodeJS.Timeout | undefined
     const passed = new Promise<false>((resolve) => {
@@ -318,12 +325,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 personId: extractPersonId(result.invocation),
                 actionId: extractActionId(result.invocation),
                 queueName: result.invocation.queue,
-                // Persisted only across email-queue transitions (routeEmailToQueue's class in, origin priority out), so
-                // in-memory retry bumps on other queues stay unpersisted.
-                priority:
-                    result.invocation.queue === 'email' || job.queueName === 'email'
-                        ? result.invocation.queuePriority
-                        : undefined,
+                priority: priorityPersistedOnlyAcrossEmailQueueTransitions(result.invocation, job.queueName),
             })
         }
     }
