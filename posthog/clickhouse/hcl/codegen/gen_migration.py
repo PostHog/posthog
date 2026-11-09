@@ -53,7 +53,20 @@ HCLEXP = os.path.join(HCL_DIR, "bin", "hclexp")
 # Canonical role order for emitted node_roles (mirrors ALL_ROLES in migration 0273).
 # Only roles present in the manifest appear; the rest are listed for stable ordering
 # if/when they are uncommented there.
-ROLE_ORDER = ["data", "endpoints", "aux", "ai_events", "sessions", "logs", "ops", "events", "small", "medium"]
+ROLE_ORDER = [
+    "data",
+    "endpoints",
+    "aux",
+    "ai_events",
+    "sessions",
+    "logs",
+    "metrics",
+    "ops",
+    "events",
+    "small",
+    "medium",
+    "ingestion_metrics",
+]
 
 # Manifest roles are named after the hostClusterRole macro, which is the NodeRole *value*.
 # For most roles the member name is that value uppercased; the ingestion members are not.
@@ -251,19 +264,21 @@ def main() -> None:
             untargetable_notes.setdefault(op["object"], ", ".join(f"{r} ({NON_TARGET_ROLES[r]})" for r in untargetable))
         replicated = op["replicated"]
         is_alter_repl = op["kind"] == "ALTER" and replicated
-        sharded = replicated and "data" in roles
         # Env-specific if the statement is absent from some env that hosts these roles.
         full_envs = set().union(*(envs_for_role.get(r, set()) for r in roles))
         gate = "" if envs >= full_envs else f"  # NOTE: only {sorted(envs)} — gate with settings.CLOUD_DEPLOYMENT"
-        roles_src = "[" + ", ".join(f"NodeRole.{NODE_ROLE_MEMBERS.get(r, r.upper())}" for r in node_roles) + "]"
-        operations.append(
-            "    run_sql_with_exceptions(\n"
-            f"        {sql!r},\n"
-            f"        node_roles={roles_src},{gate}\n"
-            f"        sharded={sharded},\n"
-            f"        is_alter_on_replicated_table={is_alter_repl},\n"
-            "    ),"
-        )
+        # A replicated ALTER runs on one host, so a table on several clusters needs one operation per cluster.
+        for target_roles in [[r] for r in node_roles] if is_alter_repl else [node_roles]:
+            sharded = replicated and "data" in target_roles
+            roles_src = "[" + ", ".join(f"NodeRole.{NODE_ROLE_MEMBERS.get(r, r.upper())}" for r in target_roles) + "]"
+            operations.append(
+                "    run_sql_with_exceptions(\n"
+                f"        {sql!r},\n"
+                f"        node_roles={roles_src},{gate}\n"
+                f"        sharded={sharded},\n"
+                f"        is_alter_on_replicated_table={is_alter_repl},\n"
+                "    ),"
+            )
 
     body = (
         '"""AUTO-GENERATED from the declarative HCL by '
