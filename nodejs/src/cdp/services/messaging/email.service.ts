@@ -62,7 +62,7 @@ import {
     RecipientTokensService,
     preferencesTokenSourceForInvocation,
 } from './recipient-tokens.service'
-import { SandboxEmailBlockReason, SandboxEmailSender } from './sandbox-email-sender'
+import { SandboxEmailBlockReason, SandboxEmailSender, SandboxMessage } from './sandbox-email-sender'
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -460,7 +460,7 @@ type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off'
 type SesRoute = {
     tenantName: string
     configurationSetName: string
-    unsubscribeHeaders: MessageHeader[]
+    headers: MessageHeader[]
     ccAddresses?: string[]
     bccAddresses?: string[]
 }
@@ -883,12 +883,13 @@ export class EmailService {
                     await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait, files)
                     break
                 case 'sandbox': {
-                    deliveryParams = await this.sandboxSender!.buildSandboxMessage(
+                    const sandboxMessage = await this.sandboxSender!.buildSandboxMessage(
                         sendParams,
                         from.name,
                         invocation.teamId
                     )
-                    const route = this.sandboxSesRoute(deliveryParams)
+                    deliveryParams = sandboxMessage.params
+                    const route = this.sandboxSesRoute(sandboxMessage)
                     const deliveryRecipients = [
                         deliveryParams.to.email.trim(),
                         ...(route.ccAddresses ?? []),
@@ -1282,7 +1283,7 @@ export class EmailService {
             // posthog/management/commands/migrate_ses_tenants.py).
             tenantName: `team-${invocation.teamId}`,
             configurationSetName: this.resolveConfigurationSetName(trackingEnabled, invocation),
-            unsubscribeHeaders:
+            headers:
                 invocation.hogFunction?.metadata?.message_category_type === 'transactional'
                     ? []
                     : this.generateUnsubscribeHeaders(
@@ -1297,11 +1298,11 @@ export class EmailService {
     // The sandbox shares one SES identity, so every send uses its fixed tenant and configuration
     // set, and no recipient gets an unsubscribe link: only members of the sending organization
     // receive it. CC and BCC are parsed once so the final member check covers exactly this list.
-    private sandboxSesRoute(params: CyclotronInvocationQueueParametersEmailType): SesRoute {
+    private sandboxSesRoute({ params, headers }: SandboxMessage): SesRoute {
         return {
             tenantName: this.sandboxSender!.config.tenantName,
             configurationSetName: this.sandboxSender!.config.configurationSetName,
-            unsubscribeHeaders: [],
+            headers,
             ccAddresses: parseDeliveryMailboxes(params.cc),
             bccAddresses: parseDeliveryMailboxes(params.bcc),
         }
@@ -1579,11 +1580,7 @@ export class EmailService {
         const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
 
         if (sendEmailParams.Content?.Simple) {
-            sendEmailParams.Content.Simple.Headers = [
-                ...route.unsubscribeHeaders,
-                trackingHeader,
-                AUTO_SUBMITTED_HEADER,
-            ]
+            sendEmailParams.Content.Simple.Headers = [...route.headers, trackingHeader, AUTO_SUBMITTED_HEADER]
             if (files.length) {
                 sendEmailParams.Content.Simple.Attachments = files.map((file) => ({
                     RawContent: file.content,
