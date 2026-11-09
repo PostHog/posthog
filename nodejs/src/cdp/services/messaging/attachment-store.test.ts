@@ -66,8 +66,11 @@ describe('S3AttachmentStore', () => {
 
     const expiringIn = (minutes: number): Date => new Date(Date.now() + minutes * 60 * 1000)
 
-    const untilTheBucketClockPasses = (secondStoredAs: Date): Promise<void> =>
-        new Promise((resolve) => setTimeout(resolve, Math.max(0, secondStoredAs.getTime() + 1001 - Date.now())))
+    const untilTheBucketClockPasses = async (secondStoredAs: Date): Promise<void> => {
+        while (Date.now() <= secondStoredAs.getTime() + 1000) {
+            await new Promise((resolve) => setTimeout(resolve, secondStoredAs.getTime() + 1001 - Date.now()))
+        }
+    }
 
     const expiryAnsweredFor = async (sha256: string, size: number): Promise<Date> => {
         const [slot] = await store.prepareUploads(1, [{ sha256, size }])
