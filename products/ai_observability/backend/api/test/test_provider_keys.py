@@ -23,7 +23,7 @@ from products.ai_observability.backend.api.taggers import TaggerModelConfigurati
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
-from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
@@ -1459,6 +1459,9 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
             evaluation_config={"prompt": "Is this good?"},
             output_type="boolean",
             model_configuration=model_config,
+            enabled=False,
+            status=EvaluationStatus.ERROR,
+            status_reason="provider_key_quota_exceeded",
         )
 
         response = self.client.get(
@@ -1468,6 +1471,52 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.assertEqual(len(response.data["evaluations"]), 1)
         self.assertEqual(response.data["evaluations"][0]["id"], str(evaluation.id))
         self.assertEqual(response.data["evaluations"][0]["name"], "Test Evaluation")
+        # The settings page offers to turn back on the evaluations this key's problem turned off.
+        self.assertEqual(response.data["evaluations"][0]["enabled"], False)
+        self.assertEqual(response.data["evaluations"][0]["status_reason"], "provider_key_quota_exceeded")
+
+    @parameterized.expand(
+        [
+            ("active_key", True, True, ["Keyless"]),
+            ("not_the_active_key", False, True, []),
+            ("no_evaluation_access", True, False, []),
+        ]
+    )
+    def test_dependent_configs_lists_errored_evaluations_on_the_active_key(
+        self, _name: str, is_active: bool, evaluation_access: bool, expected: list[str]
+    ) -> None:
+        if not evaluation_access:
+            _grant_provider_key_management_without_evaluation_access(self.team, self.organization_membership)
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test-key"},
+        )
+        if is_active:
+            EvaluationConfig.objects.update_or_create(team=self.team, defaults={"active_provider_key": key})
+        keyless_config = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        for name, status_value in (("Keyless", EvaluationStatus.ERROR), ("Paused keyless", EvaluationStatus.PAUSED)):
+            Evaluation.objects.create(
+                team=self.team,
+                name=name,
+                evaluation_type="llm_judge",
+                evaluation_config={"prompt": "Is this good?"},
+                output_type="boolean",
+                model_configuration=keyless_config,
+                enabled=False,
+                status=status_value,
+                status_reason="provider_key_quota_exceeded" if status_value == EvaluationStatus.ERROR else None,
+            )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/dependent_configs/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([evaluation["name"] for evaluation in response.data["active_key_evaluations"]], expected)
+        self.assertEqual(response.data["evaluations"], [])
 
     def test_dependent_configs_excludes_deleted_evaluations(self):
         key = LLMProviderKey.objects.create(
