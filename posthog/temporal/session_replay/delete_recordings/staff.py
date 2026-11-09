@@ -132,7 +132,9 @@ def normalize_date_filter(value: str) -> str:
     # days would reach back thousands of days. The query also parses it as an int and fails validation.
     if re.fullmatch(r"-?\d+", value):
         raise ValueError(f"{value!r} has no unit")
-    if re.fullmatch(r"-?\d*[hdwmqysHDWMQY](Start|End)?", value):
+    # Only the units posthog.utils.get_delta_mapping_for handles; it is case-sensitive ("m" is months, "M" minutes)
+    # and returns no delta for any other unit, which would move the cutoff to now.
+    if re.fullmatch(r"-?\d*[hdwmMsqy](Start|End)?", value):
         return value
     try:
         isoparser.isoparse(value)
