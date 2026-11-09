@@ -248,6 +248,10 @@ class DataWarehouseSavedQuerySerializer(
     has_incremental_history = serializers.SerializerMethodField(
         help_text="Whether incremental settings participated in any materialization run."
     )
+    is_raw_managed_trino = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it.",
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -281,6 +285,7 @@ class DataWarehouseSavedQuerySerializer(
             "expires_at",
             "user_access_level",
             "suspended",
+            "is_raw_managed_trino",
         ]
         read_only_fields = [
             "id",

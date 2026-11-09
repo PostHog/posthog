@@ -282,6 +282,38 @@ Fired when flags are loaded for a different distinct ID.
 
 **File:** `shared/flags/flagsToolbarLogic.ts`
 
+### `toolbar feature flag comparison started`
+
+Fired when a flag comparison starts capturing the page.
+
+| Property      | Type     | Description                                                          |
+| ------------- | -------- | -------------------------------------------------------------------- |
+| `state_count` | `number` | Captures the comparison takes: off plus on, or off plus each variant |
+
+**File:** `shared/flags/flagComparisonLogic.ts`
+
+### `toolbar feature flag comparison completed`
+
+Fired when every capture of a flag comparison succeeds.
+
+| Property      | Type      | Description                                               |
+| ------------- | --------- | --------------------------------------------------------- |
+| `state_count` | `number`  | Captures the comparison took                              |
+| `identical`   | `boolean` | `true` when every capture matched the flag-off capture    |
+| `duration_ms` | `number`  | Time from the start of the comparison to the last capture |
+
+**File:** `shared/flags/flagComparisonLogic.ts`
+
+### `toolbar feature flag comparison failed`
+
+Fired when a comparison stops early: a capture fails or times out, for example on a cross-origin image or font, or the flag overrides change during the run.
+
+| Property | Type     | Description                                                                                |
+| -------- | -------- | ------------------------------------------------------------------------------------------ |
+| `reason` | `string` | One of `capture_failed`, `capture_timeout`, `capture_still_running` or `overrides_changed` |
+
+**File:** `shared/flags/flagComparisonLogic.ts`
+
 ## Product tours
 
 ### `product tour recording started`

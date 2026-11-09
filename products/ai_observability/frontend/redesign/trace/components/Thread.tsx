@@ -50,6 +50,7 @@ export function Thread({
                     isActive={turns.length > 1 && turn.id === activeTurnId}
                     onSelectMessage={onSelectMessage}
                     matchingNodeIds={matchingNodeIds}
+                    highlightQuery={highlightQuery}
                 />
             ))}
         </div>

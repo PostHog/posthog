@@ -28,6 +28,7 @@ import {
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsDrillDownLevel,
     NodeKind,
     SourceMap,
 } from '~/queries/schema/schema-general'
@@ -55,6 +56,8 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from './marketingAnalyticsTilesLogic'
+import { activeColumnView, columnsForView, marketingTableDimensionColumns } from './marketingTableColumnViews'
+import { externalTableTypeLabel } from './utils'
 
 jest.mock('posthog-js')
 
@@ -162,6 +165,7 @@ describe('marketingAnalyticsLogic', () => {
             expect(searchLogic.values.missingSources).toEqual(['GoogleAds'])
             logic.actions.setCompareFilter({ compare: true })
             logic.actions.setDates('-28d', null)
+            expect(searchLogic.values.hasActiveFilters).toBe(false)
             searchLogic.actions.setChannel('paid')
             searchLogic.actions.setQuerySearch('missing query')
             expect(searchLogic.values.hasActiveFilters).toBe(true)
@@ -172,6 +176,7 @@ describe('marketingAnalyticsLogic', () => {
             expect(searchLogic.values.sources.map((source) => source.id)).toEqual(['organic'])
             expect(searchLogic.values.query.search).toBe('')
             expect(logic.values.compareFilter).toEqual({ compare: true })
+            expect(logic.values.dateFilter.dateFrom).toBe('-28d')
             const organicSource = logic.values.dataWarehouseSources!.results[0]
             await expectLogic(logic, () =>
                 logic.actions.loadSourcesSuccess({
@@ -355,10 +360,66 @@ describe('marketingAnalyticsLogic', () => {
         tiles.mount()
         try {
             await expectLogic(logic).toFinishAllListeners()
+            const select = columnsForView('default', marketingAnalyticsTableLogic.values.defaultColumns)
             expect(tiles.values.campaignCostsBreakdown).toMatchObject({
-                pinnedColumns: [],
-                source: { select: marketingAnalyticsTableLogic.values.defaultColumns, orderBy: [] },
+                pinnedColumns: marketingTableDimensionColumns(select),
+                source: {
+                    select,
+                    orderBy: [],
+                },
             })
+        } finally {
+            tiles.unmount()
+        }
+    })
+
+    it.each([
+        ['at the ad level', 'clicks', MarketingAnalyticsDrillDownLevel.Ad, false],
+        ['with conversion goals hidden', 'conversions', MarketingAnalyticsDrillDownLevel.Campaign, true],
+    ] as const)('keeps the chosen column view %s', async (_, view, level, hideGoals) => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        const tiles = marketingAnalyticsTilesLogic()
+        tiles.mount()
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    marketing_analytics_config: {
+                        conversion_goals: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'purchase',
+                                conversion_goal_id: 'purchase-goal',
+                                conversion_goal_name: 'Purchases',
+                                schema_map: {},
+                            },
+                        ],
+                    },
+                })
+            ).toFinishAllListeners()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]: true,
+            })
+            if (hideGoals) {
+                logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
+                logic.actions.setAdPerformanceConversionGoals(false)
+            }
+            logic.actions.setDrillDownLevel(level)
+            expect(logic.values.drillDownLevel).toBe(level)
+            const breakdown = tiles.values.campaignCostsBreakdown!
+            marketingAnalyticsTableLogic.actions.setQuery({
+                ...breakdown,
+                source: {
+                    ...(breakdown.source as MarketingAnalyticsTableQuery),
+                    select: columnsForView(view, tiles.values.tableColumns),
+                },
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            const select = (tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery).select
+            expect(activeColumnView(select, tiles.values.tableColumns)).toBe(view)
         } finally {
             tiles.unmount()
         }
@@ -1071,6 +1132,84 @@ describe('marketingAnalyticsLogic', () => {
                 expect(logic.values.hasSyncedMarketingSources).toBe(false)
             }
         }
+    })
+
+    describe.each([
+        ['AmazonS3', 'aws', 'https://example-bucket.s3.amazonaws.com/spend/*.csv'],
+        ['GoogleCloudStorage', 'google-cloud', 'https://storage.googleapis.com/example-bucket/spend/*.csv'],
+        ['AzureBlob', 'azure', 'https://example.blob.core.windows.net/spend/*.csv'],
+        ['CloudflareR2', 'cloudflare-r2', 'https://example.r2.cloudflarestorage.com/example-bucket/spend/*.csv'],
+    ])('a %s spend table', (sourceType, provider, customerUrl) => {
+        // A table that was never migrated and one that its source has not synced yet look the same here.
+        it.each([
+            ['still self-managed', 'example-table', provider, 'Self-managed', 'self-managed'],
+            ['adopted by its source', 'example-table', sourceType, 'Files', 'managed'],
+            ['created by its source', 'example-schema', sourceType, 'Files', 'managed'],
+        ])('keeps its mapping when %s', async (state, mappingKey, expectedSourceType, typeLabel, dwSourceType) => {
+            logic = marketingAnalyticsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const managed = state !== 'still self-managed'
+            const table: DatabaseSchemaDataWarehouseTable = {
+                id: 'example-table',
+                name: managed ? `${sourceType.toLowerCase()}.example_spend` : 'example_spend',
+                type: 'data_warehouse',
+                url_pattern: managed
+                    ? 'https://example-warehouse.s3.amazonaws.com/team_1/example_spend/*.parquet'
+                    : customerUrl,
+                ...(managed
+                    ? {
+                          schema: {
+                              id: 'example-schema',
+                              name: 'example_spend',
+                              should_sync: false,
+                              incremental: false,
+                              status: ExternalDataSchemaStatus.Completed,
+                          },
+                          source: { id: 'example-source', source_type: sourceType, status: 'Completed', prefix: '' },
+                      }
+                    : {}),
+                fields: Object.fromEntries(
+                    ['id', 'campaign', 'source', 'spend', 'day'].map((name) => [
+                        name,
+                        { name, hogql_value: name, type: 'string', schema_valid: true },
+                    ])
+                ),
+            }
+            databaseTableListLogic.actions.loadDatabaseSuccess({ tables: { [table.name]: table }, joins: [] })
+            await expectLogic(logic, () =>
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    marketing_analytics_config: {
+                        sources_map: {
+                            [mappingKey]: {
+                                id: 'id',
+                                campaign: 'campaign',
+                                source: 'source',
+                                cost: 'spend',
+                                date: 'day',
+                            } as SourceMap,
+                        },
+                    },
+                })
+            ).toFinishAllListeners()
+
+            expect(logic.values.validExternalTables).toEqual([
+                expect.objectContaining({
+                    source_map_id: mappingKey,
+                    source_type: expectedSourceType,
+                    source_map: expect.objectContaining({ cost: 'spend' }),
+                }),
+            ])
+            expect(logic.values.allExternalTablesWithStatus.filter((row) => row.id === table.id)).toEqual([
+                expect.objectContaining({ source_map_id: mappingKey, source_type: expectedSourceType }),
+            ])
+            expect(externalTableTypeLabel(expectedSourceType)).toBe(typeLabel)
+            expect(logic.values.marketingChartSourceIds).toEqual([mappingKey])
+            expect(logic.values.createMarketingDataWarehouseNodes).toEqual([
+                expect.objectContaining({ id: 'example-table', dw_source_type: dwSourceType }),
+            ])
+        })
     })
 
     it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {

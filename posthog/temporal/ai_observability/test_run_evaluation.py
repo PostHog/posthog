@@ -1089,6 +1089,7 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
             ],
         ) as transport,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_user_errors") as user_errors,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as system_errors,
     ):
         spec.return_value.resolve.return_value = MagicMock(
             provider=provider,
@@ -1125,6 +1126,9 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         assert transport.call_count == 1
         assert [call.args[0] for call in user_errors.call_args_list] == (
             ["rate_limit_retries_exhausted"] if expected == "skipped" else []
+        )
+        assert [call.args[0] for call in system_errors.call_args_list] == (
+            [] if is_byok and status == 429 else ["rate_limit"]
         )
 
         result = call_llm_judge(

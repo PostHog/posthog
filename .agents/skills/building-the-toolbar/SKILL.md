@@ -1,6 +1,6 @@
 ---
 name: building-the-toolbar
-description: Builds, watches, checks and verifies the PostHog toolbar in both of its forms, the floating toolbar that posthog-js loads on customer pages and the browser extension that shows the toolbar in a Chrome side panel or Firefox sidebar. Use when changing anything under frontend/src/toolbar/ (floating toolbar or extension), frontend/toolbar-config.mjs, or the toolbar build and guard scripts, or when asked to build, watch, load unpacked, or test the toolbar or the toolbar extension in a browser. Covers `pnpm build:toolbar-all` and `pnpm watch:toolbar-all`, the check-toolbar-size, check-toolbar-graph and check-toolbar-csp-eval guards, why both forms must be built and kept in sync, and how to check each one in a real browser.
+description: Builds, watches, checks and verifies the PostHog toolbar in both of its forms, the floating toolbar that posthog-js loads on customer pages and the browser extension that shows the toolbar in a Chrome side panel. Use when changing anything under frontend/src/toolbar/ (floating toolbar or extension), frontend/toolbar-config.mjs, or the toolbar build and guard scripts, or when asked to build, watch, load unpacked, or test the toolbar or the toolbar extension in a browser. Covers `pnpm build:toolbar-all` and `pnpm watch:toolbar-all`, the check-toolbar-size, check-toolbar-graph and check-toolbar-csp-eval guards, why both forms must be built and kept in sync, how to check each one in a real browser, and when an extension change needs a Sampo changeset to reach the Chrome Web Store.
 ---
 
 # Building the toolbar
@@ -8,10 +8,10 @@ description: Builds, watches, checks and verifies the PostHog toolbar in both of
 One source tree, `frontend/src/toolbar/`, ships in two forms.
 Both builds live in `frontend/toolbar-config.mjs` and share its toolbar module plugin, which swaps app modules for the toolbar's shims and keeps denylisted packages out.
 
-| Form              | Entry                                            | Output (under `frontend/dist/`)                     | Runs in                                          |
-| ----------------- | ------------------------------------------------ | --------------------------------------------------- | ------------------------------------------------ |
-| Floating toolbar  | `src/toolbar/floating/index.tsx`                 | `toolbar.js` loader, `toolbar/` app chunks          | Customer pages, loaded by posthog-js             |
-| Browser extension | `src/toolbar/extension/panel.tsx`, `content.tsx` | `toolbar-extension/<browser>/`, one zip per browser | Chrome side panel, Firefox sidebar (Manifest V3) |
+| Form              | Entry                                            | Output (under `frontend/dist/`)                       | Runs in                              |
+| ----------------- | ------------------------------------------------ | ----------------------------------------------------- | ------------------------------------ |
+| Floating toolbar  | `src/toolbar/floating/index.tsx`                 | `toolbar.js` loader, `toolbar/` app chunks            | Customer pages, loaded by posthog-js |
+| Browser extension | `src/toolbar/extension/panel.tsx`, `content.tsx` | `toolbar-extension/chrome/`, plus a zip for the store | Chrome side panel (Manifest V3)      |
 
 ## Where code goes
 
@@ -91,12 +91,19 @@ pnpm typegen:write   # then check that git diff shows no drift in logic types
 
 Tests and builds don't show a broken overlay, a missing style, or a CSP refusal. Load the build.
 
-- **Extension.** Load `dist/toolbar-extension/chrome` unpacked in Chrome and `dist/toolbar-extension/firefox` as a temporary add-on in Firefox.
+- **Extension.** Load `dist/toolbar-extension/chrome` unpacked in Chrome.
   The steps are in [the extension README](../../../frontend/src/toolbar/extension/README.md#build-and-install); read it before you load the extension the first time.
   After a rebuild, reload the extension, then close and open the panel.
-  Check both browsers when you change the extension, and walk the README's [manual checks](../../../frontend/src/toolbar/extension/README.md#check-the-flows-by-hand) for the tools you touched.
+  Walk the README's [manual checks](../../../frontend/src/toolbar/extension/README.md#check-the-flows-by-hand) for the tools you touched.
 - **Floating toolbar.** Start the dev stack (see `/run-posthog`), open the Toolbar page at `http://localhost:8010/toolbar`, add a test site that loads posthog-js to the authorized URLs, and launch the toolbar on it.
   `Toolbar.stories.tsx` renders the floating toolbar in Storybook when you only need to look at a component.
 
 Check the forms you didn't mean to change as well.
 A change to a shared logic shows up in both.
+
+## Ship an extension change
+
+The extension reaches users only through a Chrome Web Store release, which starts from a Sampo changeset.
+When a change alters what the extension does, add a changeset to the same pull request, as [the extension README](../../../frontend/src/toolbar/extension/README.md#releases) shows.
+A change that only touches the floating toolbar, tests or stories needs none.
+Never edit the version in `release/package.json` or the changelog by hand.

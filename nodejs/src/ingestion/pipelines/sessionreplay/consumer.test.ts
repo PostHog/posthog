@@ -22,6 +22,7 @@ import {
     SessionRecordingIngesterCollaborators,
     SessionRecordingIngesterConfig,
 } from './consumer'
+import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { BatchCommitter, StagedBatchRunner } from './staged-batch'
@@ -327,6 +328,19 @@ describe('SessionRecordingIngester', () => {
         expect(metadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
         expect(ingest.mock.calls).toEqual(expectedIngestCalls)
         expect(events).toEqual(expectedEvents)
+    })
+
+    it.each([
+        ['skips an empty poll', [], []],
+        ['records a poll with messages', [kafkaMessage(0, 42)], [[4 / 1024]]],
+    ])('decoded batch size %s', async (_, messages, observed) => {
+        const decodedKbSpy = jest.spyOn(SessionRecordingIngesterMetrics, 'observeKafkaBatchDecodedKb')
+        runPipelineMock.mockResolvedValue(progress(new Map(), []))
+
+        await ingester.handleEachBatch(messages)
+
+        expect(decodedKbSpy.mock.calls).toEqual(observed)
+        decodedKbSpy.mockRestore()
     })
 
     it('samples the pipeline OK-result messages, not the raw consumed batch', async () => {
