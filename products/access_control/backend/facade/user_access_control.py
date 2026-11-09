@@ -650,6 +650,11 @@ class UserAccessControl:
         return self._team
 
     @property
+    def organization_membership(self) -> Optional[OrganizationMembership]:
+        """The user's membership in this instance's organization, looked up once per instance."""
+        return self._organization_membership
+
+    @property
     def rbac_supported(self) -> bool:
         if not self._organization:
             return False
@@ -838,7 +843,7 @@ class UserAccessControl:
         """Fill self._cache for these filter groups. When every group is team-scoped they're served
         from the single bulk preload (_cached_access_controls) in memory - no extra query; otherwise
         a targeted OR-combined query is issued for them."""
-        if not filter_groups:
+        if not filter_groups or not self.access_controls_supported:
             return
 
         if all(self._can_serve_from_preload(filters) for filters in filter_groups):

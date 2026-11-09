@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ComposeTicketButton } from '../../components/ComposeTicket/ComposeTicketButton'
@@ -196,25 +197,32 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
 
 export function SupportTicketsScene(): JSX.Element {
     const { aiEnabled } = useValues(supportTicketsSceneLogic)
+    const ticketsTitle = useTodayPeopleTitle('support')
 
     return (
         <SceneContent className="pb-4">
             <SceneTitleSection
-                name="Support"
+                name={ticketsTitle?.name ?? 'Support'}
                 description=""
-                resourceType={{
-                    type: 'conversation',
-                }}
+                resourceType={ticketsTitle?.resourceType ?? { type: 'conversation' }}
                 actions={<ComposeTicketButton />}
             />
             {/* pinned: survey 01a17c76-69b3-0000-bb24-4adfd734f406 targets #ai-support-feedback-button */}
-            {aiEnabled && (
+            {aiEnabled ? (
                 <LemonBanner
                     type="info"
                     dismissKey="ai-support-feedback-banner"
                     action={{ children: 'Send feedback', id: 'ai-support-feedback-button' }}
                 >
                     <p>Tell us how the AI agent is working, or report any issues.</p>
+                </LemonBanner>
+            ) : (
+                <LemonBanner
+                    type="info"
+                    dismissKey="support-feedback-banner"
+                    action={{ children: 'Send feedback', id: 'support-feedback-button' }}
+                >
+                    <p>Tell us how the support product is working, or report any issues.</p>
                 </LemonBanner>
             )}
             <ScenesTabs />
