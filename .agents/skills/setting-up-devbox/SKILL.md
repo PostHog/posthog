@@ -81,6 +81,7 @@ The default box is `devbox-<coder-user>`, and a labeled box is `devbox-<coder-us
 Boxes in `eu-central-1` add an `-eu` suffix, for example `devbox-<coder-user>-eu`.
 `hogli devbox:list` shows the exact names.
 Target a labeled box with `-n <label>` on commands that act on a box.
+Inside a worktree that `devbox:worktree` set up, those commands target the worktree's box without `-n`, print the box they picked on stderr, and stop when that box was deleted; rerun `devbox:worktree` to create it again. An explicit `-n <label>` or `@user` still wins, `-n @<coder-user>` targets your default box, and `devbox:clone` without a source still copies the default box.
 
 ### 4. Connect
 
@@ -103,8 +104,11 @@ Stops, starts, and `devbox:update` keep `/home`.
 ## Run commands on the box
 
 `hogli devbox:exec -- <command>` runs one command over SSH and returns its exit code.
-Wrap the command in `bash -lc '...'`.
+Without `--flox`, wrap the command in `bash -lc '...'`.
 A non-login shell doesn't reliably load the shell profile, so tools on a login-shell `PATH` such as `~/.local/bin` report "command not found".
+Project tools such as `pnpm`, `pytest` and the Python venv are on `PATH` only inside PostHog's flox environment.
+For those, add `--flox`, which runs the command in `~/posthog` inside `flox activate`: `hogli devbox:exec --flox -- pnpm --filter=@posthog/frontend typescript:check`.
+Use `bash -c '...'` after `--flox` when the command needs shell syntax such as `&&`.
 Put `--` between hogli's flags and the command's own.
 `devbox:exec` and `devbox:ssh` fail to connect until `devbox:setup` has written the SSH config.
 
@@ -176,7 +180,7 @@ hogli devbox:worktree --clone-from default -y   # create the box as a clone of a
 hogli devbox:worktree --on-clean stop           # save what worktrees:clean does with the box
 ```
 
-- The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-` or `worktree/` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
+- The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-`, `worktree/` or `<coder-user>/` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
 - hogli records the worktree path and box name in `~/.config/posthog/hogli_devbox_worktrees.json`. A re-run reuses that box, even after a branch rename, and keeps an existing mirror.
 - A worktree recreated at the same path, as t3code does when it resumes a thread it cleaned up, takes over the box of the worktree it replaced while that box still exists, and gets a new mirror.
 - It refuses a derived label whose box already exists and is not recorded for this worktree, so it never takes over a box the user made by hand. Pass `--label <label>` to use that box on purpose. It always refuses a box recorded for another worktree.
@@ -214,10 +218,12 @@ The script runs the main checkout's hogli, so pull the main checkout after a cha
 - The hook returns at once. Output goes to `hogli-devbox-worktree.log` in the worktree's git directory. Read it with `cat "$(git rev-parse --git-dir)/hogli-devbox-worktree.log"`.
 - The hook skips the box when the main checkout has no Python environment to borrow, or when this worktree's `uv.lock` differs from the main checkout's.
 - Turn it off with `hogli devbox:worktree --auto off` or `hogli devbox:config:rm worktree-auto`.
-- Boxes keep running until `hogli worktrees:clean` removes their worktree, so pair this with `--on-clean stop`.
+- Boxes keep running until `hogli worktrees:clean` removes their worktree, so pair this with `--on-clean stop`. `hogli devbox:worktree --auto claude --on-clean delete` saves both settings, from any checkout. `hogli devbox:setup` shows `off` when no source is enabled.
 - Superset, Orca and worktrunk run `bin/devbox-worktree-hook removing` before they delete a worktree. It runs `hogli devbox:worktree:teardown --background`, which stops the mirror while the files still exist and then stops the box in the background (log: `~/.config/posthog/hogli-devbox-teardown.log`). The box's record is then dropped, so the box no longer belongs to any worktree.
 - Emdash and Conductor run `bin/devbox-worktree-hook archiving` instead, because they keep an archived worktree on disk. It adds `--keep-record`, so when the app restores the worktree, its create hook starts the same box again.
-- herdr reports a removal only after the folder is gone, so its plugin runs `devbox:worktree:prune --path <worktree>`. t3code has no removal hook, so run `hogli devbox:worktree:prune` by hand.
+- herdr reports a removal only after the folder is gone, so its plugin runs `devbox:worktree:prune --path <worktree>`.
+- Claude Code and t3code have no removal hook. With an `--on-clean` action saved, every new worktree runs `devbox:worktree:prune` in the background, which acts on the boxes of worktrees removed since. Run it by hand to clean up sooner.
+- Claude Code deletes a worktree's folder but leaves its admin directory under `.git/worktrees/`. Prune counts a worktree as removed when `git worktree prune` would delete that directory, so a worktree on an unmounted drive counts as removed unless `git worktree lock` locks it.
 - herdr has two ways to use devboxes. With `--auto herdr`, agents run on the laptop and each herdr worktree gets its own box. With `hogli devbox:open --herdr`, the box is a herdr machine, and agents and worktrees run on it with no mirror. `devbox:open --herdr <label>` on a worktree's box gives terminals for the stack and tests. Edit files in the local worktree, because files edited on a mirrored box conflict with the mirror. Deleting a box also removes its herdr machine.
 - A t3code worktree restored from a cleaned-up thread skips setup scripts, so it gets a box only when `other` is enabled.
 

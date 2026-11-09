@@ -5,13 +5,13 @@ import { Text } from '@posthog/quill'
 
 import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
 import { productsItemName } from '~/layout/panel-layout/navbar/tabs/productsCatalog'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
-import { TodayPaneRow } from './TodayPaneRow'
 import { analyticsTypesForPaneSearch } from './todayPaneSearch'
-import { TodayPaneSearchList } from './TodayPaneSearchList'
-import { TodayPaneSection } from './TodayPaneSection'
 import { productPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodayProductRow } from './TodayProductRow'
@@ -58,7 +58,7 @@ export function TodayProductsSidebar(): JSX.Element {
 
     return (
         <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
-            <TodayPaneSearchList
+            <SidebarSearchList
                 query={search}
                 onQueryChange={setSearch}
                 searchLabel="Search products"
@@ -76,7 +76,7 @@ export function TodayProductsSidebar(): JSX.Element {
                     <div className="flex flex-col gap-px pb-2">
                         {pinnedProducts.map((item, index) => {
                             const row = (
-                                <TodayPaneRow
+                                <SidebarRow
                                     value={`pinned:${item.href}`}
                                     label={productsItemName(item)}
                                     icon={<NavProductIcon item={item} />}
@@ -98,7 +98,7 @@ export function TodayProductsSidebar(): JSX.Element {
                     </div>
                 )}
                 {starredProducts.length > 0 && (
-                    <TodayPaneSection
+                    <SidebarSection
                         label="Starred"
                         open={starredOpen || searching}
                         count={starredProducts.length}
@@ -106,10 +106,10 @@ export function TodayProductsSidebar(): JSX.Element {
                         dataAttr="today-section-starred"
                     >
                         {starredProducts.map((item, index) => renderProduct(item, 'starred', index))}
-                    </TodayPaneSection>
+                    </SidebarSection>
                 )}
                 {productCount > 0 && (
-                    <TodayPaneSection
+                    <SidebarSection
                         label="All products"
                         open={allProductsOpen || searching}
                         count={productCount}
@@ -122,9 +122,9 @@ export function TodayProductsSidebar(): JSX.Element {
                                 {group.items.map((item, index) => renderProduct(item, group.label, index))}
                             </div>
                         ))}
-                    </TodayPaneSection>
+                    </SidebarSection>
                 )}
-            </TodayPaneSearchList>
+            </SidebarSearchList>
         </div>
     )
 }

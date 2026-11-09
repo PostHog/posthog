@@ -189,13 +189,10 @@ class TestValidateRunOptions(SimpleTestCase):
         else:
             validate_run_options(profile, options)
 
-    @parameterized.expand([("without_profile", None, WIDE_OPTIONS), ("without_options", ENFORCE_PROFILE, None)])
-    def test_nothing_to_check_changes_nothing(
-        self, _name: str, profile: TaskProfile | None, options: TaskRunOptions | None
-    ) -> None:
+    def test_no_options_change_nothing(self) -> None:
         before = _violation_counts(ENFORCE_PROFILE)
 
-        validate_run_options(profile, options, caller=PUBLIC)
+        validate_run_options(ENFORCE_PROFILE, None, caller=PUBLIC)
 
         self.assertEqual(_violation_counts(ENFORCE_PROFILE), before)
 
