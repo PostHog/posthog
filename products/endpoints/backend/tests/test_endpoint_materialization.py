@@ -538,21 +538,28 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(endpoint.get_version().pk, serving_version.pk)
         self.assertIsNotNone(endpoint.get_version().saved_query_id)
 
-    def test_update_keeps_a_current_version_that_a_concurrent_discard_moved_back(self):
-        endpoint, url, edit_query = self._endpoint_with_a_cadence_below_the_floor("concurrent_discard")
+    @parameterized.expand(
+        [
+            ("discarded_version", {"current_version": 1}, {"is_active": True}),
+            ("deactivated_endpoint", {"is_active": False}, {"description": "notes"}),
+        ]
+    )
+    def test_update_keeps_endpoint_fields_a_concurrent_request_changed(
+        self, name: str, concurrent_change: dict[str, Any], payload: dict[str, Any]
+    ):
+        endpoint, url, edit_query = self._endpoint_with_a_cadence_below_the_floor(f"concurrent_{name}")
         self.assertEqual(edit_query("count()").status_code, status.HTTP_200_OK)
 
-        def discard_concurrently(*_args, **_kwargs):
-            Endpoint.objects.filter(pk=endpoint.pk).update(current_version=1)
+        def change_concurrently(*_args, **_kwargs):
+            Endpoint.objects.filter(pk=endpoint.pk).update(**concurrent_change)
 
-        with mock.patch.object(
-            EndpointCrudService, "_check_query_edit_keeps_cadence", side_effect=discard_concurrently
-        ):
-            response = self.client.patch(url, {"is_active": True}, format="json")
+        with mock.patch.object(EndpointCrudService, "_check_query_edit_keeps_cadence", side_effect=change_concurrently):
+            response = self.client.patch(url, payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         endpoint.refresh_from_db()
-        self.assertEqual(endpoint.current_version, 1)
+        for field, value in concurrent_change.items():
+            self.assertEqual(getattr(endpoint, field), value)
 
     def test_query_edit_refuses_to_carry_a_cadence_while_the_plan_floor_is_unreadable(self):
         endpoint, _url, edit_query = self._endpoint_with_a_cadence_below_the_floor("unreadable_floor_edit")
