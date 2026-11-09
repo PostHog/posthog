@@ -19,11 +19,7 @@ export interface StoredTokens {
   /** Unix timestamp in seconds. */
   expiresAt?: number;
   scope?: string;
-  /**
-   * Authorization server that issued the tokens. The MCP SDK does not send a
-   * refresh token to any other server, so dropping this field lets a
-   * malicious MCP server redirect the refresh token to its own server.
-   */
+  /** The MCP SDK sends the refresh token only to this authorization server. */
   issuer?: string;
 }
 

@@ -45,11 +45,8 @@ const DEFAULT_CLIENT_URI = "https://posthog.com";
 const BACKGROUND_REDIRECT_PLACEHOLDER = "http://127.0.0.1/mcp-auth-required";
 
 export class McpOAuthProvider implements OAuthClientProvider {
-  /**
-   * Present only when this provider may register a client: an interactive
-   * flow without a configured clientId. Without it, the SDK refuses a stored
-   * client bound to another authorization server instead of registering one.
-   */
+  // Absent unless the flow is interactive with no configured clientId, so the
+  // SDK refuses a client bound to another server instead of registering one.
   readonly saveClientInformation?: (
     info: OAuthClientInformationMixed,
   ) => Promise<void>;
@@ -236,9 +233,8 @@ export class McpOAuthProvider implements OAuthClientProvider {
         ...(tokens.scope !== undefined ? { scope: tokens.scope } : {}),
         ...(tokens.issuer !== undefined ? { issuer: tokens.issuer } : {}),
       };
-      // The SDK saves tokens only from an authorization server that accepted
-      // the client. This binds a client stored before issuers were recorded,
-      // which providers without saveClientInformation cannot do otherwise.
+      // Tokens come only from a server that accepted the client, so this
+      // binds a client that was stored before issuers were recorded.
       const clientId = this.config.clientId ?? entry.clientInfo?.clientId;
       if (tokens.issuer !== undefined && clientId !== undefined) {
         entry.clientInfo =
