@@ -43,18 +43,34 @@ class TrialFlagDecision:
     confirmed: bool
 
 
+def activated_before_pricing_launch(organization_id: UUID) -> bool:
+    from products.signals.backend.models import (  # noqa: PLC0415 -- model registration cycle
+        SignalScoutConfig,
+        SignalSourceConfig,
+        SignalTeamConfig,
+    )
+
+    before_launch = {"team__organization_id": organization_id, "created_at__lt": PRICING_LAUNCHED_AT}
+    if SignalSourceConfig.objects.filter(**before_launch).exists():
+        return True
+    if SignalScoutConfig.objects.unscoped().filter(**before_launch).exists():
+        return True
+    completed = SignalTeamConfig.objects.filter(
+        team__organization_id=organization_id, onboarding__completed_at__isnull=False
+    ).values_list("onboarding__completed_at", flat=True)
+    return any(isinstance(value, str) and datetime.fromisoformat(value) < PRICING_LAUNCHED_AT for value in completed)
+
+
 def pricing_flag_distinct_id(organization_id: UUID) -> str:
     # The pricing flag matches grandfathered orgs through a person cohort, so it needs the distinct id
     # of a real person, not the org id. One fixed member per org gives every caller the same answer,
-    # including pipeline work that has no request user. An org created after the pricing launch cannot
-    # be grandfathered, so it uses the org id, which no cohort matches. Otherwise a cohort member would
-    # pass grandfathered pricing to every new org they create.
+    # including pipeline work that has no request user. An org that activated self-driving after the
+    # pricing launch cannot be grandfathered, so it uses the org id, which no cohort matches. Otherwise
+    # a cohort member would pass grandfathered pricing to every new org they set up.
+    if not activated_before_pricing_launch(organization_id):
+        return str(organization_id)
     distinct_id = (
-        OrganizationMembership.objects.filter(
-            organization_id=organization_id,
-            organization__created_at__lt=PRICING_LAUNCHED_AT,
-            user__is_active=True,
-        )
+        OrganizationMembership.objects.filter(organization_id=organization_id, user__is_active=True)
         .order_by("joined_at", "id")
         .values_list("user__distinct_id", flat=True)
         .first()

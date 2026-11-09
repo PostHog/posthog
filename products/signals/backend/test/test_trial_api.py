@@ -10,11 +10,11 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalSpend
+from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalSpend, SignalTeamConfig
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import PRICING_LAUNCHED_AT, TrialPolicy
@@ -520,19 +520,39 @@ class TestTrialAPI(APIBaseTest):
         assert response.json()["grant_id"] == str(grant.id)
         assert response.json()["grant_status"] == "active"
 
-    @parameterized.expand([("created_before_launch", -1, True), ("created_after_launch", 1, False)])
-    def test_pricing_flag_identity_depends_on_org_qualification(
-        self, _name: str, days_from_launch: int, uses_member: bool
+    @parameterized.expand(
+        [
+            ("source_before_launch", "source", -1, True),
+            ("scout_before_launch", "scout", -1, True),
+            ("onboarding_before_launch", "onboarding", -1, True),
+            ("source_after_launch", "source", 1, False),
+        ]
+    )
+    def test_pricing_flag_identity_depends_on_activation_before_launch(
+        self, _name: str, activation: str, days_from_launch: int, uses_member: bool
     ) -> None:
-        Organization.objects.filter(id=self.organization.id).update(
-            created_at=PRICING_LAUNCHED_AT + timedelta(days=days_from_launch)
-        )
+        activated_at = PRICING_LAUNCHED_AT + timedelta(days=days_from_launch)
+        if activation == "source":
+            source = SignalSourceConfig.objects.create(
+                team=self.team, source_product="github", source_type="issue", enabled=False
+            )
+            SignalSourceConfig.objects.filter(pk=source.pk).update(created_at=activated_at)
+        elif activation == "scout":
+            scout = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-activation")
+            SignalScoutConfig.objects.unscoped().filter(pk=scout.pk).update(created_at=activated_at)
+        else:
+            SignalTeamConfig.objects.update_or_create(
+                team=self.team, defaults={"onboarding": {"completed_at": activated_at.isoformat()}}
+            )
         TrialPolicy(self.team).flag_decision()
         expected = self.user.distinct_id if uses_member else str(self.organization.id)
         assert self.flag_mock.call_args.args == ("self-driving-ubp", expected)
 
     def test_flag_off_hides_offer_and_prevents_activation_for_claimed_projects(self) -> None:
-        Organization.objects.filter(id=self.organization.id).update(created_at=PRICING_LAUNCHED_AT - timedelta(days=30))
+        SignalTeamConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"onboarding": {"completed_at": (PRICING_LAUNCHED_AT - timedelta(days=30)).isoformat()}},
+        )
         User.objects.create_and_join(self.organization, "later-member@example.com", None)
         deactivated = User.objects.create_and_join(self.organization, "deactivated-member@example.com", None)
         deactivated.is_active = False
