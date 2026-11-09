@@ -9,6 +9,8 @@ const icons = {
     views: ['ViewsIcon', 24, 2],
     errors: ['ErrorTriangleIcon', 24, 2],
     replay: ['RecordingIcon', 24, 2],
+    'web-analytics': ['GlobeIcon', 24, 2],
+    live: ['LiveIcon', 24, 2],
     compose: ['ComposeIcon', 24, 2],
     filter: ['FilterIcon', 22, 2],
     more: ['MoreIcon', 22, 0],

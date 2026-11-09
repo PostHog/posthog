@@ -229,6 +229,7 @@ export enum NodeKind {
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
     MCPMissingCapabilitiesQuery = 'MCPMissingCapabilitiesQuery',
+    MCPDashboardQuery = 'MCPDashboardQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -321,6 +322,7 @@ export type AnyDataNode =
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
     | MCPMissingCapabilitiesQuery
+    | MCPDashboardQuery
 
 /**
  * @discriminator kind
@@ -460,6 +462,7 @@ export type QuerySchema =
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
     | MCPMissingCapabilitiesQuery
+    | MCPDashboardQuery
 
     // Property values
     | PropertyValuesQuery
@@ -3775,6 +3778,59 @@ export interface MCPProtocolVersionBreakdownQuery extends DataNode<MCPProtocolVe
 export type CachedMCPProtocolVersionBreakdownQueryResponse =
     CachedQueryResponse<MCPProtocolVersionBreakdownQueryResponse>
 
+/** A section of the MCP Analytics dashboard. The server owns the query behind each one. */
+export enum MCPDashboardSection {
+    Kpis = 'kpis',
+    PeriodTotals = 'periodTotals',
+    ToolRows = 'toolRows',
+    SessionRows = 'sessionRows',
+    HarnessRows = 'harnessRows',
+    ModelRows = 'modelRows',
+    ProtocolVersionRows = 'protocolVersionRows',
+    ActivityRows = 'activityRows',
+    ToolDailyRows = 'toolDailyRows',
+    Model = 'model',
+    ProtocolVersion = 'protocolVersion',
+    Tool = 'tool',
+    ErrorType = 'errorType',
+    LabUsers = 'labUsers',
+    NamedModelUsers = 'namedModelUsers',
+    Reliability = 'reliability',
+}
+
+/** The doubled window the KPI tiles compare the selected period against. */
+export interface MCPDashboardComparison {
+    /** Start of the preceding period of equal length, as an ISO 8601 instant with an offset. */
+    dateFrom: string
+    /** Bucket the selected period starts in, as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"). */
+    currentStartBucket: string
+}
+
+/** A section's rows, or why the section failed. One failed section leaves the others intact. */
+export interface MCPDashboardSectionResult {
+    results?: any
+    error?: string
+}
+
+export interface MCPDashboardQueryResponse extends AnalyticsQueryResponseBase {
+    /** Keyed by MCPDashboardSection, in the order the query asked for them. */
+    results: Record<string, MCPDashboardSectionResult>
+}
+
+/** Every section of the MCP Analytics dashboard in one request. */
+export interface MCPDashboardQuery extends DataNode<MCPDashboardQueryResponse> {
+    kind: NodeKind.MCPDashboardQuery
+    /** @minItems 1 */
+    sections: MCPDashboardSection[]
+    dateRange: DateRange
+    interval: IntervalType
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
+    comparison: MCPDashboardComparison
+}
+
+export type CachedMCPDashboardQueryResponse = CachedQueryResponse<MCPDashboardQueryResponse>
+
 /** One row of the per-tool "Top users" table: a user and their activity on a tool. */
 export interface MCPToolTopUserItem {
     distinct_id: string
@@ -6599,6 +6655,7 @@ export type ExperimentExposureHealthFindingCode =
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
+    | 'unserved_variant_exposures'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -6638,6 +6695,7 @@ export type ExperimentExposureHealthCheckKey =
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
+    | 'unserved_variant_exposures'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
@@ -6652,6 +6710,8 @@ export type ExperimentExposureHealthValueKey =
     | 'since_launch_hours'
     | 'exposed_without_test_account_filter_count'
     | 'kept_by_test_account_filter_percentage'
+    | 'unserved_exposed_count'
+    | 'unserved_exposed_percentage'
 
 export type ExperimentExposureHealthRuleSide = 'above' | 'below'
 
@@ -6708,6 +6768,8 @@ export interface ExperimentExposureQueryResponse {
     health_findings?: ExperimentExposureHealthFinding[]
     /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
     health_checks?: ExperimentExposureHealthCheck[]
+    /** Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library. */
+    exposed_by_library?: Record<string, integer>
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }
@@ -8716,6 +8778,10 @@ export interface MarketingAnalyticsRecommendationsSource {
     searchTermKeywordTable?: string
     /** Google Ads search term table for Performance Max campaigns. */
     performanceMaxSearchTermTable?: string
+    /** Google Ads daily campaign conversions split by conversion action. */
+    campaignConversionActionTable?: string
+    /** Google Ads daily search term conversions split by conversion action. */
+    searchTermConversionActionTable?: string
     /** Google Search Console table with one row per query, or per query and page. */
     queryTable?: string
     /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
@@ -8729,6 +8795,13 @@ export interface MarketingAnalyticsRecommendationsQuery extends DataNode<Marketi
     dateRange?: DateRange
     /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
     sources?: MarketingAnalyticsRecommendationsSource[]
+    /**
+     * Resource names of the Google Ads conversion actions that count as conversions, such as
+     * `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an
+     * account with none of them counts its primary actions. Selected actions count every conversion, including
+     * secondary actions and conversions outside campaign goals. Omit to count the primary actions only.
+     */
+    conversionActions?: string[]
 }
 
 export type MarketingAnalyticsRecommendationRule =
@@ -8759,6 +8832,46 @@ export interface MarketingAnalyticsRecommendationStep {
     linkText?: string | null
 }
 
+/**
+ * The benchmark a recommendation compares a CPA with, in this order of preference:
+ * - `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.
+ * - `campaign`: the campaign's own non-brand CPA, when it has enough conversions to be stable. Only search terms use
+ *   it, since a campaign is never compared with itself.
+ * - `account`: the non-brand CPA of the ad account. Brand searches convert cheaply, so they stay out of it.
+ */
+export type MarketingAnalyticsRecommendationCpaBenchmarkSource = 'target_cpa' | 'campaign' | 'account'
+
+export interface MarketingAnalyticsRecommendationCpa {
+    /**
+     * Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total
+     * CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no
+     * conversions or is not bought yet.
+     */
+    value: number | null
+    /**
+     * CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for
+     * context. Null when the account has no non-brand conversions.
+     */
+    benchmark: number | null
+    /** Where the benchmark comes from. Null when there is no benchmark. */
+    benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | null
+    /** Lowest non-brand CPA of a non-brand Search campaign in the same ad account. */
+    bestCampaign: number | null
+    /** Highest non-brand CPA of a non-brand Search campaign in the same ad account. */
+    worstCampaign: number | null
+}
+
+export type MarketingAnalyticsRecommendationsDataGapKind =
+    | 'conversion_action_tables_not_synced'
+    | 'performance_max_search_terms_count_primary_conversions'
+
+export interface MarketingAnalyticsRecommendationsDataGap {
+    kind: MarketingAnalyticsRecommendationsDataGapKind
+    /** Google Ads campaign table of the ad account the gap applies to. */
+    campaignTable?: string | null
+    message: string
+}
+
 export interface MarketingAnalyticsRecommendation {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendationLevel
@@ -8775,12 +8888,16 @@ export interface MarketingAnalyticsRecommendation {
     currency?: string | null
     /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
     steps?: MarketingAnalyticsRecommendationStep[]
+    /** CPA figures in the account currency. */
+    cpa?: MarketingAnalyticsRecommendationCpa | null
 }
 
 export interface MarketingAnalyticsRecommendationsQueryResponse extends AnalyticsQueryResponseBase {
     results: MarketingAnalyticsRecommendation[]
     /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
     disclaimer: string
+    /** Data the rules needed but could not read, so some figures use a fallback. */
+    dataGaps?: MarketingAnalyticsRecommendationsDataGap[]
 }
 
 export type CachedMarketingAnalyticsRecommendationsQueryResponse =

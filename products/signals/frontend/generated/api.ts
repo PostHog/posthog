@@ -12,6 +12,8 @@ import type {
     ActivitySummaryApi,
     ActivitySummarySearchResultApi,
     ActivitySummaryVersionApi,
+    AlertPatternPreviewRequestApi,
+    AlertPatternPreviewResponseApi,
     AnomalyInsightResponseApi,
     AnomalySearchResponseApi,
     CancelReportCheckRequestApi,
@@ -96,6 +98,7 @@ import type {
     ScoutTrialSetupApi,
     ScoutTrialStartedApi,
     ScratchpadEntryApi,
+    SelfDrivingTrialStatusApi,
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
@@ -3394,6 +3397,27 @@ export const signalsSourceConfigsDestroy = async (
     })
 }
 
+export const getSignalsSourceConfigsAlertPatternPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/alert_pattern_preview/`
+}
+
+/**
+ * Check allow and block patterns for the product analytics source before saving them. Returns why each list would be rejected, and what the patterns do to the project's enabled alerts: which ones they let through and which ones they drop. Saves nothing.
+ * @summary Preview product analytics alert patterns
+ */
+export const signalsSourceConfigsAlertPatternPreviewCreate = async (
+    projectId: string,
+    alertPatternPreviewRequestApi?: AlertPatternPreviewRequestApi,
+    options?: RequestInit
+): Promise<AlertPatternPreviewResponseApi> => {
+    return apiMutator<AlertPatternPreviewResponseApi>(getSignalsSourceConfigsAlertPatternPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertPatternPreviewRequestApi),
+    })
+}
+
 export const getSignalsSourceSpendUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/source_spend/`
 }
@@ -3413,6 +3437,34 @@ export const signalsSpendOverview = async (projectId: string, options?: RequestI
     return apiMutator<SpendOverviewApi>(getSignalsSpendOverviewUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsTrialListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/trial/`
+}
+
+export const signalsTrialList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SelfDrivingTrialStatusApi> => {
+    return apiMutator<SelfDrivingTrialStatusApi>(getSignalsTrialListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsTrialCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/trial/`
+}
+
+export const signalsTrialCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SelfDrivingTrialStatusApi> => {
+    return apiMutator<SelfDrivingTrialStatusApi>(getSignalsTrialCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

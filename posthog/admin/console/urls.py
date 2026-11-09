@@ -4,6 +4,7 @@ from django.urls import path, re_path
 from posthog.admin.console import views
 from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.console.records import RECORD_TYPES
+from posthog.constants import GROUP_TYPES_LIMIT
 
 # Old Django admin URLs of team actions that moved. Staff keep bookmarks to them, query parameters included.
 MOVED_TEAM_ACTIONS = {
@@ -15,12 +16,16 @@ MOVED_TEAM_ACTIONS = {
     "revoke-ai-gateway": "#panel-ai-gateway",
     "clear-ai-gateway-revoke": "#panel-ai-gateway",
     "recompute-email-sending-tier": "#panel-email-sending",
+    "suspend-email-sending": "email-sending/suspend/",
+    "unsuspend-email-sending": "#panel-email-sending",
+    **{f"group-type-mapping/{index}/edit": f"group-types/edit-{index}/" for index in range(GROUP_TYPES_LIMIT)},
 }
 
 MOVED_ORGANIZATION_ACTIONS = {
     "limit-product": "#panel-billing",
     "unlimit-product": "#panel-billing",
     "sync-to-billing": "#panel-billing",
+    "trigger-deletion": "deletion/delete/",
 }
 
 MOVED_DELETION_REQUEST_ACTIONS = {
@@ -92,14 +97,36 @@ urlpatterns = [
         for old, target in MOVED_DELETION_REQUEST_ACTIONS.items()
     ],
     path(
+        "admin/posthog/team/<int:pk>/ai-gateway-wallet/",
+        MovedToConsole.page_redirect("The AI gateway wallet", "/admin/console/tools/ai-gateway-wallet/?team={pk}"),
+    ),
+    path(
         "admin/posthog/datadeletionrequest/add/",
         MovedToConsole.page_redirect(
             "Creating a deletion request", "/admin/console/tools/new-deletion-request/create/"
         ),
     ),
     path(
+        "admin/posthog/team/<int:pk>/view-cache/",
+        MovedToConsole.page_redirect("The cached config view", "/admin/console/tools/remote-config-cache/?team={pk}"),
+    ),
+    path(
         "admin/posthog/organization/bulk-deactivate/",
         MovedToConsole.page_redirect("Bulk deactivation", "/admin/console/tools/bulk-deactivate-organizations/"),
+    ),
+    path(
+        "admin/posthog/organization/<uuid:pk>/model-counts/",
+        MovedToConsole.page_redirect("Child model counts", "/admin/console/tools/organization-data/?organization={pk}"),
+    ),
+    path(
+        "admin/posthog/organization/send-ai-observability-usage-report/",
+        MovedToConsole.page_redirect(
+            "Sending AI observability usage reports", "/admin/console/tools/ai-observability/"
+        ),
+    ),
+    path(
+        "admin/posthog/organization/ai-observability-dataset-retention/",
+        MovedToConsole.page_redirect("AI observability dataset retention", "/admin/console/tools/ai-observability/"),
     ),
     path(
         "admin/posthog/organization/send-usage-report/",

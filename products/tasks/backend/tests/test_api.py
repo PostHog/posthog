@@ -119,6 +119,7 @@ from products.tasks.backend.models import (
     SandboxSession,
     Task,
     TaskArtifact,
+    TaskClient,
     TaskClientProvenance,
     TaskPin,
     TaskRun,
@@ -1676,6 +1677,8 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=response.json()["id"])
         self.assertEqual(task.client_provenance, expected)
         self.assertEqual(response.json()["client_provenance"], expected)
+        self.assertEqual(task.last_client, expected)
+        self.assertEqual(response.json()["last_client"], expected)
 
     @parameterized.expand(
         [
@@ -3739,6 +3742,33 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_not_called()
         self.assertFalse(TaskRun.objects.filter(task=task, status=TaskRun.Status.QUEUED).exists())
 
+    @parameterized.expand(
+        [
+            ("implementation", "implementation", ["acme/web", "acme/assets"]),
+            ("discussion", "discussion", None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_inbox_started_implementation_run_gets_the_extra_repositories(
+        self, _name, relationship, expected_access, _mock_workflow
+    ):
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
+
+        SignalTeamConfig.objects.create(
+            team=self.team, implementation_repositories=["acme/assets", "other-owner/assets"]
+        )
+        report = SignalReport.objects.create(team=self.team)
+        create_response = self._post_signal_report_task(report.id, relationship)
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=create_response.json()["id"])
+
+        run_response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        self.assertEqual(run_response.status_code, status.HTTP_200_OK, run_response.json())
+        run = TaskRun.objects.get(task=task)
+        self.assertEqual(run.state.get("github_access_repositories"), expected_access)
+        self.assertEqual("`acme/assets`" in task.description, expected_access is not None)
+
     def test_discussion_task_cap_per_report_counts_free_form_labels(self):
         from products.signals.backend.models import SignalReport
         from products.signals.backend.task_run_artefacts import MAX_DISCUSSION_TASKS_PER_REPORT
@@ -4705,6 +4735,28 @@ class TestTaskAPI(BaseTaskAPITest):
             "Read the attached file first",
         )
         mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("with_message", {"pending_user_message": "Keep going"}, TaskClientProvenance.POSTHOG_DESKTOP),
+            ("without_message", {}, TaskClient.SLACK),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_records_last_client_only_for_a_prompt(
+        self, _name: str, body: dict, expected: TaskClient | TaskClientProvenance, _mock_workflow
+    ) -> None:
+        task = self.create_task()
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
+
+        response = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV).post(
+            f"/api/projects/@current/tasks/{task.id}/run/", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.last_client, expected)
+        self.assertEqual(response.json()["last_client"], expected)
 
     @patch("posthog.storage.object_storage.copy")
     @patch("posthog.storage.object_storage.tag")
@@ -15260,6 +15312,129 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_post.call_args.kwargs["json"]["method"], method)
+
+    @parameterized.expand(
+        [
+            ("desktop", ARRAY_APP_CLIENT_ID_DEV, None, TaskClientProvenance.POSTHOG_DESKTOP),
+            ("mobile", POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US, None, TaskClientProvenance.POSTHOG_MOBILE),
+            ("web", ARRAY_APP_CLIENT_ID_DEV, TaskClientProvenance.POSTHOG_WEB, TaskClientProvenance.POSTHOG_WEB),
+            ("session", None, None, TaskClient.SLACK),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_user_message_records_last_client(
+        self,
+        _name: str,
+        client_id: str | None,
+        header: TaskClientProvenance | None,
+        expected: TaskClient | TaskClientProvenance,
+        _mock_signal_followup,
+    ) -> None:
+        task = self.create_task()
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
+        run = self._create_run_with_sandbox(task)
+        client = self._oauth_client(client_id) if client_id else self.client
+        headers: dict[str, Any] = {"HTTP_X_POSTHOG_CLIENT_PROVENANCE": header} if header else {}
+
+        response = client.post(self._command_url(task, run), self._make_user_message(), format="json", **headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.last_client, expected)
+
+    @parameterized.expand(
+        [
+            (
+                "acp_permission",
+                Task.Runtime.ACP,
+                "permission_response",
+                {"requestId": "perm-1", "optionId": "allow"},
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClientProvenance.POSTHOG_DESKTOP,
+            ),
+            (
+                "pi_mcp_permission",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {
+                    "command": {
+                        "id": "p1",
+                        "type": "mcp_permission_response",
+                        "requestId": "perm-1",
+                        "decision": "allow",
+                    }
+                },
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClientProvenance.POSTHOG_DESKTOP,
+            ),
+            (
+                "pi_mcp_permission_error",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {
+                    "command": {
+                        "id": "p1",
+                        "type": "mcp_permission_response",
+                        "requestId": "perm-1",
+                        "decision": "allow",
+                    }
+                },
+                {"jsonrpc": "2.0", "id": "p1", "error": {"code": -32000, "message": "No pending request"}},
+                TaskClient.SLACK,
+            ),
+            (
+                "pi_dialog_answer",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "p1", "type": "extension_ui_response", "confirmed": True}},
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClientProvenance.POSTHOG_DESKTOP,
+            ),
+            (
+                "pi_dialog_cancel",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "p1", "type": "extension_ui_response", "cancelled": True}},
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClient.SLACK,
+            ),
+            (
+                "pi_control_command",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "p1", "type": "get_state"}},
+                {"jsonrpc": "2.0", "id": "p1", "result": {}},
+                TaskClient.SLACK,
+            ),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_permission_answer_records_last_client(
+        self,
+        _name: str,
+        runtime: Task.Runtime,
+        method: str,
+        params: dict,
+        agent_body: dict,
+        expected: TaskClient | TaskClientProvenance,
+        mock_post,
+    ) -> None:
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, agent_body)
+        task = self.create_task(runtime=runtime)
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
+        run = self._create_run_with_sandbox(task)
+
+        response = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV).post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": method, "params": params, "id": "p1"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.last_client, expected)
 
     @parameterized.expand([("claude", True), ("claude", False), ("codex", True), ("codex", False)])
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")

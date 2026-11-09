@@ -1418,7 +1418,7 @@ h3.MarkdownNotebook__text-block--heading {
     display: flex;
     align-items: center;
     justify-content: center;
-    pointer-events: auto;
+    pointer-events: none;
 }
 
 .MarkdownNotebook__table-row-add-zone {
@@ -1437,20 +1437,37 @@ h3.MarkdownNotebook__text-block--heading {
     transform: translateX(-50%);
 }
 
+.MarkdownNotebook__table-row-add-zone .MarkdownNotebook__table-structure-control {
+    position: absolute;
+    left: var(--table-pointer-x, 50%);
+    margin-left: -0.625rem;
+}
+
+.MarkdownNotebook__table-column-add-zone .MarkdownNotebook__table-structure-control {
+    position: absolute;
+    top: var(--table-pointer-y, 50%);
+    margin-top: -0.625rem;
+}
+
+// Sits left of the add-column control at the right edge, because both controls can show at the same height.
+// EditableTableBlock.tsx sizes the hover band from these widths.
 .MarkdownNotebook__table-row-remove-zone {
     top: var(--table-control-top);
     left: var(--table-control-left);
     width: 1.5rem;
     height: var(--table-control-height);
-    transform: translateX(-50%);
+    transform: translateX(calc(-100% - 1.25rem));
 }
 
+// Sits at the end of the header cell, so a click on the centered header text never removes the column.
+// The padding keeps it clear of the add-column control on the column boundary.
 .MarkdownNotebook__table-column-remove-zone {
     top: var(--table-control-top);
     left: var(--table-control-left);
+    justify-content: flex-end;
     width: var(--table-control-width);
     height: 1.5rem;
-    transform: translateY(-50%);
+    padding-right: 1.25rem;
 }
 
 // Sits inside the top-left corner, because the scroll container clips anything outside the grid
@@ -1473,6 +1490,7 @@ h3.MarkdownNotebook__text-block--heading {
     width: 1.25rem;
     height: 1.25rem;
     color: var(--color-text-secondary);
+    pointer-events: none;
     opacity: 0;
     transform: scale(0.92);
 
@@ -1487,6 +1505,7 @@ h3.MarkdownNotebook__text-block--heading {
     }
 }
 
+.MarkdownNotebook__table-control-zone--active .MarkdownNotebook__table-structure-control,
 .MarkdownNotebook__table-add-zone:hover .MarkdownNotebook__table-structure-control,
 .MarkdownNotebook__table-add-zone:focus-within .MarkdownNotebook__table-structure-control,
 .MarkdownNotebook__table-remove-zone:hover .MarkdownNotebook__table-structure-control,
@@ -1498,6 +1517,7 @@ h3.MarkdownNotebook__text-block--heading {
     .MarkdownNotebook__table-delete-zone
     .MarkdownNotebook__table-structure-control,
 .MarkdownNotebook__table-structure-control:focus-visible {
+    pointer-events: auto;
     opacity: 1;
     transform: scale(1);
 }

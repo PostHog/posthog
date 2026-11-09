@@ -41,7 +41,10 @@ from products.signals.backend.default_owner import resolve_signals_enabler
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
 from products.signals.backend.github_optional import ResearchAccessPolicy
-from products.signals.backend.implementation_repositories import implementation_access_repositories
+from products.signals.backend.implementation_repositories import (
+    access_repositories_instruction,
+    implementation_access_repositories,
+)
 from products.signals.backend.issue_dependencies import resolve_issue_dependencies, unresolved_dependency_skip
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -331,17 +334,6 @@ def _head_branch_instruction(head_branch: str) -> str:
         "PR from it. This name was pre-generated for this run: PostHog uses it to link the opened PR "
         "back to the run for automated review, and a PR from any other branch name will not be "
         "recognized. Do NOT choose a different branch name."
-    )
-
-
-def _access_repositories_instruction(repository: str, access_repositories: list[str]) -> str:
-    if not access_repositories:
-        return ""
-    names = ", ".join(f"`{name}`" for name in access_repositories)
-    return (
-        f"\n\nYour GitHub credentials also cover {names}, which the project configured for implementation "
-        "tasks, for example to upload PR screenshots. They are not cloned. Use `gh` or clone one yourself "
-        f"when the task needs it. Open the PR on `{repository}` as usual."
     )
 
 
@@ -823,12 +815,22 @@ def _create_implementation_task_if_absent(
     description = (
         description
         + _head_branch_instruction(head_branch)
-        + _access_repositories_instruction(repository, access_repositories)
+        + access_repositories_instruction(repository, access_repositories)
     )
+
+    from products.signals.backend.facade.trial import task_trial_admission  # noqa: PLC0415 -- avoids Tasks import cycle
 
     exempt_reason: str | None = None
     task_id: str | None = None
-    with transaction.atomic():
+    with (
+        task_trial_admission(
+            team=Team.objects.get(id=team_id),
+            origin="signal_report",
+            report_id=report_id,
+            continue_admitted_pipeline=True,
+        ),
+        transaction.atomic(),
+    ):
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return False
@@ -1114,7 +1116,7 @@ def start_requested_implementation(
             repository=repo_selection.repository,
             base_branch=team_config.base_branch_for(repo_selection.repository) if team_config else None,
             steering=steering,
-            free_trial_enabled=self_driving_free_trial_enabled(team),
+            free_trial_enabled=self_driving_free_trial_enabled(team, admitted_report_id=request.report_id),
             requested_after_run_count=request.after_run_count,
             ch_user=ch_user,
         )
@@ -1126,8 +1128,15 @@ def start_requested_implementation(
     if not runs or not runs[0].is_terminal:
         raise RequestedImplementationUnavailable("The existing implementation task still has an active run")
     previous_run = runs[0]
-    free_trial_enabled = self_driving_free_trial_enabled(team)
-    with transaction.atomic():
+    free_trial_enabled = self_driving_free_trial_enabled(team, admitted_report_id=request.report_id)
+    from products.signals.backend.facade.trial import task_trial_admission  # noqa: PLC0415 -- avoids Tasks import cycle
+
+    with (
+        task_trial_admission(
+            team=team, origin="signal_report", report_id=request.report_id, continue_admitted_pipeline=True
+        ),
+        transaction.atomic(),
+    ):
         current = SignalReport.objects.select_for_update().get(id=request.report_id, team_id=request.team_id)
         if (
             current.status != SignalReport.Status.READY
@@ -1591,6 +1600,25 @@ async def maybe_autostart_implementation_task(
             # the team rather than dropping the PR.
             task_user = await database_sync_to_async(_resolve_autostart_fallback_user, thread_sensitive=False)(team_id)
             runner_source = "team_fallback"
+    if (
+        task_user is not None
+        and triggering_user_id is None
+        and not (team_config and team_config.autostart_enabled is True)
+    ):
+        from products.signals.backend.trial.reports import (
+            implementation_requires_trial_opt_in,  # noqa: PLC0415 -- avoids eager policy imports
+        )
+
+        if await database_sync_to_async(implementation_requires_trial_opt_in)(team_id, report_id):
+            opted_in = (
+                await SignalUserAutonomyConfig.objects.filter(user=task_user, autostart_priority__isnull=False)
+                .exclude(autostart_priority="")
+                .aexists()
+            )
+            if not opted_in:
+                return AutostartOutcome(
+                    status="blocked", reason="Trial implementation requires an explicit request or an existing opt-in"
+                )
     if task_user is None:
         logger.info(
             "self-driving auto-start skipped",
@@ -1607,7 +1635,9 @@ async def maybe_autostart_implementation_task(
     # any path. The report stays ready and gets its PR after the trial, on the next re-evaluation
     # or by hand. The gate sits after the runner resolution because a report with no runner opens
     # no pull request anyway, so counting it would overstate what the trial held back.
-    on_free_trial = await database_sync_to_async(self_driving_free_trial_enabled, thread_sensitive=False)(team)
+    on_free_trial = await database_sync_to_async(self_driving_free_trial_enabled, thread_sensitive=False)(
+        team, admitted_report_id=report_id
+    )
     if on_free_trial:
         capture_signal_report_free_trial_paused(team, report_id=report_id, stage="autostart")
         logger.info(

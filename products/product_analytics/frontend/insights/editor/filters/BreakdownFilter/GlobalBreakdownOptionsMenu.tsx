@@ -5,6 +5,8 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
+import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -20,6 +22,7 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element | null => {
 
     const { breakdownLimit, breakdownHideOtherAggregation, breakdownFilter } = useValues(taxonomicBreakdownFilterLogic)
     const { setBreakdownLimit, setBreakdownHideOtherAggregation } = useActions(taxonomicBreakdownFilterLogic)
+    const quillSurface = useQuillSurface()
 
     // Cohort breakdowns are over an explicit, user-picked set — there's no long-tail to truncate
     // and nothing to bucket as "Other", so these controls don't apply.
@@ -29,7 +32,16 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element | null => {
 
     return (
         <>
-            {isTrends && (
+            {isTrends && quillSurface ? (
+                <div className="px-2">
+                    <QuillChartOptionSwitch
+                        label='Group remaining values under "Other"'
+                        info={`If you have over ${breakdownLimit} breakdown options, the smallest ones are aggregated under the label "Other". Use this toggle to show/hide the "Other" option.`}
+                        checked={!breakdownHideOtherAggregation}
+                        onChange={() => setBreakdownHideOtherAggregation(!breakdownHideOtherAggregation)}
+                    />
+                </div>
+            ) : isTrends ? (
                 <LemonSwitch
                     fullWidth
                     className="min-h-10 px-2"
@@ -52,7 +64,7 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element | null => {
                         </div>
                     }
                 />
-            )}
+            ) : null}
             <div className="px-2 flex gap-2 items-baseline">
                 <LemonLabel className="font-medium" htmlFor="breakdown-limit">
                     Breakdown limit
