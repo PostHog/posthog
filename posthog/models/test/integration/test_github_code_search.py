@@ -9,7 +9,12 @@ from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
-from posthog.models.integration.github_code_search import ExactCodeMatch, GitHubExactCodeSearch, MatchedLine
+from posthog.models.integration.github_code_search import (
+    MAX_MATCHED_LINES_PER_FILE,
+    ExactCodeMatch,
+    GitHubExactCodeSearch,
+    MatchedLine,
+)
 
 
 def _github(account_type: str = "Organization") -> GitHubIntegration:
@@ -103,7 +108,6 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
             ("more_results_than_read", {"total_count": 5, "incomplete_results": False}, 200),
             ("candidate_gone", {"total_count": 1, "incomplete_results": False}, 404),
             ("candidate_not_utf8", {"total_count": 1, "incomplete_results": False}, 200, b"caf\xe9"),
-            ("too_many_matches_in_file", {"total_count": 1, "incomplete_results": False}, 200, b"welcome\n" * 21),
         ]
     )
     def test_reports_an_incomplete_search(
@@ -119,6 +123,18 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
         )
 
         assert result.complete is False
+
+    @parameterized.expand([("at_the_cap", 0, True), ("over_the_cap", 1, False)])
+    def test_keeps_the_first_matched_lines_of_a_crowded_file(self, _name: str, extra: int, complete: bool) -> None:
+        result, _ = self._search(
+            _github(),
+            "welcome",
+            {"total_count": 1, "incomplete_results": False, "items": [_search_item("acme/web", "a.py")]},
+            {"/repos/acme/web/contents/a.py": _contents("welcome\n" * (MAX_MATCHED_LINES_PER_FILE + extra), "sha-1")},
+        )
+
+        assert [line.number for line in result.matches[0].lines] == list(range(1, MAX_MATCHED_LINES_PER_FILE + 1))
+        assert result.complete is complete
 
     def test_raises_when_github_refuses_the_search(self) -> None:
         github = _github()
