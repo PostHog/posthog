@@ -45,6 +45,13 @@ class TestEmptyTrendsChartIds(SimpleTestCase):
             ("sql_chart", {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}}),
             ("funnel_chart", {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "series": []}}),
             ("saved_insight", {"kind": "SavedInsightNode", "shortId": "abc123"}),
+            (
+                "box_plot",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {**TRENDS_QUERY["source"], "trendsFilter": {"display": "BoxPlot"}},
+                },
+            ),
         ]
     )
     def test_only_trends_charts_are_probed(self, _name: str, query: dict) -> None:

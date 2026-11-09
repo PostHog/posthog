@@ -11,6 +11,8 @@ from typing import Any
 
 import structlog
 
+from posthog.schema import ChartDisplayType
+
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
 
@@ -24,6 +26,10 @@ CHART_PROBE_TIME_BUDGET_SECONDS = 20.0
 CHART_PROBE_QUERY_TIMEOUT_SECONDS = 10
 # Lets a reader who opens the report soon after it lands reuse the probe's result.
 CHART_PROBE_CACHE_AGE_SECONDS = 15 * 60
+# Displays the reader renders through their own runner, so a plain Trends run measures other data.
+_OWN_RUNNER_DISPLAYS = frozenset(
+    {ChartDisplayType.BOX_PLOT, ChartDisplayType.CALENDAR_HEATMAP, ChartDisplayType.SLOPE_GRAPH}
+)
 
 
 def empty_trends_chart_ids(team: Team, charts: Sequence[ReportChart]) -> list[str]:
@@ -62,6 +68,9 @@ def _trends_source(query: dict[str, Any]) -> dict[str, Any] | None:
         return None
     source = query.get("source")
     if not isinstance(source, dict) or source.get("kind") != "TrendsQuery":
+        return None
+    trends_filter = source.get("trendsFilter")
+    if isinstance(trends_filter, dict) and trends_filter.get("display") in _OWN_RUNNER_DISPLAYS:
         return None
     return source
 

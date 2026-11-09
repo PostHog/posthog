@@ -1010,7 +1010,12 @@ def _reject_empty_charts(team: Team, author: ReportAuthor, tool: str, charts: Se
 
     Runs after the gates and before the safety judge: a gated call must not spend queries, and a
     refused chart must not cost a judge call. Reads the DB and ClickHouse, so call it on a sync thread.
+
+    Scout runs only. A person files through an endpoint that needs `inbox:write` alone, and a refusal
+    tells the caller which filters match no data, so it would read events without `query:read`.
     """
+    if author.scout_run is None:
+        return
     empty = empty_trends_chart_ids(team, charts)
     if not empty:
         return
