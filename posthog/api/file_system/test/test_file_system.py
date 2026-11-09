@@ -937,7 +937,13 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(custom_shortcut.ref, new_path)
         self.assertEqual(custom_shortcut.path, "Pinned work")
 
-    @parameterized.expand([("itself", "Parent"), ("own_subfolder", "Parent/Child/Parent")])
+    @parameterized.expand(
+        [
+            ("itself", "Parent/Parent"),
+            ("own_subfolder", "Parent/Child/Parent"),
+            ("own_subfolder_with_leading_separator", "/Parent/Child/Parent"),
+        ]
+    )
     def test_move_folder_into_itself_is_rejected(self, _name: str, new_path: str) -> None:
         folder = FileSystem.objects.create(team=self.team, path="Parent", type="folder", created_by=self.user)
         child = FileSystem.objects.create(team=self.team, path="Parent/Child", type="folder", created_by=self.user)

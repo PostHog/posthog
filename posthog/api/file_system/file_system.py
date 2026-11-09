@@ -116,6 +116,11 @@ def get_file_system_insight_type(query_kind: str | None, legacy_type: str | None
     return {"hogql": "hog", "pathsv2": "paths", "journeys": "paths"}.get(insight_type, insight_type)
 
 
+def is_path_under(path: str, ancestor: str) -> bool:
+    ancestor_segments = split_path(ancestor)
+    return split_path(path)[: len(ancestor_segments)] == ancestor_segments
+
+
 def validate_file_system_path(path: Any) -> str:
     """Bound a caller-supplied path before it reaches the per-segment folder creation loop, which
     costs one existence check plus one insert per segment and autocommits each one."""
@@ -1288,7 +1293,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
         new_path = validate_file_system_path(new_path)
 
-        if instance.type == "folder" and (new_path == instance.path or new_path.startswith(f"{instance.path}/")):
+        if instance.type == "folder" and is_path_under(new_path, instance.path):
             return Response({"detail": "Cannot move a folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
 
         self._assure_parent_folders(new_path, cast(User, request.user))
