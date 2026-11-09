@@ -11088,6 +11088,7 @@ export namespace Schemas {
     export type ExperimentExposureQueryResponse = {
         bias_risk?: (BiasRisk | null) | undefined;
         date_range: DateRange;
+        exposed_by_library?: (Record<string, number> | null) | undefined;
         health_checks?:
             | (Array<ExperimentExposureHealthCheck> | null)
             | undefined;
@@ -11482,6 +11483,10 @@ export namespace Schemas {
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         cdc_table_mode?: (CdcTableModeEnum | NullEnum) | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        copy_access_rules_to_history?: boolean | undefined;
         /**
          * Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
          *
@@ -14693,6 +14698,12 @@ export namespace Schemas {
          * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
          */
         uses_most_specific_access_resolution: boolean | null;
+        ip_restrictions?: Array<string> | undefined;
+        ip_restrictions_enabled?: boolean | undefined;
+        /**
+         * A warning when the current request's IP address is not in the saved allowlist.
+         */
+        ip_restrictions_warning: string | null;
     };
     /**
      * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
@@ -19227,12 +19238,13 @@ export namespace Endpoints {
         responses: { 204: unknown };
     };
     /**
-     * Fire a schedule-triggered workflow immediately, outside its regular schedule.
+     * Run a workflow with a `schedule` or `manual` trigger now, once.
      *
-     * Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
-     * dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
-     * guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
-     * the scheduler itself applies in `internal_process_due_schedules`.
+     * A schedule-triggered workflow runs outside its regular schedule. A manually triggered
+     * workflow runs for the calling user, as the trigger button in the editor does. Other
+     * triggers have their own entry points (`batch_jobs`, the public webhook URL) with
+     * trigger-specific guardrails this endpoint doesn't replicate. Requires the workflow to be
+     * active, same gate the scheduler itself applies in `internal_process_due_schedules`.
      *
      * Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
      * after a timed-out request): a repeat with the same key returns the first call's result

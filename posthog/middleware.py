@@ -25,12 +25,12 @@ from django.db import (
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
 from django.utils.deprecation import MiddlewareMixin
 from django.utils.functional import SimpleLazyObject
-from django.utils.http import http_date, url_has_allowed_host_and_scheme
+from django.utils.http import escape_leading_slashes, http_date, url_has_allowed_host_and_scheme
 
 import requests
 import structlog
@@ -1700,9 +1700,9 @@ def organization_block_page(organization: Organization) -> Optional[str]:
 class IPRestrictionsMiddleware(MiddlewareMixin):
     """Block requests from an IP that the caller's organization does not allow.
 
-    Runs after `AuthenticationMiddleware` for session requests, checking every organization the user
-    belongs to. Bearer credentials authenticate inside DRF, so `IPRestrictionsPermission` applies the
-    same check after their principal is resolved. Both use the cached organization restrictions and
+    Runs after `AuthenticationMiddleware` for session requests. Routed viewsets defer to
+    `IPRestrictionsPermission` so the check includes the view's team and organization overrides.
+    Both use the cached organization restrictions and
     `get_restriction_client_ip`, which rejects a spoofed X-Forwarded-For and fails closed when no
     verified IP is available.
     """
@@ -1719,6 +1719,19 @@ class IPRestrictionsMiddleware(MiddlewareMixin):
         try:
             enforce_ip_restrictions(request, getattr(request, "user", None))
         except PermissionDenied as error:
+            if (
+                request.method in ("GET", "HEAD")
+                and not request.path_info.startswith("/api/")
+                and "text/html" in request.headers.get("Accept", "")
+            ):
+                response = render(
+                    request,
+                    "ip_restricted.html",
+                    {"detail": str(error.detail), "retry_url": escape_leading_slashes(request.get_full_path())},
+                    status=403,
+                )
+                add_never_cache_headers(response)
+                return response
             return JsonResponse(
                 {
                     "type": "authentication_error",

@@ -2946,7 +2946,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Settings', href: urls.inbox('settings') },
         ],
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
-        tags: ['beta'],
         sceneKey: 'Inbox',
         sceneKeys: ['Inbox'],
     },
