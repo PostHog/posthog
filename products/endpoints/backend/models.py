@@ -479,14 +479,15 @@ class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
         new_breakdown_props = set(_breakdown_property_names(new_breakdown_filter))
         pruned_optional_breakdowns = [p for p in previous_optional_breakdowns if p in new_breakdown_props]
 
-        self.current_version += 1
-        self.save(update_fields=["current_version", "updated_at"])
-
-        # Create new version, inheriting settings from previous version
         try:
             columns: list[dict] | None = EndpointVersion.extract_columns(query, team_id=self.team_id)
         except Exception:
             columns = None
+
+        self.current_version += 1
+        self.save(update_fields=["current_version", "updated_at"])
+
+        # Create new version, inheriting settings from previous version
         version = EndpointVersion.objects.create(
             endpoint=self,
             team=self.team,
