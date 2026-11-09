@@ -83,7 +83,15 @@ class InPredicate(Predicate):
     values: tuple[Value, ...]
 
     def _test(self, value: Value, present: bool) -> bool:
-        return present and any(strict_equals(value, candidate) for candidate in self.values)
+        if not present:
+            return False
+        for candidate in self.values:
+            # One comparison can scan a whole string, and a recipe can list many long candidates, so the scan checks the
+            # clock between comparisons.
+            check_time_limit()
+            if strict_equals(value, candidate):
+                return True
+        return False
 
 
 @frozen

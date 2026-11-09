@@ -212,6 +212,10 @@ SLOW_PREDICATE = compile_recipe(
 )
 # The last item fails the pattern, so no expression runs and only the predicate can see the time limit.
 SLOW_PREDICATE_INPUT: Value = {"items": [*[19_999] * 1_000, "miss"]}
+# Every candidate has the length of the input and differs only in its last character, so each comparison scans it all.
+SLOW_MEMBERSHIP = compile_recipe(
+    {"id": "slow-membership", "rules": [{"on": {"text": {"in": ["a" * 100_000 + "b"] * 50_000}}, "emit": {}}]}
+)
 # Every call's arguments are the same text, which never parses and so is never charged. Only the parse can see the
 # time limit.
 FAILED_PARSES = compile_recipe(
@@ -234,6 +238,7 @@ FAILED_PARSES = compile_recipe(
     [
         ("in one expression", SLOW_EXPRESSION, {"rows": [{"n": n, "text": "row"} for n in range(5_000)]}),
         ("in one predicate", SLOW_PREDICATE, SLOW_PREDICATE_INPUT),
+        ("in one membership scan", SLOW_MEMBERSHIP, {"text": "a" * 100_000 + "c"}),
         # The value is built in a few evaluations, so only the serialization walk can see the time limit.
         ("in one serialization", fan_out(6), {"l0": 1}),
         ("in failed parses", FAILED_PARSES, {"big": "[" + "0," * 500_000}),
@@ -294,6 +299,19 @@ def peak_memory_of_a_failed_run(recipe: Recipe, value: Value, match: str) -> int
 def test_oversized_output_stops_at_the_output_budget(recipe: Recipe, value: Value) -> None:
     with pytest.raises(RecipeOutputLimitError, match="characters"):
         RecipeNormalizer([recipe], time_limit_seconds=0.05).normalize_message(value, "user")
+
+
+@pytest.mark.parametrize(
+    "value, tools",
+    [
+        pytest.param(MISSING, [{"name": "t"}] * 6_000, id="tools alone"),
+        pytest.param({"say": ["x"] * 2_000}, [{"name": "t"}] * 3_000, id="tools and messages share one budget"),
+    ],
+)
+@pytest.mark.usefixtures("low_output_node_cap")
+def test_copying_the_tools_charges_the_output_budget(value: Value, tools: Value) -> None:
+    with pytest.raises(RecipeOutputLimitError, match="values"):
+        RecipeNormalizer([ECHO]).normalize_messages(value, "user", tools)
 
 
 @pytest.mark.usefixtures("low_output_node_cap")

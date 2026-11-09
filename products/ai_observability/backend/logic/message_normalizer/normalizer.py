@@ -13,6 +13,7 @@ from .errors import RecipeCompileError, RecipeRuntimeError
 from .pipeline import TIME_LIMIT_SECONDS, RecipePipeline, RunOutcome
 from .roles import AVAILABLE_TOOLS_ROLE
 from .rules import Recipe
+from .run_limits import run_limits
 from .values import MISSING, CompatMessage, JsonValue, Missing, Value, is_object_like, is_truthy, to_json_value
 from .yaml_loader import load_recipe_yaml
 
@@ -82,14 +83,19 @@ class RecipeNormalizer:
         return self._pipeline.run(value, default_role)
 
     def normalize_messages(self, value: Value, default_role: str, tools: Value = MISSING) -> RunOutcome:
-        # `tools` is a function parameter, not a message shape, so no recipe covers it.
-        tools_messages: tuple[CompatMessage, ...] = (
-            ({"role": AVAILABLE_TOOLS_ROLE, "content": "", "tools": _tools_value(tools)},) if is_truthy(tools) else ()
-        )
-        if isinstance(value, str) or is_object_like(value):
-            outcome = self.normalize_message(value, default_role)
-            return RunOutcome(messages=(*tools_messages, *outcome.messages), recognized=outcome.recognized)
-        return RunOutcome(messages=tools_messages, recognized=True)
+        # The run inside joins these limits, so copying the tools and normalizing the messages share one budget and
+        # one deadline.
+        with run_limits(self._pipeline.time_limit_seconds):
+            # `tools` is a function parameter, not a message shape, so no recipe covers it.
+            tools_messages: tuple[CompatMessage, ...] = (
+                ({"role": AVAILABLE_TOOLS_ROLE, "content": "", "tools": _tools_value(tools)},)
+                if is_truthy(tools)
+                else ()
+            )
+            if isinstance(value, str) or is_object_like(value):
+                outcome = self.normalize_message(value, default_role)
+                return RunOutcome(messages=(*tools_messages, *outcome.messages), recognized=outcome.recognized)
+            return RunOutcome(messages=tools_messages, recognized=True)
 
 
 def _tools_value(tools: Value) -> JsonValue:

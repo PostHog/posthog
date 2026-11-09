@@ -95,6 +95,10 @@ def time_limit(seconds: float) -> Iterator[None]:
 
 @contextmanager
 def execution_budget() -> Iterator[None]:
+    # A nested budget joins the outer one, so a caller can bound every run it makes as a whole.
+    if _active_budget.get() is not None:
+        yield
+        return
     token = _active_budget.set(ExecutionBudget())
     try:
         yield
