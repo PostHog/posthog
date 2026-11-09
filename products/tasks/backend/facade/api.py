@@ -240,6 +240,7 @@ from products.tasks.backend.task_done import (
     check_wake_by_task_id as check_wake_by_task_id,
     close_task as close_task,
     wake_refusal,
+    warm_done_mode,
 )
 from products.tasks.backend.task_profiles import (
     PUBLIC_RUN_OPTIONS as PUBLIC_RUN_OPTIONS,
@@ -7053,6 +7054,7 @@ def start_task_run(
             state_updates["pending_user_artifact_ids"] = pending_user_artifact_ids
 
     previous_state = dict(run.state or {})
+    warm_done_mode(task)
     try:
         with transaction.atomic():
             task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
@@ -7139,6 +7141,7 @@ def resume_task_run_in_cloud(
         },
     )
 
+    warm_done_mode(run.task)
     with transaction.atomic():
         task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
         run = (
@@ -10715,6 +10718,7 @@ def run_task(
     )
     if trial_admission is None and not pipeline_rerun and task.uses_self_driving_billing(mode):
         enforce_self_driving_pr_quota(task.team, report_id=report_id_for_slot_check, stage="task_run")
+    warm_done_mode(task)
     try:
         with transaction.atomic():
             if only_if_no_runs:
@@ -13150,6 +13154,7 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
         return "not_found"
     if acting_user_id is None or admission_task.created_by_id != acting_user_id:
         return "forbidden"
+    warm_done_mode(admission_task)
     trial_admission = prepare_task_trial(
         team=admission_task.team,
         origin=admission_task.origin_product,

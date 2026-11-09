@@ -4,6 +4,7 @@ from typing import Literal
 
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import TestCase
 from django.utils import timezone as django_timezone
 
@@ -148,8 +149,14 @@ class TestTaskDone(TestCase):
         self, _name: str, mode: str | None, refused: bool
     ) -> None:
         self._set_status(Task.Status.DONE, Task.StatusReason.CLOSED)
+        open_savepoints = len(connection.savepoint_ids)
+        savepoints_at_flag_read: list[int] = []
 
-        with self._mode(mode):
+        def read_payload(*_args: object, **_kwargs: object) -> dict[str, str] | None:
+            savepoints_at_flag_read.append(len(connection.savepoint_ids))
+            return None if mode is None else {USER.key: mode}
+
+        with patch(PAYLOAD, side_effect=read_payload):
             if refused:
                 with self.assertRaises(TaskDoneError):
                     self.task.create_run()
@@ -157,6 +164,7 @@ class TestTaskDone(TestCase):
                 self.task.create_run()
 
         self.assertEqual(self.task.runs.exists(), not refused)
+        self.assertEqual(savepoints_at_flag_read, [open_savepoints])
 
     def test_scheduled_run_on_a_done_task_is_canceled(self) -> None:
         run = self.task.create_run(scheduled_at=django_timezone.now() - timedelta(minutes=1))

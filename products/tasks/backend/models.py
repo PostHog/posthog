@@ -1131,7 +1131,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
         if dedicated_stream is None:
             dedicated_stream = dedicated_stream_configured()
+        from products.tasks.backend.task_done import check_wake, warm_done_mode
 
+        warm_done_mode(self)
         with transaction.atomic():
             if trial_admission is not None:
                 trial_admission.lock_report(self.signal_report_source_id)
@@ -1142,8 +1144,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             )
             if task.created_by_id != expected_created_by_id or task.ownership_version != expected_ownership_version:
                 raise TaskOwnershipChangedError("Task ownership changed before the run was created")
-            from products.tasks.backend.task_done import check_wake
-
             check_wake(task, source="create_run")
 
             if (

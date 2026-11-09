@@ -29,6 +29,11 @@ class TaskDoneError(ValueError):
         super().__init__("This task is done. Start a new task to keep working on it.")
 
 
+def warm_done_mode(task: Task) -> None:
+    if task.status == Task.Status.DONE:
+        done_mode(task.profile, task.team_id)
+
+
 def wake_refusal(task: Task, *, source: str) -> TaskDoneError | None:
     profile = task.profile or "none"
     if task.status == Task.Status.DONE:
