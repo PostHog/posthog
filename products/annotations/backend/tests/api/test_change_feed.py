@@ -11,6 +11,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.annotations.backend.facade.enums import AnnotationScope
 from products.annotations.backend.models.annotation import Annotation
 from products.error_tracking.backend.facade.testing import create_release
 
@@ -55,7 +56,7 @@ class TestChangeFeed(APIBaseTest):
             organization=self.organization,
             content="Deploy checkout service",
             date_marker=at,
-            scope=Annotation.Scope.PROJECT,
+            scope=AnnotationScope.PROJECT,
         )
 
     def _list(self, headers: dict[str, str] | None = None, **params: str | list[str]) -> dict:

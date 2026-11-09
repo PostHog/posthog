@@ -14533,6 +14533,7 @@ export namespace Schemas {
     } as const;
 
     export interface Annotation {
+      /** Unique ID of the annotation. */
       readonly id: number;
       /**
          * Annotation text shown on charts to describe the change, release, or incident.
@@ -14560,17 +14561,34 @@ export namespace Schemas {
          * @nullable
          */
       dashboard_id?: number | null;
-      /** @nullable */
+      /**
+         * Name of the dashboard in `dashboard_id`, or null when there is none.
+         * @nullable
+         */
       readonly dashboard_name: string | null;
-      /** @nullable */
+      /**
+         * Short ID of the insight in `dashboard_item`, or null when there is none.
+         * @nullable
+         */
       readonly insight_short_id: string | null;
-      /** @nullable */
+      /**
+         * Name of the insight in `dashboard_item`, or null when it has none.
+         * @nullable
+         */
       readonly insight_name: string | null;
-      /** @nullable */
+      /**
+         * Generated name of the insight in `dashboard_item`, shown when the insight has no name.
+         * @nullable
+         */
       readonly insight_derived_name: string | null;
+      /** User who created the annotation. */
       readonly created_by: UserBasic;
-      /** @nullable */
+      /**
+         * When the annotation was created.
+         * @nullable
+         */
       readonly created_at: string | null;
+      /** When the annotation was last changed. */
       readonly updated_at: string;
       /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
       deleted?: boolean;
@@ -82077,6 +82095,7 @@ export namespace Schemas {
     }
 
     export interface PatchedAnnotation {
+      /** Unique ID of the annotation. */
       readonly id?: number;
       /**
          * Annotation text shown on charts to describe the change, release, or incident.
@@ -82104,17 +82123,34 @@ export namespace Schemas {
          * @nullable
          */
       dashboard_id?: number | null;
-      /** @nullable */
+      /**
+         * Name of the dashboard in `dashboard_id`, or null when there is none.
+         * @nullable
+         */
       readonly dashboard_name?: string | null;
-      /** @nullable */
+      /**
+         * Short ID of the insight in `dashboard_item`, or null when there is none.
+         * @nullable
+         */
       readonly insight_short_id?: string | null;
-      /** @nullable */
+      /**
+         * Name of the insight in `dashboard_item`, or null when it has none.
+         * @nullable
+         */
       readonly insight_name?: string | null;
-      /** @nullable */
+      /**
+         * Generated name of the insight in `dashboard_item`, shown when the insight has no name.
+         * @nullable
+         */
       readonly insight_derived_name?: string | null;
+      /** User who created the annotation. */
       readonly created_by?: UserBasic;
-      /** @nullable */
+      /**
+         * When the annotation was created.
+         * @nullable
+         */
       readonly created_at?: string | null;
+      /** When the annotation was last changed. */
       readonly updated_at?: string;
       /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
       deleted?: boolean;
