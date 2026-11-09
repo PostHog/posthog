@@ -4,7 +4,15 @@ import { logger } from '~/common/utils/logger'
 
 export const CONNECTION_RETRY_BACKOFF_MS = [100, 500]
 
-const SOCKET_ERROR_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'EPIPE'])
+const NETWORK_ERROR_CODES = new Set([
+    'ECONNRESET',
+    'ECONNREFUSED',
+    'EPIPE',
+    'ETIMEDOUT',
+    'EHOSTUNREACH',
+    'ENETUNREACH',
+    'EAI_AGAIN',
+])
 const SERVER_SHUTDOWN_SQLSTATES = new Set(['57P01', '57P02', '57P03'])
 const CONNECTION_EXCEPTION_SQLSTATE_CLASS = '08'
 const DROPPED_CLIENT_MESSAGES = [
@@ -18,14 +26,14 @@ const writeRetriesCounter = new Counter({
     labelNames: ['write'],
 })
 
-export function isDroppedConnectionError(error: unknown): boolean {
+function isDroppedConnectionError(error: unknown): boolean {
     if (!(error instanceof Error)) {
         return false
     }
     const code = (error as { code?: unknown }).code
     if (typeof code === 'string') {
         return (
-            SOCKET_ERROR_CODES.has(code) ||
+            NETWORK_ERROR_CODES.has(code) ||
             SERVER_SHUTDOWN_SQLSTATES.has(code) ||
             code.startsWith(CONNECTION_EXCEPTION_SQLSTATE_CLASS)
         )

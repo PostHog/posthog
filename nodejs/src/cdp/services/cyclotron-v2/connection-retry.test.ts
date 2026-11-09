@@ -27,6 +27,9 @@ describe('withConnectionRetry', () => {
         ['a connection failure', pgError('connection failure', '08006')],
         ['a reset socket', pgError('read ECONNRESET', 'ECONNRESET')],
         ['a refused connection', pgError('connect ECONNREFUSED 127.0.0.1:6432', 'ECONNREFUSED')],
+        ['a connect timeout', pgError('connect ETIMEDOUT 10.0.0.1:6432', 'ETIMEDOUT')],
+        ['an unreachable host', pgError('connect EHOSTUNREACH 10.0.0.1:6432', 'EHOSTUNREACH')],
+        ['a DNS blip', pgError('getaddrinfo EAI_AGAIN pgbouncer', 'EAI_AGAIN')],
         ['a terminated client', pgError('Connection terminated unexpectedly')],
     ])('retries %s on a fresh attempt', async (_, error) => {
         const run = jest.fn().mockRejectedValueOnce(error).mockResolvedValueOnce('written')

@@ -1,4 +1,4 @@
-import { Pool } from 'pg'
+import { Pool, PoolClient } from 'pg'
 import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -3020,6 +3020,78 @@ describe('Cyclotron V2', () => {
                 })
             },
             6000
+        )
+
+        const lostReply = new Error('Connection terminated unexpectedly')
+
+        function workerPool(worker: CyclotronV2Worker): Pool {
+            return (worker as unknown as { pool: Pool }).pool
+        }
+
+        function loseQueryReply(worker: CyclotronV2Worker): void {
+            const pool = workerPool(worker)
+            const query = pool.query.bind(pool) as (...args: unknown[]) => Promise<unknown>
+            jest.spyOn(pool, 'query').mockImplementationOnce((async (...args: unknown[]) => {
+                await query(...args)
+                throw lostReply
+            }) as any)
+        }
+
+        function loseCommitReply(worker: CyclotronV2Worker): void {
+            const pool = workerPool(worker)
+            const connect = pool.connect.bind(pool) as () => Promise<PoolClient>
+            jest.spyOn(pool, 'connect').mockImplementationOnce((async () => {
+                const client = await connect()
+                const query = client.query.bind(client) as (...args: unknown[]) => Promise<unknown>
+                client.query = (async (...args: unknown[]) => {
+                    const result = await query(...args)
+                    if (args[0] === 'COMMIT') {
+                        client.query = query as PoolClient['query']
+                        throw lostReply
+                    }
+                    return result
+                }) as any
+                return client
+            }) as any)
+        }
+
+        it.each([
+            {
+                write: 'ack',
+                loseReply: loseQueryReply,
+                run: (job: CyclotronV2DequeuedJob) => job.ack(),
+                outcome: 'landed',
+                jobsAfter: 1,
+            },
+            {
+                write: 'bulkCreateAndCheckIn',
+                run: (job: CyclotronV2DequeuedJob) =>
+                    job.bulkCreateAndCheckIn({
+                        newJobs: [{ teamId: 1, queueName: QUEUE }],
+                        selfDisposition: { kind: 'ack' },
+                    }),
+                loseReply: loseCommitReply,
+                outcome: 'self row matched 0 rows',
+                jobsAfter: 2,
+            },
+        ])(
+            '$write whose commit landed but whose reply was lost writes nothing on the retry',
+            async ({ loseReply, run, outcome, jobsAfter }) => {
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+                const worker = createWorker(QUEUE)
+                stops.push(() => worker.disconnect())
+                const [job] = await dequeueOneBatch(worker)
+                loseReply(worker)
+
+                const result = await run(job).then(
+                    () => 'landed',
+                    (error) => String(error)
+                )
+
+                expect(result).toContain(outcome)
+                expect(await totalJobCount()).toBe(jobsAfter)
+                expect(await queryJob(id)).toMatchObject({ status: 'completed', transition_count: 2 })
+            }
         )
     })
 })
