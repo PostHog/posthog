@@ -17,7 +17,9 @@ import pydantic
 import structlog
 import temporalio
 import posthoganalytics
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import WorkflowIDReusePolicy
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -858,6 +860,22 @@ def _telemetry_props_from_extra(extra: dict | None) -> dict:
     return props
 
 
+async def _emitter_holds_idempotency_key(workflow_id: str) -> bool:
+    """Whether an emitter run already owns this idempotency key, so a new start would be rejected.
+
+    Mirrors `WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY`: a running or completed run owns the
+    key, and a failed, terminated, cancelled or timed-out run gives it up.
+    """
+    client = await async_connect()
+    try:
+        description = await client.get_workflow_handle(workflow_id).describe()
+    except RPCError as error:
+        if error.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return description.status in (WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.COMPLETED)
+
+
 async def emit_signal(
     team: Team,
     source_product: str,
@@ -1013,6 +1031,10 @@ async def emit_signal(
     if await database_sync_to_async(finalized_signal_ids)(team_id=team.id, signal_ids=[signal_id]):
         return False
 
+    emitter_idempotency_key = (
+        f"{source_product}:{source_type}:{idempotency_key}" if idempotency_key is not None else None
+    )
+
     # Before the steering gate, which can make an LLM call, so a capped source costs nothing more.
     rate_limited_window = await asyncio.to_thread(source_rate_limit_exceeded, team.id, source_product, source_type)
     if rate_limited_window is not None:
@@ -1020,6 +1042,13 @@ async def emit_signal(
         record_source_rate_limited(source_product, rate_limited_window, enforced=enforced)
         capture_emission_event("signal_source_rate_limited", {"window": rate_limited_window, "enforced": enforced})
         if enforced:
+            # A retry reuses the original's signal_id, so finalizing here would end the spend of an
+            # original that is still in the pipeline. The Temporal duplicate check below runs too late.
+            if emitter_idempotency_key is not None and await _emitter_holds_idempotency_key(
+                SignalEmitterWorkflow.workflow_id_for(team.id, emitter_idempotency_key)
+            ):
+                capture_emission_event("signal_data_source_filtered", {"filter_reason": "duplicate_emission"})
+                return False
             # Only a real drop counts as filtered, so a dark-launch would-drop still reads as emitted.
             capture_emission_event(
                 "signal_data_source_filtered", {"filter_reason": "source_rate_limited", "window": rate_limited_window}
@@ -1083,9 +1112,6 @@ async def emit_signal(
 
     # Fire-and-forget: the emitter workflow will submit the signal to the buffer
     # via update, blocking if the buffer is full (backpressure).
-    emitter_idempotency_key = (
-        f"{source_product}:{source_type}:{idempotency_key}" if idempotency_key is not None else None
-    )
     try:
         await client.start_workflow(
             SignalEmitterWorkflow.run,
