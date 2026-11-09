@@ -1,6 +1,5 @@
 import json
 import uuid
-from datetime import datetime
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -10,14 +9,13 @@ from django.contrib import messages
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.urls import reverse
-from django.utils import timezone
 
 import structlog
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.console.panels import Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import Cell, ConsoleTool, Download, GroupRow, Live, Notice, Page, Row, Table
+from posthog.admin.console.tools import Cell, ConsoleTool, Download, Live, Notice, Page, Row, Table
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.session_replay.delete_recordings.staff import (
@@ -47,12 +45,6 @@ STATUS_TONES = {
     "TERMINATED": Tone.DESTRUCTIVE,
     "TIMED_OUT": Tone.DESTRUCTIVE,
     "CANCELED": Tone.WARNING,
-}
-DELETION_TYPES = {
-    "person": "All session recordings for specified person(s)",
-    "team": "All session recordings for project (ID {team_id})",
-    "query": "Session recordings matching filter criteria",
-    "session_ids": "Specified session recordings",
 }
 
 
@@ -156,7 +148,7 @@ def _run_key(request: HttpRequest) -> str:
         return str(uuid.uuid4())
 
 
-def _runs_url(team: Team, **params: str) -> str:
+def recording_deletions_url(team: Team, **params: str) -> str:
     return f"{TOOL_URL}?{urlencode({'team': team.pk, **params})}"
 
 
@@ -200,7 +192,7 @@ class StartDeletion:
                 )
         except WorkflowAlreadyStartedError:
             messages.info(request, "This form already started a deletion. It shows in the list below.")
-            return HttpResponseRedirect(_runs_url(obj))
+            return HttpResponseRedirect(recording_deletions_url(obj))
         except Exception:
             logger.exception("admin_console_recording_deletion_failed", team_id=obj.pk, kind=self.kind)
             messages.error(request, "Could not start the deletion. Check the server logs for details.")
@@ -208,7 +200,7 @@ class StartDeletion:
         dry_run = " as a dry run" if deletion.dry_run else ""
         messages.success(request, f"Started {deletion.workflow_id}{dry_run}.")
         # Temporal lists a new run only after a moment, so the page names it and keeps refreshing until it shows.
-        return HttpResponseRedirect(_runs_url(obj, started=deletion.workflow_id))
+        return HttpResponseRedirect(recording_deletions_url(obj, started=deletion.workflow_id))
 
 
 class PreviewDeletion:
@@ -289,7 +281,7 @@ class SessionRecordingsPanel(Panel):
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)
-        return [Fact(label="Deletions", value="Runs and deletion certificates", href=_runs_url(obj))]
+        return [Fact(label="Deletions", value="Runs and deletion certificates", href=recording_deletions_url(obj))]
 
     def operations(self, obj: Model) -> list[Operation]:
         return [
@@ -328,11 +320,12 @@ def _run_row(team: Team, run: DeletionRun) -> Row:
     temporal_url = (
         f"{settings.TEMPORAL_UI_HOST}/namespaces/{settings.TEMPORAL_NAMESPACE}/workflows/{run.workflow_id}/{run.run_id}"
     )
-    certificate = (
-        Cell(text="View", href=_runs_url(team, certificate=run.workflow_id))
-        if run.status == "COMPLETED"
-        else Cell(text="-", muted=True)
-    )
+    completed = run.status == "COMPLETED"
+    certificate_url = reverse("admin:posthog_team_deletion_certificate", args=[team.pk, run.workflow_id])
+    download_url = reverse("admin_console_tool_download", kwargs={"tool_key": TOOL_KEY, "download_key": "certificate"})
+    query = urlencode({"team": team.pk, "certificate": run.workflow_id})
+    certificate = Cell(text="View", href=certificate_url) if completed else Cell(text="-", muted=True)
+    download = Cell(text="JSON", href=f"{download_url}?{query}") if completed else Cell(text="-", muted=True)
     return Row(
         cells=(
             Cell(text=run.workflow_id, href=temporal_url, mono=True),
@@ -341,66 +334,8 @@ def _run_row(team: Team, run: DeletionRun) -> Row:
             Cell(text=run.started.strftime("%Y-%m-%d %H:%M:%S") if run.started else "-", muted=run.started is None),
             Cell(text=run.closed.strftime("%Y-%m-%d %H:%M:%S") if run.closed else "-", muted=run.closed is None),
             certificate,
+            download,
         )
-    )
-
-
-def _reference(workflow_id: str) -> str:
-    # The workflow ID is delete-recordings-{team_id}-{uuid}, and the certificate names only the UUID.
-    parts = workflow_id.split("-")[-5:]
-    return "-".join(parts) if len(parts) == 5 else workflow_id
-
-
-def _timestamp(value: object) -> str:
-    if isinstance(value, str):
-        value = datetime.fromisoformat(value)
-    return value.strftime("%Y-%m-%d %H:%M:%S %Z").strip() if isinstance(value, datetime) else "-"
-
-
-def _fact_row(label: str, value: str) -> Row:
-    return Row(cells=(Cell(text=label, muted=True), Cell(text=value)))
-
-
-def _certificate_rows(team: Team, certificate: dict[str, Any]) -> tuple[Row | GroupRow, ...]:
-    deletion_type = DELETION_TYPES.get(certificate.get("workflow_type", ""), str(certificate.get("workflow_type")))
-    deletion_type = deletion_type.format(team_id=certificate.get("team_id"))
-    if certificate.get("workflow_type") == "session_ids" and certificate.get("source_filename"):
-        deletion_type += f" ({certificate['source_filename']})"
-    scope = [_fact_row("Deletion type", deletion_type)]
-    if certificate.get("reason"):
-        scope.append(_fact_row("Reason", certificate["reason"]))
-    if certificate.get("distinct_ids"):
-        scope.append(_fact_row("Person IDs", ", ".join(certificate["distinct_ids"])))
-    if certificate.get("query"):
-        scope.append(_fact_row("Filter criteria", describe_query(certificate["query"])))
-    return (
-        GroupRow(text="Data subject details"),
-        _fact_row("Organization", team.organization.name),
-        _fact_row("Customer ID", str(team.organization_id)),
-        GroupRow(text="Scope of deletion"),
-        *scope,
-        GroupRow(text="Summary"),
-        _fact_row("Recordings found", str(certificate.get("total_recordings_found", "-"))),
-        _fact_row("Deleted", str(certificate.get("total_deleted", "-"))),
-        _fact_row("Failed", str(certificate.get("total_failed", "-"))),
-        GroupRow(text="Method of deletion"),
-        _fact_row(
-            "Cryptographic erasure",
-            "Encryption keys for the affected session recordings have been permanently destroyed, rendering the "
-            "encrypted recording data unrecoverable.",
-        ),
-        _fact_row(
-            "Deletion from primary database",
-            "Session recording metadata has been permanently deleted from the primary database.",
-        ),
-        GroupRow(text="Timeline"),
-        _fact_row("Deletion started", _timestamp(certificate.get("started_at"))),
-        _fact_row("Deletion completed", _timestamp(certificate.get("completed_at"))),
-        _fact_row("Certificate generated", _timestamp(timezone.now())),
-        GroupRow(text="Data protection officer"),
-        _fact_row("Name", "Charles Cook, VP"),
-        _fact_row("Company", "PostHog, Inc."),
-        _fact_row("Email", "privacy@posthog.com"),
     )
 
 
@@ -430,9 +365,6 @@ class RecordingDeletionsTool(ConsoleTool):
                     ),
                 )
             )
-        workflow_id = request.GET.get("certificate")
-        if workflow_id:
-            return self._certificate_page(request, team, workflow_id)
         runs = self.live(request, "runs")
         assert runs is not None
         team_url = reverse("admin_console_team", kwargs={"pk": team.pk})
@@ -446,31 +378,6 @@ class RecordingDeletionsTool(ConsoleTool):
                 runs,
             )
         )
-
-    def _certificate_page(self, request: HttpRequest, team: Team, workflow_id: str) -> Page:
-        back = Notice(
-            text=f"Certificate of data deletion. Reference: {_reference(workflow_id)}.",
-            link_text="All deletions of this team",
-            href=_runs_url(team),
-        )
-        certificate, error = RecordingDeletions.certificate(team.pk, workflow_id)
-        if certificate is None:
-            return Page(blocks=(back, Notice(text=error or "This run has no certificate.")))
-        download_url = reverse(
-            "admin_console_tool_download", kwargs={"tool_key": TOOL_KEY, "download_key": "certificate"}
-        )
-        blocks: list[Notice | Table] = [
-            back,
-            Notice(
-                text="Print this page to save it as a PDF, or download the certificate as",
-                link_text="JSON",
-                href=f"{download_url}?{urlencode({'team': team.pk, 'certificate': workflow_id})}",
-            ),
-        ]
-        if certificate.get("dry_run"):
-            blocks.append(Notice(text="Dry run: this run deleted nothing."))
-        blocks.append(Table(columns=("Item", "Detail"), rows=_certificate_rows(team, certificate)))
-        return Page(blocks=tuple(blocks))
 
     def live(self, request: HttpRequest, key: str) -> Live | None:
         team = self._team(request)
@@ -489,7 +396,7 @@ class RecordingDeletionsTool(ConsoleTool):
         return Live(
             key="runs",
             block=Table(
-                columns=("Workflow", "Type", "Status", "Started", "Finished", "Certificate"),
+                columns=("Workflow", "Type", "Status", "Started", "Finished", "Certificate", "Download"),
                 rows=tuple(_run_row(team, run) for run in runs),
                 empty_text="No deletions have run for this team yet.",
             ),

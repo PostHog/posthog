@@ -36,7 +36,7 @@ from posthog.models.team.team import Team
 from posthog.models.tophog.queries import TopHogFilterOptions
 from posthog.models.user import User
 from posthog.personhog_client.fake_client import get_active_fake
-from posthog.temporal.session_replay.delete_recordings.staff import RecordingDeletions
+from posthog.temporal.session_replay.delete_recordings.staff import DeletionRun, RecordingDeletions
 from posthog.test.persons import create_group_type_mapping, update_group_type_mapping
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
@@ -1074,9 +1074,22 @@ class TestAdminConsoleViews(BaseTest):
         if upload is not None:
             assert store_chunks.call_args.args[1] == ["session-a", "session-b"]
 
+    @patch.object(RecordingDeletions, "recent")
     @patch.object(RecordingDeletions, "certificate")
-    def test_recording_deletion_certificates_show_and_download_from_the_old_urls(self, certificate: MagicMock) -> None:
+    def test_a_completed_recording_deletion_links_to_its_printable_certificate_and_json(
+        self, certificate: MagicMock, recent: MagicMock
+    ) -> None:
         workflow_id = f"delete-recordings-{self.team.pk}-0b6c3c5e-6f5a-4a4e-9a51-3c3b2f1c9d10"
+        recent.return_value = [
+            DeletionRun(
+                workflow_id=workflow_id,
+                run_id="run-1",
+                workflow_type="delete-recordings-with-query",
+                status="COMPLETED",
+                started=datetime(2026, 11, 1, 10, 0, tzinfo=UTC),
+                closed=datetime(2026, 11, 1, 10, 5, tzinfo=UTC),
+            )
+        ]
         certificate.return_value = (
             {
                 "workflow_type": "query",
@@ -1093,18 +1106,21 @@ class TestAdminConsoleViews(BaseTest):
             },
             None,
         )
-        old = f"/admin/posthog/team/{self.team.pk}/delete-recordings/certificate/{workflow_id}/"
+        certificate_url = f"/admin/posthog/team/{self.team.pk}/delete-recordings/certificate/{workflow_id}/"
+        download_url = f"/admin/console/tools/recording-deletions/download/certificate/?team={self.team.pk}&certificate={workflow_id}"
 
-        page = self.client.get(old, follow=True)
-        download = self.client.get(f"{old}download/", follow=True)
+        runs = self.client.get("/admin/console/tools/recording-deletions/", {"team": self.team.pk}).content.decode()
+        printable = self.client.get(certificate_url)
+        download = self.client.get(download_url)
 
-        assert page.redirect_chain == [
-            (f"/admin/console/tools/recording-deletions/?team={self.team.pk}&certificate={workflow_id}", 302)
-        ]
-        content = page.content.decode()
+        assert certificate_url in runs
+        assert download_url.replace("&", "&amp;") in runs
+        assert printable.status_code == 200
+        content = printable.content.decode()
+        assert "Certificate of Data Deletion" in content
         assert "Reference: 0b6c3c5e-6f5a-4a4e-9a51-3c3b2f1c9d10" in content
-        assert "Dry run: this run deleted nothing" in content
         assert "date from: -30d, duration &lt; 5s" in content
+        assert f"/admin/console/tools/recording-deletions/?team={self.team.pk}" in content
         assert download.status_code == 200
         assert download["Content-Disposition"] == f'attachment; filename="deletion-certificate-{workflow_id}.json"'
         assert download.json()["total_recordings_found"] == 3

@@ -121,19 +121,6 @@ urlpatterns = [
         MovedToConsole.page_redirect("Recording deletion runs", "/admin/console/tools/recording-deletions/?team={pk}"),
     ),
     path(
-        "admin/posthog/team/<int:pk>/delete-recordings/certificate/<str:workflow_id>/",
-        MovedToConsole.page_redirect(
-            "Deletion certificates", "/admin/console/tools/recording-deletions/?team={pk}&certificate={workflow_id}"
-        ),
-    ),
-    path(
-        "admin/posthog/team/<int:pk>/delete-recordings/certificate/<str:workflow_id>/download/",
-        MovedToConsole.page_redirect(
-            "Deletion certificate downloads",
-            "/admin/console/tools/recording-deletions/download/certificate/?team={pk}&certificate={workflow_id}",
-        ),
-    ),
-    path(
         "admin/posthog/organization/bulk-deactivate/",
         MovedToConsole.page_redirect("Bulk deactivation", "/admin/console/tools/bulk-deactivate-organizations/"),
     ),
