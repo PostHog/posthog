@@ -21,6 +21,11 @@ from posthog.ingress.views import build_webhook_view
 from posthog.models.integration import Integration
 
 from products.knowledge_writer.backend.temporal.client import merge_check_workflow_id
+from products.knowledge_writer.backend.temporal.merge_workflow import (
+    MergeCheckInputs,
+    MergeCheckNotAdmitted,
+    check_merge,
+)
 from products.knowledge_writer.backend.temporal.reconcile_workflow import (
     COMMITS_PER_PAGE,
     RECONCILE_CATCH_UP_MAX_PAGES,
@@ -39,6 +44,7 @@ LINKED_INSTALLATION_ID = 1234
 START_MERGE_CHECK = "products.knowledge_writer.backend.temporal.client.start_merge_check"
 KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
 RECONCILE_MODULE = "products.knowledge_writer.backend.temporal.reconcile_workflow"
+MERGE_WORKFLOW_MODULE = "products.knowledge_writer.backend.temporal.merge_workflow"
 
 
 @pytest.fixture
@@ -76,9 +82,9 @@ def _merged_pull_request_delivery(
     is_merged: bool = True,
     repository: str = "PostHog/posthog",
     is_private: bool = False,
-    installation_id: int = LINKED_INSTALLATION_ID,
+    installation_id: int | None = LINKED_INSTALLATION_ID,
 ) -> dict[str, object]:
-    return {
+    delivery: dict[str, object] = {
         "action": action,
         "pull_request": {
             "number": PULL_REQUEST_NUMBER,
@@ -89,9 +95,11 @@ def _merged_pull_request_delivery(
             "merge_commit_sha": MERGE_COMMIT_SHA,
             "base": {"ref": "stack/parent-branch"},
         },
-        "installation": {"id": installation_id},
         "repository": {"full_name": repository, "default_branch": "master", "private": is_private},
     }
+    if installation_id is not None:
+        delivery["installation"] = {"id": installation_id}
+    return delivery
 
 
 def _post_signed(view, payload: dict[str, object], *, delivery_id: str = "delivery-1"):
@@ -118,23 +126,24 @@ def _post_signed(view, payload: dict[str, object], *, delivery_id: str = "delive
         pytest.param(_merged_pull_request_delivery(action="synchronize"), False, id="not_closed"),
         pytest.param(_merged_pull_request_delivery(is_private=True), False, id="private_repository"),
         pytest.param(_merged_pull_request_delivery(repository="PostHog/posthog.com"), False, id="unlisted_repository"),
-        pytest.param(_merged_pull_request_delivery(installation_id=9999), False, id="installation_not_linked"),
+        pytest.param(_merged_pull_request_delivery(installation_id=None), False, id="no_installation"),
     ],
 )
 def test_a_signed_merged_pull_request_starts_the_merge_check(
     team, writer_env, github_webhook_view, delivery, starts_merge_check
 ) -> None:
     with (
-        patch(KNOWLEDGE_WRITER_ENABLED, return_value=True),
+        patch(KNOWLEDGE_WRITER_ENABLED, return_value=True) as is_writer_enabled,
         patch(START_MERGE_CHECK) as start_merge_check,
     ):
         response = _post_signed(github_webhook_view, delivery)
 
     assert response.status_code == 202
+    is_writer_enabled.assert_not_called()
     if not starts_merge_check:
         start_merge_check.assert_not_called()
         return
-    start_merge_check.assert_called_once_with(LANDED, team_id=team.id)
+    start_merge_check.assert_called_once_with(LANDED, team_id=team.id, installation_id=str(LINKED_INSTALLATION_ID))
 
 
 @pytest.mark.django_db
@@ -146,7 +155,43 @@ def test_a_redelivered_merged_pull_request_starts_one_merge_check(team, writer_e
         for _ in range(2):
             assert _post_signed(github_webhook_view, _merged_pull_request_delivery()).status_code == 202
 
-    start_merge_check.assert_called_once_with(LANDED, team_id=team.id)
+    start_merge_check.assert_called_once_with(LANDED, team_id=team.id, installation_id=str(LINKED_INSTALLATION_ID))
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "installation_id, is_writer_enabled, reads_github",
+    [
+        pytest.param(str(LINKED_INSTALLATION_ID), True, True, id="linked_installation"),
+        pytest.param("9999", True, False, id="installation_not_linked"),
+        pytest.param(str(LINKED_INSTALLATION_ID), False, False, id="writer_disabled"),
+        pytest.param(None, False, True, id="started_by_the_reconcile"),
+    ],
+)
+def test_a_merge_check_from_a_delivery_reads_github_only_for_the_linked_writer(
+    team, writer_env, installation_id, is_writer_enabled, reads_github
+) -> None:
+    inputs = MergeCheckInputs(
+        commit_sha=MERGE_COMMIT_SHA,
+        team_id=team.id,
+        pull_request_number=PULL_REQUEST_NUMBER,
+        installation_id=installation_id,
+    )
+    with (
+        patch(KNOWLEDGE_WRITER_ENABLED, return_value=is_writer_enabled),
+        patch(f"{MERGE_WORKFLOW_MODULE}.docs_github", return_value=None) as docs_github,
+        patch(f"{MERGE_WORKFLOW_MODULE}.intake.submit"),
+    ):
+        check_merge(inputs, is_final_attempt=True)
+
+    assert docs_github.called == reads_github
+
+
+@pytest.mark.django_db
+def test_a_refused_delivery_is_retried_before_its_final_attempt(team, writer_env) -> None:
+    inputs = MergeCheckInputs(commit_sha=MERGE_COMMIT_SHA, team_id=team.id, installation_id=str(LINKED_INSTALLATION_ID))
+    with patch(KNOWLEDGE_WRITER_ENABLED, return_value=False), pytest.raises(MergeCheckNotAdmitted):
+        check_merge(inputs, is_final_attempt=False)
 
 
 @pytest.mark.django_db

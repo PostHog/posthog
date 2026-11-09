@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import timedelta
 
+from django.db import DatabaseError
+
 import httpx
 import requests
 from anthropic import APIError
@@ -10,6 +12,7 @@ from temporalio.common import RetryPolicy
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
+from posthog.github.installations import installation_integrations
 from posthog.models.integration import GitHubIntegrationError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -23,6 +26,7 @@ from ..facade.contracts import AdapterVerdict
 from ..facade.enums import DocsRequestSource
 from ..logic import intake
 from ..logic.pull_requests import docs_github
+from ..settings import writer_settings
 
 MERGE_CHECK_FAILED_REASON = "merge_check_failed"
 MERGE_CHECK_ATTEMPTS = 3
@@ -45,6 +49,18 @@ class MergeCheckInputs:
     team_id: int
     repository: str = LEGACY_MERGE_CHECK_REPOSITORY
     pull_request_number: int | None = None
+    installation_id: str | None = None
+
+
+class MergeCheckNotAdmitted(Exception):
+    pass
+
+
+def is_delivery_admitted(inputs: MergeCheckInputs, installation_id: str) -> bool:
+    writer = writer_settings()
+    if writer is None or writer.team_id != inputs.team_id:
+        return False
+    return any(integration.team_id == inputs.team_id for integration in installation_integrations(installation_id))
 
 
 def record_merge_check_failed(inputs: MergeCheckInputs) -> None:
@@ -59,6 +75,18 @@ def record_merge_check_failed(inputs: MergeCheckInputs) -> None:
 
 
 def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
+    try:
+        is_admitted = inputs.installation_id is None or is_delivery_admitted(inputs, inputs.installation_id)
+    except DatabaseError as error:
+        if not is_final_attempt:
+            raise
+        capture_exception(error, {"commit_sha": inputs.commit_sha})
+        record_merge_check_failed(inputs)
+        return
+    if not is_admitted and not is_final_attempt:
+        raise MergeCheckNotAdmitted(inputs.commit_sha)
+    if not is_admitted:
+        return
     github = docs_github(inputs.team_id, inputs.repository.split("/", 1)[0], priority=Priority.NORMAL)
     if github is None:
         record_merge_check_failed(inputs)
