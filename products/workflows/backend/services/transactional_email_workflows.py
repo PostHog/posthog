@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import BooleanField, ExpressionWrapper, F, Func, JSONField, Q, TextField, Value
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.scoping import with_team_scope
@@ -210,16 +211,41 @@ def _current_sender(flow: HogFlow) -> int | None:
     return email["config"]["inputs"]["email"]["value"]["from"].get("integrationId")
 
 
+def _step_config_text(key: str) -> Func:
+    return Func(F("_step_config"), Value(key), function="jsonb_extract_path_text", output_field=TextField())
+
+
 def get_transactional_email_workflow(*, team_id: int, hog_flow_id: UUID) -> TransactionalEmailWorkflow:
-    row = HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).values("status", "actions").first()
+    # Postgres picks out the step's category, so the email body in the step never leaves the database on a send.
+    row = (
+        HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id)
+        .alias(
+            _step_config=Func(
+                F("actions"),
+                Func(
+                    Value(f'$[*] ? (@.id == "{TRANSACTIONAL_EMAIL_ACTION_ID}").config'),
+                    template="%(expressions)s::jsonpath",
+                    output_field=TextField(),
+                ),
+                function="jsonb_path_query_first",
+                output_field=JSONField(),
+            )
+        )
+        .annotate(
+            _has_email_step=ExpressionWrapper(Q(_step_config__isnull=False), output_field=BooleanField()),
+            _category_type=_step_config_text("message_category_type"),
+            _category_id=_step_config_text("message_category_id"),
+        )
+        .values("status", "_has_email_step", "_category_type", "_category_id")
+        .first()
+    )
     if row is None:
         raise WorkflowNotFound()
-    config = (_email_step(row["actions"] or []) or {}).get("config")
     return TransactionalEmailWorkflow(
         status=row["status"],
-        has_email_step=config is not None,
-        message_category_type=(config or {}).get("message_category_type"),
-        message_category_id=(config or {}).get("message_category_id"),
+        has_email_step=row["_has_email_step"],
+        message_category_type=row["_category_type"],
+        message_category_id=row["_category_id"],
     )
 
 
