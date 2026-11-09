@@ -10,6 +10,7 @@ from django.test import RequestFactory
 from parameterized import parameterized
 
 from posthog.admin.admins.oauth_admin import OAuthApplicationAdmin
+from posthog.admin.console.oauth_tool import RevokeSessionsForm
 from posthog.models.oauth import OAuthApplication
 
 
@@ -223,7 +224,10 @@ class TestOAuthApplicationAdmin(BaseTest):
         plaintext = message.rsplit(": ", 1)[1]
         assert check_password(plaintext, app.client_secret)
 
-    def test_revoke_all_sessions_action_sends_the_picked_applications_to_the_console(self):
+    @parameterized.expand([("within_the_limit", 2, True), ("over_the_limit", 1, False)])
+    def test_revoke_all_sessions_action_sends_the_picked_applications_to_the_console(
+        self, _name: str, max_applications: int, expect_redirect: bool
+    ):
         apps = [
             OAuthApplication.objects.create(
                 name=f"Revoke action app {index}",
@@ -237,11 +241,20 @@ class TestOAuthApplicationAdmin(BaseTest):
             for index in range(2)
         ]
 
-        response = self.admin.revoke_all_sessions(
-            request=RequestFactory().post("/"),
-            queryset=OAuthApplication.objects.filter(id__in=[app.id for app in apps]),
-        )
+        with (
+            patch.object(RevokeSessionsForm, "MAX_APPLICATIONS", max_applications),
+            patch.object(self.admin, "message_user") as message_user,
+        ):
+            response = self.admin.revoke_all_sessions(
+                request=RequestFactory().post("/"),
+                queryset=OAuthApplication.objects.filter(id__in=[app.id for app in apps]),
+            )
 
+        if not expect_redirect:
+            self.assertIsNone(response)
+            self.assertIn("1 applications or fewer", message_user.call_args.args[1])
+            return
+        message_user.assert_not_called()
         location = urlsplit(response["Location"])
         self.assertEqual(location.path, "/admin/console/tools/oauth-sessions/revoke/")
         self.assertEqual(set(parse_qs(location.query)["application"]), {str(app.id) for app in apps})

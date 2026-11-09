@@ -117,10 +117,10 @@ def revoke_project_secret_api_key(request: HttpRequest, obj: Model, form: forms.
     if key is None:
         messages.error(request, "This key no longer exists.")
         return HttpResponse(status=404)
-    revoke_exposed_project_secret_api_key(key, _more_info(form))
-    # The key row is gone when it mirrored the team's legacy secret token, so the Django admin history has no row
-    # to hang the entry on. The audit log still has the operation.
-    if ProjectSecretAPIKey.objects.filter(pk=key.pk).exists():
+    was_legacy_mirror = revoke_exposed_project_secret_api_key(key, _more_info(form))
+    # A key that mirrored the team's legacy secret token is deleted, so the Django admin history has no row to hang
+    # the entry on. The audit log still has the operation.
+    if not was_legacy_mirror:
         _log_change(request, key, "Rolled key.")
     messages.success(request, "Project secret API key revoked and project admins notified.")
     return None

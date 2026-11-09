@@ -13,6 +13,7 @@ from django.utils.html import format_html
 from oauth2_provider.generators import generate_client_id, generate_client_secret
 from oauth2_provider.models import AbstractApplication
 
+from posthog.admin.console.oauth_tool import RevokeSessionsForm
 from posthog.api.oauth.cimd import is_cimd_client_id
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import PROVISIONING_CAPABILITIES, UNLIMITED_OVERRIDE, ProvisioningConfig
@@ -285,6 +286,13 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
     @admin.action(description="Revoke all sessions (force re-auth under current scopes)")
     def revoke_all_sessions(self, request, queryset):
         # The confirm step lives in PostHog Admin, which previews the applications and asks for a reason.
+        if queryset.count() > RevokeSessionsForm.MAX_APPLICATIONS:
+            self.message_user(
+                request,
+                f"Pick {RevokeSessionsForm.MAX_APPLICATIONS} applications or fewer to revoke their sessions.",
+                level=messages.ERROR,
+            )
+            return None
         query = urlencode(
             [("application", str(application_id)) for application_id in queryset.values_list("id", flat=True)]
         )
