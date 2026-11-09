@@ -40,8 +40,14 @@ export function repoUrl(file: SourceFile): string | null {
     return file.host === 'other' ? null : `https://${file.host}.com/${file.repo}`
 }
 
-/** A commit SHA is shortened the way the code hosts show it. */
+/**
+ * A commit SHA is shortened the way the code hosts show it. HEAD shows nothing: a link PostHog builds points at
+ * HEAD, the default branch, which needs no label.
+ */
 export function displayRef(ref: string): string {
+    if (ref === 'HEAD') {
+        return ''
+    }
     return /^[0-9a-f]{7,40}$/i.test(ref) ? ref.slice(0, 7) : ref
 }
 

@@ -46,6 +46,7 @@ describe('sourceFile', () => {
         ['4f2c9e1a7b3d5f6e8a9b0c1d2e3f4a5b6c7d8e9f', '4f2c9e1'],
         ['4f2c9e1a7b', '4f2c9e1'],
         ['release-2026', 'release-2026'],
+        ['HEAD', ''],
     ])('shows the ref %s as %s', (ref, shown) => {
         expect(displayRef(ref)).toEqual(shown)
     })

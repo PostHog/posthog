@@ -1,48 +1,31 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCode, IconCopy, IconGithub, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCode, IconCopy, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { codeEmailLogic } from './codeEmailLogic'
-import { SourceCandidatePicker } from './SourceCandidatePicker'
+import { DetectedSourceTag } from './DetectedSourceTag'
+import { FindInGitHubButton } from './FindInGitHubButton'
+import { SourceEditor } from './SourceEditor'
 import { displayRef, parseSourceFile, repoUrl } from './sourceFile'
-import { SourceFileForm } from './SourceFileForm'
 
 /** The file in your repository that sends this email, or a way to link it. */
 export function SourceRow(): JSX.Element | null {
-    const {
-        codeEmail,
-        saving,
-        sourceFormOpen,
-        sourcePickerOpen,
-        editDisabledReason,
-        sourceDetectionEnabled,
-        canFindInGitHub,
-        sourceCandidatesLoading,
-    } = useValues(codeEmailLogic)
-    const { linkSourceFile, setSourceFormOpen, findSourceCandidates } = useActions(codeEmailLogic)
+    const { codeEmail, sourceFormOpen, editDisabledReason } = useValues(codeEmailLogic)
+    const { setSourceFormOpen } = useActions(codeEmailLogic)
     if (!codeEmail) {
         return null
     }
     const file = codeEmail.source_url ? parseSourceFile(codeEmail.source_url) : null
-    const repo = file ? repoUrl(file) : null
-    // A link PostHog builds points at HEAD, the default branch, which needs no label.
-    const ref = file?.ref === 'HEAD' ? '' : file?.ref
-    const detected = sourceDetectionEnabled && !!file && codeEmail.source_origin === 'detected'
+    const [repo, ref] = file ? [repoUrl(file), displayRef(file.ref)] : [null, '']
     return (
         <LemonDropdown
             visible={sourceFormOpen && !editDisabledReason}
             onClickOutside={() => setSourceFormOpen(false)}
             placement="bottom-start"
-            overlay={
-                sourcePickerOpen ? (
-                    <SourceCandidatePicker />
-                ) : (
-                    <SourceFileForm initialUrl={codeEmail.source_url} saving={saving} onSave={linkSourceFile} />
-                )
-            }
+            overlay={<SourceEditor />}
         >
             <div className="flex flex-wrap items-center gap-1 text-secondary min-w-0" data-attr="code-email-source-row">
                 <IconCode className="shrink-0" />
@@ -59,20 +42,7 @@ export function SourceRow(): JSX.Element | null {
                         >
                             Link source file
                         </LemonButton>
-                        {canFindInGitHub ? (
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                icon={<IconGithub />}
-                                onClick={findSourceCandidates}
-                                disabledReason={
-                                    editDisabledReason ?? (sourceCandidatesLoading ? 'Searching GitHub' : undefined)
-                                }
-                                data-attr="code-email-find-source-in-github"
-                            >
-                                Find in GitHub
-                            </LemonButton>
-                        ) : null}
+                        <FindInGitHubButton />
                     </>
                 ) : repo ? (
                     <>
@@ -88,27 +58,10 @@ export function SourceRow(): JSX.Element | null {
                         </span>
                         {ref ? (
                             <span className="whitespace-nowrap">
-                                on <span className="font-mono">{displayRef(ref)}</span>
+                                on <span className="font-mono">{ref}</span>
                             </span>
                         ) : null}
-                        {detected ? (
-                            <>
-                                <Tooltip title="PostHog found this file by searching your GitHub repos for the key.">
-                                    <LemonTag type="muted" icon={<IconGithub />}>
-                                        Detected from GitHub
-                                    </LemonTag>
-                                </Tooltip>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="tertiary"
-                                    onClick={() => setSourceFormOpen(!sourceFormOpen)}
-                                    disabledReason={editDisabledReason ?? undefined}
-                                    data-attr="code-email-change-detected-source-file"
-                                >
-                                    Change
-                                </LemonButton>
-                            </>
-                        ) : null}
+                        <DetectedSourceTag />
                     </>
                 ) : (
                     <span className="flex items-center gap-1 min-w-0">
