@@ -1170,6 +1170,10 @@ def _patch_organization_usage_jsonb(
         batch.patch(organization, ops)
         return
 
+    Organization.objects.filter(id=organization.id).update(usage=_usage_patch_expression(ops))
+
+
+def _usage_patch_expression(ops: Sequence[tuple[list[str], Any]]) -> RawSQL:
     sql_expr = "usage"
     params: list[Any] = []
     for path, value in ops:
@@ -1182,7 +1186,7 @@ def _patch_organization_usage_jsonb(
             params.append(json.dumps(value))
 
     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (sql_expr is built from fixed jsonb_set/#- templates; all dynamic values flow through %s params)
-    Organization.objects.filter(id=organization.id).update(usage=RawSQL(sql_expr, params))
+    return RawSQL(sql_expr, params)
 
 
 def _patch_todays_usage(
