@@ -60711,11 +60711,25 @@ export namespace Schemas {
      */
     export type InsightPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
 
+    /**
+     * Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API.
+     */
+    export type InsightPlatformAlertSourceConfigConfig = { [key: string]: unknown } | null;
+
     export interface InsightPlatformAlertSourceConfig {
       /** The insight the alert checks. It cannot change through this API. */
       insight_id: number;
       /** The bound the insight's value is checked against. */
       condition: InsightPlatformAlertCondition;
+      /** Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API. */
+      config?: InsightPlatformAlertSourceConfigConfig;
+      /** Whether checks skip Saturdays and Sundays. It can't change through this API. */
+      skip_weekend?: boolean;
+      /**
+         * How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API.
+         * @minimum 0
+         */
+      evaluation_delay_intervals?: number;
     }
 
     /**
