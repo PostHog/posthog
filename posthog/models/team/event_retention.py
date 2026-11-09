@@ -142,11 +142,15 @@ def events_retention_periods(teams: Sequence[Team]) -> dict[int, int]:
     return retention_periods([team_plan(team) for team in teams])
 
 
-def retention_periods(plans: Sequence[TeamPlan]) -> dict[int, int]:
+def retention_periods(
+    plans: Sequence[TeamPlan], standard_organization_ids: Collection[UUID] | None = None
+) -> dict[int, int]:
     setting_months = {
         item.team_id: item.months for item in effective_events_retention(team_ids=[p.team_id for p in plans])
     }
-    defaults = default_periods([plan for plan in plans if plan.team_id not in setting_months])
+    defaults = default_periods(
+        [plan for plan in plans if plan.team_id not in setting_months], standard_organization_ids
+    )
     return {
         plan.team_id: min(plan.plan_months, setting_months[plan.team_id])
         if plan.team_id in setting_months
@@ -155,9 +159,14 @@ def retention_periods(plans: Sequence[TeamPlan]) -> dict[int, int]:
     }
 
 
-def default_periods(teams: Sequence[TeamPlan]) -> dict[int, int]:
+def default_periods(
+    teams: Sequence[TeamPlan], standard_organization_ids: Collection[UUID] | None = None
+) -> dict[int, int]:
     shortened = {team.organization_id for team in teams if STANDARD_DEFAULT_PERIOD_MONTHS < team.plan_months}
-    standard = _standard_retention_organization_ids(shortened) if shortened else set()
+    if standard_organization_ids is not None:
+        standard = shortened.intersection(standard_organization_ids)
+    else:
+        standard = _standard_retention_organization_ids(shortened) if shortened else set()
     min_months = _minimum_months(standard) if standard else {}
     return {
         team.team_id: default_period(
@@ -220,6 +229,11 @@ def parse_events_feature_to_months(retention_feature: ProductFeature | None) -> 
 
 def organization_events_retention_months(organization: Organization) -> int:
     return parse_events_feature_to_months(organization.get_available_feature(EVENTS_DATA_RETENTION_FEATURE))
+
+
+def billed_events_retention_months(organization: Organization) -> int | None:
+    """The plan period, or None before billing first sends the organization's features."""
+    return organization_events_retention_months(organization) if organization.available_product_features else None
 
 
 def has_standard_retention(organization: Organization) -> bool:

@@ -158,6 +158,8 @@ from products.signals.backend.scout_report.judge import (
 from products.signals.backend.slack_formatting import strip_chart_references
 from products.signals.backend.source_issues import parse_source_issue_url
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
+from products.signals.backend.task_profiles import REPO_SELECTION_WITHOUT_REPORT
+from products.signals.backend.trial.direct_reports import funded_report, funded_report_sync
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
@@ -1596,10 +1598,6 @@ async def _resolve_report_repository(
         get_or_create_signals_sandbox_env,
         resolve_user_id_for_team,
     )
-    from products.signals.backend.temporal.agentic.select_repository import (
-        GITHUB_ONLY_DOMAINS,  # noqa: PLC0415 — break worker-boot import cycle
-    )
-    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — break worker-boot import cycle
 
     # A team with no GitHub integration can't resolve an acting user — `resolve_user_id_for_team`
     # raises. Repo selection / autostart is optional, so treat that as "no repo" (the report still
@@ -1615,10 +1613,7 @@ async def _resolve_report_repository(
         return RepoSelectionResult(repository=None, reason="No GitHub integration; report lands without a draft PR.")
 
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-        team_id,
-        SIGNALS_REPO_DISCOVERY_ENV_NAME,
-        tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
-        allowed_domains=GITHUB_ONLY_DOMAINS,
+        team_id, SIGNALS_REPO_DISCOVERY_ENV_NAME, REPO_SELECTION_WITHOUT_REPORT
     )
     return await select_repository_for_team(
         team_id=team_id,
@@ -2283,114 +2278,118 @@ async def emit_report(
 
     await database_sync_to_async(_assert_emit_link_targets_live, thread_sensitive=False)(team, built_links)
 
-    attribution = await database_sync_to_async(author.attribution, thread_sensitive=False)()
-    judgement = await judge_scout_report(
-        team_id=team.id,
-        title=title,
-        summary=summary,
-        signals=signals,
-        actionability=actionability_assessment,
-        charts=chart_contents,
-        metrics=metric_contents,
-        suggested_prompts=prompt_contents,
-        reviewer_reasons=_reviewer_reasons(reviewers),
-        link_reasons=_link_reasons(built_links),
-        tags=built_tags,
-    )
-    surfaced = _surfaced(judgement.status)
-    repo_selection = (
-        await _resolve_report_repository(
+    async with funded_report(
+        team=team, run_id=run.task_run_id if run else None, emission_key=emit_key
+    ) as funded_report_id:
+        attribution = await database_sync_to_async(author.attribution, thread_sensitive=False)()
+        judgement = await judge_scout_report(
             team_id=team.id,
-            repository=repository,
-            title=title,
-            summary=summary,
-            evidence=evidence,
-            wants_full_selection=trial_store is None
-            and author.user_id is None
-            and _wants_repo_selection(repository, priority_assessment, reviewers),
-        )
-        if surfaced
-        else None
-    )
-    if surfaced:
-        repo_selection = await database_sync_to_async(_with_scout_research_context, thread_sensitive=False)(
-            team, run, repo_selection
-        )
-    if surfaced and reviewers is not None:
-        # Re-stamp owner provenance from the live owner set after the judge wait (see
-        # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
-        reviewers = await database_sync_to_async(_stamp_owner_provenance, thread_sensitive=False)(
-            team, reviewers, skill_name=author.skill_name
-        )
-    if trial_store is not None:
-        return await database_sync_to_async(_capture_trial_report, thread_sensitive=False)(
-            store=trial_store,
             title=title,
             summary=summary,
             signals=signals,
-            judgement=judgement,
-            repo_selection=repo_selection,
-            repository_input=repository,
-            skipped_repository_selection=surfaced
-            and repository is None
-            and _wants_repo_selection(repository, priority_assessment, reviewers),
-            priority=priority_assessment,
-            reviewers=reviewers,
+            actionability=actionability_assessment,
             charts=chart_contents,
             metrics=metric_contents,
             suggested_prompts=prompt_contents,
-            emit_key=emit_key,
+            reviewer_reasons=_reviewer_reasons(reviewers),
+            link_reasons=_link_reasons(built_links),
+            tags=built_tags,
         )
-    try:
-        persisted = await database_sync_to_async(create_scout_report, thread_sensitive=False)(
-            team_id=team.id,
-            title=title,
-            summary=summary,
-            signals=signals,
-            attribution=attribution,
-            status=judgement.status,
-            safety=judgement.safety,
-            actionability=judgement.actionability,
-            repo_selection=repo_selection,
-            priority=priority_assessment if surfaced else None,
-            suggested_reviewers=reviewers if surfaced else None,
-            charts=chart_contents,
-            metrics=metric_contents,
-            # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
-            # is still reachable from the Dismissed view, where a click would hand the judge-rejected
-            # wording to an action-capable agent run.
-            suggested_prompts=prompt_contents if judgement.safety.choice else (),
-            # Same reason as the prompts: an unsafe report must not steer another report's autostart.
-            links=built_links if judgement.safety.choice else (),
-            # Same reason: an unsafe report must not capture the issue's signals or comment on it.
-            source_issues=built_source_issues if judgement.safety.choice else (),
-            # Same reason as the prompts: other report scouts read the team's tags in their prompts.
-            tags=built_tags if judgement.safety.choice else (),
-            # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
-            # otherwise become semantic-search / matching context despite never surfacing.
-            emit_signals=judgement.safety.choice,
-            run=author.scout_run,
-            idempotency_key=emit_key,
-            created_by_id=author.user_id,
-            proposed_reviewer_count=len(suggested_reviewers or []),
-            reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
-        )
-    except ScoutReportAlreadyEmittedError as already_emitted:
-        # The retry arrived while this call was still judging, so both reached the insert. The winner's
-        # report is the answer, and the Slack delivery and autostart below are its business, not ours.
-        return await finish(_replay_result(already_emitted.existing))
-    if surfaced:
-        if author.scout_run is not None:
-            await database_sync_to_async(queue_configured_scout_slack_delivery, thread_sensitive=False)(
-                run_id=author.scout_run.id,
-                output_type="report",
-                output_id=persisted.report_id,
-                # A report is emitted once, so its id is the natural idempotency key (mirrors
-                # findings using the emission id); edits keep per-delivery ids since each notifies.
-                delivery_id=persisted.report_id,
+        surfaced = _surfaced(judgement.status)
+        repo_selection = (
+            await _resolve_report_repository(
+                team_id=team.id,
+                repository=repository,
+                title=title,
+                summary=summary,
+                evidence=evidence,
+                wants_full_selection=trial_store is None
+                and author.user_id is None
+                and _wants_repo_selection(repository, priority_assessment, reviewers),
             )
-        await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
-    return await finish(_emit_result(persisted.report_id, judgement))
+            if surfaced
+            else None
+        )
+        if surfaced:
+            repo_selection = await database_sync_to_async(_with_scout_research_context, thread_sensitive=False)(
+                team, run, repo_selection
+            )
+        if surfaced and reviewers is not None:
+            # Re-stamp owner provenance from the live owner set after the judge wait (see
+            # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
+            reviewers = await database_sync_to_async(_stamp_owner_provenance, thread_sensitive=False)(
+                team, reviewers, skill_name=author.skill_name
+            )
+        if trial_store is not None:
+            return await database_sync_to_async(_capture_trial_report, thread_sensitive=False)(
+                store=trial_store,
+                title=title,
+                summary=summary,
+                signals=signals,
+                judgement=judgement,
+                repo_selection=repo_selection,
+                repository_input=repository,
+                skipped_repository_selection=surfaced
+                and repository is None
+                and _wants_repo_selection(repository, priority_assessment, reviewers),
+                priority=priority_assessment,
+                reviewers=reviewers,
+                charts=chart_contents,
+                metrics=metric_contents,
+                suggested_prompts=prompt_contents,
+                emit_key=emit_key,
+            )
+        try:
+            persisted = await database_sync_to_async(create_scout_report, thread_sensitive=False)(
+                team_id=team.id,
+                title=title,
+                summary=summary,
+                signals=signals,
+                attribution=attribution,
+                status=judgement.status,
+                safety=judgement.safety,
+                actionability=judgement.actionability,
+                repo_selection=repo_selection,
+                priority=priority_assessment if surfaced else None,
+                suggested_reviewers=reviewers if surfaced else None,
+                charts=chart_contents,
+                metrics=metric_contents,
+                # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
+                # is still reachable from the Dismissed view, where a click would hand the judge-rejected
+                # wording to an action-capable agent run.
+                suggested_prompts=prompt_contents if judgement.safety.choice else (),
+                # Same reason as the prompts: an unsafe report must not steer another report's autostart.
+                links=built_links if judgement.safety.choice else (),
+                # Same reason: an unsafe report must not capture the issue's signals or comment on it.
+                source_issues=built_source_issues if judgement.safety.choice else (),
+                # Same reason as the prompts: other report scouts read the team's tags in their prompts.
+                tags=built_tags if judgement.safety.choice else (),
+                # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
+                # otherwise become semantic-search / matching context despite never surfacing.
+                emit_signals=judgement.safety.choice,
+                run=author.scout_run,
+                idempotency_key=emit_key,
+                funded_report_id=funded_report_id,
+                created_by_id=author.user_id,
+                proposed_reviewer_count=len(suggested_reviewers or []),
+                reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
+            )
+        except ScoutReportAlreadyEmittedError as already_emitted:
+            # The retry arrived while this call was still judging, so both reached the insert. The winner's
+            # report is the answer, and the Slack delivery and autostart below are its business, not ours.
+            return await finish(_replay_result(already_emitted.existing))
+        if surfaced:
+            if author.scout_run is not None:
+                await database_sync_to_async(queue_configured_scout_slack_delivery, thread_sensitive=False)(
+                    run_id=author.scout_run.id,
+                    output_type="report",
+                    output_id=persisted.report_id,
+                    # A report is emitted once, so its id is the natural idempotency key (mirrors
+                    # findings using the emission id); edits keep per-delivery ids since each notifies.
+                    delivery_id=persisted.report_id,
+                )
+            await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
+        return await finish(_emit_result(persisted.report_id, judgement))
 
 
 @_private_report_gateway
@@ -2494,107 +2493,111 @@ def emit_report_sync(
 
     _assert_emit_link_targets_live(team, built_links)
 
-    attribution = author.attribution()
-    judgement = async_to_sync(judge_scout_report)(
-        team_id=team.id,
-        title=title,
-        summary=summary,
-        signals=signals,
-        actionability=actionability_assessment,
-        charts=chart_contents,
-        metrics=metric_contents,
-        suggested_prompts=prompt_contents,
-        reviewer_reasons=_reviewer_reasons(reviewers),
-        link_reasons=_link_reasons(built_links),
-        tags=built_tags,
-    )
-    surfaced = _surfaced(judgement.status)
-    repo_selection = (
-        async_to_sync(_resolve_report_repository)(
+    with funded_report_sync(
+        team=team, run_id=run.task_run_id if run else None, emission_key=emit_key
+    ) as funded_report_id:
+        attribution = author.attribution()
+        judgement = async_to_sync(judge_scout_report)(
             team_id=team.id,
-            repository=repository,
-            title=title,
-            summary=summary,
-            evidence=evidence,
-            wants_full_selection=trial_store is None
-            and author.user_id is None
-            and _wants_repo_selection(repository, priority_assessment, reviewers),
-        )
-        if surfaced
-        else None
-    )
-    if surfaced:
-        repo_selection = _with_scout_research_context(team, run, repo_selection)
-    if surfaced and reviewers is not None:
-        # Re-stamp owner provenance from the live owner set after the judge wait (see
-        # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
-        reviewers = _stamp_owner_provenance(team, reviewers, skill_name=author.skill_name)
-    if trial_store is not None:
-        return _capture_trial_report(
-            store=trial_store,
             title=title,
             summary=summary,
             signals=signals,
-            judgement=judgement,
-            repo_selection=repo_selection,
-            repository_input=repository,
-            skipped_repository_selection=surfaced
-            and repository is None
-            and _wants_repo_selection(repository, priority_assessment, reviewers),
-            priority=priority_assessment,
-            reviewers=reviewers,
+            actionability=actionability_assessment,
             charts=chart_contents,
             metrics=metric_contents,
             suggested_prompts=prompt_contents,
-            emit_key=emit_key,
+            reviewer_reasons=_reviewer_reasons(reviewers),
+            link_reasons=_link_reasons(built_links),
+            tags=built_tags,
         )
-    try:
-        persisted = create_scout_report(
-            team_id=team.id,
-            title=title,
-            summary=summary,
-            signals=signals,
-            attribution=attribution,
-            status=judgement.status,
-            safety=judgement.safety,
-            actionability=judgement.actionability,
-            repo_selection=repo_selection,
-            priority=priority_assessment if surfaced else None,
-            suggested_reviewers=reviewers if surfaced else None,
-            charts=chart_contents,
-            metrics=metric_contents,
-            # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
-            # is still reachable from the Dismissed view, where a click would hand the judge-rejected
-            # wording to an action-capable agent run.
-            suggested_prompts=prompt_contents if judgement.safety.choice else (),
-            # Same reason as the prompts: an unsafe report must not steer another report's autostart.
-            links=built_links if judgement.safety.choice else (),
-            # Same reason: an unsafe report must not capture the issue's signals or comment on it.
-            source_issues=built_source_issues if judgement.safety.choice else (),
-            # Same reason as the prompts: other report scouts read the team's tags in their prompts.
-            tags=built_tags if judgement.safety.choice else (),
-            # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
-            # otherwise become semantic-search / matching context despite never surfacing.
-            emit_signals=judgement.safety.choice,
-            run=author.scout_run,
-            idempotency_key=emit_key,
-            created_by_id=author.user_id,
-            proposed_reviewer_count=len(suggested_reviewers or []),
-            reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
-        )
-    except ScoutReportAlreadyEmittedError as already_emitted:
-        # As in `emit_report`: a concurrent retry won the insert, so hand back its report.
-        return finish(_replay_result(already_emitted.existing))
-    if surfaced:
-        if author.scout_run is not None:
-            queue_configured_scout_slack_delivery(
-                run_id=author.scout_run.id,
-                output_type="report",
-                output_id=persisted.report_id,
-                delivery_id=persisted.report_id,
+        surfaced = _surfaced(judgement.status)
+        repo_selection = (
+            async_to_sync(_resolve_report_repository)(
+                team_id=team.id,
+                repository=repository,
+                title=title,
+                summary=summary,
+                evidence=evidence,
+                wants_full_selection=trial_store is None
+                and author.user_id is None
+                and _wants_repo_selection(repository, priority_assessment, reviewers),
             )
-        async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
-    return finish(_emit_result(persisted.report_id, judgement))
+            if surfaced
+            else None
+        )
+        if surfaced:
+            repo_selection = _with_scout_research_context(team, run, repo_selection)
+        if surfaced and reviewers is not None:
+            # Re-stamp owner provenance from the live owner set after the judge wait (see
+            # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
+            reviewers = _stamp_owner_provenance(team, reviewers, skill_name=author.skill_name)
+        if trial_store is not None:
+            return _capture_trial_report(
+                store=trial_store,
+                title=title,
+                summary=summary,
+                signals=signals,
+                judgement=judgement,
+                repo_selection=repo_selection,
+                repository_input=repository,
+                skipped_repository_selection=surfaced
+                and repository is None
+                and _wants_repo_selection(repository, priority_assessment, reviewers),
+                priority=priority_assessment,
+                reviewers=reviewers,
+                charts=chart_contents,
+                metrics=metric_contents,
+                suggested_prompts=prompt_contents,
+                emit_key=emit_key,
+            )
+        try:
+            persisted = create_scout_report(
+                team_id=team.id,
+                title=title,
+                summary=summary,
+                signals=signals,
+                attribution=attribution,
+                status=judgement.status,
+                safety=judgement.safety,
+                actionability=judgement.actionability,
+                repo_selection=repo_selection,
+                priority=priority_assessment if surfaced else None,
+                suggested_reviewers=reviewers if surfaced else None,
+                charts=chart_contents,
+                metrics=metric_contents,
+                # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
+                # is still reachable from the Dismissed view, where a click would hand the judge-rejected
+                # wording to an action-capable agent run.
+                suggested_prompts=prompt_contents if judgement.safety.choice else (),
+                # Same reason as the prompts: an unsafe report must not steer another report's autostart.
+                links=built_links if judgement.safety.choice else (),
+                # Same reason: an unsafe report must not capture the issue's signals or comment on it.
+                source_issues=built_source_issues if judgement.safety.choice else (),
+                # Same reason as the prompts: other report scouts read the team's tags in their prompts.
+                tags=built_tags if judgement.safety.choice else (),
+                # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
+                # otherwise become semantic-search / matching context despite never surfacing.
+                emit_signals=judgement.safety.choice,
+                run=author.scout_run,
+                idempotency_key=emit_key,
+                funded_report_id=funded_report_id,
+                created_by_id=author.user_id,
+                proposed_reviewer_count=len(suggested_reviewers or []),
+                reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
+            )
+        except ScoutReportAlreadyEmittedError as already_emitted:
+            # As in `emit_report`: a concurrent retry won the insert, so hand back its report.
+            return finish(_replay_result(already_emitted.existing))
+        if surfaced:
+            if author.scout_run is not None:
+                queue_configured_scout_slack_delivery(
+                    run_id=author.scout_run.id,
+                    output_type="report",
+                    output_id=persisted.report_id,
+                    delivery_id=persisted.report_id,
+                )
+            async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
+        return finish(_emit_result(persisted.report_id, judgement))
 
 
 def _do_edit_report(

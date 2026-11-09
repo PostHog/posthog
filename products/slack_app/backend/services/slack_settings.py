@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal, TypeVar
+from uuid import UUID
 
 from django.db import models, transaction
 from django.utils import timezone
@@ -212,6 +213,7 @@ class OnboardingState:
     started_at: str | None
     completed_at: str | None
     reminded_at: str | None
+    work_focus_at: str | None
     completed_reason: OnboardingCompletedReason | None
 
     @property
@@ -239,6 +241,7 @@ def parse_onboarding(stored: object) -> OnboardingState | None:
         started_at=stored.get("started_at") or None,
         completed_at=stored.get("completed_at") or None,
         reminded_at=stored.get("reminded_at") or None,
+        work_focus_at=stored.get("work_focus_at") or None,
         completed_reason=reason if reason in ("finished", "nothing_to_set_up") else None,
     )
 
@@ -272,6 +275,7 @@ def update_onboarding(
     forget_step: str | None = None,
     reset_thread: bool = False,
     reminded: bool = False,
+    work_focus_outcome: str | None = None,
     completed_reason: OnboardingCompletedReason | None = None,
 ) -> None:
     """``root`` is (channel, ts) and ``step_ts`` is (step key, ts). The row lock stops a skip click and a
@@ -307,10 +311,35 @@ def update_onboarding(
                 card.pop(field, None)
         if reminded:
             card.setdefault("reminded_at", now)
+        if work_focus_outcome is not None:
+            card["work_focus_at"], card["work_focus_outcome"] = now, work_focus_outcome
         if completed_reason is not None:
             card["completed_at"], card["completed_reason"] = now, completed_reason
         row.onboarding = card
         row.save(update_fields=["onboarding", "updated_at"])
+
+
+def reset_onboarding(settings_ids: list[UUID]) -> int:
+    """Forget the onboarding of these settings rows, so each person gets a new thread on their next trigger, and a new
+    work focus the next time they link their account. Returns how many rows had an onboarding to forget."""
+    from products.slack_app.backend.models import SlackSettings
+
+    return SlackSettings.objects.filter(id__in=settings_ids, onboarding__isnull=False).update(
+        onboarding=None, updated_at=timezone.now()
+    )
+
+
+def onboarding_status_label(stored: object) -> str:
+    """One short line for staff tools: where the person's onboarding stands."""
+    state = parse_onboarding(stored)
+    # The work focus stores its outcome in the same field, which is not an onboarding that started.
+    if state is None or (state.started_at is None and state.root_ts is None):
+        return "Not started"
+    if state.completed:
+        return "Nothing to set up" if state.completed_reason == "nothing_to_set_up" else "Done"
+    if state.root_status:
+        return f"In progress, {state.root_status}"
+    return "Starting"
 
 
 def has_chosen_untagged_followup_mode(slack_workspace_id: str, slack_user_id: str) -> bool:
@@ -361,6 +390,8 @@ __all__ = [
     "parse_onboarding",
     "has_chosen_channel_welcome_mode",
     "has_chosen_untagged_followup_mode",
+    "onboarding_status_label",
+    "reset_onboarding",
     "resolve_onboarding",
     "update_onboarding",
     "AIPreferences",
