@@ -3739,6 +3739,33 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_not_called()
         self.assertFalse(TaskRun.objects.filter(task=task, status=TaskRun.Status.QUEUED).exists())
 
+    @parameterized.expand(
+        [
+            ("implementation", "implementation", ["acme/web", "acme/assets"]),
+            ("discussion", "discussion", None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_inbox_started_implementation_run_gets_the_extra_repositories(
+        self, _name, relationship, expected_access, _mock_workflow
+    ):
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
+
+        SignalTeamConfig.objects.create(
+            team=self.team, implementation_repositories=["acme/assets", "other-owner/assets"]
+        )
+        report = SignalReport.objects.create(team=self.team)
+        create_response = self._post_signal_report_task(report.id, relationship)
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=create_response.json()["id"])
+
+        run_response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        self.assertEqual(run_response.status_code, status.HTTP_200_OK, run_response.json())
+        run = TaskRun.objects.get(task=task)
+        self.assertEqual(run.state.get("github_access_repositories"), expected_access)
+        self.assertEqual("`acme/assets`" in task.description, expected_access is not None)
+
     def test_discussion_task_cap_per_report_counts_free_form_labels(self):
         from products.signals.backend.models import SignalReport
         from products.signals.backend.task_run_artefacts import MAX_DISCUSSION_TASKS_PER_REPORT
