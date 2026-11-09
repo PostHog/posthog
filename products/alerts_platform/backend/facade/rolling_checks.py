@@ -59,7 +59,7 @@ def resolve_check_end(scheduled_at: dt.datetime, checkpoint: dt.datetime | None)
 
 
 def derive_breaches(
-    counts: Sequence[float],
+    counts: Sequence[float | None],
     threshold: float,
     threshold_operator: str,
     evaluation_periods: int,
@@ -67,7 +67,8 @@ def derive_breaches(
     """Map oldest-first window counts to a newest-first breach tuple of length M.
 
     `counts` holds one value per window from `rolling_check_ranges`, or nothing when the
-    query returned no row for the alert or group. The state machine needs M data points
+    query returned no row for the alert or group. A None window measured no data, such as a
+    latency over no requests, and never breaches. The state machine needs M data points
     regardless — so we pad the result to `evaluation_periods` with the implicit count=0 outcome.
 
     Without this pad, a `below` alert on a truly silent service would never
@@ -77,7 +78,9 @@ def derive_breaches(
     if threshold_operator not in _THRESHOLD_OPERATORS:
         raise ValueError(f"Unknown threshold operator {threshold_operator!r}")
 
-    def breached(count: float) -> bool:
+    def breached(count: float | None) -> bool:
+        if count is None:
+            return False
         return count > threshold if threshold_operator == "above" else count < threshold
 
     actual = tuple(breached(count) for count in reversed(counts))

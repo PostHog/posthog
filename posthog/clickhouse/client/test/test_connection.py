@@ -61,6 +61,11 @@ def test_connection_pool_creation_without_offline_cluster(settings):
     assert get_pool(Workload.OFFLINE) is online_pool
     assert get_pool(Workload.DEFAULT) is online_pool
 
+    bounded_pool = get_pool(Workload.ONLINE, send_receive_timeout=7)
+    assert bounded_pool is not online_pool
+    with bounded_pool.get_client() as bounded, online_pool.get_client() as default:
+        assert (bounded.connection.send_receive_timeout, default.connection.send_receive_timeout) == (7, 30)
+
 
 def test_connection_pool_creation_with_offline_cluster(settings):
     settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = "ch-offline.example.com"

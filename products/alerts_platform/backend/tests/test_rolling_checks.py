@@ -53,6 +53,10 @@ class TestDeriveBreachesProperties(unittest.TestCase):
         with self.assertRaises(ValueError):
             derive_breaches([5], 1, operator, 1)
 
+    @parameterized.expand([("above",), ("below",)])
+    def test_a_window_with_no_data_never_breaches(self, operator: str) -> None:
+        assert derive_breaches([None, 5, None], 1, operator, 3) == (False, operator == "above", False)
+
     @parameterized.expand([("above", 0, False), ("below", 0, False), ("below", 1, True)])
     def test_padding_is_the_outcome_of_a_zero_count(self, operator: str, threshold: int, expected: bool) -> None:
         assert derive_breaches([], threshold, operator, 3) == (expected,) * 3
