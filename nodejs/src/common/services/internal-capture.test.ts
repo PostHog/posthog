@@ -101,34 +101,39 @@ describe('InternalCaptureService', () => {
             text: () => Promise.resolve(''),
             dump: () => Promise.resolve(),
         })
-        const sentUuids = () => mockInternalFetch.mock.calls.map((call) => parseJSON(call[1].body).uuid)
+        const sentUuids = (): string[] => mockInternalFetch.mock.calls.map((call) => parseJSON(call[1].body).uuid)
 
-        it('retries a socket error once with the same uuid', async () => {
-            mockInternalFetch.mockRejectedValueOnce(new Error('other side closed'))
-            const res = await service.capture(event)
-            expect(res.status).toBe(200)
-            expect(mockInternalFetch).toHaveBeenCalledTimes(2)
-            const [first, second] = sentUuids()
-            expect(first).toBe(second)
+        beforeEach(() => {
+            jest.useFakeTimers()
+        })
+        afterEach(() => {
+            jest.useRealTimers()
         })
 
-        it('retries a 5xx once', async () => {
-            mockInternalFetch.mockResolvedValueOnce(response(503))
-            const res = await service.capture(event)
-            expect(res.status).toBe(200)
-            expect(mockInternalFetch).toHaveBeenCalledTimes(2)
+        it.each([
+            ['a socket error', () => mockInternalFetch.mockRejectedValueOnce(new Error('other side closed'))],
+            ['a 5xx', () => mockInternalFetch.mockResolvedValueOnce(response(503))],
+        ])('retries %s once with the same uuid', async (_name, failFirst) => {
+            failFirst()
+            const pending = service.capture(event)
+            await jest.runAllTimersAsync()
+            expect((await pending).status).toBe(200)
+            const [first, second, ...rest] = sentUuids()
+            expect(rest).toEqual([])
+            expect(second).toBe(first)
         })
 
         it('does not retry a 4xx', async () => {
             mockInternalFetch.mockResolvedValueOnce(response(400))
-            const res = await service.capture(event)
-            expect(res.status).toBe(400)
+            expect((await service.capture(event)).status).toBe(400)
             expect(mockInternalFetch).toHaveBeenCalledTimes(1)
         })
 
         it('throws after the second socket error', async () => {
             mockInternalFetch.mockRejectedValue(new Error('other side closed'))
-            await expect(service.capture(event)).rejects.toThrow('other side closed')
+            const assertion = expect(service.capture(event)).rejects.toThrow('other side closed')
+            await jest.runAllTimersAsync()
+            await assertion
             expect(mockInternalFetch).toHaveBeenCalledTimes(2)
         })
     })
