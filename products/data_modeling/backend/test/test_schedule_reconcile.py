@@ -1078,12 +1078,19 @@ class TestMaybeReconcileDag(BaseTest):
         with (
             mock.patch(FLAG_RESULT, side_effect=_free_plan_floor({"min_interval": "6hour"})),
             mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
+            mock.patch("posthog.event_usage.posthoganalytics.capture") as capture,
             self.assertRaisesMessage(UnsatisfiableFrequencyError, "on your plan"),
         ):
             apply_saved_query_frequency_target(node.saved_query, M15)
 
         node.refresh_from_db()
         self.assertEqual(get_declared_target(node), DAY)
+        capture.assert_called_once()
+        self.assertEqual(capture.call_args.kwargs["event"], "data modeling refresh refused by plan floor")
+        self.assertEqual(
+            capture.call_args.kwargs["properties"],
+            {"requested_cadence": "15min", "plan_floor": "6hour", "refused_by": "plan_floor"},
+        )
 
     def test_resaving_a_cadence_saved_before_the_plan_floor_is_accepted(self):
         self.organization.has_active_subscription = False

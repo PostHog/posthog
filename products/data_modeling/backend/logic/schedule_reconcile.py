@@ -34,7 +34,9 @@ from temporalio.client import (
 from temporalio.common import RetryPolicy
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.event_usage import report_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.models.team import Team
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
@@ -51,6 +53,7 @@ from products.data_modeling.backend.logic.freshness import (
     SCHEDULABLE_BUCKETS,
     ClampedCadence,
     InvalidTarget,
+    PlanFloorRefusalError,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     format_cadence,
@@ -92,6 +95,22 @@ MAX_RECONCILE_PASSES = 3
 PLAN_FLOOR_UNREADABLE_REFUSAL = (
     "Couldn't check your plan, so this refresh frequency can't be saved right now. Try again in a few minutes."
 )
+PLAN_FLOOR_REFUSAL_EVENT = "data modeling refresh refused by plan floor"
+
+
+def _report_plan_floor_refusal(team_id: int, error: PlanFloorRefusalError, *, refused_by: str) -> None:
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return
+    report_team_action(
+        team,
+        PLAN_FLOOR_REFUSAL_EVENT,
+        {
+            "requested_cadence": format_cadence(error.target),
+            "plan_floor": format_cadence(error.plan_floor),
+            "refused_by": refused_by,
+        },
+    )
 
 
 class PlanFloorUnavailableError(Exception):
@@ -197,6 +216,7 @@ def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> N
 
 def _validate_saved_query_target(
     *,
+    team_id: int,
     node_id: str,
     target: timedelta,
     graph: FrequencyGraph,
@@ -211,17 +231,21 @@ def _validate_saved_query_target(
     stored = graph.declared_targets.get(node_id)
     if not graph.plan_floor_evaluated and (stored is None or is_finer_than(target, stored)):
         raise UnsatisfiableFrequencyError(PLAN_FLOOR_UNREADABLE_REFUSAL)
-    validate_declared_target(
-        node_id=node_id,
-        target=target,
-        edges=graph.edges,
-        declared_targets=graph.declared_targets,
-        source_intervals=graph.source_intervals,
-        names=names,
-        pinned=pinned,
-        plan_floor=graph.plan_floor,
-        schedule_plan_floor=graph.schedule_plan_floor,
-    )
+    try:
+        validate_declared_target(
+            node_id=node_id,
+            target=target,
+            edges=graph.edges,
+            declared_targets=graph.declared_targets,
+            source_intervals=graph.source_intervals,
+            names=names,
+            pinned=pinned,
+            plan_floor=graph.plan_floor,
+            schedule_plan_floor=graph.schedule_plan_floor,
+        )
+    except PlanFloorRefusalError as error:
+        _report_plan_floor_refusal(team_id, error, refused_by="plan_floor")
+        raise
 
 
 def apply_saved_query_frequency_target(
@@ -288,6 +312,7 @@ def apply_saved_query_frequency_target(
                 if pinned is not False or node_target != get_declared_target(node):
                     graph = build_frequency_graph(node.dag)
                     _validate_saved_query_target(
+                        team_id=saved_query.team_id,
                         node_id=node_id,
                         target=node_target,
                         graph=graph,
@@ -332,11 +357,15 @@ def check_saved_query_frequency_carry(
             (retained := get_declared_target(node)) is not None and is_finer_than(retained, floor)
             for node in retained_nodes
         ):
-            raise UnsatisfiableFrequencyError(
+            error = PlanFloorRefusalError(
                 f"Can't keep refreshing every {humanize_cadence(target)}: an older version of this endpoint also"
                 f" refreshes more often than your plan allows. Pick {humanize_cadence(floor)} for the new version,"
-                " or upgrade to refresh more often."
+                " or upgrade to refresh more often.",
+                target=target,
+                plan_floor=floor,
             )
+            _report_plan_floor_refusal(team_id, error, refused_by="endpoint_version_cap")
+            raise error
 
 
 def carry_saved_query_frequency_target(
@@ -395,6 +424,7 @@ def check_saved_query_frequency_target(
     for node in Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team"):
         graph = build_frequency_graph(node.dag)
         _validate_saved_query_target(
+            team_id=saved_query.team_id,
             node_id=str(node.id),
             target=target,
             graph=graph,

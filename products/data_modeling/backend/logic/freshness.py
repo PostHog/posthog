@@ -80,6 +80,13 @@ class UnsatisfiableFrequencyError(ValueError):
     """A declared target falls outside the node's legal [source_floor, consumer_ceiling] range."""
 
 
+class PlanFloorRefusalError(UnsatisfiableFrequencyError):
+    def __init__(self, message: str, *, target: timedelta, plan_floor: timedelta) -> None:
+        super().__init__(message)
+        self.target = target
+        self.plan_floor = plan_floor
+
+
 class UnsupportedFrequencyTargetError(ValueError):
     """A declared target is not one of the cadences a person may pick (SCHEDULABLE_BUCKETS)."""
 
@@ -690,9 +697,11 @@ def validate_declared_target(
             f" Pick {humanize_cadence(min(bounds.allowed))} instead."
         )
     if option.blocked_by == "plan":
-        raise UnsatisfiableFrequencyError(
+        raise PlanFloorRefusalError(
             f"Can't refresh every {humanize_cadence(target)} on your plan."
-            f" Pick {humanize_cadence(min(bounds.allowed))} instead, or upgrade to refresh more often."
+            f" Pick {humanize_cadence(min(bounds.allowed))} instead, or upgrade to refresh more often.",
+            target=target,
+            plan_floor=bounds.plan_floor or min(bounds.allowed),
         )
     if option.blocked_by == "consumer" and bounds.ceiling is not None:
         consumer = _describe(option.blocker, names, "a view or endpoint built on this one")
