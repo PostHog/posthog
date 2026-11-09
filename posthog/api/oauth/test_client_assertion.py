@@ -293,6 +293,20 @@ class TestClientAssertion(BaseTest):
                 assert str(ctx.exception).startswith(THROWAWAY_JWKS_HOST_MESSAGE)
             fetch.assert_not_called()
 
+    def test_stored_cimd_jwks_uri_on_another_domain_is_refused_before_any_fetch(self):
+        self.app.is_cimd_client = True
+        self.app.jwks_uri = "https://keys.partner-cdn.net/jwks.json"
+        self.app.save(update_fields=["is_cimd_client", "jwks_uri"])
+        with patch("posthog.api.oauth.client_assertion.fetch_client_json_document") as fetch:
+            with self.assertRaisesMessage(ClientAssertionError, "same domain as your client_id (example.com"):
+                verify_client_assertion(self.app, self._assertion())
+            fetch.assert_not_called()
+
+    def test_stored_cimd_jwks_uri_on_the_client_domain_verifies(self):
+        self.app.is_cimd_client = True
+        self.app.save(update_fields=["is_cimd_client"])
+        self._verify(self._assertion())
+
     @parameterized.expand(
         [
             # The cap is on key count, so the same key material under distinct kids exercises it.

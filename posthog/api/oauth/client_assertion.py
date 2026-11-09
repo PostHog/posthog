@@ -31,6 +31,8 @@ from posthog.api.oauth.cimd import (
     CIMDValidationError,
     fetch_client_json_document,
     is_throwaway_host,
+    jwks_domain_mismatch_message,
+    jwks_uri_shares_client_domain,
 )
 from posthog.dataclasses import frozen
 from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
@@ -321,6 +323,14 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
     """
     if not app.jwks_uri:
         raise ClientAssertionError("This client is not registered for private_key_jwt authentication")
+
+    # A CIMD row stored before this rule still names its old jwks_uri until the next metadata
+    # refresh, so the rule is applied here too, before PostHog sends that host a request.
+    if app.is_cimd_client and not jwks_uri_shares_client_domain(app.client_id, app.jwks_uri):
+        logger.warning("client_assertion_jwks_domain_mismatch", client_id=app.client_id, jwks_uri=app.jwks_uri)
+        raise ClientAssertionError(
+            f"{jwks_domain_mismatch_message(app.client_id)} Then call client_registration to apply the change."
+        )
 
     key = select_signing_key(app.jwks_uri, assertion)
     # The selected key's own algorithm is held to the list too, because PyJWT verifies with it.

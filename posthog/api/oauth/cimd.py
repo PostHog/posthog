@@ -22,6 +22,7 @@ from django.utils import timezone
 
 import requests
 import structlog
+import tldextract
 import posthoganalytics
 from celery import shared_task
 from oauth2_provider.models import AbstractApplication
@@ -324,6 +325,33 @@ THROWAWAY_JWKS_HOST_MESSAGE = (
 )
 
 
+# Built in, with no network fetch of the list. Private suffixes count as public ones, so two
+# tenants of one hosting service, such as a.github.io and b.github.io, are different domains.
+_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
+
+
+def registrable_domain(url: str) -> str:
+    try:
+        host = (urlparse(url).hostname or "").rstrip(".")
+    except ValueError:
+        return ""
+    return _DOMAIN_PARTS(host).top_domain_under_public_suffix
+
+
+def jwks_uri_shares_client_domain(client_id: str, jwks_uri: str) -> bool:
+    """The keys must come from the domain that the client_id names, so whoever controls that
+    domain also controls the keys. A subdomain is fine; another domain is not."""
+    domain = registrable_domain(client_id)
+    return bool(domain) and domain == registrable_domain(jwks_uri)
+
+
+def jwks_domain_mismatch_message(client_id: str) -> str:
+    return (
+        f"jwks_uri must be on the same domain as your client_id ({registrable_domain(client_id)} "
+        "or one of its subdomains). Publish your JWKS there and set that URL as jwks_uri in your client metadata."
+    )
+
+
 def is_throwaway_host(url: str) -> bool:
     try:
         host = (urlparse(url).hostname or "").rstrip(".")
@@ -540,6 +568,8 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
             raise CIMDValidationError("jwks_uri must be an https URL")
         if is_throwaway_host(jwks_uri):
             raise CIMDValidationError(THROWAWAY_JWKS_HOST_MESSAGE)
+        if not jwks_uri_shares_client_domain(url, jwks_uri):
+            raise CIMDValidationError(jwks_domain_mismatch_message(url))
         # A second client-controlled URL we will dereference, so it gets the same SSRF
         # screening as the metadata document itself.
         jwks_allowed, jwks_error = validate_cimd_url(jwks_uri, perform_dns_check=True, what="jwks_uri")
