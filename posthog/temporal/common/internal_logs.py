@@ -6,8 +6,8 @@ import datetime as dt
 from django.conf import settings
 
 import structlog
-from asgiref.sync import sync_to_async
 
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.ai_observability.team_capture import TeamNotFound, get_team_api_token
 
 from products.logs.backend.facade.internal_logs import (
@@ -21,7 +21,7 @@ logger = structlog.get_logger(__name__)
 
 async def _api_token(team_id: int) -> str | None:
     try:
-        return await sync_to_async(get_team_api_token)(team_id)
+        return await database_sync_to_async_pool(get_team_api_token)(team_id)
     except TeamNotFound:
         return None
 
