@@ -725,7 +725,7 @@ fn spawn_rate_limiter_cleanup_task<C>(
 }
 
 /// Opens `min_connections` connections in a pool (at least one) and optionally runs a test
-/// query on each.
+/// query on one of them.
 ///
 /// A lazy sqlx pool with an `idle_timeout` does not open `min_connections` at startup. It
 /// tops up only after it reaps an idle connection, so a pool that stays busy never reaches
@@ -734,23 +734,16 @@ fn spawn_rate_limiter_cleanup_task<C>(
 /// When `skip_query` is true (because `test_before_acquire` is enabled), only connection
 /// acquisition is tested since sqlx already validates connections on acquire.
 async fn test_pool_connection(pool: &PgPool, name: &str, skip_query: bool) -> Result<(), String> {
-    let count = pool.options().get_min_connections().max(1);
-    let mut conns = Vec::with_capacity(count as usize);
+    let count = pool.options().get_min_connections().max(1) as usize;
+    let mut conns = futures::future::try_join_all((0..count).map(|_| pool.acquire()))
+        .await
+        .map_err(|e| format!("{name} pool unavailable: {e}"))?;
 
-    for _ in 0..count {
-        let mut conn = pool
-            .acquire()
+    if !skip_query {
+        sqlx::query("SELECT 1")
+            .execute(&mut *conns[0])
             .await
-            .map_err(|e| format!("{name} pool unavailable: {e}"))?;
-
-        if !skip_query {
-            sqlx::query("SELECT 1")
-                .execute(&mut *conn)
-                .await
-                .map_err(|e| format!("{name} connection test failed: {e}"))?;
-        }
-
-        conns.push(conn);
+            .map_err(|e| format!("{name} connection test failed: {e}"))?;
     }
 
     Ok(())
