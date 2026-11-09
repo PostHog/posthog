@@ -6939,6 +6939,74 @@ export interface SignalReportRefundSummaryResponseApi {
     quota_limited: boolean
 }
 
+/**
+ * * `keyword` - Keyword
+ * * `semantic` - Semantic
+ */
+export type ReportMatchKindEnumApi = (typeof ReportMatchKindEnumApi)[keyof typeof ReportMatchKindEnumApi]
+
+export const ReportMatchKindEnumApi = {
+    Keyword: 'keyword',
+    Semantic: 'semantic',
+} as const
+
+export interface SignalReportSearchHitApi {
+    /** The report id. Pass it to inbox-reports-retrieve for the full report. */
+    id: string
+    /**
+     * The report title.
+     * @nullable
+     */
+    title: string | null
+    /** The report status.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+    /** The report priority, P0 to P4, or null.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority: AutonomyPriorityEnumApi | null
+    /** When the report last changed. */
+    updated_at: string
+    /** A short excerpt of the summary, around the first query word it holds, or the summary's opening when it holds none. */
+    summary_snippet: string
+    /**
+     * The reason code from the latest dismissal of the report, or null.
+     * @nullable
+     */
+    dismissal_reason: string | null
+    /**
+     * The note a person wrote with the latest dismissal, or null.
+     * @nullable
+     */
+    dismissal_note: string | null
+    /** How the report matched: `keyword`, `semantic`, or both. */
+    match_kinds: ReportMatchKindEnumApi[]
+    /** The reciprocal rank fusion score. Higher is a better match. Compare it only within one response. */
+    score: number
+}
+
+export interface SignalReportSearchResponseApi {
+    /** The matching reports, best match first. */
+    results: SignalReportSearchHitApi[]
+    /** False when the results come from keywords only: a `keyword` search, or a `hybrid` search whose semantic search failed. */
+    semantic_available: boolean
+}
+
 export interface SignalReportSectionCountsApi {
     /** Ready reports with an implementation pull request. */
     pull_requests: number
@@ -11900,6 +11968,52 @@ export type SignalsReportsPrCiStatusesParams = {
      */
     report_ids: string
 }
+
+export type SignalsReportsSearchParams = {
+    /**
+     * ISO 8601 datetime. Keeps reports created at or after this time.
+     */
+    created_after?: string
+    /**
+     * Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false.
+     */
+    include_unlisted?: boolean
+    /**
+     * The most results to return, best match first.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number
+    /**
+     * What to look for: natural language, such as a description of the issue, or an exact string, such as an error message or an entity name.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    query: string
+    /**
+     * `hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the semantic search fails. `keyword` requires every query word in the title or the summary. Words such as `a` or `is` are too short to look up, so the keyword search leaves them out.
+     *
+     * * `hybrid` - Hybrid
+     * * `semantic` - Semantic
+     * * `keyword` - Keyword
+     * @minLength 1
+     */
+    search_mode?: SignalsReportsSearchSearchMode
+    /**
+     * Comma-separated statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, failed, suppressed. Defaults to every status, dismissed reports included.
+     * @minLength 1
+     */
+    status?: string
+}
+
+export type SignalsReportsSearchSearchMode =
+    (typeof SignalsReportsSearchSearchMode)[keyof typeof SignalsReportsSearchSearchMode]
+
+export const SignalsReportsSearchSearchMode = {
+    Hybrid: 'hybrid',
+    Semantic: 'semantic',
+    Keyword: 'keyword',
+} as const
 
 export type SignalsReportsSectionCountsRetrieveParams = {
     /**

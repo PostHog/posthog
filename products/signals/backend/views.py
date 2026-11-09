@@ -140,6 +140,7 @@ from products.signals.backend.enums import ReportPriority, ReportTaskActionKind,
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.facade.source_configs import AlertNamePatterns, evaluate_alert_filter
 from products.signals.backend.feedback_notes import forward_feedback_note
+from products.signals.backend.hybrid_search import SearchMode, SemanticSearchUnavailable
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_prs_for_reports,
@@ -239,6 +240,10 @@ from products.signals.backend.report_read_state import (
     ReportReadStateResponseSerializer,
     report_read_states,
 )
+from products.signals.backend.report_search import (
+    search_enabled as report_search_enabled,
+    search_reports,
+)
 from products.signals.backend.report_task_actions import (
     AI_CONSENT_DISABLED_REASON,
     INBOX_REPORT_ACTION_EVENT,
@@ -307,6 +312,8 @@ from products.signals.backend.serializers import (
     SignalReportMetricRefreshResponseSerializer,
     SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
+    SignalReportSearchQuerySerializer,
+    SignalReportSearchResponseSerializer,
     SignalReportSectionCountsSerializer,
     SignalReportSerializer,
     SignalReportSourceMetadataRequestSerializer,
@@ -363,6 +370,7 @@ from products.signals.backend.temporal.types import (
 )
 from products.signals.backend.throttles import (
     ReportMetricRefreshThrottle,
+    ReportSearchThrottle,
     ReportTaskActionRunBurstThrottle,
     ReportTaskActionRunSustainedThrottle,
     UserReportCreateBurstThrottle,
@@ -1842,6 +1850,12 @@ _SECTION_COUNTS_PARAMETERS = [
 ]
 
 
+class _SemanticSearchUnavailable(exceptions.APIException):
+    status_code = 503
+    default_detail = "The semantic search is unavailable. Try again, or use `search_mode=hybrid` or `keyword`."
+    default_code = "semantic_search_unavailable"
+
+
 @extend_schema_view(
     destroy=extend_schema(
         summary="Delete a signal report",
@@ -1924,6 +1938,54 @@ class SignalReportViewSet(
         "ranking_fixed": "inbox_ranking_fix_score",
     }
     _RANKING_ORDERING_HEADS: dict[str, str] = RANKING_ORDERING_HEADS
+
+    @validated_request(
+        query_serializer=SignalReportSearchQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=SignalReportSearchResponseSerializer),
+            404: OpenApiResponse(description="Report search is not available for this project."),
+            503: OpenApiResponse(
+                description="A `semantic` search could not run. A `hybrid` search never returns this."
+            ),
+        },
+        summary="Search inbox reports",
+        description=(
+            "Rank the project's inbox reports by how well they match a query, best match first. A hybrid search "
+            "merges keyword matches on the title and summary with semantic matches on the report's meaning. Reports "
+            "older than 3 months can match on keywords only. Returns at most 25 results, with no total count and no "
+            "pages: rephrase the query for different results."
+        ),
+        operation_id="signals_reports_search",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="search",
+        required_scopes=["inbox:read"],
+        pagination_class=None,
+        throttle_classes=[ReportSearchThrottle],
+    )
+    @tracer.start_as_current_span("signals.reports.search")
+    def search(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        if not report_search_enabled(self.team):
+            raise NotFound()
+        if trial_store_for_request(request, self.team_id) is not None:
+            raise exceptions.PermissionDenied("Private scout trials cannot search inbox reports.")
+        query = request.validated_query_data
+        reports = self.get_queryset()
+        if query.get("created_after") is not None:
+            reports = reports.filter(created_at__gte=query["created_after"])
+        try:
+            result = search_reports(
+                self.team,
+                reports,
+                query=query["query"],
+                search_mode=SearchMode(query["search_mode"]),
+                limit=query["limit"],
+            )
+        except SemanticSearchUnavailable:
+            raise _SemanticSearchUnavailable()
+        return Response(SignalReportSearchResponseSerializer(result).data)
 
     @extend_schema(
         responses={200: RankingOutcomesResponseSerializer},
@@ -2086,6 +2148,12 @@ class SignalReportViewSet(
             # metric snapshots alone.
             qs = queryset.filter(team=self.team)
             return self._apply_signal_report_status_filter(qs)
+        if self.action == "search":
+            # Search ranks and renders its own rows, so it takes the list's visibility filters and none of
+            # its annotations.
+            qs = queryset.filter(team=self.team)
+            qs = self._apply_signal_report_status_filter(qs)
+            return self._apply_signal_report_listed_filter(qs)
         if self.action in {"retrieve", "signals"}:
             qs = self._scope_signal_report_queryset(queryset)
             qs = self._annotate_artefact_count(qs)
@@ -2306,6 +2374,8 @@ class SignalReportViewSet(
         # every status — and without breaking if the status set evolves).
         if (
             self.action in self._SUPPRESSED_VISIBLE_ACTIONS
+            # A search that misses a dismissed report invites the duplicate the dismissal was about.
+            or self.action == "search"
             or self._include_all_statuses_requested()
             or self.request.query_params.get("view") in {"dismissed", "held_back", "all"}
         ):
@@ -2334,7 +2404,10 @@ class SignalReportViewSet(
 
     def _apply_signal_report_listed_filter(self, queryset):
         # List-only: a report a scout kept out of the inbox stays reachable by id and by its other actions.
-        if self.action not in {"list", "section_counts"} or self._bool_query_param("include_unlisted") is True:
+        if (
+            self.action not in {"list", "section_counts", "search"}
+            or self._bool_query_param("include_unlisted") is True
+        ):
             return queryset
         return queryset.filter(inbox_hidden_report_filter(self.team_id))
 

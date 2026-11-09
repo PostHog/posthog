@@ -118,6 +118,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'workflows-email-from-code': true,
         'activity-summary': true,
         'activity-summary-search': true,
+        'inbox-reports-search': true,
         'personal-inbox-ranking': true,
         'aeo-citation-tracking': true,
         'mcp-session-recording-console-logs': true,
