@@ -25,7 +25,7 @@ import {
 } from '@posthog/quill'
 
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -47,10 +47,9 @@ export function ToolbarLaunch(): JSX.Element {
     // Authorized URLs are a single shared team field; the backend gates edits on web analytics
     // editor access, so only offer the add/edit/delete controls to users who can actually save.
     // In Storybook there's no app context, so allow editing there.
-    const canEdit =
-        inStorybook() || inStorybookTestRunner()
-            ? true
-            : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
+    const canEdit = inStorybook()
+        ? true
+        : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
 
     const features: Array<{ title: string; caption: string; icon: JSX.Element; type: FileSystemIconType }> = [
         {
