@@ -377,6 +377,25 @@ class TestNextCalendarCheckTime:
         assert before.hour == 9
         assert after.hour == 8
 
+    def test_an_hourly_offset_stays_inside_a_shortened_local_hour(self) -> None:
+        # Lord Howe Island springs forward 30 minutes, so its 02:00 local hour lasts half an hour.
+        tz_name = "Australia/Lord_Howe"
+        late_offset_alert = next(
+            UUID(int=index)
+            for index in range(5000)
+            if alert_check_offset(CalendarInterval.HOURLY, UUID(int=index)) == timedelta(minutes=46)
+        )
+        check = datetime(2026, 10, 3, 14, 16, tzinfo=UTC)  # 00:46 local, before the change at 02:00
+        gaps = []
+        for _ in range(5):
+            following = next_calendar_check_time(
+                CalendarInterval.HOURLY, now=check, tz_name=tz_name, next_check_at=check, alert_id=late_offset_alert
+            )
+            gaps.append(following - check)
+            check = following
+
+        assert max(gaps) <= timedelta(hours=1)
+
     @parameterized.expand(
         [
             (
