@@ -1,1 +1,1 @@
-0023_platform_alert_creator_index
+0022_platform_alert_first_enabled_at

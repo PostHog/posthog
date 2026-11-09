@@ -110,9 +110,8 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
             configuration.legacy_configuration_id,
             configuration.check_interval_minutes,
             configuration.source_config,
-            configuration.created_by_id,
             configuration.first_enabled_at is not None,
-        ) == (PlatformAlertOwner.PLATFORM, None, 5, {"row_ids": ["a"]}, self.user.id, True)
+        ) == (PlatformAlertOwner.PLATFORM, None, 5, {"row_ids": ["a"]}, True)
         self.check_in_team.assert_called_once_with(team_id=self.team.id, edit=_edit(enabled=enabled))
         assert (
             ActivityLog.objects.filter(
