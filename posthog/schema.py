@@ -21365,7 +21365,7 @@ class MarketingAnalyticsRecommendation(BaseModel):
     )
     subject: str = Field(
         ...,
-        description="The campaign name or the search term the recommendation is about.",
+        description=("The ad account, campaign or search term the recommendation is about."),
     )
 
 

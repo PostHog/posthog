@@ -12,13 +12,20 @@ from .sources import (
     is_generated_path,
     is_published_from_repository,
     is_test_path,
+    merged_pull_request,
+    reached_default_branch,
     read_diff_by_path,
     read_docs_page_urls,
     read_generated_path_patterns,
+    read_numbered_pull_request,
 )
 
 
 class PullRequestNotIndexed(Exception):
+    pass
+
+
+class MergeNotOnDefaultBranch(Exception):
     pass
 
 
@@ -32,7 +39,16 @@ def run_merge_check(
 ) -> MergeCheckReport:
     commit_sha = change.after
     commit_url = f"https://github.com/{change.repository}/commit/{commit_sha}"
-    pull_request = find_merged_pull_request(github, change.repository, commit_sha)
+    listed = read_numbered_pull_request(github, change)
+    if listed is not None and not reached_default_branch(github, change.repository, listed, commit_sha):
+        if not is_final_attempt:
+            raise MergeNotOnDefaultBranch(commit_sha)
+        return no_docs_report(commit_sha, commit_url, title=listed.get("title") or "", reason="not_on_default_branch")
+    pull_request = (
+        find_merged_pull_request(github, change.repository, commit_sha)
+        if listed is None
+        else merged_pull_request(listed, commit_sha)
+    )
     if pull_request is None and not is_final_attempt:
         raise PullRequestNotIndexed(commit_sha)
     if pull_request is None:
