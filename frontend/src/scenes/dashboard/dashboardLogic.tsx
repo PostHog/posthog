@@ -1735,6 +1735,11 @@ export interface dashboardLogicMeta {
             initialDashboardSettingsOverride: DashboardSettings,
             dashboardSettingsDraft: DashboardSettings | null
         ) => DashboardSettings
+        zoomPreview: (
+            lastZoom: ZoomRange | null,
+            currentDashboardSettings: DashboardSettings,
+            canAutoPreview: boolean
+        ) => ZoomRange | null
         settingsForRefresh: (
             savedDashboardSettings: DashboardSettings,
             initialDashboardSettingsOverride: DashboardSettings,
@@ -1997,11 +2002,6 @@ export interface dashboardLogicMeta {
             dashboard: DashboardType | null
         ) => boolean
         maxContext: (dashboard: DashboardType | null) => MaxContextInput[]
-        zoomPreview: (
-            lastZoom: ZoomRange | null,
-            currentDashboardSettings: DashboardSettings,
-            canAutoPreview: boolean
-        ) => ZoomRange | null
     }
 }
 
