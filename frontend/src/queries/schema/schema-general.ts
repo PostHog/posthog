@@ -8722,6 +8722,10 @@ export interface MarketingAnalyticsRecommendationsSource {
     searchTermKeywordTable?: string
     /** Google Ads search term table for Performance Max campaigns. */
     performanceMaxSearchTermTable?: string
+    /** Google Ads daily campaign conversions split by conversion action. */
+    campaignConversionActionTable?: string
+    /** Google Ads daily search term conversions split by conversion action. */
+    searchTermConversionActionTable?: string
     /** Google Search Console table with one row per query, or per query and page. */
     queryTable?: string
     /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
@@ -8735,6 +8739,13 @@ export interface MarketingAnalyticsRecommendationsQuery extends DataNode<Marketi
     dateRange?: DateRange
     /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
     sources?: MarketingAnalyticsRecommendationsSource[]
+    /**
+     * Resource names of the Google Ads conversion actions that count as conversions, such as
+     * `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an
+     * account with none of them counts its primary actions. Selected actions count every conversion, including
+     * secondary actions and conversions outside campaign goals. Omit to count the primary actions only.
+     */
+    conversionActions?: string[]
 }
 
 export type MarketingAnalyticsRecommendationRule =
@@ -8765,6 +8776,46 @@ export interface MarketingAnalyticsRecommendationStep {
     linkText?: string | null
 }
 
+/**
+ * The benchmark a recommendation compares a CPA with, in this order of preference:
+ * - `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.
+ * - `campaign`: the campaign's own non-brand CPA, when it has enough conversions to be stable. Only search terms use
+ *   it, since a campaign is never compared with itself.
+ * - `account`: the non-brand CPA of the ad account. Brand searches convert cheaply, so they stay out of it.
+ */
+export type MarketingAnalyticsRecommendationCpaBenchmarkSource = 'target_cpa' | 'campaign' | 'account'
+
+export interface MarketingAnalyticsRecommendationCpa {
+    /**
+     * Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total
+     * CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no
+     * conversions or is not bought yet.
+     */
+    value: number | null
+    /**
+     * CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for
+     * context. Null when the account has no non-brand conversions.
+     */
+    benchmark: number | null
+    /** Where the benchmark comes from. Null when there is no benchmark. */
+    benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | null
+    /** Lowest non-brand CPA of a non-brand Search campaign in the same ad account. */
+    bestCampaign: number | null
+    /** Highest non-brand CPA of a non-brand Search campaign in the same ad account. */
+    worstCampaign: number | null
+}
+
+export type MarketingAnalyticsRecommendationsDataGapKind =
+    | 'conversion_action_tables_not_synced'
+    | 'performance_max_search_terms_count_primary_conversions'
+
+export interface MarketingAnalyticsRecommendationsDataGap {
+    kind: MarketingAnalyticsRecommendationsDataGapKind
+    /** Google Ads campaign table of the ad account the gap applies to. */
+    campaignTable?: string | null
+    message: string
+}
+
 export interface MarketingAnalyticsRecommendation {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendationLevel
@@ -8781,12 +8832,16 @@ export interface MarketingAnalyticsRecommendation {
     currency?: string | null
     /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
     steps?: MarketingAnalyticsRecommendationStep[]
+    /** CPA figures in the account currency. */
+    cpa?: MarketingAnalyticsRecommendationCpa | null
 }
 
 export interface MarketingAnalyticsRecommendationsQueryResponse extends AnalyticsQueryResponseBase {
     results: MarketingAnalyticsRecommendation[]
     /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
     disclaimer: string
+    /** Data the rules needed but could not read, so some figures use a fallback. */
+    dataGaps?: MarketingAnalyticsRecommendationsDataGap[]
 }
 
 export type CachedMarketingAnalyticsRecommendationsQueryResponse =
