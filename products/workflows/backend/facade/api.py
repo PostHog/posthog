@@ -77,6 +77,8 @@ __all__ = [
     "max_email_sending_tier",
     "set_default_email_sender_if_unset",
     "set_email_sending_tier",
+    "suspend_email_sending",
+    "unsuspend_email_sending",
     "validate_rrule",
 ]
 
