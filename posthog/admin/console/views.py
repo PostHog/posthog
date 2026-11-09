@@ -18,7 +18,7 @@ import structlog
 
 from posthog.admin.console.bridge import QueuedMessages
 from posthog.admin.console.confirm import ConfirmationToken
-from posthog.admin.console.panels import Fact, Operation, Panel, Tone
+from posthog.admin.console.panels import Fact, Gate, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES, RecordLink, RecordType
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
@@ -39,7 +39,9 @@ RECENT_TEAMS_LIMIT = 8
 class RenderedOperation:
     operation: Operation | ToolOperation
     url: str
-    # False when the operation's gate keeps this staff member out. The page shows it disabled, with who may run it.
+    # The operation's gate, with Gate.owner() resolved to the staff group of the panel or tool owner.
+    gate: Gate | None
+    # False when the gate keeps this staff member out. The page shows it disabled, with who may run it.
     allowed: bool
 
 
@@ -191,6 +193,17 @@ def _record_context(record_type: RecordType, obj: Model) -> dict[str, object]:
     }
 
 
+def _gate(operation: Operation | ToolOperation, owner: Owner) -> Gate | None:
+    return operation.gate.resolve(owner) if operation.gate is not None else None
+
+
+def _rendered_operation(
+    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner, url: str
+) -> RenderedOperation:
+    gate = _gate(operation, owner)
+    return RenderedOperation(operation=operation, url=url, gate=gate, allowed=gate is None or gate.allows(request))
+
+
 def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse:
     record_type = _record_type(record)
     obj = get_object_or_404(record_type.queryset(), pk=pk)
@@ -201,13 +214,14 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
             panel=panel,
             facts=panel.facts(obj),
             operations=[
-                RenderedOperation(
-                    operation=operation,
-                    url=reverse(
+                _rendered_operation(
+                    request,
+                    operation,
+                    panel.owner,
+                    reverse(
                         record_type.operation_url_name,
                         kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
                     ),
-                    allowed=_is_allowed(request, operation),
                 )
                 for operation in panel.operations(obj)
             ],
@@ -245,15 +259,14 @@ def _find_operation(panel: Panel, obj: Model, operation_key: str) -> Operation:
     raise Http404("This operation is not available for this record right now")
 
 
-def _is_allowed(request: HttpRequest, operation: Operation | ToolOperation) -> bool:
-    return operation.gate is None or operation.gate.allows(request)
-
-
-def _require_gate(request: HttpRequest, operation: Operation | ToolOperation, audit: structlog.BoundLogger) -> None:
+def _require_gate(
+    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner, audit: structlog.BoundLogger
+) -> None:
     # The page only disables the button. This check is the one that keeps a hand-built request out.
-    if operation.gate is not None and not operation.gate.allows(request):
+    gate = _gate(operation, owner)
+    if gate is not None and not gate.allows(request):
         audit.warning("admin_console_operation_denied", method=request.method)
-        raise PermissionDenied(f"{operation.label} needs {operation.gate.label}")
+        raise PermissionDenied(f"Only {gate.label} can run {operation.label}")
 
 
 def _audited(audit: structlog.BoundLogger, run: Callable[[], R]) -> R:
@@ -283,6 +296,40 @@ def _operation_context(
     }
 
 
+class ConfirmStep:
+    """The form data an operation runs with: the submitted form, or the input a confirmed preview showed."""
+
+    def __init__(self, request: HttpRequest, confirmation: ConfirmationToken) -> None:
+        self.confirmation = confirmation
+        self.token = request.POST.get("confirm_token") if request.method == "POST" else None
+        submitted = request.POST if request.method == "POST" else None
+        self.data: QueryDict | None = confirmation.load(self.token) if self.token is not None else submitted
+
+    @property
+    def confirmed(self) -> bool:
+        return self.token is not None
+
+    @property
+    def expired(self) -> bool:
+        return self.confirmed and self.data is None
+
+    def render_expired(self, request: HttpRequest) -> HttpResponse:
+        messages.error(request, "This confirmation expired or was made for something else. Review the change again.")
+        return redirect(request.get_full_path())
+
+    def render_preview(
+        self, request: HttpRequest, context: dict[str, object], form: forms.Form, preview: Callable[[], Page]
+    ) -> HttpResponse:
+        page = preview()
+        if form.errors:
+            return render(request, "admin_console/operation.html", context, status=400)
+        return render(
+            request,
+            "admin_console/confirm.html",
+            {**context, "page": page, "confirm_token": self.confirmation.sign(form)},
+        )
+
+
 def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str, operation_key: str) -> HttpResponse:
     record_type = _record_type(record)
     obj = get_object_or_404(record_type.queryset(), pk=pk)
@@ -301,13 +348,17 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
         operation=operation.key,
         triggered_by=cast(User, request.user).email,
     )
-    _require_gate(request, operation, audit)
+    _require_gate(request, operation, panel.owner, audit)
     if request.method == "GET" and operation.form_class is None:
         return redirect(record_url)
 
+    # The panel is part of the target, so a confirmation for one record or panel cannot confirm another.
+    step = ConfirmStep(request, ConfirmationToken(request, f"{record_type.key}:{obj.pk}:{panel.key}", operation.key))
+    if step.expired:
+        return step.render_expired(request)
     form = None
     if operation.form_class is not None:
-        form = operation.form_class(request.POST if request.method == "POST" else None, initial=operation.form_initial)
+        form = operation.form_class(step.data, initial=operation.form_initial)
     title = record_type.title(obj)
     target = OperationTarget(
         kicker="This acts on",
@@ -327,6 +378,10 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
         return render(request, "admin_console/operation.html", context)
     if form is not None and not form.is_valid():
         return render(request, "admin_console/operation.html", context, status=400)
+
+    preview = operation.preview
+    if preview is not None and form is not None and not step.confirmed:
+        return step.render_preview(request, context, form, lambda: preview(request, obj, form))
 
     audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
     response = _audited(audit, lambda: operation.handler(request, obj, form))
@@ -369,13 +424,14 @@ def _with_query(url: str, request: HttpRequest) -> str:
 def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     tool = _get_tool(tool_key)
     operations = [
-        RenderedOperation(
-            operation=operation,
-            url=_with_query(
+        _rendered_operation(
+            request,
+            operation,
+            tool.owner,
+            _with_query(
                 reverse("admin_console_tool_operation", kwargs={"tool_key": tool.key, "operation_key": operation.key}),
                 request,
             ),
-            allowed=_is_allowed(request, operation),
         )
         for operation in tool.operations(request)
     ]
@@ -419,7 +475,7 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
     if request.method not in ("GET", "POST"):
         return HttpResponseNotAllowed(["GET", "POST"])
     audit = logger.bind(tool=tool.key, operation=operation.key, triggered_by=cast(User, request.user).email)
-    _require_gate(request, operation, audit)
+    _require_gate(request, operation, tool.owner, audit)
     if request.method == "GET" and operation.form_class is None:
         return redirect(tool_url)
 
@@ -432,35 +488,22 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
         breadcrumbs=(RecordLink(label=tool.title, href=tool_url),),
         is_record=False,
     )
-    confirmation = ConfirmationToken(request, f"tool:{tool.key}", operation.key)
-    data: QueryDict | None = request.POST if request.method == "POST" else None
-    confirm_token = request.POST.get("confirm_token") if request.method == "POST" else None
-    if confirm_token is not None:
-        data = confirmation.load(confirm_token)
-        if data is None:
-            messages.error(
-                request, "This confirmation expired or was made for something else. Review the change again."
-            )
-            return redirect(request.get_full_path())
+    step = ConfirmStep(request, ConfirmationToken(request, f"tool:{tool.key}", operation.key))
+    if step.expired:
+        return step.render_expired(request)
 
     form = None
     if operation.form_class is not None:
-        form = operation.form_class(data, initial=operation.form_initial)
+        form = operation.form_class(step.data, initial=operation.form_initial)
     context = _operation_context(target, operation, form, request)
     if request.method == "GET":
         return render(request, "admin_console/operation.html", context)
     if form is not None and not form.is_valid():
         return render(request, "admin_console/operation.html", context, status=400)
 
-    if operation.preview is not None and form is not None and confirm_token is None:
-        preview = operation.preview(request, form)
-        if form.errors:
-            return render(request, "admin_console/operation.html", context, status=400)
-        return render(
-            request,
-            "admin_console/confirm.html",
-            {**context, "page": preview, "confirm_token": confirmation.sign(form)},
-        )
+    preview = operation.preview
+    if preview is not None and form is not None and not step.confirmed:
+        return step.render_preview(request, context, form, lambda: preview(request, form))
 
     audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
     result = _audited(audit, lambda: operation.handler(request, form))

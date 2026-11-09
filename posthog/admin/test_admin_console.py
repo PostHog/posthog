@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.contrib.auth.models import Group
+from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
@@ -16,11 +17,11 @@ from django.utils.html import format_html
 from parameterized import parameterized
 
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
-from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, ReasonForm
-from posthog.admin.console.records import RECORD_TYPES
+from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
 from posthog.csp_middleware import CSPMiddleware
+from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -102,11 +103,12 @@ class TestAdminConsoleAssets(SimpleTestCase):
         )
 
     def test_every_owner_crest_ships(self) -> None:
-        owners = [panel.owner for record in RECORD_TYPES for panel in console.panels_for(record)] + [
-            tool.owner for tool in console.tools()
-        ]
         missing = sorted(
-            {owner.crest for owner in owners if not (CONSOLE_ASSETS / "crests" / f"{owner.crest}.svg").is_file()}
+            {
+                owner.crest
+                for owner in console.owners()
+                if not (CONSOLE_ASSETS / "crests" / f"{owner.crest}.svg").is_file()
+            }
         )
 
         assert not missing, (
@@ -146,6 +148,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                     form_class=ReasonForm,
                 ),
                 "undo_hint",
+            ),
+            (
+                "owner_gate_for_an_owner_without_a_staff_group",
+                lambda: Gate.owner().resolve(Owner(name="Dev experience", crest="dev-experience")),
+                "has no staff_group",
             ),
             ("fact_with_markup", lambda: Fact(label="Plan", value=format_html("<b>{}</b>", "Scale")), "plain text"),
             (
@@ -318,16 +325,29 @@ class TestAdminConsoleViews(BaseTest):
             ("form_page_keeps_its_parameters", "team", "set-api-token/?from=ticket", "api-token/set/?from=ticket"),
             ("button_action_lands_on_its_panel", "team", "rebuild-cache/", "#panel-remote-config"),
             ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
+            (
+                "deletion_request_form_page",
+                "datadeletionrequest",
+                "approve/?from=ticket",
+                "workflow/approve/?from=ticket",
+            ),
         ]
     )
     def test_an_old_django_admin_action_url_lands_on_the_console(
         self, _name: str, record: str, old: str, new: str
     ) -> None:
-        obj = self.team if record == "team" else self.organization
+        obj: Model
+        if record == "team":
+            obj, plural = self.team, "teams"
+        elif record == "organization":
+            obj, plural = self.organization, "organizations"
+        else:
+            obj = DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
+            plural = "deletion-requests"
         response = self.client.get(f"/admin/posthog/{record}/{obj.pk}/{old}")
 
         assert response.status_code == 302
-        assert response["Location"] == f"/admin/console/{record}s/{obj.pk}/{new}"
+        assert response["Location"] == f"/admin/console/{plural}/{obj.pk}/{new}"
 
     def test_django_admin_team_page_points_moved_actions_to_the_console(self) -> None:
         response = self.client.get(f"/admin/posthog/team/{self.team.pk}/change/")
@@ -477,9 +497,11 @@ class TestAdminConsoleViews(BaseTest):
             Group.objects.get_or_create(name="Billing Team")[0].user_set.add(self.user)
 
         page = self.client.get("/admin/console/tools/usage-reports/").content.decode()
+        form = self.client.get("/admin/console/tools/usage-reports/send/")
         response = self.client.post("/admin/console/tools/usage-reports/send/", {"report_date": "2026-10-19"})
 
-        assert ("Needs the Billing Team group" in page) != in_group
+        assert ("Only members of the Billing Team group can run this" in page) != in_group
+        assert form.status_code == (200 if in_group else 403)
         assert response.status_code == expected_status
         assert call_command.called == in_group
 

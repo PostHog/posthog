@@ -14,6 +14,7 @@ from posthog.models.async_migration import is_async_migration_complete
 from products.ai_training.backend.facade.api import queue_training_deletion
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.logic.event_property_purge import delete_event_properties_for_team
+from products.ui_customization.backend.facade.api import delete_fragments_for_teams
 
 logger = structlog.get_logger(__name__)
 
@@ -69,6 +70,7 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     # Each phase is its own batched helper so the Temporal deletion workflow can run them
     # as separate, individually-retryable activities while Celery keeps calling them in sequence.
     _delete_misc_small_tables_for_teams(team_ids)
+    delete_fragments_for_teams(team_ids)
     _delete_event_properties_for_teams(team_ids)
     _delete_cohort_members_for_all_teams(team_ids)
     _delete_groups_for_teams(team_ids)
