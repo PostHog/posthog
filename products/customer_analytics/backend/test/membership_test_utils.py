@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import timedelta
 from uuid import UUID, uuid4
@@ -142,7 +142,7 @@ class MembershipTestCase(ClickhouseTestMixin, APIBaseTest):
         else:
             self.create_group()
 
-    def assert_membership_state(self, candidate_rows: list[dict[str, object]], cursor: list[int | str]) -> None:
+    def assert_membership_state(self, candidate_rows: Sequence[Mapping[str, object]], cursor: list[int | str]) -> None:
         assert list(MembershipCleanupCandidate.objects.for_team(self.team.pk).values()) == candidate_rows
         assert self.get_rows() == [(self.key.distinct_id,)]
         assert MembershipCleanupScan.objects.for_team(self.team.pk).get().cursor == cursor
