@@ -22,6 +22,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth.cimd import (
+    THROWAWAY_JWKS_HOST_MESSAGE,
     CIMDFetchError,
     CIMDMetadataDocument,
     CIMDValidationError,
@@ -154,6 +155,7 @@ def test_is_cimd_client_id(url, expected):
         ("https://webhook.site/0b1c2d3e-0000-4000-8000-000000000000", True),
         ("https://api.jsonbin.io/v3/b/abc123", True),
         ("https://gist.githubusercontent.com/someone/abc123/raw/client.json", True),
+        ("https://x0.at/oXXP.json", True),
         ("https://expo.dev/.well-known/posthog-client.json", False),
         ("https://mytrycloudflare.com/metadata.json", False),
         ("https://trycloudflare.com.example.com/metadata.json", False),
@@ -350,6 +352,14 @@ class TestFetchCimdMetadata(SimpleTestCase):
             with self.assertRaises(CIMDValidationError) as ctx:
                 fetch_cimd_metadata(VALID_CIMD_URL)
         self.assertEqual(str(ctx.exception), "jwks_uri is not allowed: jwks_uri host is not a public internet address")
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_jwks_uri_on_a_throwaway_host_is_refused(self, mock_get, _url_mock):
+        metadata = _make_metadata(token_endpoint_auth_method="private_key_jwt", jwks_uri="https://x0.at/oXXP.json")
+        mock_get.return_value = _mock_response(metadata)
+        with self.assertRaises(CIMDValidationError) as ctx:
+            fetch_cimd_metadata(VALID_CIMD_URL)
+        self.assertEqual(str(ctx.exception), THROWAWAY_JWKS_HOST_MESSAGE)
 
     @parameterized.expand([("missing_jwks_uri", None), ("non_https_jwks_uri", "http://app.example.com/jwks.json")])
     @patch("posthog.api.oauth.cimd.requests.Session.get")

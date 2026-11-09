@@ -235,9 +235,10 @@ def is_cimd_client_id(client_id: str | None) -> bool:
     return valid
 
 
-# A CIMD client is trusted because it serves its metadata document from its client_id URL. Each
-# of these services gives anyone a public HTTPS URL with content they choose in seconds, so a
-# document served from one does not show that an accountable party controls the client.
+# A CIMD client is trusted because it serves its metadata document from its client_id URL, and
+# its signing keys from its jwks_uri. Each of these services gives anyone a public HTTPS URL with
+# content they choose in seconds, so a document served from one does not show that an
+# accountable party controls the client.
 _TUNNEL_HOST_SUFFIXES = frozenset(
     {
         "trycloudflare.com",  # Cloudflare quick tunnels
@@ -303,6 +304,8 @@ _JSON_AND_PASTE_HOST_SUFFIXES = frozenset(
         "hastebin.com",
         "surge.sh",
         "tiiny.site",
+        "x0.at",
+        "0x0.st",
     }
 )
 
@@ -313,6 +316,10 @@ THROWAWAY_HOST_SUFFIXES: frozenset[str] = (
 THROWAWAY_HOST_MESSAGE = (
     "PostHog doesn't accept client metadata from this host. "
     "Host your client metadata document on a domain you control and use that URL as your client_id."
+)
+
+THROWAWAY_JWKS_HOST_MESSAGE = (
+    "jwks_uri is not allowed: PostHog doesn't accept keys from this host. Host your JWKS on a domain you control."
 )
 
 
@@ -530,6 +537,8 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
             raise CIMDValidationError("token_endpoint_auth_method 'private_key_jwt' requires a jwks_uri")
         if not jwks_uri.startswith("https://"):
             raise CIMDValidationError("jwks_uri must be an https URL")
+        if is_throwaway_host(jwks_uri):
+            raise CIMDValidationError(THROWAWAY_JWKS_HOST_MESSAGE)
         # A second client-controlled URL we will dereference, so it gets the same SSRF
         # screening as the metadata document itself.
         jwks_allowed, jwks_error = validate_cimd_url(jwks_uri, perform_dns_check=True, what="jwks_uri")

@@ -280,6 +280,14 @@ class TestClientAssertion(BaseTest):
             # A client with a broken jwks_uri must not turn each request into an outbound fetch.
             fetch.assert_called_once()
 
+    def test_stored_jwks_uri_on_a_throwaway_host_is_refused_before_any_fetch(self):
+        self.app.jwks_uri = "https://x0.at/oXXP.json"
+        self.app.save(update_fields=["jwks_uri"])
+        with patch("posthog.api.oauth.client_assertion.fetch_client_json_document") as fetch:
+            with self.assertRaisesMessage(ClientAssertionError, "Client keys could not be retrieved"):
+                verify_client_assertion(self.app, self._assertion())
+            fetch.assert_not_called()
+
     @parameterized.expand(
         [
             # The cap is on key count, so the same key material under distinct kids exercises it.
