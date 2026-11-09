@@ -79,7 +79,8 @@ class ViewTranslationStaff:
         if selected_ids:
             eligible_ids = {
                 str(saved_query_id)
-                for saved_query_id in DataWarehouseSavedQuery.objects.filter(
+                # Staff-only PostHog Admin operation scoped to one organization's warehouse, so it spans its teams.
+                for saved_query_id in DataWarehouseSavedQuery.objects.filter(  # nosemgrep: idor-lookup-without-team
                     id__in=selected_ids, team__organization_id=organization_id, deleted=False
                 )
                 .exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
