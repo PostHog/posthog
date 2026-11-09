@@ -9,13 +9,13 @@ import {
     type TooltipContext,
     ValueLabels,
 } from '@posthog/quill-charts'
-import { Skeleton } from '@posthog/quill-primitives'
 
 import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { type ToolRow } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
+import { ChartSkeleton } from './ChartSkeleton'
 import { ChartTooltip } from './ChartTooltip'
 
 const MAX_TOOLS = 8
@@ -29,13 +29,17 @@ function niceErrorAxisMax(maxRate: number): number {
 export function ToolErrorRateChart({
     rows,
     loading,
+    failed,
+    onRetry,
     theme,
     onToolClick,
     title = 'Tools with the highest error rate',
-    emptyMessage = 'No tool calls yet.',
+    emptyMessage = 'No tool calls in this date range. Try a wider range.',
 }: {
     rows: ToolRow[]
     loading: boolean
+    failed?: boolean
+    onRetry?: () => void
     theme: ChartTheme
     onToolClick?: (tool: string) => void
     title?: string
@@ -100,14 +104,15 @@ export function ToolErrorRateChart({
             <CardState
                 loading={loading}
                 isEmpty={rows.length === 0}
-                skeleton={
-                    <div className="space-y-2 py-3">
-                        {Array.from({ length: 5 }).map((_, i) => (
-                            <Skeleton key={i} className="h-7 w-full" />
-                        ))}
+                failed={failed}
+                onRetry={onRetry}
+                className="min-h-80"
+                skeleton={<ChartSkeleton kind="bars" />}
+                empty={
+                    <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">
+                        {emptyMessage}
                     </div>
                 }
-                empty={<div className="py-6 text-center text-[12px] text-secondary">{emptyMessage}</div>}
             >
                 <div className="flex min-h-80 flex-1 flex-col">
                     <BarChart
