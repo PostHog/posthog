@@ -5,6 +5,7 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
 
+import { withConnectionRetry } from './connection-retry'
 import { assignEmailDequeueSeq } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
@@ -212,6 +213,56 @@ async function updateSelfInTx(
         params
     )
     assertSelfRowAffected(result.rowCount, jobId, 'reschedule')
+}
+
+async function checkInInTx(
+    pool: Pool,
+    jobId: string,
+    lockId: string,
+    newJobs: CyclotronV2JobInit[],
+    disposition: CyclotronV2BulkCreateAndCheckInInput['selfDisposition']
+): Promise<{ newJobIds: string[]; cancelRequested?: boolean }> {
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
+
+        // Cancel tombstone, checked inside the transaction. The FOR UPDATE takes the
+        // self row's lock, so this serializes against cancelJobs' flag write: a flag
+        // that committed first refuses the whole page here (nothing inserted), and a
+        // page that locked first commits before the flag can land — the cancel
+        // sweep's remaining-count then still sees its jobs. Without this check, a
+        // page could commit after a cancel sweep counted zero remaining, leaving
+        // jobs that never get flagged.
+        const selfRow = await client.query<{ cancel_requested_at: string | null }>(
+            `SELECT cancel_requested_at FROM cyclotron_jobs
+             WHERE id = $1 AND lock_id = $2
+             FOR UPDATE`,
+            [jobId, lockId]
+        )
+        assertSelfRowAffected(selfRow.rowCount, jobId, 'precheck')
+        if (selfRow.rows[0].cancel_requested_at !== null) {
+            await client.query('ROLLBACK')
+            return { newJobIds: [], cancelRequested: true }
+        }
+
+        const newJobIds = await insertNewJobsInTx(client, newJobs)
+        await updateSelfInTx(client, jobId, lockId, disposition)
+
+        await client.query('COMMIT')
+        return { newJobIds }
+    } catch (err) {
+        try {
+            await client.query('ROLLBACK')
+        } catch (rollbackErr) {
+            logger.warn('bulkCreateAndCheckIn rollback failed', {
+                error: String(rollbackErr),
+                originalError: String(err),
+            })
+        }
+        throw err
+    } finally {
+        client.release()
+    }
 }
 
 function assertSelfRowAffected(rowCount: number | null, jobId: string, kind: string): void {
@@ -462,25 +513,29 @@ export class CyclotronV2Worker {
 
             async ack(): Promise<void> {
                 releaseGuard('ack')
-                await pool.query(
-                    `UPDATE cyclotron_jobs
-                     SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
-                         janitor_touch_count = 0
-                     WHERE id = $1 AND lock_id = $2`,
-                    [row.id, lockId]
+                await withConnectionRetry('ack', () =>
+                    pool.query(
+                        `UPDATE cyclotron_jobs
+                         SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
+                             last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
+                             janitor_touch_count = 0
+                         WHERE id = $1 AND lock_id = $2`,
+                        [row.id, lockId]
+                    )
                 )
             },
 
             async fail(): Promise<void> {
                 releaseGuard('fail')
-                await pool.query(
-                    `UPDATE cyclotron_jobs
-                     SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
-                         janitor_touch_count = 0
-                     WHERE id = $1 AND lock_id = $2`,
-                    [row.id, lockId]
+                await withConnectionRetry('fail', () =>
+                    pool.query(
+                        `UPDATE cyclotron_jobs
+                         SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
+                             last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
+                             janitor_touch_count = 0
+                         WHERE id = $1 AND lock_id = $2`,
+                        [row.id, lockId]
+                    )
                 )
             },
 
@@ -542,27 +597,33 @@ export class CyclotronV2Worker {
                 // so existing fair-ordered rows keep their place after retry/
                 // reschedule without bumping the counter.
                 if (options?.queueName === 'email' && row.queue_name !== 'email') {
-                    const dequeueSeq = await assignEmailDequeueSeq(pool, row.team_id)
+                    const dequeueSeq = await withConnectionRetry('reschedule', () =>
+                        assignEmailDequeueSeq(pool, row.team_id)
+                    )
                     params.push(dequeueSeq)
                     setClauses.push(`dequeue_seq = $${params.length}`)
                 }
 
-                await pool.query(
-                    `UPDATE cyclotron_jobs SET ${setClauses.join(', ')}
-                     WHERE id = $1 AND lock_id = $2`,
-                    params
+                await withConnectionRetry('reschedule', () =>
+                    pool.query(
+                        `UPDATE cyclotron_jobs SET ${setClauses.join(', ')}
+                         WHERE id = $1 AND lock_id = $2`,
+                        params
+                    )
                 )
             },
 
             async cancel(): Promise<void> {
                 releaseGuard('cancel')
-                await pool.query(
-                    `UPDATE cyclotron_jobs
-                     SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
-                         janitor_touch_count = 0
-                     WHERE id = $1 AND lock_id = $2`,
-                    [row.id, lockId]
+                await withConnectionRetry('cancel', () =>
+                    pool.query(
+                        `UPDATE cyclotron_jobs
+                         SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
+                             last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
+                             janitor_touch_count = 0
+                         WHERE id = $1 AND lock_id = $2`,
+                        [row.id, lockId]
+                    )
                 )
             },
 
@@ -587,49 +648,14 @@ export class CyclotronV2Worker {
                 // input doesn't burn a connection slot mid-transaction.
                 const newJobs: CyclotronV2JobInit[] = input.newJobs.map((j) => CyclotronV2JobInitSchema.parse(j))
 
-                const client = await pool.connect()
-                try {
-                    await client.query('BEGIN')
-
-                    // Cancel tombstone, checked inside the transaction. The FOR UPDATE takes the
-                    // self row's lock, so this serializes against cancelJobs' flag write: a flag
-                    // that committed first refuses the whole page here (nothing inserted), and a
-                    // page that locked first commits before the flag can land — the cancel
-                    // sweep's remaining-count then still sees its jobs. Without this check, a
-                    // page could commit after a cancel sweep counted zero remaining, leaving
-                    // jobs that never get flagged.
-                    const selfRow = await client.query<{ cancel_requested_at: string | null }>(
-                        `SELECT cancel_requested_at FROM cyclotron_jobs
-                         WHERE id = $1 AND lock_id = $2
-                         FOR UPDATE`,
-                        [row.id, lockId]
-                    )
-                    assertSelfRowAffected(selfRow.rowCount, row.id, 'precheck')
-                    if (selfRow.rows[0].cancel_requested_at !== null) {
-                        await client.query('ROLLBACK')
-                        // The job was never released — hand it back to the caller to dispose.
-                        released = false
-                        return { newJobIds: [], cancelRequested: true }
-                    }
-
-                    const newJobIds = await insertNewJobsInTx(client, newJobs)
-                    await updateSelfInTx(client, row.id, lockId, input.selfDisposition)
-
-                    await client.query('COMMIT')
-                    return { newJobIds }
-                } catch (err) {
-                    try {
-                        await client.query('ROLLBACK')
-                    } catch (rollbackErr) {
-                        logger.warn('bulkCreateAndCheckIn rollback failed', {
-                            error: String(rollbackErr),
-                            originalError: String(err),
-                        })
-                    }
-                    throw err
-                } finally {
-                    client.release()
+                const result = await withConnectionRetry('bulk_create_and_check_in', () =>
+                    checkInInTx(pool, row.id, lockId, newJobs, input.selfDisposition)
+                )
+                if (result.cancelRequested) {
+                    // The job was never released — hand it back to the caller to dispose.
+                    released = false
                 }
+                return result
             },
         }
     }
