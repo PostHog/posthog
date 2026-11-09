@@ -1465,3 +1465,15 @@ export const HomePulseEmptyAndError: Story = {
         }),
     ],
 }
+
+export const HomeWithComposer: Story = {
+    decorators: [keepNumbers([])],
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+            FEATURE_FLAGS.TODAY_HOME_COMPOSER,
+        ],
+    },
+}
