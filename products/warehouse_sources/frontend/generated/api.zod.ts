@@ -265,6 +265,12 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
             ),
+        drop_history_table: zod
+            .boolean()
+            .optional()
+            .describe(
+                'For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table.'
+            ),
         api_version: zod
             .string()
             .max(externalDataSchemasUpdateBodyApiVersionMax)
@@ -387,6 +393,12 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
+            ),
+        drop_history_table: zod
+            .boolean()
+            .optional()
+            .describe(
+                'For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table.'
             ),
         api_version: zod
             .string()
@@ -1595,4 +1607,32 @@ export const WarehouseAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.o
         .min(1)
         .max(warehouseAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
         .describe("IDs of the alert's destinations to delete, as the list endpoint returns them."),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .enum(['fivetran'])
+        .describe('\* `fivetran` - Fivetran')
+        .describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
+    api_key: zod.string().describe('Read-only API key for the vendor account.'),
+    api_secret: zod.string().describe('Secret that belongs to the API key.'),
+})
+
+/**
+ * Skip many connections at once, or all but the ones to keep.
+ */
+
+export const WarehouseMigrationsItemsBulkSkipCreateBody = /* @__PURE__ */ zod.object({
+    item_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .optional()
+        .describe('Items to skip. Pass this or `keep_item_ids`, not both.'),
+    keep_item_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Items to keep. Every other item is skipped, for example to migrate only one connection.'),
 })

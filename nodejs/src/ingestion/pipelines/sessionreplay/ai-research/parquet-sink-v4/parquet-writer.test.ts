@@ -197,6 +197,7 @@ describe('indexRowsToParquet', () => {
             'OPTIONAL group surfacing_form_field_ids LIST',
             'REPEATED group surfacing_form_field_ids.list',
             'REQUIRED INT64 surfacing_form_field_ids.list.element',
+            'OPTIONAL BYTE_ARRAY unread_reason UTF8',
         ],
     }
 

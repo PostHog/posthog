@@ -40,7 +40,8 @@
                 "EXPO_PUBLIC_SIGNUP_LINK": "0"
             },
             "android": {
-                "buildType": "app-bundle"
+                "buildType": "app-bundle",
+                "resourceClass": "large"
             }
         }
     },

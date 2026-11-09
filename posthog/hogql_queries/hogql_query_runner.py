@@ -17,7 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter_for_source
@@ -36,7 +36,7 @@ from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
-from posthog.hogql_queries.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE, HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.sql_freshness.classifier import (
     SqlFreshness,
@@ -368,11 +368,13 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             self.settings.max_threads = 60
             self.settings.max_execution_time = self.QUERY_SERVICE_MAX_EXECUTION_TIME
 
+        if self.query.offset and self.query.sendRawQuery:
+            raise ExposedHogQLError(OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE)
         self._validate_direct_connection()
 
         if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
             if self.is_query_service and not self.query.sendRawQuery:
-                validate_user_query(self._parse_query()[0], team=self.team)
+                validate_user_query(self._parse_query()[0], team=self.team, requested_offset=self.query.offset)
             return execute_managed_trino_query(
                 self.query.model_copy(update={"modifiers": self.modifiers}),
                 team=self.team,
@@ -408,13 +410,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         query = self._build_query()
 
         if self.is_query_service:
-            validate_user_query(query, team=self.team)
+            validate_user_query(query, team=self.team, requested_offset=self.query.offset)
 
-        paginator = None
-        if self.limit_context == LimitContext.SQL_ALERT:
-            paginator = HogQLHasMorePaginator.from_alert_query(query, limit_context=self.limit_context)
-        elif isinstance(query, ast.SelectQuery) and not query.limit:
-            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
+        paginator = HogQLHasMorePaginator.for_hogql_query(
+            query, limit_context=self.limit_context, offset=self.query.offset
+        )
         func = cast(
             Callable[..., HogQLQueryResponse],
             execute_hogql_query if paginator is None else paginator.execute_hogql_query,

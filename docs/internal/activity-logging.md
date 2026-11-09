@@ -134,6 +134,19 @@ Never put a credential field in that branch.
 
 Destination activity logs record changes to `mappings` without their values.
 For `inputs` they keep each key and record only whether its value changed, so the history can name the changed input.
+A destination test with `mock_async_functions` set to false writes a `tested` row before the test runs, so a failed test is recorded too.
+If that row cannot be written, the test does not run.
+A test of a native or Segment destination writes the row whatever `mock_async_functions` says, because those executors send real requests even when the test mocks.
+Its context holds the `hog` source, the input and mapping input keys, and the ids of the integrations the inputs name, never an input value.
+A test of an unsaved function has no `item_id`.
+Any other mocked test writes no row, because it cannot send data out.
+A workflow test step with `mock_async_functions` set to false writes a `HogFlow` `tested` row the same way, before the step runs.
+Its context holds the step's id, type and template, its input keys, and the ids of the integrations its inputs name.
+After the worker answers, both rows get `request_origins`: the origins (scheme, host and port) of the requests the test sent.
+The worker records them in `cdpTrackedFetch`, so they come from what ran, not from the configuration.
+They cover HTTP requests only: an email step sends through the mail service, and its recipients are not listed.
+When the worker reply has no `request_origins`, the field stays null and Django logs `test_run.request_origins_missing`.
+The `$activity_log_entry_created` event goes out when the row is created, so a destination that streams the activity log does not get `request_origins`.
 Rows written before a field joined `field_with_masked_contents` still store its values.
 Guided Inbox onboarding first saves a draft when the sources step is completed; opening or editing that first step keeps the draft local.
 Later setup changes are recorded while masking the saved draft, including scout instructions and project evidence.
@@ -151,6 +164,8 @@ Changing an input from secret to non-secret does not copy its stored value into 
 An explicit replacement value can be stored as a non-secret input.
 Existing duplicate input keys do not block disabling or deleting a destination, but requests cannot add a duplicate key.
 Destination, draft, and revision responses mask secret mapping values from old records, including defaults.
+Creating a destination writes its first revision, so its starting config stays readable after a delete.
+The revisions endpoints also read a soft-deleted destination. A token then needs `hog_function:write`, as an undelete does.
 
 New browser configuration builds leave out a site function while one of its secret values would reach the browser.
 That covers a secret still stored in plaintext inputs, and a mapping secret or its default.
@@ -304,6 +319,8 @@ A callback registered inside a rolled-back transaction is discarded, so the audi
 **The before-update read is pinned to the writer.**
 The mixin reads the previous state by primary key through `router.db_for_write(Model)`, so a lagged reader replica cannot produce a stale diff.
 Explicit logging at a bulk-write site should read its before-values from the writer too.
+
+Organization IP restriction configuration logs initial creation and changes to the allowlist and enabled state under `OrganizationIPRestrictions`, with the request actor.
 
 ## Reading the log
 

@@ -53,4 +53,20 @@ Each rule is tagged with what catches a violation.
 
 ## LLM gateway
 
-- **`services/llm-gateway` is under an unofficial code freeze** while callers move to [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway). `[review]` If a task asks you to change it, tell the user about the freeze in your reply. New callers and features belong on the Go gateway. A Python gateway change needs a documented parity blocker for an active caller and stays limited to it — read [`services/llm-gateway/PARITY.md`](../services/llm-gateway/PARITY.md). Its Postgres role reads only allowlisted tables: a new table read needs the SELECT grant landed in posthog-cloud-infra for every environment first, then a declaration in `required_tables.py`. The readiness probe checks every declared grant on every probe, so a missing grant holds a rollout instead of serving 500s. Use `/auditing-llm-gateway-parity` for contract changes, `/finding-llm-gateway-migration-candidates` to pick the next caller, `/migrating-llm-gateway-callers` to move one.
+- **App code sends inference through the Go AI gateway.** `[review]`
+  A provider API key is never the client.
+- **A change to gateway behavior lands in [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway).** `[review]`
+  Read that repo when the change is the gateway itself.
+  This monorepo only calls the gateway.
+- **A monorepo caller builds its client with a helper in `posthog/llm/gateway_client.py`.** `[review]`
+  Use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, `build_async_anthropic_client`, `build_gemini_client`, `build_ai_gateway_openai_client`, or `build_ai_gateway_anthropic_client`.
+  Those helpers read `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`.
+  Read [`products/tasks/backend/logic/services/title_generator.py`](../products/tasks/backend/logic/services/title_generator.py) for a real call.
+- **`services/llm-gateway` is under an unofficial code freeze.** `[review]`
+  If a task asks you to change it, tell the user about the freeze in your reply.
+  A change needs a documented parity blocker for an active caller and stays limited to that caller.
+  Read [`services/llm-gateway/PARITY.md`](../services/llm-gateway/PARITY.md) before the change.
+  Read `/auditing-llm-gateway-parity` when the gateway contract changes.
+  Its Postgres role reads only allowlisted tables.
+  A new table read needs the SELECT grant in posthog-cloud-infra for every environment first, then a declaration in `required_tables.py`.
+  The readiness probe checks every declared grant on every probe, so a missing grant holds a rollout instead of serving 500s.

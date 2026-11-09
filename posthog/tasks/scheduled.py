@@ -59,6 +59,7 @@ from posthog.tasks.tasks import (
     redis_heartbeat,
     redispatch_orphaned_queued_task_runs,
     refresh_activity_log_fields_cache,
+    report_upcoming_events_deletions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -115,11 +116,13 @@ from products.feature_flags.backend.tasks import (
 )
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
+from products.managed_warehouse.backend.facade.tasks import push_all_warehouse_member_teams
 from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB, run_mcp_registry_sync
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.facade.tasks import (
+    enqueue_signals_rated_usage,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -147,7 +150,9 @@ from products.tasks.backend.facade.tasks import (
     refresh_stale_sandbox_custom_images_task,
     settle_overdue_sandbox_compute_task,
     sweep_inactive_tasks_task,
+    sweep_queued_gateway_usage,
 )
+from products.ui_customization.backend.facade.tasks import delete_orphaned_fragments
 from products.visual_review.backend.facade.tasks import (
     send_visual_review_debt_digests,
     sweep_visual_review_artifacts,
@@ -276,6 +281,9 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    add_periodic_task_with_expiry(
+        sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
+    )
     add_periodic_task_with_expiry(sender, crontab(minute="37"), expire_datasets.s(), name="expire unused datasets")
     add_periodic_task_with_expiry(
         sender,
@@ -297,6 +305,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         60,
         capture_task_run_state_metrics.s(),
         name="tasks run state metrics",
+    )
+
+    # Backstop for a gateway callback whose Celery kick was lost: the run's usage workflow only
+    # starts from that kick, so nothing would drain the intake table otherwise.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/4"),
+        sweep_queued_gateway_usage.s(),
+        name="tasks queued gateway usage sweep",
     )
 
     add_periodic_task_with_expiry(
@@ -444,6 +461,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="refresh prebaked dev-stack VM image on base change",
         expires_seconds=2 * 60,
     )
+
+    if settings.CLOUD_DEPLOYMENT:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(hour="3", minute="17"),
+            enqueue_signals_rated_usage.s(),
+            name="report self-driving rated usage",
+        )
 
     add_periodic_task_with_expiry(
         sender,
@@ -829,6 +854,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires=1800,
     )
 
+    # The full push of member teams to hogtower: the net under the change signals, for team-scoped
+    # hoglake tokens. A no-op unless HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED.
+    sender.add_periodic_task(
+        crontab(minute="23"),
+        push_all_warehouse_member_teams.s(),
+        name="push managed warehouse member teams to hogtower",
+        expires=3000,
+    )
+
     # Every 30 minutes, send decide request counts to the main posthog instance
     sender.add_periodic_task(
         crontab(minute="*/30"),
@@ -859,6 +893,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Sync all Organization.available_product_features every hour, only for billing v1 orgs
     sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_product_features.s())
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="15", minute="0"),
+        report_upcoming_events_deletions.s(),
+        name="report upcoming events deletions",
+    )
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
 
@@ -995,13 +1036,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*/12", minute="26"),
         update_survey_iteration.s(),
         name="update survey iteration based on date",
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*/12", minute="28"),
         update_survey_adaptive_sampling.s(),
         name="update survey's sampling feature flag rollout  based on date",
     )
@@ -1269,12 +1310,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # AEO citation-tracking POC: daily citation checks for allowlisted, flag-enabled teams.
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="7", minute="30"),
+        # Hourly through the morning: the first dispatch starts the day's run and the later
+        # ones resume it if a worker rollout killed it. The runner skips the prompts already
+        # checked that day and the per-team lease makes a dispatch during a live run a no-op.
+        crontab(hour="7-15", minute="30"),
         run_aeo_citation_checks_task.s(),
         name="AEO citation checks",
-        # Well under the daily interval, so a backed-up queue drops the stale dispatch
-        # instead of fanning out a second day's checks and paying for them twice.
-        expires_seconds=60 * 60,
+        # Under the dispatch interval, so a backed-up queue drops the stale dispatch
+        # instead of the next one finding it still queued.
+        expires_seconds=50 * 60,
     )
 
     # MCP registry daily sync: crawl the official registry, aggregate measured servers,
