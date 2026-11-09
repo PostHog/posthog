@@ -885,6 +885,7 @@ def _review_invocation(run: ReviewRun, merge_base_sha: str | None) -> ReviewerIn
         # Read as a description rather than a permission: the reviewer is told why it was asked,
         # and decides for itself what that means for this diff.
         review_trigger=trigger_for_run(output=output, review_mode=run.pull_request.repo_config.review_mode),
+        admitted_bot=str((output.get("bot_admission") or {}).get("login") or ""),
     )
 
 

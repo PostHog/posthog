@@ -2345,6 +2345,42 @@ def test_a_wait_on_attestation_checks_is_reviewed_again_only_when_all_of_them_re
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize("admitted", [True, False], ids=["admitted-bot", "unadmitted-bot"])
+def test_a_check_wakes_a_bot_wait_only_with_the_admission_it_was_created_with(
+    team, stamphog_chain: StamphogChain, admitted: bool
+) -> None:
+    # The wake refetches the PR and runs the same pre-filters as a delivery, which drop every bot
+    # author. Only the waiting run's own admission stamp lets a named bot through.
+    repo_config = _repo_config(team.id)
+    head_sha = "sha129b"
+    live_pr = _pr_object(129, "renovate[bot]", head_sha) | {"state": "open", "author_association": "CONTRIBUTOR"}
+    live_pr["user"] = {"login": "renovate[bot]", "type": "Bot", "id": 29139614}
+    stamphog_chain.recorder.register_pr(REPO, 129, live_pr, _pr_files())
+    stamphog_chain.recorder.check_runs[(REPO, head_sha)] = [_check_run("success")]
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=129, author_login="renovate[bot]"
+    )
+    admission = {"name": "renovate", "login": "renovate[bot]", "id": 29139614}
+    waiting = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.GATED,
+        verdict=ReviewVerdict.WAIT,
+        output={"bot_admission": admission, "review_trigger": "bot_admission"} if admitted else {},
+        gate_result={"classification": {"attestations": {"pending": [_CHECK], "lifting": []}}},
+    )
+
+    with patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow"):
+        wake_on_attestation_check(REPO, 129, head_sha, "Migration risk", _MIGRATION_RISK_APP_ID)
+
+    new_runs = list(
+        ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request, created_at__gt=waiting.created_at)
+    )
+    assert [run.output.get("bot_admission") for run in new_runs] == ([admission] if admitted else [])
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
     "output, earlier_wakes, expected",
     [

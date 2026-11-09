@@ -178,6 +178,19 @@ narrow:
   The condition is the derived `ReviewTrigger`, not the raw provenance flag, so it stays aligned with
   what the reviewer prompt was told about its own invocation.
 
+## Bot admission (the other exception to the bot-author refusal)
+
+A repo's `.stamphog/policy.yml` may name bots under `bot_authors`, each as `{name, login, id}`.
+The server reads that list from the default branch only (`logic/bot_admission.py`, cached briefly, absence included), so a PR cannot admit its own author.
+Admission needs the login and the numeric account id to match one entry, `user.type == "Bot"`, a repo-native head, and an `opened`, `synchronize` or `reopened` action.
+A draft stays skipped before admission is considered.
+An admitted delivery passes the bot-author skip, the review-mode gate and the write-permission gate, and nothing else.
+The run is stamped `bot_admission` provenance and the `bot_admission` trigger, and retention never keeps its approvals.
+The engine reads the stamped login as `admitted_bot`, checks it against `POLICY.bot_authors` again, keeps every gate including the draft prerequisite, and adds `every_file_attested`, which refuses the run unless an attestation lifts every file in the PR.
+A pending attestation turns that gate into a WAIT, and the check-run wake carries the `bot_admission` stamp into the re-run, because the refetched PR fails the bot pre-filter on its own.
+Removing the policy entry is enough to stop reviews.
+The next delivery skips and dismisses the standing approval, and the engine refuses a woken re-run.
+
 ## The manual trigger (the one exception to label mode)
 
 `request_manual_review` (`POST review_runs/` and the `stamphog-review-runs-create` MCP tool) queues a review because a project member asked for it.

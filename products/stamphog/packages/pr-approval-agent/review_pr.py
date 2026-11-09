@@ -77,6 +77,9 @@ from policy import Attestation, EffectivePolicy, ScopeBudget, _sanitize_untruste
 from verdict_rule import facts_summary
 from version import STAMPHOG_VERSION
 
+# Gates whose failure a pending attestation can still lift, so the run waits for the check.
+ATTESTATION_LIFTED_GATES = frozenset({"deny-list", "every_file_attested"})
+
 if TYPE_CHECKING:
     from reviewer import Reviewer
 
@@ -225,6 +228,7 @@ class Pipeline:
         verbose: bool = False,
         self_driving: bool = False,
         review_trigger: str = "",
+        admitted_bot: str = "",
         head_checkout: bool = False,
         checkout: bool = True,
     ) -> None:
@@ -240,6 +244,7 @@ class Pipeline:
         # only. It reaches the prompt as one line and gates nothing, unlike self_driving above.
         # Empty for a local run, which has no trigger to report.
         self.review_trigger = review_trigger
+        self.admitted_bot = admitted_bot
         # True when REPO_ROOT already holds the PR head (the hosted sandbox clones and checks out
         # the head for every review). The Action reviews from a trunk checkout, so a stacked PR
         # needs a separate head worktree there — see _pr_head_worktree.
@@ -275,7 +280,7 @@ class Pipeline:
         """Run the full pipeline, return final verdict string."""
         self._fetch()
 
-        if self.pr.author_is_bot and not self.self_driving:
+        if self.refuses_bot_author():
             return self._refuse_bot_author()
 
         gate_verdict = self._classify_and_gate()
@@ -321,7 +326,7 @@ class Pipeline:
         it, or when no check is pending. The deny-list verdict stands in each case.
         """
         deny = set(self.classification.get("deny_categories", []))
-        if not deny:
+        if not deny and not self.admitted_bot:
             return []
         pending = pending_attestations(POLICY.attestations, self.pr.check_runs, self.pr.file_paths)
         if not pending or not deny <= set().union(*(set(a.lifts) for a in pending)):
@@ -335,9 +340,26 @@ class Pipeline:
         instead of the generic deny-list one. Other gate failures (size, prerequisites)
         won't clear when the check finishes, so we shouldn't promise a re-label will help.
         """
-        if any(not r.passed and r.gate != "deny-list" for r in self.gate_results):
+        if any(not r.passed and r.gate not in ATTESTATION_LIFTED_GATES for r in self.gate_results):
             return []
         return self.pending_lifting_attestations()
+
+    def refuses_bot_author(self) -> bool:
+        """True when the PR author is a bot that neither carve-out admits.
+
+        `admitted_bot` is the login the hosted server admitted under the policy's `bot_authors`. The
+        login and the author's numeric id are checked against that list again here, so neither a
+        server that admits a bot the policy does not name nor a server reading a cached policy can
+        pass an account the policy has since dropped. An admitted bot keeps every gate, and every
+        file in its PR must be attested.
+        """
+        if not self.pr.author_is_bot or self.self_driving:
+            return False
+        return not (
+            self.admitted_bot
+            and self.pr.author == self.admitted_bot
+            and any(bot.login == self.admitted_bot and bot.id == self.pr.author_id for bot in POLICY.bot_authors)
+        )
 
     def _refuse_bot_author(self) -> str:
         """Hard gate: stamphog never reviews bot-authored PRs.
@@ -565,6 +587,7 @@ class Pipeline:
             # True swaps the author trust context for task provenance.
             "self_driving": self.self_driving,
             "review_trigger": self.review_trigger,
+            "admitted_bot": self.admitted_bot,
         }
 
     def _author_on_team(self, team_slug: str) -> bool:
@@ -665,6 +688,7 @@ class Pipeline:
         gates = [
             ("prerequisites", self._check_prerequisites),
             ("deny-list", self._check_deny_list),
+            ("every_file_attested", self._check_every_file_attested),
             ("size", self._check_size),
             ("tier", self._check_tier),
         ]
@@ -714,6 +738,21 @@ class Pipeline:
         if deny:
             return False, f"matches: {matches}"
         return True, "no deny categories matched"
+
+    def _check_every_file_attested(self) -> tuple[bool, str]:
+        """An admitted bot's PR may only hold files that an attestation vouched for.
+
+        A human author is trusted for the files no check covers. A bot has no such trust, so a file
+        outside every attestation's proof, a workflow edit for example, refuses the PR. A rename's
+        old path counts as a file too, so content cannot leave a proven path unproven.
+        """
+        if not self.admitted_bot:
+            return True, "not a bot PR"
+        attested: set[str] = set().union(*self.classification["lifted_files"].values())
+        unattested = sorted(set(self.pr.deny_paths) - attested)
+        if unattested:
+            return False, f"no attestation covers: {', '.join(unattested[:5])}"
+        return True, "every file attested"
 
     def _summarize_ownership(self) -> str:
         """Build ownership context for the LLM (not a hard gate)."""
@@ -1194,6 +1233,7 @@ class Pipeline:
                 "self_driving": self.self_driving,
                 # Audit trail: what the reviewer was told about why it was asked.
                 "review_trigger": self.review_trigger,
+                "admitted_bot": self.admitted_bot,
             },
             "provenance": provenance_evidence(self.provenance),
             "gates": [

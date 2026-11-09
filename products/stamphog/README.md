@@ -47,6 +47,7 @@ Retrieving one run also returns the reviewer's reasoning, the same text stamphog
 A project member can also ask for a review directly, by creating a review run (`POST review_runs/`, or the `stamphog-review-runs-create` MCP tool), and then poll the run for its verdict.
 The request replaces the trigger label, so it works in label mode.
 Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access are refused.
+A bot-authored PR is reviewed only when the repository names that bot under `bot_authors` in its policy, and then only when an attestation vouches for every file in it.
 
 ## Connect a repository
 
@@ -145,6 +146,14 @@ The reviewer still evaluates actual effects, independent assurance, and unresolv
 Title scrutiny, other categories, prerequisites, and size gates remain active.
 Unknown categories or fields, malformed selectors, and any `stamphog_policy` exception fail the run closed.
 Exception files use the same default-branch trust boundary as the rest of `policy.yml`, so editing them requires human review.
+
+### Bot authors
+
+A repository may list under `bot_authors` the bots whose PRs stamphog reviews, each as a `name`, the bot's `login` and its numeric account `id`.
+A matching PR skips the bot-author refusal, the review mode and the write-permission check, because the policy entry replaces them.
+Every other gate stays, and one more applies.
+An attestation must vouch for every file in the PR, so a bot can only land the kinds of change a check proves.
+The list is read from the default branch, like the rest of the policy.
 
 ### The `digest:` key
 

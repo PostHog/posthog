@@ -52,6 +52,7 @@ from products.stamphog.backend.logic.approval_retention import (
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
+from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger
@@ -678,6 +679,17 @@ _BOT_AUTHOR_LABEL_MESSAGE = (
 )
 
 
+def _bot_admission(installation_id: str, repo: str, pr: dict[str, Any], action: str) -> dict[str, Any] | None:
+    """The provenance stamped on a run for a PR whose author the repo policy admits, or None."""
+    repo_config = _resolve_repo_config(installation_id, repo)
+    if repo_config is None or not repo_config.enabled:
+        return None
+    bot = admitted_bot_author(repo_config, pr, action)
+    if bot is None:
+        return None
+    return {"name": bot.name, "login": bot.login, "id": bot.id}
+
+
 def _clear_trigger_label_from_bot_pr(installation_id: str, repo: str, pr: dict[str, Any], action: str) -> None:
     """Remove the trigger label from a bot-authored PR that somebody labeled.
 
@@ -1199,7 +1211,17 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             logger.exception("stamphog_pr_event_inbox_carve_out_failed", delivery_id=delivery_id, error=str(e))
             carve_out_error = e
     inbox_review = carve_out.provenance
-    if skip_reason is not None and inbox_review is None:
+    # A bot the repo policy names under `bot_authors` passes the bot-author skip and, like an inbox
+    # re-review, the review-mode and write-permission gates. The engine holds it to every other gate
+    # and refuses it unless an attestation vouches for each of its files.
+    bot_admission: dict[str, Any] | None = None
+    if skip_reason == "bot_author" and inbox_review is None:
+        try:
+            bot_admission = _bot_admission(installation_id, repo, pr, action)
+        except Exception as e:
+            logger.exception("stamphog_pr_event_bot_admission_failed", delivery_id=delivery_id, error=str(e))
+            carve_out_error = e
+    if skip_reason is not None and inbox_review is None and bot_admission is None:
         # A head-changing event skipped here still invalidates any standing approval — the author may
         # have lost their trusted association, or the PR flipped to draft, since the approval was
         # granted. Same hazard as the mode/permission skips below: without retraction the old approval
@@ -1267,7 +1289,11 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
 
     # Inbox re-reviews bypass the per-repo review mode: the reviewer's opt-in is the gate, and the
     # bot author can't apply a LABEL-mode trigger label anyway. review_mode still governs human PRs.
-    mode_skip_reason = _review_mode_skip_reason(repo_config, action, payload, pr) if inbox_review is None else None
+    mode_skip_reason = (
+        _review_mode_skip_reason(repo_config, action, payload, pr)
+        if inbox_review is None and bot_admission is None
+        else None
+    )
     if mode_skip_reason is not None:
         # Safety net before dropping the event: a LABEL-mode head change skipped for a missing trigger
         # label still invalidates any standing approval. Retract it before marking the delivery processed,
@@ -1292,7 +1318,9 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # never a collaborator, so the task linkage and the reviewer's toggle stand in for author trust.
     try:
         author_below_write = (
-            False if inbox_review is not None else _author_lacks_write_permission(repo_config, repo, pr)
+            False
+            if inbox_review is not None or bot_admission is not None
+            else _author_lacks_write_permission(repo_config, repo, pr)
         )
     except GitHubRateLimitError as e:
         # Honor GitHub's own backoff hint: the default 5s retry delay lands inside the same rate
@@ -1321,7 +1349,7 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # This check sits after every trust gate above, so the code retains an approval only on a push
     # that this same path would have reviewed. Self-driving inbox runs are excluded, which keeps
     # their head-pinning carve-out untouched.
-    if action in _HEAD_CHANGING_ACTIONS and inbox_review is None:
+    if action in _HEAD_CHANGING_ACTIONS and inbox_review is None and bot_admission is None:
         try:
             retention_reason = _standing_approval_retention(repo_config, pr)
         except Exception:
@@ -1417,8 +1445,11 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 # review_mode an admin may have changed since this delivery was admitted.
                 output={
                     **({"inbox_review": inbox_review} if inbox_review is not None else {}),
+                    **({"bot_admission": bot_admission} if bot_admission is not None else {}),
                     "review_trigger": derive_review_trigger(
-                        has_inbox_review=inbox_review is not None, review_mode=repo_config.review_mode
+                        has_inbox_review=inbox_review is not None,
+                        has_bot_admission=bot_admission is not None,
+                        review_mode=repo_config.review_mode,
                     ).value,
                 },
             )
@@ -1879,16 +1910,24 @@ def _rereview_waiting_run(
     pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo, pr_number)
     if (pr.get("state") or "") != "open" or (pr.get("head") or {}).get("sha") != head_sha:
         return
-    if _review_skip_reason(pr) is not None:
+    # The head is unchanged, so the admission the waiting run was created with still holds. The new
+    # run's engine reads the policy again, so a bot the policy no longer names is refused there.
+    admitted = bool(previous_output.get("bot_admission"))
+    skip_reason = _review_skip_reason(pr)
+    if skip_reason is not None and not (skip_reason == "bot_author" and admitted):
         return
-    is_manual = bool(previous_output.get("manual_review"))
+    bypasses_mode = bool(previous_output.get("manual_review")) or admitted
     label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
-    if repo_config.review_mode == ReviewMode.LABEL and not is_manual and repo_config.trigger_label not in label_names:
+    if (
+        repo_config.review_mode == ReviewMode.LABEL
+        and not bypasses_mode
+        and repo_config.trigger_label not in label_names
+    ):
         return
-    if _author_lacks_write_permission(repo_config, repo, pr):
+    if not admitted and _author_lacks_write_permission(repo_config, repo, pr):
         return
     output: dict[str, Any] = {wake: True}
-    for key in ("manual_review", "review_trigger"):
+    for key in ("manual_review", "review_trigger", "bot_admission"):
         if key in previous_output:
             output[key] = previous_output[key]
     queued = _queue_review_at_head(repo_config, pr, head_sha, output=output, revisit_wait=True)

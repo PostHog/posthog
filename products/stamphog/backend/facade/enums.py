@@ -149,6 +149,8 @@ class ReviewTrigger(StrEnum):
 
     # Self-driving: stamphog reviewed a bot-authored PR off its own inbox provenance.
     SELF_DRIVING = "self_driving"
+    # The repo policy names the PR's bot author under `bot_authors`.
+    BOT_ADMISSION = "bot_admission"
     # A project member asked for this review through the API.
     MANUAL = "manual"
     # The repo is in LABEL mode, so the trigger label opted this PR in.

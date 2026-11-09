@@ -761,6 +761,12 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("self_driving_beats_all_mode", ReviewMode.ALL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
             ("self_driving_beats_label_mode", ReviewMode.LABEL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
             ("manual_beats_label_mode", ReviewMode.LABEL, {"manual_review": {"acting_user_id": 1}}, "manual"),
+            (
+                "bot_admission_beats_label_mode",
+                ReviewMode.LABEL,
+                {"bot_admission": {"login": "renovate[bot]"}},
+                "bot_admission",
+            ),
             ("label_mode", ReviewMode.LABEL, {}, "label"),
             ("all_mode", ReviewMode.ALL, {}, "all"),
         ]
