@@ -13,6 +13,7 @@
  * * `warehouse_source` - Warehouse source
  * * `warehouse_destination` - Warehouse destination
  * * `metrics` - Metrics
+ * * `traces` - Traces
  */
 export type PlatformAlertConfigurationSourceKindEnumApi =
     (typeof PlatformAlertConfigurationSourceKindEnumApi)[keyof typeof PlatformAlertConfigurationSourceKindEnumApi]
@@ -23,6 +24,7 @@ export const PlatformAlertConfigurationSourceKindEnumApi = {
     WarehouseSource: 'warehouse_source',
     WarehouseDestination: 'warehouse_destination',
     Metrics: 'metrics',
+    Traces: 'traces',
 } as const
 
 /**
@@ -198,7 +200,8 @@ export interface PlatformAlertConfigurationApi {
      * * `insight` - Insight
      * * `warehouse_source` - Warehouse source
      * * `warehouse_destination` - Warehouse destination
-     * * `metrics` - Metrics */
+     * * `metrics` - Metrics
+     * * `traces` - Traces */
     readonly source_kind: PlatformAlertConfigurationSourceKindEnumApi
     /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
     readonly source_config: PlatformAlertConfigurationApiSourceConfig

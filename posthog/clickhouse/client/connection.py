@@ -163,6 +163,8 @@ class ClickHouseUser(StrEnum):
     ALERTS_PLATFORM_INSIGHT = "alerts_platform_insight"
     # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
     ALERTS_PLATFORM_LOGS = "alerts_platform_logs"
+    # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
+    ALERTS_PLATFORM_TRACES = "alerts_platform_traces"
     # Exists on the logs cluster only. Snuffle connects as it for the platform's PromQL queries.
     ALERTS_PLATFORM_METRICS = "alerts_platform_metrics"
     # The platform's own bookkeeping, shared by every source: its check history and the default
@@ -462,6 +464,7 @@ LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
         ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
         ClickHouseUser.ALERTS_PLATFORM_LOGS,
         ClickHouseUser.ALERTS_PLATFORM_METRICS,
+        ClickHouseUser.ALERTS_PLATFORM_TRACES,
     }
 )
 # Named users that exist on the metrics cluster. Keep this a subset of LOGS_CLUSTER_USERS: the metrics

@@ -74319,6 +74319,7 @@ export namespace Schemas {
      * * `warehouse_source` - Warehouse source
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
+     * * `traces` - Traces
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
@@ -74329,6 +74330,7 @@ export namespace Schemas {
       WarehouseSource: 'warehouse_source',
       WarehouseDestination: 'warehouse_destination',
       Metrics: 'metrics',
+      Traces: 'traces',
     } as const;
 
     /**
@@ -74422,7 +74424,8 @@ export namespace Schemas {
        * * `insight` - Insight
        * * `warehouse_source` - Warehouse source
        * * `warehouse_destination` - Warehouse destination
-       * * `metrics` - Metrics */
+       * * `metrics` - Metrics
+       * * `traces` - Traces */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
       /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
