@@ -87,6 +87,8 @@ const FIXTURE_FILES: Record<string, string> = {
         'CREATE TABLE cyclotron_attachments (id uuid);\n',
     'rust/cyclotron-node-migrations/20260501000001_drop_attachments.sql':
         'DROP TABLE IF EXISTS cyclotron_attachments;\n',
+    // Names no table, but the index may be on a table Node reads.
+    'rust/cyclotron-node-migrations/20260601000001_drop_index.sql': 'DROP INDEX IF EXISTS idx_jobs;\n',
     'rust/behavioral_cohorts_migrations/20260301000001_initial.sql': 'CREATE TABLE cohort_membership (id bigint);\n',
 
     'nodejs/src/reader.ts': [
@@ -146,7 +148,11 @@ describe('deriveSchemaRequirements', () => {
                 replaces: ['0001_initial', '0002_span_kind'],
             },
             { kind: 'django', database: 'default', app: 'widgets', migration: '0002_widget_table' },
-            { kind: 'sqlx', database: 'cyclotron-node', versions: [20260101000001, 20260201000001, 20260301000001] },
+            {
+                kind: 'sqlx',
+                database: 'cyclotron-node',
+                versions: [20260101000001, 20260201000001, 20260301000001, 20260601000001],
+            },
         ])
         expect(Object.fromEntries(tablesByRequirement)).toEqual({
             legacy: ['legacy_widget'],

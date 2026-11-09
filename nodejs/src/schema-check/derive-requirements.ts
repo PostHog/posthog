@@ -344,10 +344,14 @@ export function deriveSchemaRequirements(repoRoot: string): DerivedSchemaRequire
             continue
         }
         tablesByRequirement.set(`sqlx:${database}`, tables)
-        // A version that names none of these tables cannot change what Node reads, for example a drop of
-        // a table that Node no longer uses. Requiring it would hold Node on an unrelated sqlx-migrate deploy.
+        // A version is skipped only when every table it names is one Node does not read, for example a drop
+        // of a table whose Node reader is gone. A version that names no table, such as `DROP INDEX <name>`,
+        // can still change how Node's queries behave, so it stays required.
         const versions = [...migrationDir.identifiersByVersion]
-            .filter(([, identifiers]) => tables.some((table) => identifiers.has(table)))
+            .filter(([, identifiers]) => {
+                const namedTables = [...migrationDir.tables].filter((table) => identifiers.has(table))
+                return namedTables.length === 0 || namedTables.some((table) => tables.includes(table))
+            })
             .map(([version]) => version)
             .sort((a, b) => a - b)
         sqlxRequirements.push({ kind: 'sqlx', database, versions })
