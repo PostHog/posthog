@@ -5,7 +5,9 @@ from uuid import UUID
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -17,6 +19,7 @@ from products.tasks.backend.facade.billing import (
     get_task_run_cost,
     get_task_run_token_cost_microusd,
     get_task_run_token_usage,
+    get_task_runs_spend,
 )
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.logic.services.gateway_usage import (
@@ -82,7 +85,9 @@ class TestGatewayUsage(BaseTest):
             self._response("second-turn", "0.005"),
             self._response("queued", "0.009"),
         ]
-        assert self._process(run).token_cost == 3
+        with CaptureQueriesContext(connection) as queries:
+            assert self._process(run).token_cost == 3
+        assert sum('"posthog_task_sandbox_session"' in query["sql"] for query in queries) <= 1
         assert observed_costs == {run.id: 29_010}
         assert not TaskRunGatewayRequest.objects.for_team(self.team.id).filter(task_run_id=run.id).exists()
         assert get.call_count == 5
@@ -243,6 +248,10 @@ class TestGatewayUsage(BaseTest):
             assert get_task_cost(team_id=self.team.id, task_id=first.task_id) == TaskRunCost(
                 token_cost=1, compute_cost=1
             )
+        with self.assertNumQueries(4):
+            spend = get_task_runs_spend(team_id=self.team.id, run_ids=[first.id, second.id])
+        assert len(spend) == 2
+        assert all(item.cost_microusd == 5_000 and item.compute_cost_microusd > 0 and item.complete for item in spend)
         get.assert_not_called()
 
     def test_untracked_runs_have_no_recorded_token_cost(self) -> None:
