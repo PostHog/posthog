@@ -138,6 +138,7 @@ Regenerate them after an icon change with `uv run --with pillow python scripts/m
 - [Decisions](docs/DECISIONS.md): choices the build contract left open
 - [Gaps](docs/GAPS.md): known gaps and local-only behavior
 - [API](docs/API.md), [Push](docs/PUSH.md)
+- [Live](docs/LIVE.md): the Web analytics Live screen, its queries, polling and budget
 - [Releasing](docs/RELEASING.md): workflow builds, TestFlight and the Play internal track
 - [Release checks](../../docs/internal/mobile-release-checks.md): build checks and manual smoke checks before sharing a release
 - [OTA updates](docs/OTA.md): update channels, runtime version, rollbacks
