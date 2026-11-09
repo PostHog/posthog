@@ -594,7 +594,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         trigger: { userId: string; variables: Record<string, any> }
     ): Promise<string> {
         if (!UUID.validateString(hogFlowId, false)) {
-            throw new SourceWebhookError(404, 'Workflow not found')
+            throw new SourceWebhookError(400, 'Workflow ID must be a UUID')
         }
 
         const [hogFlow, hogFunctionState] = await Promise.all([

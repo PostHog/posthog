@@ -934,6 +934,7 @@ describe('SourceWebhooksConsumer', () => {
                     trigger: 'manual' | 'webhook'
                     status: HogFlow['status']
                     token: 'valid' | 'none' | 'other workflow' | 'other user'
+                    malformedId?: boolean
                 }
                 it.each<[string, RefusalCase, number]>([
                     ['without a token', { teamOffset: 0, trigger: 'manual', status: 'active', token: 'none' }, 401],
@@ -954,18 +955,24 @@ describe('SourceWebhooksConsumer', () => {
                         { teamOffset: 0, trigger: 'manual', status: 'draft', token: 'valid' },
                         400,
                     ],
+                    [
+                        'an id that is not a UUID',
+                        { teamOffset: 0, trigger: 'manual', status: 'active', token: 'valid', malformedId: true },
+                        400,
+                    ],
                 ])('refuses to run %s', async (_name, options, expectedStatus) => {
                     const target =
                         options.trigger === 'webhook' ? hogFlow : await buildManualHogFlow({ status: options.status })
                     const teamId = team.id + options.teamOffset
+                    const hogFlowId = options.malformedId ? 'not-a-uuid' : target.id
                     const tokenClaims = {
-                        valid: { teamId, hogFlowId: target.id, userId: 'user@example.com' },
+                        valid: { teamId, hogFlowId, userId: 'user@example.com' },
                         none: null,
                         'other workflow': { teamId, hogFlowId: hogFlow.id, userId: 'user@example.com' },
                         'other user': { teamId, hogFlowId: target.id, userId: 'someone-else@example.com' },
                     }[options.token]
 
-                    const res = await doManualRequest(teamId, target.id, { user_id: 'user@example.com' }, tokenClaims)
+                    const res = await doManualRequest(teamId, hogFlowId, { user_id: 'user@example.com' }, tokenClaims)
 
                     expect(res.status).toEqual(expectedStatus)
                     expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
