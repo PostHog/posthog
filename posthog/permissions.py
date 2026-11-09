@@ -1047,8 +1047,12 @@ class APIScopePermission(ScopeBasePermission):
                 f"`scope_object = 'INTERNAL'`; {type(view).__name__} declares `scope_object = {scope_object!r}`."
             )
 
-        if scope_object == "user":
-            return  # The /api/users/@me/ endpoint is exempt from team and org scoping
+        if (
+            scope_object == "user"
+            and not getattr(view, "parent_query_kwargs", {})
+            and not getattr(view, "param_derived_from_user_current_team", None)
+        ):
+            return  # User-only routes such as /api/users/@me/ have no tenant target.
 
         self._check_organization_personal_api_key_restrictions(request, view)
 
