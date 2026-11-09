@@ -183,17 +183,18 @@ describe('broadcastsLogic', () => {
 
         await reload()
 
-        await waitFor(() => expect(logic.values.rowDetailsById[LIVE.id]?.totals).not.toBeNull())
+        await waitFor(() =>
+            expect(logic.values.rowDetailsById).toEqual({
+                [DRAFT.id]: { latestBatchJob: null, totals: {}, hasPendingSchedule: undefined, batchJobStatuses: [] },
+                [LIVE.id]: {
+                    latestBatchJob: RUN,
+                    totals: { email_sent: 120, failed: 3 },
+                    hasPendingSchedule: true,
+                    batchJobStatuses: ['completed', 'active'],
+                },
+            })
+        )
         expect(runsAsked).toEqual([LIVE.id])
-        expect(logic.values.rowDetailsById).toEqual({
-            [DRAFT.id]: { latestBatchJob: null, totals: {}, hasPendingSchedule: undefined, batchJobStatuses: [] },
-            [LIVE.id]: {
-                latestBatchJob: RUN,
-                totals: { email_sent: 120, failed: 3 },
-                hasPendingSchedule: true,
-                batchJobStatuses: ['completed', 'active'],
-            },
-        })
         expect(metrics.mock.calls[0][0]).toContain(`app_source_id = 'job-2'`)
     })
 
@@ -282,18 +283,20 @@ describe('broadcastsLogic', () => {
                 await expectLogic(logic).toDispatchActions(['loadBroadcastsSuccess'])
                 const loadsBefore = listed.length
                 saveResponse = { updated: [{ id: DRAFT.id, tags: ['vip', 'new'] }], skipped: [] }
+                page = { results: [{ ...DRAFT, tags: ['vip', 'new'] }], count: 1 }
 
                 logic.actions.saveBroadcastTags(DRAFT.id, ['vip', 'New'])
                 expect(logic.values).toMatchObject({
                     savingTagsFor: DRAFT.id,
                     broadcasts: { results: [{ tags: ['vip', 'New'] }] },
                 })
-                await expectLogic(logic)
-                    .toDispatchActions([logic.actionCreators.broadcastTagsSaved(DRAFT.id, ['vip', 'new'])])
-                    .toFinishAllListeners()
+                await expectLogic(logic).toDispatchActions(['broadcastTagsSaved']).toFinishAllListeners()
 
                 expect(saved).toEqual([{ ids: [DRAFT.id], action: 'set', tags: ['vip', 'New'] }])
-                expect(logic.values.savingTagsFor).toBeNull()
+                expect(logic.values).toMatchObject({
+                    savingTagsFor: null,
+                    broadcasts: { results: [{ tags: ['vip', 'new'] }] },
+                })
                 expect(listed.length - loadsBefore).toBe(reloads)
             }
         )
