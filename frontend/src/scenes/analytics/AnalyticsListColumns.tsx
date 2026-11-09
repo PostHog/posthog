@@ -34,6 +34,7 @@ import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { AnalyticsDraggableRow } from './AnalyticsDraggableRow'
 import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
+import { analyticsListLogic } from './analyticsListLogic'
 import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
@@ -263,11 +264,14 @@ function ItemTitle({
     item,
     backUrl,
     draggable,
+    position,
 }: {
     item: AnalyticsItem
     backUrl: string
     draggable: boolean
+    position: number
 }): JSX.Element {
+    const { itemOpened } = useActions(analyticsListLogic)
     const title = (
         <>
             <Tooltip>
@@ -292,6 +296,10 @@ function ItemTitle({
                 render={<LinkPrimitive to={analyticsOpenHref(item, backUrl)} />}
                 className="min-w-0 shrink"
                 data-attr={`analytics-list-row-${item.type}`}
+                // Capture-phase, so Cmd/Ctrl-clicks count too: the link's own handler returns
+                // for those before it calls onClick. Middle-clicks only fire auxclick.
+                onClickCapture={() => itemOpened(item, position)}
+                onAuxClick={(event) => event.button === 1 && itemOpened(item, position)}
             >
                 <span className="truncate">{item.name}</span>
             </Button>
@@ -330,7 +338,7 @@ export function analyticsListColumns({
                 row.original.kind === 'folder' ? (
                     <FolderTitle folder={row.original.folder} draggable={draggable} />
                 ) : (
-                    <ItemTitle item={row.original.item} backUrl={backUrl} draggable={draggable} />
+                    <ItemTitle item={row.original.item} backUrl={backUrl} draggable={draggable} position={row.index} />
                 ),
         },
         ...(showSpace
