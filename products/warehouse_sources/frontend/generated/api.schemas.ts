@@ -365,10 +365,10 @@ export const IncrementalFieldTypeEnumApi = {
  * * `7day` - 7day
  * * `30day` - 30day
  */
-export type ExternalDataSchemaSyncFrequencyEnumApi =
-    (typeof ExternalDataSchemaSyncFrequencyEnumApi)[keyof typeof ExternalDataSchemaSyncFrequencyEnumApi]
+export type SettableSyncFrequencyEnumApi =
+    (typeof SettableSyncFrequencyEnumApi)[keyof typeof SettableSyncFrequencyEnumApi]
 
-export const ExternalDataSchemaSyncFrequencyEnumApi = {
+export const SettableSyncFrequencyEnumApi = {
     Never: 'never',
     '5min': '5min',
     '15min': '15min',
@@ -562,7 +562,7 @@ export interface ExternalDataSchemaApi {
      * * `24hour` - 24hour
      * * `7day` - 7day
      * * `30day` - 30day */
-    sync_frequency?: ExternalDataSchemaSyncFrequencyEnumApi | null
+    sync_frequency?: SettableSyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
@@ -807,7 +807,7 @@ export interface PatchedExternalDataSchemaApi {
      * * `24hour` - 24hour
      * * `7day` - 7day
      * * `30day` - 30day */
-    sync_frequency?: ExternalDataSchemaSyncFrequencyEnumApi | null
+    sync_frequency?: SettableSyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
@@ -1581,6 +1581,45 @@ export interface WebhookInfoResponseApi {
     missing_inputs?: string[]
 }
 
+export interface MigrationTableOverrideApi {
+    /** A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`. */
+    vendor_table: string
+    /**
+     * The PostHog table to sync it as. Null leaves the table out.
+     * @nullable
+     */
+    posthog_table: string | null
+}
+
+export interface ApplyMigrationItemApi {
+    /** The migration item to create a PostHog source for. */
+    item_id: string
+    /** Stored credential from the source connect page, for the item's PostHog source type. */
+    credential_id: string
+    /**
+     * Table name prefix to use instead of the planned one, for example when the planned one is taken.
+     * @maxLength 100
+     */
+    prefix?: string
+    /** Destinations to write the new source to. Omit to write to the PostHog warehouse. */
+    destination_ids?: string[]
+    /** Changes to the planned tables that the user confirmed: rename an inferred pair, map an unmatched table, or leave a table out. */
+    table_overrides?: MigrationTableOverrideApi[]
+    /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp */
+    created_via?: ExternalDataSourceCreateCreatedViaEnumApi
+}
+
+export interface ApplyMigrationItemResponseApi {
+    /** The PostHog source created for the item. */
+    source_id: string
+    /** Every difference from the Fivetran connection, including new ones. */
+    caveats: string[]
+}
+
 export interface CdcPrerequisitesResponseApi {
     /** Whether the source satisfies every CDC prerequisite. */
     valid: boolean
@@ -1880,6 +1919,8 @@ export interface SourceCredentialCreateApi {
     source_type: string
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
+    /** The migration item whose prefilled settings the connect page showed. Every prefilled setting must keep its value, or the request is rejected before PostHog connects anywhere. */
+    migration_item_id?: string
 }
 
 export interface SourceCredentialApi {
@@ -2423,6 +2464,8 @@ export interface WarehouseMigrationApi {
     created_at: string
     /** How many connections fall into each group. */
     item_counts: WarehouseMigrationItemCountsApi
+    /** False when an agent uploaded the vendor account. Such a migration cannot be refreshed; upload the connections again instead. */
+    has_vendor_key: boolean
 }
 
 export interface PaginatedWarehouseMigrationListApi {
@@ -2443,6 +2486,53 @@ export interface WarehouseMigrationCreateApi {
     api_key: string
     /** Secret that belongs to the API key. */
     api_secret: string
+}
+
+/**
+ * The Fivetran account info response, unchanged. Send it once, with the first upload.
+ * @nullable
+ */
+export type WarehouseMigrationUploadConnectionsApiAccount = { [key: string]: unknown } | null
+
+export type WarehouseMigrationUploadConnectionsApiDestinationsItem = { [key: string]: unknown }
+
+/**
+ * The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay.
+ */
+export type WarehouseMigrationUploadedConnectionApiConnection = { [key: string]: unknown }
+
+/**
+ * The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.
+ * @nullable
+ */
+export type WarehouseMigrationUploadedConnectionApiSchemaConfig = { [key: string]: unknown } | null
+
+export interface WarehouseMigrationUploadedConnectionApi {
+    /** The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay. */
+    connection: WarehouseMigrationUploadedConnectionApiConnection
+    /**
+     * The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.
+     * @nullable
+     */
+    schema_config?: WarehouseMigrationUploadedConnectionApiSchemaConfig
+}
+
+export interface WarehouseMigrationUploadConnectionsApi {
+    /**
+     * The Fivetran account info response, unchanged. Send it once, with the first upload.
+     * @nullable
+     */
+    account?: WarehouseMigrationUploadConnectionsApiAccount
+    /**
+     * Fivetran destination details responses, unchanged. Send them before the connections that use them, so PostHog reads each connection's sync time in its destination's time zone.
+     * @maxItems 100
+     */
+    destinations?: WarehouseMigrationUploadConnectionsApiDestinationsItem[]
+    /**
+     * At most 25 connections. A connection uploaded again replaces its plan, unless it is already created in PostHog or skipped.
+     * @maxItems 25
+     */
+    connections?: WarehouseMigrationUploadedConnectionApi[]
 }
 
 /**
@@ -2566,6 +2656,13 @@ export const WarehouseMigrationItemStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+export interface WarehouseMigrationCreatorApi {
+    /** First name of the person who prepared the migration. */
+    first_name: string
+    /** Email of the person who prepared the migration. */
+    email: string
+}
+
 export interface WarehouseMigrationItemApi {
     /** Item ID. Pass it to the apply and skip actions. */
     id: string
@@ -2600,6 +2697,13 @@ export interface WarehouseMigrationItemApi {
     external_data_source_id: string | null
     /** Why the last apply attempt failed, if it did. */
     error: string
+    /** Who prepared the migration, and so chose the connection settings in `proposal.prefill`. */
+    created_by: WarehouseMigrationCreatorApi | null
+}
+
+export interface WarehouseMigrationUploadResponseApi {
+    /** The planned items for the uploaded connections. */
+    items: WarehouseMigrationItemApi[]
 }
 
 export interface PaginatedWarehouseMigrationItemListApi {
@@ -2637,6 +2741,13 @@ export interface WarehouseMigrationConnectLinkApi {
     connect_url: string
     /** What the agent should tell the user and do next. */
     instructions: string
+}
+
+export interface WarehouseMigrationStartUploadApi {
+    /** The ETL vendor to import from.
+     *
+     * * `fivetran` - Fivetran */
+    provider: WarehouseMigrationProviderEnumApi
 }
 
 export type ExternalDataDestinationsListParams = {
@@ -2813,6 +2924,10 @@ export type ExternalDataSourcesResumeCdcCreate200 = {
 }
 
 export type ExternalDataSourcesConnectLinkRetrieveParams = {
+    /**
+     * Optional warehouse migration item. The connect page then shows the item's non-secret settings from the vendor, so the user only enters the secret.
+     */
+    migration_item_id?: string
     /**
      * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
      */

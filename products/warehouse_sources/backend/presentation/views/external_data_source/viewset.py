@@ -36,6 +36,7 @@ from .change_data_capture import ExternalDataSourceCDCMixin
 from .connection_options import ExternalDataSourceConnectionOptionsMixin
 from .credential_store import ExternalDataSourceCredentialStoreMixin
 from .job_runs import ExternalDataSourceJobRunsMixin
+from .migration_apply import ExternalDataSourceMigrationApplyMixin
 from .oauth_accounts import ExternalDataSourceOAuthAccountsMixin
 from .schema_operations import ExternalDataSourceSchemaOperationsMixin
 from .source_setup import ExternalDataSourceSetupMixin
@@ -58,6 +59,7 @@ class ExternalDataSourceSyncStateSerializer(serializers.Serializer):
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSourceViewSet(
+    ExternalDataSourceMigrationApplyMixin,
     ExternalDataSourceSetupMixin,
     ExternalDataSourceSchemaOperationsMixin,
     ExternalDataSourceCredentialStoreMixin,
@@ -86,6 +88,7 @@ class ExternalDataSourceViewSet(
         "bulk_update_schemas",
         "database_schema",
         "setup",
+        "apply_migration_item",
         "store_credentials",
         "source_prefix",
         "revenue_analytics_config",
