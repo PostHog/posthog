@@ -80,9 +80,10 @@ logic-correctness skill's shape:
   cleared against every hunting ground").
 
 The review harness already tells the agent the pipeline mechanics — parallel perspectives, later
-deduplication, severity levels, repository-wide DevEx checks — so the skill carries only the lens;
+deduplication, severity levels, repository-wide DevEx workflow checks — so the skill carries only the lens;
 restating harness rules dilutes it.
 The selected lens does not limit the shared DevEx checks to a product, language, or owning team.
+The shared checks prioritize workflow standards and GitHub/Depot behavior; keep provider-specific claims grounded in the actual engine and repository contracts.
 
 ## Writing a blind-spot check
 

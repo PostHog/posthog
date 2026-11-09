@@ -50,11 +50,14 @@ and the roadmap — including the designed-but-unbuilt loop. Nothing is summariz
 reasoning behind any part of this reference. [Status & next](#status--next) below is a short summary of what's
 in flight, with the detail in DECISIONS.md.
 
-### Repository-wide DevEx review
+### Repository-wide DevEx workflow review
 
 Standard main and lens sessions, Deep perspective and blind-spot sessions, and Deep validation share `backend/reviewer/prompts/review_standards.md`.
-These developer experience checks apply to application code, tests, CI, and developer tooling across products, languages, and owning teams, regardless of the selected perspective.
-The rubric loads applicable repository guidance and checks consequential standards, maintenance costs, test claims, and developer workflows alongside defects.
+These developer experience checks prioritize workflow standards and GitHub/Depot correctness, reliability, and cost across products, languages, and owning teams, regardless of the selected perspective.
+Application, dependency, and generated-file changes stay in scope when they affect workflow contracts, even without a workflow-file diff.
+The rubric distinguishes GitHub Actions, GitHub Actions on Depot runners, and native Depot CI before evaluating their behavior.
+Its priorities cover event/ref semantics, required-check gates and test selection, permissions and trust, concurrency and caches, resource evidence, and workflow test claims.
+Reviewers use applicable repository guidance, canonical mechanisms, prior CI experiments, and current vendor documentation rather than generic optimization advice.
 Repository-wide coverage preserves each rule's documented path scope and project-instruction precedence.
 Standards-only findings start with `[Standards]` and distinguish required corrections from advisory work without claiming a production failure.
 Both designs include test and text files in their snapshots and comment deduplication.
