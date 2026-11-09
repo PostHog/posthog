@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -11,12 +12,15 @@ from posthog.models.ai_events.sql import AI_EVENTS_MV_SQL
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 
+from products.ai_observability.backend.logic.traces import trace_queries
 from products.ai_observability.backend.logic.traces.trace_queries import (
+    GitStampRow,
     SearchNeedles,
     TraceRootLookup,
     is_truthy_json,
     load_trace,
     load_trace_feedback_rows,
+    load_trace_git_rows,
     load_trace_node,
     load_trace_root,
     load_trace_search,
@@ -130,25 +134,35 @@ class TestLoadTrace(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
     def test_ingested_values_read_like_the_legacy_view(self) -> None:
         self._ingest(
             "00000000-0000-0000-0000-000000000001",
-            {"$ai_error": "", "$ai_input_tokens": {"total": 7}, "$ai_git_branch": ""},
+            {
+                "$ai_error": "",
+                "$ai_input_tokens": {"total": 7},
+                "$ai_input_state": None,
+                "$ai_output_state": {},
+                "$ai_git_branch": "",
+            },
+            event="$ai_trace",
         )
         self._ingest(
             "00000000-0000-0000-0000-000000000002",
             {
                 "$ai_error": {"message": "boom"},
                 "$ai_input_tokens": 3,
+                "$ai_output_state": {"answer": "hi"},
                 "$ai_git_branch": "feat/rag",
                 "$ai_git_repo": "acme/app",
             },
+            event="$ai_trace",
         )
 
         rows = load_trace(self.team, None, "trace-1", None).rows
 
         assert sorted(
-            (row.uuid, row.error_is_truthy, row.input_tokens, row.git_branch, row.git_repo) for row in rows
+            (row.uuid, row.error_is_truthy, row.input_tokens, row.has_state, row.git_branch, row.git_repo)
+            for row in rows
         ) == [
-            ("00000000-0000-0000-0000-000000000001", False, 7, None, None),
-            ("00000000-0000-0000-0000-000000000002", True, 3, "feat/rag", "acme/app"),
+            ("00000000-0000-0000-0000-000000000001", False, 7, False, None, None),
+            ("00000000-0000-0000-0000-000000000002", True, 3, True, "feat/rag", "acme/app"),
         ]
 
     def test_person_comes_from_the_trace_event_distinct_id(self) -> None:
@@ -315,6 +329,41 @@ class TestLoadTraceNode(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         assert row is not None and row.uuid == NODE
 
 
+class TestLoadTraceGitRows(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
+    def test_reads_only_this_traces_stamped_events(self) -> None:
+        stamped = "00000000-0000-0000-0000-000000000001"
+        bulk_create_ai_events(
+            [
+                self._event(stamped, properties={"$ai_git_branch": "feat/rag"}),
+                self._event("00000000-0000-0000-0000-000000000002"),
+                self._event("00000000-0000-0000-0000-000000000003", properties={"$ai_git_branch": ""}),
+                self._event(
+                    "00000000-0000-0000-0000-000000000004", trace_id="other", properties={"$ai_git_branch": "feat/x"}
+                ),
+            ]
+        )
+
+        assert [row.uuid for row in load_trace_git_rows(self.team, None, "trace-1", T0)] == [stamped]
+
+    def test_reads_stamps_only_from_the_events_the_trace_loads(self) -> None:
+        bulk_create_ai_events(
+            [
+                self._event(NODE, properties={"$ai_git_branch": "feat/one", "$ai_git_repo": "acme/app"}),
+                self._event("00000000-0000-0000-0000-000000000002", timestamp=T0 + timedelta(seconds=1)),
+                self._event(
+                    "00000000-0000-0000-0000-000000000003",
+                    timestamp=T0 + timedelta(seconds=2),
+                    properties={"$ai_git_branch": "feat/two"},
+                ),
+            ]
+        )
+
+        with patch.object(trace_queries, "MAX_TRACE_EVENTS", 2):
+            rows = load_trace_git_rows(self.team, None, "trace-1", T0)
+
+        assert rows == (GitStampRow(uuid=NODE, timestamp=T0, git_branch="feat/one", git_repo="acme/app"),)
+
+
 class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("with a hint", T0), ("without a hint", None)])
     def test_falls_back_to_events(self, _name: str, timestamp_hint: datetime | None) -> None:
@@ -323,7 +372,7 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
             "$ai_error": {"message": "boom"},
             "$ai_git_branch": "feat/rag",
         }
-        clean_span: dict[str, object] = {"$ai_error": "", "$ai_input_tokens": {"total": 7}}
+        clean_span: dict[str, object] = {"$ai_error": "", "$ai_input_tokens": {"total": 7}, "$ai_output_state": None}
         bulk_create_events(
             [
                 self._event("00000000-0000-0000-0000-000000000001", properties=old_span),
@@ -334,10 +383,11 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         loaded = load_trace(self.team, None, "trace-1", timestamp_hint)
 
         assert sorted(
-            (row.uuid, row.span_name, row.error_is_truthy, row.input_tokens, row.git_branch) for row in loaded.rows
+            (row.uuid, row.span_name, row.error_is_truthy, row.input_tokens, row.has_state, row.git_branch)
+            for row in loaded.rows
         ) == [
-            ("00000000-0000-0000-0000-000000000001", "old", True, None, "feat/rag"),
-            ("00000000-0000-0000-0000-000000000002", None, False, 7, None),
+            ("00000000-0000-0000-0000-000000000001", "old", True, None, False, "feat/rag"),
+            ("00000000-0000-0000-0000-000000000002", None, False, 7, False, None),
         ]
 
     def test_hint_bounds_the_fallback_window(self) -> None:
@@ -352,19 +402,21 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 
         assert load_trace(self.team, None, "trace-1", None).rows == ()
 
-    def test_node_and_root_fall_back_to_events(self) -> None:
+    def test_point_reads_fall_back_to_events(self) -> None:
         bulk_create_events(
             [
-                self._event(NODE, properties={"$ai_span_name": "old"}),
+                self._event(NODE, properties={"$ai_span_name": "old", "$ai_git_branch": "feat/rag"}),
                 self._event(TRACE_EVENT, event="$ai_trace", timestamp=T0 + timedelta(seconds=1)),
             ]
         )
 
         row = load_trace_node(self.team, None, "trace-1", NODE, T0)
         root = load_trace_root(self.team, None, "trace-1", T0)
+        git_rows = load_trace_git_rows(self.team, None, "trace-1", T0)
 
         assert row is not None and row.properties["$ai_span_name"] == "old"
         assert root.trace_event is not None and root.trace_event.uuid == TRACE_EVENT
+        assert [(git_row.uuid, git_row.git_branch) for git_row in git_rows] == [(NODE, "feat/rag")]
 
     @parameterized.expand([("with a hint", T0, 1), ("without a hint", None, 0)])
     def test_feedback_falls_back_to_events_only_with_a_hint(
@@ -382,11 +434,17 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 
         assert [(row.metric_name, row.metric_value_json) for row in rows] == [("helpfulness", "0")] * expected
 
-    def test_node_and_root_without_a_hint_never_scan_events(self) -> None:
-        bulk_create_events([self._event(NODE), self._event(TRACE_EVENT, event="$ai_trace")])
+    def test_point_reads_without_a_hint_never_scan_events(self) -> None:
+        bulk_create_events(
+            [
+                self._event(NODE, properties={"$ai_git_branch": "feat/rag"}),
+                self._event(TRACE_EVENT, event="$ai_trace"),
+            ]
+        )
 
         assert load_trace_node(self.team, None, "trace-1", NODE, None) is None
         assert load_trace_root(self.team, None, "trace-1", None) == TraceRootLookup(trace_event=None, trace_found=False)
+        assert load_trace_git_rows(self.team, None, "trace-1", None) == ()
 
     def test_search_falls_back_to_events_with_a_hint_only(self) -> None:
         bulk_create_events([self._event(NODE, properties={"$ai_span_name": "Fetch invoice"})])

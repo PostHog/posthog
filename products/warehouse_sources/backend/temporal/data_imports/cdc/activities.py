@@ -46,9 +46,14 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters impor
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_SEQ_COLUMN,
+    HISTORY_NAMING,
     ChangeEventBatcher,
+    HistoryNaming,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
+    history_columns,
+    is_history_table_mode,
+    reserved_column_collisions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry import (
     blocked_past_buffer_retention,
@@ -68,10 +73,13 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
     CDCErrorInfo,
+    CDCMaskedKeyError,
+    CDCMaskingKeyError,
     CDCReservedColumnError,
     CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import SourceHistoryNamings
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import (
     CDC_EXTRACTION_WORKFLOW_ID_PREFIX,
@@ -90,6 +98,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     snapshot_can_start_in_buffer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import fold_column_name
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import (
+    protected_masked_columns,
+    value_masker,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _build_schema_snapshot,
@@ -200,6 +213,12 @@ class CDCExtractActivity:
         self.split_key_columns: dict[str, list[str]] = {}
         # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
         self.enabled_columns_by_table: dict[str, set[str]] = {}
+        # Folded names of the columns to mask. Missing entry = mask nothing.
+        self.masked_columns_by_table: dict[str, set[str]] = {}
+        # Whether each raw column name is masked, per table. Folding a name costs too much per event.
+        self._masked_names_by_table: dict[str, dict[str, bool]] = {}
+        self._masker: Callable[[object], str | None] | None = None
+        self.history_naming_by_table: dict[str, HistoryNaming] = {}
         self.adapter: typing.Any = None
         self.reader: typing.Any = None
         self.batcher: ChangeEventBatcher | None = None
@@ -350,23 +369,39 @@ class CDCExtractActivity:
     # ------------------------------------------------------------------
     # Per-flush processing
     # ------------------------------------------------------------------
+    def _writes_buffer_for(self, table_name: str) -> bool:
+        return (
+            table_name in self.schema_by_name
+            and table_name in self._buffered_table_names
+            and table_name not in self._tables_awaiting_reset
+        )
+
     def _process_flush(self, tables: dict[str, pa.Table]) -> None:
         """Enrich one micro-batch and write each captured table's changes to the S3 change buffer."""
         events_extracted = 0
 
+        assert self.batcher is not None
+        for table_name, error in self.batcher.reserved_collisions.items():
+            if self._writes_buffer_for(table_name):
+                raise error
+
         for table_name, raw_table in tables.items():
             schema = self.schema_by_name.get(table_name)
-            if (
-                schema is None
-                or table_name not in self._buffered_table_names
-                or table_name in self._tables_awaiting_reset
-            ):
+            if schema is None or not self._writes_buffer_for(table_name):
                 continue
 
             self._safe_heartbeat()
 
             # raw_table has one row per source change event.
             events_extracted += raw_table.num_rows
+
+            # The batcher already refused the capture columns. The history table's own columns are
+            # checked here, because only the schema says whether this table keeps history.
+            history = self.history_naming_by_table.get(table_name)
+            if history is not None:
+                taken = reserved_column_collisions(raw_table.column_names, history_columns(history))
+                if taken:
+                    raise CDCReservedColumnError(f"Table {table_name} has history table column(s) {taken}")
 
             key_columns = self.pk_columns_by_table.get(table_name, [])
 
@@ -377,11 +412,10 @@ class CDCExtractActivity:
             if not enriched_table.num_rows:
                 continue
 
-            # A source column named _ph_cdc_seq means the batcher could not append the
-            # engine position; writing anyway would name, order, and clean up files by
-            # customer data — cleanup can then delete unconsumed files (see errors.py).
+            # The batcher refuses a source column of this name, so only a capture bug gets here. Writing
+            # without the engine position could make cleanup delete unconsumed files (see errors.py).
             if not has_engine_seq(enriched_table):
-                raise CDCReservedColumnError(f"Table {table_name} has a source column named {CDC_SEQ_COLUMN}")
+                raise RuntimeError(f"Table {table_name} reached the buffer without the engine position")
             self._write_buffer_file(schema, table_name, enriched_table)
 
         if events_extracted:
@@ -598,7 +632,17 @@ class CDCExtractActivity:
             }
         )
 
+        history_namings: SourceHistoryNamings | None = None
         for schema in self.cdc_schemas:
+            if is_history_table_mode(schema.cdc_table_mode):
+                if history_namings is None:
+                    assert self.source is not None
+                    history_namings = SourceHistoryNamings(self.source)
+                # A taken name fails this table's own import. Capture then refuses only the names every
+                # history table reserves, so the source's other tables keep syncing.
+                self.history_naming_by_table[schema.name] = (
+                    history_namings.naming_unless_taken(schema) or HISTORY_NAMING
+                )
             enabled = schema.enabled_columns
             # `None` = sync all; `[]` = retain PKs + incremental only. Match the
             # invariant used by build_select_clause / pipeline_sync / filter_dwh_columns.
@@ -611,6 +655,32 @@ class CDCExtractActivity:
                 if isinstance(inc, str) and inc:
                     retained.add(inc)
                 self.enabled_columns_by_table[schema.name] = retained
+
+            self._load_masked_columns(schema)
+
+    def _read_masked_columns(self, schema: ExternalDataSchema) -> list[str] | None:
+        return (
+            ExternalDataSchema.objects.filter(id=schema.id, team_id=schema.team_id)
+            .values_list("masked_columns", flat=True)
+            .first()
+        )
+
+    def _load_masked_columns(self, schema: ExternalDataSchema) -> None:
+        self._masked_names_by_table.pop(schema.name, None)
+        if not (isinstance(schema.masked_columns, list) and schema.masked_columns):
+            self.masked_columns_by_table.pop(schema.name, None)
+            return
+        # The API checks a mask against the stored key, but a table saved without one gets
+        # its key from the catalog above. Fail before any change of the table is read.
+        masked_keys = protected_masked_columns(schema.masked_columns, self.pk_columns_by_table.get(schema.name, []))
+        if masked_keys:
+            raise CDCMaskedKeyError(schema.name, masked_keys)
+        if self._masker is None:
+            try:
+                self._masker = value_masker(self.inputs.team_id)
+            except NonRetryableException as e:
+                raise CDCMaskingKeyError(str(e)) from e
+        self.masked_columns_by_table[schema.name] = {fold_column_name(column) for column in schema.masked_columns}
 
     def _query_pk_columns(self, table_names: list[str]) -> dict[str, list[str]]:
         """Look up primary keys in the source catalog, keyed back on `ExternalDataSchema.name`.
@@ -669,6 +739,30 @@ class CDCExtractActivity:
             column_types=event.column_types,
             omitted_columns=filtered_omitted,
         )
+
+    def _mask_event_columns(self, event: ChangeEvent) -> ChangeEvent:
+        masked = self.masked_columns_by_table.get(event.table_name)
+        if not masked:
+            return event
+        assert self._masker is not None
+        mask = self._masker
+        decisions = self._masked_names_by_table.setdefault(event.table_name, {})
+
+        def is_masked(name: str) -> bool:
+            decision = decisions.get(name)
+            if decision is None:
+                decision = decisions[name] = fold_column_name(name) in masked
+            return decision
+
+        columns = {name: mask(value) if is_masked(name) else value for name, value in event.columns.items()}
+        # A digest is text. Left on the source type, a flush where the column is all null would
+        # write that type and no longer merge with the flushes that hold digests.
+        column_types = event.column_types
+        if column_types is not None:
+            column_types = {
+                name: pa.string() if is_masked(name) else column_type for name, column_type in column_types.items()
+            }
+        return dataclasses.replace(event, columns=columns, column_types=column_types)
 
     def _split_key_change(self, event: ChangeEvent) -> tuple[ChangeEvent, ...]:
         """Turn an update that changes the merge key into a delete of the old key and an insert of the new one.
@@ -776,7 +870,7 @@ class CDCExtractActivity:
                     event = dataclasses.replace(event, table_name=canonical_name)
 
                 for change in self._split_key_change(event):
-                    self.batcher.add(self._project_event_columns(change))
+                    self.batcher.add(self._mask_event_columns(self._project_event_columns(change)))
 
                 # A change in position_serialized proves the previous transaction fully
                 # yielded — all of its events are now buffered or flushed. Record its end LSN
@@ -995,6 +1089,10 @@ class CDCExtractActivity:
             mutate=_merge_pending,
             extra_model_fields={"initial_sync_complete": False},
         )
+        # Read after the locked write above. A mask change saves its reset together with the masks,
+        # so every reset that write merged and this run finishes comes with masks at least this new.
+        schema.masked_columns = self._read_masked_columns(schema)
+        self._load_masked_columns(schema)
         self._tables_awaiting_reset.discard(schema.name)
         return True
 

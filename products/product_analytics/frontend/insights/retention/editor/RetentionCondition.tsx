@@ -4,22 +4,25 @@ import { toast } from 'react-toastify'
 
 import { IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { Checkbox, Field, FieldLabel } from '@posthog/quill'
 
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getOrdinalSuffix } from 'lib/utils/strings'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EditorFilterProps, EntityTypes, FilterType, RetentionPeriod, RetentionType } from '~/types'
+import { ChartDisplayCategory, EditorFilterProps, RetentionPeriod, RetentionType } from '~/types'
 
 import { getRetentionPropertyFilterGroupTypes } from 'products/product_analytics/frontend/insights/editor/propertyTaxonomicGroupTypes'
 import { AggregationSelect } from 'products/product_analytics/frontend/insights/shared/AggregationSelect'
 
 import { dateOptionPlurals, dateOptions, retentionOptionDescriptions, retentionOptions } from '../constants'
 import { MAX_BRACKETS, retentionLogic } from '../retentionLogic'
+import { retentionEntityToSeries, seriesToRetentionEntity } from './retentionEntitySeries'
 
 const MAX_RANGE = 1000
 
@@ -33,33 +36,6 @@ const actionsTaxonomicGroupTypes = [
     TaxonomicFilterGroupType.Actions,
     TaxonomicFilterGroupType.DataWarehouse,
 ]
-
-function retentionEntityToFilter(entity: Record<string, any> | undefined): FilterType {
-    if (!entity) {
-        return {}
-    }
-
-    if (entity.type === EntityTypes.ACTIONS) {
-        return { actions: [entity] }
-    }
-    if (entity.type === EntityTypes.DATA_WAREHOUSE) {
-        return { data_warehouse: [entity] }
-    }
-    return { events: [entity] }
-}
-
-function filterToRetentionEntity(newFilters: FilterType): Record<string, any> | undefined {
-    if (newFilters.events && newFilters.events.length > 0) {
-        return newFilters.events[0]
-    }
-    if (newFilters.actions && newFilters.actions.length > 0) {
-        return newFilters.actions[0]
-    }
-    if (newFilters.data_warehouse && newFilters.data_warehouse.length > 0) {
-        return newFilters.data_warehouse[0]
-    }
-    return undefined
-}
 
 function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['insightProps'] }): JSX.Element {
     const { retentionFilter, localCustomBrackets } = useValues(retentionLogic(insightProps))
@@ -164,8 +140,13 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
     const { showGroupsOptions } = useValues(groupsModel)
     const { retentionFilter, dateRange } = useValues(retentionLogic(insightProps))
     const { updateInsightFilter, updateDateRange } = useActions(retentionLogic(insightProps))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { targetEntity, returningEntity, retentionType, totalIntervals, period, retentionCustomBrackets } =
         retentionFilter || {}
+
+    const setUseCustomBrackets = (checked: boolean): void => {
+        updateInsightFilter({ retentionCustomBrackets: checked ? [1, 3, 5] : undefined })
+    }
 
     return (
         <div className="deprecated-space-y-3 mb-4" data-attr="retention-condition">
@@ -178,14 +159,13 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 )}
             </div>
             <div>who performed</div>
-            <ActionFilter
+            <SeriesActionFilter
                 entitiesLimit={1}
                 mathAvailability={MathAvailability.None}
                 hideRename
-                filters={retentionEntityToFilter(targetEntity)} // retention filters use target and returning entity instead of events
-                setFilters={(newFilters: FilterType) => {
-                    updateInsightFilter({ targetEntity: filterToRetentionEntity(newFilters) })
-                }}
+                series={retentionEntityToSeries(targetEntity)}
+                onChange={(series) => updateInsightFilter({ targetEntity: seriesToRetentionEntity(series) })}
+                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-targetEntity`}
                 propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
                 actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
@@ -216,15 +196,14 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
             />
 
             <div>and then returned to perform</div>
-            <ActionFilter
+            <SeriesActionFilter
                 entitiesLimit={1}
                 mathAvailability={MathAvailability.None}
                 hideRename
                 buttonCopy="Add graph series"
-                filters={retentionEntityToFilter(returningEntity)}
-                setFilters={(newFilters: FilterType) => {
-                    updateInsightFilter({ returningEntity: filterToRetentionEntity(newFilters) })
-                }}
+                series={retentionEntityToSeries(returningEntity)}
+                onChange={(series) => updateInsightFilter({ returningEntity: seriesToRetentionEntity(series) })}
+                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returningEntity`}
                 propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
                 actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
@@ -287,17 +266,24 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                     </Fragment>
                 ) : null}
             </div>
-            <LemonCheckbox
-                label="Use custom return ranges"
-                checked={retentionCustomBrackets !== undefined}
-                onChange={(checked) => {
-                    if (checked) {
-                        updateInsightFilter({ retentionCustomBrackets: [1, 3, 5] })
-                    } else {
-                        updateInsightFilter({ retentionCustomBrackets: undefined })
-                    }
-                }}
-            />
+            {todayRailNav ? (
+                <Field orientation="horizontal" className="gap-2">
+                    <Checkbox
+                        id="retention-custom-brackets"
+                        checked={retentionCustomBrackets !== undefined}
+                        onCheckedChange={setUseCustomBrackets}
+                    />
+                    <FieldLabel htmlFor="retention-custom-brackets" className="font-normal">
+                        Use custom return ranges
+                    </FieldLabel>
+                </Field>
+            ) : (
+                <LemonCheckbox
+                    label="Use custom return ranges"
+                    checked={retentionCustomBrackets !== undefined}
+                    onChange={setUseCustomBrackets}
+                />
+            )}
             {retentionCustomBrackets !== undefined ? <CustomBrackets insightProps={insightProps} /> : null}
         </div>
     )

@@ -12,14 +12,14 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from anthropic import AsyncAnthropic
-from anthropic.types import MessageParam
+from anthropic.types import Message, MessageParam
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.event_usage import groups
 from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
 from posthog.models import Organization, Team
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.signals.backend.emission._prompts import COMMON_ACTIONABILITY_PROMPT_NAMES
 from products.signals.backend.emission.registry import (
@@ -30,8 +30,10 @@ from products.signals.backend.emission.registry import (
 )
 from products.signals.backend.emission.steering import SourceSteering, apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
-from products.signals.backend.llm_spend import generate_with_spend
-from products.signals.backend.models import SignalEmissionRecord
+from products.signals.backend.llm_spend import accounted_message, generate_with_spend
+from products.signals.backend.models import SignalEmissionRecord, SignalReport
+from products.signals.backend.recurrence import reports_fork_recurrence
+from products.signals.backend.report_merge import signal_target_reports
 from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.system_one_decision import run_model_decision
@@ -40,6 +42,8 @@ from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
 from products.signals.backend.temporal.llm import effort_kwargs
 from products.signals.backend.temporal.signal_queries import fetch_source_signal_matches
+from products.signals.backend.trial.policy import TrialRefused
+from products.signals.backend.trial.reports import requires_trial_accounting
 
 logger = structlog.get_logger(__name__)
 
@@ -195,6 +199,28 @@ def build_emitter_outputs(
     return outputs, error_count
 
 
+async def _create_message(
+    client: AsyncAnthropic,
+    *,
+    team_id: int,
+    signal_id: str | None,
+    messages: list[MessageParam],
+    extra_headers: dict[str, str],
+) -> Message:
+    trial = await database_sync_to_async_pool(requires_trial_accounting)(team_id, signal_id)
+    if trial:
+        client = client.with_options(max_retries=0)
+    return await accounted_message(
+        client,
+        model=LLM_MODEL,
+        messages=messages,
+        max_tokens=LLM_MAX_OUTPUT_TOKENS,
+        metadata={"user_id": f"team-{team_id}"},
+        extra_headers=extra_headers,
+        **effort_kwargs(LLM_MODEL),
+    )
+
+
 async def _summarize_description(
     client: AsyncAnthropic,
     team_id: int,
@@ -217,18 +243,18 @@ async def _summarize_description(
         summary = ""
         try:
             generation = asyncio.wait_for(
-                client.messages.create(
-                    model=LLM_MODEL,
-                    messages=messages,
-                    max_tokens=LLM_MAX_OUTPUT_TOKENS,
-                    metadata={"user_id": f"team-{team_id}"},
-                    extra_headers=extra_headers,
-                    **effort_kwargs(LLM_MODEL),
+                _create_message(
+                    client, team_id=team_id, signal_id=output.signal_id, messages=messages, extra_headers=extra_headers
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
             priced = await generate_with_spend(
-                generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="summarization"
+                generation,
+                gateway=gateway,
+                team_id=team_id,
+                signal_id=output.signal_id,
+                stage="summarization",
+                billing_exempt=system_source_exempt(output.source_product),
             )
             response = priced.response
             summary = _extract_text(response).strip()
@@ -239,6 +265,8 @@ async def _summarize_description(
             if len(summary) > threshold:
                 raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
             return dataclasses.replace(output, description=summary)
+        except TrialRefused:
+            raise
         except Exception as e:
             posthoganalytics.capture_exception(
                 e,
@@ -387,22 +415,28 @@ async def check_actionability(
                 await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
             try:
                 generation = asyncio.wait_for(
-                    client.messages.create(
-                        model=LLM_MODEL,
+                    _create_message(
+                        client,
+                        team_id=team_id,
+                        signal_id=output.signal_id,
                         messages=[{"role": "user", "content": prompt}],
-                        max_tokens=LLM_MAX_OUTPUT_TOKENS,
-                        metadata={"user_id": f"team-{team_id}"},
                         extra_headers=extra_headers,
-                        **effort_kwargs(LLM_MODEL),
                     ),
                     timeout=LLM_CALL_TIMEOUT_SECONDS,
                 )
                 priced = await generate_with_spend(
-                    generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="actionability"
+                    generation,
+                    gateway=gateway,
+                    team_id=team_id,
+                    signal_id=output.signal_id,
+                    stage="actionability",
+                    billing_exempt=system_source_exempt(output.source_product),
                 )
                 response = priced.response
                 response_text = _extract_text(response).strip().upper()
                 return "NOT_ACTION" not in response_text
+            except TrialRefused:
+                raise
             except Exception as e:
                 posthoganalytics.capture_exception(
                     e,
@@ -470,6 +504,8 @@ async def filter_actionable(
                     context_fields=context_fields,
                     system_one_prompt=system_one_prompt,
                 )
+            except TrialRefused:
+                return False
             except Exception:
                 logger.exception(
                     "Actionability check failed, assuming actionable",
@@ -628,6 +664,16 @@ async def _emit_signals(
     return succeeded
 
 
+def _reports_closed_to_source_state(team_id: int, report_ids: set[str]) -> set[str]:
+    """The matched reports whose signals would fork a recurrence, after following merges and recurrences."""
+    if not report_ids:
+        return set()
+    reports = list(SignalReport.objects.filter(team_id=team_id, id__in=report_ids))
+    targets = signal_target_reports(team_id=team_id, reports=reports)
+    closed_targets = reports_fork_recurrence(team_id=team_id, reports=list(targets.values()))
+    return {report_id for report_id, target in targets.items() if str(target.id) in closed_targets}
+
+
 async def run_signal_pipeline(
     team: Team,
     config: SignalSourceTableConfig,
@@ -712,8 +758,21 @@ async def run_signal_pipeline(
             else output
             for output in outputs
         ]
+        # A source state change such as a closed issue only refreshes an open report. On a resolved
+        # report it usually means the fix landed, so it must not file a recurrence.
+        closed_report_ids = await database_sync_to_async(_reports_closed_to_source_state, thread_sensitive=False)(
+            team.id,
+            {
+                output.source_match_report_id
+                for output in outputs
+                if output.existing_source_only and output.source_match_report_id is not None
+            },
+        )
+        kept_outputs = []
         for output in outputs:
-            if output.existing_source_only and output.source_match_report_id is None:
+            if not output.existing_source_only:
+                kept_outputs.append(output)
+            elif output.source_match_report_id is None:
                 capture_pipeline_stage(
                     "signal_data_source_filtered",
                     team,
@@ -721,9 +780,17 @@ async def run_signal_pipeline(
                     output,
                     {"filter_reason": "source_state_without_report"},
                 )
-        outputs = [
-            output for output in outputs if not output.existing_source_only or output.source_match_report_id is not None
-        ]
+            elif output.source_match_report_id in closed_report_ids:
+                capture_pipeline_stage(
+                    "signal_data_source_filtered",
+                    team,
+                    organization,
+                    output,
+                    {"filter_reason": "source_state_on_closed_report"},
+                )
+            else:
+                kept_outputs.append(output)
+        outputs = kept_outputs
 
     if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
         threshold = config.description_summarization_threshold_chars

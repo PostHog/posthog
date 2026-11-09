@@ -4,8 +4,8 @@ import { formatCurrency } from 'lib/utils/currency'
 import { formatDurationMilliseconds, humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage, significantDecimalPlaces } from 'lib/utils/numbers'
 
+import { isInsightVizNode, isTrendsQuery } from '~/queries/schema/node-guards'
 import { CurrencyCode, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, PropertyMathType } from '~/types'
 
 import type { ReportMetricApi, SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'

@@ -14,12 +14,15 @@ from rest_framework.request import Request
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
+from posthog.permissions import get_authenticator_scopes
+from posthog.scopes import scopes_not_covered
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.activity import log_workflow_activity
 from products.workflows.backend.facade.contracts import (
     CampaignSource,
+    ImageBudget,
     ImportNote,
     ImportOptions,
     PreviousImport,
@@ -32,6 +35,7 @@ from products.workflows.backend.facade.workflow_imports import (
     import_content,
     previous_import,
     record_import,
+    rehost_images,
     translate_campaign,
 )
 from products.workflows.backend.facade.writes import create_workflow, defer_hog_flow_reloads, update_workflow
@@ -68,6 +72,7 @@ def import_campaigns(
     content = import_content(
         team.id, sources, options, sender_identities, segments, deadline, _left_alone(team, context)
     )
+    budget = ImageBudget(deadline=deadline, can_upload=_can_upload_media(request, context.access))
     with defer_hog_flow_reloads():
         results = [
             import_campaign(
@@ -78,6 +83,7 @@ def import_campaigns(
                 dry_run,
                 content.fetch_notes.get(_source_id(source), ()),
                 context,
+                budget,
             )
             for source in content.sources
         ]
@@ -132,6 +138,7 @@ def import_campaign(
     dry_run: bool,
     extra_notes: tuple[ImportNote, ...],
     context: _RequestContext,
+    image_budget: ImageBudget,
 ) -> dict[str, Any]:
     """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
     try:
@@ -149,15 +156,15 @@ def import_campaign(
             ],
             "status": "failed",
         }
-    notes = (*extra_notes, *translated.notes)
     result: dict[str, Any] = {
         "source_id": translated.source_id,
         "name": translated.name,
         "workflow_id": None,
-        "notes": [asdict(note) for note in notes],
+        "notes": [asdict(note) for note in (*extra_notes, *translated.notes)],
         "validation_errors": [],
     }
     previous = context.previous.get(translated.source_id) or previous_import(team, translated.source_id)
+    # Checked before images are copied, so a workflow the import leaves alone costs no downloads.
     if previous.hog_flow_id is not None and not _can_edit(context.access, team, previous):
         return _skipped(
             result,
@@ -166,12 +173,20 @@ def import_campaign(
         )
     if previous.hog_flow_id is not None and not previous.hog_flow_is_draft:
         return _skipped(result, previous.hog_flow_id, _NO_LONGER_DRAFT)
+    # Checked before images are copied too, so a draft that can't save costs no downloads.
     validated, errors = _validated_draft(team, translated.workflow, context.request)
     if validated is None:
         return {**result, "status": "failed", "validation_errors": errors}
+    rehosted = rehost_images(team, user, translated.workflow, dry_run, image_budget)
+    notes = (*extra_notes, *translated.notes, *rehosted.notes)
+    result["notes"] = [asdict(note) for note in notes]
     if dry_run:
         replaces = str(previous.hog_flow_id) if previous.hog_flow_id is not None else None
         return {**result, "status": "preview", "workflow_id": replaces}
+    if rehosted.workflow is not translated.workflow:
+        validated, errors = _validated_draft(team, rehosted.workflow, context.request)
+        if validated is None:
+            return {**result, "status": "failed", "validation_errors": errors}
     created_name: str | None = None
     try:
         with transaction.atomic():
@@ -232,6 +247,14 @@ _NO_LONGER_DRAFT = (
 def _skipped(result: dict[str, Any], workflow_id: UUID | None, message: str) -> dict[str, Any]:
     note = ImportNote(level=WorkflowImportNoteLevel.APPROXIMATED, message=message)
     return {**result, "status": "skipped", "workflow_id": str(workflow_id), "notes": [asdict(note)]}
+
+
+def _can_upload_media(request: Request, access: UserAccessControl) -> bool:
+    # Copying images writes to the media library, so the caller needs the same access as an upload there.
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["uploaded_media:write"]):
+        return False
+    return access.check_access_level_for_resource("uploaded_media", "editor")
 
 
 def _can_edit(access: UserAccessControl, team: Team, previous: PreviousImport) -> bool:

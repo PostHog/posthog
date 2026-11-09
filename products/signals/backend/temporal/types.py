@@ -136,6 +136,9 @@ class ExistingReportMatch:
     match_metadata: MatchedMetadata
     report_title: str | None = None
     source_synced: bool = False
+    # The signal is a GitHub issue that an open report names as its source issue, so it attached by
+    # that exact match rather than by similarity, and the specificity check has nothing to add.
+    source_issue_matched: bool = False
 
 
 @dataclass
@@ -203,6 +206,7 @@ class SignalReportSummaryWorkflowInputs:
     requested_implementation_task_id: str | None = None
     requested_after_run_count: int | None = None
     signal_id: str | None = None
+    operator_rerun: bool = False
 
 
 @dataclass

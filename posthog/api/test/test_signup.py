@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import unittest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
@@ -311,26 +312,57 @@ class TestSignupAPI(APIBaseTest):
         existing_user.refresh_from_db()
         self.assertEqual(existing_user.first_name, "Hoggy")
 
+    @parameterized.expand(
+        [
+            (
+                "plus_addressed",
+                "john+alias@posthog.com",
+                "Email addresses with a '+' aren't supported. Please use your primary email address.",
+                "plus_addressing_not_allowed",
+            ),
+            (
+                "lookalike_dot",
+                "john@ph\u3002posthog.com",
+                "Enter an email address using standard dots and no hidden characters.",
+                "lookalike_characters_not_allowed",
+            ),
+            (
+                "zero_width_space",
+                "john@posthog\u200b.com",
+                "Enter an email address using standard dots and no hidden characters.",
+                "lookalike_characters_not_allowed",
+            ),
+        ]
+    )
     @pytest.mark.skip_on_multitenancy
-    def test_signup_disallowed_with_plus_addressed_email(self):
+    def test_signup_disallowed_with_unsupported_email(self, _name, email, message, code):
         response = self.client.post(
             "/api/signup/",
             {
                 "first_name": "John",
-                "email": "john+alias@posthog.com",
+                "email": email,
                 "password": VALID_TEST_PASSWORD,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            self.validation_error_response(
-                "Email addresses with a '+' aren't supported. Please use your primary email address.",
-                code="plus_addressing_not_allowed",
-                attr="email",
-            ),
+            self.validation_error_response(message, code=code, attr="email"),
         )
         self.assertEqual(User.objects.count(), 0)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_signup_allowed_with_internationalized_domain(self):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "john@ex\u00e4mple.com",
+                "password": VALID_TEST_PASSWORD,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(User.objects.get().email, "john@ex\u00e4mple.com")
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_stripped_alias_collision(self):
@@ -1784,12 +1816,13 @@ class TestSignupAPI(APIBaseTest):
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
     def test_signup_rate_limit_by_ip(self, mock_get_ip):
-        """Test that signup is rate limited by IP address to 5 signups per day"""
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
-
-        # Clear any existing rate limit cache
         cache.clear()
+
+        for i in range(3):
+            failed = self.client.post("/api/signup/", {"first_name": "Failed", "email": f"failed{i}@example.com"})
+            self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
 
         for i in range(6):
             response = self.client.post(
@@ -1809,8 +1842,40 @@ class TestSignupAPI(APIBaseTest):
                 User.objects.filter(email=f"user{i}@example.com").delete()
             else:
                 self.assertEqual(
-                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th request should be rate limited"
+                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th signup should be rate limited"
                 )
+                self.assertIn("Retry-After", response.headers)
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
+    def test_signup_rate_limits_failed_attempts_by_ip(self, mock_get_ip):
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+        cache.clear()
+
+        def signup(i: int):
+            return self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": f"User{i}",
+                    "email": f"user{i}@example.com",
+                    "password": VALID_TEST_PASSWORD,
+                    "organization_name": f"Org{i}",
+                },
+            )
+
+        with time_machine.travel(datetime(2026, 1, 1, 12, 0, 0), tick=False) as traveller:
+            for i in range(10):
+                failed = self.client.post("/api/signup/", {"first_name": "Failed", "email": f"failed{i}@example.com"})
+                self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
+
+            self.assertEqual(signup(0).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+            traveller.shift(timedelta(hours=2))
+
+            for i in range(5):
+                self.assertEqual(signup(i).status_code, status.HTTP_201_CREATED, f"Signup {i + 1} should succeed")
+                Organization.objects.filter(for_internal_metrics=False).delete()
+                User.objects.filter(email=f"user{i}@example.com").delete()
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_rate_limit_different_ips(self):
@@ -3011,13 +3076,14 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(Team.objects.count(), team_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
-    def test_cant_claim_invalid_invite(self):
+    @parameterized.expand([("unknown_uuid", str(uuid.uuid4())), ("malformed", "not-a-uuid")])
+    def test_cant_claim_invalid_invite(self, _name, invite_id):
         count: int = User.objects.count()
         team_count: int = Team.objects.count()
         org_count: int = Organization.objects.count()
 
         response = self.client.post(
-            f"/api/signup/{uuid.uuid4()}/",
+            f"/api/signup/{invite_id}/",
             {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

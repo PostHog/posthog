@@ -280,6 +280,26 @@ class TestStatisticalDetectors:
 
     @parameterized.expand(
         [
+            ("zero", {"multiplier": 0.0}, 2.25, True),
+            ("none", {"multiplier": None}, 4.5, False),
+            ("omitted", {}, 4.5, False),
+        ]
+    )
+    def test_iqr_multiplier_sets_fences(
+        self, _name: str, multiplier: dict[str, Any], upper_fence: float, is_anomaly: bool
+    ) -> None:
+        # The training window [0, 1, 2, 3] has q1=0.75, q3=2.25 and iqr=1.5, so 4.0 is outside only the zero fence.
+        data = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        detector = IQRDetector({"window": 4, **multiplier})
+
+        result = detector.detect(data)
+        assert result.metadata["upper_fence"] == upper_fence
+        assert result.is_anomaly is is_anomaly
+        assert detector.detect_batch(data).is_anomaly is is_anomaly
+        assert detector.fit(data[:-1]).params["upper_fence"] == upper_fence
+
+    @parameterized.expand(
+        [
             (f"{name}_diffs_{diffs_n}", detector_type, detector_cls, diffs_n)
             for name, detector_type, detector_cls in (
                 ("zscore", "zscore", ZScoreDetector),
@@ -707,7 +727,7 @@ class TestComputeMinSamplesForDetector:
     @parameterized.expand(
         [
             # The AI detector holds no training point back, so its lookback is the exact requirement.
-            ("hour", "hour", 168),
+            ("hour", "hour", 169),
             ("day", "day", 90),
             ("week", "week", 52),
             ("month", "month", 24),

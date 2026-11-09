@@ -1,7 +1,7 @@
 {
     "name": "@posthog/ai-research-v4-native",
     "version": "0.0.1",
-    "description": "Node bindings for the v4 AI research replay URL policy",
+    "description": "Node bindings for the v4 AI research replay URL policy and crawl history rule",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {

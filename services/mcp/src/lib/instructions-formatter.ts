@@ -32,17 +32,20 @@ import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compact.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
+import INBOX_FIRST from '@/templates/sections/inbox-first.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
 import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
+import PROJECT_SCOPE from '@/templates/sections/project-scope.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import SKILLS_FIRST from '@/templates/sections/skills-first.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
+import type { BusinessKnowledgeContent } from '@/tools/types'
 
 /** Naming a command the catalog withholds sends the agent down a path it cannot take. */
 const WHATS_NEW_WITH_DOCS_SEARCH =
@@ -81,29 +84,42 @@ export interface InstructionsContext {
     /** Whether the Replay Vision scan tools are advertised to this client. Same reason
      *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
     replayVisionEnabled?: boolean | undefined
+    businessKnowledgeContent?: BusinessKnowledgeContent | undefined
+    /** Set only when the experiment flag is on and the report list and retrieve tools are advertised. */
+    inboxFirstEnabled?: boolean | undefined
+    /** Read-only connections lack `inbox-reports-claim`, so they get no pull-request line. */
+    inboxClaimEnabled?: boolean | undefined
 }
 
 const REPLAY_VISION_TOOLS = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
 const REPLAY_VISION =
     'To learn what happened inside session recordings (what users did, saw, or struggled with), use Replay Vision instead of SQL over the replay tables. Call `vision-scanners-inline-scan` with `session_ids` and a `prompt` for sessions you already have, or `vision-requests-create` for up to 200 sessions and read the result with `vision-requests-get`. SQL over `session_replay_events` returns recording metadata only, such as duration, URLs and event counts; use it to find candidate sessions.'
 
-function businessKnowledgeSearchLine(execSyntax: boolean): string {
-    const search = execSyntax
-        ? 'run `call business-knowledge-documents-search <json_input>`'
-        : 'call `business-knowledge-documents-search`'
-    return `- First, ${search} with a short, broad query based on the user's topic. If \`business-knowledge-document-window-retrieve\` is also available, use it when a result needs more context.`
-}
-
+const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
 
-/** Document search does not read GitHub. Code questions and an empty document search use the repo tools.
- *  The exec line stays short to keep the exec description under Claude Code's 2048-char cap. */
-function businessKnowledgeRepoSearchLine(execSyntax: boolean): string {
+function businessKnowledgeSearchLine(execSyntax: boolean): string {
     if (execSyntax) {
-        return `- Code or doc misses: \`call ${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL} <json_input>\`.`
+        return `- The user's own company, product, terms, or policies: run \`call ${BUSINESS_KNOWLEDGE_SEARCH_TOOL} <json_input>\` with a short, broad query.`
     }
-    return `- For this team's code, or when document search returns no chunks, call \`${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\` with file names or topic words, not a sentence. Each repository includes its description. When a description names a handbook or docs, search that repository for those words, read the file, and cite its permalink.`
+    return `- The user's own company, product, internal terms, policies, or decisions: call \`${BUSINESS_KNOWLEDGE_SEARCH_TOOL}\` with a short, broad query. If \`business-knowledge-document-window-retrieve\` is also available, use it when a result needs more context.`
 }
+
+/** The exec line stays short to keep the exec description under Claude Code's 2048-char cap. */
+function businessKnowledgeRepoSearchLine(execSyntax: boolean, hasDocumentSearch: boolean): string {
+    if (execSyntax) {
+        const topic = hasDocumentSearch ? "The user's own code, or doc misses" : "The user's own company, code, or docs"
+        return `- ${topic}: \`call ${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL} <json_input>\`.`
+    }
+    const topic = hasDocumentSearch
+        ? "The user's own code, or a company question that document search does not answer"
+        : "The user's own company, product, code, or docs"
+    return `- ${topic}: call \`${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\` with file names or topic words, not a sentence. Each repository includes its description. When a description names a handbook or docs, search that repository for those words, read the file, and cite its permalink.`
+}
+
+/** A data request can name a company term, such as "activated user", that no event or property name explains. */
+const BUSINESS_KNOWLEDGE_DATA_REQUEST_EXCEPTION =
+    ', except to look up in business knowledge a company term that you cannot map to an event or property'
 
 /** The SQL section's bullets that name a tool. Each one is left out when the connection
  *  lacks a tool it names, so the guidance never sends the agent to a name it cannot call. */
@@ -156,16 +172,13 @@ function envContextSections(ctx: InstructionsContext): string[] {
  */
 export class InstructionsFormatter {
     private knowledgeFirstSections(ctx: InstructionsContext): string[] {
-        const businessKnowledgeSearchEnabled = ctx.tools?.some(
-            ({ name }) => name === 'business-knowledge-documents-search'
-        )
-        const businessKnowledgeRepoSearchEnabled = ctx.tools?.some(
-            ({ name }) => name === BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL
-        )
         return this.knowledgeFirstSectionsForCapabilities({
             docsSearchEnabled: docsSearchAvailable(ctx),
-            businessKnowledgeSearchEnabled,
-            businessKnowledgeRepoSearchEnabled,
+            businessKnowledgeSearchEnabled: ctx.tools?.some(({ name }) => name === BUSINESS_KNOWLEDGE_SEARCH_TOOL),
+            businessKnowledgeRepoSearchEnabled: ctx.tools?.some(
+                ({ name }) => name === BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL
+            ),
+            businessKnowledgeContent: ctx.businessKnowledgeContent,
             execSyntax: false,
         })
     }
@@ -174,28 +187,48 @@ export class InstructionsFormatter {
      *  mandate leads the tool description, ahead of the section that teaches the
      *  dispatcher grammar, so a bare name reads as a command and is rejected. */
     private knowledgeFirstSectionsForCapabilities(opts: {
-        docsSearchEnabled?: boolean
-        businessKnowledgeSearchEnabled?: boolean
-        businessKnowledgeRepoSearchEnabled?: boolean
+        docsSearchEnabled?: boolean | undefined
+        businessKnowledgeSearchEnabled?: boolean | undefined
+        businessKnowledgeRepoSearchEnabled?: boolean | undefined
+        businessKnowledgeContent?: BusinessKnowledgeContent | undefined
         execSyntax: boolean
     }): string[] {
         if (!opts.docsSearchEnabled) {
             return []
         }
-        const businessKnowledgeLines = opts.businessKnowledgeSearchEnabled
-            ? [
-                  businessKnowledgeSearchLine(opts.execSyntax),
-                  ...(opts.businessKnowledgeRepoSearchEnabled
-                      ? [businessKnowledgeRepoSearchLine(opts.execSyntax)]
-                      : []),
-              ]
-            : []
+        const documentSearch =
+            opts.businessKnowledgeSearchEnabled === true && opts.businessKnowledgeContent?.hasSources !== false
+        const repoSearch =
+            opts.businessKnowledgeRepoSearchEnabled === true && opts.businessKnowledgeContent?.hasRepositories !== false
+        const searchLines = [
+            ...(documentSearch ? [businessKnowledgeSearchLine(opts.execSyntax)] : []),
+            ...(repoSearch ? [businessKnowledgeRepoSearchLine(opts.execSyntax, documentSearch)] : []),
+            `- PostHog features, SDKs, setup, or pricing: ${
+                opts.execSyntax ? 'run `call docs-search <json_input>`' : 'call the `docs-search` tool'
+            }.`,
+        ]
         return [
             formatPrompt(BUSINESS_KNOWLEDGE_FIRST, {
-                docs_search_call: opts.execSyntax
-                    ? 'Run `call docs-search <json_input>`'
-                    : 'Call the `docs-search` tool',
-                business_knowledge_search: businessKnowledgeLines.join('\n'),
+                search_lines: searchLines.join('\n'),
+                data_request_exception: documentSearch || repoSearch ? BUSINESS_KNOWLEDGE_DATA_REQUEST_EXCEPTION : '',
+            }),
+        ]
+    }
+
+    /** Kept out of the exec tool description: Claude Code cuts it at 2,048 characters. */
+    private inboxFirstSections(ctx: InstructionsContext, execSyntax: boolean): string[] {
+        if (!ctx.inboxFirstEnabled) {
+            return []
+        }
+        const toolRef = (name: string): string =>
+            execSyntax ? `\`call ${name} <json_input>\`` : `the \`${name}\` tool`
+        return [
+            formatPrompt(INBOX_FIRST, {
+                inbox_list: toolRef('inbox-reports-list'),
+                inbox_retrieve: toolRef('inbox-reports-retrieve'),
+                inbox_claim_line: ctx.inboxClaimEnabled
+                    ? `- When you fix the problem, attach your pull request to the report with ${toolRef('inbox-reports-claim')} and \`pr_url\`. Its merge then resolves the report.`
+                    : '',
             }),
         ]
     }
@@ -206,7 +239,15 @@ export class InstructionsFormatter {
     private artifactSections(ctx: InstructionsContext): string[] {
         return [
             ANALYSIS_ARTIFACTS,
-            ...(ctx.tools?.some(({ name }) => name === 'explain-chart') ? [EXPLAIN_CHART] : []),
+            ...(ctx.tools?.some(({ name }) => name === 'explain-chart')
+                ? [
+                      formatPrompt(EXPLAIN_CHART, {
+                          explain_chart_link_line: ctx.tools.some(({ name }) => name === 'explain-chart-save')
+                              ? 'Where the conversation cannot show the chart explanation, call `explain-chart-save` with the same arguments and give the person the link it returns, which opens it beside the chart in PostHog.'
+                              : '',
+                      }),
+                  ]
+                : []),
             ...(ctx.notebookCellsEnabled ? [formatPrompt(NOTEBOOK_SQL, notebookSqlVars(ctx)), NOTEBOOK_PYTHON] : []),
             ...(ctx.notebookRunEnabled ? [NOTEBOOK_RUN] : []),
         ]
@@ -226,8 +267,10 @@ export class InstructionsFormatter {
     buildToolsInstructions(ctx: InstructionsContext): string {
         return this.compose(
             [
+                PROJECT_SCOPE,
                 BASIC_FUNCTIONALITY,
                 ...this.knowledgeFirstSections(ctx),
+                ...this.inboxFirstSections(ctx, false),
                 TOOL_SEARCH,
                 METRIC_DISCOVERY,
                 RETRIEVING_DATA,
@@ -274,20 +317,22 @@ export class InstructionsFormatter {
 
     /** Build the top-level description of the `posthog:exec` tool. Lives in the
      *  uncapped top-level `description`, so the skills text costs no schema budget.
-     *  The skills mandate LEADS the description: it is the only signal that reaches
+     *  Project clarification and the skills mandate lead the description to reach
      *  an agent before its first tool call, and agents that answer PostHog-behavior
      *  questions by cloning the public repo never make a call for the gate to catch. */
     buildExecToolDescription(
         opts: {
-            skillsEnabled?: boolean
-            docsSearchEnabled?: boolean
-            businessKnowledgeSearchEnabled?: boolean
-            businessKnowledgeRepoSearchEnabled?: boolean
+            skillsEnabled?: boolean | undefined
+            docsSearchEnabled?: boolean | undefined
+            businessKnowledgeSearchEnabled?: boolean | undefined
+            businessKnowledgeRepoSearchEnabled?: boolean | undefined
+            businessKnowledgeContent?: BusinessKnowledgeContent | undefined
         } = {}
     ): string {
         const knowledgeSections = this.knowledgeFirstSectionsForCapabilities({ ...opts, execSyntax: true })
         const hasMandate = opts.skillsEnabled || knowledgeSections.length > 0
         return [
+            PROJECT_SCOPE,
             ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
             ...knowledgeSections,
             hasMandate ? EXEC_TOOL_BLURB_COMPACT : EXEC_TOOL_BLURB,
@@ -413,6 +458,7 @@ export class InstructionsFormatter {
         const sections = [
             CLI_SYNTAX,
             ...(opts.learnEnabled ? [CLI_LEARN] : []),
+            ...this.inboxFirstSections(ctx, true),
             METRIC_DISCOVERY,
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,

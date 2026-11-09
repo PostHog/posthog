@@ -61,6 +61,7 @@ class RadarAction(StrEnum):
 class RadarAuthMethod(StrEnum):
     PASSWORD = "Password"
     PASSKEY = "Passkey"
+    OTHER = "Other"
 
 
 class RadarVerdict(StrEnum):
@@ -89,15 +90,21 @@ def evaluate_auth_attempt(
     user_id: Optional[str] = None,
     turnstile_token: str = "",
     challenge_nonce: str = "",
+    challenge_allowed: bool = True,
+    call_site: Optional[str] = None,
 ) -> Optional[RadarVerdict]:
     """
     Evaluate an authentication attempt using the WorkOS Radar Attempts API.
 
+    ``challenge_allowed=False`` is for a caller with no browser to solve a Turnstile
+    challenge, such as a partner server. A CHALLENGE verdict then lets the attempt
+    through, so that only a BLOCK verdict refuses it.
+
     Raises:
         SuspiciousAttemptBlocked: When verdict is BLOCK and no access rule
             exempts the address from the signup risk check.
-        ChallengeRequired: When verdict is CHALLENGE and no valid Turnstile
-            token was provided.
+        ChallengeRequired: When verdict is CHALLENGE, ``challenge_allowed`` is
+            True, and no valid Turnstile token was provided.
     """
     if not settings.WORKOS_RADAR_ENABLED or not settings.WORKOS_RADAR_API_KEY:
         return None
@@ -119,6 +126,8 @@ def evaluate_auth_attempt(
     )
 
     outcome = _decide_outcome(verdict, email, turnstile_token, challenge_nonce, ip_address)
+    if outcome == "challenge" and not challenge_allowed:
+        outcome = "allow"
 
     _log_radar_event(
         email=email,
@@ -136,6 +145,7 @@ def evaluate_auth_attempt(
         bypass_source="rule" if outcome == "bypass" else None,
         was_challenged=outcome == "challenge",
         was_challenge_completed=outcome == "completed",
+        call_site=call_site,
     )
 
     if outcome == "block":
@@ -288,6 +298,7 @@ def _log_radar_event(
     bypass_source: Optional[str] = None,
     was_challenged: bool = False,
     was_challenge_completed: bool = False,
+    call_site: Optional[str] = None,
 ) -> None:
     """
     Log the Radar decision as a PostHog event for analysis.
@@ -310,6 +321,7 @@ def _log_radar_event(
         "user_agent": user_agent,
         "email_domain": email.split("@")[-1] if "@" in email else "",
         "radar_api_duration_ms": round(duration_ms, 2),
+        "call_site": call_site,
     }
 
     posthoganalytics.capture(
