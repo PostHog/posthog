@@ -89,6 +89,7 @@ from products.review_hog.backend.temporal.activities import (
     fail_status_comment_activity,
     fetch_pr_data_activity,
     finalize_status_comment_activity,
+    finish_standard_automatic_turn_activity,
     gate_push_activity,
     generate_schemas_activity,
     lens_review_activity,
@@ -98,7 +99,6 @@ from products.review_hog.backend.temporal.activities import (
     nudge_stamphog_activity,
     post_status_comment_activity,
     publish_review_activity,
-    record_turn_coverage_activity,
     record_turn_marker_activity,
     remove_review_reaction_activity,
     remove_trigger_label_activity,
@@ -118,16 +118,16 @@ from products.review_hog.backend.temporal.scheduling import (
     SILENT_STAMPHOG_PATCH,
     ReviewPRQueueWorkflow,
     ReviewRequestQueue,
-    start_silent_stamphog,
+    request_silent_stamphog,
 )
 from products.review_hog.backend.temporal.types import (
     TRIGGER_AUTOMATIC,
     TRIGGER_INBOX,
     TRIGGER_LABEL,
+    FinishedStandardAutomaticTurn,
     ResolvePRWorkflowInputs,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
-    TurnCoverageInput,
     resolve_pr_workflow_id,
 )
 
@@ -544,7 +544,7 @@ class ReviewPRWorkflow:
                 and inputs.marks_ready
                 and inputs.requested_head_sha == head_sha
             ):
-                await start_silent_stamphog(inputs, head_sha)
+                await request_silent_stamphog(inputs, head_sha)
             return report_id
         # The patch keeps a history written before the label check on its old command sequence.
         if workflow.patched("reviewhog-skip-agent-review-label-2026-10") and meta.skip_agent_review:
@@ -921,21 +921,23 @@ class ReviewPRWorkflow:
         if (
             workflow.patched(SILENT_STAMPHOG_PATCH)
             and publishes_to_pr
+            and meta.pr_number is not None
             and inputs.trigger_source == TRIGGER_AUTOMATIC
             and inputs.review_mode == REVIEW_MODE_FLASH
         ):
-            await self._record_turn_coverage(
-                TurnCoverageInput(
+            await self._finish_standard_automatic_turn(
+                FinishedStandardAutomaticTurn(
                     team_id=inputs.team_id,
                     report_id=report_id,
+                    repository=repository,
+                    pr_number=meta.pr_number,
                     head_sha=head_sha,
                     run_index=meta.run_index,
                     lens_chunks_capped=meta.lens_chunks_capped,
+                    # The event names its head, and the turn reviews the live head, which can be newer.
+                    marks_ready=inputs.marks_ready and inputs.requested_head_sha == head_sha,
                 )
             )
-            # The event's head, because the turn reviews the live head, which can be newer.
-            if inputs.marks_ready and inputs.requested_head_sha is not None:
-                await start_silent_stamphog(inputs, inputs.requested_head_sha)
         # One analytics event per finalized turn (the review-level count dashboards aggregate);
         # best-effort — a review must never fail over its own telemetry.
         try:
@@ -1240,16 +1242,16 @@ class ReviewPRWorkflow:
             workflow.logger.warning("Could not ask stamphog to re-review")
 
     @staticmethod
-    async def _record_turn_coverage(turn: TurnCoverageInput) -> None:
+    async def _finish_standard_automatic_turn(turn: FinishedStandardAutomaticTurn) -> None:
         try:
             await workflow.execute_activity(
-                record_turn_coverage_activity,
+                finish_standard_automatic_turn_activity,
                 turn,
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
         except ActivityError:
-            workflow.logger.warning("Could not record the turn coverage")
+            workflow.logger.warning("Could not record the turn coverage or start a silent stamphog review")
 
     @staticmethod
     async def _remove_eyes_reaction(team_id: int, repository: str, pr_number: int, reaction_id: int) -> None:

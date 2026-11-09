@@ -76,10 +76,10 @@ from products.review_hog.backend.temporal.resolution import (
     ResolveThreadsInput,
 )
 from products.review_hog.backend.temporal.types import (
+    FinishedStandardAutomaticTurn,
     ResolvePRWorkflowInputs,
     ReviewPRWorkflowInputs,
     SilentStamphogRequest,
-    TurnCoverageInput,
     resolve_pr_workflow_id,
 )
 from products.review_hog.backend.temporal.workflow import (
@@ -458,11 +458,13 @@ async def _run_full_review_pr_workflow(
         if fail_nudge:
             raise ApplicationError("stamphog unavailable", non_retryable=True)
 
-    coverage_calls: list[TurnCoverageInput] = []
+    finished_turns: list[FinishedStandardAutomaticTurn] = []
 
-    @activity.defn(name="record_turn_coverage_activity")
-    async def record_coverage(input: TurnCoverageInput) -> None:
-        coverage_calls.append(input)
+    @activity.defn(name="finish_standard_automatic_turn_activity")
+    async def finish_standard_automatic_turn(input: FinishedStandardAutomaticTurn) -> None:
+        finished_turns.append(input)
+        if fail_silent_stamphog:
+            raise ApplicationError("stamphog unavailable", non_retryable=True)
 
     silent_stamphog_calls: list[SilentStamphogRequest] = []
 
@@ -547,7 +549,7 @@ async def _run_full_review_pr_workflow(
                 add_reaction,
                 remove_reaction,
                 nudge,
-                record_coverage,
+                finish_standard_automatic_turn,
                 silent_stamphog,
                 track_failed,
                 track_completed,
@@ -630,7 +632,7 @@ async def _run_full_review_pr_workflow(
         "fail_status": fail_status_calls,
         "reactions": reaction_calls,
         "nudges": nudge_calls,
-        "coverage": coverage_calls,
+        "finished_turns": finished_turns,
         "silent_stamphog": silent_stamphog_calls,
     }
 
@@ -749,22 +751,44 @@ async def test_review_pr_workflow_nudges_stamphog_when_the_turn_ends(
     assert recorded["nudges"] == [("o/r", 7, "sha1")]
 
 
-_COVERAGE = TurnCoverageInput(team_id=1, report_id="rep-1", head_sha="sha1", run_index=1, lens_chunks_capped=True)
+def _finished_turn(*, marks_ready: bool) -> FinishedStandardAutomaticTurn:
+    return FinishedStandardAutomaticTurn(
+        team_id=1,
+        report_id="rep-1",
+        repository="o/r",
+        pr_number=7,
+        head_sha="sha1",
+        run_index=1,
+        lens_chunks_capped=True,
+        marks_ready=marks_ready,
+    )
+
+
 _SILENT_STAMPHOG = SilentStamphogRequest(team_id=1, repository="o/r", pr_number=7, head_sha="sha1")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "review_mode, marks_ready, already_completed, fail_dedup, fail_silent_stamphog, expected_coverage, expected_silent",
+    "review_mode, marks_ready, already_completed, fail_dedup, fail_silent_stamphog, expected_finished, expected_silent",
     [
-        pytest.param("flash", True, False, False, False, [_COVERAGE], [_SILENT_STAMPHOG], id="ready-turn"),
+        pytest.param("flash", True, False, False, False, [_finished_turn(marks_ready=True)], [], id="ready-turn"),
         pytest.param(
-            "flash", True, False, False, True, [_COVERAGE], [_SILENT_STAMPHOG], id="raising-dispatch-keeps-the-turn"
+            "flash",
+            True,
+            False,
+            False,
+            True,
+            [_finished_turn(marks_ready=True)],
+            [],
+            id="raising-finish-keeps-the-turn",
         ),
-        pytest.param("flash", False, False, False, False, [_COVERAGE], [], id="draft-turn-records-only"),
+        pytest.param("flash", False, False, False, False, [_finished_turn(marks_ready=False)], [], id="draft-turn"),
         pytest.param("flash", True, False, True, False, [], [], id="failed-turn"),
         pytest.param("full", True, False, False, False, [], [], id="deep-turn"),
         pytest.param("flash", True, True, False, False, [], [_SILENT_STAMPHOG], id="ready-at-an-already-reviewed-head"),
+        pytest.param(
+            "flash", True, True, False, True, [], [_SILENT_STAMPHOG], id="raising-silent-start-keeps-the-skip"
+        ),
         pytest.param("flash", False, True, False, False, [], [], id="push-at-an-already-reviewed-head"),
     ],
 )
@@ -774,7 +798,7 @@ async def test_review_pr_workflow_records_automatic_standard_coverage_and_starts
     already_completed: bool,
     fail_dedup: bool,
     fail_silent_stamphog: bool,
-    expected_coverage: list[TurnCoverageInput],
+    expected_finished: list[FinishedStandardAutomaticTurn],
     expected_silent: list[SilentStamphogRequest],
 ):
     recorded = await _run_full_review_pr_workflow(
@@ -789,7 +813,7 @@ async def test_review_pr_workflow_records_automatic_standard_coverage_and_starts
         lens_chunks_capped=True,
     )
     assert recorded["failed"] is fail_dedup
-    assert recorded["coverage"] == expected_coverage
+    assert recorded["finished_turns"] == expected_finished
     assert recorded["silent_stamphog"] == expected_silent
 
 

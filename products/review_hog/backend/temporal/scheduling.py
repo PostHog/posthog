@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import timedelta
 
 from temporalio import activity, workflow
@@ -21,11 +22,11 @@ from products.review_hog.backend.temporal.types import (
 SILENT_STAMPHOG_PATCH = "reviewhog-silent-stamphog-2026-11"
 
 
-async def start_silent_stamphog(request: ReviewPRWorkflowInputs, head_sha: str) -> None:
+async def request_silent_stamphog(request: ReviewPRWorkflowInputs, head_sha: str) -> None:
     """Ask stamphog for a silent review of a head that `request` marked ready. Best effort.
 
-    The activity reads the coverage that the head's automatic turn recorded, so the review turn and
-    the queue both start the review through here.
+    The activity reads the coverage that the head's automatic turn recorded earlier, for an event that
+    came after that turn started.
     """
     if request.pr_number is None:
         return
@@ -46,8 +47,6 @@ class ReviewRequestQueue:
     def __init__(self, active: ReviewPRWorkflowInputs | None = None) -> None:
         self.active = active
         self.pending: dict[str, ReviewPRWorkflowInputs] = {}
-        # A request that marked the PR ready at the active request's head and was dropped as its duplicate.
-        self.active_marked_ready = False
 
     def add(self, request: ReviewPRWorkflowInputs) -> None:
         if self.active is not None:
@@ -67,8 +66,8 @@ class ReviewRequestQueue:
                 and (request.trigger_source == TRIGGER_AUTOMATIC) == (self.active.trigger_source == TRIGGER_AUTOMATIC)
             ):
                 # The running turn reviews this head, but its own request can predate the PR being ready.
-                if request.marks_ready and not self.active.marks_ready:
-                    self.active_marked_ready = True
+                if request.marks_ready:
+                    self.active = replace(self.active, marks_ready=True)
                 return
         key = TRIGGER_AUTOMATIC if request.trigger_source == TRIGGER_AUTOMATIC else request.review_mode
         self.pending[key] = request
@@ -84,7 +83,6 @@ class ReviewRequestQueue:
         # Explicit requests take precedence over another automatic follow-up.
         key = next(key for key in (REVIEW_MODE_FULL, REVIEW_MODE_FLASH, TRIGGER_AUTOMATIC) if key in self.pending)
         self.active = self.pending.pop(key)
-        self.active_marked_ready = False
         return self.active
 
 
@@ -148,12 +146,16 @@ class ReviewPRQueueWorkflow:
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
+                # The turn ran with `request`, so a ready event that joined it later is answered here.
+                active = self._requests.active
                 if (
                     workflow.patched(SILENT_STAMPHOG_PATCH)
-                    and self._requests.active_marked_ready
+                    and active is not None
+                    and active.marks_ready
+                    and not request.marks_ready
                     and request.requested_head_sha is not None
                 ):
-                    await start_silent_stamphog(request, request.requested_head_sha)
+                    await request_silent_stamphog(request, request.requested_head_sha)
             except ChildWorkflowError:
                 if not self._requests.pending:
                     raise

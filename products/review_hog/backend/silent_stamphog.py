@@ -10,50 +10,65 @@ its repository switch, the PR and the head again when its task runs.
 from django.utils import timezone
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
-from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact
 from products.review_hog.backend.reviewer.persistence import load_valid_findings
 from products.review_hog.backend.reviewer.progress import turn_markers
-from products.review_hog.backend.turn_coverage import unread_paths
+from products.review_hog.backend.turn_coverage import turn_marker_rows, unread_paths
 from products.stamphog.backend.facade.tasks import queue_silent_review
 
 
-def record_turn_coverage(
+def _record_turn_coverage(
     *, team_id: int, report_id: str, head_sha: str, run_index: int, lens_chunks_capped: bool
-) -> bool | None:
+) -> bool:
     """Record on the turn's marker whether the turn was clean with full coverage, and return that value.
 
-    None when the turn has no marker. The turn then stays unrecorded, which never counts as clean.
+    A turn without a marker stays unrecorded, which never counts as clean.
     """
-    rows = (
-        ReviewReportArtefact.objects.for_team(team_id)
-        .filter(report_id=report_id, type=ReviewReportArtefact.ArtefactType.TURN_MARKER, head_sha=head_sha)
-        .order_by("created_at", "id")
-    )
-    attempts: list[tuple[ReviewReportArtefact, TurnMarkerArtefact]] = []
-    for row in rows:
-        marker = TurnMarkerArtefact.model_validate_json(row.content)
-        if marker.run_index == run_index:
-            attempts.append((row, marker))
-    if not attempts:
-        return None
-    # A retried turn writes one marker per attempt. Results from the first attempt are this turn's
-    # reads too, and the newest row is the one readers use.
-    first_row, _ = attempts[0]
-    newest_row, marker = attempts[-1]
+    turn = turn_marker_rows(team_id=team_id, report_id=report_id, head_sha=head_sha, run_index=run_index).get(run_index)
+    if turn is None:
+        return False
     clean = (
         not lens_chunks_capped
         # Every valid finding counts, also one below the urgency threshold that the turn did not post.
         and not load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index)
         and unread_paths(
-            team_id=team_id, report_id=report_id, head_sha=head_sha, marker=marker, since=first_row.created_at
+            team_id=team_id, report_id=report_id, head_sha=head_sha, marker=turn.marker, since=turn.first_started_at
         )
         == ()
     )
-    ReviewReportArtefact.objects.for_team(team_id).filter(id=newest_row.id).update(
-        content=marker.model_copy(update={"clean_full_coverage": clean}).model_dump_json(),
+    ReviewReportArtefact.objects.for_team(team_id).filter(id=turn.row_id).update(
+        content=turn.marker.model_copy(update={"clean_full_coverage": clean}).model_dump_json(),
         updated_at=timezone.now(),
     )
     return clean
+
+
+def finish_standard_automatic_turn(
+    *,
+    team_id: int,
+    report_id: str,
+    repository: str,
+    pr_number: int,
+    head_sha: str,
+    run_index: int,
+    lens_chunks_capped: bool,
+    marks_ready: bool,
+) -> bool:
+    """Record the turn's coverage, and queue the silent stamphog review when the turn's own event marked
+    the PR ready and the turn was clean. Returns whether it was queued.
+
+    A turn on a draft records its coverage too, so a later ready event without a push can use it.
+    """
+    clean = _record_turn_coverage(
+        team_id=team_id,
+        report_id=report_id,
+        head_sha=head_sha,
+        run_index=run_index,
+        lens_chunks_capped=lens_chunks_capped,
+    )
+    if not clean or not marks_ready:
+        return False
+    queue_silent_review(team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha)
+    return True
 
 
 def start_silent_stamphog(*, team_id: int, repository: str, pr_number: int, head_sha: str) -> bool:

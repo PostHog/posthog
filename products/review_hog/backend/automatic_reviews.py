@@ -165,6 +165,11 @@ class AuthoredPRReview:
             installation_id=self.installation_id, github_repo_id=self.github_repo_id, full_name=self.repository
         )
 
+    @property
+    def marks_ready(self) -> bool:
+        """The event says the PR is ready for review: it was marked ready, or it opened as a non-draft."""
+        return self.action == "ready_for_review" or (self.action == "opened" and not self.draft)
+
     def start(self) -> None:
         # These clients pull in the sandbox runtime; enqueueing a webhook must not load it.
         from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH  # noqa: PLC0415
@@ -204,7 +209,7 @@ class AuthoredPRReview:
             trigger_source=TRIGGER_AUTOMATIC,
             requested_head_sha=self.head_sha,
             trigger_action=self.action,
-            marks_ready=self.action == "ready_for_review" or (self.action == "opened" and not self.draft),
+            marks_ready=self.marks_ready,
             installation_id=self.installation_id,
             github_repo_id=self.github_repo_id,
         )

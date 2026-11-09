@@ -26,7 +26,7 @@ from products.review_hog.backend.reviewer.models.issues_review import IssuePrior
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.persistence import persist_chunk_set, persist_perspective_results
 from products.review_hog.backend.reviewer.progress import record_run_outcome
-from products.review_hog.backend.silent_stamphog import record_turn_coverage, start_silent_stamphog
+from products.review_hog.backend.silent_stamphog import finish_standard_automatic_turn, start_silent_stamphog
 from products.review_hog.backend.temporal.client import QueuedReviewHeads
 from products.signals.backend.facade.taxonomy import ArtefactAttribution
 from products.stamphog.backend.facade.review_evidence import ReviewEvidenceState, get_review_evidence_providers
@@ -348,6 +348,8 @@ class TestHeadReviewStatus(BaseTest):
             ("turn_without_a_marker", "no_marker", 1, False, False),
             ("chunk_read_only_by_an_earlier_turn_on_the_head", "earlier_read", 2, False, False),
             ("newer_deep_turn_on_the_head", "newer_deep_turn", 1, False, True),
+            ("ready_event_of_the_turn_itself", "ready_at_finish", 1, False, True),
+            ("ready_event_of_a_turn_with_findings", "ready_at_finish_with_finding", 1, False, False),
         ]
     )
     @patch("products.review_hog.backend.silent_stamphog.queue_silent_review")
@@ -368,22 +370,27 @@ class TestHeadReviewStatus(BaseTest):
             report = self._completed_turn(
                 REVIEW_MODE_FLASH, skipped_paths=("pnpm-lock.yaml",) if setup == "skipped_paths" else ()
             )
-        if setup == "finding":
+        if setup in ("finding", "ready_at_finish_with_finding"):
             self._finding(report, "1-a", is_valid=True, priority=IssuePriority.CONSIDER)
         if setup == "invalid_finding":
             self._finding(report, "1-a", is_valid=False)
 
-        record_turn_coverage(
+        ready_at_finish = setup.startswith("ready_at_finish")
+        finish_standard_automatic_turn(
             team_id=self.team.id,
             report_id=str(report.id),
+            repository=REPOSITORY,
+            pr_number=5,
             head_sha=HEAD,
             run_index=run_index,
             lens_chunks_capped=lens_chunks_capped,
+            marks_ready=ready_at_finish,
         )
         if setup == "newer_deep_turn":
             self._add_marker(report, 2, REVIEW_MODE_FULL)
             ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(run_count=2)
-        start_silent_stamphog(team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD)
+        if not ready_at_finish:
+            start_silent_stamphog(team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD)
 
         if expect_queued:
             queue_silent_review.assert_called_once_with(
