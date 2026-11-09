@@ -48,6 +48,14 @@ _SUBJECT_IN_ANOTHER_SEND = (
     "await posthog.emails.send({ template_key: 'receipt', subject: 'welcome' })",
     "await posthog.emails.send({ template_key: 'receipt', subject: 'welcome' })",
 )
+_FALLBACK_KEY_IN_ANOTHER_SEND = (
+    "    fallback_template_key: 'welcome',",
+    "await posthog.emails.send({\n    template_key: 'receipt',\n    fallback_template_key: 'welcome',\n})",
+)
+_KEY_IN_AN_EVENT_AFTER_ANOTHER_SEND = (
+    "posthog.capture('email sent', { template_key: 'welcome' })",
+    "await posthog.emails.send({ template_key: 'receipt' })\nposthog.capture('email sent', { template_key: 'welcome' })",
+)
 
 
 class TestRankCallSites(SimpleTestCase):
@@ -119,6 +127,26 @@ class TestRankCallSites(SimpleTestCase):
                 [
                     ExactCodeSearchResult(
                         matches=[_match("src/emails/receipt.ts", _SUBJECT_IN_ANOTHER_SEND)], complete=True
+                    )
+                ],
+                False,
+                SourceDetection(outcome="none", call_site=None, candidate_files=1),
+            ),
+            (
+                "key_as_another_sends_fallback",
+                [
+                    ExactCodeSearchResult(
+                        matches=[_match("src/emails/receipt.ts", _FALLBACK_KEY_IN_ANOTHER_SEND)], complete=True
+                    )
+                ],
+                False,
+                SourceDetection(outcome="none", call_site=None, candidate_files=1),
+            ),
+            (
+                "key_in_an_event_after_another_send",
+                [
+                    ExactCodeSearchResult(
+                        matches=[_match("src/emails/receipt.ts", _KEY_IN_AN_EVENT_AFTER_ANOTHER_SEND)], complete=True
                     )
                 ],
                 False,

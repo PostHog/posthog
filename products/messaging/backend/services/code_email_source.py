@@ -30,6 +30,7 @@ from posthog.models.integration.github_code_search import (
     MAX_LITERAL_LENGTH,
     ExactCodeSearchResult,
     GitHubExactCodeSearch,
+    MatchedLine,
 )
 from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
@@ -94,7 +95,6 @@ class CallSite:
 class SourceDetection:
     outcome: SourceDetectionOutcome
     call_site: CallSite | None
-    # Matched files left after test and build paths are dropped.
     candidate_files: int
 
 
@@ -105,13 +105,13 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], key: str, *, shed:
     """
     # The matched line must pass the key as the template key's value. Without this, a key used for something else
     # near or inside a send call, such as the subject of a send of another key, links that other email's file.
-    key_argument = re.compile(rf"""(?i:template[_-]?key)['"]?\s*(?::|=>|=)\s*['"`]{re.escape(key)}['"`]""")
+    key_argument = re.compile(rf"""(?<![\w-])(?i:template[_-]?key)['"]?\s*(?::|=>|=)\s*['"`]{re.escape(key)}['"`]""")
     candidates = [match for result in results for match in result.matches if not _is_skipped_path(match.path)]
     call_sites = [
         CallSite(repository=match.repository, path=match.path, line=line.number)
         for match in candidates
         for line in match.lines
-        if key_argument.search(line.text) and _SEND_CALL.search(line.context)
+        if _sends_key(line, key_argument)
     ]
     # The link names a file, so a key passed twice in one send block still has one source.
     if len({(site.repository, site.path) for site in call_sites}) > 1:
@@ -127,6 +127,34 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], key: str, *, shed:
         call_site=call_sites[0] if outcome == "linked" else None,
         candidate_files=len(candidates),
     )
+
+
+def _sends_key(line: MatchedLine, key_argument: re.Pattern[str]) -> bool:
+    argument = key_argument.search(line.text)
+    context = line.context.split("\n")
+    if argument is None or line.text not in context:
+        return False
+    before_key = "\n".join([*context[: context.index(line.text)], line.text[: argument.start()]])
+    return any(_still_open(before_key[call.end() :]) for call in _SEND_CALL.finditer(before_key))
+
+
+def _still_open(after_call: str) -> bool:
+    """Whether the call a send-call match belongs to is still open at the end of ``after_call``.
+
+    ``emails.send(`` opens its own call, which must not close again. A raw ``send/email`` URL sits inside a call
+    that opened before it, which must not close either.
+    """
+    depth = 0
+    opened = False
+    for char in after_call:
+        if char == "(":
+            depth += 1
+            opened = True
+        elif char == ")":
+            depth -= 1
+            if depth < 0 or (opened and depth == 0):
+                return False
+    return True
 
 
 def _is_skipped_path(path: str) -> bool:
@@ -183,6 +211,11 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
             detection = replace(detection, outcome="kept", call_site=None)
     _report(team, detection, attempt=attempt, installations=len(integrations))
     return detection
+
+
+def source_detection_enabled(team_id: int) -> bool:
+    team = Team.objects.filter(id=team_id).first()
+    return team is not None and _detection_enabled(team)
 
 
 def _detection_enabled(team: Team) -> bool:

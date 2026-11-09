@@ -54,6 +54,7 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
+from products.messaging.backend.services.code_email_source import source_detection_enabled
 from products.messaging.backend.services.html_text import text_from_html
 from products.messaging.backend.tasks import detect_code_email_source_task
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
@@ -443,11 +444,12 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
             )
         hog_flow_id = create_code_email_workflow(team_id=team_id, key=key)
         key_id = str(keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id).id)
-        # retry=False makes a broker failure raise at once instead of holding the send in the publish retry loop,
-        # and robust=True logs that failure instead of raising it, so detection can never fail or delay a send.
-        transaction.on_commit(
-            lambda: detect_code_email_source_task.apply_async(args=(team_id, key_id), retry=False), robust=True
-        )
+        # Publishing only while detection is on keeps the task off the queue until workers that know it are live.
+        # retry=False makes a broker failure raise at once instead of retrying inside the send, and robust=True logs it.
+        if source_detection_enabled(team_id):
+            transaction.on_commit(
+                lambda: detect_code_email_source_task.apply_async(args=(team_id, key_id), retry=False), robust=True
+            )
         return hog_flow_id
 
 

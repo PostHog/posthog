@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
@@ -36,6 +36,7 @@ from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_API_FLAG,
 )
 from products.messaging.backend.services import transactional_email
+from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
 from products.messaging.backend.tasks.tasks import detect_code_email_source_task
 from products.messaging.backend.tests.test_code_send_fields import ADDRESS_VERDICTS
@@ -594,10 +595,17 @@ class TestTransactionalEmail(APIBaseTest):
             "queued",
         )
 
-    @parameterized.expand([("queued", None), ("queue_unavailable", ConnectionError("broker unreachable"))])
+    @parameterized.expand(
+        [
+            ("queued", None, True),
+            ("queue_unavailable", ConnectionError("broker unreachable"), True),
+            ("detection_off", None, False),
+        ]
+    )
     def test_a_new_keys_first_send_queues_source_detection_after_commit(
-        self, mock_post, _flag, _capture, _name, queue_error
+        self, mock_post, flag, _capture, _name, queue_error, detection_on
     ):
+        flag.side_effect = lambda key, *_, **__: detection_on or key != SOURCE_DETECTION_FLAG
         self._cdp_accepts(mock_post)
         psak = self._psak_client(["hog_flow:write"])
 
@@ -610,7 +618,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert first.status_code == second.status_code == status.HTTP_202_ACCEPTED, first.json()
         key = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome")
-        queue.assert_called_once_with(args=(self.team.id, str(key.id)), retry=False)
+        assert queue.call_args_list == ([call(args=(self.team.id, str(key.id)), retry=False)] if detection_on else [])
 
     def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
