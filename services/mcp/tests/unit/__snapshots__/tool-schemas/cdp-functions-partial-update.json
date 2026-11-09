@@ -144,6 +144,61 @@
             "description": "Schema defining the configurable input parameters for this function.",
             "items": {
                 "properties": {
+                    "auth": {
+                        "description": "How the worker applies this credential to a fetch that passes the input as `auth`. Code never reads the value.",
+                        "properties": {
+                            "field": {
+                                "description": "For an integration: the connection field that holds the credential.",
+                                "type": "string"
+                            },
+                            "name": {
+                                "description": "The header or query parameter that holds the credential.",
+                                "type": "string"
+                            },
+                            "opt_in": {
+                                "description": "Must be true for scheme query or body.",
+                                "type": "boolean"
+                            },
+                            "origin_input": {
+                                "description": "For a secret: the URL input whose origin, when the secret is typed, becomes the only allowed origin.",
+                                "type": "string"
+                            },
+                            "origins": {
+                                "description": "For a secret: the origins, such as https://api.example.com, the secret may be sent to.",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "password_field": {
+                                "description": "For scheme basic on an integration: the connection field that holds the password.",
+                                "type": "string"
+                            },
+                            "path": {
+                                "description": "The dotted path of the JSON body key for scheme body.",
+                                "type": "string"
+                            },
+                            "prefix": {
+                                "description": "Text the header value starts with, such as 'Token '.",
+                                "type": "string"
+                            },
+                            "scheme": {
+                                "description": "Where the worker puts the credential. query and body need opt_in.\n\n* `bearer` - bearer\n* `header` - header\n* `basic` - basic\n* `query` - query\n* `body` - body",
+                                "enum": ["bearer", "header", "basic", "query", "body"],
+                                "type": "string"
+                            },
+                            "username_field": {
+                                "description": "For scheme basic on an integration: the connection field that holds the username.",
+                                "type": "string"
+                            },
+                            "username_input": {
+                                "description": "For scheme basic on a secret: the non-secret input that holds the username.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["scheme"],
+                        "type": "object"
+                    },
                     "choices": {
                         "items": {
                             "additionalProperties": {},
@@ -325,6 +380,61 @@
                             "inputs_schema": {
                                 "items": {
                                     "properties": {
+                                        "auth": {
+                                            "description": "How the worker applies this credential to a fetch that passes the input as `auth`. Code never reads the value.",
+                                            "properties": {
+                                                "field": {
+                                                    "description": "For an integration: the connection field that holds the credential.",
+                                                    "type": "string"
+                                                },
+                                                "name": {
+                                                    "description": "The header or query parameter that holds the credential.",
+                                                    "type": "string"
+                                                },
+                                                "opt_in": {
+                                                    "description": "Must be true for scheme query or body.",
+                                                    "type": "boolean"
+                                                },
+                                                "origin_input": {
+                                                    "description": "For a secret: the URL input whose origin, when the secret is typed, becomes the only allowed origin.",
+                                                    "type": "string"
+                                                },
+                                                "origins": {
+                                                    "description": "For a secret: the origins, such as https://api.example.com, the secret may be sent to.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "password_field": {
+                                                    "description": "For scheme basic on an integration: the connection field that holds the password.",
+                                                    "type": "string"
+                                                },
+                                                "path": {
+                                                    "description": "The dotted path of the JSON body key for scheme body.",
+                                                    "type": "string"
+                                                },
+                                                "prefix": {
+                                                    "description": "Text the header value starts with, such as 'Token '.",
+                                                    "type": "string"
+                                                },
+                                                "scheme": {
+                                                    "description": "Where the worker puts the credential. query and body need opt_in.\n\n* `bearer` - bearer\n* `header` - header\n* `basic` - basic\n* `query` - query\n* `body` - body",
+                                                    "enum": ["bearer", "header", "basic", "query", "body"],
+                                                    "type": "string"
+                                                },
+                                                "username_field": {
+                                                    "description": "For scheme basic on an integration: the connection field that holds the username.",
+                                                    "type": "string"
+                                                },
+                                                "username_input": {
+                                                    "description": "For scheme basic on a secret: the non-secret input that holds the username.",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["scheme"],
+                                            "type": "object"
+                                        },
                                         "choices": {
                                             "items": {
                                                 "additionalProperties": {},
