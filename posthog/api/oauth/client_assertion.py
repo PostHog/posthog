@@ -178,14 +178,15 @@ def expected_assertion_audiences(*token_endpoint_paths: str) -> list[str]:
 AGENTIC_TOKEN_ENDPOINT_PATH = "/api/agentic/oauth/token"
 
 
-def describe_jwks(jwks_uri: str) -> list[str]:
+def describe_jwks(app: OAuthApplication) -> list[str]:
     """Fetch and validate a key set, returning its key ids, for diagnostics.
 
     Always goes to the network so the answer reflects what the client is serving right now
     rather than what it served up to an hour ago. Raises ClientAssertionError with the reason
     the document was rejected, which is the whole point of calling this.
     """
-    key_set = load_jwks(jwks_uri, force_refresh=True)
+    _refuse_off_domain_jwks_uri(app)
+    key_set = load_jwks(app.jwks_uri, force_refresh=True)
     return [key.key_id or "(no kid)" for key in key_set.keys]
 
 
@@ -194,6 +195,16 @@ def _jwks_cache_key(jwks_uri: str, max_keys: int) -> str:
     return (
         f"{JWKS_CACHE_PREFIX}{jwks_uri}" if max_keys == JWKS_MAX_KEYS else f"{JWKS_CACHE_PREFIX}{max_keys}:{jwks_uri}"
     )
+
+
+def _refuse_off_domain_jwks_uri(app: OAuthApplication) -> None:
+    # A CIMD row stored before this rule still names its old jwks_uri until the next metadata
+    # refresh, so every path that fetches it applies the rule first.
+    if app.is_cimd_client and not jwks_uri_shares_client_domain(app.client_id, app.jwks_uri):
+        logger.warning("client_assertion_jwks_domain_mismatch", client_id=app.client_id, jwks_uri=app.jwks_uri)
+        raise ClientAssertionError(
+            f"{jwks_domain_mismatch_message(app.client_id)} Then call client_registration to apply the change."
+        )
 
 
 def load_jwks(jwks_uri: str, *, force_refresh: bool = False, max_keys: int = JWKS_MAX_KEYS) -> PyJWKSet:
@@ -324,14 +335,7 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
     if not app.jwks_uri:
         raise ClientAssertionError("This client is not registered for private_key_jwt authentication")
 
-    # A CIMD row stored before this rule still names its old jwks_uri until the next metadata
-    # refresh, so the rule is applied here too, before PostHog sends that host a request.
-    if app.is_cimd_client and not jwks_uri_shares_client_domain(app.client_id, app.jwks_uri):
-        logger.warning("client_assertion_jwks_domain_mismatch", client_id=app.client_id, jwks_uri=app.jwks_uri)
-        raise ClientAssertionError(
-            f"{jwks_domain_mismatch_message(app.client_id)} Then call client_registration to apply the change."
-        )
-
+    _refuse_off_domain_jwks_uri(app)
     key = select_signing_key(app.jwks_uri, assertion)
     # The selected key's own algorithm is held to the list too, because PyJWT verifies with it.
     if key.algorithm_name not in ASYMMETRIC_SIGNING_ALGORITHMS or not isinstance(

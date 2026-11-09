@@ -44,7 +44,12 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import OIDC_SCOPES, filter_self_registered_ceiling, filter_to_unprivileged_scopes
 from posthog.security.pinned_requests import PinnedIPAdapter, select_pinned_ip
-from posthog.security.url_validation import UNRESOLVED_HOST_REASON, is_url_allowed, validate_url_and_pin_ips
+from posthog.security.url_validation import (
+    UNRESOLVED_HOST_REASON,
+    canonicalize_host,
+    is_url_allowed,
+    validate_url_and_pin_ips,
+)
 
 from .client_name import sanitize_client_name, validate_cimd_client_name
 from .logo_uri import usable_logo_uri
@@ -330,12 +335,15 @@ THROWAWAY_JWKS_HOST_MESSAGE = (
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
 
-def registrable_domain(url: str) -> str:
+def _url_host(url: str) -> str:
     try:
-        host = (urlparse(url).hostname or "").rstrip(".")
+        return canonicalize_host(urlparse(url).hostname or "")
     except ValueError:
         return ""
-    return _DOMAIN_PARTS(host).top_domain_under_public_suffix
+
+
+def registrable_domain(url: str) -> str:
+    return _DOMAIN_PARTS(_url_host(url)).top_domain_under_public_suffix
 
 
 def jwks_uri_shares_client_domain(client_id: str, jwks_uri: str) -> bool:
@@ -353,10 +361,7 @@ def jwks_domain_mismatch_message(client_id: str) -> str:
 
 
 def is_throwaway_host(url: str) -> bool:
-    try:
-        host = (urlparse(url).hostname or "").rstrip(".")
-    except ValueError:
-        return False
+    host = _url_host(url)
     return any(host == suffix or host.endswith(f".{suffix}") for suffix in THROWAWAY_HOST_SUFFIXES)
 
 

@@ -175,6 +175,7 @@ def test_is_throwaway_host(url, expected):
         ("https://app.example.com/client.json", "https://keys.example.com/jwks.json", True),
         ("https://app.example.com/client.json", "https://example.com/jwks.json", True),
         ("https://app.example.co.uk/client.json", "https://keys.example.co.uk/jwks.json", True),
+        ("https://app.bücher.de/client.json", "https://keys.xn--bcher-kva.de/jwks.json", True),
         ("https://app.example.com/client.json", "https://x0.at/oXXP.json", False),
         ("https://app.example.com/client.json", "https://example.com.evil.dev/jwks.json", False),
         # co.uk is a public suffix, so these are two different registrants.
