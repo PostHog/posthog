@@ -27,12 +27,14 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
     record_companion_job,
     retire_companion_job,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import HISTORY_STAGING_SUFFIX
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
     DurableProgress,
     RideOutConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
@@ -157,6 +159,18 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
 
     def _maintains_companion_table(self) -> bool:
         return super()._maintains_companion_table() or self._output_lanes[0].cdc_write_mode == SCD2_APPEND_MODE
+
+    async def _clear_history_staging(self) -> None:
+        # A reset reloads every row, so rows staged before it are stale, and after a mask change they hold the
+        # values the mask hides. Finalize publishes every staged row, so they go before this run stages any.
+        if self._resource.cdc_write_mode is not None:
+            return
+        for lane in self._output_lanes:
+            if lane.cdc_write_mode == SCD2_APPEND_MODE:
+                staging = DeltaTableRef(
+                    resource_name=f"{lane.name}{HISTORY_STAGING_SUFFIX}", job=self._job, logger=self._logger
+                )
+                await staging.reset_table()
 
     def _keeps_table_on_reset(self) -> bool:
         # An incremental history-only run's table is the history table, the only copy of past versions. CDC

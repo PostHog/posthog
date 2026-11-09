@@ -1381,6 +1381,34 @@ class TestCompanionJob:
         cdc_history_only = self._laned([OutputLane(name="users_history", cdc_write_mode="scd2_append")])
         assert cdc_history_only._keeps_table_on_reset() is False
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("resource_cdc_write_mode", "cleared"),
+        [
+            # An incremental history lane clears what it staged before the reset.
+            (None, ["users_history_ph_staging"]),
+            # CDC history closes per batch and stages nothing.
+            ("scd2_append", []),
+        ],
+    )
+    async def test_a_reset_clears_what_the_history_lane_staged(
+        self, resource_cdc_write_mode: str | None, cleared: list[str]
+    ) -> None:
+        pipeline = self._laned(
+            [
+                OutputLane(name="users", cdc_write_mode="incremental_merge"),
+                OutputLane(name="users_history", cdc_write_mode="scd2_append"),
+            ]
+        )
+        pipeline._resource.cdc_write_mode = resource_cdc_write_mode
+
+        with patch(f"{_LANES}.DeltaTableRef") as ref:
+            ref.return_value.reset_table = AsyncMock()
+            await pipeline._clear_history_staging()
+
+        assert [call.kwargs["resource_name"] for call in ref.call_args_list] == cleared
+        assert ref.return_value.reset_table.await_count == len(cleared)
+
     def test_the_companion_delivers_to_no_destination(self) -> None:
         # Delivery names the destination table from the schema, so history rows merged by key
         # there would clobber the consolidated table's rows.

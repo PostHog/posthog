@@ -353,6 +353,9 @@ def history_table_name(schema: ExternalDataSchema) -> str | None:
     return build_table_name(schema.source, companion_resource_name(schema.name, naming))
 
 
+# An incremental history lane stages its batches in a table next to its history table, under this suffix.
+HISTORY_STAGING_SUFFIX = "_ph_staging"
+
 HISTORY_TABLE_STILL_WRITTEN_ERROR = (
     "This table still writes its history table. Switch it to the consolidated table only, or off change data "
     "capture, before you delete the history table."
@@ -409,6 +412,9 @@ def drop_history_table(schema: ExternalDataSchema, *, rebuilding: bool = False) 
         return None
     table, naming = registered
     folder_name = NamingConvention.normalize_identifier(companion_resource_name(schema.name, naming))
+    staging_folder_name = NamingConvention.normalize_identifier(
+        companion_resource_name(schema.name, naming) + HISTORY_STAGING_SUFFIX
+    )
     query_folder_prefix = f"{folder_name}__query"
     # Every mode save takes this row lock, so holding it from the checks until the record goes keeps a
     # switch back to history from landing while the files are deleted. A storage error rolls back with
@@ -416,7 +422,7 @@ def drop_history_table(schema: ExternalDataSchema, *, rebuilding: bool = False) 
     with transaction.atomic():
         locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
         assert_history_table_droppable(locked, keeps_history=locked.keeps_history and not rebuilding)
-        _delete_history_files(schema, folder_name)
+        _delete_history_files(schema, folder_name, staging_folder_name)
         config = locked.sync_type_config or {}
         config.pop(HISTORY_NAMING_OPTION, None)
         states = config.get(QUERY_FOLDER_STATE_KEY)
@@ -446,8 +452,11 @@ def drop_history_table(schema: ExternalDataSchema, *, rebuilding: bool = False) 
     return table
 
 
-def _delete_history_files(schema: ExternalDataSchema, folder_name: str) -> None:
-    """Delete the history table's Delta folder and its `<table>__query*` copies under the schema's folder."""
+def _delete_history_files(schema: ExternalDataSchema, folder_name: str, staging_folder_name: str) -> None:
+    """Delete the history table's Delta folder, its `<table>__query*` copies and its staging table.
+
+    Staged rows would otherwise reach a later history table with values a mask change since then hides.
+    """
     from products.data_warehouse.backend.facade.api import get_s3_client  # noqa: PLC0415
 
     s3 = get_s3_client()
@@ -460,7 +469,8 @@ def _delete_history_files(schema: ExternalDataSchema, folder_name: str) -> None:
     targets = [
         entry
         for entry in entries
-        if (leaf := entry.rstrip("/").rsplit("/", 1)[-1]) == folder_name or leaf.startswith(f"{folder_name}__query")
+        if (leaf := entry.rstrip("/").rsplit("/", 1)[-1]) in (folder_name, staging_folder_name)
+        or leaf.startswith(f"{folder_name}__query")
     ]
     if targets:
         s3.rm(targets, recursive=True)

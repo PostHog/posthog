@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
+    HISTORY_STAGING_SUFFIX,
     HistoryTableNameTakenError,
     incremental_history_naming,
     registered_stamped_history_table,
@@ -54,7 +55,6 @@ INCREMENTAL_HISTORY_FLAG = "dwh-incremental-history"
 # A date cursor stays equal for every change made the same day, so those changes would make no version
 # while the consolidated table takes each of them.
 HISTORY_CURSOR_TYPES = frozenset({IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp})
-_STAGING_SUFFIX = "_ph_staging"
 _VALID_FROM_TYPE = pa.timestamp("us", tz="UTC")
 
 _TColumn = TypeVar("_TColumn")
@@ -175,7 +175,9 @@ def stages_history(cdc_write_mode: str | None, sync_type: str | None) -> bool:
 
 def _staging_ref(table: DeltaTableRef) -> DeltaTableRef:
     # The staging table sits in the schema's folder and is never registered, so no query sees it.
-    return DeltaTableRef(resource_name=f"{table.resource_name}{_STAGING_SUFFIX}", job=table.job, logger=table.logger)
+    return DeltaTableRef(
+        resource_name=f"{table.resource_name}{HISTORY_STAGING_SUFFIX}", job=table.job, logger=table.logger
+    )
 
 
 async def stage_history_batch(

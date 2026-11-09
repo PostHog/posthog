@@ -283,6 +283,7 @@ class TestDropHistoryTable(BaseTest):
             f"{folder}/orders_cdc",
             f"{folder}/orders_cdc__query_b",
             f"{folder}/orders_cdc__query_1700000000_abc",
+            f"{folder}/orders_cdc_ph_staging",
         ]
         self.folder = folder
 
@@ -317,6 +318,7 @@ class TestDropHistoryTable(BaseTest):
             f"{self.folder}/orders_cdc",
             f"{self.folder}/orders_cdc__query_1700000000_abc",
             f"{self.folder}/orders_cdc__query_b",
+            f"{self.folder}/orders_cdc_ph_staging",
         ]
         self.history.refresh_from_db()
         self.schema.refresh_from_db()

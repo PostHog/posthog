@@ -9,14 +9,20 @@ type CdcTableMode = NonNullable<ExternalDataSourceSchema['cdc_table_mode']>
 
 const HISTORY_MODES: CdcTableMode[] = ['cdc_only', 'both']
 
+function writesHistory(
+    syncType: ExternalDataSourceSchema['sync_type'],
+    cdcTableMode: ExternalDataSourceSchema['cdc_table_mode']
+): boolean {
+    return (syncType === 'cdc' || syncType === 'incremental') && HISTORY_MODES.includes(cdcTableMode ?? 'consolidated')
+}
+
 /** Whether saving this sync method starts writing a history table the schema didn't write before. */
 export function turnsHistoryOn(
     schema: Pick<ExternalDataSourceSchema, 'sync_type' | 'cdc_table_mode'>,
     syncType: ExternalDataSourceSchema['sync_type'],
     cdcTableMode: CdcTableMode | undefined
 ): boolean {
-    const keptHistory = schema.sync_type === 'cdc' && HISTORY_MODES.includes(schema.cdc_table_mode ?? 'consolidated')
-    return syncType === 'cdc' && !!cdcTableMode && HISTORY_MODES.includes(cdcTableMode) && !keptHistory
+    return writesHistory(syncType, cdcTableMode) && !writesHistory(schema.sync_type, schema.cdc_table_mode)
 }
 
 async function hasRulesToCopy(projectId: number | string, tableId: string): Promise<boolean> {

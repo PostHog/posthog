@@ -634,6 +634,10 @@ class PipelineV3(Generic[ResumableData]):
     def _keeps_table_on_reset(self) -> bool:
         return False
 
+    async def _clear_history_staging(self) -> None:
+        """Drop the rows a history lane staged before a reset. Only a laned run has history lanes."""
+        return None
+
     def _maintains_companion_table(self) -> bool:
         """Whether this run's own table is a `_cdc` history table, keyed under its own watermark.
 
@@ -952,6 +956,8 @@ class PipelineV3(Generic[ResumableData]):
                     webhook_only=self._resource.webhook_only,
                     keeps_table=self._keeps_table_on_reset(),
                 )
+                if self._reset_pipeline and not should_resume and not self._resource.webhook_only:
+                    await self._clear_history_staging()
                 # A reset drops the earliest value of the table it deletes. No reloaded row is older than
                 # that value, so a run that kept it would never stage an earliest value of its own.
                 self._earliest_incremental_field_value = process_incremental_value(
