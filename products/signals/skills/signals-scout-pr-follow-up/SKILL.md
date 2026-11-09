@@ -197,7 +197,7 @@ A team that wants a positive digest can flip that in their own copy of this scou
 ### Seams
 
 - **`signals-scout-inbox-validation`** owns "did the resolved report's problem stop", measured from the report's signals, but only when it has actually answered.
-  For a PR linked to a resolved report, read `scout-report-check-list` on that report: a settled verdict (`passed`, `failed`) is cited and not re-measured; a check still `active` or `pending` leaves the PR non-terminal (`recheck` after the check's next run) rather than judged; no check at all, a check that finished without a verdict (`errored`, `expired`, `cancelled`), or a `scout_fleet` roster showing that scout paused, withheld, or absent, means nobody is measuring the claim, so measure it here.
+  For a PR linked to a resolved report, read `scout-report-check-list` on that report: a settled verdict (`passed`, `failed`) is cited and not re-measured; a check still `active` or `pending` leaves the PR non-terminal (`recheck` after the check's next run) rather than judged; no check at all, a check whose `run_state` is `paused`, a check that finished without a verdict (`errored`, `expired`, `cancelled`), or a `scout_fleet` roster showing that scout paused, withheld, or absent, means nobody is measuring the claim, so measure it here.
   You always own the PR's other claims and its side-effect sweep, which the report never described.
 - **The specialists** (error tracking, logs, APM, web vitals, feature flags, experiments) own movement nobody has attributed to a change.
   You file only what you can pin to a named PR; when a specialist has already filed the anomaly, append the PR to that report as evidence (see Decide) instead of filing a second report.

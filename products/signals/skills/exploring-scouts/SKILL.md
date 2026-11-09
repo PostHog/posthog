@@ -274,12 +274,13 @@ The flip side matters when explaining a gap: a run can narrate "authored a repor
 To browse the inbox more broadly, use the `inbox-exploration` skill (statuses, suggested reviewers, drilling into a report's underlying signals).
 The report contract behind each report — the report bar, evidence, actionability, reviewer routing — is documented in the `authoring-scouts` skill (`references/report-contract.md`).
 
-**A report's status is not its whole state: read its checks too.** A **check** is a follow-up measurement a scout or the report pipeline attached to a report — an expectation plus a time to test it — so a report can be resolved and still under measurement.
+**A report's status is not its whole state: read its checks too.** A **check** is a follow-up measurement a scout or the report pipeline attached to a report — an expectation plus a time to test it — so a report can still be under measurement after its implementation lands: during Monitoring, or, with Monitoring off, through an `agent` check on the resolved report.
 `inbox-report-checks-list` returns every check on one report, newest first, with its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, `cancelled`), its `last_outcome`, and its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`); `inbox-report-checks-retrieve` returns one check with its full config.
 Read the rows this way:
 
-- **`pending`** — the check is waiting for the report to resolve before its clock starts.
-- **`active`** with a future `next_run_at` — a verdict is on its way. Don't re-derive the answer by hand; say when it lands.
+- **`pending`** — the check is waiting for its clock to start: Monitoring entry, or the resolve when Monitoring is off.
+- **`paused_reason` set** on a `pending` or `active` check — nothing will run it. `left_monitoring` means the report left Monitoring, `metric_needs_monitoring` means a metric check on a resolved report with Monitoring off, `child_environment` means no follow-up scout runs there. Its `next_run_at` is not a schedule, so report the check as paused, not as late.
+- **`active`** with a future `next_run_at` and no `paused_reason` — a verdict is on its way. Don't re-derive the answer by hand; say when it lands.
 - Everything else is terminal. A claim still worth watching needs a new check, which is a write — hand off to `authoring-scouts`.
 
 The verdicts themselves are **not** on the check row: each one is a `check_result` artefact on the report, so read them through the report's artefact list.
