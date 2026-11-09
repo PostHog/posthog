@@ -1,14 +1,5 @@
-import { createHash, randomUUID } from 'crypto'
-import {
-    type DefaultTreeAdapterMap,
-    Parser,
-    type ParserOptions,
-    type TreeAdapter,
-    defaultTreeAdapter,
-    html as htmlSpec,
-    serialize,
-    serializeOuter,
-} from 'parse5'
+import { MessageHeader } from '@aws-sdk/client-sesv2'
+import { createHash } from 'crypto'
 import { Counter } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
@@ -20,24 +11,16 @@ import { TeamManager } from '~/common/utils/team-manager'
 
 import { SandboxSenderStateService } from '../managers/sandbox-sender-state.service'
 import { ClaimOutcome, ClaimRequest, IssuedClaim, RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import { preheaderSpan } from './helpers/preheader'
+import { escapeHtml } from './helpers/escape-html'
+import { maybeAddPreheaderToEmail } from './helpers/preheader'
 
 const SECONDS_PER_DAY = 86400
 const DAILY_CAP_TTL_SECONDS = 2 * SECONDS_PER_DAY
-const MAX_TEMPLATE_HTML_BYTES = 75_000
-const MAX_ELEMENT_DEPTH = 256
-const MAX_ATTRIBUTES_PER_TAG = 64
-const STYLED_ROOT_TAGS = new Set(['html', 'body'])
-const MAX_CONDITION_LENGTH = 100
-const MIN_SOURCE_BYTES_PER_ELEMENT = 3
-const MAX_ELEMENTS_PER_PARSE = Math.ceil(MAX_TEMPLATE_HTML_BYTES / MIN_SOURCE_BYTES_PER_ELEMENT)
+const BODY_CLOSE_TAG = /<\/body\s*>/gi
 
-class FooterNotRetained extends Error {
-    constructor() {
-        super(
-            'The sandbox email template could not retain its identification footer. Update the template and try again.'
-        )
-    }
+export interface SandboxMessage {
+    params: CyclotronInvocationQueueParametersEmailType
+    headers: MessageHeader[]
 }
 
 export interface SandboxEmailSenderConfig {
@@ -119,473 +102,13 @@ const BLOCKED_EVENT_WINDOW_SECONDS = 3600
 const EVENT_CAPTURE_TIMEOUT_MS = 1000
 export const MAX_OPEN_STORE_CALLS = 10
 
-function htmlBody(document: DefaultTreeAdapterMap['document']): DefaultTreeAdapterMap['element'] | undefined {
-    const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
-    return root?.childNodes.find(
-        (node): node is DefaultTreeAdapterMap['element'] =>
-            defaultTreeAdapter.isElementNode(node) && node.tagName === 'body' && node.namespaceURI === root.namespaceURI
-    )
-}
-
-const BRACKET_CLOSERS: Record<string, string> = { '(': ')', '[': ']', '{': '}' }
-
-function completeDeclarations(style: string): string[] {
-    return scanDeclarations(style).filter((declaration) => declaration.includes(':') && !/[{}]/.test(declaration))
-}
-
-const QUOTES = ['"', "'"]
-
-function skipSpaces(text: string, index: number): number {
-    while (index < text.length && /\s/.test(text[index])) {
-        index++
+function appendHtmlFooter(html: string, footer: string): string {
+    const footerHtml = `<div>${escapeHtml(footer)}</div>`
+    const bodyClose = [...html.matchAll(BODY_CLOSE_TAG)].at(-1)
+    if (!bodyClose) {
+        return html + footerHtml
     }
-    return index
-}
-
-function unquotedUrlEnd(style: string, start: number): number {
-    let index = skipSpaces(style, start)
-    while (index < style.length && !/["'()\\\s]/.test(style[index])) {
-        index++
-    }
-    index = skipSpaces(style, index)
-    return style[index] === ')' ? index : -1
-}
-
-function scanDeclarations(style: string): string[] {
-    const declarations: string[] = []
-    const closers: string[] = []
-    let quote: string | null = null
-    let current = ''
-    for (let index = 0; index < style.length; index++) {
-        const char = style[index]
-        if (char === '\\' || (quote && /[\n\r\f]/.test(char))) {
-            return declarations
-        }
-        if (quote) {
-            current += char
-            quote = char === quote ? null : quote
-        } else if (char === '/' && style[index + 1] === '*') {
-            const end = style.indexOf('*/', index + 2)
-            if (end === -1) {
-                return declarations
-            }
-            current += ' '
-            index = end + 1
-        } else if (
-            char === '(' &&
-            style.slice(index - 3, index).toLowerCase() === 'url' &&
-            !QUOTES.includes(style[skipSpaces(style, index + 1)])
-        ) {
-            const end = unquotedUrlEnd(style, index + 1)
-            if (end === -1) {
-                return declarations
-            }
-            current += style.slice(index, end + 1)
-            index = end
-        } else if (char === ';' && !closers.length) {
-            declarations.push(current)
-            current = ''
-        } else {
-            if (char === '"' || char === "'") {
-                quote = char
-            } else if (BRACKET_CLOSERS[char]) {
-                closers.push(BRACKET_CLOSERS[char])
-            } else if (char === closers.at(-1)) {
-                closers.pop()
-            }
-            current += char
-        }
-    }
-    if (!quote && !closers.length) {
-        declarations.push(current)
-    }
-    return declarations
-}
-
-function protectFooterAncestors(
-    document: DefaultTreeAdapterMap['document'],
-    body: DefaultTreeAdapterMap['element']
-): void {
-    const root = document.childNodes.find(defaultTreeAdapter.isElementNode)!
-    const visibleLayout =
-        'display:block!important;position:static!important;margin:0!important;padding:0!important;border:0!important;float:none!important;width:auto!important;min-width:0!important;overflow:visible!important;height:auto!important;max-height:none!important;clip:auto!important;clip-path:none!important;transform:none!important;opacity:1!important;visibility:visible!important;filter:none!important;contain:none!important;content-visibility:visible!important;mask:none!important;-webkit-mask:none!important;mix-blend-mode:normal!important;translate:none!important;scale:none!important;rotate:none!important;zoom:1!important;mso-hide:none!important'
-    for (const ancestor of [root, body]) {
-        const style = ancestor.attrs.find((attribute) => attribute.name === 'style')
-        if (style) {
-            style.value = [...completeDeclarations(style.value), visibleLayout].join(';')
-        } else {
-            ancestor.attrs.push({ name: 'style', value: visibleLayout })
-        }
-    }
-}
-
-function neutralizeRawTextElements(roots: DefaultTreeAdapterMap['childNode'][]): void {
-    const nodes = [...roots]
-    for (const node of nodes) {
-        if (defaultTreeAdapter.isElementNode(node)) {
-            if (node.tagName === 'plaintext' && node.namespaceURI === htmlSpec.NS.HTML) {
-                node.tagName = 'pre'
-            }
-            if (node.tagName === 'noscript' && node.namespaceURI === htmlSpec.NS.HTML) {
-                node.tagName = 'div'
-            }
-            nodes.push(...node.childNodes)
-            if (node.tagName === 'template' && node.namespaceURI === htmlSpec.NS.HTML) {
-                nodes.push(
-                    ...defaultTreeAdapter.getTemplateContent(node as DefaultTreeAdapterMap['template']).childNodes
-                )
-            }
-        }
-    }
-}
-
-type ConditionalClient = { mso: number | null; ie: number | null }
-
-const CONDITIONAL_CLIENTS: ConditionalClient[] = [
-    ...[9, 10, 11, 12, 14, 15, 16].map((mso) => ({ mso, ie: null })),
-    ...[5, 6, 7, 8, 9].map((ie) => ({ mso: null, ie })),
-]
-
-type ConditionalMarker =
-    | { kind: 'hidden'; condition: string; content: string }
-    | { kind: 'open'; condition: string }
-    | { kind: 'close' }
-
-function conditionHolds(condition: string, client: ConditionalClient): boolean {
-    if (condition.length > MAX_CONDITION_LENGTH) {
-        throw new FooterNotRetained()
-    }
-    const tokens = condition.match(/\(|\)|!|&|\||[a-z]+|\d+(?:\.\d+)?/gi) ?? []
-    if (tokens.join('') !== condition.replace(/\s+/g, '')) {
-        throw new FooterNotRetained()
-    }
-    let position = 0
-    const next = (): string | undefined => tokens[position]
-    const take = (): string => {
-        const token = tokens[position++]
-        if (token === undefined) {
-            throw new FooterNotRetained()
-        }
-        return token
-    }
-    const comparison = (): boolean => {
-        let operator = take().toLowerCase()
-        let feature = operator
-        if (['gt', 'gte', 'lt', 'lte'].includes(operator)) {
-            feature = take().toLowerCase()
-        } else {
-            operator = 'eq'
-        }
-        const version =
-            feature === 'mso'
-                ? client.mso
-                : feature === 'ie'
-                  ? client.ie
-                  : feature === 'vml'
-                    ? client.mso && 1
-                    : undefined
-        if (version === undefined) {
-            throw new FooterNotRetained()
-        }
-        const wanted = /^\d/.test(next() ?? '') ? Number(take()) : null
-        if (version === null) {
-            return false
-        }
-        if (wanted === null) {
-            if (operator !== 'eq') {
-                throw new FooterNotRetained()
-            }
-            return true
-        }
-        const comparisons: Record<string, boolean> = {
-            eq: Math.floor(version) === Math.floor(wanted),
-            gt: version > wanted,
-            gte: version >= wanted,
-            lt: version < wanted,
-            lte: version <= wanted,
-        }
-        return comparisons[operator]
-    }
-    const unary = (): boolean => {
-        if (next() === '!') {
-            take()
-            return !unary()
-        }
-        if (next() === '(') {
-            take()
-            const value = either()
-            if (take() !== ')') {
-                throw new FooterNotRetained()
-            }
-            return value
-        }
-        return comparison()
-    }
-    const both = (): boolean => {
-        let value = unary()
-        while (next() === '&') {
-            take()
-            value = unary() && value
-        }
-        return value
-    }
-    const either = (): boolean => {
-        let value = both()
-        while (next() === '|') {
-            take()
-            value = both() || value
-        }
-        return value
-    }
-    const value = either()
-    if (position !== tokens.length) {
-        throw new FooterNotRetained()
-    }
-    return value
-}
-
-type BoundedTreeAdapter = TreeAdapter<DefaultTreeAdapterMap> & {
-    readonly attributeLimit: (tagName: string) => number
-}
-
-export class AttributeBoundedParser extends Parser<DefaultTreeAdapterMap> {
-    protected static readonly styledRoots: boolean = false
-
-    constructor(
-        options?: ParserOptions<DefaultTreeAdapterMap>,
-        document?: DefaultTreeAdapterMap['document'],
-        fragmentContext?: DefaultTreeAdapterMap['element'] | null
-    ) {
-        const treeAdapter = boundedTreeAdapter({ styledRoots: new.target.styledRoots })
-        super({ ...options, treeAdapter }, document, fragmentContext)
-        const tokenizer = this.tokenizer as unknown as {
-            currentToken: { tagName: string; attrs: unknown[] } | null
-            _leaveAttrName: () => void
-        }
-        const leaveAttrName = tokenizer._leaveAttrName.bind(tokenizer)
-        tokenizer._leaveAttrName = () => {
-            const token = tokenizer.currentToken
-            if (token && token.attrs.length >= treeAdapter.attributeLimit(token.tagName)) {
-                throw new FooterNotRetained()
-            }
-            leaveAttrName()
-        }
-    }
-}
-
-class BuiltEmailParser extends AttributeBoundedParser {
-    protected static override readonly styledRoots = true
-}
-
-const templateOwners = new WeakMap<DefaultTreeAdapterMap['parentNode'], DefaultTreeAdapterMap['template']>()
-
-function refuseDeepNesting(parent: DefaultTreeAdapterMap['parentNode']): void {
-    let depth = 0
-    let current: DefaultTreeAdapterMap['parentNode'] | null | undefined = parent
-    while (current) {
-        depth += 1
-        if (depth > MAX_ELEMENT_DEPTH) {
-            throw new FooterNotRetained()
-        }
-        current = 'parentNode' in current ? current.parentNode : templateOwners.get(current)
-    }
-}
-
-function boundedTreeAdapter({ styledRoots = false } = {}): BoundedTreeAdapter {
-    let elements = 0
-    const attributeLimit = (tagName: string): number =>
-        MAX_ATTRIBUTES_PER_TAG + (styledRoots && STYLED_ROOT_TAGS.has(tagName) ? 1 : 0)
-    return {
-        ...defaultTreeAdapter,
-        attributeLimit,
-        createElement(tagName, namespaceURI, attrs) {
-            elements += 1
-            if (elements > MAX_ELEMENTS_PER_PARSE) {
-                throw new FooterNotRetained()
-            }
-            return defaultTreeAdapter.createElement(tagName, namespaceURI, attrs)
-        },
-        appendChild(parent, node) {
-            refuseDeepNesting(parent)
-            defaultTreeAdapter.appendChild(parent, node)
-        },
-        insertBefore(parent, node, reference) {
-            refuseDeepNesting(parent)
-            defaultTreeAdapter.insertBefore(parent, node, reference)
-        },
-        setTemplateContent(template, content) {
-            templateOwners.set(content, template)
-            defaultTreeAdapter.setTemplateContent(template, content)
-        },
-        adoptAttributes(recipient, attrs) {
-            if (attrs.length === 0) {
-                return
-            }
-            const present = new Set(recipient.attrs.map((attr) => attr.name))
-            const merged = recipient.attrs.length + attrs.filter((attr) => !present.has(attr.name)).length
-            if (merged > attributeLimit(recipient.tagName)) {
-                throw new FooterNotRetained()
-            }
-            defaultTreeAdapter.adoptAttributes(recipient, attrs)
-        },
-    }
-}
-
-function parseBounded(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
-    return AttributeBoundedParser.parse<DefaultTreeAdapterMap>(html, { scriptingEnabled })
-}
-
-function parseBuiltEmail(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
-    return BuiltEmailParser.parse<DefaultTreeAdapterMap>(html, { scriptingEnabled })
-}
-
-function parseBoundedFragment(
-    html: string,
-    context: DefaultTreeAdapterMap['element'] | null
-): DefaultTreeAdapterMap['documentFragment'] {
-    const parser = AttributeBoundedParser.getFragmentParser<DefaultTreeAdapterMap>(context, { scriptingEnabled: false })
-    parser.tokenizer.write(html, true)
-    return parser.getFragment()
-}
-
-class TooLargeForSandbox extends Error {
-    constructor() {
-        super(
-            'Sandbox emails can have at most 75 KB of HTML, so every inbox shows the identification footer. Shorten the template and try again.'
-        )
-    }
-}
-
-function conditionalMarker(comment: string): ConditionalMarker | null {
-    const data = comment.trim()
-    const hidden = /^\[if\b([^\]]*)\]>([\s\S]*)<!\[endif\]$/i.exec(data)
-    if (hidden) {
-        if (/\[(?:if\b|endif\])/i.test(hidden[2])) {
-            throw new FooterNotRetained()
-        }
-        return { kind: 'hidden', condition: hidden[1], content: hidden[2] }
-    }
-    const open = /^\[if\b([^\]]*)\](?:><!(?:--)?)?$/i.exec(data)
-    if (open) {
-        return { kind: 'open', condition: open[1] }
-    }
-    if (/^(?:<!)?\[endif\]$/i.test(data)) {
-        return { kind: 'close' }
-    }
-    if (/\[(?:if\b|endif\])/i.test(data)) {
-        throw new FooterNotRetained()
-    }
-    return null
-}
-
-function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
-    const document = parseBuiltEmail(html)
-    const marker = `outlook-conditional-${randomUUID()}-`
-    const markers: ConditionalMarker[] = []
-    const parents: DefaultTreeAdapterMap['parentNode'][] = [document]
-    while (parents.length) {
-        const parent = parents.pop()!
-        const children =
-            defaultTreeAdapter.isElementNode(parent) &&
-            parent.tagName === 'template' &&
-            parent.namespaceURI === htmlSpec.NS.HTML
-                ? defaultTreeAdapter.getTemplateContent(parent as DefaultTreeAdapterMap['template'])
-                : parent
-        for (const node of [...children.childNodes]) {
-            if (defaultTreeAdapter.isCommentNode(node)) {
-                const found = conditionalMarker(node.data)
-                if (found) {
-                    defaultTreeAdapter.insertTextBefore(children, `${marker}${markers.length}-end`, node)
-                    defaultTreeAdapter.detachNode(node)
-                    markers.push(found)
-                }
-            } else if (defaultTreeAdapter.isElementNode(node)) {
-                parents.push(node)
-            }
-        }
-    }
-    const marked = serialize(document, { scriptingEnabled: false })
-    const pieces = marked.split(new RegExp(`${marker}(\\d+)-end`))
-    const views = new Set<string>()
-    for (const client of CONDITIONAL_CLIENTS) {
-        let view = pieces[0]
-        let skipping = false
-        let insideRevealedBranch = false
-        for (let index = 1; index < pieces.length; index += 2) {
-            const found = markers[Number(pieces[index])]
-            if (found.kind === 'close') {
-                skipping = false
-                insideRevealedBranch = false
-            } else if (found.kind === 'open' && insideRevealedBranch) {
-                throw new FooterNotRetained()
-            } else if (skipping) {
-                continue
-            } else if (found.kind === 'open') {
-                insideRevealedBranch = true
-                skipping = !conditionHolds(found.condition, client)
-            } else if (conditionHolds(found.condition, client)) {
-                view += found.content
-            }
-            view += skipping ? '' : pieces[index + 1]
-        }
-        views.add(view)
-    }
-    return [...views].map((view) => parseBuiltEmail(view))
-}
-
-function insertPreheader(body: DefaultTreeAdapterMap['element'], preheaderHtml: string): void {
-    const firstChild = body.childNodes[0]
-    for (const node of [...parseBoundedFragment(preheaderHtml, body).childNodes]) {
-        if (firstChild) {
-            defaultTreeAdapter.insertBefore(body, node, firstChild)
-        } else {
-            defaultTreeAdapter.appendChild(body, node)
-        }
-    }
-}
-
-function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
-    if (Buffer.byteLength(html) + Buffer.byteLength(preheader ?? '') > MAX_TEMPLATE_HTML_BYTES) {
-        throw new TooLargeForSandbox()
-    }
-    const preheaderText = parseBoundedFragment(preheader ?? '', null)
-    neutralizeRawTextElements(preheaderText.childNodes)
-    const document = parseBounded(html)
-    const body = htmlBody(document)
-    if (!body) {
-        throw new Error('The sandbox email template must have an HTML body. Update the template and try again.')
-    }
-    const preheaderHtml = serialize(preheaderText, { scriptingEnabled: false })
-    if (preheaderHtml) {
-        insertPreheader(body, preheaderSpan(preheaderHtml))
-    }
-    neutralizeRawTextElements(document.childNodes)
-    protectFooterAncestors(document, body)
-    const footerElement = defaultTreeAdapter.createElement('div', body.namespaceURI, [
-        {
-            name: 'style',
-            value: 'all:initial!important;display:block!important;visibility:visible!important;opacity:1!important;position:relative!important;z-index:2147483647!important;inset:auto!important;float:none!important;width:auto!important;max-width:none!important;min-width:0!important;height:auto!important;max-height:none!important;overflow:visible!important;margin:0!important;transform:none!important;translate:none!important;scale:none!important;rotate:none!important;clip-path:none!important;filter:none!important;mask:none!important;-webkit-mask:none!important;mix-blend-mode:normal!important;text-indent:0!important;direction:ltr!important;unicode-bidi:isolate!important;text-align:left!important;letter-spacing:normal!important;word-spacing:normal!important;text-transform:none!important;text-shadow:none!important;white-space:normal!important;font:12px sans-serif!important;color:#525252!important;background:#fff!important;padding:16px 0!important;mso-hide:none!important',
-        },
-    ])
-    defaultTreeAdapter.insertText(footerElement, footer)
-    defaultTreeAdapter.appendChild(body, footerElement)
-    const serialized = serialize(document, { scriptingEnabled: false })
-    if (Buffer.byteLength(serialized) > MAX_TEMPLATE_HTML_BYTES) {
-        throw new TooLargeForSandbox()
-    }
-    const renderings = [parseBuiltEmail(serialized), parseBuiltEmail(serialized, true), ...outlookViews(serialized)]
-    for (const rendering of renderings) {
-        const deliveredFooter = htmlBody(rendering)?.childNodes.at(-1)
-        if (
-            !deliveredFooter ||
-            !defaultTreeAdapter.isElementNode(deliveredFooter) ||
-            deliveredFooter.namespaceURI !== body.namespaceURI ||
-            serializeOuter(deliveredFooter) !== serializeOuter(footerElement)
-        ) {
-            throw new FooterNotRetained()
-        }
-    }
-    return serialized
+    return html.slice(0, bodyClose.index) + footerHtml + html.slice(bodyClose.index)
 }
 
 export function sandboxBlockedEventRedisConfig(connection: RedisConnectionConfig): RedisPoolConfig {
@@ -688,7 +211,7 @@ export class SandboxEmailSender {
         params: CyclotronInvocationQueueParametersEmailType,
         senderName: string,
         teamId: number
-    ): Promise<CyclotronInvocationQueueParametersEmailType> {
+    ): Promise<SandboxMessage> {
         if (!params.text && !params.html) {
             throw new Error(
                 'The sandbox email template must include HTML or text content. Update the template and try again.'
@@ -700,12 +223,17 @@ export class SandboxEmailSender {
         }
         const footer = `This email was sent by ${senderName} with the PostHog sandbox sender. Organization ID: ${team.organization_id}.`
         return {
-            ...params,
-            from: { ...params.from, name: senderName, email: this.config.fromAddress },
-            replyTo: undefined,
-            preheader: undefined,
-            ...(params.text ? { text: `${params.text}\n\n${footer}` } : {}),
-            ...(params.html ? { html: appendHtmlFooter(params.html, footer, params.preheader) } : {}),
+            params: {
+                ...params,
+                from: { ...params.from, name: senderName, email: this.config.fromAddress },
+                replyTo: undefined,
+                preheader: undefined,
+                ...(params.text ? { text: `${params.text}\n\n${footer}` } : {}),
+                ...(params.html
+                    ? { html: appendHtmlFooter(maybeAddPreheaderToEmail(params.html, params.preheader), footer) }
+                    : {}),
+            },
+            headers: [{ Name: 'X-PostHog-Organization-Id', Value: team.organization_id }],
         }
     }
 
