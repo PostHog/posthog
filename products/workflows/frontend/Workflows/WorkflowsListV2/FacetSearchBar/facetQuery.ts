@@ -13,6 +13,8 @@ export interface FacetDefinition<TItem> {
     normalizeValue?: (value: string) => string
     /** Maps a stored value to the one `getValues` returns when it depends on the viewer or the loaded items. */
     resolveValue?: (value: string) => string
+    /** Offered first after the colon, even when no item has them, such as `me`. */
+    pinnedValues?: string[]
     /** Display form of a stored value: `active` → `Active`, a user uuid → a name. */
     formatValue?: (value: string) => string
     /** A typed value that matches no loaded value is still worth a pill, such as a person's name. */

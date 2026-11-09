@@ -556,21 +556,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         facets: [
             (s) => [s.rows, s.user],
             (rows: WorkflowListRow[], user: UserType | null): FacetDefinition<WorkflowListRow>[] =>
-                buildWorkflowListFacets(rows).map((facet) =>
-                    facet.key === 'createdBy'
-                        ? {
-                              ...facet,
-                              resolveValue: (value: string): string =>
-                                  value.toLowerCase() === 'me'
-                                      ? (user?.uuid ?? '__signed_out__')
-                                      : (facet.resolveValue?.(value) ?? value),
-                              formatValue: (value: string): string =>
-                                  value === 'me'
-                                      ? user?.first_name || user?.email || 'Me'
-                                      : (facet.formatValue?.(value) ?? value),
-                          }
-                        : facet
-                ),
+                buildWorkflowListFacets(rows, user),
         ],
         matchesText: [
             (s) => [s.serverSearch],

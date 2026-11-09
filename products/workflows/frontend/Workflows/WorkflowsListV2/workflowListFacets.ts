@@ -1,6 +1,8 @@
+import type { UserBasicApi } from 'products/workflows/frontend/generated/api.schemas'
+
 import type { FacetDefinition } from './FacetSearchBar/facetQuery'
 import { HEALTH_TAGS, STATUS_LABELS, TRIGGER_LABELS, TYPE_LABELS } from './workflowListLabels'
-import { WorkflowListRow } from './workflowListRows'
+import { WorkflowListRow, creatorHandle } from './workflowListRows'
 
 const HEALTH_LABELS: Record<string, string> = Object.fromEntries(
     Object.entries(HEALTH_TAGS).map(([health, { label }]) => [health, label])
@@ -25,8 +27,18 @@ export function matchesWorkflowListText(row: WorkflowListRow, text: string): boo
         .every((word) => row.searchText.includes(word))
 }
 
-/** `rows` supplies the names shown for creator uuids. */
-export function buildWorkflowListFacets(rows: WorkflowListRow[]): FacetDefinition<WorkflowListRow>[] {
+export type WorkflowListViewer = Pick<UserBasicApi, 'uuid' | 'first_name' | 'email'>
+
+const ME = 'me'
+const NOBODY = '__signed_out__'
+const isMe = (value: string): boolean => value.toLowerCase() === ME
+
+/** `rows` supplies the names shown for creator uuids. `me` stays `me` in the URL and resolves to `viewer`. */
+export function buildWorkflowListFacets(
+    rows: WorkflowListRow[],
+    viewer: WorkflowListViewer | null = null
+): FacetDefinition<WorkflowListRow>[] {
+    const pinnedValues = viewer ? [ME] : undefined
     const creators = new Map(
         rows.flatMap(({ workflow }) => (workflow.created_by ? [[workflow.created_by.uuid, workflow.created_by]] : []))
     )
@@ -81,9 +93,14 @@ export function buildWorkflowListFacets(rows: WorkflowListRow[]): FacetDefinitio
             description: 'Owner: @name in the description, else the creator',
             freeTextValues: true,
             showOnFocus: true,
+            pinnedValues,
             getValues: (row) => row.owners,
-            normalizeValue: (value) => value.replace(/^@/, ''),
-            formatValue: (value) => `@${value}`,
+            normalizeValue: (value) => {
+                const handle = value.replace(/^@/, '')
+                return isMe(handle) ? ME : handle
+            },
+            resolveValue: (value) => (isMe(value) ? (creatorHandle(viewer) ?? NOBODY) : value),
+            formatValue: (value) => (isMe(value) ? 'Me' : `@${value}`),
         },
         {
             key: 'health',
@@ -104,9 +121,12 @@ export function buildWorkflowListFacets(rows: WorkflowListRow[]): FacetDefinitio
             label: 'Created by',
             description: 'Who created it',
             freeTextValues: true,
+            pinnedValues,
             getValues: (row) => (row.workflow.created_by ? [row.workflow.created_by.uuid] : []),
-            resolveValue: (value) => creatorIds.get(value.toLowerCase()) ?? value,
-            formatValue: (value) => creatorNames.get(value) ?? value,
+            normalizeValue: (value) => (isMe(value) ? ME : value),
+            resolveValue: (value) =>
+                isMe(value) ? (viewer?.uuid ?? NOBODY) : (creatorIds.get(value.toLowerCase()) ?? value),
+            formatValue: (value) => (isMe(value) ? 'Me' : (creatorNames.get(value) ?? value)),
         },
         {
             key: 'tag',
