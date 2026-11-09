@@ -2077,6 +2077,25 @@ class LogsSparklineRankBy(StrEnum):
     BYTES = "bytes"
 
 
+class MCPDashboardSection(StrEnum):
+    KPIS = "kpis"
+    PERIOD_TOTALS = "periodTotals"
+    TOOL_ROWS = "toolRows"
+    SESSION_ROWS = "sessionRows"
+    HARNESS_ROWS = "harnessRows"
+    MODEL_ROWS = "modelRows"
+    PROTOCOL_VERSION_ROWS = "protocolVersionRows"
+    ACTIVITY_ROWS = "activityRows"
+    TOOL_DAILY_ROWS = "toolDailyRows"
+    MODEL = "model"
+    PROTOCOL_VERSION = "protocolVersion"
+    TOOL = "tool"
+    ERROR_TYPE = "errorType"
+    LAB_USERS = "labUsers"
+    NAMED_MODEL_USERS = "namedModelUsers"
+    RELIABILITY = "reliability"
+
+
 class NeighborDirection(StrEnum):
     BEFORE = "before"
     AFTER = "after"
@@ -2569,6 +2588,7 @@ class NodeKind(StrEnum):
     MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
+    MCP_DASHBOARD_QUERY = "MCPDashboardQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 

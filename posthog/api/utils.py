@@ -288,6 +288,8 @@ ASYNC_QUERY_KINDS = INSIGHT_KINDS | {
     "TracesQuery",
     "ExperimentQuery",
     "ExperimentExposureQuery",
+    # Server-owned HogQL sections keep the extended timeout their standalone HogQLQuery tiles had.
+    "MCPDashboardQuery",
 }
 _EXTRA_ASYNC_KINDS = ASYNC_QUERY_KINDS - INSIGHT_KINDS
 
