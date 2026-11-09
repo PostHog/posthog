@@ -5,18 +5,10 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { DataModelingJobStatus } from '~/types'
 
-import { CatalogTableRow, TableKind } from '../catalogTableRows'
+import { CatalogTableRow } from '../catalogTableRows'
 import { MutedCellText } from './MutedCellText'
 
 const RUN_HISTORY_LENGTH = 5
-
-const NO_REFRESH_LABELS: Record<TableKind, string> = {
-    posthog: 'Managed by PostHog',
-    source: 'Not synced yet',
-    self_managed: 'Queried in place',
-    view: 'Runs on read',
-    materialized_view: 'Never run',
-}
 
 const RUN_DOT_VARIANTS: Record<DataModelingJobStatus, 'success' | 'destructive' | 'warning' | 'default'> = {
     Completed: 'success',
@@ -47,34 +39,26 @@ function RunDots({ row }: { row: CatalogTableRow }): JSX.Element | null {
     )
 }
 
-function RefreshTime({ row }: { row: CatalogTableRow }): JSX.Element {
-    const { since } = row.attention
-    if (since?.kind === 'behind') {
-        return <MutedCellText>{since.label}</MutedCellText>
-    }
-    if (row.problems.includes('failed') && since?.label) {
-        return (
-            <MutedCellText>
-                {`${since.label} `}
-                <TZLabel time={since.time} />
-            </MutedCellText>
-        )
-    }
+function FreshnessText({ row }: { row: CatalogTableRow }): JSX.Element {
+    const { state, timeLabel, time } = row.freshness
     return (
-        <MutedCellText>
-            {row.refreshedAt ? <TZLabel time={row.refreshedAt} /> : NO_REFRESH_LABELS[row.kind]}
-        </MutedCellText>
+        <div className="flex flex-col">
+            {state && <MutedCellText>{state}</MutedCellText>}
+            {time && (
+                <MutedCellText>
+                    {timeLabel && `${timeLabel} `}
+                    <TZLabel time={time} />
+                </MutedCellText>
+            )}
+        </div>
     )
 }
 
-export function CatalogTableRefresh({ row }: { row: CatalogTableRow }): JSX.Element {
-    if (row.kind === 'posthog' || row.kind === 'self_managed' || row.kind === 'view') {
-        return <MutedCellText>{NO_REFRESH_LABELS[row.kind]}</MutedCellText>
-    }
+export function CatalogTableFreshness({ row }: { row: CatalogTableRow }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
-            <RunDots row={row} />
-            <RefreshTime row={row} />
+            {row.kind === 'materialized_view' && <RunDots row={row} />}
+            <FreshnessText row={row} />
         </div>
     )
 }

@@ -14,7 +14,7 @@ import {
 
 const SETTINGS_LABEL = 'Data quality settings'
 
-export function CatalogTablesCheckActions(): JSX.Element {
+export function CatalogDataQualityActions(): JSX.Element {
     const { checks, startingRun, isRunning, runTarget } = useValues(dataQualityOverviewLogic)
     const { runChecks, setLastActionCheck } = useActions(dataQualityOverviewLogic)
     const { openEditor } = useActions(dataQualityCheckEditorLogic)
@@ -37,7 +37,7 @@ export function CatalogTablesCheckActions(): JSX.Element {
                     setLastActionCheck(null)
                     openEditor(null, null)
                 }}
-                data-attr="data-catalog-tables-new-check"
+                data-attr="data-catalog-quality-new-check"
             >
                 <IconPlus />
                 New check
@@ -47,7 +47,7 @@ export function CatalogTablesCheckActions(): JSX.Element {
                 onClick={() => runChecks({ kind: 'all' })}
                 loading={runningAll}
                 disabledReason={runAllDisabledReason}
-                data-attr="data-catalog-tables-run-all"
+                data-attr="data-catalog-quality-run-all"
             >
                 Run all checks
             </Button>
@@ -57,7 +57,7 @@ export function CatalogTablesCheckActions(): JSX.Element {
                 tooltip={SETTINGS_LABEL}
                 className="text-muted-foreground"
                 render={<LinkPrimitive to={urls.settings('environment-data-quality')} />}
-                data-attr="data-catalog-tables-settings"
+                data-attr="data-catalog-quality-settings"
             >
                 <IconGear />
             </Button>

@@ -22,6 +22,7 @@ import {
     TablesSort,
     buildCatalogTableRows,
     rowMatchesFilters,
+    rowMenuActions,
     sortCatalogTableRows,
 } from './catalogTableRows'
 import type { DataCatalogCertificationApi } from './generated/api.schemas'
@@ -119,6 +120,15 @@ function buildRows(overrides: Partial<CatalogTableSources> = {}): CatalogTableRo
     })
 }
 
+function freshnessText(row: CatalogTableRow): string {
+    const { state, timeLabel, time } = row.freshness
+    return [state, timeLabel, time].filter(Boolean).join(' ')
+}
+
+function rowNamed(rows: CatalogTableRow[], name: string): CatalogTableRow {
+    return rows.find((row) => row.name === name)!
+}
+
 describe('catalogTableRows', () => {
     it('joins refresh problems, checks and certifications onto every queryable table, problems first', () => {
         expect(
@@ -128,7 +138,7 @@ describe('catalogTableRows', () => {
                 problems: row.problems,
                 checks: row.checkGroup?.checks.length ?? 0,
                 trust: row.certification?.id ?? null,
-                refreshedAt: row.refreshedAt,
+                freshness: freshnessText(row),
             }))
         ).toEqual([
             {
@@ -137,17 +147,24 @@ describe('catalogTableRows', () => {
                 problems: ['suspended'],
                 checks: 0,
                 trust: null,
-                refreshedAt: 'revenue-run',
+                freshness: 'revenue-run',
             },
-            { name: 'events', subtitle: 'PostHog', problems: ['checks'], checks: 1, trust: null, refreshedAt: null },
-            { name: 'deleted_view', subtitle: 'View', problems: [], checks: 1, trust: null, refreshedAt: null },
+            { name: 'events', subtitle: 'PostHog', problems: ['checks'], checks: 1, trust: null, freshness: 'Live' },
+            {
+                name: 'deleted_view',
+                subtitle: 'View',
+                problems: [],
+                checks: 1,
+                trust: null,
+                freshness: 'Live (runs on read)',
+            },
             {
                 name: 'orders_daily',
                 subtitle: 'View',
                 problems: [],
                 checks: 0,
                 trust: 'cert-orders',
-                refreshedAt: null,
+                freshness: 'Live (runs on read)',
             },
             {
                 name: 'orders_export',
@@ -155,18 +172,78 @@ describe('catalogTableRows', () => {
                 problems: [],
                 checks: 0,
                 trust: null,
-                refreshedAt: null,
+                freshness: 'Queried in place',
             },
-            { name: 'sessions', subtitle: 'PostHog', problems: [], checks: 0, trust: null, refreshedAt: null },
+            { name: 'sessions', subtitle: 'PostHog', problems: [], checks: 0, trust: null, freshness: 'Live' },
             {
                 name: 'stripe.charges',
                 subtitle: 'Stripe',
                 problems: [],
                 checks: 1,
                 trust: 'cert-charges',
-                refreshedAt: 'schema-sync',
+                freshness: 'schema-sync',
             },
         ])
+    })
+
+    it.each<[string, Partial<CatalogTableSources>, string, string]>([
+        ['a requested sync', { refreshRequests: { 'query-revenue': 1 } }, 'revenue', 'Refreshing… revenue-run'],
+        [
+            'a failed refresh',
+            {
+                materializationProblems: [
+                    {
+                        kind: 'failed',
+                        attention: { node: { ...revenueNode, last_run_at: 'last-try' }, problem: 'Failed' },
+                    } as MaterializationProblem,
+                ],
+            },
+            'revenue',
+            'Refresh failed Last tried last-try',
+        ],
+        [
+            'a late refresh',
+            {
+                materializationProblems: [
+                    {
+                        kind: 'behind',
+                        behind: { node: revenueNode, overdueSeconds: 2 * 86400 },
+                    } as MaterializationProblem,
+                ],
+            },
+            'revenue',
+            '2d behind schedule revenue-run',
+        ],
+        [
+            'a view that never ran',
+            { nodes: [{ ...revenueNode, last_run_at: undefined }], materializationProblems: [] },
+            'revenue',
+            'Never run',
+        ],
+        [
+            'a failed source sync',
+            {
+                dataWarehouseTables: [
+                    { ...charges, schema: { ...charges.schema, status: 'Failed' } } as DatabaseSchemaDataWarehouseTable,
+                ],
+            },
+            'stripe.charges',
+            'Refresh failed schema-sync',
+        ],
+    ])('freshness shows %s', (_, overrides, name, expectedFreshness) => {
+        expect(freshnessText(rowNamed(buildRows(overrides), name))).toEqual(expectedFreshness)
+    })
+
+    it('offers Sync now on every materialized view and review actions only on settled trust', () => {
+        expect(Object.fromEntries(buildRows().map((row) => [row.name, rowMenuActions(row)]))).toEqual({
+            revenue: ['sync_now', 'certify'],
+            events: [],
+            deleted_view: [],
+            orders_daily: [],
+            orders_export: ['certify'],
+            sessions: [],
+            'stripe.charges': ['deprecate', 'remove_trust'],
+        })
     })
 
     it.each<[Partial<TablesFilters>, string[]]>([
@@ -204,7 +281,7 @@ describe('catalogTableRows', () => {
             ['stripe.charges', 'orders_daily', 'deleted_view', 'events', 'orders_export', 'revenue', 'sessions'],
         ],
         [
-            { column: 'refresh', direction: 'desc' },
+            { column: 'freshness', direction: 'desc' },
             ['stripe.charges', 'revenue', 'deleted_view', 'events', 'orders_daily', 'orders_export', 'sessions'],
         ],
     ])('sorting by %j orders rows %j, empty values last', (sort, expectedNames) => {

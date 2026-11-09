@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { pluralize } from 'lib/utils/strings'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
@@ -18,7 +20,12 @@ import {
     isFailingCheck,
     problemNode,
 } from 'products/data_modeling/frontend/modelsOverviewLogic'
-import { ISSUE_KIND_ORDER, type IssueKind } from 'products/data_modeling/frontend/overviewIssueCopy'
+import {
+    ISSUE_KIND_ORDER,
+    ISSUE_LABELS,
+    type IssueKind,
+    REFRESHING_LABEL,
+} from 'products/data_modeling/frontend/overviewIssueCopy'
 import type { DataQualitySubjectRef } from 'products/data_quality/frontend/checksApi'
 import {
     type DataQualitySubjectHealthApi,
@@ -46,6 +53,11 @@ export const DEFAULT_TABLES_FILTERS: TablesFilters = { kind: 'any', problem: 'an
 export const TABLES_FILTER_PARAM = 'filter'
 export const TABLES_SEARCH_PARAM = 'table'
 export const PROPOSED_TABLES_FILTER = 'proposed'
+export const DATA_QUALITY_TAB = 'data-quality'
+
+export function dataQualityUrl(tableName: string): string {
+    return combineUrl(urls.dataCatalog(DATA_QUALITY_TAB), { [TABLES_SEARCH_PARAM]: tableName }).url
+}
 
 export const KIND_LABELS: Record<TableKind, string> = {
     posthog: 'PostHog',
@@ -73,6 +85,26 @@ export interface CheckCounts {
     failing: number
 }
 
+export interface Freshness {
+    state: string | null
+    timeLabel: string | null
+    time: string | null
+}
+
+const RUNNING_STATUS = 'Running'
+const FAILED_STATUS = 'Failed'
+
+const LIVE_LABELS: Partial<Record<TableKind, string>> = {
+    posthog: 'Live',
+    view: 'Live (runs on read)',
+    self_managed: 'Queried in place',
+}
+
+const NEVER_REFRESHED_LABELS: Partial<Record<TableKind, string>> = {
+    source: 'Not synced yet',
+    materialized_view: 'Never run',
+}
+
 export interface CatalogTableRow {
     key: string
     name: string
@@ -87,6 +119,8 @@ export interface CatalogTableRow {
     certification: DataCatalogCertificationApi | null
     certificationTarget: CertificationTarget | null
     refreshedAt: string | null
+    refreshing: boolean
+    freshness: Freshness
     detailUrl: string | null
 }
 
@@ -105,9 +139,13 @@ export interface CatalogTableSources {
     posthogTableSubjectIds: Record<string, string>
 }
 
-type RowBase = Omit<CatalogTableRow, 'attention' | 'problems' | 'certification' | 'subtitle' | 'checkCounts'> & {
+type RowBase = Omit<
+    CatalogTableRow,
+    'attention' | 'problems' | 'certification' | 'subtitle' | 'checkCounts' | 'refreshing' | 'freshness'
+> & {
     origin: string
     node: DataModelingNode | null
+    syncStatus?: string
 }
 
 function certificationKey(certification: DataCatalogCertificationApi): string | null {
@@ -130,6 +168,35 @@ function sourceTableDetailUrl(table: DatabaseSchemaDataWarehouseTable): string {
 function subtitleFor(origin: string, node: DataModelingNode | null): string {
     const downstreamCount = node?.downstream_count ?? 0
     return downstreamCount > 0 ? `${origin} · feeds ${pluralize(downstreamCount, 'model')}` : origin
+}
+
+function freshnessFor(
+    kind: TableKind,
+    refreshedAt: string | null,
+    attention: AttentionRow,
+    refreshing: boolean,
+    syncFailed: boolean
+): Freshness {
+    const liveLabel = LIVE_LABELS[kind]
+    if (liveLabel) {
+        return { state: liveLabel, timeLabel: null, time: null }
+    }
+    if (refreshing) {
+        return { state: REFRESHING_LABEL, timeLabel: null, time: refreshedAt }
+    }
+    const { since } = attention
+    if (since?.kind === 'behind') {
+        return { state: since.label, timeLabel: null, time: refreshedAt }
+    }
+    if (attention.issueKinds.includes('failed') && since) {
+        return { state: ISSUE_LABELS.failed, timeLabel: since.label, time: since.time }
+    }
+    if (syncFailed) {
+        return { state: ISSUE_LABELS.failed, timeLabel: null, time: refreshedAt }
+    }
+    return refreshedAt
+        ? { state: null, timeLabel: null, time: refreshedAt }
+        : { state: NEVER_REFRESHED_LABELS[kind] ?? null, timeLabel: null, time: null }
 }
 
 function attentionRank(row: CatalogTableRow): number {
@@ -164,7 +231,10 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         }
         return group
     }
-    const rowFor = ({ origin, node, ...row }: RowBase, certificationLookupKey: string | null): CatalogTableRow => {
+    const rowFor = (
+        { origin, node, syncStatus, ...row }: RowBase,
+        certificationLookupKey: string | null
+    ): CatalogTableRow => {
         const failingChecks = row.checkGroup?.checks.filter(isFailingCheck) ?? []
         const attention = buildAttentionRow(
             {
@@ -179,8 +249,13 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         const subjectHealth = row.subject
             ? sources.healthBySubjectKey[subjectKeyOf(row.subject.subjectType, row.subject.subjectId)]
             : undefined
+        const refreshing = row.savedQuery
+            ? row.savedQuery.status === RUNNING_STATUS || row.savedQuery.id in sources.refreshRequests
+            : syncStatus === RUNNING_STATUS
         return {
             ...row,
+            refreshing,
+            freshness: freshnessFor(row.kind, row.refreshedAt, attention, refreshing, syncStatus === FAILED_STATUS),
             subtitle: subtitleFor(origin, node),
             checkCounts: {
                 total: Math.max(subjectHealth?.checks_total ?? 0, row.checkGroup?.checks.length ?? 0),
@@ -236,6 +311,7 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
                 savedQuery: null,
                 certificationTarget: { targetType: 'table', targetId: table.id },
                 refreshedAt: table.schema?.last_synced_at ?? table.source?.last_synced_at ?? null,
+                syncStatus: table.schema?.status,
                 detailUrl: sourceTableDetailUrl(table),
             },
             key
@@ -358,7 +434,7 @@ export function rowMatchesSearch(row: CatalogTableRow, search: string): boolean 
     return !needle || row.name.toLowerCase().includes(needle) || row.subtitle.toLowerCase().includes(needle)
 }
 
-export type TablesSortColumn = 'name' | 'status' | 'checks' | 'trust' | 'refresh'
+export type TablesSortColumn = 'name' | 'status' | 'checks' | 'trust' | 'freshness'
 export type SortDirection = 'asc' | 'desc'
 
 export interface TablesSort {
@@ -386,7 +462,7 @@ const SORT_VALUES: Record<TablesSortColumn, (row: CatalogTableRow) => string | n
     status: attentionRank,
     checks: passingShare,
     trust: (row) => (row.certification ? (TRUST_RANK[row.certification.status] ?? null) : null),
-    refresh: (row) => row.refreshedAt,
+    freshness: (row) => row.refreshedAt,
 }
 
 function compareValues(left: string | number, right: string | number): number {
@@ -419,7 +495,7 @@ export function nextTablesSort(current: TablesSort | null, column: TablesSortCol
 }
 
 export type ProposalDecision = 'accept' | 'reject'
-export type ReviewSource = 'inline' | 'menu' | 'bulk'
+export type ReviewSource = 'inline' | 'bulk'
 
 export function hasPendingProposal(row: CatalogTableRow): boolean {
     return row.certification?.status === 'proposed'
@@ -429,10 +505,20 @@ export function proposalAcceptsAsDeprecation(certification: DataCatalogCertifica
     return certification.proposed_status === 'deprecated'
 }
 
-export function canCertify(row: CatalogTableRow): boolean {
-    return !!row.certificationTarget && row.certification?.status !== 'certified'
+export type RowMenuAction = 'sync_now' | 'certify' | 'deprecate' | 'remove_trust'
+
+export function rowMenuActions(row: CatalogTableRow): RowMenuAction[] {
+    const menuActions: RowMenuAction[] = row.savedQuery?.is_materialized ? ['sync_now'] : []
+    if (!row.certificationTarget || hasPendingProposal(row)) {
+        return menuActions
+    }
+    menuActions.push(row.certification?.status === 'certified' ? 'deprecate' : 'certify')
+    if (row.certification) {
+        menuActions.push('remove_trust')
+    }
+    return menuActions
 }
 
-export function rowIsExpandable(row: CatalogTableRow): boolean {
-    return !!row.checkGroup
+export function canCertify(row: CatalogTableRow): boolean {
+    return !!row.certificationTarget && row.certification?.status !== 'certified'
 }
