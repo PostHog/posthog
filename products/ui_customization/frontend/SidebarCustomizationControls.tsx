@@ -32,7 +32,7 @@ export function SidebarCustomizationControls(props: SidebarCustomizationControls
         return null
     }
     return (
-        <div className="mt-2 flex flex-col gap-px border-t border-border pt-2">
+        <div className="mt-2 flex flex-col gap-px border-t border-border py-2">
             {canCustomize && (
                 <Tooltip>
                     <TooltipTrigger
