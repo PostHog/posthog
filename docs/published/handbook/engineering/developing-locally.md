@@ -65,10 +65,19 @@ This is the recommended option for most developers.
 ### Prerequisites
 
 **GitHub access.**
-Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github) using Secretive or 1Password.
+Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github).
 Signing is required: an org-wide ruleset rejects unsigned commits in every PostHog repository, so an unsigned push fails with `GH013: Commits must have verified signatures`.
+The signing key must live in your Mac's Secure Enclave.
+A signing key in 1Password doesn't meet this, because 1Password syncs it off the Mac.
+On macOS 26 or later, `hogli git:signing-key` creates a Secure Enclave signing key. Secretive works too.
+It's an SSH key used only for signing, so no GPG key is involved, and SSH logins and pushes keep using your current agent.
+The key can't be copied off the Mac, so each Mac needs its own key.
+It signs without a prompt, also while the screen is locked, so agents can commit while you're away.
+If you commit from a devbox, keep your previous signing key on GitHub.
+A devbox signs through your forwarded SSH agent, which can't hold a Secure Enclave key, so it keeps signing with the previous key.
+Otherwise, once no repository signs with your previous key, remove it from your GitHub settings, so it can't sign verified commits anymore. Commits you already pushed stay verified.
 
-PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
+PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) attach to the PR description through `gh pr edit --attach` when the branch has an open PR and your gh supports `--attach`. Otherwise they upload to the public PostHog/pr-assets repo, and prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
 
 #### macOS
 
@@ -181,6 +190,12 @@ Three env files come into play when `hogli start` runs:
 - `.env.local` (gitignored) — your overrides and secrets. Copy `.env.local.example` to get started.
 
 Precedence (highest wins): `shell env > .env.local > .env.development > .env.services`.
+
+Outside tests, `DEBUG=1` defaults `TRUSTED_PROXIES` to `127.0.0.1,::1` so the backend can extract client IPs forwarded by the local Docker proxy on macOS. An explicit `TRUSTED_PROXIES` value overrides this default. Production has no default trusted proxies.
+
+Livestream uses the same proxy modes as Django, with a `LIVESTREAM_` prefix. Set `LIVESTREAM_IS_BEHIND_PROXY=1` to use forwarded client IPs. Set `LIVESTREAM_TRUST_ALL_PROXIES=True` when ingress controls the `X-Forwarded-For` header; this uses its first client address, matching Django's trust-all mode. Otherwise, list the actual reverse proxy CIDRs in `LIVESTREAM_TRUSTED_PROXIES`. Both boolean settings default to false. Direct mode ignores forwarded headers, and the explicit allowlist mode does not automatically trust private, loopback, or link-local peers.
+
+Streaming for IP-restricted organizations also requires matching dedicated signing keys in `LIVESTREAM_AUTHORIZATION_SIGNING_KEYS` for both Django and livestream. Both accept comma-separated keys, newest first. Use independently generated keys per environment; neither setting falls back to another secret. Configure both services before testing restricted streams. The service signs short-lived policy requests bound to the viewer token and team; a viewer token alone cannot read allowlists. Staff impersonation uses a separately cached viewer token bounded by the originating session or OAuth credential. Livestream authorization rechecks that source and the staff account; expired or revoked sources cannot authorize streams. Session-backed tokens also stop working after a password change or removal of the session’s authentication backend. Session auth hashes accept the configured fallback signing keys.
 
 To run AI features locally, you'll need API keys for OpenAI, Anthropic, and others. PostHog employees can pull them from 1Password without ever pasting raw values:
 
@@ -330,11 +345,14 @@ You can narrow the run down to only files under matching paths:
 hogli test frontend/src/lib/components/DateFilter/DateFilter.test.tsx
 ```
 
-To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `hogli storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
+CI takes the visual regression snapshots of every Storybook story, and you approve changed ones in the visual review run on your PR.
+To look at stories locally, run `pnpm storybook`. Set `STORYBOOK_STORIES` to a directory or a story file to load only those:
 
 ```bash
-hogli storybook:test
+STORYBOOK_STORIES=frontend/src/toolbar pnpm storybook
 ```
+
+The [Storybook README](https://github.com/PostHog/posthog/blob/master/common/storybook/README.md) covers the local snapshot runner, writing stories, and mocking data.
 
 ### Backend
 

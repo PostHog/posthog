@@ -3,21 +3,17 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { userHasAccess } from 'lib/utils/accessControlUtils'
-
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
 import { daysReadLabel, isDeprecatePayload, noReadsLabel, readSummary, refreshCostLabel } from '../suggestionCopy'
-import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { catalogEditBlockedReason, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { DismissSuggestionButtons } from './DismissSuggestionButtons'
 import { SuggestionRow } from './SuggestionRow'
 import { SuggestionSubjectLink } from './SuggestionSubjectLink'
 import { WhyThisSuggestion } from './WhyThisSuggestion'
 
 const EDIT_ACCESS_REASON = 'You need edit access to this view or table'
-const CATALOG_EDIT_ACCESS_REASON = 'You need edit access to the data catalog'
 
 export interface CertificationSuggestionRowProps {
     suggestion: WarehouseSuggestionApi
@@ -32,17 +28,16 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
     const leaving = leavingSuggestionIds.includes(suggestion.id)
     const inFlight = !!actionsInFlight[suggestion.id]
     const blockedReason = !suggestion.can_act ? EDIT_ACCESS_REASON : leaving ? 'Working' : undefined
-    const acceptBlockedReason =
-        blockedReason ??
-        (userHasAccess(AccessControlResourceType.DataCatalog, AccessControlLevel.Editor)
-            ? undefined
-            : CATALOG_EDIT_ACCESS_REASON)
     const deprecating = isDeprecatePayload(payload)
+    const refreshes = deprecating && payload.materialized !== false
     const confirmsFirst = deprecating && !isTable
+    const acceptBlockedReason = blockedReason ?? (confirmsFirst ? undefined : catalogEditBlockedReason())
 
     return (
         <SuggestionRow
             suggestionId={suggestion.id}
+            assignee={suggestion.assignee}
+            canAct={suggestion.can_act}
             leaving={leaving}
             icon={
                 <Tooltip title={isTable ? 'Table' : 'View'}>
@@ -61,8 +56,8 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
                               windowDays={windowDays}
                               label={noReadsLabel(windowDays)}
                           />,
-                          <span key="cost">{refreshCostLabel(payload)}</span>,
-                      ]
+                          refreshes && <span key="cost">{refreshCostLabel(payload)}</span>,
+                      ].filter(Boolean)
                     : [
                           <WhyThisSuggestion
                               key="reads"

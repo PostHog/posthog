@@ -101,7 +101,7 @@ def record_gateway_token_refusal(surface: GatewayRefusalSurface, reason: str, *,
 def _team_credit_refusal(team_id: int, bucket: str) -> str | None:
     from posthog.models import Team  # noqa: PLC0415
 
-    from ee.billing.quota_limiting import QuotaResource, is_team_over_credit_budget  # noqa: PLC0415
+    from ee.billing.quota_limiting import QuotaResource, get_fresh_team_limited_resources  # noqa: PLC0415
 
     row = Team.objects.filter(id=team_id).values_list("api_token", "organization__is_active").first()
     if not row:
@@ -109,7 +109,7 @@ def _team_credit_refusal(team_id: int, bucket: str) -> str | None:
     api_token, org_active = row
     if org_active is False:
         return "org_deactivated"
-    if api_token and is_team_over_credit_budget(api_token, QuotaResource(bucket)):
+    if api_token and get_fresh_team_limited_resources(api_token)[QuotaResource(bucket)]:
         return f"{bucket}_exhausted"
     return None
 
@@ -197,11 +197,15 @@ def posthog_code_billing_synced(organization: "Organization") -> bool:
 _PAID_TRUST_MINIMUM = 7.0
 
 
-def posthog_code_trusted(organization: "Organization") -> bool:
-    """Whether the org's best trust score shows a paid invoice; a missing or malformed score counts as zero."""
+def best_customer_trust_score(organization: "Organization") -> float:
+    """The org's best trust score across billed resources; a missing or malformed score counts as zero."""
     scores = organization.customer_trust_scores or {}
-    best = max((float(v) for v in scores.values() if isinstance(v, int | float)), default=0.0)
-    return best >= _PAID_TRUST_MINIMUM
+    return max((float(v) for v in scores.values() if isinstance(v, int | float)), default=0.0)
+
+
+def posthog_code_trusted(organization: "Organization") -> bool:
+    """Whether the org's best trust score shows a paid invoice."""
+    return best_customer_trust_score(organization) >= _PAID_TRUST_MINIMUM
 
 
 def _override_tier(raw: object) -> LimitTier | None:

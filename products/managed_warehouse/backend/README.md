@@ -75,6 +75,18 @@ Data modeling shadow materialization starts when its feature flag is enabled, th
 
 Trino shadow materialization has a six-hour execution deadline. Its Temporal activity allows six hours and five minutes so cancellation and cleanup can finish before the activity times out, and requires a heartbeat every two minutes. Deadline failures retain an explicit timeout message on the modeling job. Alias reconciliation keeps its separate five-minute execution deadline.
 
+## Member teams pushed to hogtower
+
+hogtower mints team-scoped hoglake tokens from its own copy of which projects each organization member can see. With `HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED` and `HOGTOWER_API_URL` set, `member_teams.py` keeps that copy current:
+
+- Each visible project goes in at the member's level on warehouse objects. `viewer` becomes `read`, and `editor` or above becomes `write`. A project where the level is `none` is left out.
+- A team grant covers the whole namespace, so it cannot honor a rule on a single table, view, source or property, and it cannot follow PostHog's resolution of rules either. The level is therefore capped by the floor of the member's stored rules: the lowest level any of them can give, under either resolution mode and with or without the access-control entitlements (`UserAccessControl.stored_rule_floor` and `stored_property_rule_floor`). A member denied one table or property, or a private project, gets no grant. `viewer` on one object, or a read-only property, caps the grant at `read`. The cap can be stricter than PostHog, never looser. For example, a role that shares a hidden table does not lift the floor, because the role rule may not apply. So a switch of resolution mode or entitlement needs no push.
+- A member who leaves the organization, or whose user is deactivated, is removed. hogtower then revokes every team credential they own.
+- `signals.py` enqueues a push after a change to a membership, a role membership, or a project (created, deleted, or moved to another organization), or to an access rule on the project, on warehouse data, or on a property. Receivers that read state before a write only record it; the enqueue runs after the write, so a push never reads the old state. The push runs as a Celery task that retries for about ten hours.
+- `push managed warehouse member teams to hogtower` runs every hour and pushes every member of every Trino warehouse that hogtower lists. It catches changes that no signal reports, such as a user's reactivation. It also removes the members that hogtower still holds who have left, so a removal whose own push gave up is still reconciled.
+
+Each push sends the member's whole team set, versioned by the database clock. hogtower keeps the highest version, so pushes may finish in any order.
+
 ## Environment variables
 
 The workflow obtains its DuckLake configuration from the following environment variables:
@@ -129,6 +141,32 @@ Each workflow evaluates a feature flag through `feature_enabled`. Create or upda
 The data-import copy and registration paths target the same stable DuckLake table. An organization with either managed warehouse flag enabled runs registration. Disable `ducklake-data-imports-copy-workflow` for its projects to avoid both paths applying the same import. If both run, the last atomic table swap wins.
 
 The two organization flags also select the Data ops variant. `managed-warehouse-trino-query` gives the Trino variant and wins when both are on. `data-warehouse-scene` alone gives the DuckDB variant. `data_ops_variant` in `presentation/views.py` is the single backend implementation of that rule.
+
+## Trino canary hostname
+
+`MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN` (empty by default) names the domain of the canary Trino lane, for example `canary.dw.us.postwh.com`.
+A canary connection keeps the minted credential and replaces the host with `<database label>.<canary domain>`.
+The minted host must be a single label under `dw.<region>.postwh.com`.
+Any other minted host, or an empty canary domain, makes a canary connection fail with an explicit error instead of falling back to the normal host.
+
+An interactive run uses the canary host when the requesting user has the `managed-warehouse-trino-canary` flag, evaluated with `user.distinct_id` and the organization group.
+This covers the SQL editor, the schema browser, and the managed warehouse connection of the SQL editor.
+These runs never use the canary host:
+
+- Alert runs and cache-warming runs, which carry alert and warming query tags.
+- Runs with the export, SQL alert, or PostHog AI limit context. Exports and subscriptions run as their creator and carry no tag, so the limit context identifies them.
+- Schema discovery, data modeling, and model aliases, which never pass the canary option.
+
+A Dagster backfill uses the canary host only when its run config sets `use_trino_canary: true`.
+It does not evaluate the flag.
+
+The query runner decides once per query and uses that decision for the cache key and for the connection.
+A canary result is cached under its own key, so the normal lane never serves it.
+The decision is made again for each runner, so the web request and the Celery task that continues it each agree with themselves.
+
+Before you turn the flag on, run one real query through the canary host.
+The canary host must return `nextUri` and `infoUri` values on the canary host.
+The connection accepts only responses that name the host it dialed, so a response on the normal host fails with "Trino returned a different service credential destination".
 
 ## Data Ops workflow status
 

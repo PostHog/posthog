@@ -1,5 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { useValues } from 'kea'
 
+import { execHog } from 'lib/hog'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { conditionalFormattingColor } from '~/queries/nodes/DataVisualization/conditionalFormatting'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
 import { ChartDisplayType } from '~/types'
 
@@ -87,3 +92,35 @@ const meta: Meta<typeof BIPivotTable> = {
 }
 export default meta
 export const MultipleMeasuresAndHierarchies: StoryObj<typeof BIPivotTable> = {}
+
+export const ConditionalFormatting: StoryObj<typeof BIPivotTable> = {
+    render: function Render(args) {
+        const { isDarkModeOn } = useValues(themeLogic)
+        return (
+            <BIPivotTable
+                {...args}
+                onInspect={() => {}}
+                cellBackground={(record, column) =>
+                    conditionalFormattingColor(
+                        [
+                            {
+                                id: 'revenue',
+                                templateId: 'greater_than',
+                                columnName: 'sum_revenue',
+                                input: '1500',
+                                color: '#CAFFBF',
+                                colorMode: 'light',
+                                bytecode: ['_H', 1, 32, 'input', 1, 1, 32, 'value', 1, 1, 13, 38],
+                            },
+                        ],
+                        execHog,
+                        column,
+                        'INTEGER',
+                        record[column],
+                        isDarkModeOn
+                    )
+                }
+            />
+        )
+    },
+}

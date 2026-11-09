@@ -112,10 +112,11 @@ class TestTicketMessageSignals(BaseTest):
 
         assert mock_capture.call_args.kwargs["properties"]["customer_email_verified"] is expected
 
+    @patch("products.conversations.backend.signals.report_team_action")
     @patch("products.conversations.backend.signals.capture_message_received")
     @patch("products.conversations.backend.signals.capture_message_sent")
     def test_public_workflow_message_counts_without_emitting_a_trigger_event(
-        self, mock_sent, mock_received, mock_on_commit
+        self, mock_sent, mock_received, mock_report_team, mock_on_commit
     ):
         Comment.objects.create(
             team=self.team,
@@ -131,6 +132,11 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.unread_customer_count == 1
         mock_sent.assert_not_called()
         mock_received.assert_not_called()
+        mock_report_team.assert_called_once_with(
+            self.team,
+            "support message sent",
+            {"channel_source": self.ticket.channel_source},
+        )
 
     def test_team_message_updates_stats_and_unread(self, mock_on_commit):
         comment = self._create_team_message("Response from team")
@@ -145,6 +151,15 @@ class TestTicketMessageSignals(BaseTest):
     def test_first_public_human_reply_records_human_outcome(self, mock_on_commit):
         draft = "Add the snippet to the head of every page."
         self._create_ai_message(draft)
+        self._create_team_message(draft)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_automated_update_does_not_replace_draft_for_human_outcome(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_ai_message("Pull request update", item_context={"automated_update_key": "pr-123"})
         self._create_team_message(draft)
 
         self.ticket.refresh_from_db()

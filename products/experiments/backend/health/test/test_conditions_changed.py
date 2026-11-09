@@ -71,7 +71,7 @@ def _context(
         flag=parse_flag_state(active=True, deleted=False, groups=now or conditions[-1], variants=variants),
         flag_history=flag_history(
             changes,
-            launched_at=LAUNCHED_AT,
+            start_date=LAUNCHED_AT,
             exposed_between={ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS: exposed_between},
             not_checked=not_checked,
             release_conditions=None if now is None else parse_release_conditions(now, variant_keys=variant_keys),
@@ -86,6 +86,7 @@ def _traffic(people_by_set: dict[int, int]) -> ConditionSetTraffic:
     calls = 2 * sum(people_by_set.values())
     return ConditionSetTraffic(
         since=datetime(2026, 9, 13, 8, 0, tzinfo=UTC),
+        until=datetime(2026, 9, 20, 8, 0, tzinfo=UTC),
         team_timezone="Europe/Berlin",
         people_by_set=people_by_set,
         calls=calls,
@@ -137,7 +138,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], people_by_set={1: 300, 2: 2700}, exposed_units=4),
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. The change came 3 hours after '
-                f"launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
+                f"the start date, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
                 f'Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the '
                 "override in place (300 of about 1,650).",
             ),
@@ -156,6 +157,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
                 "can't measure how many users Set 1 matches. Reset the experiment, or move its start date to "
                 f"{FIRST_CHANGE}.",
+                "not_measured",
             ),
             (
                 "override_removed_from_a_few_percent",
@@ -170,6 +172,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Too few '
                 f"users called the flag since {TRAFFIC_SINCE} to measure how many users Set 1 matches. Reset the "
                 f"experiment, or move its start date to {FIRST_CHANGE}.",
+                "too_few_people",
             ),
             (
                 "override_removed_without_a_measurement",
@@ -178,6 +181,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
                 "can't measure how many users Set 1 matches. Reset the experiment, or move its start date to "
                 f"{FIRST_CHANGE}.",
+                "not_measured",
             ),
             (
                 "override_changed_then_removed",
@@ -246,6 +250,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 "variant while it was in place and a random variant after, so those exposed while it was in place "
                 "may have switched variants. Their exposures stay in the results. PostHog can't measure how many "
                 f"users these conditions match. Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                "not_measured",
             ),
             (
                 "override_removed_with_its_condition",
@@ -357,6 +362,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f"The release conditions changed on {FIRST_CHANGE}. This check can't tell whether anyone was exposed "
                 "before the change, because this API key can't query events. Add the query:read scope to this API "
                 "key, or review the change in the flag history.",
+                "no_query_access",
             ),
         ]
     )
@@ -366,12 +372,14 @@ class TestReleaseConditionsChangedMidRun(TestCase):
         ctx: HealthContext,
         expected: tuple[str, ExperimentHealthFindingSeverity, str, str],
         expected_detail: str | None,
+        expected_reason: str | None = None,
     ) -> None:
         finding = release_conditions_changed_mid_run(ctx)
 
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(finding.code, ExperimentHealthFindingCode.RELEASE_CONDITIONS_CHANGED_MID_RUN)
         self.assertEqual((finding.subcode, finding.severity, finding.title, finding.diagnostic_ref), expected)
+        self.assertEqual(finding.reason, expected_reason)
         if expected_detail is not None:
             self.assertEqual(finding.detail, expected_detail)
 

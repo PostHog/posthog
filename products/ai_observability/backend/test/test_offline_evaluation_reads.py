@@ -35,6 +35,7 @@ from products.ai_observability.backend.offline_evaluation_service import (
     OfflineEvaluationValidationError,
 )
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
+from products.ai_observability.backend.offline_payload_retention import OfflinePayloadRetention
 from products.ai_observability.backend.read_pagination import decode_cursor, encode_cursor
 
 
@@ -570,19 +571,31 @@ class TestOfflineEvaluationReads(TestCase):
         item.save(update_fields=["accepted_at"])
         self._payload(item, {"input": None})
         self._payload(result, {})
+        self.assertEqual(self.service.get_item_payload(experiment.id, item.id).payload_state, "available")
         self.assertEqual(self.service.get_item_payload(experiment.id, item.id).data, {"input": None})
+        self.assertEqual(
+            self.service.list_items(experiment.id, OfflineReadQuery()).results[0].payload_state, "available"
+        )
         self.assertEqual(self.service.get_result_payload(experiment.id, result.id).data, {})
         before = self.service.list_summaries(experiment.id, OfflineReadQuery())
-        OfflineExperimentItemPayload.objects.for_team(self.team.id).filter(item_id=item.id).delete()
-        item.payload_state = PayloadState.EXPIRED
-        item.save(update_fields=["payload_state"])
+        OfflinePayloadRetention().run()
         expired = self.service.get_item_payload(experiment.id, item.id)
         self.assertEqual((expired.payload_state, expired.available, expired.data), ("expired", False, None))
+        self.assertEqual(self.service.list_items(experiment.id, OfflineReadQuery()).results[0].payload_state, "expired")
         self.assertTrue(self.service.get_result_payload(experiment.id, result.id).available)
         self.assertEqual(self.service.list_summaries(experiment.id, OfflineReadQuery()), before)
         self.assertEqual(
             self.service.scorer_history(self.numeric.definition_id, OfflineReadQuery()).results[0].summary,
             before.results[0],
+        )
+        result.accepted_at = item.accepted_at
+        result.payload_expires_at = item.payload_expires_at
+        result.save(update_fields=["accepted_at", "payload_expires_at"])
+        self.assertEqual(self.service.get_result_payload(experiment.id, result.id).data, {})
+        OfflinePayloadRetention().run()
+        expired_result = self.service.get_result_payload(experiment.id, result.id)
+        self.assertEqual(
+            (expired_result.payload_state, expired_result.available, expired_result.data), ("expired", False, None)
         )
 
     def test_metadata_only_counts_and_nested_identity_checks(self) -> None:

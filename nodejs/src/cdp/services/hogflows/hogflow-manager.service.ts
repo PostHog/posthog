@@ -49,9 +49,14 @@ const HOG_FLOW_FIELDS = [
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
 
+const PRIMARY_RESULT_TTL_MS = 60 * 1000
+const PRIMARY_RESULT_MAX_SIZE = 10_000
+
 export class HogFlowManagerService {
     private lazyLoader: LazyLoader<HogFlow>
     private lazyLoaderByTeam: LazyLoader<HogFlowTeamInfo[]>
+    private primaryReads = new Map<HogFlow['id'], Promise<HogFlow | null>>()
+    private primaryResults = new Map<HogFlow['id'], { flow: HogFlow | null; until: number }>()
 
     constructor(
         private postgres: PostgresRouter,
@@ -142,6 +147,76 @@ export class HogFlowManagerService {
         return (await this.lazyLoader.get(id)) ?? null
     }
 
+    public async getHogFlowCheckingPrimaryOnMiss(id: HogFlow['id']): Promise<HogFlow | null> {
+        return (await this.getHogFlowsCheckingPrimaryOnMiss([id]))[id]
+    }
+
+    public async getHogFlowsCheckingPrimaryOnMiss(
+        ids: HogFlow['id'][]
+    ): Promise<Record<HogFlow['id'], HogFlow | null>> {
+        const remembered = Object.fromEntries(ids.map((id) => [id, this.rememberedPrimaryResult(id)]))
+        const cached = await this.lazyLoader.getMany(ids.filter((id) => !remembered[id]))
+        const misses = [...new Set(ids.filter((id) => remembered[id] === undefined && !cached[id]))]
+        const fromPrimary = await this.readPrimary(misses)
+        return Object.fromEntries(ids.map((id) => [id, remembered[id] ?? cached[id] ?? fromPrimary[id] ?? null]))
+    }
+
+    private async readPrimary(ids: HogFlow['id'][]): Promise<Record<HogFlow['id'], HogFlow | null>> {
+        const unread = ids.filter((id) => !this.primaryReads.has(id))
+        if (unread.length > 0) {
+            const read = this.fetchHogFlows(unread, PostgresUse.COMMON_WRITE)
+            for (const id of unread) {
+                const settled: Promise<HogFlow | null> = read.then((flows) =>
+                    this.settlePrimaryRead(id, flows[id] ?? null, settled)
+                )
+                this.primaryReads.set(id, settled)
+                const forget = (): void => {
+                    if (this.primaryReads.get(id) === settled) {
+                        this.primaryReads.delete(id)
+                    }
+                }
+                settled.then(forget, forget)
+            }
+        }
+        const reads = ids.map((id) => this.primaryReads.get(id) ?? Promise.resolve(null))
+        const flows = await Promise.all(reads)
+        return Object.fromEntries(ids.map((id, index) => [id, flows[index]]))
+    }
+
+    private settlePrimaryRead(id: HogFlow['id'], flow: HogFlow | null, read: Promise<HogFlow | null>): HogFlow | null {
+        if (this.primaryReads.get(id) !== read) {
+            return flow
+        }
+        if (flow) {
+            this.lazyLoader.markForRefresh(id)
+        }
+        this.rememberPrimaryResult(id, flow)
+        return flow
+    }
+
+    private rememberedPrimaryResult(id: HogFlow['id']): HogFlow | null | undefined {
+        const remembered = this.primaryResults.get(id)
+        if (remembered === undefined) {
+            return undefined
+        }
+        if (remembered.until > Date.now()) {
+            return remembered.flow
+        }
+        this.primaryResults.delete(id)
+        return undefined
+    }
+
+    private rememberPrimaryResult(id: HogFlow['id'], flow: HogFlow | null): void {
+        this.primaryResults.delete(id)
+        if (this.primaryResults.size >= PRIMARY_RESULT_MAX_SIZE) {
+            const oldest = this.primaryResults.keys().next().value
+            if (oldest !== undefined) {
+                this.primaryResults.delete(oldest)
+            }
+        }
+        this.primaryResults.set(id, { flow, until: Date.now() + PRIMARY_RESULT_TTL_MS })
+    }
+
     public async getHogFlows(ids: HogFlow['id'][]): Promise<Record<HogFlow['id'], HogFlow | null>> {
         return await this.lazyLoader.getMany(ids)
     }
@@ -149,6 +224,10 @@ export class HogFlowManagerService {
     private onHogFlowsReloaded(teamId: Team['id'], hogFlowIds: HogFlow['id'][]): void {
         this.lazyLoaderByTeam.markForRefresh(teamId.toString())
         this.lazyLoader.markForRefresh(hogFlowIds)
+        hogFlowIds.forEach((id) => {
+            this.primaryResults.delete(id)
+            this.primaryReads.delete(id)
+        })
     }
 
     private async fetchTeamHogFlows(teamIds: string[]): Promise<Record<string, HogFlowTeamInfo[]>> {
@@ -173,11 +252,14 @@ export class HogFlowManagerService {
         return byTeam
     }
 
-    private async fetchHogFlows(ids: string[]): Promise<Record<string, HogFlow | undefined>> {
+    private async fetchHogFlows(
+        ids: string[],
+        use: PostgresUse = PostgresUse.COMMON_READ
+    ): Promise<Record<string, HogFlow | undefined>> {
         logger.debug('[HogFlowManager]', 'Fetching hog flows', { ids })
 
         const response = await this.postgres.query<HogFlow>(
-            PostgresUse.COMMON_READ,
+            use,
             `SELECT ${HOG_FLOW_FIELDS.join(', ')} FROM posthog_hogflow WHERE id = ANY($1)`,
             [ids],
             'fetchHogFlows'
@@ -202,7 +284,18 @@ export class HogFlowManagerService {
                     }
                 }
             }
-            this.mergeEncryptedInputs(item)
+            try {
+                this.mergeEncryptedInputs(item)
+            } catch (error) {
+                // A throw here would fail the batched load for every flow in it. Only this flow is left
+                // out, because serving it without its secrets would skip a webhook trigger's auth check.
+                logger.warn('[HogFlowManager]', 'Could not merge encrypted inputs - flow is left out', {
+                    hogFlowId: item.id,
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                })
+                captureException(error)
+                return acc
+            }
             acc[item.id] = item
             return acc
         }, {})

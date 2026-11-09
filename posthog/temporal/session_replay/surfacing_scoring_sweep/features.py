@@ -54,6 +54,9 @@ ID_COLUMNS: tuple[str, ...] = ("team_id", "session_id", "distinct_id", "min_firs
 _NUMERIC = "iuf"
 _FLOAT = "f"
 
+# XGBoost casts features to float32, so a finite float64 above this still reaches it as inf.
+_FLOAT32_MAX = float(np.finfo(np.float32).max)
+
 
 @dataclass(frozen=True)
 class FeatureSpec:
@@ -244,10 +247,10 @@ def validate_features(df: pd.DataFrame, *, feature_names: tuple[str, ...]) -> No
 def out_of_contract_row_mask(df: pd.DataFrame, *, feature_names: tuple[str, ...]) -> pd.Series:
     """Boolean mask of rows whose feature values break the trained contract.
 
-    Flags +/-inf (a feature-engineering bug — division returning inf) and
-    values outside `FEATURE_RANGES` bounds. NaN passes — XGBoost handles it
-    natively, and our SQL deliberately produces NULL (→ NaN) when
-    denominators are zero.
+    Flags +/-inf (a feature-engineering bug — division returning inf), values
+    that overflow float32, and values outside `FEATURE_RANGES` bounds. NaN
+    passes — XGBoost handles it natively, and our SQL deliberately produces
+    NULL (→ NaN) when denominators are zero.
 
     Replay events are client-controlled, so a single crafted session can
     produce an out-of-range derived feature. Flagging per-row lets callers
@@ -262,8 +265,8 @@ def out_of_contract_row_mask(df: pd.DataFrame, *, feature_names: tuple[str, ...]
         series: pd.Series = df.loc[:, name]
         spec = FEATURE_RANGES[name]
         if series.dtype.kind == "f":
-            arr = series.to_numpy()
-            mask |= ~(np.isfinite(arr) | np.isnan(arr))
+            # NaN compares False, so it passes; +/-inf compares True.
+            mask |= np.abs(series.to_numpy()) > _FLOAT32_MAX
         if spec.min_value is not None:
             mask |= series.lt(spec.min_value).fillna(False)
         if spec.max_value is not None:

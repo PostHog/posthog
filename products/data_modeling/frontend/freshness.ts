@@ -37,10 +37,12 @@ export function modelsBehindSchedule(nodes: DataModelingNode[], now: number): Be
     const behind: BehindScheduleModel[] = []
 
     for (const node of nodes) {
-        if (!node.sync_interval || !MATERIALIZING_TYPES.has(node.type)) {
+        // A downstream view can make a model run more often than its own setting.
+        const runsAt = node.sync_interval ? (node.effective_sync_interval ?? node.sync_interval) : undefined
+        if (!runsAt || !MATERIALIZING_TYPES.has(node.type)) {
             continue
         }
-        const intervalSeconds = SYNC_INTERVAL_SECONDS[node.sync_interval]
+        const intervalSeconds = SYNC_INTERVAL_SECONDS[runsAt]
         if (!intervalSeconds) {
             continue
         }

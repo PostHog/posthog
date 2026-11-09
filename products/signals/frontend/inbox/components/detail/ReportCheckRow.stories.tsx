@@ -99,7 +99,13 @@ function ChecksSection({
         >
             <div className="flex flex-col gap-1.5">
                 {buildReportCheckRows(checks, explanations, reportStatus).map((row) => (
-                    <ReportCheckRow key={row.check.id} row={row} cancelling={false} onCancel={() => undefined} />
+                    <ReportCheckRow
+                        key={row.check.id}
+                        row={row}
+                        cancelling={false}
+                        onCancel={() => undefined}
+                        onSuggestMetric={() => undefined}
+                    />
                 ))}
             </div>
         </DetailSection>
@@ -174,14 +180,28 @@ export const Monitoring: Story = {
                 },
             }),
             check({
-                id: 'monitoring-paused',
+                id: 'monitoring-agent',
                 title: 'No new reports of the export timeout',
                 soak_minutes: 1440,
                 next_run_at: '2026-09-22T00:00:00Z',
                 monitoring_timing: {
                     state: 'paused',
+                    final_verification_state: 'monitoring',
                     started_at: '2026-09-21T00:00:00Z',
                     ends_at: '2026-09-22T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+            check({
+                id: 'verifying-agent',
+                title: 'Checkout errors stay at zero after the retry fix',
+                soak_minutes: 1440,
+                next_run_at: '2026-09-21T00:00:00Z',
+                monitoring_timing: {
+                    state: 'paused',
+                    final_verification_state: 'verifying',
+                    started_at: '2026-09-20T00:00:00Z',
+                    ends_at: '2026-09-21T00:00:00Z',
                     next_measurement_at: null,
                 },
             }),

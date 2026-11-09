@@ -25,7 +25,10 @@ SUPPORTED_OAUTH_CREDENTIAL_SOURCES = frozenset(_TRUSTED_OAUTH_METADATA_BY_SOURCE
 
 
 def oauth_credentials_source_is_allowed(source: str, team_id: int) -> bool:
-    return source != "slack_dev_app" or str(team_id) in settings.MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS
+    if source != "slack_dev_app":
+        return True
+    allowed_team_ids = settings.MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS
+    return "*" in allowed_team_ids or str(team_id) in allowed_team_ids
 
 
 def validate_oauth_credentials_source_metadata(source: str, metadata: Mapping[str, object]) -> None:

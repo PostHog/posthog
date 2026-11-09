@@ -32,7 +32,6 @@ import {
     externalDataSourcesResumeCdcCreate,
 } from 'products/warehouse_sources/frontend/generated/api'
 
-import { CDC_SOURCE_TYPES } from '../../../shared/cdc'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 type ManagementMode = 'posthog' | 'self_managed'
@@ -151,8 +150,9 @@ function confirmThen(opts: {
 
 export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { sourceFieldConfig } = useValues(sourceSettingsLogic)
 
-    if (!CDC_SOURCE_TYPES.includes(source.source_type)) {
+    if (!sourceFieldConfig?.cdcEngine) {
         return null
     }
     if (source.access_method !== 'warehouse') {

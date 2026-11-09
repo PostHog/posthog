@@ -95,6 +95,7 @@ class TestEffortInstrumentation:
             return {"ok": True}
 
         await handle_llm_request(
+            product="django",
             request_data=request_data,
             user=authenticated_user,
             model="test-model",

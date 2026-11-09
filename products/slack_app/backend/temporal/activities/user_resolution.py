@@ -2,6 +2,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.workspace_integrations import workspace_integrations
 from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionCommandWorkflowInputs
 
 
@@ -10,7 +11,7 @@ from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionCom
 def resolve_posthog_code_slack_command_user_activity(
     inputs: PostHogCodeSlackMentionCommandWorkflowInputs,
 ) -> int | None:
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import resolve_posthog_user_from_event
 
@@ -22,13 +23,8 @@ def resolve_posthog_code_slack_command_user_activity(
     if not channel or not slack_user_id or not inputs.integration_ids:
         return None
 
-    candidates = list(
-        Integration.objects.filter(
-            id__in=inputs.integration_ids,
-            kind="slack",
-            integration_id=inputs.slack_team_id,
-        ).select_related("team", "team__organization")
-    )
+    wanted_ids = set(inputs.integration_ids)
+    candidates = [row for row in workspace_integrations(inputs.slack_team_id) if row.id in wanted_ids]
     if not candidates:
         return None
 

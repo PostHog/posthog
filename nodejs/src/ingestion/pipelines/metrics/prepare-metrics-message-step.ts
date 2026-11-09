@@ -2,7 +2,6 @@ import { Message } from 'node-rdkafka'
 
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { TeamManager } from '~/common/utils/team-manager'
-import { ChunkProcessingStep } from '~/ingestion/framework/builders'
 import { isOkResult } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
@@ -14,15 +13,6 @@ import { MetricsHeaders, createParseMetricsHeadersStep } from './parse-metrics-h
 import { createResolveMetricsTeamStep } from './resolve-metrics-team-step'
 
 const RESOLVE_TEAM_RETRY = { tries: 3, sleepMs: 100, name: 'resolve_metrics_team' }
-
-/** The framework instruments a chunk step once per chunk, and per-message instrumentation costs more than reading the headers. */
-export function perMessage<T, U, R extends string = never>(
-    step: ProcessingStep<T, U, R>
-): ChunkProcessingStep<T, U, R> {
-    const chunkStep: ChunkProcessingStep<T, U, R> = (values) => Promise.all(values.map((value) => step(value)))
-    Object.defineProperty(chunkStep, 'name', { value: step.name })
-    return chunkStep
-}
 
 export function createPrepareMetricsMessageStep<T extends { message: Message; usage: MetricsUsageAccumulator }>(
     teamManager: Pick<TeamManager, 'getTeam' | 'getTeamByToken'>,

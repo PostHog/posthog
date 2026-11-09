@@ -19,7 +19,14 @@ const acceptedQueries = [
     },
     {
         shape: 'wrapped DataVisualizationNode',
-        query: { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'select 1' } },
+        query: {
+            kind: 'DataVisualizationNode',
+            source: { kind: 'HogQLQuery', query: 'select 1 as value' },
+            chartSettings: { legendPosition: 'bottom', showAnnotations: true },
+            tableSettings: {
+                columns: [{ column: 'value', settings: { display: { description: 'Value in USD' } } }],
+            },
+        },
     },
     {
         shape: 'BI worksheet',

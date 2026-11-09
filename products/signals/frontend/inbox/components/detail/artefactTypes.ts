@@ -49,6 +49,13 @@ export interface NoteContent {
     author?: string
 }
 
+export interface ScoutNoteLeftContent {
+    note: string
+    /** Blank when the note went to every scout. */
+    skill_name: string
+    scout_note_id: string
+}
+
 export interface SignalFindingContent {
     signal_id: string
     relevant_code_paths?: string[]
@@ -160,7 +167,13 @@ export interface CheckExpiredContent extends CheckLifecycleContent {
 }
 
 export interface CheckCancelledContent extends CheckLifecycleContent {
-    reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research' | 'replaced_by_request' | 'no_check_lane'
+    reason?:
+        | 'stopped_by_person'
+        | 'stopped_by_scout'
+        | 'replaced_by_research'
+        | 'replaced_by_request'
+        | 'no_check_lane'
+        | 'monitoring_completed'
 }
 
 export interface TitleChangeContent {
@@ -346,6 +359,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     commit: 'Commit pushed',
     task_run: 'Task run',
     note: 'Note added',
+    scout_note_left: 'Note left for the scouts',
     priority_judgment: 'Priority assessed',
     actionability_judgment: 'Actionability assessed',
     safety_judgment: 'Safety assessed',

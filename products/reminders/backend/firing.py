@@ -14,7 +14,7 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
-from products.reminders.backend.constants import RESOURCE_MODELS
+from products.reminders.backend.constants import RESOURCE_LOOKUPS
 from products.reminders.backend.models import Reminder
 from products.reminders.backend.scheduling import compute_next_fire_at, resolve_timezone
 
@@ -27,10 +27,10 @@ MAX_CATCHUP_ITERATIONS = 1000
 def _build_source_url(reminder: Reminder) -> str:
     if reminder.team is None or not (reminder.resource_type and reminder.resource_id):
         return ""
-    mapping = RESOURCE_MODELS.get(reminder.resource_type)
+    mapping = RESOURCE_LOOKUPS.get(reminder.resource_type)
     if not mapping:
         return ""
-    _, _, segment = mapping
+    _, segment = mapping
     return f"/project/{reminder.team.project_id}/{segment}/{reminder.resource_id}"
 
 
