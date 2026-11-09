@@ -935,6 +935,7 @@ describe('SourceWebhooksConsumer', () => {
                     status: HogFlow['status']
                     token: 'valid' | 'none' | 'other workflow' | 'other user'
                     malformedId?: boolean
+                    variables?: unknown
                 }
                 it.each<[string, RefusalCase, number]>([
                     ['without a token', { teamOffset: 0, trigger: 'manual', status: 'active', token: 'none' }, 401],
@@ -960,6 +961,11 @@ describe('SourceWebhooksConsumer', () => {
                         { teamOffset: 0, trigger: 'manual', status: 'active', token: 'valid', malformedId: true },
                         400,
                     ],
+                    [
+                        'variables that are not an object',
+                        { teamOffset: 0, trigger: 'manual', status: 'active', token: 'valid', variables: ['a'] },
+                        400,
+                    ],
                 ])('refuses to run %s', async (_name, options, expectedStatus) => {
                     const target =
                         options.trigger === 'webhook' ? hogFlow : await buildManualHogFlow({ status: options.status })
@@ -972,7 +978,11 @@ describe('SourceWebhooksConsumer', () => {
                         'other user': { teamId, hogFlowId: target.id, userId: 'someone-else@example.com' },
                     }[options.token]
 
-                    const res = await doManualRequest(teamId, hogFlowId, { user_id: 'user@example.com' }, tokenClaims)
+                    const body = {
+                        user_id: 'user@example.com',
+                        ...('variables' in options ? { variables: options.variables } : {}),
+                    }
+                    const res = await doManualRequest(teamId, hogFlowId, body, tokenClaims)
 
                     expect(res.status).toEqual(expectedStatus)
                     expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
