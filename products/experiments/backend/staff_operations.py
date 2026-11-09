@@ -355,6 +355,7 @@ def fix_malformed_properties_by_id(experiment_id: int) -> bool:
 
 
 def get_recalculation(recalculation_id: str) -> StaffRecalculation | None:
+    # nosemgrep: idor-lookup-without-team -- staff-only console lookup by run id behind admin_view
     recalc = ExperimentMetricsRecalculation.objects.unscoped().filter(id=recalculation_id).first()
     return _to_staff_recalculation(recalc, with_results=True) if recalc is not None else None
 
@@ -416,6 +417,7 @@ def start_recalculation(experiment_id: int, user: User, *, retry_failures: bool)
 
 def mark_recalculation_terminal(recalculation_id: str, *, failed: bool, user: User) -> TerminalMarkOutcome:
     """Stamp a terminal status on a run that has not finished, and cancel its workflow."""
+    # nosemgrep: idor-lookup-without-team -- staff-only console lookup by run id behind admin_view
     recalc = ExperimentMetricsRecalculation.objects.unscoped().filter(id=recalculation_id).first()
     if recalc is None:
         return TerminalMarkOutcome.NOT_FOUND
