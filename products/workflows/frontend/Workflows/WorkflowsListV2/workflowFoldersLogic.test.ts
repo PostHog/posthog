@@ -478,6 +478,29 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).toContain('Drafts')
     })
 
+    it('offers a retry when files keep changing through every folder load', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        let changes = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('search') === 'type:hog_flow') {
+                        changes++
+                        projectTreeDataLogic.actions.createSavedItem({
+                            id: `draft-${changes}`,
+                            path: `Draft ${changes}`,
+                            type: 'folder',
+                        })
+                    }
+                    return [200, paginated([])]
+                },
+            },
+        })
+        logic.actions.loadBrowser()
+        await waitFor(() => expect(logic.values.browserReadyLoading).toBe(false))
+        expect(logic.values.browserLoadFailed).toBe(true)
+    })
+
     it('moves workflow files and drops folders to match a full reload', async () => {
         await expectLogic(logic).toFinishAllListeners()
         useMocks({

@@ -511,8 +511,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         cache.fileIndex = new Map(entries.filter(isIndexed).map((entry) => [entry.id, entry]))
                         return true
                     }
-                    // Files changed during every load, so the shared tree already holds the newest state.
-                    return true
+                    throw new Error('Project files kept changing while the folders loaded')
                 },
             },
         ],
