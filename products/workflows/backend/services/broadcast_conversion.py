@@ -1,5 +1,6 @@
 """Moving a workflow that only sends one email to a batch audience over to the broadcasts product."""
 
+import re
 from typing import Final, Optional, cast
 from uuid import UUID
 
@@ -15,9 +16,10 @@ from products.workflows.backend.services.hog_flow_writes import field_values
 from products.workflows.backend.services.sandbox_sender import sandbox_sender_ids
 
 BROADCAST_CONVERSION_CANDIDATE_LIMIT: Final = 100
+_LITERAL_ID_TEXT: Final = re.compile(r"\s*[0-9]{1,19}\s*")
 
 
-def is_convertible_to_broadcast(flow: HogFlow) -> bool:
+def is_convertible_to_broadcast(flow: HogFlow, sandbox_ids: set[str]) -> bool:
     """Whether the broadcast editor can own this workflow without losing anything it holds.
 
     Mirrors canEditInWizard in the frontend: one trigger, one email and one exit, joined trigger to email
@@ -40,9 +42,15 @@ def is_convertible_to_broadcast(flow: HogFlow) -> bool:
         return False
     if not _joins_in_order(flow, trigger.get("id"), email.get("id"), exit_step.get("id")):
         return False
-    # Broadcasts can't send through the sandbox sender, so a workflow that uses it stays a workflow.
-    sender_ids = _sender_ids(_email_sender(email))
-    return not (sender_ids and sender_ids & sandbox_sender_ids(flow.team_id))
+    # Broadcasts can't send through the sandbox sender, so a workflow that may use it stays a workflow.
+    return not _may_send_through_sandbox(_email_sender(email), sandbox_ids)
+
+
+def _may_send_through_sandbox(sender: object, sandbox_ids: set[str]) -> bool:
+    if not sandbox_ids:
+        return False
+    sender_ids = _sender_ids(sender)
+    return sender_ids is None or bool(sender_ids & sandbox_ids)
 
 
 def _email_sender(email_step: dict) -> object:
@@ -53,22 +61,34 @@ def _email_sender(email_step: dict) -> object:
     return value
 
 
-def _sender_ids(sender: object) -> set[str]:
+def _sender_ids(sender: object) -> set[str] | None:
     """The integrations a `from` value sends from, as the worker picks them: a non-empty rotation replaces `integrationId`.
 
-    Ids are compared as strings, since stored ids can be ints, floats or strings.
+    Ids are compared as strings, since stored ids can be ints, floats or strings. None when the value holds
+    template text, which the worker resolves at send time, so it can name any sender.
     """
+    if isinstance(sender, str) and sender.strip():
+        return None
     if not isinstance(sender, dict):
         return set()
     rotation = sender.get("integrationIds")
+    if isinstance(rotation, str) and rotation.strip():
+        return None
     ids = rotation if isinstance(rotation, list) and rotation else [sender.get("integrationId")]
-    return {_integration_id_key(integration_id) for integration_id in ids if integration_id is not None}
+    keys = [_literal_integration_id(integration_id) for integration_id in ids if integration_id is not None]
+    return None if None in keys else {key for key in keys if key is not None}
 
 
-def _integration_id_key(integration_id: object) -> str:
+def _literal_integration_id(integration_id: object) -> str | None:
+    if isinstance(integration_id, bool):
+        return None
+    if isinstance(integration_id, int):
+        return str(integration_id)
     if isinstance(integration_id, float) and integration_id.is_integer():
         return str(int(integration_id))
-    return str(integration_id)
+    if isinstance(integration_id, str) and _LITERAL_ID_TEXT.fullmatch(integration_id):
+        return str(int(integration_id))
+    return None
 
 
 def _joins_in_order(flow: HogFlow, trigger_id: object, email_id: object, exit_id: object) -> bool:
@@ -164,7 +184,7 @@ def list_broadcast_conversion_candidates(
             flow
             for flow in page
             if _joins_in_order(flow, flow._trigger_id, flow._email_id, flow._exit_id)
-            and not _sender_ids(flow._email_sender) & team_sandbox_sender_ids
+            and not _may_send_through_sandbox(flow._email_sender, team_sandbox_sender_ids)
         ]
         if user_access_control is not None:
             # Converting needs editor access, so a workflow the caller can only view is not offered.
@@ -180,9 +200,10 @@ def list_broadcast_conversion_candidates(
 
 def convert_workflow_to_broadcast(*, team_id: int, hog_flow_id: UUID, actor: WorkflowActor) -> bool:
     """Hand the workflow to the broadcasts product and log it. Returns False when it cannot become one."""
+    team_sandbox_sender_ids = sandbox_sender_ids(team_id)
     with transaction.atomic():
         flow = HogFlow.objects.select_for_update().filter(team_id=team_id, pk=hog_flow_id).first()
-        if flow is None or not is_convertible_to_broadcast(flow):
+        if flow is None or not is_convertible_to_broadcast(flow, team_sandbox_sender_ids):
             return False
         before = field_values(flow)
         flow.origin_product = HogFlow.OriginProduct.BROADCASTS
