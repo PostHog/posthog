@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, Link, Spinner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -16,7 +16,7 @@ interface InboxActivationPanelProps {
 }
 
 export function InboxActivationPanel({ hasReports = false }: InboxActivationPanelProps): JSX.Element {
-    const { savedState, sourceNames, generalScout, suggestions, recommendationsReady, pollingExpired, currentTeamId } =
+    const { savedState, generalScout, suggestions, recommendationsReady, pollingExpired, currentTeamId } =
         useValues(inboxActivationLogic)
     // The first report is the main content while that state exists, as a progress card and then as a
     // report row under this panel, so the panel starts folded to its header.
@@ -50,12 +50,6 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
             </div>
             {expanded && (
                 <>
-                    <div className="flex flex-wrap gap-2">
-                        {sourceNames.map((name) => (
-                            <LemonTag key={name}>{name}</LemonTag>
-                        ))}
-                        {generalScout?.enabled && <LemonTag type="success">General scout</LemonTag>}
-                    </div>
                     <p className="m-0 text-sm text-secondary">
                         Sources alert agents to issues as they appear, so they can investigate right away. Scouts
                         explore your code and all your data to uncover issues and connect patterns. Reports arrive with
