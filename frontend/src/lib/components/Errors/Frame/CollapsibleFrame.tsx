@@ -21,7 +21,13 @@ export function CollapsibleFrame({
 }: CollapsibleFrameProps): JSX.Element {
     return (
         <Collapsible variant="container" open={expanded} onOpenChange={onExpandedChange}>
-            <CollapsibleFrameHeader frame={frame} expanded={expanded} record={record} recordLoading={recordLoading} />
+            <CollapsibleFrameHeader
+                frame={frame}
+                expanded={expanded}
+                record={record}
+                recordLoading={recordLoading}
+                onExpandedChange={onExpandedChange}
+            />
             <CollapsibleFrameContent frame={frame} record={record} />
         </Collapsible>
     )
