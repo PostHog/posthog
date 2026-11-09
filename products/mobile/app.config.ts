@@ -59,7 +59,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         slug: 'posthog',
         owner: 'posthog',
         scheme,
-        version: '1.10.0',
+        version: '1.11.0',
         orientation: 'default',
         userInterfaceStyle: 'automatic',
         icon: icons.png,
@@ -125,7 +125,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         },
         plugins: [
             'expo-router',
-            'expo-secure-store',
+            ['expo-secure-store', { configureAndroidBackup: false }],
+            './plugins/withAndroidChartWidgetBackup',
             'expo-notifications',
             'expo-web-browser',
             [

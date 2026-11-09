@@ -233,6 +233,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                             kind: 'email',
                             config,
                         })
+                        actions.setEmailSenderValues(getEmailSenderFromIntegration(integration))
                     }
                     actions.loadIntegrations()
                     actions.setSavedIntegration(integration)
@@ -279,7 +280,9 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         domain: [
             (s) => [s.emailSender],
             (emailSender: EmailSenderFormType): string => {
-                return emailSender.email?.includes('@') ? emailSender.email.split('@')[1] : ''
+                return emailSender.email?.includes('@')
+                    ? emailSender.email.slice(emailSender.email.lastIndexOf('@') + 1)
+                    : ''
             },
         ],
         isDomainVerified: [

@@ -14,7 +14,11 @@ from products.slack_app.backend.logic.onboarding.step import OnboardingContext, 
 from products.slack_app.backend.logic.onboarding.steps import ONBOARDING_STEPS, STEPS_BY_KEY
 from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
-from products.slack_app.backend.services.slack_welcome_messages import ONBOARDING_INTRO_TEXT, build_onboarding_ready
+from products.slack_app.backend.services.slack_welcome_messages import (
+    build_onboarding_ready,
+    onboarding_done_text,
+    onboarding_intro_text,
+)
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.temporal.types import (
     ONBOARDING_DONE_PLAN,
@@ -75,14 +79,18 @@ def _progress_bar(checked: list[_PlannedStep]) -> str:
     return f"{'▰' * finished}{'▱' * (len(checked) - finished)}  {_progress(checked)}"
 
 
-def _root_message(checked: list[_PlannedStep], *, ready: bool, ts: str | None = None) -> SlackAppOnboardingMessage:
+def _root_message(
+    ctx: OnboardingContext, checked: list[_PlannedStep], *, ready: bool, ts: str | None = None
+) -> SlackAppOnboardingMessage:
+    blocks = (
+        [section_block(onboarding_done_text(ctx.slack_user_id))]
+        if ready
+        else [section_block(onboarding_intro_text(ctx.slack_user_id)), context_block(_progress_bar(checked))]
+    )
     return SlackAppOnboardingMessage(
         kind="root",
         text="PostHog is set up" if ready else "Set up PostHog in Slack",
-        blocks=[
-            section_block(ONBOARDING_INTRO_TEXT),
-            context_block(":white_check_mark: Setup done" if ready else _progress_bar(checked)),
-        ],
+        blocks=blocks,
         ts=ts,
         root_status=_progress(checked),
     )
@@ -176,7 +184,7 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
             _PlannedStep(number=number, step=step, status="pending", shown=False)
             for number, step in enumerate(steps, start=1)
         ]
-        root = replace(_root_message(checked, ready=False), planned=[step.key for step in steps])
+        root = replace(_root_message(ctx, checked, ready=False), planned=[step.key for step in steps])
         return SlackAppOnboardingPlan(edits=[], post=root, finished=False, status=_status(checked))
 
     # A step can apply only after the account link, such as AI consent for an org admin. It joins at the end,
@@ -198,11 +206,11 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
     ]
     current = _current(checked)
     if current is None:
-        edits.append(_root_message(checked, ready=True, ts=state.root_ts))
+        edits.append(_root_message(ctx, checked, ready=True, ts=state.root_ts))
         return SlackAppOnboardingPlan(edits=edits, post=_ready_message(ctx, checked), finished=True, status=status)
 
     if state.root_status != _progress(checked):
-        edits.append(_root_message(checked, ready=False, ts=state.root_ts))
+        edits.append(_root_message(ctx, checked, ready=False, ts=state.root_ts))
     message = _step_message(ctx, checked, current)
     current_ts = state.step_ts.get(current.step.key)
     if current_ts is None:

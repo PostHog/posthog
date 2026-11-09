@@ -41,13 +41,17 @@ from products.autoresearch.backend.access import has_report_notebook_access
 from products.autoresearch.backend.dataset.labeling import TrainingSample, build_target_condition
 from products.autoresearch.backend.inference.failures import UnscorableChampion, find_unscorable_champion
 from products.autoresearch.backend.inference.sandbox import _resolve_acting_user, measure_training_sample
+from products.autoresearch.backend.limits import TeamLimits, limits_for_team
 from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.query import INTERACTIVE_QUERY_TIME_LIMIT_S
+from products.autoresearch.backend.task_profiles import REPORT_NOTEBOOK_MCP_SCOPES, TRAINING, TRAINING_MCP_SCOPES
 from products.autoresearch.backend.training.agent_model import agent_run_config_for
+from products.autoresearch.backend.training.artifacts import MAX_ARTIFACT_BYTES
 from products.autoresearch.backend.training.explanation import MAX_TOP_FEATURES
 from products.autoresearch.backend.training.realized_context import (
     RealizedContext,
@@ -59,6 +63,7 @@ from products.tasks.backend.facade import (
     api as tasks_facade,
     cancellation as tasks_cancellation,
 )
+from products.tasks.backend.facade.profiles import TaskRunOptions
 from products.tasks.backend.facade.sandbox import SandboxTemplate
 
 logger = structlog.get_logger(__name__)
@@ -83,17 +88,6 @@ MAX_SUGGESTION_PROMPT_CHARS = 1500
 # Bounds the whole suggestion section, so a pipeline with a long queue cannot fill the
 # agent's context before research begins. The oldest TRY_NEXT suggestions go first.
 MAX_PENDING_SUGGESTIONS = 10
-
-# The agent explores with execute-sql (query:read, insight:read) and writes only through
-# the autoresearch tools. The PostHog MCP server reads /api/users/@me/ to start a session,
-# so without user:read it refuses the connection and the agent gets none of those tools.
-# The brief carries user-authored text, so the token grants nothing beyond that.
-TRAINING_MCP_SCOPES = ["query:read", "insight:read", "user:read", "autoresearch:read", "autoresearch:write"]
-
-# Added only when the report notebook flag is on for the user who starts the run.
-# notebook:write also exposes notebooks-partial-update and notebooks-destroy, so the brief
-# limits the agent to the notebook it creates in this run.
-REPORT_NOTEBOOK_MCP_SCOPES = ["notebook:read", "notebook:write"]
 
 # Task.title is a 255-character column, and a pipeline name and target event can each
 # take all of it.
@@ -474,6 +468,16 @@ def build_agent_description(
           the scoring limits. If it fails, or takes more than half of the scoring time limit, the model
           is not promoted and the previous champion keeps serving.
         - Cost does not change which iteration wins, so keep each hypothesis cheap from the start.
+
+        **Fit limits at completion.** When you complete the run, the backend fits the winning bundle
+        once more. Two limits apply to that fit, and a model that fails either one is not promoted:
+        - `features.sql` runs against the full training population, and must finish inside the
+          {INTERACTIVE_QUERY_TIME_LIMIT_S} s interactive query limit. Check `elapsed_s` in the materialize
+          response, and keep the query well under that limit. Use the pre-filtered, rolled-up shapes above.
+        - The fitted `model.pkl` must stay under {MAX_ARTIFACT_BYTES // (1024 * 1024)} MiB
+          ({MAX_ARTIFACT_BYTES} bytes). Tree ensembles grow fast: bound `n_estimators` (for example 200 or
+          fewer) and `max_depth` (for example 8 or less), or set `min_samples_leaf`, and check the pickle size
+          in your sandbox before you upload.
 
         ### Step 3 — Materialize features, then fit and evaluate (in your sandbox)
 
@@ -944,6 +948,7 @@ def run_training(
     user_id: int | None,
     rescue: bool = False,
     kickoff_reason: str = AutoresearchTrainingRun.KickoffReason.MANUAL,
+    limits: TeamLimits | None = None,
 ) -> AutoresearchTrainingRun:
     """
     Launch a real agent sandbox training run.
@@ -951,6 +956,10 @@ def run_training(
     Creates an AutoresearchTrainingRun (status=RUNNING) and fires Task.create_and_run()
     to start the autoresearch agent. Returns the training run immediately; recipe
     ingestion happens asynchronously when the TaskRun completes.
+
+    The run takes at most the project's ``max_iterations_per_run`` (``../limits.py``), whatever
+    the caller asked for. A caller that holds a lock passes the ``limits`` it read before taking
+    it, because the flag read can call out.
 
     Raises if Temporal is unreachable or the task cannot be created.
     """
@@ -970,6 +979,8 @@ def run_training(
         target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
     )
     agent_config = agent_run_config_for(pipeline)
+    limits = limits or limits_for_team(pipeline.team_id)
+    iteration_budget = min(iteration_budget, limits.max_iterations_per_run)
 
     now = django_timezone.now()
     with transaction.atomic():
@@ -1017,18 +1028,18 @@ def run_training(
             team=pipeline.team,
             title=title[:_TASK_TITLE_MAX_CHARS],
             description=description,
-            origin_product=tasks_facade.TaskOriginProduct.AUTORESEARCH,
+            profile=TRAINING,
             user_id=user_id,
-            repository=None,
-            create_pr=False,
-            mode="background",
-            internal=True,
             # Internal tasks skip team and user run preferences, so without these the run would
             # take whatever the Tasks default is.
-            runtime_adapter=agent_config.runtime_adapter,
-            model=agent_config.model,
-            reasoning_effort=agent_config.reasoning_effort,
-            posthog_mcp_scopes=mcp_scopes,
+            options=TaskRunOptions(
+                adapter=agent_config.runtime_adapter,
+                model=agent_config.model,
+                reasoning_effort=agent_config.reasoning_effort,
+                mcp_scopes=mcp_scopes,
+            ),
+            create_pr=False,
+            mode="background",
             # The autoresearch image is the agent-capable base plus pandas/numpy/
             # scikit-learn/pyarrow at system site. The base image lacks the ML libs; the
             # notebook image has the libs but cannot host the agent server — only this

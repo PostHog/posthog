@@ -47,6 +47,13 @@ jobs:
               uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 2
+                  sparse-checkout: |
+                      /.nvmrc
+                      /services/mcp/scripts/agent-api-diff.ts
+                      /services/mcp/scripts/lib/agent-api-diff.ts
+                      /services/mcp/schema/
+                      /services/mcp/tests/unit/__snapshots__/tool-schemas/
+                  sparse-checkout-cone-mode: false
                   persist-credentials: false
 
             - name: Set up Node.js

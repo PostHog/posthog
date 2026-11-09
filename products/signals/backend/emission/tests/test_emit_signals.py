@@ -1,6 +1,6 @@
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
@@ -51,6 +51,21 @@ from products.signals.backend.spend import signal_id_for
 PIPELINE_MODULE_PATH = "products.signals.backend.emission.pipeline"
 FETCHER_MODULE_PATH = "products.signals.backend.emission.fetchers.data_warehouse"
 ACTIVITY_MODULE_PATH = "products.signals.backend.emission.emit_signals"
+
+
+@pytest.fixture(autouse=True)
+def no_llm_retry_delay(monkeypatch):
+    monkeypatch.setattr(f"{PIPELINE_MODULE_PATH}.LLM_RETRY_INITIAL_DELAY_SECONDS", 0)
+
+
+@pytest.fixture(autouse=True)
+def no_trial() -> Iterator[None]:
+    with (
+        patch(f"{PIPELINE_MODULE_PATH}.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+    ):
+        yield
 
 
 def _make_config(**overrides: Any) -> SignalSourceTableConfig:
@@ -606,21 +621,31 @@ class TestCheckActionability:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "model,expected_output_config",
+        "model,expected_output_config,trial",
         [
-            ("claude-sonnet-5", {"effort": "medium"}),
-            ("claude-sonnet-5-5", {"effort": "medium"}),
-            ("claude-sonnet-4-5", None),
+            ("claude-sonnet-5", {"effort": "medium"}, False),
+            ("claude-sonnet-5-5", {"effort": "medium"}, False),
+            ("claude-sonnet-4-5", None, False),
+            ("claude-sonnet-5", {"effort": "medium"}, True),
         ],
     )
-    async def test_pins_effort_only_on_adaptive_models(self, model, expected_output_config):
+    async def test_pins_effort_only_on_adaptive_models(
+        self, model: str, expected_output_config: dict[str, str] | None, trial: bool
+    ) -> None:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        mock_client.with_options.return_value = mock_client
 
-        with patch(f"{PIPELINE_MODULE_PATH}.LLM_MODEL", model):
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.LLM_MODEL", model),
+            patch(f"{PIPELINE_MODULE_PATH}.requires_trial_accounting", return_value=trial),
+            patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=trial),
+            patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+        ):
             await check_actionability(mock_client, 7, _make_output(), "Is this actionable? {description}")
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs["model"] == model
         assert call_kwargs.get("output_config") == expected_output_config
 
     @pytest.mark.asyncio
@@ -1283,12 +1308,13 @@ class TestEmitActivityTableNameResolution:
         schema.table = table
         schema.source = source
 
-        fetch_mock = AsyncMock(return_value=(schema, MagicMock()))
+        fetch_mock = AsyncMock(return_value=(schema, MagicMock(organization=MagicMock(usage={}))))
 
         with (
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", fetch_mock),
+            patch(f"{ACTIVITY_MODULE_PATH}.is_team_signals_quota_limited", return_value=False),
             patch(f"{ACTIVITY_MODULE_PATH}.afetch_source_config", AsyncMock(return_value={})),
             patch(f"{ACTIVITY_MODULE_PATH}.run_signal_pipeline", new_callable=AsyncMock) as run_mock,
         ):
@@ -1318,7 +1344,7 @@ class TestEmitActivitySourceConfigThreading:
             return []
 
         config = _make_config(record_fetcher=capture_fetcher)
-        team = MagicMock(id=7)
+        team = MagicMock(id=7, organization=MagicMock(usage={}))
         schema = MagicMock()
         schema.table.name = "test_table"
 
@@ -1326,6 +1352,7 @@ class TestEmitActivitySourceConfigThreading:
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", AsyncMock(return_value=(schema, team))),
+            patch(f"{ACTIVITY_MODULE_PATH}.is_team_signals_quota_limited", return_value=False),
             patch(f"{ACTIVITY_MODULE_PATH}.get_data_warehouse_table_name", return_value="test.table"),
             patch(
                 f"{ACTIVITY_MODULE_PATH}.afetch_source_config",

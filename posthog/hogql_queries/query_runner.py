@@ -66,6 +66,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    InboxUsageQuery,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
@@ -74,6 +75,7 @@ from posthog.schema import (
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
+    MCPDashboardQuery,
     MCPHarnessBreakdownQuery,
     MCPMissingCapabilitiesQuery,
     MCPModelBreakdownQuery,
@@ -647,6 +649,7 @@ def enforce_api_queries_budget(team: Team, query: object | None = None) -> None:
 
 
 RunnableQueryNode = Union[
+    InboxUsageQuery,
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,
@@ -680,6 +683,7 @@ RunnableQueryNode = Union[
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
     MetricsQuery,
+    MCPDashboardQuery,
     MCPHarnessBreakdownQuery,
     MCPModelBreakdownQuery,
     MCPProtocolVersionBreakdownQuery,
@@ -724,6 +728,13 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
             user=user,
+        )
+
+    if kind == "InboxUsageQuery":
+        from products.signals.backend.facade.spend import InboxUsageQueryRunner
+
+        return InboxUsageQueryRunner(
+            query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers, user=user
         )
 
     if kind == "TrendsQuery":
@@ -1389,6 +1400,17 @@ def get_query_runner(
 
         return MCPProtocolVersionBreakdownQueryRunner(
             query=cast(MCPProtocolVersionBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPDashboardQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPDashboardQueryRunner
+
+        return MCPDashboardQueryRunner(
+            query=cast(MCPDashboardQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

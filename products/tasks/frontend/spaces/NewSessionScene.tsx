@@ -47,6 +47,7 @@ export function NewSessionScene(): JSX.Element {
                                 repositoryConfig={composerRepositoryConfig}
                                 onTaskCreated={sessionStarted}
                                 prefillRequest={prefillRequest}
+                                autoFocus
                             />
                         </div>
                     )}

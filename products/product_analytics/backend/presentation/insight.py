@@ -11,7 +11,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, QuerySet
+from django.db.models import Count, Exists, F, Max, QuerySet, prefetch_related_objects
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -38,7 +38,13 @@ from rest_framework.settings import api_settings
 from rest_framework.utils.urls import replace_query_param
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning, ProductKey, QueryStatus
+from posthog.schema import (
+    AccessControlFilterWarning,
+    BreakdownNotAppliedWarning,
+    DataWarehouseSyncWarning,
+    ProductKey,
+    QueryStatus,
+)
 
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
@@ -584,7 +590,7 @@ class InsightFilterOverrideContext(BaseModel):
 class _InsightResultWarnings(RootModel):
     """Warnings attached to the query response that produced an insight's results."""
 
-    root: list[DataWarehouseSyncWarning | AccessControlFilterWarning]
+    root: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning]
 
 
 RESOLVED_DATE_RANGE_SCHEMA = {
@@ -903,22 +909,39 @@ class InsightSerializer(InsightBasicSerializer):
     @transaction.atomic()
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
-        dashboards_before_change: list[Union[str, dict]] = []
+        # `instance` was read before this transaction and save() writes every field, so a PATCH applied
+        # to it would write back stale values of fields it did not send. A no-key lock serializes writers
+        # without blocking inserts of rows that reference the insight.
         try:
-            # since it is possible to be restoring a soft deleted insight
-            # the state captured before the update has to include soft deleted insights
-            # or we can't capture undeletes to the activity log
-            before_update = Insight.objects_including_soft_deleted.prefetch_related(
-                "tagged_items__tag", "dashboards"
-            ).get(pk=instance.id)
-
-            dashboards_before_change = [describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()]
-            dashboards_before_change = sorted(
-                dashboards_before_change,
-                key=lambda x: -1 if isinstance(x, str) else x["id"],
+            instance.refresh_from_db(
+                from_queryset=Insight.objects_including_soft_deleted.select_related(
+                    "team", "created_by", "last_modified_by"
+                ).select_for_update(no_key=True, of=("self",))
             )
         except Insight.DoesNotExist:
-            before_update = None
+            raise NotFound()
+        # save() regenerates query_metadata only when the query differs from this snapshot.
+        instance._original_query = instance.query
+        # A delete can commit while this request waits for the lock.
+        if instance.deleted and validated_data.get("deleted") is not False:
+            raise NotFound()
+        # refresh_from_db() empties the prefetch cache, so reload the tiles with their dashboards.
+        prefetch_related_objects([instance], tile_permissions_prefetch())
+
+        # since it is possible to be restoring a soft deleted insight
+        # the state captured before the update has to include soft deleted insights
+        # or we can't capture undeletes to the activity log
+        before_update = Insight.objects_including_soft_deleted.prefetch_related("tagged_items__tag", "dashboards").get(
+            pk=instance.id
+        )
+
+        dashboards_before_change: list[Union[str, dict]] = [
+            describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()
+        ]
+        dashboards_before_change = sorted(
+            dashboards_before_change,
+            key=lambda x: -1 if isinstance(x, str) else x["id"],
+        )
 
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False

@@ -6,21 +6,33 @@ import { type InsightApi, readInsight } from '@/api/insights'
 import { runQuery, stableStringify } from '@/api/query'
 import type { ProjectScope } from '@/api/reports'
 import { serverNow } from '@/api/serverClock'
-import { fetchWebOverview, type WebOverviewResponseApi } from '@/api/webAnalytics'
+import {
+    fetchWebOverview,
+    fetchWebQuery,
+    type WebOverviewResponseApi,
+    type WebQueryResponseApi,
+} from '@/api/webAnalytics'
 import {
     DEMO_READ_MS,
     demoAnchor,
     demoCompareResponse,
     demoDashboardResponse,
     demoInsightResponse,
-    demoWebOverviewResponse,
     useDemoViews,
 } from '@/demo/views'
+import { demoWebOverviewResponse, demoWebQueryResponse } from '@/demo/webAnalytics'
 import { sleep } from '@/lib/sleep'
 import { dashboardView, phoneTiles } from '@/model/adapters/dashboardView'
 import { failedSnapshot, hasGoodResult, insightSnapshot, isRateLimited } from '@/model/adapters/insightSnapshot'
 import { webOverviewSnapshot } from '@/model/adapters/webOverview'
-import type { DashboardTileView, DashboardView, InsightSnapshot, PinView, WebOverviewSnapshot } from '@/model/views'
+import type {
+    DashboardTileView,
+    DashboardView,
+    Freshness,
+    InsightSnapshot,
+    PinView,
+    WebOverviewSnapshot,
+} from '@/model/views'
 
 import { type FiltersOverride, overrideForTile } from './rangeOverride'
 import type { ReadResult, RefreshMode } from './refreshQueue'
@@ -274,13 +286,14 @@ export function compareItem(context: ItemContext, base: InsightSnapshot, query: 
     }
 }
 
-export function webOverviewQueryKey(scope: ProjectScope | null, query: Record<string, unknown>): QueryKey {
+/** The cache entry of any web analytics query. The query's JSON tells the overview, trend and tables apart. */
+export function webQueryKey(scope: ProjectScope | null, query: Record<string, unknown>): QueryKey {
     return viewsKeys.webOverview(scope, stableStringify(query))
 }
 
 /** The web analytics overview: `POST query/` with a `WebOverviewQuery`. */
 export function webOverviewItem(context: ItemContext, query: Record<string, unknown>): RefreshItem {
-    const queryKey = webOverviewQueryKey(context.scope, query)
+    const queryKey = webQueryKey(context.scope, query)
     const key = freshnessKey(queryKey)
     return {
         key,
@@ -304,6 +317,42 @@ export function webOverviewItem(context: ItemContext, query: Record<string, unkn
                 return outcomeOf(response)
             } catch (error) {
                 recordFailure<WebOverviewSnapshot>(context, queryKey, key, error)
+                throw error
+            }
+        },
+    }
+}
+
+/** The trend, a breakdown table, retention or active hours. `build` turns the answer into the item's snapshot. */
+export function webQueryItem<T extends Freshness>(
+    context: ItemContext,
+    query: Record<string, unknown>,
+    build: (response: WebQueryResponseApi, previous: T | undefined, readAt: number) => T
+): RefreshItem {
+    const queryKey = webQueryKey(context.scope, query)
+    const key = freshnessKey(queryKey)
+    return {
+        key,
+        family: 'query',
+        windowMode: 'blocking',
+        snapshot: () => getSnapshot<T>(context.client, queryKey),
+        read: async (mode, signal) => {
+            const previous = getSnapshot<T>(context.client, queryKey)
+            try {
+                const response = context.demo
+                    ? await demoRead(key, mode, signal, (refreshedAt) =>
+                          demoWebQueryResponse(query, demoAnchor(), refreshedAt)
+                      )
+                    : await fetchWebQuery(query, {
+                          refresh: mode === 'force_blocking' ? 'force_blocking' : 'blocking',
+                          signal,
+                      })
+                rejectAborted(signal)
+                setSnapshot(context.client, queryKey, build(response, previous, Date.now()))
+                recordResponseStatus(key, response)
+                return outcomeOf(response)
+            } catch (error) {
+                recordFailure<T>(context, queryKey, key, error)
                 throw error
             }
         },

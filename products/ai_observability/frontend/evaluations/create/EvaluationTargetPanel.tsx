@@ -37,6 +37,7 @@ export function EvaluationTargetPanel(): JSX.Element | null {
         <div className="flex flex-col gap-3">
             <div className="grid grid-cols-1 items-start gap-4 @min-[40rem]/evaluation:grid-cols-2">
                 <div className="flex flex-col gap-3 min-w-0">
+                    <h4 className="mb-0 text-sm font-semibold">Choose what one run covers</h4>
                     <EvaluationChoiceCards<EvaluationTarget>
                         label="What one run covers"
                         value={target}

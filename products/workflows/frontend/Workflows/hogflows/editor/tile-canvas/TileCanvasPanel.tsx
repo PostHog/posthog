@@ -20,5 +20,5 @@ export function TileCanvasPanel(): JSX.Element {
                   ),
               }
             : undefined
-    return <HogFlowEditorPanel layout="docked" onClose={closePanel} view={historyView} />
+    return <HogFlowEditorPanel onClose={closePanel} view={historyView} />
 }

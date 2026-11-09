@@ -44,6 +44,8 @@ interface Step {
     parts: SentencePart[]
     /** The checklist items this step completes. */
     checks: ChecklistKey[]
+    /** Shown as optional in the stepper, because the evaluation works without it. */
+    optional?: boolean
 }
 
 const STEPS: Step[] = [
@@ -87,13 +89,11 @@ const STEPS: Step[] = [
         key: 'reports',
         title: 'Reports',
         heading: 'Reports',
-        description: [
-            'An agent reads the results and writes up what changed, with examples.',
-            'Choose how often a report arrives and where it goes.',
-        ],
+        description: ['An agent writes up what changed in the results, with examples.'],
         hoggie: pngHoggie(reporterPng),
         parts: ['reports'],
         checks: [],
+        optional: true,
     },
     {
         key: 'create',
@@ -240,6 +240,7 @@ export function EvaluationFormSteps({
                                 <span className={cn('text-sm', current ? 'font-semibold' : 'text-secondary')}>
                                     {candidate.title}
                                 </span>
+                                {candidate.optional && <span className="text-xs text-secondary">Optional</span>}
                             </button>
                         </Fragment>
                     )

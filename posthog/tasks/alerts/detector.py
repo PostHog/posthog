@@ -12,13 +12,14 @@ from posthog.tasks.alerts.trends import TrendResult, _drop_incomplete_current_in
 # is sized here like every other type, and the judge imports these so the two cannot drift.
 LLM_DETECTOR_MIN_POINTS = 5
 
-# How many points the AI judge sees for each insight interval: about a week of hours, a
-# quarter of days, a year of weeks, two years of months. A series with no interval (a SQL
-# alert) gets the daily size.
+# How many points the AI judge sees for each insight interval: a week of hours plus the current
+# hour, a quarter of days, a year of weeks, two years of months. The extra hour puts the same
+# hour on the same weekday a week earlier in view. A series with no interval (a SQL alert) gets
+# the daily size.
 LLM_DETECTOR_DEFAULT_LOOKBACK = 90
 LLM_DETECTOR_LOOKBACK_BY_INTERVAL: dict[str, int] = {
     IntervalType.MINUTE.value: 180,
-    IntervalType.HOUR.value: 168,
+    IntervalType.HOUR.value: 169,
     IntervalType.DAY.value: 90,
     IntervalType.WEEK.value: 52,
     IntervalType.MONTH.value: 24,

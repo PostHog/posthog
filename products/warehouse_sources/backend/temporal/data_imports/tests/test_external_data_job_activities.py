@@ -344,8 +344,18 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
 
 # transaction=True commits the fixture rows: the activity resolves the schema through
 # database_sync_to_async_pool, whose pool-thread connection can't see a test transaction.
+@parameterized.expand(
+    [
+        ("plain text", "could not create the sync job", "could not create the sync job"),
+        # Raw driver/vendor text can carry a NUL byte, which Postgres text columns reject
+        # outright and would otherwise crash this save with a DataError.
+        ("nul byte stripped", "could not create\x00 the sync job", "could not create the sync job"),
+    ]
+)
 @pytest.mark.django_db(transaction=True)
-def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
+def test_failed_finalization_with_no_job_resets_stale_running_schema(
+    _name: str, latest_error: str, expected_latest_error: str
+) -> None:
     # When an early activity fails before the job row is committed, no later finalization can
     # repaint the schema, so the Running status painted at trigger time would stick forever.
     org = Organization.objects.create(name="org")
@@ -363,7 +373,7 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
         source_id=str(source.id),
         status=ExternalDataJob.Status.FAILED,
         internal_error=None,
-        latest_error="could not create the sync job",
+        latest_error=latest_error,
         workflow_run_id="run-id-with-no-job",
     )
 
@@ -382,7 +392,7 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
     mock_capture_exception.assert_not_called()
     schema.refresh_from_db()
     assert schema.status == ExternalDataSchema.Status.FAILED
-    assert schema.latest_error == "could not create the sync job"
+    assert schema.latest_error == expected_latest_error
 
 
 # transaction=True for the same reason as the test above: the activity resolves the source through

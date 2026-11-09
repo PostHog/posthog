@@ -183,7 +183,11 @@ export function ExperimentScannerEntryPoint({
     // Straight into the wizard: the experiment fixes the type, so there is no template to pick.
     const setUpUrl = combineUrl(
         urls.replayVisionScannerDetails('new'),
-        experimentScannerParams({ experimentId: experiment.id as number, variantKey })
+        // Pinned: the editor reports this `entry_point` on replay_vision_scanner_created.
+        {
+            ...experimentScannerParams({ experimentId: experiment.id as number, variantKey }),
+            entry_point: 'experiment_recordings_tab',
+        }
     ).url
 
     if (linkedScannersLoading) {

@@ -62,7 +62,7 @@ export type BoxPlotTooltipContext<Meta = unknown> = TooltipContext<BoxPlotAdapte
 /** Chart-level config. `axisOrientation: 'horizontal'` lists the labels down the y-axis and draws
  *  the value axis along x, which suits a few long boxes better than a row of narrow columns. */
 export interface BoxPlotConfig extends ChartConfig {
-    legend?: ChartLegendConfig
+    legend?: Omit<ChartLegendConfig, 'table'>
     /** Mean marker radius in CSS pixels. Defaults to 3. */
     meanRadius?: number
     /** Whisker cap width as a fraction of the box width. Defaults to 0.6. */

@@ -17,6 +17,7 @@ export interface SpaceTaskComposerProps {
     repositoryConfig: SpaceComposerRepositoryConfig
     onTaskCreated: (sessionId: string) => void
     focusRequest?: number
+    autoFocus?: boolean
     prefillRequest?: ComposerPrefillRequest | null
 }
 
@@ -27,6 +28,7 @@ export function SpaceTaskComposer({
     repositoryConfig,
     onTaskCreated,
     focusRequest,
+    autoFocus = false,
     prefillRequest,
 }: SpaceTaskComposerProps): JSX.Element {
     return (
@@ -38,7 +40,7 @@ export function SpaceTaskComposer({
             composerOverride={SPACE_COMPOSER_OVERRIDE}
             onTaskCreated={onTaskCreated}
             focusRequest={focusRequest}
-            autoFocus={false}
+            autoFocus={autoFocus}
             prefillRequest={prefillRequest}
             fallback={<QuillTaskComposerSkeleton />}
         />

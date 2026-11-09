@@ -35,7 +35,7 @@ Both are `ReplacingMergeTree` (version column `computed_at`), sharded by `sipHas
 - **Population**: the `web_dimensional_precompute_job` Dagster job, every 20 minutes (`products/web_analytics/dags/web_dimensional_precompute.py`).
   For each team on a region-scoped allowlist it drives `ensure_precomputed` over a rolling 92-day window, chunked to one UTC day per INSERT.
   92 UTC days hold the start of a `-90d` read in every team timezone.
-  Every window is a `PreaggregationJob` (Postgres) with a `job_id` and a TTL by age (today 1h, ≤2 days 1 day, older 90 days); re-runs recompute only expired windows.
+  Every window is a `PreaggregationJob` (Postgres) with a `job_id` and a TTL by age (today 45 minutes, ≤2 days 1 day, older 90 days plus a stable per-day offset of up to 7 days); re-runs recompute only expired windows. The offset spreads older days over different runs, so each run rebuilds a few of them. Each run builds both tables for a day, newest day first.
   The TTL bands start at UTC midnight, like the windows, so the current UTC day keeps its 1h TTL in every team timezone.
   The allowlist defaults per Cloud region (`DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION`) and is overridable via `WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS`; an empty list disables the job.
   The inserts carry the legacy job's memory and time ceilings, because one UTC day of a very large team outgrew the interactive defaults (#117339).

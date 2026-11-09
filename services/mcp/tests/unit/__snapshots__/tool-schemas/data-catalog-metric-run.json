@@ -17,6 +17,11 @@
         "name": {
             "type": "string"
         },
+        "offset": {
+            "description": "Rows to skip, to read the page after a run that returned has_more. Pass next_offset from that run. Only HogQLQuery metrics accept it. Runs made with a personal or project API key are rejected.",
+            "minimum": 0,
+            "type": "number"
+        },
         "query_id": {
             "description": "Client-supplied id to correlate or cancel the run.",
             "type": "string"

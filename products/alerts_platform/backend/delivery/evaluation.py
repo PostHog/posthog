@@ -27,7 +27,6 @@ from products.alerts_platform.backend.delivery.in_app import InAppTransport
 from products.alerts_platform.backend.delivery.message import INCIDENT_KINDS, AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport, source_incident_key
 from products.alerts_platform.backend.delivery.slack import SlackTransport
-from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy, ThreadKey
@@ -63,16 +62,10 @@ logger = structlog.get_logger(__name__)
 _EMISSION_PROVIDER: Final = "legacy_events"
 _EMISSION_EPISODE: Final = datetime(1970, 1, 1, tzinfo=UTC)
 
-# Whether the platform may contact a team's destinations for an alert its source still owns. Only
-# the platform reads it: the source keeps delivering regardless, so a team with this on receives
-# the legacy message and the native one. An alert the platform owns never reads it, because the
-# source sends nothing for that alert and a flag-eval failure would silence it.
-LIVE_DELIVERY_FLAG: Final = "alert-platform-live-delivery"
-
-# A destination type with no entry here has no native transport, and delivery skips it. Make a
-# team live only when its alerts use no such type. Nothing checks this in code, and one alert
-# delivering natively to one destination and through a HogFunction to another would send two
-# differently worded messages for one event.
+# A destination type with no entry here has no native transport, and delivery skips it. Hand an
+# alert to the platform only when its destinations use no such type. Nothing checks this in code,
+# and one alert delivering natively to one destination and through a HogFunction to another would
+# send two differently worded messages for one event.
 _TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
     DestinationType.SLACK: SlackTransport,
     DestinationType.WEBHOOK: WebhookTransport,
@@ -96,29 +89,12 @@ class DeliveryOutcome:
     emitted_events: int = 0
 
 
-def destinations_are_live(team: Team) -> bool:
-    """Whether this team's destinations are the platform's to contact.
-
-    Fail closed. A flag-eval blip leaves the production logs path as the only deliverer, which
-    is where everything was before this existed. Reading a blip the other way starts sending.
-    """
-    try:
-        return bool(team_flag_enabled(LIVE_DELIVERY_FLAG, team))
-    except Exception:
-        logger.warning(
-            "alerts_platform_live_delivery_flag_check_failed_defaulting_off",
-            team_id=team.id,
-            exc_info=True,
-        )
-        return False
-
-
 class _WebhookTransports:
     """The webhook transport for one evaluation, with the legacy body when the team keeps it.
 
-    The flag is read once, and only when a webhook destination is about to be sent to. Unlike the
-    live-delivery flag, a failed read is a failed delivery: a guess either way sends a body some
-    receiver cannot parse, and a retry costs only time.
+    The flag is read once, and only when a webhook destination is about to be sent to. A failed read
+    is a failed delivery: a guess either way sends a body some receiver cannot parse, and a retry
+    costs only time.
     """
 
     def __init__(self, team: Team, request: AlertDeliveryRequest, announced: EvaluationAnnouncement) -> None:
@@ -167,8 +143,11 @@ class _WebhookTransports:
 
 def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     """Sends what one evaluation decided, to every destination configured for it."""
+    # A source that still owns its alert sends its own message, so the platform sends nothing for it.
+    if not request.owned_by_platform:
+        return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)
     team = Team.objects.filter(id=request.team_id).first()
-    if team is None or not (request.owned_by_platform or destinations_are_live(team)):
+    if team is None:
         return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)
     if delivery_holds.blocks_delivery(request.team_id, request.configuration_id, request.evaluation_key):
         logger.info(
@@ -303,9 +282,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     ),
                     incident_action=action_by_event_id.get(event_id),
                     source_alert_url=request.source_alert_url,
-                    source_incident_key=source_incident_key(request.destination_alert_id)
-                    if request.owned_by_platform
-                    else None,
+                    source_incident_key=source_incident_key(request.destination_alert_id),
                     project=project,
                 )
             except ThreadBusy as error:
@@ -397,9 +374,6 @@ def _split_by_path(
 ) -> tuple[EvaluationAnnouncement, tuple[LegacyEventEmission, ...]]:
     """The transitions HogFunction destinations receive natively, and the ones the source emits for them.
 
-    Only an alert the platform owns can take the HogFunction path. While the source owns it, its
-    own stack emits those events, and emitting them here too would send every message twice.
-
     A transition inside a firing takes the path its firing took first, so a firing and its resolve
     never split across paths. Any other transition takes the path its destinations allow now.
 
@@ -411,7 +385,7 @@ def _split_by_path(
     paths, so nothing is sent twice. Moving an existing alert's destinations onto the platform must
     therefore disable the HogFunctions it copies, or each of them hears every transition as well.
     """
-    if not request.owned_by_platform or delivery_paths.emitter_for(request.source) is None:
+    if delivery_paths.emitter_for(request.source) is None:
         return announced, ()
     if platform_destinations is not None:
         return announced, _emissions(request, announced.transitions)
@@ -552,9 +526,7 @@ class _PlatformDestinations:
 def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinations | None:
     """The alert's destinations when the platform owns them, or None when its source's HogFunctions
     hold them. Read once per delivery, and after the check, so a destination removed in between is
-    not sent to. Only an alert the platform owns can have its destinations on the platform."""
-    if not request.owned_by_platform:
-        return None
+    not sent to."""
     owner = (
         PlatformAlertConfiguration.objects.for_team(request.team_id)
         .filter(id=request.configuration_id)

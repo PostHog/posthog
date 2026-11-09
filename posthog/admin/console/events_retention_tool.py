@@ -5,7 +5,7 @@ from django.core.paginator import Paginator
 from django.http import HttpRequest
 from django.urls import reverse
 
-from posthog.admin.console.panels import Owner
+from posthog.admin.console.deletion_request_panels import CLICKHOUSE
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import Cell, ConsoleTool, GroupRow, Notice, Page, Paging, Row, Table
 from posthog.models.events_retention_config import (
@@ -17,7 +17,6 @@ from posthog.models.events_retention_config import (
 )
 
 TEAMS_PER_PAGE = 100
-CLICKHOUSE = Owner(name="ClickHouse", crest="clickhouse")
 
 
 def _months(value: int | None) -> Cell:
@@ -29,7 +28,7 @@ def _source(retention: ConfiguredEventsRetention) -> str:
         return "Team setting"
     if retention.organization_default_months is not None:
         return "Organization default"
-    return "Not set, events are kept"
+    return "Not set"
 
 
 def _organization_row(retention: ConfiguredEventsRetention) -> GroupRow:
@@ -52,7 +51,7 @@ def _team_row(retention: ConfiguredEventsRetention, now: datetime) -> Row:
     cells = (
         Cell(
             text=f"{retention.team_name} ({retention.team_id})",
-            href=reverse("admin_console_team", kwargs={"team_id": retention.team_id}),
+            href=reverse("admin_console_team", kwargs={"pk": retention.team_id}),
         ),
         Cell(text=f"{retention.billing_months} months"),
         _months(retention.team_months),
@@ -95,8 +94,9 @@ class EventsRetentionTool(ConsoleTool):
                 Notice(
                     text=(
                         "Billing months come from the team's billing plan. They only hide older events in queries. "
-                        "Retention is the staff setting that the monthly cleanup enforces. The cleanup deletes one "
-                        "calendar month at a time, and only when every event in that month is older than the retention."
+                        "Retention is the period set in settings. The cleanup deletes past it every month. The "
+                        "cleanup deletes one calendar month at a time, and only when every event in that month is "
+                        "older than the retention."
                     )
                 ),
                 Table(
