@@ -45,11 +45,15 @@ MOVED_DELETION_REQUEST_ACTIONS = {
 
 
 def legal_document_redirect(request: HttpRequest, pk: UUID, target: str) -> HttpResponse:
+    document_id = pk
     # The old document URLs carry only the document ID, so the organization is looked up to find the panel.
-    organization_id = get_organization_id_for_staff(pk)
+    organization_id = get_organization_id_for_staff(document_id)
     if organization_id is None:
         raise Http404("Unknown legal document")
-    return MovedToConsole.record_redirect("organizations", target)(request, organization_id)
+    # The console form lists every document of the organization, so the ID preselects the one staff picked.
+    query = request.GET.copy()
+    query["document"] = str(document_id)
+    return MovedToConsole.record_redirect("organizations", target)(request, organization_id, query.urlencode())
 
 
 # Every route sits under /admin/, so AdminOAuth2Middleware adds its Google step-up, and admin_view

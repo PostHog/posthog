@@ -39,10 +39,11 @@ class MovedToConsole:
         The old URL pattern names its primary key `pk`, for example `admin/posthog/team/<int:pk>/rebuild-cache/`.
         """
 
-        def view(request: HttpRequest, pk: object) -> HttpResponse:
+        def view(request: HttpRequest, pk: object, query: str | None = None) -> HttpResponse:
             messages.info(request, "This action moved to PostHog Admin. Update your bookmark to this page.")
             page, _, anchor = target.partition("#")
-            query = request.META.get("QUERY_STRING", "")
+            if query is None:
+                query = request.META.get("QUERY_STRING", "")
             return HttpResponseRedirect(
                 f"/admin/console/{plural}/{pk}/{page}"
                 + (f"?{query}" if query else "")

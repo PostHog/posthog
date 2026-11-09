@@ -330,6 +330,20 @@ class ConfirmStep:
         )
 
 
+def _record_form_initial(request: HttpRequest, operation: Operation) -> dict[str, object] | None:
+    # A link preselects a choice, so an old URL that names one of several documents opens the form on it.
+    # Text fields stay empty: a reason taken from a URL would reach the audit log without staff writing it.
+    assert operation.form_class is not None
+    preselected = {
+        name: request.GET[name]
+        for name, field in operation.form_class.base_fields.items()
+        if isinstance(field, forms.ChoiceField) and name in request.GET
+    }
+    if not preselected:
+        return operation.form_initial
+    return {**(operation.form_initial or {}), **preselected}
+
+
 def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str, operation_key: str) -> HttpResponse:
     record_type = _record_type(record)
     obj = get_object_or_404(record_type.queryset(), pk=pk)
@@ -358,7 +372,7 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
         return step.render_expired(request)
     form = None
     if operation.form_class is not None:
-        form = operation.form_class(step.data, initial=operation.form_initial)
+        form = operation.form_class(step.data, initial=_record_form_initial(request, operation))
     title = record_type.title(obj)
     target = OperationTarget(
         kicker="This acts on",

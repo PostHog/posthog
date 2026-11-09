@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from typing import Any
+from uuid import UUID
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -172,17 +174,31 @@ class TestLegalDocumentsConsolePanel(BaseTest):
 
     @parameterized.expand(
         [
-            ("refetch", "refetch-pdf", "?from=bookmark#panel-legal-documents"),
-            ("delete", "delete", "legal-documents/delete/?from=bookmark"),
+            ("refetch", "get", "refetch-pdf", str, "?from=bookmark&document={id}#panel-legal-documents"),
+            ("delete", "get", "delete", str, "legal-documents/delete/?from=bookmark&document={id}"),
         ]
     )
     def test_the_old_document_url_lands_in_the_console_of_the_document_organization(
-        self, _name: str, old_path: str, target: str
+        self, _name: str, method: str, old_path: str, spell_id: Callable[[UUID], str], target: str
     ) -> None:
         document = self._document()
 
-        response = self.client.get(f"/admin/legal_documents/legaldocument/{document.id}/{old_path}/?from=bookmark")
+        url = f"/admin/legal_documents/legaldocument/{spell_id(document.id)}/{old_path}/?from=bookmark"
+
+        # The POST is the confirm submit of the admin delete page, which would delete the row.
+        response = self.client.post(url, {"post": "yes"}) if method == "post" else self.client.get(url)
 
         assert response.status_code == 302
-        assert response["Location"] == f"/admin/console/organizations/{self.organization.pk}/{target}"
+        expected = target.format(id=document.id)
+        assert response["Location"] == f"/admin/console/organizations/{self.organization.pk}/{expected}"
         assert LegalDocument.objects.filter(id=document.id).exists()
+
+    def test_the_delete_form_preselects_the_document_the_old_url_named(self) -> None:
+        self._document()
+        older = self._document(document_type="DPA")
+
+        form = self.client.get(
+            f"/admin/console/organizations/{self.organization.pk}/legal-documents/delete/?document={older.id}"
+        ).content.decode()
+
+        assert f'<option value="{older.id}" selected>' in form
