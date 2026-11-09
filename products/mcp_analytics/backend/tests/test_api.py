@@ -12,7 +12,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, PersonPropertyFilter, PropertyOperator
+from posthog.schema import (
+    AnyPropertyFilterDiscriminated,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    PropertyOperator,
+    SessionPropertyFilter,
+)
 
 from posthog.hogql.database.database import Database
 
@@ -228,6 +234,33 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
         assert listed(None, False) == {"kept", "dropped"}
         assert listed(properties, filter_test_accounts) == expected
+
+    @parameterized.expand(
+        [
+            ("event_filter", _tool_name_filter("query_run"), False),
+            ("person_filter", _person_email_filter("kept@example.com"), False),
+            (
+                "session_filter",
+                [SessionPropertyFilter(key="$entry_current_url", value=["x"], operator=PropertyOperator.IS_NOT)],
+                True,
+            ),
+        ]
+    )
+    def test_loads_the_warehouse_catalog_only_for_filters_that_need_it(
+        self, _name: str, properties: list[AnyPropertyFilterDiscriminated], loads_catalog: bool
+    ) -> None:
+        create_person(team=self.team, distinct_ids=["kept_user"], properties={"email": "kept@example.com"})
+        session_id = str(uuid7())
+        self._seed_session(session_id, ["query_run"], distinct_id="kept_user")
+        flush_persons_and_events()
+
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_database:
+            sessions = api.list_mcp_sessions(self.team, limit=50, offset=0, properties=properties)
+            calls = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=50, offset=0, properties=properties)
+
+        assert create_database.called == loads_catalog
+        assert [s.session_id for s in sessions.results] == [session_id]
+        assert [c.tool_name for c in calls.results] == ["query_run"]
 
     def test_test_account_filter_changes_invalidate_the_session_cache(self) -> None:
         external_session_id = str(uuid7())

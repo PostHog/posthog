@@ -403,7 +403,12 @@ def _query_mcp_sessions(
     with tags_context(
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_sessions_list"
     ):
-        response = execute_hogql_query(query=query, team=team, user=user)
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            user=user,
+            context=_sessions_query_context(team, user, properties, filter_test_accounts),
+        )
 
     rows = [_row_to_session_dict(row) for row in (response.results or [])]
     has_next = len(rows) > limit
@@ -412,6 +417,23 @@ def _query_mcp_sessions(
     intents_by_session = _attach_intents(team, [row["session_id"] for row in rows])
     results = [_to_session_contract(row, persons_by_distinct_id, intents_by_session) for row in rows]
     return contracts.MCPSessionsPage(results=results, has_next=has_next)
+
+
+def _sessions_query_context(
+    team: Team,
+    user: User | None,
+    properties: list[AnyPropertyFilterDiscriminated] | None,
+    filter_test_accounts: bool,
+) -> HogQLContext:
+    # Building the full database loads the team's data warehouse catalog, which takes seconds on
+    # teams with many sources. The session queries read only events and persons, so they skip it
+    # unless a filter needs it.
+    database = (
+        Database.create_for_posthog_tables(team)
+        if _filters_read_only_built_in_tables(team, properties, filter_test_accounts)
+        else None
+    )
+    return HogQLContext(team_id=team.pk, team=team, user=user, database=database)
 
 
 def _row_to_session_dict(row: tuple[Any, ...]) -> dict[str, Any]:
@@ -715,10 +737,10 @@ def _shared_activity_database(team: Team, user: User | None) -> Database | None:
     )
 
 
-_MEMBER_INDEPENDENT_FILTER_TYPES = frozenset({"event", "person"})
+_BUILT_IN_TABLE_FILTER_TYPES = frozenset({"event", "person"})
 
 
-def _filters_read_the_same_for_every_member(
+def _filters_read_only_built_in_tables(
     team: Team, properties: list[AnyPropertyFilterDiscriminated] | None, filter_test_accounts: bool
 ) -> bool:
     # Other filter types (session, HogQL, cohort, warehouse) and $virt_* keys can read tables or fields
@@ -729,7 +751,7 @@ def _filters_read_the_same_for_every_member(
         filters += team.test_account_filters or []
     return all(
         isinstance(f, dict)
-        and f.get("type") in _MEMBER_INDEPENDENT_FILTER_TYPES
+        and f.get("type") in _BUILT_IN_TABLE_FILTER_TYPES
         and not str(f.get("key", "")).startswith("$virt")
         for f in filters
     )
@@ -743,7 +765,7 @@ def _activity_overview_cache_key(
     user: User | None,
 ) -> str:
     filters = _filters_cache_fragment(team, properties, filter_test_accounts)
-    shared = _filters_read_the_same_for_every_member(team, properties, filter_test_accounts)
+    shared = _filters_read_only_built_in_tables(team, properties, filter_test_accounts)
     member = None if shared or user is None else user.pk
     return generate_cache_key(
         team.pk, f"mcp_activity_overview_{filters}_{restriction_fingerprint(restrictions)}_{member}"
@@ -995,7 +1017,12 @@ def list_mcp_tool_calls(
     with tags_context(
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_sessions_tool_calls"
     ):
-        response = execute_hogql_query(query=query, team=team, user=user)
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            user=user,
+            context=_sessions_query_context(team, user, properties, filter_test_accounts),
+        )
     rows = response.results or []
     has_next = len(rows) > limit
     results = [
