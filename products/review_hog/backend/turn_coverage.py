@@ -33,20 +33,24 @@ def unread_paths(*, team_id: int, report_id: str, head_sha: str, marker: TurnMar
     return tuple(skipped)
 
 
-def turn_unread_paths(*, team_id: int, report_id: str, head_sha: str, run_index: int) -> tuple[str, ...] | None:
-    """`unread_paths` for one turn on the head. None when the turn has no marker, because then its coverage is unknown."""
+def turn_markers(*, team_id: int, report_id: str, head_sha: str) -> dict[int, TurnMarkerArtefact]:
+    """The marker of each turn on the head, by run index. The newest row of a retried turn wins."""
     rows = (
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(report_id=report_id, type=ReviewReportArtefact.ArtefactType.TURN_MARKER, head_sha=head_sha)
         .order_by("created_at", "id")
         .values_list("content", flat=True)
     )
-    marker: TurnMarkerArtefact | None = None
-    # The newest row of a retried turn wins.
+    markers: dict[int, TurnMarkerArtefact] = {}
     for content in rows:
-        candidate = TurnMarkerArtefact.model_validate_json(content)
-        if candidate.run_index == run_index:
-            marker = candidate
+        marker = TurnMarkerArtefact.model_validate_json(content)
+        markers[marker.run_index] = marker
+    return markers
+
+
+def turn_unread_paths(*, team_id: int, report_id: str, head_sha: str, run_index: int) -> tuple[str, ...] | None:
+    """`unread_paths` for one turn on the head. None when the turn has no marker, because then its coverage is unknown."""
+    marker = turn_markers(team_id=team_id, report_id=report_id, head_sha=head_sha).get(run_index)
     if marker is None:
         return None
     return unread_paths(team_id=team_id, report_id=report_id, head_sha=head_sha, marker=marker)

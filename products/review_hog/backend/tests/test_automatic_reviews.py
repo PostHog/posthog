@@ -30,6 +30,7 @@ from products.review_hog.backend.models import (
     ReviewInstallationClaim,
     ReviewProjectSettings,
     ReviewReport,
+    ReviewReportArtefact,
     ReviewRepository,
     ReviewRepositoryPerson,
     ReviewUserSettings,
@@ -37,8 +38,15 @@ from products.review_hog.backend.models import (
 from products.review_hog.backend.ownership import OwnedRepositoryPrefilter
 from products.review_hog.backend.pull_request_events import accept_pull_request_event
 from products.review_hog.backend.receivers import queue_stamphog_handoff
+from products.review_hog.backend.reviewer.artefact_content import (
+    ReviewIssueFinding,
+    TurnMarkerArtefact,
+    ValidationVerdict,
+)
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.tasks import process_authored_pr_event, process_stamphog_handoff
 from products.review_hog.backend.webhook_consumers import WEBHOOK_CONSUMERS
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 
@@ -325,12 +333,73 @@ class TestAuthoredPRReviewTask(BaseTest):
         )
 
     def _queued_event(
-        self, login: str = "OctoCat", *, draft: bool = False, labels: tuple[str, ...] = ()
+        self, login: str = "OctoCat", *, draft: bool = False, labels: tuple[str, ...] = (), action: str = "opened"
     ) -> Mapping[str, object]:
         with patch(_QUEUE) as enqueue:
-            accept_pull_request_event(_payload(login=login, draft=draft, labels=labels))
+            accept_pull_request_event(_payload(login=login, draft=draft, labels=labels, action=action))
         enqueue.assert_called_once()
         return enqueue.call_args.kwargs
+
+    @parameterized.expand([("clean_turn", False, True), ("valid_finding_below_the_threshold", True, False)])
+    @patch(_START)
+    @patch("products.review_hog.backend.silent_stamphog.queue_silent_review")
+    def test_a_draft_marked_ready_at_its_reviewed_head_hands_the_earlier_clean_turn_to_stamphog(
+        self, _name: str, with_finding: bool, expect_queued: bool, queue_silent_review: MagicMock, start: MagicMock
+    ) -> None:
+        report = ReviewReport.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="PostHog/posthog",
+            pr_number=42,
+            head_branch="feature",
+            base_branch="master",
+            run_count=1,
+            automatic_reviewed_head_sha=_HEAD_SHA,
+        )
+        ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=TurnMarkerArtefact(
+                head_sha=_HEAD_SHA,
+                run_index=1,
+                review_mode="flash",
+                reviewhog_version="v",
+                reviewhog_fingerprint="f",
+                publishes=True,
+                skipped_paths=[],
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        if with_finding:
+            ReviewReportArtefact.append_finding(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=ReviewIssueFinding(
+                    issue_key="1-a",
+                    run_index=1,
+                    title="t",
+                    file="f.py",
+                    lines=[LineRange(start=1)],
+                    body="b",
+                    suggestion="s",
+                    priority=IssuePriority.CONSIDER,
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
+            ReviewReportArtefact.append_verdict(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=ValidationVerdict(issue_key="1-a", is_valid=True, argumentation="a"),
+                attribution=ArtefactAttribution.system(),
+            )
+
+        process_authored_pr_event.run(**self._queued_event(action="ready_for_review"))
+
+        if expect_queued:
+            queue_silent_review.assert_called_once_with(
+                team_id=self.team.id, repository="PostHog/posthog", pr_number=42, head_sha=_HEAD_SHA
+            )
+        else:
+            queue_silent_review.assert_not_called()
 
     def _expected_start(self, *, team_id: int, user_id: int) -> dict[str, object]:
         return {

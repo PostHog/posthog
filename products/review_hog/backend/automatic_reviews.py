@@ -165,6 +165,24 @@ class AuthoredPRReview:
             installation_id=self.installation_id, github_repo_id=self.github_repo_id, full_name=self.repository
         )
 
+    def _start_silent_stamphog_for_reviewed_head(self, report: ReviewReport) -> None:
+        """Best effort, because the Celery retry would also start the review again. Stamphog checks everything again."""
+        # The stamphog facade pulls in the GitHub and temporal clients; enqueueing a webhook must not load it.
+        from products.review_hog.backend.silent_stamphog import FinishedTurn  # noqa: PLC0415
+
+        try:
+            turn = FinishedTurn.completed_automatic_turn(
+                report,
+                pr_number=self.pr_number,
+                head_sha=self.head_sha,
+                trigger_action="ready_for_review",
+                draft=self.draft,
+            )
+            if turn is not None:
+                turn.start_silent_stamphog()
+        except Exception:
+            logger.exception("Could not ask stamphog for a silent review of %s#%s", self.repository, self.pr_number)
+
     def start(self) -> None:
         # These clients pull in the sandbox runtime; enqueueing a webhook must not load it.
         from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH  # noqa: PLC0415
@@ -190,6 +208,8 @@ class AuthoredPRReview:
             .filter(repository__iexact=self.repository, pr_number=self.pr_number)
             .first()
         )
+        if report is not None and self.action == "ready_for_review":
+            self._start_silent_stamphog_for_reviewed_head(report)
         if full_review_published(report):
             observe_dispatch("full_review_published")
             return
