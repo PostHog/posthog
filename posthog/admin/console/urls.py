@@ -150,6 +150,12 @@ urlpatterns = [
         ),
     ),
     path(
+        "admin/account_audits/accountauditcredential/add/",
+        MovedToConsole.page_redirect(
+            "Creating an account audit credential", "/admin/console/tools/account-audit-credentials/create/"
+        ),
+    ),
+    path(
         "admin/posthog/team/<int:pk>/view-cache/",
         MovedToConsole.page_redirect("The cached config view", "/admin/console/tools/remote-config-cache/?team={pk}"),
     ),

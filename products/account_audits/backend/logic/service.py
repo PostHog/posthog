@@ -1,4 +1,6 @@
+import base64
 import logging
+import secrets
 from datetime import timedelta
 from uuid import UUID
 
@@ -11,7 +13,7 @@ from posthog.models import Organization, Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import get_instance_region
 
-from products.account_audits.backend.facade.contracts import AccountAuditRequest, AccountAuditResult
+from products.account_audits.backend.facade.contracts import AccountAuditRequest, AccountAuditResult, CreatedCredential
 from products.account_audits.backend.logic.execution import create_audit_task
 from products.account_audits.backend.models import AccountAuditAdmission, AccountAuditCredential
 from products.notebooks.backend.facade import api as notebooks_facade
@@ -23,6 +25,14 @@ logger = logging.getLogger(__name__)
 
 
 class AccountAuditService:
+    @staticmethod
+    def create_credential(created_by_id: int) -> CreatedCredential:
+        credential = AccountAuditCredential.objects.create(
+            created_by_id=created_by_id,
+            signing_secret=f"whsec_{base64.b64encode(secrets.token_bytes(32)).decode()}",
+        )
+        return CreatedCredential(public_key_id=credential.public_key_id, signing_secret=credential.signing_secret)
+
     @staticmethod
     def signing_secret_for(public_key_id: UUID) -> str | None:
         return (
