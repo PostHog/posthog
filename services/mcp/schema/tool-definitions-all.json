@@ -872,7 +872,7 @@
         "feature_flag": "aeo-citation-tracking"
     },
     "aeo-prompts-list": {
-        "description": "List the project's AI citation tracking prompts: the questions PostHog asks AI answer engines every day to check whether their answers cite the project's site. Each prompt has its text (from its `current_version`, out of `version_count` versions), topic, on/off state (`active`), when it last ran (`last_checked_at`) and `latest_checks`, the newest result per engine (`cited`, `check_failed`, `target_best_position`: the 1-based rank of the first target URL among the cited URLs, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an empty string selects prompts with no topic) and by `active`. Archived prompts are left out unless `include_archived` is true; they carry `archived_at`. Results are paginated with `limit`/`offset` and ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find a prompt id before calling `aeo-prompts-update`.",
+        "description": "List the project's AI citation tracking prompts: the questions PostHog asks AI answer engines every day to check whether their answers cite the project's site. Each prompt has its text (from its `current_version`, out of `version_count` versions), topic, on/off state (`active`), when it last ran (`last_checked_at`) and `latest_checks`, the newest result per engine (`cited`, `check_failed`, `target_best_position`: the 1-based rank of the first target URL among the cited URLs, `search_queries`: the web searches the engine ran while answering, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an empty string selects prompts with no topic) and by `active`. Archived prompts are left out unless `include_archived` is true; they carry `archived_at`. Results are paginated with `limit`/`offset` and ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find a prompt id before calling `aeo-prompts-update`.",
         "category": "AI citation tracking",
         "feature": "aeo",
         "summary": "List tracked AI prompts",
@@ -888,7 +888,7 @@
         "feature_flag": "aeo-citation-tracking"
     },
     "aeo-prompts-overview-get": {
-        "description": "Get set-level totals for AI citation tracking over the last `days` days (default 30, at most 90, in the project's timezone) without writing SQL. `prompts_tracked` is how many prompts are on. `current` and `previous` compare the window with the one before it: `checks`, `failed`, `cited`, `mentioned` (answers that name the brand), `citation_rate` and `mention_rate` (shares of answered checks, 0-1), `prompts` that ran and `prompts_cited` (prompts minus prompts_cited is how many prompts were never cited), and `avg_position` (mean rank of the first target URL over cited answers; lower is better). `engines` splits the current window per answer engine: Claude (`claude-web-search`), ChatGPT/OpenAI (`openai-web-search`) and Exa (`exa-answer`). `topics` splits it per prompt topic with the same counts, rates and the number of active prompts, so you can rank topics by citation or mention rate. `top_domains` lists the sites the engines cite most across all answers, with `is_target` marking the project's own domains. Use it to answer \"how are we doing overall\", \"which topics or engines mention or cite us least\", \"how many prompts are never cited\" and \"which sites do the engines cite instead of us\". For one prompt, use `aeo-prompts-stats-get`.",
+        "description": "Get set-level totals for AI citation tracking over the last `days` days (default 30, at most 90, in the project's timezone) without writing SQL. `prompts_tracked` is how many prompts are on. `current` and `previous` compare the window with the one before it: `checks`, `failed`, `cited`, `mentioned` (answers that name the brand), `citation_rate` and `mention_rate` (shares of answered checks, 0-1), `prompts` that ran and `prompts_cited` (prompts minus prompts_cited is how many prompts were never cited), and `avg_position` (mean rank of the first target URL over cited answers; lower is better). `engines` splits the current window per answer engine: Claude (`claude-web-search`), ChatGPT/OpenAI (`openai-web-search`) and Exa (`exa-answer`). `topics` splits it per prompt topic with the same counts, rates and the number of active prompts, so you can rank topics by citation or mention rate. `top_domains` lists the sites the engines cite most across all answers, with `is_target` marking the project's own domains. `top_searches` lists the web searches the engines ran most while answering, ranked by how many prompts triggered them, with how many of those answers cited the project and up to five of the prompts. Use it to answer \"how are we doing overall\", \"which topics or engines mention or cite us least\", \"how many prompts are never cited\", \"which sites do the engines cite instead of us\" and \"what do the engines search for\". For one prompt, use `aeo-prompts-stats-get`.",
         "category": "AI citation tracking",
         "feature": "aeo",
         "summary": "Get the AI citation overview of the whole prompt set",
@@ -12988,7 +12988,7 @@
         "system_prompt_hint": "Log filtering by severity/service/attribute"
     },
     "query-marketing-recommendations": {
-        "description": "Get paid and organic search recommendations for the project's Google Ads accounts, built from synced Google Ads and Google Search Console warehouse tables. Mirrors the recommendations in the in-product **Marketing analytics** scene.\n\n# When to use\n\nUse this tool when the user asks where to cut ad spend, which campaigns to scale or review, which search terms waste money, or how paid and organic search overlap.\n\nDo not use it for attribution, conversion goals, or channel performance. Use `marketing-analytics-diagnose` when the data looks missing or wrong.\n\n# Inputs\n\n- `dateRange` — pass `{ \"date_from\": \"-30d\" }` unless the user asks for another period. Short ranges give few recommendations, because the rules need enough clicks and spend to compare.\n- `conversionActions` — pass it only when the user names the Google Ads conversion actions that count. Omit it to count the account's primary conversion actions. It takes resource names like `customers/123/conversionActions/456`, not action names. Look them up with SQL on the account's `campaign_conversion_action_stats` table: `SELECT DISTINCT segments_conversion_action, segments_conversion_action_name`. Each ad account only uses the resource names under its own customer ID.\n- Leave everything else out. The tool reads every synced Google Ads and Google Search Console source in the project.\n\n# Output\n\nEach result has:\n\n- `rule` — the check that produced it, for example `spend_without_conversions`, `brand_leak`, `budget_constrained`, `scale_campaign`, `review_campaign`, `brand_overlap`, `content_gap`, `keyword_gap`, `striking_distance` or `policy_limited`.\n- `level` — `campaign` or `search_term`. `subject` is the campaign name or the search term, and `campaign` is the campaign a search term belongs to. For `keyword_gap`, `campaign` is the campaign to add the keyword to, because the search is not bought yet.\n- `action` and `reason` — what to do and the numbers behind it. Quote them instead of inventing your own advice.\n- `impact` — the monthly money impact in `currency`, or null. `impactDirection` says how to read it: `save` is spend to cut, `invest` is extra budget to add, `gain` is value to win, and `keep` is spend to protect.\n- `impactType` — `measured` comes straight from the data. `estimated` is a projection, so present it as an estimate.\n- `steps` — how to apply the recommendation, in order. A step's `copyValue` is the exact text to paste, such as a campaign name, a keyword in match type syntax (`[term]` is exact match, `\"term\"` is phrase match) or a page URL. A step's `url` opens what `linkText` names: a Google Ads section for the whole account, Google Search Console, or the page on the user's site that ranks for the search. When the user asks how to make a change, walk them through these steps. Some rules have no steps yet.\n- `cpa` — `value` is the subject's cost per conversion, `benchmark` is the CPA benchmark (rules that judge a CPA compare it with this value, and other rules show it for context), `benchmarkSource` says where that benchmark comes from (`target_cpa`: the campaign's target CPA in Google Ads, compared with the campaign's total CPA; `campaign`: the campaign's own non-brand CPA, used for its search terms once it has enough non-brand conversions; `account`: the account's non-brand CPA), and `bestCampaign` and `worstCampaign` are the lowest and highest non-brand CPAs of the account's non-brand Search campaigns. Use them to say whether to scale or cut.\n\n`dataGaps` lists data the rules could not read. Mention each gap's `message`, because the CPAs it names count the primary conversion actions instead of the selected ones.\n\nTotals in different currencies come from different ad accounts. Never add them together.\n\nPresent the results as suggestions for the user to evaluate, not as instructions. Always show the response's `disclaimer` text with them. Do not change campaigns, budgets, bids or keywords on the user's behalf.\n\nAn empty result means no rule fired, or the project has no synced Google Ads `campaign` and `campaign_stats` tables. Call `marketing-analytics-data-sources` to tell the two apart.\n\n# Example\n\n```json\n{\n  \"kind\": \"MarketingAnalyticsRecommendationsQuery\",\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```",
+        "description": "Get paid and organic search recommendations for the project's Google Ads accounts, built from synced Google Ads and Google Search Console warehouse tables. Mirrors the recommendations in the in-product **Marketing analytics** scene.\n\n# When to use\n\nUse this tool when the user asks where to cut ad spend, which campaigns to scale or review, which search terms waste money, or how paid and organic search overlap.\n\nDo not use it for attribution, conversion goals, or channel performance. Use `marketing-analytics-diagnose` when the data looks missing or wrong.\n\n# Inputs\n\n- `dateRange` — pass `{ \"date_from\": \"-30d\" }` unless the user asks for another period. Short ranges give few recommendations, because the rules need enough clicks and spend to compare.\n- `conversionActions` — pass it only when the user names the Google Ads conversion actions that count. Omit it to count the account's primary conversion actions. It takes resource names like `customers/123/conversionActions/456`, not action names. Look them up with SQL on the account's `campaign_conversion_action_stats` table: `SELECT DISTINCT segments_conversion_action, segments_conversion_action_name`. Each ad account only uses the resource names under its own customer ID.\n- Leave everything else out. The tool reads every synced Google Ads and Google Search Console source in the project.\n\n# Output\n\nEach result has:\n\n- `rule` — the check that produced it, for example `spend_without_conversions`, `brand_leak`, `budget_constrained`, `scale_campaign`, `review_campaign`, `brand_overlap`, `content_gap`, `keyword_gap`, `striking_distance`, `policy_limited` or `keyword_tracking`. `keyword_tracking` means the project's Google Ads sessions arrive without `utm_term`, so PostHog conversions cannot be tied to keywords until the account passes `utm_term={keyword}`.\n- `level` — `account`, `campaign` or `search_term`. `subject` is the ad account name, the campaign name or the search term, and `campaign` is the campaign a search term belongs to. For `keyword_gap`, `campaign` is the campaign to add the keyword to, because the search is not bought yet.\n- `action` and `reason` — what to do and the numbers behind it. Quote them instead of inventing your own advice.\n- `impact` — the monthly money impact in `currency`, or null. `impactDirection` says how to read it: `save` is spend to cut, `invest` is extra budget to add, `gain` is value to win, and `keep` is spend to protect.\n- `impactType` — `measured` comes straight from the data. `estimated` is a projection, so present it as an estimate.\n- `steps` — how to apply the recommendation, in order. A step's `copyValue` is the exact text to paste, such as a campaign name, a keyword in match type syntax (`[term]` is exact match, `\"term\"` is phrase match) or a page URL. A step's `url` opens what `linkText` names: a Google Ads section for the whole account, Google Search Console, or the page on the user's site that ranks for the search. When the user asks how to make a change, walk them through these steps. Some rules have no steps yet.\n- `cpa` — `value` is the subject's cost per conversion, `benchmark` is the CPA benchmark (rules that judge a CPA compare it with this value, and other rules show it for context), `benchmarkSource` says where that benchmark comes from (`target_cpa`: the campaign's target CPA in Google Ads, compared with the campaign's total CPA; `campaign`: the campaign's own non-brand CPA, used for its search terms once it has enough non-brand conversions; `account`: the account's non-brand CPA), and `bestCampaign` and `worstCampaign` are the lowest and highest non-brand CPAs of the account's non-brand Search campaigns. Use them to say whether to scale or cut.\n\n`dataGaps` lists data the rules could not read. Mention each gap's `message`, because the CPAs it names count the primary conversion actions instead of the selected ones.\n\nTotals in different currencies come from different ad accounts. Never add them together.\n\nPresent the results as suggestions for the user to evaluate, not as instructions. Always show the response's `disclaimer` text with them. Do not change campaigns, budgets, bids or keywords on the user's behalf.\n\nAn empty result means no rule fired, or the project has no synced Google Ads `campaign` and `campaign_stats` tables. Call `marketing-analytics-data-sources` to tell the two apart.\n\n# Example\n\n```json\n{\n  \"kind\": \"MarketingAnalyticsRecommendationsQuery\",\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```",
         "category": "Marketing analytics",
         "feature": "marketing_analytics",
         "summary": "Get paid and organic search recommendations",
@@ -17757,6 +17757,166 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "warehouse-migration-connect-link": {
+        "description": "Start moving a user's Fivetran connectors into PostHog. Returns a link where the user enters a read-only Fivetran API key in PostHog; never ask for the key in the chat. Once the user confirms, find the new migration with 'warehouse-migrations-list' and wait for 'warehouse-migration-get' to report status 'ready'.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Get a link to start a Fivetran migration",
+        "title": "Get a link to start a Fivetran migration",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["GET /api/projects/{project_id}/warehouse_migrations/connect_link/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-get": {
+        "description": "Get one Fivetran migration. While status is 'pending' or 'crawling', PostHog is still reading the Fivetran account; poll again every 15 to 30 seconds. 'ready' means the items are planned. 'failed' means the read failed: tell the user what 'latest_error' says.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Get a Fivetran migration",
+        "title": "Get a Fivetran migration",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["GET /api/projects/{project_id}/warehouse_migrations/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-item-apply": {
+        "description": "Create the planned PostHog source for one Fivetran migration item, with the planned tables, prefix, destination and sync schedule. 'credential_id' comes from 'data-warehouse-stored-credentials-list' after the user filled the connect link for this item. Pass the table mapping the user confirmed in 'table_overrides': each entry maps a 'vendor_table' to a 'posthog_table', for an inferred pair or an unmatched table, and a null 'posthog_table' leaves the table out. Read the returned caveats to the user: they include any planned table PostHog could not find or read. If it fails because the prefix is taken, retry with another 'prefix'.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Create a PostHog source from a Fivetran connection",
+        "title": "Create a PostHog source from a Fivetran connection",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/external_data_sources/apply_migration_item/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-item-skip": {
+        "description": "Mark a Fivetran connection the user does not want to move. It stays out of later refreshes.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Skip a connection in a Fivetran migration",
+        "title": "Skip a connection in a Fivetran migration",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_migrations/{id}/items/{item_id}/skip/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-items-list": {
+        "description": "One item per Fivetran connection, with its verdict (as_is, caveats, unsupported), the caveats to read to the user, and the planned PostHog source type in 'proposal'. 'proposal.schemas' lists the planned tables with their 'vendor_table'. 'proposal.inferred_tables' lists table pairs a naming rule made, which the user must confirm. 'proposal.unmatched_tables' lists Fivetran tables with no PostHog table; propose one from 'proposal.unused_posthog_tables' or leave it out. To move an item, get 'data-warehouse-source-connect-link' with the proposal's source_type and the item's id as 'migration_item_id', then call 'warehouse-migration-item-apply' with the stored credential. Results are paged: follow 'next' until it is null to see every connection.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "List the connections in a Fivetran migration",
+        "title": "List the connections in a Fivetran migration",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["GET /api/projects/{project_id}/warehouse_migrations/{id}/items/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-items-skip": {
+        "description": "Skip many Fivetran connections in one call. Pass 'keep_item_ids' to skip every connection except those, for example when the user wants to migrate only one, or 'item_ids' to skip exactly those. Connections that are being created or are already PostHog sources stay as they are and come back in 'not_skipped_item_ids'.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Skip many connections in a Fivetran migration",
+        "title": "Skip many connections in a Fivetran migration",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_migrations/{id}/items/skip/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-refresh": {
+        "description": "Read the Fivetran account again after the user changed it. Applied, skipped and in-progress connections keep their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'. A migration with 'has_vendor_key' false was uploaded from the Fivetran MCP: read the changed connections again and send them with 'warehouse-migration-upload-connections' instead.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Read a Fivetran account again",
+        "title": "Read a Fivetran account again",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_migrations/{id}/refresh/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-start-upload": {
+        "description": "Start a Fivetran migration that you fill with what you read through the user's Fivetran MCP server, so the Fivetran key never reaches PostHog. Use it only after the user chose this over the API key link and you warned them that every connection passes through the chat and uses their tokens. Then send the Fivetran responses with 'warehouse-migration-upload-connections'.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Start a Fivetran migration from the user's Fivetran MCP",
+        "title": "Start a Fivetran migration from the user's Fivetran MCP",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_migrations/upload/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-upload-connections": {
+        "description": "Send what the Fivetran MCP returned to a migration from 'warehouse-migration-start-upload'. Pass every Fivetran response unchanged: never summarize, trim or retype it, because PostHog removes the secrets and plans from the raw response. Send the account info and every destination first, then the connections, each with its connection details and its schema config. You write each call out in full, so keep it to a few connections and under about 50 KB of JSON. Returns the planned items for the batch, without their full plans; read those with 'warehouse-migration-items-list'. A 400 names the connections PostHog could not read; the rest of the batch is saved.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Upload Fivetran connections to a migration",
+        "title": "Upload Fivetran connections to a migration",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_migrations/{id}/connections/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migrations-list": {
+        "description": "List this project's Fivetran migrations, newest first, with their status and how many connections move as they are, move with caveats, or are not supported.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "List Fivetran migrations",
+        "title": "List Fivetran migrations",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["GET /api/projects/{project_id}/warehouse_migrations/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-migration-import"
     },
     "warehouse-suggestions-accept-execute": {
         "description": "Step 2 of 2 for accept warehouse suggestion. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Accepting a deprecate suggestion on a materialized view also stops its refreshes and deletes its stored table, so the view is computed when read; pass keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization` says whether refreshes stopped. A deprecate suggestion can be about a plain view too, with no refresh cost. Pass delete_view=true on a deprecate suggestion to delete the view instead of marking it deprecated; this cannot be undone. A 409 means another view, a sync, a destination or a workflow now reads from it, or it now reads a direct-connection source, whose reads are not logged. A 400 means some days in the read window have no read data, so only marking it deprecated is allowed. Unmaterialize suggestions turn a rarely read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
