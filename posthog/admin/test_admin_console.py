@@ -1,6 +1,6 @@
 import re
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import time_machine
@@ -14,10 +14,14 @@ from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
+from django.utils import timezone
 from django.utils.html import format_html
 
 from parameterized import parameterized
+from temporalio.common import WorkflowIDConflictPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
@@ -26,6 +30,7 @@ from posthog.csp_middleware import CSPMiddleware
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.personhog_client.fake_client import get_active_fake
@@ -37,7 +42,7 @@ from products.workflows.backend.facade.api import get_email_sending_state
 from ee.billing.quota_limiting import QuotaResource
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
-PROJECT_PANEL_TITLES = ("Overview",)
+PROJECT_PANEL_TITLES = ("Overview", "Deletion")
 USER_PANEL_TITLES = ("Overview", "Organizations")
 CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
 REBUILD = "pnpm --filter=@posthog/frontend build:admin-console"
@@ -379,6 +384,8 @@ class TestAdminConsoleViews(BaseTest):
                 "approve/?from=ticket",
                 "workflow/approve/?from=ticket",
             ),
+            ("project_deletion", "project", "trigger-deletion/?from=ticket", "deletion/delete/?from=ticket"),
+            ("project_delete_now", "project", "delete-now/", "deletion/delete-now/"),
         ]
     )
     def test_an_old_django_admin_action_url_lands_on_the_console(
@@ -389,6 +396,8 @@ class TestAdminConsoleViews(BaseTest):
             obj, plural = self.team, "teams"
         elif record == "organization":
             obj, plural = self.organization, "organizations"
+        elif record == "project":
+            obj, plural = self.project, "projects"
         else:
             obj = DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
             plural = "deletion-requests"
@@ -397,14 +406,25 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == 302
         assert response["Location"] == f"/admin/console/{plural}/{obj.pk}/{new}"
 
-    def test_django_admin_team_page_points_moved_actions_to_the_console(self) -> None:
-        response = self.client.get(f"/admin/posthog/team/{self.team.pk}/change/")
+    @parameterized.expand(
+        [
+            ("team", ("remote-config", "group-types", "email-sending", "ai-gateway", "api-token")),
+            ("project", ("deletion",)),
+        ]
+    )
+    def test_django_admin_page_points_moved_actions_to_the_console(
+        self, record: str, panel_keys: tuple[str, ...]
+    ) -> None:
+        obj: Model = {"team": self.team, "project": self.project, "user": self.user}[record]
+        plural = f"{record}s"
+
+        response = self.client.get(f"/admin/posthog/{record}/{obj.pk}/change/")
 
         assert response.status_code == 200
         content = response.content.decode()
         assert "This is the Django admin" in content
-        for panel_key in ("remote-config", "group-types", "email-sending", "ai-gateway", "api-token"):
-            assert f"/admin/console/teams/{self.team.pk}/#panel-{panel_key}" in content
+        for panel_key in panel_keys:
+            assert f"/admin/console/{plural}/{obj.pk}/#panel-{panel_key}" in content
 
     @parameterized.expand(
         [
@@ -704,3 +724,123 @@ class TestAdminConsoleViews(BaseTest):
         assert "changed since you opened this form" in saved.content.decode()
         updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
         assert updates == []
+
+
+@time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+class TestAdminConsoleProjectDeletion(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.user.groups.add(Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0])
+        self.client.force_login(self.user)
+        start_patcher = patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+        self.start = start_patcher.start()
+        self.addCleanup(start_patcher.stop)
+
+    def _mark_pending(self, hours: float) -> datetime:
+        scheduled_at = timezone.now() + timedelta(hours=hours)
+        Project.objects.filter(pk=self.project.pk).update(is_pending_deletion=True, deletion_scheduled_at=scheduled_at)
+        return scheduled_at
+
+    def _post(self, operation_key: str, start_side_effect: Exception | None = None):
+        self.start.side_effect = start_side_effect
+        return self.client.post(
+            f"/admin/console/projects/{self.project.pk}/deletion/{operation_key}/", {"reason": "Customer asked"}
+        )
+
+    @parameterized.expand([("with_ingested_data", True, timedelta(hours=48)), ("without_ingested_data", False, None)])
+    def test_deleting_a_project_starts_the_workflow_and_marks_it_pending(
+        self, _name: str, has_ingested_data: bool, expected_delay: timedelta | None
+    ) -> None:
+        self.team.ingested_event = has_ingested_data
+        self.team.save(update_fields=["ingested_event"])
+
+        response = self._post("delete")
+
+        assert response.status_code == 302
+        assert response["Location"] == f"/admin/console/projects/{self.project.pk}/"
+        self.start.assert_called_once()
+        kwargs = self.start.call_args.kwargs
+        assert (kwargs["project_id"], kwargs["team_ids"], kwargs["user_id"], kwargs["project_name"]) == (
+            self.project.pk,
+            [self.team.pk],
+            self.user.pk,
+            self.project.name,
+        )
+        assert kwargs["start_delay"] == expected_delay
+        self.project.refresh_from_db()
+        assert self.project.is_pending_deletion
+        assert self.project.deletion_scheduled_at == timezone.now() + (expected_delay or timedelta())
+
+    @parameterized.expand(
+        [
+            ("staff_outside_the_deletion_group", "other_staff", None, 403, False, False),
+            ("bulk_deletes_disabled", "bulk_deletes_disabled", None, 503, False, False),
+            ("already_pending", "already_pending", None, 404, False, True),
+            ("workflow_already_running", None, WorkflowAlreadyStartedError("id", "type"), 302, True, True),
+            ("workflow_fails_to_start", None, RuntimeError("temporal unavailable"), 500, True, False),
+        ]
+    )
+    def test_deleting_a_project_refuses_or_rolls_back(
+        self,
+        _name: str,
+        state: str | None,
+        start_side_effect: Exception | None,
+        expected_status: int,
+        expect_started: bool,
+        expect_pending: bool,
+    ) -> None:
+        if state == "other_staff":
+            self.user.groups.clear()
+        elif state == "already_pending":
+            self._mark_pending(hours=48)
+
+        with override_settings(DISABLE_BULK_DELETES=state == "bulk_deletes_disabled"):
+            response = self._post("delete", start_side_effect)
+
+        assert response.status_code == expected_status
+        assert self.start.called == expect_started
+        self.project.refresh_from_db()
+        assert self.project.is_pending_deletion == expect_pending
+
+    def test_delete_now_cancels_the_wait_and_starts_the_workflow(self) -> None:
+        self._mark_pending(hours=48)
+
+        response = self._post("delete-now")
+
+        assert response.status_code == 302
+        self.start.assert_called_once()
+        assert self.start.call_args.kwargs["start_delay"] is None
+        assert self.start.call_args.kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.TERMINATE_EXISTING
+        self.project.refresh_from_db()
+        assert self.project.deletion_scheduled_at == timezone.now()
+
+    @parameterized.expand(
+        [
+            ("deletion_already_started", -1, None, None, 404),
+            ("staff_outside_the_deletion_group", 48, "other_staff", None, 403),
+            ("bulk_deletes_disabled", 48, "bulk_deletes_disabled", None, 503),
+            ("workflow_fails_to_start", 48, None, RuntimeError("temporal unavailable"), 500),
+        ]
+    )
+    def test_delete_now_keeps_the_schedule_when_it_cannot_start(
+        self,
+        _name: str,
+        hours_until_deletion: int,
+        state: str | None,
+        start_side_effect: Exception | None,
+        expected_status: int,
+    ) -> None:
+        scheduled_at = self._mark_pending(hours=hours_until_deletion)
+        if state == "other_staff":
+            self.user.groups.clear()
+
+        with override_settings(DISABLE_BULK_DELETES=state == "bulk_deletes_disabled"):
+            response = self._post("delete-now", start_side_effect)
+
+        assert response.status_code == expected_status
+        assert self.start.called == (start_side_effect is not None)
+        self.project.refresh_from_db()
+        assert self.project.is_pending_deletion
+        assert self.project.deletion_scheduled_at == scheduled_at

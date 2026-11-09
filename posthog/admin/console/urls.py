@@ -25,6 +25,11 @@ MOVED_ORGANIZATION_ACTIONS = {
     "sync-to-billing": "#panel-billing",
 }
 
+MOVED_PROJECT_ACTIONS = {
+    "trigger-deletion": "deletion/delete/",
+    "delete-now": "deletion/delete-now/",
+}
+
 MOVED_DELETION_REQUEST_ACTIONS = {
     "submit": "workflow/submit/",
     "approve": "workflow/approve/",
@@ -85,6 +90,13 @@ urlpatterns = [
             admin.site.admin_view(MovedToConsole.record_redirect("organizations", target)),
         )
         for old, target in MOVED_ORGANIZATION_ACTIONS.items()
+    ],
+    *[
+        path(
+            f"admin/posthog/project/<int:pk>/{old}/",
+            admin.site.admin_view(MovedToConsole.record_redirect("projects", target)),
+        )
+        for old, target in MOVED_PROJECT_ACTIONS.items()
     ],
     *[
         path(
