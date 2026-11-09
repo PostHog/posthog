@@ -4,7 +4,6 @@ from typing import Any
 
 import pytest
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,

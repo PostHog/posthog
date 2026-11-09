@@ -6,6 +6,7 @@ Layered top-down: builder source-readers → `compute_project_profile` end-to-en
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
+from django.db import connection
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -28,7 +30,7 @@ from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.business_knowledge.backend.models.knowledge_chunk import KnowledgeChunk
 from products.business_knowledge.backend.models.knowledge_document import KnowledgeDocument
@@ -85,6 +87,7 @@ from products.signals.backend.scout_harness.tools.profile import (
     PROFILE_TTL,
     compute_project_profile,
     get_project_profile,
+    refresh_project_profile_surfaces,
 )
 from products.signals.backend.tasks import build_signal_project_profile
 from products.skills.backend.models.skills import LLMSkill
@@ -93,6 +96,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataJob, Ex
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
 BUILDERS = "products.signals.backend.scout_harness.profile.builders"
+PROFILE_TOOL = "products.signals.backend.scout_harness.tools.profile"
 
 
 class TestProjectContext(BaseTest):
@@ -824,22 +828,22 @@ class TestRecentCohorts(BaseTest):
 
 class TestRecentActions(BaseTest):
     def test_orders_by_updated_at_desc(self) -> None:
-        a = Action.objects.create(team=self.team, name="a", created_by=self.user)
-        Action.objects.filter(id=a.id).update(updated_at=timezone.now() - timedelta(days=1))
-        Action.objects.create(team=self.team, name="b", created_by=self.user)
+        a = create_action(team=self.team, name="a", created_by=self.user)
+        update_action(a, updated_at=timezone.now() - timedelta(days=1))
+        create_action(team=self.team, name="b", created_by=self.user)
         result = _recent_actions(self.team)
         assert [r["name"] for r in result["recent"]] == ["b", "a"]
 
     def test_excludes_deleted(self) -> None:
-        Action.objects.create(team=self.team, name="kept", created_by=self.user)
-        Action.objects.create(team=self.team, name="gone", deleted=True, created_by=self.user)
+        create_action(team=self.team, name="kept", created_by=self.user)
+        create_action(team=self.team, name="gone", deleted=True, created_by=self.user)
         result = _recent_actions(self.team)
         assert result["total_count"] == 1
         assert result["recent"][0]["name"] == "kept"
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
-        Action.objects.create(team=other, name="x", created_by=self.user)
+        create_action(team=other, name="x", created_by=self.user)
         result = _recent_actions(self.team)
         assert result["total_count"] == 0
 
@@ -1176,6 +1180,29 @@ class TestComputeProjectProfile(BaseTest):
         delta = row.expires_at - row.computed_at
         # Allow small slack for the two `timezone.now()` calls in the build path.
         assert PROFILE_TTL - timedelta(seconds=2) < delta < PROFILE_TTL + timedelta(seconds=2)
+
+    @parameterized.expand(
+        [
+            ("compute", lambda team: compute_project_profile(team=team)),
+            ("compute_deferred_surfaces", lambda team: compute_project_profile(team=team, defer_surfaces=True)),
+            ("refresh_without_a_row", lambda team: refresh_project_profile_surfaces(team_id=team.id)),
+        ]
+    )
+    def test_builds_the_inventory_outside_the_transaction(self, _name: str, build: Callable[[Team], Any]) -> None:
+        outer_depth = len(connection.atomic_blocks)
+        depths: list[int] = []
+
+        def record_depth(team: Team, **kwargs: Any) -> Inventory:
+            depths.append(len(connection.atomic_blocks))
+            return build_inventory(team, **kwargs)
+
+        with (
+            patch(f"{PROFILE_TOOL}.build_inventory", side_effect=record_depth),
+            patch("products.signals.backend.tasks.build_signal_project_profile.delay"),
+        ):
+            build(self.team)
+        assert depths == [outer_depth]
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
 
 
 class TestGetProjectProfile(BaseTest):

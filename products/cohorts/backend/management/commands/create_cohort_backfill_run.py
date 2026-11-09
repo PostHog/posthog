@@ -17,9 +17,10 @@ from posthog.exceptions import (
 )
 from posthog.models.team.team import Team
 
+from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTableUnresolved
 from products.cohorts.backend.backfill.pinning import (
     PersonPinningCapExceeded,
-    pin_conditions_for_cohorts,
+    pin_behavioral_run,
     pin_person_conditions_for_cohorts,
 )
 from products.cohorts.backend.backfill.runs import (
@@ -129,14 +130,14 @@ class Command(BaseCommand):
         cohort_ids = options.get("cohort_ids")
         if options["dry_run"]:
             cohorts = self._dry_run_cohorts(team_id, cohort_ids, behavioral_backfill_ineligibility_reason, "behavioral")
-            pinned, event_names = pin_conditions_for_cohorts(cohorts)
+            pinned = self._pin(team_id, cohorts)
             self.stdout.write(
                 f"Dry run: {len(cohorts)} cohorts, {len(pinned['conditions'])} conditions, "
-                f"{len(event_names)} event names"
+                f"{len(pinned['event_names'])} event names, flag calls from {pinned['flag_calls_table']}"
             )
             if max_scan_events_per_day:
                 self._write_scan_estimate(
-                    self._scan_estimate(team_id, event_names, max_scan_events_per_day), len(event_names)
+                    self._scan_estimate(team_id, pinned, max_scan_events_per_day), len(pinned["event_names"])
                 )
             else:
                 self.stdout.write("Scan estimate: skipped, because the limit is 0")
@@ -151,9 +152,9 @@ class Command(BaseCommand):
                 for cohort, reason in judge_team_cohorts(team_id, cohort_ids, behavioral_backfill_ineligibility_reason)
                 if reason is None
             ]
-            _, event_names = pin_conditions_for_cohorts(eligible)
-            scan_estimate = self._scan_estimate(team_id, event_names, max_scan_events_per_day)
-            self._write_scan_estimate(scan_estimate, len(event_names))
+            pinned = self._pin(team_id, eligible)
+            scan_estimate = self._scan_estimate(team_id, pinned, max_scan_events_per_day)
+            self._write_scan_estimate(scan_estimate, len(pinned["event_names"]))
             if scan_estimate.over_limit:
                 raise CommandError(
                     f"The run would scan {scan_estimate.peak_day_events} events on its busiest day "
@@ -271,9 +272,20 @@ class Command(BaseCommand):
             f"would refuse: {verdict}"
         )
 
-    def _scan_estimate(self, team_id: int, event_names: list[str], max_events_per_day: int) -> BehavioralScanEstimate:
+    def _pin(self, team_id: int, cohorts: list[Cohort]) -> dict[str, Any]:
         try:
-            return estimate_behavioral_scan_events(team_id, event_names, max_events_per_day=max_events_per_day)
+            return pin_behavioral_run(cohorts, Team.objects.get(id=team_id))
+        except (Team.DoesNotExist, FlagCallsTableUnresolved) as error:
+            raise CommandError(str(error)) from error
+
+    def _scan_estimate(self, team_id: int, pinned: dict[str, Any], max_events_per_day: int) -> BehavioralScanEstimate:
+        try:
+            return estimate_behavioral_scan_events(
+                team_id,
+                pinned["event_names"],
+                flag_calls_table=pinned["flag_calls_table"],
+                max_events_per_day=max_events_per_day,
+            )
         except (
             ClickHouseQueryTimeOut,
             ClickHouseEstimatedQueryExecutionTimeTooLong,

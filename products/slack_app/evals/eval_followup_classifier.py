@@ -62,10 +62,27 @@ THREAD_POSTHOG_ASKED = [
     ),
 ]
 
+# The agent acted on an assumption and asked to hear back only if it was wrong. Then a
+# person asked the room the same question.
+THREAD_POSTHOG_ASSUMED = [
+    *THREAD,
+    SlackThreadMessage(
+        user="posthog",
+        text="I put the fix in the click handler, because I assume the analytics wrapper is shared with other pages. If that is wrong, tell me and I will move it.",
+        ts="3.0",
+    ),
+]
+THREAD_POSTHOG_ASSUMED_PERSON_ASKED = [
+    *THREAD_POSTHOG_ASSUMED,
+    SlackThreadMessage(user="dana", text="do we know who looks after that wrapper these days?", ts="4.0"),
+]
+
 THREADS = {
     "default": THREAD,
     "other_agent_asked": THREAD_OTHER_AGENT_ASKED,
     "posthog_asked": THREAD_POSTHOG_ASKED,
+    "posthog_assumed": THREAD_POSTHOG_ASSUMED,
+    "posthog_assumed_person_asked": THREAD_POSTHOG_ASSUMED_PERSON_ASKED,
 }
 
 
@@ -111,6 +128,13 @@ DIRECTED_CASES = [
         prompt="fix it where it is now, we can rebase later",
         expected=_routes(True),
         metadata=_in_thread("posthog_asked"),
+    ),
+    # The twin of `confirmation_of_our_assumption`: the same question, answered "wrong".
+    BaseEvalCase(
+        name="correction_of_our_assumption",
+        prompt="no, that wrapper is only used on checkout, put the fix there",
+        expected=_routes(True),
+        metadata=_in_thread("posthog_assumed"),
     ),
     BaseEvalCase(
         name="follow_up_ask",
@@ -202,6 +226,22 @@ CHATTER_CASES = [
         prompt="that's fine, pull it out of the wrapper while you're in there",
         expected=_routes(False),
         metadata=_in_thread("other_agent_asked"),
+    ),
+    # The agent asked to hear back only if it was wrong. A reply that says it was right
+    # reads as an answer to its question, but there is nothing for it to do.
+    BaseEvalCase(
+        name="confirmation_of_our_assumption",
+        prompt="yeah it's shared, that's the right call",
+        expected=_routes(False),
+        metadata=_in_thread("posthog_assumed"),
+    ),
+    # The same confirmation, given as the answer to a colleague and carried on into talk
+    # among people.
+    BaseEvalCase(
+        name="answer_to_a_persons_question",
+        prompt="yeah that's us, we tend to be the only ones touching it. not sure we need a dedicated owner for it though, open to ideas",
+        expected=_routes(False),
+        metadata=_in_thread("posthog_assumed_person_asked"),
     ),
     # A thread kept as a running list. The item carries an implicit work item, which is a
     # sharper lure than a bare link.

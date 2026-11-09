@@ -9,8 +9,9 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
+import { isDataVisualizationNode, isInsightVizNode } from '~/queries/schema/node-guards'
 import { DataVisualizationNode, InsightVizNode, Node, SavedInsightNode } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isInsightVizNode, isSavedInsightNode } from '~/queries/utils'
+import { isSavedInsightNode } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { ReportChartApi, SizeEnumApi } from 'products/signals/frontend/generated/api.schemas'

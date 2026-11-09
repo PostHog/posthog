@@ -48,6 +48,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     VM_SANDBOX_CPU_CORES,
 )
 from products.tasks.backend.logic.services.startup_failure import raise_startup_failure
+from products.tasks.backend.model_catalog import CLAUDE, is_anthropic_served_model
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -408,6 +409,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_BENJAMIN": "1" if benjamin_enabled else "0",
         "POSTHOG_PI_CONVERSATION_FORMAT": "acp" if pi_acp_conversation else "pi",
     }
+    if runtime_adapter == CLAUDE and model and not is_anthropic_served_model(model):
+        env_vars["CLAUDE_CODE_AUTO_MODE_SERVER"] = "0"
+        env_vars["CLAUDE_CODE_AUTO_MODE_MODEL"] = model
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
     )

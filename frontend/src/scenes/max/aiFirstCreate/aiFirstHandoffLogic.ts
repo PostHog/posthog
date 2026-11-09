@@ -5,6 +5,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
+import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -12,10 +14,9 @@ import {
     composerSeedLogic,
     getToolOutputRecord,
     resolveToolCall,
-    runnerPanelLogic,
     toolStreamEventsLogic,
 } from 'products/posthog_ai/frontend/api/logics'
-import type { ActiveCreation, ComposerSeed } from 'products/posthog_ai/frontend/api/logics'
+import type { ComposerSeed } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/api/types'
 
 export interface AiFirstHandoffLogicProps {

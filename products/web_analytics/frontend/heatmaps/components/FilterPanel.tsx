@@ -7,7 +7,6 @@ import { LemonBadge, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { HEATMAP_LOADING_DEBOUNCE_MS, heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
-import { HeatmapEventFilter } from 'lib/components/heatmaps/types'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -18,15 +17,22 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { percentage } from 'lib/utils/numbers'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
-import { AnyPropertyFilter, CohortPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    ChartDisplayCategory,
+    CohortPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { HEATMAP_PRESET_WIDTHS } from './heatmapCoverage'
 import { heatmapCoverageLogic } from './heatmapCoverageLogic'
 import { HeatmapEmptyState } from './HeatmapEmptyState'
+import { heatmapEventFiltersToSeries, seriesToHeatmapEventFilters } from './heatmapEventSeries'
 
 const cohortIdsToPropertyFilters = (ids: number[]): AnyPropertyFilter[] =>
     ids.map((id) => ({
@@ -182,17 +188,16 @@ export function FilterPanel({
                                     // The filter bar is a single row of controls, so the event list, which grows a
                                     // row per event, sits in a popover rather than stretching the row it lives in.
                                     <div className="p-2 w-96">
-                                        <ActionFilter
+                                        <SeriesActionFilter
                                             bordered
-                                            filters={{ events: commonFilters?.events ?? [] }}
-                                            setFilters={(filters) => {
+                                            series={heatmapEventFiltersToSeries(commonFilters?.events)}
+                                            onChange={(series) => {
                                                 setCommonFilters?.({
                                                     ...commonFilters,
-                                                    // ActionFilter types events as the loose Record shape; narrow
-                                                    // back to what heatmapDataLogic serializes.
-                                                    events: (filters.events ?? []) as HeatmapEventFilter[],
+                                                    events: seriesToHeatmapEventFilters(series),
                                                 })
                                             }}
+                                            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                                             typeKey="heatmap-events"
                                             buttonCopy="Add event"
                                             mathAvailability={MathAvailability.None}

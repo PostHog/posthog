@@ -12,7 +12,6 @@ import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 // pinned: these values are the `type` property of the `views new picked` and `views list filtered` events.
 export type AnalyticsType = 'canvas' | 'notebook' | 'dashboard' | 'insight'
-export type AnalyticsTypeFilter = AnalyticsType | 'all'
 
 export interface AnalyticsTypeInfo {
     type: AnalyticsType

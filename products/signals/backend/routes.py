@@ -1,12 +1,18 @@
 from posthog.api.routing import RouterRegistry
 
 import products.signals.backend.views as signals
-from products.signals.backend.presentation.activity_summary import ActivitySummaryViewSet
+from products.signals.backend.presentation.activity_summary import ActivitySummaryMembersViewSet, ActivitySummaryViewSet
 from products.signals.backend.presentation.anomalies import AnomalyViewSet
 from products.signals.backend.presentation.inbox_summary import InboxSummaryViewSet
 from products.signals.backend.presentation.onboarding import InboxOnboardingViewSet
 from products.signals.backend.presentation.reviewer_exclusions import SignalReviewerExclusionViewSet
 from products.signals.backend.presentation.scout_rubrics import SignalScoutRubricViewSet
+from products.signals.backend.presentation.spend import (
+    SignalMonthlyUsageViewSet,
+    SignalSourceSpendViewSet,
+    SignalSpendViewSet,
+)
+from products.signals.backend.presentation.trial import SelfDrivingTrialViewSet
 from products.signals.backend.scout_chat import SignalScoutChatTaskViewSet
 from products.signals.backend.scout_harness.views import (
     SignalProjectProfileViewSet,
@@ -23,12 +29,24 @@ from products.signals.backend.views import SignalViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(r"signals/usage", SignalMonthlyUsageViewSet, "project_signals_usage", ["team_id"])
+    routers.projects.register(r"signals/spend", SignalSpendViewSet, "project_signals_spend", ["team_id"])
+    routers.projects.register(
+        r"signals/source_spend", SignalSourceSpendViewSet, "project_signals_source_spend", ["team_id"]
+    )
     routers.projects.register(r"signals/onboarding", InboxOnboardingViewSet, "project_signals_onboarding", ["team_id"])
+    routers.projects.register(r"signals/trial", SelfDrivingTrialViewSet, "project_signals_trial", ["team_id"])
     routers.projects.register(
         r"signals/inbox_summary", InboxSummaryViewSet, "project_signals_inbox_summary", ["team_id"]
     )
     routers.projects.register(
         r"signals/activity_summary", ActivitySummaryViewSet, "project_signals_activity_summary", ["team_id"]
+    )
+    routers.projects.register(
+        r"signals/activity_summary_members",
+        ActivitySummaryMembersViewSet,
+        "project_signals_activity_summary_members",
+        ["team_id"],
     )
     routers.projects.register(r"signals/anomalies", AnomalyViewSet, "project_signals_anomalies", ["team_id"])
     routers.projects.register(

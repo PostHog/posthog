@@ -147,11 +147,11 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
 
     s3_key_prefix = f"{settings.OBJECT_STORAGE_EXPORTS_FOLDER}/{output_format}/team-{asset.team_id}/task-{asset.id}"
 
-    # Empty until the signing secret is configured; the rasterizer then relays the legacy shared
-    # secret instead, so rollout can happen per environment without breaking rendering.
-    recording_api_token = (
-        mint_recording_api_token(asset.team_id, "read", ttl=_RASTERIZE_TOKEN_TTL) if recording_api_jwt_enabled() else ""
-    )
+    # The rasterizer relays this token on every block request and has no other recording-api
+    # credential, so a render without one cannot fetch a single block.
+    if not recording_api_jwt_enabled():
+        raise ApplicationError("RECORDING_API_JWT_SECRET is not configured", non_retryable=True)
+    recording_api_token = mint_recording_api_token(asset.team_id, "read", ttl=_RASTERIZE_TOKEN_TTL)
 
     activity_input = rasterization_input_from_context(
         ctx,

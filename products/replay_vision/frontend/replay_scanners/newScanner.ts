@@ -46,6 +46,7 @@ export function newScanner(teamName?: string | null): ScannerFormValues {
         dashboard_id: null,
         dashboard_suggested: false,
         filter_error: null,
+        unrunnable_reason: null,
     } as const
 
     return {

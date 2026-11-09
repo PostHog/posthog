@@ -8,9 +8,10 @@ from django.db import models
 from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
-from rest_framework import pagination, response, serializers, status, viewsets
+from rest_framework import response, serializers, status, viewsets
 from rest_framework.viewsets import GenericViewSet
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.helpers.impersonation import is_impersonated
@@ -56,7 +57,12 @@ def _set_tags_on_object(tags: list[str], obj: Any) -> tuple[list[TaggedItem], se
 
     # Delete tags that are missing (use individual deletes to trigger activity logging)
     removed_tag_ids: set[int] = set()
-    tagged_items_to_delete = obj.tagged_items.exclude(tag__name__in=deduped_tags)
+    # Activity logging reads each deleted item's tag, its team and the tagged object.
+    tagged_items_to_delete = (
+        obj.tagged_items.exclude(tag__name__in=deduped_tags)
+        .select_related("tag__team")
+        .prefetch_related("integer_object", "uuid_object")
+    )
     for tagged_item in tagged_items_to_delete:
         removed_tag_ids.add(tagged_item.tag_id)
         tagged_item.delete()
@@ -493,7 +499,7 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if search:
             tags = tags.filter(name__icontains=search)
 
-        paginator = pagination.LimitOffsetPagination()
+        paginator = BoundedLimitOffsetPagination()
         paginator.default_limit = 100
         paginator.max_limit = 100
         page = paginator.paginate_queryset(tags, request, view=self)

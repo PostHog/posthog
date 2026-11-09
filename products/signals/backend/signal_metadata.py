@@ -457,7 +457,11 @@ def fetch_origin_sources_for_report(team: Team, report_id: str) -> list[OriginSo
 
 
 def _signals_for_report_query(
-    *, include_deleted: bool = False, limit: int | None = None, newest_first: bool = False
+    *,
+    include_deleted: bool = False,
+    limit: int | None = None,
+    newest_first: bool = False,
+    prioritize_signal_ids: bool = False,
 ) -> str:
     """Build a HogQL query that fetches signal rows for a single report.
 
@@ -466,9 +470,11 @@ def _signals_for_report_query(
             Used by soft-delete which intentionally re-processes already-deleted rows.
         limit: Optional row cap appended as a LIMIT clause.
         newest_first: Order by newest timestamp first, so a limit keeps the newest rows.
+        prioritize_signal_ids: Keep the IDs in the priority_signal_ids placeholder before applying the cap.
     """
     deleted_filter = "" if include_deleted else "\n          AND NOT JSONExtractBool(metadata, 'deleted')"
     limit_clause = "" if limit is None else f"\n        LIMIT {limit}"
+    priority_order = "document_id IN {priority_signal_ids} DESC, " if prioritize_signal_ids else ""
 
     return f"""
         SELECT
@@ -479,7 +485,7 @@ def _signals_for_report_query(
             latest_inserted_at
         FROM ({_deduped_signals_subquery(candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
         WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}{deleted_filter}
-        ORDER BY timestamp {"DESC" if newest_first else "ASC"}{limit_clause}
+        ORDER BY {priority_order}timestamp {"DESC" if newest_first else "ASC"}{limit_clause}
     """
 
 

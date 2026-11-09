@@ -149,7 +149,7 @@ def query_pr_lifecycle(
 
     runs = (
         curated.run(
-            _RUNS.replace("__RUNS_SOURCE__", curated.run_source()),
+            _RUNS.replace("__RUNS_SOURCE__", curated.run_source(live=True)),
             query_type="engineering_analytics.pr_lifecycle.runs",
             placeholders={"head_sha": ast.Constant(value=head_sha)},
         )

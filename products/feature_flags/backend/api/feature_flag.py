@@ -5,6 +5,7 @@ import copy
 import json
 import math
 import logging
+import builtins
 import functools
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import nullcontext
@@ -62,6 +63,7 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     TeamSecretTokenAuthentication,
+    WorkloadAccessTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
@@ -70,7 +72,8 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import Team
+from posthog.ip_restrictions import ip_restrictions_exempt_for_secret_keys
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
@@ -91,6 +94,13 @@ from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
 from posthog.utils import is_valid_regex, str_to_bool
 from posthog.views import format_bytes
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    property_key_overlaps_restriction,
+    redact_restricted_properties,
+    split_restricted_property_names,
+)
+from products.access_control.backend.facade.contracts import RestrictedPropertyNames
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -104,6 +114,7 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.facade.contracts import LinkedExperiment
+from products.feature_flags.backend.api.code_analysis import FeatureFlagCodeAnalysisMixin
 from products.feature_flags.backend.api.filters_schema import (
     FEATURE_FLAG_OPERATOR_ALIASES,
     FEATURE_FLAG_PROPERTY_TYPES,
@@ -444,6 +455,8 @@ def _scope_audit_identity(authenticator) -> tuple[list[str], str, str | None, st
         return scopes, "oauth_access_token", str(raw_id) if raw_id is not None else None, None
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
         return scopes, "id_jag_access_token", None, None
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        return scopes, "workload_access_token", authenticator.policy_id, None
     psak = authenticator.project_secret_api_key
     return scopes, "project_secret_api_key", str(getattr(psak, "id", "")) or None, None
 
@@ -741,6 +754,54 @@ def _filter_person_properties_for_flag(
             referenced_keys.add(override["key"])
 
     return {key: value for key, value in person_properties.items() if key in referenced_keys}
+
+
+def _group_type_indexes_for_condition_property(
+    filters: dict[str, Any], condition_index: Any, key: str
+) -> set[int | None]:
+    # Mirrors the flags service: a group filter's own group_type_index, else the condition's
+    # aggregation, else the flag's. {None} (any group type) when the filter cannot be located.
+    groups = filters.get("groups") or []
+    if not isinstance(condition_index, int) or not 0 <= condition_index < len(groups):
+        return {None}
+    condition = groups[condition_index] or {}
+    aggregation = flag_filters.condition_aggregation(condition, filters.get("aggregation_group_type_index"))
+    indexes: set[int | None] = {
+        aggregation if prop.get("group_type_index") is None else prop["group_type_index"]
+        for prop in condition.get("properties") or []
+        if isinstance(prop, dict) and prop.get("type") == "group" and prop.get("key") == key
+    }
+    return indexes if indexes else {None}
+
+
+def _redact_restricted_actual_values(
+    conditions: Any, filters: dict[str, Any], restricted: RestrictedPropertyNames
+) -> Any:
+    if (not restricted.person and not restricted.group) or not isinstance(conditions, list):
+        return conditions
+
+    def is_restricted(condition_index: Any, prop: dict[str, Any]) -> bool:
+        key = prop.get("key")
+        if not isinstance(key, str):
+            return False
+        if prop.get("type") != "group":
+            return property_key_overlaps_restriction(key, restricted.person)
+        indexes = _group_type_indexes_for_condition_property(filters, condition_index, key)
+        return any(property_key_overlaps_restriction(key, restricted.group_property_names(index)) for index in indexes)
+
+    redacted: list[Any] = []
+    for condition in conditions:
+        if not isinstance(condition, dict) or not isinstance(condition.get("properties"), list):
+            redacted.append(condition)
+            continue
+        properties: list[Any] = []
+        for prop in condition["properties"]:
+            if isinstance(prop, dict) and is_restricted(condition.get("index"), prop):
+                properties.append({**prop, "actual_value": None})
+            else:
+                properties.append(prop)
+        redacted.append({**condition, "properties": properties})
+    return redacted
 
 
 def check_flag_limits_for_team(
@@ -3601,7 +3662,13 @@ class FeatureFlagConditionPropertyAnalysisSerializer(serializers.Serializer):
     operator = serializers.CharField(help_text="Comparison operator")
     value = serializers.JSONField(help_text="Expected property value")
     type = serializers.CharField(help_text="Property type (person, group, etc.)")
-    actual_value = serializers.JSONField(allow_null=True, help_text="Actual property value from user")
+    actual_value = serializers.JSONField(
+        allow_null=True,
+        help_text=(
+            "Actual property value from user. Null when the property is not set, "
+            "or when property access control hides it from the requesting user."
+        ),
+    )
     matched = serializers.BooleanField(help_text="Whether this property condition matched")
     explanation = serializers.CharField(help_text="Human-readable explanation of the match result")
 
@@ -3660,7 +3727,10 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
     )
     payload = serializers.JSONField(allow_null=True, help_text="Payload associated with the flag result, if any")
     person_properties = serializers.DictField(
-        help_text="Person properties at the time of evaluation (for historical evaluations)"
+        help_text=(
+            "Person properties at the time of evaluation (for historical evaluations). "
+            "Properties that property access control hides from the requesting user are omitted."
+        )
     )
     evaluation_distinct_id = serializers.CharField(
         allow_null=True,
@@ -4241,6 +4311,7 @@ class CreateStaticCohortForFlagResponseSerializer(serializers.Serializer):
 # See products/feature_flags/backend/user_blast_radius.py for the pattern.
 @extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
 class FeatureFlagViewSet(
+    FeatureFlagCodeAnalysisMixin,
     ApprovalHandlingMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -4377,8 +4448,10 @@ class FeatureFlagViewSet(
             # never read the field.
             queryset = queryset.annotate(is_used_in_replay_settings_annotation=self._replay_gates.as_q())
 
+            # Soft-deleted flags can be restored, so the list returns them when asked for them, and only them.
+            show_deleted = str_to_bool(self.request.GET.get("deleted", False))
             queryset = (
-                queryset.filter(deleted=False)
+                queryset.filter(deleted=show_deleted)
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related(
                     Prefetch(
@@ -4401,7 +4474,10 @@ class FeatureFlagViewSet(
                 Q(id__in=product_tour_internal_targeting_flags)
             )
 
-            queryset = exclude_archived_unless_requested(queryset, requested="archived" in self.request.GET)
+            # A flag that was archived before it was deleted still belongs in the deleted list.
+            queryset = exclude_archived_unless_requested(
+                queryset, requested="archived" in self.request.GET or show_deleted
+            )
 
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
@@ -4494,6 +4570,17 @@ class FeatureFlagViewSet(
                 required=False,
                 enum=["true", "false"],
                 description="Filter by archived state. When omitted, archived flags are excluded.",
+            ),
+            OpenApiParameter(
+                "deleted",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+                description=(
+                    "Pass `true` to list only soft-deleted flags, which can be restored, archived or not. "
+                    "When omitted, deleted flags are excluded."
+                ),
             ),
             OpenApiParameter(
                 "has_evaluation_contexts",
@@ -5190,6 +5277,21 @@ class FeatureFlagViewSet(
 
         return Response(response_data)
 
+    def _ids_user_can_edit(self, queryset: QuerySet[FeatureFlag]) -> builtins.list[int]:
+        """IDs of the flags in `queryset` that the user can edit, with the same check as the serializer's `get_can_edit`."""
+        from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+
+        # The access check reads created_by_id, so a deferred column costs a query per flag
+        flags = list(queryset.only("id", "created_by_id"))
+        self.user_access_control.preload_object_access_controls(cast(list, flags))
+
+        editable_ids = []
+        for flag in flags:
+            user_access_level = self.user_access_control.get_user_access_level(flag)
+            if user_access_level and access_level_satisfied_for_resource("feature_flag", user_access_level, "editor"):
+                editable_ids.append(flag.id)
+        return editable_ids
+
     @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
     def matching_ids(self, request: request.Request, **kwargs):
         """
@@ -5197,8 +5299,6 @@ class FeatureFlagViewSet(
         Uses the same filtering logic as the list endpoint.
         Returns only IDs that the user has permission to edit.
         """
-        from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
-
         # Build queryset with same filtering as list endpoint
         queryset = self.queryset.filter(team__project_id=self.project_id, deleted=False)
 
@@ -5219,20 +5319,7 @@ class FeatureFlagViewSet(
         if not self.user_access_control:
             editable_ids = list(queryset.values_list("id", flat=True))
         else:
-            # Load only the id field to minimize data transfer
-            flags = list(queryset.only("id"))
-
-            # Preload access controls to avoid N+1 queries
-            self.user_access_control.preload_object_access_controls(cast(list, flags))
-
-            # Filter to only flags the user can edit (same logic as serializer's get_can_edit)
-            editable_ids = []
-            for flag in flags:
-                user_access_level = self.user_access_control.get_user_access_level(flag)
-                if user_access_level and access_level_satisfied_for_resource(
-                    "feature_flag", user_access_level, "editor"
-                ):
-                    editable_ids.append(flag.id)
+            editable_ids = self._ids_user_can_edit(queryset)
 
         return Response(
             {
@@ -5271,7 +5358,6 @@ class FeatureFlagViewSet(
         from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_log_activity
         from posthog.tasks.remote_config import update_team_remote_config
 
-        from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
         from products.feature_flags.backend.flags_cache import enqueue_evaluation_cache_invalidation
         from products.feature_flags.backend.tasks import update_team_flags_cache
 
@@ -5341,23 +5427,11 @@ class FeatureFlagViewSet(
 
         # Apply access control - filter to only editable flags
         if self.user_access_control:
-            # The access check reads created_by_id, so a deferred column costs a query per flag
-            flags_for_access_check = list(queryset.only("id", "created_by_id"))
-            self.user_access_control.preload_object_access_controls(cast(list, flags_for_access_check))
-
-            editable_ids = []
-            for flag in flags_for_access_check:
-                user_access_level = self.user_access_control.get_user_access_level(flag)
-                if user_access_level and access_level_satisfied_for_resource(
-                    "feature_flag", user_access_level, "editor"
-                ):
-                    editable_ids.append(flag.id)
-
             # Filter the existing queryset to only editable flags (preserves all exclusions)
-            queryset = queryset.filter(id__in=editable_ids)
+            queryset = queryset.filter(id__in=self._ids_user_can_edit(queryset))
 
         # Prefetch related data for validation (only for flags we'll actually process)
-        queryset = queryset.select_related("team").prefetch_related("features", "experiment_set")
+        queryset = queryset.prefetch_related("features", "experiment_set")
         flags_list = list(queryset)
 
         # Batch query for dependent flags
@@ -5466,7 +5540,7 @@ class FeatureFlagViewSet(
             # Prepare activity log entry
             activity_log_entries.append(
                 LogActivityEntry(
-                    organization_id=flag.team.organization_id,
+                    organization_id=self.team.organization_id,
                     team_id=flag.team_id,
                     user=current_user,
                     was_impersonated=was_impersonated,
@@ -5533,7 +5607,7 @@ class FeatureFlagViewSet(
                     update_flag(
                         flag,
                         {"deleted": True, "version": flag.version or 0},
-                        team=flag.team,
+                        team=self.team,
                         user=request.user,
                         request=FlagLifecycleWriteRequest(request),
                         serializer_context=self.get_serializer_context(),
@@ -6250,6 +6324,12 @@ class FeatureFlagViewSet(
             response_evaluation_distinct_id = (
                 evaluation_distinct_id if distinct_id and distinct_id in distinct_ids else None
             )
+            restricted_properties = split_restricted_property_names(
+                get_restricted_properties_with_group_type_index_for_team(
+                    user=cast(User, request.user) if request.user.is_authenticated else None,
+                    team_id=self.team_id,
+                )
+            )
             response_data = {
                 "flag_key": feature_flag.key,
                 "result": result,
@@ -6257,11 +6337,16 @@ class FeatureFlagViewSet(
                 "reason_description": reason_description,
                 "condition_index": condition_index,
                 "payload": payload,
-                "person_properties": _filter_person_properties_for_flag(
-                    evaluation_filters, person_properties, flag_key=feature_flag.key
+                "person_properties": redact_restricted_properties(
+                    _filter_person_properties_for_flag(
+                        evaluation_filters, person_properties, flag_key=feature_flag.key
+                    ),
+                    restricted_properties.person,
                 ),
                 "evaluation_distinct_id": response_evaluation_distinct_id,
-                "conditions": detailed_conditions,
+                "conditions": _redact_restricted_actual_values(
+                    detailed_conditions, evaluation_filters, restricted_properties
+                ),
             }
             if detect_config_format(evaluation_filters).kind == "v2":
                 response_data["conditions_unavailable_reason"] = V2_CONDITIONS_UNAVAILABLE_REASON
@@ -6368,6 +6453,7 @@ class FeatureFlagViewSet(
         permission_classes=[TeamSecretTokenPermission],
         throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
+    @ip_restrictions_exempt_for_secret_keys
     def remote_config(self, request: request.Request, **kwargs):
         response = self._remote_config_response(request, **kwargs)
         # Temporary (Rust remote_config port, phase 2): shadow-compare against Rust; delete after cutover.

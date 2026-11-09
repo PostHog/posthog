@@ -305,6 +305,11 @@ class TestResolveScopes(SimpleTestCase):
             assert scope in resolve_scopes("full")
             assert scope in resolve_scopes(["feature_flag:read"])
 
+    def test_assessment_tokens_only_grant_reads(self) -> None:
+        granted = resolve_scopes("signals_assessment")
+        assert "query:read" in granted and "inbox:read" in granted
+        assert not any(scope.endswith(":write") for scope in granted)
+
     def test_include_internal_scopes_false_drops_internal_scopes(self) -> None:
         custom = ["clickhouse_test_cluster_perf:read"]
         result = resolve_scopes(custom, include_internal_scopes=False)
@@ -344,6 +349,7 @@ class TestHasWriteScopes(SimpleTestCase):
     @parameterized.expand(
         [
             ("read_only_preset", "read_only", False),
+            ("signals_assessment_preset", "signals_assessment", False),
             ("full_preset", "full", True),
             ("signals_scout_preset", "signals_scout", True),
             # Both pipeline postures need read-only mode off, or the MCP server strips the

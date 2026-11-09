@@ -295,6 +295,28 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("inbox_only", ["inbox:write"], status.HTTP_403_FORBIDDEN),
+            ("inbox_and_task", ["inbox:write", "task:write"], status.HTTP_201_CREATED),
+            ("legacy_task_only", ["task:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_run_needs_task_scope_as_well_as_inbox_scope(
+        self, workflow: MagicMock, _flag_mock: MagicMock, _name: str, scopes: list[str], expected: int
+    ) -> None:
+        report = self._report(prompts=["Why does checkout fail?"])
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self._run(report, {"action": "suggested_prompt", "suggested_prompt_index": 0})
+
+        assert response.status_code == expected, response.data
+        if expected == status.HTTP_403_FORBIDDEN:
+            assert "task:write" in response.json()["detail"]
+            assert not Task.objects.filter(signal_report=report).exists()
+
     def test_refuses_without_ai_data_processing_approval(self, workflow: MagicMock, _flag_mock: MagicMock) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()

@@ -9,6 +9,7 @@ use std::time::Duration;
 use common::one_message_batcher;
 use common_kafka_consumer::Partition;
 use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
+use ingestion_consumer::batcher::BatcherCompletion;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport, SendOptions};
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::transport::{SendOutcome, TransportError};
@@ -1396,6 +1397,9 @@ async fn a_busy_send_is_retried_until_it_completes() {
         .await
         .expect("successful retry completes")
         .expect("completion channel stays open");
+    let BatcherCompletion::Group(completion) = completion else {
+        panic!("expected a group completion");
+    };
     assert_eq!(completion.accepted, 1);
     tokio::time::sleep(Duration::from_millis(550)).await;
     assert!(
@@ -1440,6 +1444,9 @@ async fn the_watchdog_allows_in_flight_success_after_the_deadline() {
         .await
         .expect("late successful send completes")
         .expect("completion channel stays open");
+    let BatcherCompletion::Group(completion) = completion else {
+        panic!("expected a group completion");
+    };
     assert_eq!(completion.accepted, 1);
 
     tokio::time::sleep(Duration::from_millis(150)).await;

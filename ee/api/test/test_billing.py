@@ -295,7 +295,9 @@ class TestUnlicensedBillingAPI(APIBaseTest):
     @patch("ee.billing.billing_manager.http_session.get")
     @time_machine.travel("2022-01-01", tick=False)
     def test_billing_calls_the_service_without_token(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(
+            url: str, headers: Any = None, params: Any = None, *, timeout: tuple[float, float] | None = None
+        ) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -346,7 +348,9 @@ class TestBillingAPI(APILicensedTest):
     @patch("ee.billing.billing_manager.http_session.get")
     @time_machine.travel("2022-01-01", tick=False)
     def test_billing_calls_the_service_with_appropriate_token(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(
+            url: str, headers: Any = None, params: Any = None, *, timeout: tuple[float, float] | None = None
+        ) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -390,7 +394,9 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_returns_if_billing_exists(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(
+            url: str, headers: Any = None, params: Any = None, *, timeout: tuple[float, float] | None = None
+        ) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -505,7 +511,9 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_returns_if_doesnt_exist(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(
+            url: str, headers: Any = None, params: Any = None, *, timeout: tuple[float, float] | None = None
+        ) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -719,7 +727,9 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_organization_available_product_features_updated_if_different(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(
+            url: str, headers: Any = None, params: Any = None, *, timeout: tuple[float, float] | None = None
+        ) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -761,7 +771,9 @@ class TestBillingAPI(APILicensedTest):
         self.organization.usage = None
         self.organization.save()
 
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(
+            url: str, headers: Any = None, params: Any = None, *, timeout: tuple[float, float] | None = None
+        ) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -812,7 +824,9 @@ class TestBillingAPI(APILicensedTest):
     @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
     @patch("ee.billing.billing_manager.http_session.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock | Response:
+        def mock_implementation(
+            url: str, headers: Any = None, params: Any = None, *, timeout: tuple[float, float] | None = None
+        ) -> MagicMock | Response:
             mock = MagicMock()
             if "api/billing/portal" in url:
                 mock.status_code = 200
@@ -864,7 +878,9 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_org_trust_score_updated(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(
+            url: str, headers: Any = None, params: Any = None, *, timeout: tuple[float, float] | None = None
+        ) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -924,7 +940,9 @@ class TestBillingAPI(APILicensedTest):
     ) -> None:
         """Normalize explicit forecasting values and preserve the downstream default when omitted."""
 
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(
+            url: str, headers: Any = None, params: Any = None, *, timeout: tuple[float, float] | None = None
+        ) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 200
 
@@ -2879,6 +2897,46 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(data["code"], "billing_query_rejected")
         self.assertEqual(data["detail"], BillingQueryRejected.default_detail)
         self.assertNotIn("start_date is invalid", response.content.decode())
+
+
+def _billing_rate_limited_response() -> Response:
+    response = Response()
+    response.status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    response.headers["Retry-After"] = "30"
+    response._content = json.dumps({"detail": "Request was throttled. Expected available in 30 seconds."}).encode()
+    response.raw = MagicMock()
+    return response
+
+
+@patch(
+    "ee.billing.billing_manager.http_session.get", side_effect=lambda *args, **kwargs: _billing_rate_limited_response()
+)
+class TestBillingRateLimitedAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _assert_rate_limited(self, response: Any) -> None:
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "billing_rate_limited")
+        self.assertEqual(response.headers["Retry-After"], "30")
+
+    def test_billing_list_returns_429(self, _mock_get):
+        self._assert_rate_limited(self.client.get("/api/billing/"))
+
+    def test_billing_usage_returns_429(self, _mock_get):
+        self._assert_rate_limited(self.client.get("/api/billing/usage/?start_date=2025-01-01"))
+
+    def test_billing_invoices_returns_429(self, _mock_get):
+        self._assert_rate_limited(self.client.get("/api/billing/get_invoices"))
+
+    def test_billing_429_is_not_captured(self, _mock_get):
+        with patch("posthog.exceptions.capture_exception", return_value=None) as mock_capture_exception:
+            response = self.client.get("/api/billing/")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        mock_capture_exception.assert_not_called()
 
 
 class TestBillingPeriodAPI(APILicensedTest):

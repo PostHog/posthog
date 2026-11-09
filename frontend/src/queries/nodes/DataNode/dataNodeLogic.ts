@@ -27,17 +27,30 @@ import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
-import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { getRegexFilterPatterns, hasInvalidRegexPattern } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
 import { QueryScanPollResult, QueryScanState, resolveQueryScan } from '~/queries/nodes/DataNode/queryScan'
 import { getSingleRequestServerMs } from '~/queries/nodes/DataNode/queryTimeBreakdown'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import {
+    compareDataNodeQuery,
+    haveVariablesOrFiltersChanged,
+    validateQuery,
+} from '~/queries/nodes/InsightViz/queryUtils'
 import { performQuery } from '~/queries/query'
+import {
+    isActorsQuery,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isPersonsNode,
+    isWebStatsTableQuery,
+} from '~/queries/schema/node-guards'
 import {
     AccountsQuery,
     AccountsQueryResponse,
@@ -83,21 +96,15 @@ import {
 import {
     isAccountsQuery,
     isAccountsTableQuery,
-    isActorsQuery,
     isErrorTrackingIssueEventsQuery,
     isErrorTrackingQuery,
     isEventsQuery,
     isGroupsQuery,
-    isDataVisualizationNode,
-    isHogQLQuery,
     isInsightActorsQuery,
-    isInsightQueryNode,
     isMarketingAnalyticsTableQuery,
-    isPersonsNode,
     isSessionQuery,
     isSessionsQuery,
     isTracesQuery,
-    isWebStatsTableQuery,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
@@ -177,6 +184,8 @@ export const QUERY_SCAN_POLL_DEADLINE_MS = 600000
 // Loading and error states render the query id, so a random id per load
 // makes Storybook visual regression captures differ on every run
 const STORYBOOK_QUERY_ID = '00000000-0000-4000-8000-000000000000'
+// A measured query duration differs on every Storybook run; 180 ms matches what several stories pinned by hand.
+const STORYBOOK_ELAPSED_TIME_MS = 180
 
 const VALID_REFRESH_TYPES: ReadonlySet<RefreshType> = new Set([
     'async',
@@ -1090,7 +1099,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number, serverDurationMs: number | null = null) => ({
-            elapsedTime,
+            elapsedTime: inStorybook() || inStorybookTestRunner() ? STORYBOOK_ELAPSED_TIME_MS : elapsedTime,
             serverDurationMs,
         }),
         setPollResponse: (status: QueryStatus | null) => ({ status }),
@@ -1197,6 +1206,17 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     if (!validateQuery(query)) {
                         return null
+                    }
+                    // Only a query with a regex filter waits for the RE2 engine.
+                    const regexPatterns = getRegexFilterPatterns(query)
+                    if (regexPatterns.length > 0) {
+                        const hasInvalidPattern = await hasInvalidRegexPattern(regexPatterns)
+                        // A newer load may have started during the engine load. This one must not touch its request.
+                        breakpoint()
+                        // A cancel during the engine load finds no request to abort yet.
+                        if (hasInvalidPattern || values.queryCancelled) {
+                            return null
+                        }
                     }
 
                     const abortController = new AbortController()

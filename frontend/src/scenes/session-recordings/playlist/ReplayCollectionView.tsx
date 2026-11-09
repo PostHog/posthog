@@ -1,9 +1,9 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconArrowLeft, IconExternal, IconPlus } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { Badge, Button, Item, ItemContent, ItemDescription, Skeleton } from '@posthog/quill'
 
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { BUILT_IN_COLLECTION_ICONS } from '../collections/builtInCollectionIcons'
@@ -38,48 +38,54 @@ export function ReplayCollectionView({ shortId, logicKey }: { shortId: string; l
 
     return (
         <div className="flex flex-col flex-1 min-h-0 gap-2" data-attr="list-collection-view">
-            <div className="flex items-center gap-1">
-                <LemonButton
-                    size="small"
-                    icon={<IconArrowLeft />}
+            <div data-quill className="flex items-center gap-1 text-foreground">
+                <Button
+                    size="icon-sm"
                     onClick={closeCollection}
                     tooltip="Back to collections"
                     aria-label="Back to collections"
                     data-attr="list-collection-back"
-                />
+                >
+                    <IconArrowLeft />
+                </Button>
                 {playlist ? (
                     <span className="flex items-center gap-1.5 min-w-0 flex-1 text-sm font-semibold">
                         {BUILT_IN_COLLECTION_ICONS[playlist.short_id]}
                         <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>
-                        <LemonBadge.Number count={pinnedRecordings?.length ?? 0} size="small" status="muted" showZero />
+                        <Badge>{pinnedRecordings?.length ?? 0}</Badge>
                     </span>
                 ) : failed ? (
                     <span className="flex-1 text-sm font-semibold">Collection</span>
                 ) : (
-                    <LemonSkeleton className="h-5 flex-1" />
+                    <Skeleton className="h-5 flex-1" />
                 )}
                 {playlist && !playlist.is_synthetic && (
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconPlus />}
+                    <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => setAddRecordingsModalOpen(true)}
                         data-attr="list-collection-add-recordings"
                     >
+                        <IconPlus />
                         Add
-                    </LemonButton>
+                    </Button>
                 )}
-                <LemonButton
-                    size="small"
-                    icon={<IconExternal />}
-                    to={urls.replayPlaylist(shortId)}
+                <Button
+                    size="icon-sm"
+                    render={<LinkPrimitive to={urls.replayPlaylist(shortId)} />}
                     tooltip="Open collection page"
                     aria-label="Open collection page"
                     data-attr="list-collection-open-page"
-                />
+                >
+                    <IconExternal />
+                </Button>
             </div>
             {failed ? (
-                <LemonBanner type="error">Couldn't load this collection. Refresh the page to try again.</LemonBanner>
+                <Item data-quill variant="outline" tone="destructive">
+                    <ItemContent>
+                        <ItemDescription>Couldn't load this collection. Refresh the page to try again.</ItemDescription>
+                    </ItemContent>
+                </Item>
             ) : (
                 <BindLogic logic={sessionRecordingsPlaylistLogic} props={listProps}>
                     <Playlist
