@@ -98,8 +98,9 @@ BAD_GET_FALLBACK_MESSAGE = "A value in the query has the wrong type. Check funct
 
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
-    "This usually means the file wasn't written correctly during import. Re-sync the source (or "
-    "re-upload the file if you manage it yourself), and contact support if it keeps happening."
+    "This happens when the file is overwritten while it's being read, or when it wasn't written correctly. "
+    "Try again, and if it keeps happening, re-sync the source (or re-upload the file if you manage it "
+    "yourself). Contact support if that doesn't fix it."
 )
 
 
@@ -126,6 +127,18 @@ def _wrap_malformed_csv_row_error(err: ServerException) -> "CHQueryErrorMalforme
         "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
         code=err.code,
         code_name="malformed_csv_row",
+    )
+
+
+def _is_unparseable_parquet_metadata_error(code_name: str, message: str) -> bool:
+    # The Arrow-based Parquet reader raises "Couldn't deserialize thrift" as a raw STD_EXCEPTION (code 1001).
+    # The ParquetV3 reader raises "Failed to parse Parquet Thrift metadata" as INCORRECT_DATA (code 117) when a
+    # query reads the file, and as CANNOT_EXTRACT_TABLE_STRUCTURE (code 636) when it infers the schema.
+    if code_name == "STD_EXCEPTION":
+        return "deserialize thrift" in message
+    return (
+        code_name in ("INCORRECT_DATA", "CANNOT_EXTRACT_TABLE_STRUCTURE")
+        and "Failed to parse Parquet Thrift metadata" in message
     )
 
 
@@ -218,11 +231,7 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         # A bad row in a self-managed CSV file. Table validation reads only the first rows, so a later
         # bad row first shows up at query time. The raw message holds row contents, so it stays hidden.
         return _wrap_malformed_csv_row_error(err)
-    elif name == "STD_EXCEPTION" and "deserialize thrift" in err.message:
-        # A Parquet file with corrupted or oversized thrift metadata (e.g.
-        # "Couldn't deserialize thrift: TProtocolException: Exceeded size limit").
-        # ClickHouse surfaces this as a raw STD_EXCEPTION (code 1001), so translate it
-        # into an actionable message instead of leaking the internals.
+    elif _is_unparseable_parquet_metadata_error(name, err.message):
         return CHQueryErrorCorruptedParquetMetadata(
             CORRUPTED_PARQUET_METADATA_MESSAGE, code=err.code, code_name="corrupted_parquet_metadata"
         )
