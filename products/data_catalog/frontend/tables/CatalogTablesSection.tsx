@@ -12,6 +12,7 @@ import {
 } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
 import { catalogTablesLogic } from '../catalogTablesLogic'
+import { certificationsLogic } from '../certificationsLogic'
 import { CatalogTablesBulkBar } from './CatalogTablesBulkBar'
 import { CatalogTablesTable } from './CatalogTablesTable'
 import { CatalogTablesToolbar } from './CatalogTablesToolbar'
@@ -32,8 +33,17 @@ function LoadErrors(): JSX.Element {
     const { modelsFailed } = useValues(modelsOverviewLogic)
     const { overviewError, snapshotLoaded, checksTruncated } = useValues(dataQualityOverviewLogic)
     const { loadNodes, loadDataWarehouseSavedQueries, loadOverview } = useActions(modelsOverviewLogic)
+    const { certificationsLoadFailed } = useValues(catalogTablesLogic)
+    const { loadCertifications } = useActions(certificationsLogic)
     return (
         <>
+            {certificationsLoadFailed && (
+                <ModelsOverviewErrorCallout
+                    message="Certifications could not be loaded, so trust marks are not shown and can't be changed."
+                    onRetry={loadCertifications}
+                    dataAttr="data-catalog-tables-certifications-error"
+                />
+            )}
             {modelsFailed && (
                 <ModelsOverviewErrorCallout
                     message="Refresh status for your views could not be loaded, so refresh problems are not shown."

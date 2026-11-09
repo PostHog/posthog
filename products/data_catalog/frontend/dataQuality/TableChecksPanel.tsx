@@ -8,9 +8,9 @@ import { dataQualityCheckEditorLogic } from 'products/data_quality/frontend/data
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 import { QuillSubjectChecksPanel } from 'products/data_quality/frontend/overview/QuillSubjectChecksPanel'
 
-import type { CatalogTableRow } from '../catalogTableRows'
+import type { ChecksSubject } from '../catalogTableRows'
 
-export function TableChecksPanel({ row }: { row: CatalogTableRow }): JSX.Element {
+export function TableChecksPanel({ row }: { row: ChecksSubject }): JSX.Element {
     const { setLastActionCheck } = useActions(dataQualityOverviewLogic)
     const { openEditor } = useActions(dataQualityCheckEditorLogic)
 
