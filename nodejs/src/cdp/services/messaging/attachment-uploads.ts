@@ -95,7 +95,7 @@ export class AttachmentUploads {
             slots = await this.store.prepareUploads(teamId, files)
         } catch (error) {
             if (error instanceof AttachmentStoreUnavailableError) {
-                return DELIVERY_UNAVAILABLE
+                return unavailable(teamId, 'Could not prepare the upload URLs of a team', error)
             }
             throw error
         }
@@ -108,11 +108,7 @@ export class AttachmentUploads {
             try {
                 charged = await this.charge(this.counter, teamId, uploadBytes)
             } catch (error) {
-                logger.warn('⚠️', 'Could not count the upload bytes of a team', {
-                    team_id: teamId,
-                    error: error instanceof Error ? error.message : String(error),
-                })
-                return DELIVERY_UNAVAILABLE
+                return unavailable(teamId, 'Could not count the upload bytes of a team', error)
             }
             if (!charged) {
                 return {
@@ -132,6 +128,11 @@ export class AttachmentUploads {
         )
         return charged === 1
     }
+}
+
+function unavailable(teamId: number, message: string, error: unknown): UploadsAnswer {
+    logger.warn('⚠️', message, { team_id: teamId, error: error instanceof Error ? error.message : String(error) })
+    return DELIVERY_UNAVAILABLE
 }
 
 function toAnswer(slot: UploadSlot): Record<string, unknown> {
