@@ -280,4 +280,28 @@ describe('sourceManagementLogic', () => {
                 .toNotHaveDispatchedActions(['loadSources'])
         }
     })
+    it('drops the fingerprint when the list request fails, so the next poll refetches the list', async () => {
+        router.actions.push('/data-management/sources')
+        jest.spyOn(api.externalDataSources, 'list').mockRejectedValue(new Error('boom'))
+
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadSourcesFailure']).toMatchValues({ sourcesFingerprint: null })
+    })
+
+    it('ignores a fingerprint that arrives after the list request started', async () => {
+        router.actions.push('/data-management/sources')
+        ;(externalDataSourcesSyncStateRetrieve as jest.Mock).mockImplementation(
+            () => new Promise((resolve) => setTimeout(() => resolve({ fingerprint: 'fp-late' }), 500))
+        )
+        jest.useFakeTimers()
+        try {
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(600)
+        } finally {
+            jest.useRealTimers()
+        }
+
+        expect(logic.values.sourcesFingerprint).toBeNull()
+    })
 })

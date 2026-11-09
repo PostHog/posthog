@@ -39,7 +39,7 @@ import type { SourceConfigResponseApi } from '../../../../warehouse_sources/fron
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceTypeLabel } from '../fileUploadSources'
 import { joinsDataLogic } from './joinsDataLogic'
-import { sourcesDataLogic } from './sourcesDataLogic'
+import { SOURCES_LOAD_DEBOUNCE_MS, sourcesDataLogic } from './sourcesDataLogic'
 
 // Poll fast while something is actively syncing so sync status feels live; otherwise poll slowly. The
 // list response can be very large (a source can have tens of thousands of schemas), so a poll reads a
@@ -74,7 +74,6 @@ const fetchSourcesFingerprint = async (): Promise<string | null> => {
     try {
         return (await externalDataSourcesSyncStateRetrieve(String(ApiConfig.getCurrentProjectId()))).fingerprint
     } catch {
-        // Unknown state: the next poll refetches the list.
         return null
     }
 }
@@ -421,6 +420,8 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             null as string | null,
             {
                 setSourcesFingerprint: (_, { fingerprint }) => fingerprint,
+                // The fingerprint describes a list that never loaded, so the next poll must refetch.
+                loadSourcesFailure: () => null,
             },
         ],
     })),
@@ -636,11 +637,12 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             if (!shouldPollSources()) {
                 return
             }
-            // Read before the list request, which waits out a debounce first. A change between the two
-            // reads then shows up as a mismatch on the next poll instead of being missed.
+            // Trust the fingerprint only when it came back before the list request started after its
+            // debounce. A later read can be newer than the list and would hide a change from the polls.
+            const startedAt = Date.now()
             const fingerprint = await fetchSourcesFingerprint()
             breakpoint()
-            actions.setSourcesFingerprint(fingerprint)
+            actions.setSourcesFingerprint(Date.now() - startedAt < SOURCES_LOAD_DEBOUNCE_MS ? fingerprint : null)
         },
         pollSources: async (_, breakpoint) => {
             const fingerprint = await fetchSourcesFingerprint()
