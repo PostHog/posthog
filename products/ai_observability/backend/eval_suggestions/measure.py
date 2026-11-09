@@ -12,6 +12,8 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
+import orjson
+
 from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.hogql import ast
@@ -258,13 +260,12 @@ def _has_tool_call(value: Any) -> bool:
 def _calls_tools(generation: LLMTraceEvent) -> bool:
     """Whether a generation's output asks for tools, which makes it a step of the turn and not its answer."""
     output = extract_event_io(generation.event, generation.properties).output_raw
-    try:
-        if isinstance(output, str):
+    if isinstance(output, str):
+        try:
             output = json.loads(output)
-        return _has_tool_call(output)
-    except (ValueError, RecursionError):
-        # Output nested too deep to parse or walk counts as an answer, so one odd trace can't fail the run.
-        return False
+        except ValueError:
+            return False
+    return _has_tool_call(output)
 
 
 def _tokens(value: Any) -> float:
@@ -315,6 +316,11 @@ def _sampled_trace(
                 "output_state": output_state,
             },
         )
+        try:
+            # Values nested deeper than orjson writes would hit Python's recursion limit in the checks.
+            orjson.dumps(merged)
+        except orjson.JSONEncodeError:
+            return None
         trace_event = LLMTraceEvent(
             id=str(event_uuid), event=str(event), createdAt=timestamp.isoformat(), properties=merged
         )
@@ -330,14 +336,18 @@ def _sampled_trace(
         return str(built[f"{side}_text"])
 
     # The answer is the last generation with text that is not a tool call, without the role label the renderer adds.
-    final_text = next(
-        (
-            ROLE_LABEL.sub("", t)
-            for t in (text(g, "output") for g, _, _ in reversed(generations) if not _calls_tools(g))
-            if t.strip()
-        ),
-        "",
-    )
+    try:
+        final_text = next(
+            (
+                ROLE_LABEL.sub("", t)
+                for t in (text(g, "output") for g, _, _ in reversed(generations) if not _calls_tools(g))
+                if t.strip()
+            ),
+            "",
+        )
+    except RecursionError:
+        # An output string nested deeper than orjson parses stays raw, and Python can't parse it either.
+        return None
     last_generation = generations[-1][0]
     raw_segments = {
         key: segment_text(last_generation.properties[key])

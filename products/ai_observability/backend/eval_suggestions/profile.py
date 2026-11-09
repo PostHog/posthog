@@ -347,7 +347,7 @@ def parse_structured(text: str) -> Any:
         return None
     try:
         return json.loads(stripped)
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
 
 

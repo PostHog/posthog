@@ -200,6 +200,21 @@ def test_an_event_cut_to_fit_anywhere_in_the_trace_skips_it() -> None:
 
 @parameterized.expand(
     [
+        # orjson refuses past 1024 levels, so the output stays a raw string.
+        ("raw_output", 9, "[" * 2000 + "]" * 2000),
+        ("parsed_output", 9, "[" * 600 + "]" * 600),
+        ("parsed_output_state", 14, "[" * 600 + "]" * 600),
+    ]
+)
+def test_a_trace_nested_too_deep_to_read_is_skipped(_name: str, column: int, value: str) -> None:
+    deep = list(_row(1))
+    deep[column] = value
+    rows = [_row(0, answer="Short final answer."), tuple(deep)]
+    assert _sampled_trace("t", rows, held_out=False, spans_days=False, segment_keys=[]) is None
+
+
+@parameterized.expand(
+    [
         ("plain_answer", {}, 0.0),
         ("malformed_token_count", {"$ai_input_tokens": "lots"}, 0.0),
         ("numeric_token_count", {"$ai_input_tokens": "120"}, 120.0),
@@ -260,11 +275,9 @@ def test_run_check_maps_each_verdict(_name: str, source: str, failed: bool | Non
         ("function_call", [{"role": "assistant", "tool_calls": [{"function": {"name": "search"}}]}], True),
         ("otel_part", [{"role": "assistant", "parts": [{"type": "tool_call", "name": "search"}]}], True),
         ("schema_type_list", [{"role": "assistant", "content": "{}", "schema": {"type": ["string", "null"]}}], False),
-        ("too_deep_to_parse", "[" * 2000 + "]" * 2000, False),
-        ("too_deep_to_walk", "[" * 600 + "]" * 600, False),
     ]
 )
-def test_only_a_populated_tool_call_makes_a_generation_a_step(_name: str, output: list | str, expected: bool) -> None:
+def test_only_a_populated_tool_call_makes_a_generation_a_step(_name: str, output: list, expected: bool) -> None:
     event = LLMTraceEvent(
         id="e", event="$ai_generation", createdAt=AT.isoformat(), properties={"$ai_output_choices": output}
     )
