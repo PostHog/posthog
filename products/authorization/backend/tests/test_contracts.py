@@ -35,13 +35,29 @@ class TestObjectIds(SimpleTestCase):
             ("except", ObjectIds(ids=frozenset({"1"}), complete=True, excluded=True), False, True, True),
             ("all", ObjectIds(ids=frozenset(), complete=True, excluded=True), True, True, True),
             ("none", ObjectIds(ids=frozenset(), complete=True), False, False, False),
-            ("creator", ObjectIds(ids=frozenset(), complete=True, creator_exempt=True), False, False, True),
-            ("capped_creator", ObjectIds(ids=frozenset(), complete=False, creator_exempt=True), False, False, False),
+            (
+                "creator",
+                ObjectIds(ids=frozenset(), complete=True, creator_exempt=True, creator_user_id=1),
+                False,
+                False,
+                True,
+            ),
+            (
+                "capped_creator",
+                ObjectIds(ids=frozenset(), complete=False, creator_exempt=True, creator_user_id=1),
+                False,
+                False,
+                False,
+            ),
         ]
     )
     def test_membership_and_creator_exemption(
         self, _name: str, result: ObjectIds, first: bool, other: bool, own: bool
     ) -> None:
         assert result.allows("1") is first
-        assert result.allows("2", created_by_user_id=None, subject_user_id=1) is other
-        assert result.allows("2", created_by_user_id=1, subject_user_id=1) is own
+        assert result.allows("2", created_by_user_id=None) is other
+        assert result.allows("2", created_by_user_id=1) is own
+
+    def test_creator_exemption_needs_the_user_id(self) -> None:
+        with self.assertRaises(ValueError):
+            ObjectIds(ids=frozenset(), complete=True, creator_exempt=True)
