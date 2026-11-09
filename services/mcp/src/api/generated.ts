@@ -60427,6 +60427,7 @@ export namespace Schemas {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -60482,6 +60483,7 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       Databricks: 'databricks',
       Email: 'email',
+      EmailSandbox: 'email_sandbox',
       Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',
@@ -60537,6 +60539,7 @@ export namespace Schemas {
        * * `customerio-webhook` - Customerio Webhook
        * * `databricks` - Databricks
        * * `email` - Email
+       * * `email_sandbox` - Email Sandbox
        * * `firebase` - Firebase
        * * `github` - Github
        * * `gitlab` - Gitlab
@@ -60703,6 +60706,7 @@ export namespace Schemas {
        * * `customerio-webhook` - Customerio Webhook
        * * `databricks` - Databricks
        * * `email` - Email
+       * * `email_sandbox` - Email Sandbox
        * * `firebase` - Firebase
        * * `github` - Github
        * * `gitlab` - Gitlab
@@ -132474,6 +132478,7 @@ export namespace Schemas {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -132540,6 +132545,7 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       Databricks: 'databricks',
       Email: 'email',
+      EmailSandbox: 'email_sandbox',
       Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',

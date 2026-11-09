@@ -268,6 +268,7 @@ class Integration(models.Model):
         CUSTOMERIO_WEBHOOK = "customerio-webhook"
         DATABRICKS = "databricks"
         EMAIL = "email"
+        EMAIL_SANDBOX = "email_sandbox"
         FIREBASE = "firebase"
         GITHUB = "github"
         GITLAB = "gitlab"
