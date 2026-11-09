@@ -40,7 +40,7 @@ from products.endpoints.backend.logic.materialization import (
     prepare_executable_query,
 )
 from products.endpoints.backend.materialization_transforms import MaterializationNotSupportedError, build_endpoint_hogql
-from products.endpoints.backend.models import EndpointVersion
+from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import is_endpoint_materialization_ready, set_endpoint_materialization_ready
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -2245,7 +2245,50 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             ("multi_arg_range_wrapper", "timestamp >= toDateTime64({variables.item}, 6, 'UTC')"),
         ]
     )
-    def test_prepare_executable_query_refuses_version_that_no_longer_materializes(self, _name: str, predicate: str):
+    def test_prepare_executable_query_turns_off_version_that_no_longer_materializes(self, _name: str, predicate: str):
+        saved_query, version = self._unmaterializable_endpoint_version(_name, predicate)
+        previously_built = saved_query.query
+
+        with self.assertRaises(MaterializationNotSupportedError) as raised:
+            prepare_executable_query(saved_query)
+
+        self.assertIn("turned off", str(raised.exception))
+        saved_query.refresh_from_db()
+        self.assertEqual(saved_query.query, previously_built)
+        self.assertTrue(saved_query.deleted)
+        version.refresh_from_db()
+        self.assertIsNone(version.saved_query)
+        log = ActivityLog.objects.get(
+            team_id=self.team.pk, scope="EndpointVersion", activity="materialization_disabled"
+        )
+        self.assertIsNone(log.user)
+        assert log.detail is not None
+        self.assertIn("compared directly", log.detail["context"]["reason"])
+
+    def test_prepare_executable_query_keeps_version_another_endpoint_reads(self):
+        saved_query, version = self._unmaterializable_endpoint_version(
+            "read_by_other", "properties.label = concat('x-', {variables.item})"
+        )
+        reader = Endpoint.objects.create(name="reader", team=self.team, created_by=self.user)
+        EndpointVersion.objects.create(
+            endpoint=reader,
+            version=1,
+            query={"kind": "HogQLQuery", "query": f"SELECT * FROM {saved_query.name}"},
+            created_by=self.user,
+        )
+
+        with self.assertRaises(MaterializationNotSupportedError) as raised:
+            prepare_executable_query(saved_query)
+
+        self.assertNotIn("turned off", str(raised.exception))
+        saved_query.refresh_from_db()
+        self.assertFalse(saved_query.deleted)
+        version.refresh_from_db()
+        self.assertEqual(version.saved_query, saved_query)
+
+    def _unmaterializable_endpoint_version(
+        self, _name: str, predicate: str
+    ) -> tuple[DataWarehouseSavedQuery, EndpointVersion]:
         version_query = {
             "kind": "HogQLQuery",
             "query": f"SELECT count() AS c FROM events WHERE event = '$pageview' AND {predicate}",
@@ -2269,12 +2312,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         version = endpoint.versions.first()
         version.saved_query = saved_query
         version.save(update_fields=["saved_query"])
-
-        with self.assertRaises(MaterializationNotSupportedError):
-            prepare_executable_query(saved_query)
-
-        saved_query.refresh_from_db()
-        self.assertEqual(saved_query.query, previously_built)
+        return saved_query, version
 
     def test_enable_materialization_links_version_before_immediate_run(self):
         endpoint = create_endpoint_with_version(

@@ -389,10 +389,11 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                     }
 
                     actions.setTestResult(result)
-                    const nextActionId = result.nextActionId
-                    if (nextActionId && nextActionId !== values.selectedNodeId) {
-                        actions.setNextActionId(nextActionId)
-                    }
+                    actions.setNextActionId(
+                        result.nextActionId && result.nextActionId !== values.selectedNodeId
+                            ? result.nextActionId
+                            : null
+                    )
 
                     return values.testInvocation
                 } catch (error: any) {

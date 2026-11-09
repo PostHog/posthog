@@ -37,6 +37,7 @@ SPIKE_EVENT_ORDER_FIELDS = (
 )
 
 SETTINGS_FIELDS = (
+    "adaptive_ingestion_enabled",
     "project_rate_limit_value",
     "project_rate_limit_bucket_size_minutes",
     "per_issue_rate_limit_value",

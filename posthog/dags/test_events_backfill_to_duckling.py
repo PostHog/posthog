@@ -1,5 +1,7 @@
 import os
 import re
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from fnmatch import fnmatch
 from typing import Any, cast
@@ -2635,15 +2637,35 @@ class _FakeTrinoBackfillCatalog:
         self.tables: list[tuple[str, dict[str, str]]] = []
         self.registered: list[tuple[str, list[str], str, DuckLakeDayReplacement | DuckLakeTableReplacement | None]] = []
         self.deleted: list[tuple[str, DuckLakeDayReplacement | DuckLakeTableReplacement]] = []
+        self.connection_open = False
+        self.exports_at_connect = 0
+        self.count_exports: Callable[[], int] = lambda: 0
+
+    @contextmanager
+    def connect(self, *_args: Any, **_kwargs: Any) -> Iterator["_FakeTrinoBackfillCatalog"]:
+        self.connection_open = True
+        self.exports_at_connect = self.count_exports()
+        try:
+            yield self
+        finally:
+            self.connection_open = False
+
+    def _require_live_connection(self) -> None:
+        assert self.connection_open, "a statement ran without an open Trino connection"
+        assert self.count_exports() == self.exports_at_connect, (
+            "a Trino connection stayed open across an export, so its credential lapsed"
+        )
 
     def ensure_table(
         self, table: str, columns: dict[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
     ) -> None:
+        self._require_live_connection()
         if self.layout_mismatch and validate and not self.rebuilt:
             raise DuckLakeTableLayoutError("the table has unsigned columns")
         self.tables.append((table, dict(columns)))
 
     def replace_table(self, table: str, columns: dict[str, str]) -> None:
+        self._require_live_connection()
         self.calls.append(("replace", table))
         self.rebuilt = True
 
@@ -2659,11 +2681,13 @@ class _FakeTrinoBackfillCatalog:
         import_id: str,
         replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
     ) -> int:
+        self._require_live_connection()
         self.calls.append(("register", table, replacement))
         self.registered.append((table, list(files), import_id, replacement))
         return len(files)
 
     def delete_rows(self, table: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement) -> None:
+        self._require_live_connection()
         self.deleted.append((table, replacement))
 
 
@@ -2752,6 +2776,7 @@ class TestBackfillThroughTrino:
         clickhouse: _FakeExportClickHouse,
         config: DucklingBackfillConfig,
         catalog: _FakeTrinoBackfillCatalog | None = None,
+        org_on_flag: bool = True,
     ):
         catalog = catalog or _FakeTrinoBackfillCatalog()
         cluster = MagicMock()
@@ -2760,14 +2785,15 @@ class TestBackfillThroughTrino:
         context.run.run_id = "0123456789abcdef-run"
         with (
             patch("posthog.dags.events_backfill_to_duckling._resolve_duckling_target", return_value=self.TARGET),
-            patch("posthog.dags.events_backfill_to_duckling.backfills_through_trino", return_value=True),
+            patch("posthog.dags.events_backfill_to_duckling.backfills_through_trino", return_value=org_on_flag),
             patch("posthog.dags.events_backfill_to_duckling.connect_backfill_catalog") as connect_catalog,
             patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
             patch("posthog.dags.events_backfill_to_duckling._DuckgresSession") as duckgres,
             patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_workload"),
             patch("tenacity.nap.time.sleep"),
         ):
-            connect_catalog.return_value.__enter__.return_value = catalog
+            catalog.count_exports = lambda: len(clickhouse.inserts)
+            connect_catalog.side_effect = catalog.connect
             run(context, config)
             run(context, config)
         duckgres.assert_not_called()
@@ -2812,7 +2838,7 @@ class TestBackfillThroughTrino:
 
         catalog, connect_catalog = self._run(run, partition_key, clickhouse, DucklingBackfillConfig())
 
-        connect_catalog.assert_called_with("org-1", canary=False)
+        connect_catalog.assert_called_with("org-1", canary=False, team_id=2)
         assert catalog.tables == [(table, column_types)] * 2
         assert [(t, r) for t, _, _, r in catalog.registered] == [(table, replacement)] * 2
         first, second = catalog.registered
@@ -2932,7 +2958,26 @@ class TestBackfillThroughTrino:
             run, partition_key, _FakeExportClickHouse(files_per_export=1), DucklingBackfillConfig(use_trino_canary=True)
         )
 
-        connect_catalog.assert_called_with("org-1", canary=True)
+        connect_catalog.assert_called_with("org-1", canary=True, team_id=2)
+
+    @parameterized.expand(
+        [
+            ("events", _run_duckling_events_backfill, "2_2026-06-17"),
+            ("persons", _run_duckling_persons_backfill, "2"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_opted_in_runs_register_through_trino_when_the_org_is_not_on_the_flag(self, _name, run, partition_key):
+        catalog, connect_catalog = self._run(
+            run,
+            partition_key,
+            _FakeExportClickHouse(files_per_export=1),
+            DucklingBackfillConfig(register_through_trino=True),
+            org_on_flag=False,
+        )
+
+        connect_catalog.assert_called_with("org-1", canary=False, team_id=2)
+        assert catalog.registered
 
     @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
     def test_dry_runs_neither_export_nor_open_the_catalog(self):

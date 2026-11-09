@@ -99,6 +99,11 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
             ("a Slack-only automation", {"action_type": "function"}, False),
             ("an archived email workflow", {"action_type": "function_email", "status": "archived"}, False),
             ("a broadcast", {"action_type": "function_email", "origin_product": "broadcasts"}, False),
+            (
+                "a code send key's hidden workflow",
+                {"action_type": "function_email", "status": "active", "origin_product": "transactional_email_keys"},
+                False,
+            ),
         ]
     )
     def test_first_workflow_counts_only_live_messaging_workflows(self, _name, workflow, expected) -> None:

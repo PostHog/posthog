@@ -27,6 +27,7 @@ from products.autoresearch.backend.facade.contracts import (
     Pipeline,
     PipelineWrite,
     PredictionCoverage,
+    ProjectLimits,
     RealizedAucPoint,
     Run,
     Suggestion,
@@ -729,6 +730,14 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "Null when research_interval_days is null."
         ),
     )
+    not_promoted_reason = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why the best model of the newest completed training run did not go live, for example a failed fit "
+            "or a failed scorability check. Set only while the pipeline is bootstrapping with no champion."
+        ),
+    )
     success_auc = serializers.FloatField(
         required=False,
         allow_null=True,
@@ -865,6 +874,7 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "effective_agent_reasoning_effort",
             "training_phase",
             "next_research_at",
+            "not_promoted_reason",
             "success_auc",
             "plateau_iterations",
             "output_person_property",
@@ -2020,9 +2030,64 @@ class StartTrainingRequestSerializer(serializers.Serializer):
     iteration_budget = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=500,
-        help_text="Iterations for this training run. Defaults to the pipeline's iterations_per_run.",
+        max_value=50,
+        help_text=(
+            "Iterations for this training run. Defaults to the pipeline's iterations_per_run. "
+            "The project's iteration limit per run can lower it."
+        ),
     )
+
+
+class TrainingRunCapReachedSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the run did not start.")
+    used = serializers.IntegerField(
+        help_text="Sandbox training runs the project started in the last 24 hours, across all its pipelines."
+    )
+    limit = serializers.IntegerField(help_text="Sandbox training runs the project may start in any 24 hours.")
+    next_slot_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the next training run can start. Null when training runs are turned off for the project.",
+    )
+
+
+class ProjectLimitsSerializer(DataclassSerializer):
+    max_training_runs_per_day = serializers.IntegerField(
+        help_text="Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off."
+    )
+    training_runs_used = serializers.IntegerField(
+        help_text="Sandbox training runs the project started in the last 24 hours, across all its pipelines."
+    )
+    next_slot_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "When the next training run can start, while the project is at its daily limit. "
+            "Null while a run can start now, and when training is turned off."
+        ),
+    )
+    max_iterations_per_run = serializers.IntegerField(
+        help_text="Most experiments any one training run gets. A pipeline's iterations_per_run above this is lowered to it."
+    )
+    max_live_pipelines = serializers.IntegerField(
+        help_text=(
+            "Most pipelines the project may have live (bootstrapping, running or converged, or a draft with an open "
+            "training run, which goes live when the run promotes). Starting a draft's first training run or "
+            "resuming a paused pipeline is refused at this limit."
+        )
+    )
+    live_pipelines = serializers.IntegerField(
+        help_text=("Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered.")
+    )
+
+    class Meta:
+        dataclass = ProjectLimits
+        fields = [
+            "max_training_runs_per_day",
+            "training_runs_used",
+            "next_slot_at",
+            "max_iterations_per_run",
+            "max_live_pipelines",
+            "live_pipelines",
+        ]
 
 
 # ── Agent-recorded training serializers ────────────────────────────────────

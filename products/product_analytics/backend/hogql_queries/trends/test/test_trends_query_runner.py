@@ -83,7 +83,7 @@ from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -99,7 +99,7 @@ def _flag_call_event_series(team: Team, flag_keys: list[str]) -> EventsNode:
 
 
 def _flag_call_action_series(team: Team, flag_keys: list[str]) -> ActionsNode:
-    action = Action.objects.create(
+    action = create_action(
         team=team,
         name="called a flag",
         steps_json=[
@@ -6598,7 +6598,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_test_events()
         flush_persons_and_events()
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome and left",
             steps_json=[
@@ -6625,7 +6625,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 1
         assert response.results[0]["data"] == [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome or firefox",
             steps_json=[
@@ -7997,7 +7997,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Create an action for pageview
-        page_action = Action.objects.create(
+        page_action = create_action(
             team=self.team,
             name="Pageview Action",
             steps_json=[
@@ -8121,7 +8121,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Page Action combines both pageview and pageleave events
-        page_action = Action.objects.create(
+        page_action = create_action(
             team=self.team,
             name="Page Action",
             steps_json=[
@@ -8130,7 +8130,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        pageview_action = Action.objects.create(
+        pageview_action = create_action(
             team=self.team,
             name="Pageview Action",
             steps_json=[

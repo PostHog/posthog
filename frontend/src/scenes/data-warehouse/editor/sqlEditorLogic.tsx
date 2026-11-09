@@ -28,6 +28,7 @@ import {
     LemonDialog,
     LemonInput,
     LemonSearchableSelect,
+    LemonTextArea,
     Spinner,
     lemonToast,
     Tooltip,
@@ -49,7 +50,7 @@ import { objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { backLinkParams, withBackLink } from 'scenes/analytics/analyticsBackLink'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, placeTilesInGroup } from 'scenes/dashboard/dashboardLogic'
 import {
     MANAGED_TRINO_SCHEMA_SCOPE,
     databaseTableListLogic,
@@ -418,9 +419,8 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     }
 }
 
-// Raw Trino views run only on hosted Trino, so they have no lineage node and cannot be materialized.
-export function isRawTrinoView(view: DataWarehouseSavedQuery): boolean {
-    return view.query?.executionTarget === 'managed_trino' && !!view.query?.sendRawQuery
+export function viewHasLineage(view: DataWarehouseSavedQuery): boolean {
+    return view.engine?.capabilities.lineage.available ?? true
 }
 
 function hogQLEditorSourceQuery(source: Partial<HogQLQuery> = {}): DataVisualizationNode {
@@ -676,6 +676,7 @@ export interface sqlEditorLogicValues {
     changesToSave: boolean
     currentDraft: DataWarehouseSavedQueryDraft | null | undefined
     dashboardId: number | null
+    dashboardTileGroupKey: string | null
     dataLogicKey: string
     diffShowRunButton: boolean | undefined
     editingAccessControlObject: DataWarehouseAccessControlModalProps | null
@@ -1114,8 +1115,10 @@ export interface sqlEditorLogicActions {
         folderId?: string | null,
         isTest?: any,
         queryOverride?: string,
-        incremental?: DataWarehouseSavedQueryIncremental
+        incremental?: DataWarehouseSavedQueryIncremental,
+        description?: string
     ) => {
+        description: string | undefined
         folderId: string | null | undefined
         fromDraft: string | undefined
         incremental: DataWarehouseSavedQueryIncremental | undefined
@@ -1142,6 +1145,9 @@ export interface sqlEditorLogicActions {
     }
     setDashboardId: (dashboardId: number | null) => {
         dashboardId: number | null
+    }
+    setDashboardTileGroupKey: (groupKey: string | null) => {
+        groupKey: string | null
     }
     setDataError: (error: string | null) => {
         error: string | null
@@ -1462,8 +1468,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             folderId?: string | null,
             isTest = false,
             queryOverride?: string,
-            incremental?: DataWarehouseSavedQueryIncremental
+            incremental?: DataWarehouseSavedQueryIncremental,
+            description?: string
         ) => ({
+            description,
             name,
             materializeAfterSave,
             fromDraft,
@@ -1597,6 +1605,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
         enforceConnectionRawQueryMode: true,
         setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
+        setDashboardTileGroupKey: (groupKey: string | null) => ({ groupKey }),
         openMaterializationModal: (view?: DataWarehouseSavedQuery) => ({
             view,
         }),
@@ -1807,6 +1816,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as number | null,
             {
                 setDashboardId: (_, { dashboardId }) => dashboardId,
+            },
+        ],
+        dashboardTileGroupKey: [
+            null as string | null,
+            {
+                setDashboardTileGroupKey: (_, { groupKey }) => groupKey,
+                setDashboardId: (state, { dashboardId }) => (dashboardId === null ? null : state),
             },
         ],
         materializationModalOpen: [
@@ -2595,12 +2611,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
 
+                posthog.capture('save as view dialog opened')
                 LemonDialog.openForm({
                     title: 'Save as view',
                     showErrorsOnTouch: true,
                     initialValues: {
                         saveTarget: candidates.initialIndex,
                         viewName: values.activeTab?.name || '',
+                        description: '',
                         folderId: null,
                         isTest: false,
                         materializeAfterSave: isRawTrinoSave ? false : materializeAfterSave,
@@ -2634,6 +2652,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                         disabled={isLoading}
                                         placeholder="Please enter the name of the view"
                                         autoFocus
+                                    />
+                                </LemonField>
+                                <LemonField
+                                    name="description"
+                                    label="Description"
+                                    showOptional
+                                    help="Agents may use this description to work out how to use this data."
+                                    className="mt-2"
+                                >
+                                    <LemonTextArea
+                                        data-attr="sql-editor-input-save-view-description"
+                                        disabled={isLoading}
+                                        placeholder="For example: one row per paid order, without test orders or refunds. Use it for revenue reports."
+                                        minRows={2}
+                                        stopPropagation
                                     />
                                 </LemonField>
                                 <div className="flex gap-2 mt-2">
@@ -2720,6 +2753,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                     onSubmit: async ({
                         viewName,
+                        description,
                         folderId,
                         isTest,
                         materializeAfterSave: shouldMaterialize,
@@ -2744,7 +2778,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             folderId,
                             isTest ?? false,
                             selectedRef.current,
-                            incremental
+                            incremental,
+                            description?.trim() || undefined
                         )
                     },
                     shouldAwaitSubmit: true,
@@ -2758,6 +2793,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 isTest = false,
                 queryOverride,
                 incremental,
+                description,
             }) => {
                 const biEditorState = getActiveBIEditorState()
                 const query: HogQLQuery = values.sourceQuery.source
@@ -2791,12 +2827,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         name,
                         query: queryToSave,
                         types,
+                        ...(description ? { description } : {}),
                         ...(folderId ? { folder_id: folderId } : {}),
                         ...(isTest ? { is_test: true } : {}),
                         ...(incremental ? { incremental } : {}),
                         ...(materializeAfterSave ? { deferCreatedToast: true } : {}),
                     })
                     captureBIEditorQuerySaved(biEditorState, 'view', 'create')
+                    posthog.capture('save as view dialog submitted', {
+                        has_description: !!description,
+                        materialize_after_save: materializeAfterSave,
+                    })
 
                     // Saved queries are unique by team,name
                     const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find(
@@ -2978,6 +3019,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 cache.timeouts.push(timeoutId)
 
                 if (dashboardId) {
+                    const tile = insight.dashboard_tiles?.find((t) => t.dashboard_id === dashboardId)
+                    await placeTilesInGroup(
+                        teamLogic.values.currentTeamId,
+                        dashboardId,
+                        tile ? [tile.id] : [],
+                        values.dashboardTileGroupKey
+                    )
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(insight)
                     dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
                         action: DashboardLoadAction.Update,
@@ -3609,7 +3657,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
         editingView: (editingView) => {
-            if (editingView && !isRawTrinoView(editingView)) {
+            if (editingView && viewHasLineage(editingView)) {
                 actions.loadUpstream(editingView.id)
             }
         },
@@ -3959,6 +4007,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const parsed = parseInt(searchParams.dashboard, 10)
                 if (!isNaN(parsed)) {
                     actions.setDashboardId(parsed)
+                    const tileGroup = searchParams.tile_group
+                    actions.setDashboardTileGroupKey(
+                        typeof tileGroup === 'string' || typeof tileGroup === 'number' ? String(tileGroup) : null
+                    )
                 }
             }
 

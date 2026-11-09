@@ -4,13 +4,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { groupsModel } from '~/models/groupsModel'
+import { groupTabs } from '~/models/groupTabs'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
@@ -68,7 +68,7 @@ export type activitySceneTabsLogicType = MakeLogicType<
     activitySceneTabsLogicMeta
 >
 
-function isActivityTabKey(key: ActivitySceneTabKey): boolean {
+export function isActivityTabKey(key: ActivitySceneTabKey): boolean {
     return (Object.values(ActivityTab) as string[]).includes(key)
 }
 
@@ -103,33 +103,7 @@ export const activitySceneTabsLogic = kea<activitySceneTabsLogicType>([
                 groupTypes: Map<GroupTypeIndex, GroupType>,
                 groupsAccessStatus: GroupsAccessStatus,
                 aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
-            ): ActivitySceneTab[] => {
-                const showGroupsIntroductionPage = [
-                    GroupsAccessStatus.HasAccess,
-                    GroupsAccessStatus.HasGroupTypes,
-                    GroupsAccessStatus.NoAccess,
-                ].includes(groupsAccessStatus)
-
-                if (showGroupsIntroductionPage) {
-                    return [
-                        {
-                            key: 'groups-0',
-                            label: 'Groups',
-                            url: urls.groups(0),
-                            iconType: 'group',
-                            dataAttr: 'persons-management-groups-0-tab',
-                        },
-                    ]
-                }
-
-                return Array.from(groupTypes.values()).map(({ group_type_index }) => ({
-                    key: `groups-${group_type_index}`,
-                    label: capitalizeFirstLetter(aggregationLabel(group_type_index).plural),
-                    url: urls.groups(group_type_index),
-                    iconType: `group_${group_type_index}` as FileSystemIconType,
-                    dataAttr: `persons-management-groups-${group_type_index}-tab`,
-                }))
-            },
+            ): ActivitySceneTab[] => groupTabs(groupTypes, groupsAccessStatus, aggregationLabel),
         ],
         sceneTabs: [
             (s) => [s.groupTabs, s.featureFlags],

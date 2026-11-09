@@ -1,16 +1,21 @@
+import uuid
 import datetime as dt
 import threading
+from concurrent.futures import ThreadPoolExecutor, wait
 from typing import NoReturn
 
 import pytest
+import time_machine
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.aeo.backend import runner
-from products.aeo.backend.engines import CitationCheck
+from products.aeo.backend.engines import CitationCheck, build_check_fields
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks, select_prompts
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
@@ -42,23 +47,51 @@ def test_select_prompts_alternates_topics_and_rotates_to_least_recently_checked(
     assert "replay question 0?" not in selected
 
 
+CHECKED_BEFORE = dt.datetime(2026, 10, 28, 11, 30, tzinfo=dt.UTC)
+
+
 @pytest.mark.parametrize(
     "excluded",
-    [{"active": False}, {"archived_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC)}],
-    ids=["inactive", "archived"],
+    [
+        {"active": False},
+        {"archived_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC)},
+        {"last_checked_at": CHECKED_BEFORE + dt.timedelta(seconds=1)},
+    ],
+    ids=["inactive", "archived", "checked_inside_the_recheck_window"],
 )
-def test_select_prompts_skips_inactive_and_archived_prompts(team: Team, excluded: dict) -> None:
+def test_select_prompts_skips_inactive_archived_and_recently_checked_prompts(team: Team, excluded: dict) -> None:
     upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported") for i in range(3)])
-    AEOPrompt.objects.for_team(team.id).filter(prompt="q1?").update(**excluded)
+    prompts = AEOPrompt.objects.for_team(team.id)
+    prompts.filter(prompt="q1?").update(**excluded)
+    prompts.filter(prompt="q2?").update(last_checked_at=CHECKED_BEFORE - dt.timedelta(seconds=1))
 
-    assert sorted(p.prompt for p in select_prompts(team, limit=10)) == ["q0?", "q2?"]
+    selected = select_prompts(team, limit=10, checked_before=CHECKED_BEFORE)
+
+    assert sorted(p.prompt for p in selected) == ["q0?", "q2?"]
+
+
+@pytest.mark.parametrize(
+    "now, expected",
+    [
+        (dt.datetime(2026, 10, 29, 6, 59, tzinfo=dt.UTC), dt.datetime(2026, 10, 28, 7, 0, tzinfo=dt.UTC)),
+        (dt.datetime(2026, 10, 29, 7, 0, tzinfo=dt.UTC), dt.datetime(2026, 10, 29, 7, 0, tzinfo=dt.UTC)),
+        (dt.datetime(2026, 10, 29, 23, 30, tzinfo=dt.UTC), dt.datetime(2026, 10, 29, 7, 0, tzinfo=dt.UTC)),
+    ],
+    ids=["before_boundary", "at_boundary", "late_evening"],
+)
+def test_run_day_start_is_the_latest_boundary_at_or_before_now(now: dt.datetime, expected: dt.datetime) -> None:
+    assert runner.run_day_start(now) == expected
 
 
 class _StubEngine:
     name = "stub-engine"
     model = "stub"
 
+    def __init__(self) -> None:
+        self.calls = 0
+
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        self.calls += 1
         return CitationCheck(engine=self.name, model=self.model, cited_urls=["https://posthog.com/docs"])
 
 
@@ -80,10 +113,17 @@ def test_run_records_checks_and_rotates_without_a_team_scope(
 
     AEOPrompt.objects.for_team(team.id).filter(prompt="q0?").update(current_version=3)
 
-    first, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
-    second, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
+    with time_machine.travel(dt.datetime(2026, 10, 29, 12, 0, tzinfo=dt.UTC), tick=False):
+        first, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
+        second, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
+        resumed, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
 
     assert (first.rows_written, second.rows_written) == (2, 2)
+    assert (resumed.prompts, resumed.rows_written, resumed.error) == (
+        0,
+        0,
+        "nothing due: every active prompt was checked since 2026-10-29T07:00:00+00:00",
+    )
     checks = AEOCitationCheck.objects.for_team(team.id)
     assert checks.filter(cited=True).count() == 4
     assert {c.prompt_topic for c in checks} == {"t0", "t1"}
@@ -132,6 +172,7 @@ class _BlockingEngine(_StubEngine):
     """Holds every check until the test releases it, so the test decides which prompts are in flight."""
 
     def __init__(self, workers: int) -> None:
+        super().__init__()
         self.prompts: list[str] = []
         self.threads: set[threading.Thread] = set()
         self.all_workers_busy = threading.Barrier(workers + 1)
@@ -140,9 +181,56 @@ class _BlockingEngine(_StubEngine):
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
         self.prompts.append(prompt)
         self.threads.add(threading.current_thread())
-        self.all_workers_busy.wait(timeout=5)
-        self.release.wait(timeout=5)
+        # Only the first wave meets at the barrier; a prompt picked up after the release runs through.
+        if not self.release.is_set():
+            self.all_workers_busy.wait(timeout=5)
+            self.release.wait(timeout=5)
         return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+
+
+class _DownEngine(_StubEngine):
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        self.calls += 1
+        raise RuntimeError("engine down")
+
+
+@pytest.mark.parametrize("engine_factory", [_StubEngine, _DownEngine], ids=["answers", "down"])
+def test_a_stopped_run_records_what_it_paid_for_and_reports_the_stop(
+    team: Team, settings, engine_factory: type
+) -> None:
+    settings.AEO_RUN_CONCURRENCY = 1
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(4)])
+    stop = threading.Event()
+    stop.set()
+    engine = engine_factory()
+
+    summary, _ = run_citation_checks(team, engines=[engine], stop=stop)
+
+    # A worker may pick the next queued prompt before the stop cancels it, so the count is not
+    # fixed; what must hold is that nothing paid for is discarded and the stop is reported.
+    assert summary.error == "stopped: the run lease was lost to a later dispatch"
+    expected_rows = 0 if isinstance(engine, _DownEngine) else engine.calls
+    assert summary.rows_written == expected_rows
+    assert AEOCitationCheck.objects.for_team(team.id).count() == expected_rows
+
+
+def test_a_stopped_run_keeps_the_results_of_the_checks_already_running(team: Team, settings) -> None:
+    settings.AEO_RUN_CONCURRENCY = 2
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(3)])
+    engine = _BlockingEngine(workers=2)
+    stop = threading.Event()
+    stop.set()
+
+    def release_once_both_workers_are_busy() -> None:
+        engine.all_workers_busy.wait(timeout=5)
+        engine.release.set()
+
+    threading.Thread(target=release_once_both_workers_are_busy).start()
+    summary, _ = run_citation_checks(team, engines=[engine], stop=stop)
+
+    assert len(engine.prompts) >= 2
+    assert summary.rows_written == len(engine.prompts)
+    assert AEOCitationCheck.objects.for_team(team.id).count() == len(engine.prompts)
 
 
 def test_an_interrupted_run_does_not_start_the_queued_prompts(team: Team, settings, monkeypatch) -> None:
@@ -150,12 +238,12 @@ def test_an_interrupted_run_does_not_start_the_queued_prompts(team: Team, settin
     upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(5)])
     engine = _BlockingEngine(workers=2)
 
-    def interrupt_once_every_worker_is_busy(futures: object) -> NoReturn:
+    def interrupt_once_every_worker_is_busy(*args: object, **kwargs: object) -> NoReturn:
         # Stands in for a Celery soft time limit landing while the run waits on its workers.
         engine.all_workers_busy.wait(timeout=5)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(runner, "as_completed", interrupt_once_every_worker_is_busy)
+    monkeypatch.setattr(runner, "wait", interrupt_once_every_worker_is_busy)
 
     with pytest.raises(KeyboardInterrupt):
         run_citation_checks(team, engines=[engine])
@@ -165,3 +253,58 @@ def test_an_interrupted_run_does_not_start_the_queued_prompts(team: Team, settin
 
     assert len(engine.prompts) == 2
     assert len(set(engine.prompts)) == 2
+
+
+def test_dropping_the_queue_leaves_only_running_checks_to_drain() -> None:
+    pool = ThreadPoolExecutor(max_workers=1)
+    gate = threading.Event()
+
+    def hold_the_only_worker() -> None:
+        gate.wait(timeout=5)
+
+    def never_started() -> None:
+        return None
+
+    running = pool.submit(hold_the_only_worker)
+    queued = [pool.submit(never_started) for _ in range(2)]
+
+    remaining = runner._drop_queued(pool, {running, *queued})
+    gate.set()
+    finished, still_pending = wait(remaining, timeout=5)
+
+    assert remaining == {running}
+    assert all(future.cancelled() for future in queued)
+    assert (finished, still_pending) == ({running}, set())
+
+
+@pytest.mark.parametrize("answered", [True, False], ids=["answered", "every_engine_failed"])
+def test_a_prompt_recorded_by_another_run_is_not_recorded_twice(team: Team, answered: bool) -> None:
+    upsert_prompts(team, [PromptCandidate(text="q0?", source="imported")])
+    prompt = AEOPrompt.objects.for_team(team.id).get()
+    checked_before = timezone.now() - dt.timedelta(hours=1)
+    check = (
+        CitationCheck(engine="stub-engine", model="stub", cited_urls=["https://posthog.com/docs"])
+        if answered
+        else CitationCheck(engine="stub-engine", model="stub", error="engine down")
+    )
+    fields = [
+        build_check_fields(
+            check=check,
+            run_id=str(uuid.uuid4()),
+            prompt_id=str(prompt.id),
+            prompt_text=prompt.prompt,
+            prompt_source=prompt.prompt_source,
+            prompt_hash=prompt.prompt_hash,
+            target_domains=["posthog.com"],
+        )
+    ]
+
+    with CaptureQueriesContext(connection) as queries:
+        first = runner._record_prompt_checks(team, team.id, "run-a", prompt, fields, checked_before)
+    second = runner._record_prompt_checks(team, team.id, "run-b", prompt, fields, checked_before)
+
+    assert (first, second) == ("written", "superseded")
+    assert AEOCitationCheck.objects.for_team(team.id).count() == 1
+    # Two runs writing the same prompt at once must serialize on its row; this is the only
+    # observable trace of that lock short of a multi-connection test.
+    assert any("FOR UPDATE" in query["sql"] for query in queries.captured_queries)

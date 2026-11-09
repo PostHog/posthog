@@ -1390,8 +1390,9 @@ export class PersonhogPersonsStore implements PersonsStore {
             while (progress.remaining > 0) {
                 try {
                     if (viaRedirect) {
-                        await this.redirectToSurvivor(entry, progress)
-                        personhogStoreFlushCounter.inc({ outcome: 'redirected' })
+                        if (await this.redirectToSurvivor(entry, progress)) {
+                            personhogStoreFlushCounter.inc({ outcome: 'redirected' })
+                        }
                         break
                     }
                     if (entry.heldSince !== undefined) {
@@ -1506,23 +1507,41 @@ export class PersonhogPersonsStore implements PersonsStore {
      * Re-resolves a vanished person's distinct id and writes to whoever
      * owns it now, matching the Postgres merged-away recovery. One resolve
      * is enough: the saga repoints mappings before the leader answers a
-     * tombstone, and no owner means a genuine delete.
+     * tombstone, and no owner means a genuine delete. Returns whether the
+     * ops were written; a delete drops them.
      */
-    private async redirectToSurvivor(entry: OpsLaneEntry, progress: { remaining: number }): Promise<void> {
+    private async redirectToSurvivor(entry: OpsLaneEntry, progress: { remaining: number }): Promise<boolean> {
         const generation = this.generationOf(entry.teamId)
         const [resolved] = await this.resolveDistinctIds('redirect_survivor', [
             { teamId: entry.teamId, distinctId: entry.distinctId },
         ])
         const survivorId = resolved?.person?.id
         if (survivorId === undefined || survivorId === entry.personId) {
-            // Released, so the redelivered events re-resolve rather than
-            // folding onto the corpse again.
+            // Released, so later events re-resolve rather than folding onto
+            // the corpse again.
             this.removeDistinctIdFromCache(entry.teamId, entry.distinctId, 'redirect_gone')
             this.clearPersonCacheForPersonId(`${entry.teamId}:${entry.personId}`, 'redirect_gone')
+        }
+        if (survivorId === undefined) {
+            // The person was deleted after these ops folded. Postgres drops
+            // them too; failing the flush would restart the processor and
+            // replay every in-flight batch for ops no owner can take.
+            personhogStoreFlushCounter.inc({ outcome: 'redirect_deleted' })
+            logger.warn('🤔', 'ops dropped: the person was deleted and its distinct id resolves to nobody', {
+                team_id: entry.teamId,
+                person_id: entry.personId,
+                distinct_id: entry.distinctId,
+            })
+            // Folds that arrived during the redirect stay for a later pass.
+            entry.segments.splice(0, progress.remaining)
+            progress.remaining = 0
+            return false
+        }
+        if (survivorId === entry.personId) {
             personhogStoreFlushCounter.inc({ outcome: 'redirect_gone' })
             throw new CountedRedirectError(
                 `person ${entry.personId} in team ${entry.teamId} vanished and ${entry.distinctId} resolves to ` +
-                    `${survivorId === undefined ? 'nobody' : 'the same person'}; failing the flush to redeliver`
+                    `the same person; failing the flush to redeliver`
             )
         }
         // The resolve proved where the id belongs, so heal the edge, the
@@ -1544,6 +1563,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // the partial set a failed write may have landed.
             this.clearPersonCacheForPersonId(`${entry.teamId}:${survivorId}`, 'redirect_survivor')
         }
+        return true
     }
 
     /**

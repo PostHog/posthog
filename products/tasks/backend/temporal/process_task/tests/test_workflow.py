@@ -1305,14 +1305,14 @@ class TestProcessTaskFollowupDispatch:
 
 
 class TestFollowupDeliveryFailureBookkeeping:
-    def _workflow(self, monkeypatch, *, mode: str):
+    def _workflow(self, monkeypatch, *, mode: str, delivery_error: Exception | None = None):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123, state={"mode": mode})
         emitted: list[EmitProgressInput] = []
 
         async def fake_execute_activity(_activity, activity_input, **_kwargs):
             if isinstance(activity_input, SendFollowupToSandboxInput):
-                raise RuntimeError("delivery failed")
+                raise delivery_error or RuntimeError("delivery failed")
             if isinstance(activity_input, EmitProgressInput):
                 emitted.append(activity_input)
             return None
@@ -1347,6 +1347,34 @@ class TestFollowupDeliveryFailureBookkeeping:
         assert workflow._completion_status == "failed"
         assert workflow._completion_error_type == "followup_delivery_failed"
         assert emitted == []
+
+    @pytest.mark.parametrize("mode", ["interactive", "background"])
+    async def test_active_session_cap_on_delivery_fails_the_run(self, monkeypatch, mode: str) -> None:
+        delivery_error = ActivityError(
+            "Activity task failed",
+            scheduled_event_id=10,
+            started_event_id=11,
+            identity="worker-1",
+            activity_type="send_followup_to_sandbox",
+            activity_id="activity-1",
+            retry_state=RetryState.NON_RETRYABLE_FAILURE,
+        )
+        delivery_error.__cause__ = ApplicationError(
+            "You already have 2 cloud sandboxes running.", type="ActiveSessionCapError"
+        )
+        workflow, emitted = self._workflow(monkeypatch, mode=mode, delivery_error=delivery_error)
+        await workflow.send_followup_message("try this", [], "msg-1")
+        assert any(key.endswith(":msg-1") for key in workflow._accepted_message_ids)
+
+        result = await workflow._send_followup_to_sandbox("try this", [], message_id="msg-1")
+
+        assert result is None
+        assert workflow._task_completed is True
+        assert workflow._completion_status == "failed"
+        assert workflow._completion_error_type == "ActiveSessionCapError"
+        assert workflow._completion_error == "You already have 2 cloud sandboxes running."
+        assert emitted == []
+        assert not any(key.endswith(":msg-1") for key in workflow._accepted_message_ids)
 
 
 async def test_agent_shadow_result_is_reported_separately(monkeypatch):
@@ -2435,18 +2463,31 @@ class TestProcessTaskWorkflowUnit:
             run_id="run-id", stream_generation="resumed-generation"
         )
 
-    async def test_run_persists_activity_failure_cause_not_the_wrapper(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "activity_type, error_type, message",
+        [
+            ("inject_fresh_tokens_on_resume", "SandboxNotRunningError", "Sandbox not in running state."),
+            (
+                "create_sandbox_for_repository",
+                "ActiveSessionCapError",
+                "You already have 10 cloud sandboxes running. Wait for one to finish or stop one, then try again.",
+            ),
+        ],
+    )
+    async def test_run_persists_activity_failure_cause_not_the_wrapper(
+        self, monkeypatch, activity_type: str, error_type: str, message: str
+    ):
         workflow = ProcessTaskWorkflow()
         error = ActivityError(
             "Activity task failed",
             scheduled_event_id=10,
             started_event_id=11,
             identity="worker-1",
-            activity_type="inject_fresh_tokens_on_resume",
+            activity_type=activity_type,
             activity_id="activity-1",
             retry_state=RetryState.MAXIMUM_ATTEMPTS_REACHED,
         )
-        error.__cause__ = ApplicationError("Sandbox not in running state.", type="SandboxNotRunningError")
+        error.__cause__ = ApplicationError(message, type=error_type)
         update_task_run_status_mock = AsyncMock()
 
         monkeypatch.setattr(
@@ -2461,12 +2502,12 @@ class TestProcessTaskWorkflowUnit:
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
 
         assert result.success is False
-        assert result.error == "Sandbox not in running state."
+        assert result.error == message
         update_task_run_status_mock.assert_awaited_with(
             "failed",
-            error_message="Sandbox not in running state.",
+            error_message=message,
             run_id="run-id",
-            error_type="SandboxNotRunningError",
+            error_type=error_type,
         )
 
     async def test_run_skips_relay_when_sandbox_event_ingest_is_enabled(self, monkeypatch):

@@ -2,8 +2,12 @@ import { MakeLogicType, events, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { fullName } from 'lib/utils/strings'
+import {
+    ActivityChange,
+    ActivityLogItem,
+    actorEmailForLogItem,
+    userNameForLogItem,
+} from 'lib/components/ActivityLog/humanizeActivity'
 
 import { ActivityScope } from '~/types'
 
@@ -168,8 +172,8 @@ export const insightHistoryLogic = kea<insightHistoryLogicType>([
                         return {
                             id: logItem.id,
                             createdAt: logItem.created_at,
-                            authorName: logItem.is_system ? 'PostHog' : fullName(logItem.user),
-                            email: logItem.user?.email,
+                            authorName: userNameForLogItem(logItem),
+                            email: actorEmailForLogItem(logItem) ?? undefined,
                             isSystem: !!logItem.is_system,
                             beforeSql: getChangeSql(queryChange.before) ?? '',
                             afterSql: getChangeSql(queryChange.after) ?? '',
