@@ -28,6 +28,7 @@ from products.cdp.backend.api.hog_function import (
     comparable_content,
 )
 from products.cdp.backend.api.test.secret_sender import (
+    MOVED_DETAIL,
     MOVED_SENDER_HOG,
     MOVED_URL,
     SECRET_SENDER,
@@ -1455,6 +1456,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
                 "refused",
+                MOVED_DETAIL,
             ),
             (
                 "same_host_without_tls",
@@ -1464,6 +1466,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
                 "refused",
+                "This change sends Token to http://hooks.example.com. Until now it was only sent to hooks.example.com. "
+                "Enter it again to confirm.",
             ),
             (
                 "new_host_by_put",
@@ -1473,6 +1477,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
                 "refused",
+                MOVED_DETAIL,
             ),
             (
                 "new_host_with_the_flag_off",
@@ -1500,6 +1505,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
                 "refused",
+                MOVED_DETAIL,
             ),
             (
                 "code_moves_a_secret_the_request_leaves_out",
@@ -1509,6 +1515,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
                 "refused",
+                MOVED_DETAIL,
             ),
             (
                 "code_cannot_be_analyzed",
@@ -1518,6 +1525,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
                 "refused",
+                "PostHog can't tell where this change sends Token. Until now it was only sent to hooks.example.com. "
+                "Enter it again to confirm.",
             ),
         ]
     )
@@ -1530,6 +1539,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         expected_status: int,
         expected_origins: list[str],
         expected_outcome: str,
+        expected_detail: Optional[str] = None,
     ) -> None:
         res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
         assert res.status_code == status.HTTP_201_CREATED, res.json()
@@ -1545,7 +1555,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert res.status_code == expected_status, res.json()
         assert counted == {expected_outcome: 1}
         if expected_status == status.HTTP_400_BAD_REQUEST:
-            assert (res.json()["attr"], res.json()["code"]) == ("inputs__token", "secret_reentry_required")
+            assert (res.json()["attr"], res.json()["code"], res.json()["detail"]) == (
+                "inputs__token",
+                "secret_reentry_required",
+                expected_detail,
+            )
         stored = HogFunction.objects.get(id=function_id).encrypted_inputs["token"]
         assert stored["value"] == change.get("inputs", {}).get("token", {}).get("value", "I AM SECRET")
         assert stored["allowed_origins"] == expected_origins

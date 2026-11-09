@@ -18,6 +18,7 @@ from products.cdp.backend.secret_origins import (
     UnanalyzableReason,
     analyze_secret_origins,
     secret_origins,
+    secret_reentry_message,
     url_origin,
 )
 
@@ -687,3 +688,65 @@ class TestSecretHosts(SimpleTestCase):
     @parameterized.expand([(case["url"], case["origin"]) for case in ORIGIN_CASES])
     def test_url_origin_matches_the_worker(self, url: str, origin: str | None) -> None:
         assert url_origin(url, complete=True) == origin
+
+    @parameterized.expand(
+        [
+            (
+                "names_only_the_new_host",
+                _origins("https://evil.example.com", "https://hooks.example.com"),
+                _origins("https://hooks.example.com"),
+                {},
+                "This change sends API key to evil.example.com. Until now it was only sent to hooks.example.com.",
+            ),
+            (
+                "keeps_a_port_and_plain_http",
+                _origins("http://hooks.example.com:8080"),
+                _origins("https://hooks.example.com:8443"),
+                {},
+                "This change sends API key to http://hooks.example.com:8080. "
+                "Until now it was only sent to hooks.example.com:8443.",
+            ),
+            (
+                "caps_a_long_list_after_it_went_nowhere",
+                _origins(*(f"https://{name}.example.com" for name in "abcde")),
+                _origins(),
+                {},
+                "This change sends API key to a.example.com, b.example.com, c.example.com and 2 more. "
+                "Until now it wasn't sent anywhere.",
+            ),
+            (
+                "unbound_now",
+                UNBOUND,
+                _origins("https://a.example.com", "https://b.example.com"),
+                {},
+                "PostHog can't tell where this change sends API key. "
+                "Until now it was only sent to a.example.com and b.example.com.",
+            ),
+            (
+                "unbound_before",
+                _origins("https://hooks.example.com"),
+                UNBOUND,
+                {},
+                "This change sends API key to hooks.example.com. Until now PostHog couldn't tell where it was sent.",
+            ),
+            (
+                "host_kept_in_a_secret_input",
+                _origins("https://private.example.com"),
+                _origins("https://hooks.example.com"),
+                {"Webhook URL": ["https://Private.Example.com/T0/b1"]},
+                "This change sends API key to the address in Webhook URL. "
+                "Until now it was only sent to hooks.example.com.",
+            ),
+        ]
+    )
+    def test_secret_reentry_message(
+        self,
+        _name: str,
+        sends_to: SecretOrigins,
+        sent_to: SecretOrigins,
+        secret_values: dict[str, list[str]],
+        expected: str,
+    ) -> None:
+        message = secret_reentry_message("API key", sends_to, sent_to, secret_values)
+
+        assert message == f"{expected} Enter it again to confirm."

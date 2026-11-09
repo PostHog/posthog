@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from copy import deepcopy
 from datetime import timedelta
 from enum import StrEnum
@@ -78,6 +78,7 @@ from products.cdp.backend.secret_origins import (
     mapping_inputs,
     parse_stored_origins,
     secret_origins,
+    secret_reentry_message,
     stored_origins,
 )
 from products.cdp.backend.services.destination_test_runs import (
@@ -150,7 +151,6 @@ CREATE_ENABLED_MESSAGE = (
 )
 
 SECRET_HOST_BINDING_FLAG = "cdp-secret-host-binding"
-SECRET_REENTRY_MESSAGE = "This change would send the secret to a new address. Enter the secret again to confirm."
 SECRET_HOST_BINDING_COUNTER = Counter(
     "posthog_cdp_secret_host_binding_total",
     "Secret inputs saved with the origins they may be sent to, by outcome and by the API surface that saved them.",
@@ -334,10 +334,39 @@ def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
     }
 
 
-def _secret_reentry_error(refused: list[str]) -> serializers.ValidationError:
-    return serializers.ValidationError(
-        {"inputs": dict.fromkeys(refused, SECRET_REENTRY_MESSAGE)}, code="secret_reentry_required"
-    )
+def _secret_reentry_error(details: dict[str, str]) -> serializers.ValidationError:
+    return serializers.ValidationError({"inputs": details}, code="secret_reentry_required")
+
+
+def _texts(value: Any) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _texts(key)
+            yield from _texts(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _texts(item)
+
+
+def _secret_values_by_label(attrs: dict, instance: Optional[HogFunction], stored: list[dict]) -> dict[str, list[str]]:
+    """The plaintext of every secret input, entered or stored, by the label the editor sees."""
+    configs: list[Any] = [attrs, *(attrs.get("mappings") or [])]
+    if instance:
+        configs += [{"inputs_schema": instance.inputs_schema, "inputs": instance.inputs}, *(instance.mappings or [])]
+    values: dict[str, list[str]] = {}
+    for config in configs:
+        if not isinstance(config, dict):
+            continue
+        for schema in config.get("inputs_schema") or []:
+            if not isinstance(schema, dict) or not schema.get("secret") or "key" not in schema:
+                continue
+            for inputs in [config.get("inputs") or {}, *stored]:
+                item = inputs.get(schema["key"])
+                if isinstance(item, dict):
+                    values.setdefault(schema.get("label") or schema["key"], []).extend(_texts(item.get("value")))
+    return values
 
 
 def _raise_secret_reentry(errors: Any) -> None:
@@ -346,7 +375,11 @@ def _raise_secret_reentry(errors: Any) -> None:
     inputs_errors = configuration_errors.get("inputs") if isinstance(configuration_errors, dict) else None
     if not isinstance(inputs_errors, dict):
         return
-    refused = [key for key, error in inputs_errors.items() if getattr(error, "code", None) == "secret_reentry_required"]
+    refused = {
+        key: str(error)
+        for key, error in inputs_errors.items()
+        if getattr(error, "code", None) == "secret_reentry_required"
+    }
     if refused:
         raise _secret_reentry_error(refused)
 
@@ -1140,7 +1173,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 outcome=_binding_metric(outcome, let_through, stages_draft), surface=surface
             ).inc()
         if enforce:
-            raise _secret_reentry_error(refused)
+            labels = {
+                schema["key"]: schema.get("label") or schema["key"] for schema in attrs.get("inputs_schema") or []
+            }
+            secret_values = _secret_values_by_label(attrs, instance, [stored_secrets, live_secrets])
+            raise _secret_reentry_error(
+                {
+                    key: secret_reentry_message(labels.get(key, key), derived[key], bindings[key][0], secret_values)
+                    for key in refused
+                }
+            )
 
     def _enforces_secret_binding(self, team: Team) -> bool:
         if self.context.get("view") is None:

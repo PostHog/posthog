@@ -28,6 +28,8 @@ export type EnteredSecretInputs = Record<string, { value: SecretReentryValue }>
 export interface SecretReentryPrompt {
     key: string
     label: string
+    // The server's reason for the refusal, which names the hosts the change sends the secret to.
+    detail: string
     // The masked entries of a dictionary secret, each of which has to be typed again. Null for a single value.
     entryKeys: string[] | null
     source: SecretReentrySource
@@ -49,7 +51,7 @@ function textEntries(input: CyclotronJobInputType | undefined): Record<string, s
 // The dialog types text, so it asks only for a secret stored as text or as a dictionary of text.
 function secretReentryPrompt(
     configuration: SecretReentryConfiguration,
-    key: string,
+    { key, detail }: SecretReentryRefusal,
     source: SecretReentrySource
 ): SecretReentryPrompt | null {
     const schema = configuration.inputs_schema?.find((s) => s.key === key)
@@ -58,14 +60,14 @@ function secretReentryPrompt(
     }
     const label = schema.label || schema.key
     if (schema.type === 'string') {
-        return { key, label, entryKeys: null, source }
+        return { key, label, detail, entryKeys: null, source }
     }
     if (schema.type !== 'dictionary') {
         return null
     }
     const entries = textEntries(configuration.inputs?.[key])
     const entryKeys = Object.keys(entries).filter((entry) => entries[entry] === MASKED_SECRET_VALUE)
-    return entryKeys.length ? { key, label, entryKeys, source } : null
+    return entryKeys.length ? { key, label, detail, entryKeys, source } : null
 }
 
 function unavailableMessage(label: string, source: SecretReentrySource): string {
@@ -264,7 +266,7 @@ export const hogFunctionSecretReentryLogic = kea<hogFunctionSecretReentryLogicTy
             },
             requireSecretReentry: ({ refusal, source, onContinue, configuration }) => {
                 const asked = configuration ?? values.configuration
-                const prompt = secretReentryPrompt(asked, refusal.key, source)
+                const prompt = secretReentryPrompt(asked, refusal, source)
                 if (!prompt) {
                     // pinned: analytics event name - renaming breaks dashboards
                     posthog.capture('hog function secret reentry unavailable', { source })

@@ -59,14 +59,15 @@ const SECRET_SENDER: HogFunctionType = {
     },
 }
 
-const REFUSAL_DETAIL = 'This change would send the secret to a new address. Enter the secret again to confirm.'
+const refusalDetail = (key: string): string =>
+    `This change sends ${key} to new.example.com. Until now it was only sent to hooks.example.com. Enter it again to confirm.`
 
 const refusal = (key: string): ApiError =>
     new ApiError('Bad request', 400, undefined, {
         type: 'validation_error',
         code: 'secret_reentry_required',
         attr: `inputs__${key}`,
-        detail: REFUSAL_DETAIL,
+        detail: refusalDetail(key),
     })
 
 describe('hogFunctionSecretReentryLogic', () => {
@@ -108,13 +109,21 @@ describe('hogFunctionSecretReentryLogic', () => {
         await expectLogic(logic, () => configLogic.actions.submitConfiguration()).toDispatchActions([
             'openSecretReentry',
         ])
-        expect(logic.values.prompt).toEqual({ key: 'api_key', label: 'API key', entryKeys: null, source: 'save' })
+        expect(logic.values.prompt).toEqual({
+            key: 'api_key',
+            label: 'API key',
+            detail: refusalDetail('api_key'),
+            entryKeys: null,
+            source: 'save',
+        })
 
         logic.actions.setSecretValue('new key')
         await expectLogic(logic, () => logic.actions.confirmSecretReentry()).toDispatchActions(['openSecretReentry'])
+        // The server names one refused input per response, so each dialog shows the hosts for its own input.
         expect(logic.values.prompt).toEqual({
             key: 'secret_headers',
             label: 'Secret headers',
+            detail: refusalDetail('secret_headers'),
             entryKeys: ['Authorization'],
             source: 'save',
         })
@@ -167,7 +176,7 @@ describe('hogFunctionSecretReentryLogic', () => {
         await expectLogic(logic, () => testLogic.actions.submitTestInvocation()).toDispatchActions([
             'openSecretReentry',
         ])
-        expect(logic.values.prompt).toEqual({ key: 'api_key', label: 'API key', entryKeys: null, source: 'test' })
+        expect(logic.values.prompt).toMatchObject({ key: 'api_key', detail: refusalDetail('api_key'), source: 'test' })
 
         logic.actions.setSecretValue('new key')
         await expectLogic(testLogic, () => logic.actions.confirmSecretReentry()).toDispatchActions([
@@ -202,7 +211,11 @@ describe('hogFunctionSecretReentryLogic', () => {
         await expectLogic(logic, () => draftLogic.actions.confirmPublishDraft('preview-token')).toDispatchActions([
             'openSecretReentry',
         ])
-        expect(logic.values.prompt).toEqual({ key: 'api_key', label: 'API key', entryKeys: null, source: 'publish' })
+        expect(logic.values.prompt).toMatchObject({
+            key: 'api_key',
+            detail: refusalDetail('api_key'),
+            source: 'publish',
+        })
         expect(draftLogic.values.draftActionPending).toBeNull()
 
         logic.actions.setSecretValue('new key')
@@ -256,14 +269,14 @@ describe('hogFunctionSecretReentryLogic', () => {
             expect(toastSpy.mock.calls[0][0]).toMatch(new RegExp(`^${toastStart}`))
             expect(configLogic.values.configurationManualErrors).toEqual(
                 marksField
-                    ? { ...OTHER_FIELD_ERRORS, inputs: { ...OTHER_FIELD_ERRORS.inputs, [key]: REFUSAL_DETAIL } }
+                    ? { ...OTHER_FIELD_ERRORS, inputs: { ...OTHER_FIELD_ERRORS.inputs, [key]: refusalDetail(key) } }
                     : OTHER_FIELD_ERRORS
             )
         }
     )
 
     it.each([
-        ['a refusal', refusal('api_key'), { key: 'api_key', detail: REFUSAL_DETAIL }],
+        ['a refusal', refusal('api_key'), { key: 'api_key', detail: refusalDetail('api_key') }],
         ['another validation error', { data: { code: 'invalid_input', attr: 'inputs__api_key', detail: 'x' } }, null],
         ['a refusal without an attr', { data: { code: 'secret_reentry_required', detail: 'x' } }, null],
         [

@@ -6,7 +6,7 @@ appears, and a secret whose destination cannot be pinned to known origins is `UN
 
 import re
 import dataclasses
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from enum import Enum
 from typing import Any, Literal
 
@@ -166,6 +166,62 @@ def parse_stored_origins(stored: Any) -> SecretOrigins | None:
     if isinstance(stored, list) and all(isinstance(origin, str) for origin in stored):
         return frozenset(stored)
     return None
+
+
+_MAX_LISTED_HOSTS = 3
+
+
+def _shown_host(origin: str) -> str:
+    return origin.removeprefix("https://")
+
+
+def _host_name(origin: str) -> str:
+    authority = origin.partition("://")[2]
+    return authority.rpartition(":")[0] if ":" in authority else authority
+
+
+def _list_hosts(origins: Iterable[str], secret_values: Mapping[str, list[str]]) -> str:
+    # A host that comes from a secret input's value, such as a secret webhook URL, is part of that secret.
+    hosts: set[str] = set()
+    secret_labels: set[str] = set()
+    for origin in origins:
+        host_name = _host_name(origin)
+        holder = next(
+            (label for label, values in secret_values.items() if any(host_name in v.lower() for v in values)), None
+        )
+        if holder is None:
+            hosts.add(_shown_host(origin))
+        else:
+            secret_labels.add(holder)
+    names = sorted(hosts) + [f"the address in {label}" for label in sorted(secret_labels)]
+    if len(names) > _MAX_LISTED_HOSTS:
+        names = [*names[:_MAX_LISTED_HOSTS], f"{len(names) - _MAX_LISTED_HOSTS} more"]
+    return f"{', '.join(names[:-1])} and {names[-1]}" if len(names) > 1 else names[0]
+
+
+def secret_reentry_message(
+    label: str, sends_to: SecretOrigins, sent_to: SecretOrigins, secret_values: Mapping[str, list[str]]
+) -> str:
+    """Why a save that moves a stored secret needs it entered again, naming the hosts on both sides.
+    `secret_values` holds the plaintext of every secret input by label, so a host taken from one is
+    named by that input's label instead."""
+    if sends_to is UNBOUND:
+        now = f"PostHog can't tell where this change sends {label}."
+    else:
+        # Only the hosts it was not sent to before are named, so the cap on the list never hides a new one.
+        new_hosts = (sends_to - sent_to if isinstance(sent_to, frozenset) else sends_to) or sends_to
+        now = (
+            f"This change sends {label} to {_list_hosts(new_hosts, secret_values)}."
+            if new_hosts
+            else f"This change stops sending {label} anywhere."
+        )
+    if sent_to is UNBOUND:
+        before = "Until now PostHog couldn't tell where it was sent."
+    elif sent_to:
+        before = f"Until now it was only sent to {_list_hosts(sent_to, secret_values)}."
+    else:
+        before = "Until now it wasn't sent anywhere."
+    return f"{now} {before} Enter it again to confirm."
 
 
 def url_origin(prefix: str, complete: bool) -> str | None:

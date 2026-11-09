@@ -15,17 +15,6 @@ const CONFIRM_LABELS: Record<SecretReentrySource, string> = {
     publish: 'Publish',
 }
 
-function reentryDescription(isDictionary: boolean, source: SecretReentrySource | undefined): string {
-    if (source === 'publish') {
-        return isDictionary
-            ? 'The staged changes send these secret values to a new address. Enter them to publish.'
-            : 'The staged changes send this secret to a new address. Enter its value to publish.'
-    }
-    return isDictionary
-        ? 'Your edits send these secret values to a new address. Enter them to confirm.'
-        : 'Your edits send this secret to a new address. Enter its value to confirm.'
-}
-
 export function HogFunctionSecretReentryModal(): JSX.Element {
     const { logicProps } = useValues(hogFunctionConfigurationLogic)
     const logic = hogFunctionSecretReentryLogic(logicProps)
@@ -43,7 +32,7 @@ export function HogFunctionSecretReentryModal(): JSX.Element {
             width={480}
             hasUnsavedInput={!!secretValue || Object.values(secretEntryValues).some(Boolean)}
             title={isDictionary ? 'Enter the secret values again' : 'Enter the secret again'}
-            description={reentryDescription(isDictionary, prompt?.source)}
+            description={prompt?.detail}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={cancelSecretReentry}>

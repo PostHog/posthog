@@ -12,6 +12,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.api.hog_function import HogFunctionViewSet
 from products.cdp.backend.api.test.secret_sender import (
+    MOVED_DETAIL,
     MOVED_SENDER_HOG,
     MOVED_URL,
     SENDER_HOG,
@@ -481,7 +482,11 @@ class TestHogFunctionDrafts(DraftTestCase):
                 {"confirm": True, "confirm_token": confirm_token, "inputs": entered},
             )
 
-        assert (refused.json()["attr"], refused.json()["code"]) == ("inputs__token", "secret_reentry_required")
+        assert (refused.json()["attr"], refused.json()["code"], refused.json()["detail"]) == (
+            "inputs__token",
+            "secret_reentry_required",
+            MOVED_DETAIL,
+        )
         assert retried.status_code == expected_status, retried.json()
         function = HogFunction.objects.get(id=function_id)
         if expected_status == status.HTTP_200_OK:
@@ -537,8 +542,8 @@ class TestHogFunctionDrafts(DraftTestCase):
 
     @parameterized.expand(
         [
-            ("stored_secret", "destination", SENDER_HOG, {"secret": True}, status.HTTP_400_BAD_REQUEST),
-            ("entered_secret", "destination", SENDER_HOG, {"value": "typed for this test"}, status.HTTP_200_OK),
+            ("stored_secret", "destination", SENDER_HOG, {"secret": True}, status.HTTP_400_BAD_REQUEST, MOVED_DETAIL),
+            ("entered_secret", "destination", SENDER_HOG, {"value": "typed for this test"}, status.HTTP_200_OK, None),
             # A transformation is under the enabled-functions cap, which validates the nested
             # configuration through a branch of its own.
             (
@@ -547,11 +552,19 @@ class TestHogFunctionDrafts(DraftTestCase):
                 "print(inputs.token); return event",
                 {"secret": True},
                 status.HTTP_400_BAD_REQUEST,
+                "PostHog can't tell where this change sends Token. Until now it wasn't sent anywhere. "
+                "Enter it again to confirm.",
             ),
         ]
     )
     def test_test_invocation_that_sends_a_secret_to_a_new_host(
-        self, _name: str, function_type: str, tested_hog: str, token: dict, expected_status: int
+        self,
+        _name: str,
+        function_type: str,
+        tested_hog: str,
+        token: dict,
+        expected_status: int,
+        expected_detail: str | None,
     ):
         stored_hog = SENDER_HOG if function_type == "destination" else "return event"
         function_id = self._create(
@@ -572,7 +585,11 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert response.status_code == expected_status, response.json()
         assert mock_invoke.called == (expected_status == status.HTTP_200_OK)
         if expected_status == status.HTTP_400_BAD_REQUEST:
-            assert (response.json()["attr"], response.json()["code"]) == ("inputs__token", "secret_reentry_required")
+            assert (response.json()["attr"], response.json()["code"], response.json()["detail"]) == (
+                "inputs__token",
+                "secret_reentry_required",
+                expected_detail,
+            )
 
     @parameterized.expand([("live_edit", False), ("draft_test_run", True)])
     def test_rotating_one_secret_keeps_an_unbound_sibling(self, _name: str, staged: bool):
@@ -608,7 +625,13 @@ class TestHogFunctionDrafts(DraftTestCase):
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert (response.json()["attr"], response.json()["code"]) == ("inputs__token", "secret_reentry_required")
+        # Both hosts come from the secret Target input, so the detail names the input instead of its host.
+        assert (response.json()["attr"], response.json()["code"], response.json()["detail"]) == (
+            "inputs__token",
+            "secret_reentry_required",
+            "This change sends Token to the address in Target. Until now it was only sent to the address in Target. "
+            "Enter it again to confirm.",
+        )
 
     def test_draft_never_carries_secret_values(self):
         function_id = self._create()
