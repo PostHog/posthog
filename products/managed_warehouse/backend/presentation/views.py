@@ -463,6 +463,7 @@ def _strip_bucket_fields(body: dict) -> None:
     """Drop the internal bucket fields from a UI-facing response body, in place."""
     body.pop("bucket", None)
     body.pop("bucket_region", None)
+    body.pop("bucket_prefix", None)
 
 
 def _validate_schema_name(name: str | None) -> str | None:
@@ -1286,6 +1287,22 @@ def trino_monitoring_series_for(
     )
 
 
+def _cp_status_body(organization_id: UUID | str) -> dict | None:
+    resp = _request("GET", organization_id, "/warehouse/status", require_enabled=False)
+    if resp.status_code != 200 or not isinstance(resp.data, dict):
+        return None
+
+    response_org = resp.data.get("org_id")
+    if response_org is not None and str(response_org) != str(organization_id):
+        logger.warning(
+            "Refusing to use control-plane bucket: status org_id mismatch",
+            requested_organization_id=str(organization_id),
+            response_org_id=str(response_org),
+        )
+        return None
+    return resp.data
+
+
 def cp_bucket_for(organization_id: UUID | str) -> str | None:
     """Authoritative S3 bucket for the org's duckling, straight from the control plane.
 
@@ -1299,21 +1316,25 @@ def cp_bucket_for(organization_id: UUID | str) -> str | None:
     Also reconciles the stored `DuckgresServer` row so it converges for next time. Returns
     None when the control plane is unreachable, unconfigured, or names no bucket.
     """
-    resp = _request("GET", organization_id, "/warehouse/status", require_enabled=False)
-    if resp.status_code != 200 or not isinstance(resp.data, dict):
+    body = _cp_status_body(organization_id)
+    if body is None:
         return None
+    _reconcile_bucket_from_status(organization_id, body)
+    return body.get("bucket") or None
 
-    response_org = resp.data.get("org_id")
-    if response_org is not None and str(response_org) != str(organization_id):
-        logger.warning(
-            "Refusing to use control-plane bucket: status org_id mismatch",
-            requested_organization_id=str(organization_id),
-            response_org_id=str(response_org),
-        )
+
+def cp_data_path_for(organization_id: UUID | str) -> str | None:
+    """S3 URI of the org's DuckLake data path, as `s3://<bucket>/` or `s3://<bucket>/<prefix>/`.
+
+    Same control-plane request and org-id check as `cp_bucket_for`. DuckLake registers file paths
+    relative to this root, so files must land under it. None when the control plane names no bucket.
+    """
+    body = _cp_status_body(organization_id)
+    if body is None or not body.get("bucket"):
         return None
-
-    _reconcile_bucket_from_status(organization_id, resp.data)
-    return resp.data.get("bucket") or None
+    prefix = str(body.get("bucket_prefix") or "").strip("/")
+    root = f"s3://{body['bucket']}/"
+    return f"{root}{prefix}/" if prefix else root
 
 
 def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> None:

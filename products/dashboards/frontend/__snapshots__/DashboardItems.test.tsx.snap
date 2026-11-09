@@ -6,11 +6,17 @@ exports[`DashboardItems matches snapshot for an editor 1`] = `
 >
   <div
     class="relative"
+    data-dashboard-grid-frame="true"
   >
     <div
       data-attr="grid-background"
       data-margin="16,16"
       data-row-height="80"
+    />
+    <div
+      aria-hidden="true"
+      class="DashboardDragPreview"
+      hidden=""
     />
     <div
       data-attr="react-grid-layout"

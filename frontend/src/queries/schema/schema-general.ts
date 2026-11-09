@@ -8815,8 +8815,9 @@ export type MarketingAnalyticsRecommendationRule =
     | 'keyword_gap'
     | 'spend_without_conversions'
     | 'striking_distance'
+    | 'keyword_tracking'
 
-export type MarketingAnalyticsRecommendationLevel = 'campaign' | 'search_term'
+export type MarketingAnalyticsRecommendationLevel = 'account' | 'campaign' | 'search_term'
 
 export type MarketingAnalyticsRecommendationImpactDirection = 'save' | 'gain' | 'invest' | 'keep'
 
@@ -8875,7 +8876,7 @@ export interface MarketingAnalyticsRecommendationsDataGap {
 export interface MarketingAnalyticsRecommendation {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendationLevel
-    /** The campaign name or the search term the recommendation is about. */
+    /** The ad account, campaign or search term the recommendation is about. */
     subject: string
     /** The campaign a search term recommendation applies to, when it applies to one. */
     campaign?: string | null
@@ -9932,6 +9933,7 @@ export enum ProductIntentContext {
     METRICS_DOCS_VIEWED = 'metrics_docs_viewed',
     METRICS_VIEWER_QUERY_RUN = 'metrics_viewer_query_run',
     METRICS_SQL_QUERY_RUN = 'metrics_sql_query_run',
+    METRICS_DERIVED_QUERY_RUN = 'metrics_derived_query_run',
     METRICS_QUERY_SAVED = 'metrics_query_saved',
     METRICS_FIRST_INGESTED = 'metrics_first_ingested',
     METRICS_SCRAPE_AGENT_SNIPPET_COPIED = 'metrics_scrape_agent_snippet_copied',

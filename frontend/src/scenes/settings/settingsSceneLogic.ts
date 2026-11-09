@@ -39,6 +39,11 @@ const SETTINGS_SECTION_ALIASES: Record<string, SettingSectionId> = {
     // in-app assistant has suggested. Keep it even once those links age out; it only becomes wrong
     // if members ever become project-scoped.
     'project-members': 'organization-members',
+    privacy: 'project-privacy',
+    'project-general': 'project-details',
+    'organization-ai': 'organization-details',
+    // Without this, the redirect in scenes.ts loops and overflows the stack once this logic is mounted.
+    'organization-rbac': 'organization-roles',
 }
 
 // Settings that moved to a different section, keyed by setting id. Deep links to the old
@@ -71,7 +76,7 @@ const canonicalSettingsSection = (section: string): string => {
         return SETTINGS_SECTION_ALIASES[section]
     }
 
-    if (section.startsWith('environment') && !section.endsWith('-details') && !section.endsWith('-danger-zone')) {
+    if (section.startsWith('environment')) {
         return section.replace(/^environment/, 'project')
     }
 
