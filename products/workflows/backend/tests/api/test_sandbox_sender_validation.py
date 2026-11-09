@@ -655,6 +655,7 @@ class TestSandboxSenderValidation(APIBaseTest):
             ("other_step_switched_to_it", "switch_other_step", "function_email"),
             ("step_type_switched", "switch_type", "function"),
             ("inert_generic_step_switched_to_the_email_template", "switch_template", "function"),
+            ("inert_email_step_switched_to_the_email_template", "switch_template", "function_email"),
             ("reply_to_changed", "change_reply_to", "function_email"),
         ]
     )
