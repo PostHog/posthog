@@ -1527,7 +1527,10 @@ def _latest_run(repo_config: StamphogRepoConfig, pr_number: int) -> ReviewRun | 
 def _reusable_withheld_run(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> ReviewRun | None:
     """The PR's latest run, when it is a silent run that withheld a refusal or an escalation of the
     PR's current head and base branch."""
-    latest = _latest_run(repo_config, pr.get("number"))
+    pr_number = pr.get("number")
+    if not isinstance(pr_number, int):
+        return None
+    latest = _latest_run(repo_config, pr_number)
     if latest is None or not latest.verdict_withheld or latest.verdict == ReviewVerdict.APPROVED:
         return None
     if latest.head_sha != ((pr.get("head") or {}).get("sha") or ""):

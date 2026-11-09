@@ -1753,11 +1753,13 @@ def _adopt_withheld_verdict(run: ReviewRun) -> str:
     Eligibility was decided when the request created ``run`` (``_reusable_withheld_run``). Returns
     ``reused``, or why ``run`` has to review the PR itself.
     """
-    output = run.output or {}
+    withheld_run_id = (run.output or {}).get(WITHHELD_RUN_OUTPUT_KEY)
+    if not isinstance(withheld_run_id, str):
+        return "missing"
     withheld = (
         ReviewRun.objects.for_team(run.team_id)
         .using(router.db_for_write(ReviewRun))
-        .filter(id=output.get(WITHHELD_RUN_OUTPUT_KEY), pull_request=run.pull_request)
+        .filter(id=withheld_run_id, pull_request=run.pull_request)
         .first()
     )
     if withheld is None:

@@ -931,7 +931,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         existing_silent: bool = False,
     ) -> None:
         first = self._request().json()["run"]["id"]
-        output = {"pr": {"base": {"ref": reviewed_base_ref}}} if reviewed_base_ref else {}
+        output: dict[str, Any] = {"pr": {"base": {"ref": reviewed_base_ref}}} if reviewed_base_ref else {}
         if existing_silent:
             output["review_trigger"] = "reviewhog_clean"
         ReviewRun.objects.unscoped().filter(id=first).update(status=existing_status, output=output)
