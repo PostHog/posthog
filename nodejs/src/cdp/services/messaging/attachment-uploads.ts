@@ -100,13 +100,14 @@ export class AttachmentUploads {
             throw error
         }
 
-        // A file named twice in one request is uploaded once.
-        const toUpload = new Set(slots.filter((slot) => slot.status === 'upload').map((slot) => slot.sha256))
-        const uploadBytes = [...toUpload].reduce((total, sha256) => total + sizeOf.get(sha256)!, 0)
+        const distinctHashesToUpload = new Set(
+            slots.filter((slot) => slot.status === 'upload').map((slot) => slot.sha256)
+        )
+        const uploadBytes = [...distinctHashesToUpload].reduce((total, sha256) => total + sizeOf.get(sha256)!, 0)
         if (uploadBytes > 0) {
             let charged: boolean
             try {
-                charged = await this.charge(this.counter, teamId, uploadBytes)
+                charged = await this.chargeDailyUploadBytes(this.counter, teamId, uploadBytes)
             } catch (error) {
                 return unavailable(teamId, 'Could not count the upload bytes of a team', error)
             }
@@ -120,8 +121,7 @@ export class AttachmentUploads {
         return { status: 200, body: { files: slots.map(toAnswer) } }
     }
 
-    // Counts the bytes of the upload slots a team gets per UTC day.
-    private async charge(counter: RedisV2, teamId: number, bytes: number): Promise<boolean> {
+    private async chargeDailyUploadBytes(counter: RedisV2, teamId: number, bytes: number): Promise<boolean> {
         const key = `${ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX}:${teamId}:${this.now().toISOString().slice(0, 10)}`
         const charged = await counter.useClient({ name: 'email-attachments-upload-quota' }, (client) =>
             client.eval(CHARGE_SCRIPT, 1, key, bytes, this.settings.maxBytesPerTeamDay, QUOTA_KEY_TTL_SECONDS)
