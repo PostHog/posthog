@@ -19,6 +19,7 @@ import { STATUS_PAGE_BASE } from 'lib/lemon-ui/LemonToast/incidentStatus'
 
 import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
 import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
+import todayAnalyticsSidebar from '~/mocks/fixtures/api/today_analytics_sidebar.json'
 import { SharingConfigurationType } from '~/types'
 
 import { getAvailableProductFeatures } from './features'
@@ -101,6 +102,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/marketing_analytics/source_validation/': { errors_by_source: {} },
         '/api/projects/:team_id/my_notifications/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/ui_customization/analytics_sidebar/': todayAnalyticsSidebar,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/events_retention/': {
             retention_months: null,

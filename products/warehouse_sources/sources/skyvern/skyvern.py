@@ -1,14 +1,19 @@
 import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
+    Endpoint,
+    EndpointResource,
     PageNumberPaginator,
     Resource,
     RESTAPIConfig,
     ResumableSourceManager,
+    SinglePagePaginator,
     SourceResponse,
+    build_chained_resource,
+    make_parent_key_name,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -158,6 +163,46 @@ def _simple_resource(
     )
 
 
+def _workflows_parent_resource() -> EndpointResource:
+    return {
+        "name": "workflows",
+        "write_disposition": "replace",
+        "endpoint": {
+            "path": "/v1/agents",
+            "params": {"page_size": PAGE_SIZE, "only_workflows": "true"},
+            "paginator": PageNumberPaginator(base_page=1, page=1, page_param="page"),
+        },
+    }
+
+
+def _workflow_runs_endpoint(created_at_start: str | None) -> Endpoint:
+    params: dict[str, Any] = {
+        "workflow_permanent_id": {"type": "resolve", "resource": "workflows", "field": "workflow_permanent_id"},
+        "page_size": PAGE_SIZE,
+    }
+    if created_at_start is not None:
+        params["created_at_start"] = created_at_start
+
+    # A full refresh (no created_at_start window) pages through every run so a workflow with more than
+    # MAX_PAGES_PER_WORKFLOW * PAGE_SIZE runs is never permanently truncated. The cap only guards
+    # runaway on incremental syncs, whose created_at_start window already bounds the volume.
+    maximum_page = MAX_PAGES_PER_WORKFLOW if created_at_start is not None else None
+    return {
+        "path": SKYVERN_ENDPOINTS["runs"].path,
+        "params": params,
+        "paginator": PageNumberPaginator(base_page=1, page=1, page_param="page", maximum_page=maximum_page),
+    }
+
+
+_PARENT_WORKFLOW_PERMANENT_ID = make_parent_key_name("workflows", "workflow_permanent_id")
+
+
+def _rename_parent_workflow_permanent_id(row: dict[str, Any]) -> dict[str, Any]:
+    if _PARENT_WORKFLOW_PERMANENT_ID in row:
+        row["workflow_permanent_id"] = row.pop(_PARENT_WORKFLOW_PERMANENT_ID)
+    return row
+
+
 def _fan_out_resource(
     config: SkyvernEndpointConfig,
     endpoint: str,
@@ -168,47 +213,37 @@ def _fan_out_resource(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> Resource:
-    """Fan out over every workflow, pulling its runs from /v1/agents/{workflow_permanent_id}/runs.
+    """Fan out over every workflow, pulling the endpoint for each workflow_permanent_id.
 
-    Incremental syncs bound each workflow's run list with created_at_start (watermark minus lookback).
-    workflow_run_id is globally unique, so it is a sufficient primary key on its own.
+    Incremental `runs` syncs bound each workflow's run list with created_at_start (watermark minus
+    lookback). workflow_run_id is globally unique, so it is a sufficient primary key on its own.
     """
-    created_at_start = _created_at_start(config, should_use_incremental_field, db_incremental_field_last_value)
+    if endpoint == "runs":
+        child_endpoint = _workflow_runs_endpoint(
+            _created_at_start(config, should_use_incremental_field, db_incremental_field_last_value)
+        )
+    else:
+        child_endpoint = {
+            "path": config.path,
+            "params": {
+                "workflow_permanent_id": {"type": "resolve", "resource": "workflows", "field": "workflow_permanent_id"},
+                **({"page_size": PAGE_SIZE} if config.child_paginated else {}),
+            },
+            "data_selector": config.data_key,
+            "paginator": PageNumberPaginator(base_page=1, page=1, page_param="page")
+            if config.child_paginated
+            else SinglePagePaginator(),
+        }
 
-    child_params: dict[str, Any] = {
-        "workflow_permanent_id": {"type": "resolve", "resource": "workflows", "field": "workflow_permanent_id"},
-        "page_size": PAGE_SIZE,
-    }
-    if created_at_start is not None:
-        child_params["created_at_start"] = created_at_start
-
-    # A full refresh (no created_at_start window) pages through every run so a workflow with more than
-    # MAX_PAGES_PER_WORKFLOW * PAGE_SIZE runs is never permanently truncated. The cap only guards
-    # runaway on incremental syncs, whose created_at_start window already bounds the volume.
-    maximum_page = MAX_PAGES_PER_WORKFLOW if created_at_start is not None else None
+    child_resource: EndpointResource = {"name": endpoint, "endpoint": child_endpoint}
+    if config.include_workflow_permanent_id:
+        child_resource["include_from_parent"] = ["workflow_permanent_id"]
+        child_resource["data_map"] = _rename_parent_workflow_permanent_id
 
     rest_config: RESTAPIConfig = {
         "client": client_config,
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": "workflows",
-                "write_disposition": "replace",
-                "endpoint": {
-                    "path": "/v1/agents",
-                    "params": {"page_size": PAGE_SIZE, "only_workflows": "true"},
-                    "paginator": PageNumberPaginator(base_page=1, page=1, page_param="page"),
-                },
-            },
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": child_params,
-                    "paginator": PageNumberPaginator(base_page=1, page=1, page_param="page", maximum_page=maximum_page),
-                },
-            },
-        ],
+        "resources": [_workflows_parent_resource(), child_resource],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -229,6 +264,79 @@ def _fan_out_resource(
         initial_paginator_state=initial_paginator_state,
     )
     return next(r for r in resources if r.name == endpoint)
+
+
+_PARENT_WORKFLOW_RUN_ID = make_parent_key_name("runs", "workflow_run_id")
+
+
+def _flatten_timeline_entry(
+    entry: dict[str, Any], workflow_run_id: Any, parent_entry_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Turn one timeline entry and its nested children into rows, one per block or thought."""
+    block = entry.get("block") or {}
+    thought = entry.get("thought") or {}
+    entry_id = block.get("workflow_run_block_id") or thought.get("thought_id")
+    row = {key: value for key, value in entry.items() if key != "children"}
+    row["workflow_run_id"] = workflow_run_id
+    row["timeline_entry_id"] = entry_id
+    row["parent_timeline_entry_id"] = parent_entry_id
+
+    rows = [row]
+    for child in entry.get("children") or []:
+        rows.extend(_flatten_timeline_entry(child, workflow_run_id, entry_id))
+    return rows
+
+
+def _timeline_rows(entry: dict[str, Any]) -> list[dict[str, Any]]:
+    workflow_run_id = entry.pop(_PARENT_WORKFLOW_RUN_ID, None)
+    return _flatten_timeline_entry(entry, workflow_run_id)
+
+
+def _run_timeline_resource(
+    config: SkyvernEndpointConfig,
+    endpoint: str,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Resource:
+    """Fan out workflows -> runs -> /v1/runs/{workflow_run_id}/timeline.
+
+    The timeline endpoint has no time filter, so incremental syncs bound the middle runs listing with
+    created_at_start instead, and fetch timelines only for runs created inside that window.
+    """
+    runs_resource: EndpointResource = {
+        "name": "runs",
+        "write_disposition": "replace",
+        "endpoint": _workflow_runs_endpoint(
+            _created_at_start(config, should_use_incremental_field, db_incremental_field_last_value)
+        ),
+    }
+    timeline_resource: EndpointResource = {
+        "name": endpoint,
+        "include_from_parent": ["workflow_run_id"],
+        "endpoint": {
+            "path": config.path,
+            "params": {"workflow_run_id": {"type": "resolve", "resource": "runs", "field": "workflow_run_id"}},
+            "paginator": SinglePagePaginator(),
+            # A run purged between the runs listing and this call has no timeline left to read.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+        "data_map": _timeline_rows,
+    }
+    return cast(
+        Resource,
+        build_chained_resource(
+            resources=[_workflows_parent_resource(), runs_resource, timeline_resource],
+            child_name=endpoint,
+            parent_name="runs",
+            parent_field_renames={},
+            client_config=client_config,
+            team_id=team_id,
+            job_id=job_id,
+        ),
+    )
 
 
 def validate_credentials(api_key: str, base_url: str | None) -> tuple[bool, str | None]:
@@ -263,7 +371,17 @@ def skyvern_source(
     config = SKYVERN_ENDPOINTS[endpoint]
     client_config = _client_config(api_key, base_url)
 
-    if config.fan_out_over_workflows:
+    if config.fan_out_over_runs:
+        resource = _run_timeline_resource(
+            config,
+            endpoint,
+            client_config,
+            team_id,
+            job_id,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+    elif config.fan_out_over_workflows:
         resource = _fan_out_resource(
             config,
             endpoint,
@@ -285,7 +403,7 @@ def skyvern_source(
         # descending by created_at. In desc mode the pipeline persists the incremental watermark only
         # at successful job end, which is what we want for the runs fan-out: a partial run's max
         # created_at says nothing about workflows it never reached.
-        sort_mode="desc",
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

@@ -1132,13 +1132,13 @@ function namedKeys(keys: readonly string[]): string {
         .join(', ')
 }
 
-/** Bound on the parameter description echoed back with a missing or wrong-type
- *  parameter rejection, so a tool with a long field description cannot inflate
+/** Bound on the parameter description echoed back with a missing, wrong-type or
+ *  too-long parameter rejection, so a tool with a long field description cannot inflate
  *  the analytics error message. */
 const MAX_PARAM_HINT = 200
 
 /**
- * The parameter's own description, appended to a missing or wrong-type rejection.
+ * The parameter's own description, appended to a missing, wrong-type or too-long rejection.
  *
  * A bare `missing required parameter: short_id` names the field to fill but not
  * what to fill it with, so a caller that never held the identifier retries the
@@ -1437,7 +1437,7 @@ export function formatInputValidationError(
         // is only present under `reportInput: true`; without it, or for
         // non-string origins, fall through to zod's limit-naming default.
         if (issue.code === 'too_big' && issue.origin === 'string' && typeof issue.input === 'string') {
-            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})`
+            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})${parameterHint(issue.path, schema)}`
         }
         return path ? `parameter "${path}": ${issue.message}` : issue.message
     })

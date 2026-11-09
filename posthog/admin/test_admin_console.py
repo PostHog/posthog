@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 import time_machine
@@ -8,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.contrib.auth.models import Group
+from django.contrib.messages import get_messages
+from django.core.management.base import CommandError
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
@@ -15,20 +18,26 @@ from django.test import Client, RequestFactory, SimpleTestCase, override_setting
 from django.utils.html import format_html
 
 from parameterized import parameterized
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
 from posthog.csp_middleware import CSPMiddleware
+from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.tophog.queries import TopHogFilterOptions
 from posthog.models.user import User
+from posthog.personhog_client.fake_client import get_active_fake
+from posthog.test.persons import create_group_type_mapping, update_group_type_mapping
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
-from products.workflows.backend.facade.api import get_email_sending_state
 
 from ee.billing.quota_limiting import QuotaResource
 
@@ -283,18 +292,26 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 200
         content = response.content.decode()
-        for title in ("Overview", "Remote config cache", "Email sending", "AI gateway", "Project API token"):
+        for title in (
+            "Overview",
+            "Remote config cache",
+            "Group types",
+            "Email sending",
+            "AI gateway",
+            "Project API token",
+        ):
             assert title in content
         assert "Needs attention" in content and "Ingested events:" in content
         for panel in console.panels_for("team"):
             assert len(panel.facts(self.team)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
 
         assert f"/admin/console/organizations/{self.organization.pk}/" in content
+        assert f"/admin/console/tools/ai-gateway-wallet/?team={self.team.pk}" in content
 
         organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
         assert organization_page.status_code == 200
         organization_content = organization_page.content.decode()
-        for title in ("Overview", "Teams", "Billing"):
+        for title in ("Overview", "Teams", "Billing", "Deletion"):
             assert title in organization_content
         assert f"/admin/console/teams/{self.team.pk}/" in organization_content
 
@@ -324,7 +341,20 @@ class TestAdminConsoleViews(BaseTest):
         [
             ("form_page_keeps_its_parameters", "team", "set-api-token/?from=ticket", "api-token/set/?from=ticket"),
             ("button_action_lands_on_its_panel", "team", "rebuild-cache/", "#panel-remote-config"),
+            (
+                "suspend_form_keeps_its_parameters",
+                "team",
+                "suspend-email-sending/?from=ticket",
+                "email-sending/suspend/?from=ticket",
+            ),
+            (
+                "group_type_edit_keeps_its_index_and_parameters",
+                "team",
+                "group-type-mapping/3/edit/?from=ticket",
+                "group-types/edit-3/?from=ticket",
+            ),
             ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
+            ("organization_deletion_form", "organization", "trigger-deletion/", "deletion/delete/"),
             (
                 "deletion_request_form_page",
                 "datadeletionrequest",
@@ -355,47 +385,8 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == 200
         content = response.content.decode()
         assert "This is the Django admin" in content
-        for panel_key in ("remote-config", "email-sending", "ai-gateway", "api-token"):
+        for panel_key in ("remote-config", "group-types", "email-sending", "ai-gateway", "api-token"):
             assert f"/admin/console/teams/{self.team.pk}/#panel-{panel_key}" in content
-
-    @parameterized.expand(
-        [
-            ("suspend_with_reason", "suspend", {"reason": "Bounce rate above 10%"}, False, 302, True),
-            ("suspend_without_reason", "suspend", {"reason": "   "}, False, 400, False),
-            (
-                "notification_fails_after_the_suspension",
-                "suspend",
-                {"reason": "Bounce rate above 10%"},
-                True,
-                302,
-                True,
-            ),
-            ("operation_not_offered_in_this_state", "unsuspend", {}, False, 404, False),
-        ]
-    )
-    @patch("posthog.admin.admins.team_admin.create_notification")
-    @patch("posthog.admin.admins.team_admin.send_email_sending_suspended")
-    def test_email_sending_operations_run_the_admin_view(
-        self,
-        _name: str,
-        operation_key: str,
-        data: dict[str, str],
-        notification_fails: bool,
-        expected_status: int,
-        expect_suspended: bool,
-        send_email: MagicMock,
-        _create_notification: object,
-    ) -> None:
-        if notification_fails:
-            send_email.delay.side_effect = RuntimeError("broker down")
-
-        response = self.client.post(f"/admin/console/teams/{self.team.pk}/email-sending/{operation_key}/", data)
-
-        assert response.status_code == expected_status
-        if expected_status == 302:
-            assert response["Location"] == f"/admin/console/teams/{self.team.pk}/"
-        state = get_email_sending_state(self.team.pk)
-        assert (state is not None and state.suspended_at is not None) == expect_suspended
 
     @parameterized.expand(
         [
@@ -440,6 +431,43 @@ class TestAdminConsoleViews(BaseTest):
         nonces = {call.kwargs["form_nonce"] for call in add_credit.call_args_list}
         assert add_credit.call_count == 2
         assert nonces == {nonce.group(1)}
+
+    @parameterized.expand(
+        [
+            (
+                "balance_and_ledger",
+                Wallet(
+                    team_id=0,
+                    known=True,
+                    has_ledger=True,
+                    balance="9.500000",
+                    recent=[LedgerEntry("2026-06-01", "topup", "funding", "prepaid", "10.000000", "ref-1")],
+                ),
+                ["Balance: $9.500000", "ref-1"],
+            ),
+            (
+                "no_gateway_account",
+                Wallet(team_id=0, known=False, has_ledger=True, balance=None, recent=[]),
+                ["no gateway account yet", "No ledger entries yet."],
+            ),
+            ("not_configured", AIGatewayNotConfigured(), ["not configured in this region"]),
+            ("gateway_fails", AIGatewayInternalError("boom"), ["The wallet is unavailable: boom"]),
+        ]
+    )
+    def test_the_old_wallet_page_opens_the_wallet_tool(
+        self, _name: str, wallet: Wallet | Exception, expected: list[str]
+    ) -> None:
+        with patch(
+            "posthog.llm.gateway_internal_client.get_wallet",
+            **({"side_effect": wallet} if isinstance(wallet, Exception) else {"return_value": wallet}),
+        ) as get_wallet:
+            response = self.client.get(f"/admin/posthog/team/{self.team.pk}/ai-gateway-wallet/", follow=True)
+
+        assert response.redirect_chain == [(f"/admin/console/tools/ai-gateway-wallet/?team={self.team.pk}", 302)]
+        get_wallet.assert_called_once_with(self.team.pk)
+        content = response.content.decode()
+        for text in expected:
+            assert text in content
 
     @patch(
         "products.ai_gateway.backend.facade.api.add_team_credit",
@@ -487,6 +515,89 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == expected_status
         assert (QuotaResource.EVENTS in QuotaLimits.limited(self.organization)) == expect_limited
 
+    @parameterized.expand(
+        [
+            ("starts_the_workflow", True, False, None, None, False, 302, True),
+            ("staff_outside_the_deletion_group", False, False, None, None, False, 403, False),
+            ("bulk_deletes_paused", True, True, None, None, False, 503, False),
+            ("workflow_start_fails", True, False, RuntimeError("temporal down"), None, False, 500, False),
+            (
+                "workflow_already_running",
+                True,
+                False,
+                WorkflowAlreadyStartedError("id", "type"),
+                None,
+                False,
+                302,
+                True,
+            ),
+            ("analytics_fails_before_the_start", True, False, None, RuntimeError("capture down"), False, 500, False),
+            ("already_pending_when_confirmed", True, False, None, None, True, 404, True),
+        ]
+    )
+    @patch("posthog.admin.console.organization_deletion.report_organization_deleted")
+    @patch("posthog.admin.console.organization_deletion.start_delete_organization_workflow")
+    def test_deleting_an_organization_needs_the_deletion_group_and_a_confirmed_preview(
+        self,
+        _name: str,
+        in_group: bool,
+        bulk_deletes_paused: bool,
+        start_error: Exception | None,
+        report_error: Exception | None,
+        pending_before_confirm: bool,
+        expected_status: int,
+        expect_pending: bool,
+        start: MagicMock,
+        report_deleted: MagicMock,
+    ) -> None:
+        if in_group:
+            Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0].user_set.add(self.user)
+        start.side_effect = start_error
+        report_deleted.side_effect = report_error
+        url = f"/admin/console/organizations/{self.organization.pk}/deletion/delete/"
+
+        with override_settings(DISABLE_BULK_DELETES=bulk_deletes_paused):
+            preview = self.client.post(url, {"reason": "Customer asked to delete the organization"})
+            if pending_before_confirm:
+                Organization.objects.filter(pk=self.organization.pk).update(is_pending_deletion=True)
+            response = (
+                self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+                if preview.status_code == 200
+                else preview
+            )
+
+        assert response.status_code == expected_status
+        if in_group:
+            preview_content = preview.content.decode()
+            assert self.team.name in preview_content
+            # The preview links to the counts instead of running them before the confirm.
+            assert f"/admin/console/tools/organization-data/?organization={self.organization.pk}" in preview_content
+            assert "Early access features" not in preview_content
+        assert start.called == (
+            in_group and not bulk_deletes_paused and not report_error and not pending_before_confirm
+        )
+        if start.called:
+            assert start.call_args.kwargs["team_ids"] == [self.team.pk]
+            assert start.call_args.kwargs["user_id"] == self.user.pk
+        self.organization.refresh_from_db()
+        assert self.organization.is_pending_deletion == expect_pending
+
+    @parameterized.expand([("active", False), ("pending_deletion", True)])
+    def test_the_old_model_counts_page_opens_the_data_tool_for_every_staff_member(
+        self, _name: str, pending_deletion: bool
+    ) -> None:
+        Organization.objects.filter(pk=self.organization.pk).update(is_pending_deletion=pending_deletion)
+
+        response = self.client.get(f"/admin/posthog/organization/{self.organization.pk}/model-counts/", follow=True)
+
+        tool_url = f"/admin/console/tools/organization-data/?organization={self.organization.pk}"
+        assert response.redirect_chain == [(tool_url, 302)]
+        content = response.content.decode()
+        for text in ("Early access features", "Error tracking fingerprints", "Batch exports", "persons database"):
+            assert text in content
+        organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/").content.decode()
+        assert tool_url in organization_page
+
     @parameterized.expand([("billing_staff", True, 302), ("other_staff", False, 403)])
     @patch("posthog.admin.console.usage_reports_tool.call_command")
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
@@ -505,6 +616,45 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == expected_status
         assert call_command.called == in_group
 
+    @parameterized.expand(
+        [
+            ("queued", "2026-07-15", None, 302, True),
+            (
+                "refused_by_the_command",
+                "2026-07-15",
+                CommandError("A run for 2026-07-15 was already dispatched."),
+                400,
+                True,
+            ),
+            ("date_too_far_ahead", "2026-07-30", None, 400, False),
+        ]
+    )
+    @patch("products.ai_observability.backend.admin.call_command")
+    @time_machine.travel("2026-07-22T12:00:00Z", tick=False)
+    def test_sending_the_ai_observability_usage_report_queues_it_or_shows_why_not(
+        self,
+        _name: str,
+        report_date: str,
+        command_error: Exception | None,
+        expected_status: int,
+        expect_called: bool,
+        call_command: MagicMock,
+    ) -> None:
+        call_command.side_effect = command_error
+
+        response = self.client.post(
+            "/admin/console/tools/ai-observability/send-usage-report/", {"report_date": report_date}
+        )
+
+        assert response.status_code == expected_status
+        assert call_command.called == expect_called
+        if expect_called:
+            call_command.assert_called_once_with(
+                "send_ai_observability_usage_report", f"--date={report_date}", "--async"
+            )
+        if command_error is not None:
+            assert "already dispatched" in response.content.decode()
+
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_events_retention_tool_lists_the_teams_of_an_organization_with_a_default(self) -> None:
         empty = self.client.get("/admin/console/tools/events-retention/")
@@ -522,3 +672,296 @@ class TestAdminConsoleViews(BaseTest):
         assert f"/admin/console/teams/{self.team.pk}/" in content
         assert "Organization default" in content
         assert "September 2025" in content
+
+    @patch("posthog.admin.console.tophog_tool.query_tophog_filter_options")
+    @patch("posthog.admin.console.tophog_tool.query_tophog_metrics")
+    def test_tophog_links_each_entry_to_the_restrictions_of_its_token(
+        self, query_metrics: MagicMock, query_filter_options: MagicMock
+    ) -> None:
+        query_filter_options.return_value = TopHogFilterOptions(pipelines=["analytics"], lanes=["main"])
+        query_metrics.return_value = [
+            {
+                "metric": "emitted_events",
+                "type": "sum",
+                "key": {"team_id": str(self.team.pk), "distinct_id": "did"},
+                "total": 1200,
+                "obs": 3,
+                "pipelines": ["analytics"],
+                "lanes": ["main"],
+            }
+        ]
+
+        response = self.client.get("/admin/tophog/?preset=1h&pipeline=analytics", follow=True)
+
+        assert response.redirect_chain == [("/admin/console/tools/tophog/?preset=1h&pipeline=analytics", 302)]
+        assert query_metrics.call_args.kwargs == {"pipeline": "analytics", "lane": None}
+        content = response.content.decode()
+        assert "TopHog moved to PostHog Admin" in content
+        assert "emitted_events (sum)" in content
+        entry_url = (
+            f"/admin/console/tools/tophog/?token={self.team.api_token}"
+            f"&amp;team_id={self.team.pk}&amp;distinct_id=did&amp;pipelines=analytics"
+        )
+        assert entry_url in content
+        # The range notice refreshes with the entries, so its pin link follows the window on screen.
+        assert 'data-console-live="/admin/console/tools/tophog/live/range/' in content
+        live_range = self.client.get("/admin/console/tools/tophog/live/range/?preset=1h")
+        assert "Pin this time range" in live_range.content.decode()
+
+    @parameterized.expand(
+        [
+            ("with_reason", {"reason": "Event flood"}, 302, ["existing", "new-id"]),
+            ("without_reason", {"reason": "  "}, 400, ["existing"]),
+        ]
+    )
+    def test_tophog_extends_a_restriction_to_cover_an_entry(
+        self, _name: str, data: dict[str, str], expected_status: int, expected_distinct_ids: list[str]
+    ) -> None:
+        restriction = EventIngestionRestrictionConfig.objects.create(
+            token="phc_tophog", restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION, distinct_ids=["existing"]
+        )
+        page = self.client.get(
+            "/admin/tophog/restrictions/?token=phc_tophog&distinct_id=new-id&pipelines=sessionreplay", follow=True
+        )
+        assert page.redirect_chain == [
+            ("/admin/console/tools/tophog/?token=phc_tophog&distinct_id=new-id&pipelines=sessionreplay", 302)
+        ]
+        content = page.content.decode()
+        assert "Extend the drop event from ingestion restriction" in content
+        assert (
+            "/admin/posthog/eventingestionrestrictionconfig/add/"
+            "?token=phc_tophog&amp;distinct_ids=new-id&amp;pipelines=session_recordings"
+        ) in content
+
+        response = self.client.post(
+            f"/admin/console/tools/tophog/extend-{restriction.pk}/?token=phc_tophog&distinct_id=new-id", data
+        )
+
+        assert response.status_code == expected_status
+        restriction.refresh_from_db()
+        assert restriction.distinct_ids == expected_distinct_ids
+
+    @patch("posthog.models.distinct_id_usage.report.DistinctIdUsageQueries")
+    def test_distinct_id_usage_report_keeps_the_old_query_and_marks_restrictions(self, queries: MagicMock) -> None:
+        EventIngestionRestrictionConfig.objects.create(
+            token=self.team.api_token,
+            restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+            distinct_ids=["heavy-user"],
+        )
+        EventIngestionRestrictionConfig.objects.create(
+            token=self.team.api_token,
+            restriction_type=RestrictionType.REDIRECT_TO_DLQ,
+            distinct_ids=["other-user"],
+        )
+        redirected_team = Team.objects.create(organization=self.organization, name="Redirected")
+        EventIngestionRestrictionConfig.objects.create(
+            token=redirected_team.api_token,
+            restriction_type=RestrictionType.REDIRECT_TO_DLQ,
+            distinct_ids=["other-user"],
+        )
+        queries.high_usage.return_value = [(self.team.pk, "heavy-user", 200_000, 300_000, 66.67)]
+        queries.high_cardinality.side_effect = RuntimeError("Timeout exceeded")
+        queries.distinct_id_bursts.return_value = [
+            (self.team.pk, "bursty-user", datetime(2026, 11, 6, 10, 5, tzinfo=UTC), 150_000),
+            (redirected_team.pk, "bursty-user", datetime(2026, 11, 6, 10, 5, tzinfo=UTC), 150_000),
+        ]
+        queries.team_bursts.return_value = []
+        query = (
+            "datetime_from=2026-11-06T04%3A00&datetime_to=2026-11-06T10%3A00&high_usage_percentage_threshold=30"
+            "&high_usage_min_events_threshold=10000&high_usage_distinct_id_min_events=100000"
+            "&high_cardinality_threshold=1000000&burst_distinct_id_threshold=100000&burst_team_threshold=500000"
+        )
+
+        response = self.client.get(f"/admin/distinct-id-usage/?{query}", follow=True)
+
+        assert response.redirect_chain == [(f"/admin/console/tools/distinct-id-usage/?{query}", 302)]
+        content = response.content.decode()
+        assert "Applied: Skip person processing" in content
+        assert "Not in list: Skip person processing" in content
+        assert "Not in list: Redirect to dlq" in content
+        # The restrict form offers no redirect types, so a redirect must never be prefilled.
+        assert "restriction_type=skip_person_processing" in content
+        assert "restriction_type=redirect_to_dlq" not in content
+        assert "The high cardinality query failed: Timeout exceeded" in content
+        assert "/admin/console/tools/distinct-id-usage/restrict/?" in content
+
+    @parameterized.expand(
+        [
+            ("creates_a_restriction", None, "Spam traffic", 302, ["heavy-user"]),
+            ("adds_to_the_existing_restriction", ["other-user"], "Spam traffic", 302, ["other-user", "heavy-user"]),
+            ("refuses_to_narrow_a_restriction_on_every_distinct_id", [], "Spam traffic", 400, []),
+            ("needs_a_reason", None, "  ", 400, None),
+            (
+                "refuses_a_restriction_of_other_pipelines",
+                ["other-user"],
+                "Spam traffic",
+                400,
+                ["other-user"],
+                ("session_recordings",),
+            ),
+        ]
+    )
+    def test_restrict_a_distinct_id(
+        self,
+        _name: str,
+        existing_distinct_ids: list[str] | None,
+        reason: str,
+        expected_status: int,
+        expected_distinct_ids: list[str] | None,
+        pipelines: tuple[str, ...] = ("analytics",),
+    ) -> None:
+        if existing_distinct_ids is not None:
+            EventIngestionRestrictionConfig.objects.create(
+                token=self.team.api_token,
+                restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+                distinct_ids=existing_distinct_ids,
+                pipelines=list(pipelines),
+            )
+
+        response = self.client.post(
+            "/admin/console/tools/distinct-id-usage/restrict/",
+            {
+                "token": self.team.api_token,
+                "distinct_id": "heavy-user",
+                "restriction_type": RestrictionType.DROP_EVENT_FROM_INGESTION,
+                "reason": reason,
+            },
+        )
+
+        assert response.status_code == expected_status
+        restriction = EventIngestionRestrictionConfig.objects.filter(token=self.team.api_token).first()
+        assert (restriction.distinct_ids if restriction else None) == expected_distinct_ids
+
+    @parameterized.expand(
+        [
+            ("cached_config", ({"token": "phc_cached_config"}, "redis"), "phc_cached_config"),
+            ("team_cached_as_missing", (None, "redis"), "says that this team does not exist"),
+            ("nothing_cached", (None, None), "Nothing is cached for this team"),
+        ]
+    )
+    @patch("posthog.admin.console.remote_config_tool.RemoteConfig.get_hypercache")
+    def test_the_old_view_cache_url_shows_the_cached_config_in_the_console(
+        self, _name: str, cached: tuple[object, str | None], expected: str, get_hypercache: MagicMock
+    ) -> None:
+        get_hypercache.return_value.get_cache_key.return_value = "cache/team_tokens/config.json"
+        get_hypercache.return_value.peek_from_cache_with_source.return_value = cached
+
+        response = self.client.get(f"/admin/posthog/team/{self.team.pk}/view-cache/", follow=True)
+
+        assert response.redirect_chain == [(f"/admin/console/tools/remote-config-cache/?team={self.team.pk}", 302)]
+        content = response.content.decode()
+        assert "The cached config view moved to PostHog Admin" in content
+        assert "cache/team_tokens/config.json" in content
+        assert expected in content
+
+    @parameterized.expand([("missing", ""), ("not_a_number", "abc"), ("unicode_digit", "²")])
+    def test_the_remote_config_cache_tool_asks_for_a_team_when_the_team_is_not_a_team_id(
+        self, _name: str, team: str
+    ) -> None:
+        response = self.client.get("/admin/console/tools/remote-config-cache/", {"team": team})
+
+        assert response.status_code == 200
+        assert "Open this page from the Remote config cache panel" in response.content.decode()
+
+    @parameterized.expand(
+        [
+            (
+                "rename_keeps_the_created_time",
+                {"name_singular": "Company"},
+                ["name_singular"],
+                None,
+                "Singular name: Not set to Company",
+            ),
+            (
+                "created_time_to_the_millisecond",
+                {"created_at": "2026-02-20 08:15:00.456"},
+                ["created_at"],
+                int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000) + 456,
+                "Created (UTC): 2026-01-15 10:30:00.123 to 2026-02-20 08:15:00.456",
+            ),
+            (
+                "cleared_created_time",
+                {"created_at": ""},
+                ["created_at"],
+                None,
+                "Created (UTC): 2026-01-15 10:30:00.123 to Not set",
+            ),
+            (
+                "cleared_default_columns",
+                {"default_columns": ""},
+                ["default_columns"],
+                None,
+                'Default columns: ["name"] to Not set',
+            ),
+            ("unchanged_form", {}, None, None, ""),
+            ("invalid_created_time", {"created_at": "not-a-datetime"}, None, None, ""),
+            ("impossible_created_time", {"created_at": "2026-02-30 10:30:00"}, None, None, ""),
+        ]
+    )
+    def test_editing_a_group_type_previews_then_writes_only_the_changed_fields(
+        self,
+        _name: str,
+        changes: dict[str, str],
+        expected_mask: list[str] | None,
+        expected_created_at: int | None,
+        expected_message: str,
+    ) -> None:
+        create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            default_columns=["name"],
+            created_at=datetime(2026, 1, 15, 10, 30, 0, 123000, tzinfo=UTC),
+        )
+        url = f"/admin/console/teams/{self.team.pk}/group-types/edit-0/"
+        prefilled = self.client.get(url).context["form"].initial
+
+        preview = self.client.post(url, {**prefilled, **changes, "reason": "Customer asked"})
+        updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
+        assert updates == []
+        if expected_mask is None:
+            assert preview.status_code == 400
+            return
+        assert preview.status_code == 200
+        assert "After saving" in preview.content.decode()
+
+        saved = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert saved.status_code == 302
+        updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
+        assert len(updates) == 1
+        assert list(updates[0].update_mask) == expected_mask
+        if "created_at" in expected_mask:
+            assert (updates[0].created_at if updates[0].HasField("created_at") else None) == expected_created_at
+        assert expected_message in " ".join(str(message) for message in get_messages(saved.wsgi_request))
+
+    @parameterized.expand([("before_the_preview", True), ("before_the_confirm", False)])
+    def test_editing_a_group_type_refuses_when_the_group_type_changed_since_the_form_opened(
+        self, _name: str, change_before_preview: bool
+    ) -> None:
+        mapping = create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            default_columns=["name"],
+        )
+        url = f"/admin/console/teams/{self.team.pk}/group-types/edit-0/"
+        prefilled = self.client.get(url).context["form"].initial
+        mapping.default_columns = ["name", "email"]
+
+        if change_before_preview:
+            update_group_type_mapping(mapping)
+        preview = self.client.post(url, {**prefilled, "name_singular": "Company", "reason": "Customer asked"})
+        if change_before_preview:
+            assert preview.status_code == 400
+            assert "changed since you opened this form" in preview.content.decode()
+            return
+        update_group_type_mapping(mapping)
+        saved = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert saved.status_code == 409
+        assert "changed since you opened this form" in saved.content.decode()
+        updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
+        assert updates == []

@@ -134,7 +134,12 @@ def _account_type_sort_key(row: IntegrationRecord) -> tuple[bool, str]:
 
 
 def resolve_team_github_integration(
-    team_id: int, team: Team | None = None, requester_user_id: int | None = None, team_only: bool = False
+    team_id: int,
+    team: Team | None = None,
+    requester_user_id: int | None = None,
+    team_only: bool = False,
+    *,
+    include_unavailable: bool = False,
 ) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team.
 
@@ -162,7 +167,10 @@ def resolve_team_github_integration(
             for row in IntegrationManager.github.oauth.list(team_id)
             # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
             # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
-            if row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+            if include_unavailable
+            or (
+                row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+            )
         ),
         # Prioritize orgs vs users (alphabetically), then oldest first. `list` is already oldest
         # first and `sorted` is stable.

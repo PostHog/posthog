@@ -2320,6 +2320,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
  * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+ * * `unserved_variant_exposures` - Unserved Variant Exposures
  * * `forced_variant_release_condition` - Forced Variant Release Condition
  * * `flag_variants_mismatch` - Flag Variants Mismatch
  * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2350,6 +2351,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
     TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+    UnservedVariantExposures: 'unserved_variant_exposures',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
     FlagVariantsMismatch: 'flag_variants_mismatch',
     SplitChangedMidRun: 'split_changed_mid_run',
@@ -2421,6 +2423,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `zero_exposures` - Zero Exposures
  * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
  * * `srm` - Srm
+ * * `unserved_variant_exposures` - Unserved Variant Exposures
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
  * * `multiple_variants_share` - Multiple Variants Share
  */
@@ -2449,6 +2452,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     ZeroExposures: 'zero_exposures',
     TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     Srm: 'srm',
+    UnservedVariantExposures: 'unserved_variant_exposures',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
     MultipleVariantsShare: 'multiple_variants_share',
 } as const
@@ -2477,6 +2481,7 @@ export interface ExperimentHealthFindingApi {
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2539,6 +2544,7 @@ export interface ExperimentHealthFindingApi {
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share */
     check: ExperimentHealthCheckKeyEnumApi
@@ -2570,6 +2576,8 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `since_launch_hours` - Hours since launch
  * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
  * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+ * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+ * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
  * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
  * * `primary_metric_count` - Primary metrics that the calculation computes
  * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -2595,6 +2603,8 @@ export const ExperimentHealthValueKeyEnumApi = {
     SinceLaunchHours: 'since_launch_hours',
     ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
     KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
+    UnservedExposedCount: 'unserved_exposed_count',
+    UnservedExposedPercentage: 'unserved_exposed_percentage',
     OnlyCountMaturedUsers: 'only_count_matured_users',
     PrimaryMetricCount: 'primary_metric_count',
     WaitingMetricCount: 'waiting_metric_count',
@@ -2642,6 +2652,8 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `since_launch_hours` - Hours since launch
      * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
      * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+     * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
      * * `primary_metric_count` - Primary metrics that the calculation computes
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -2670,6 +2682,8 @@ export interface ExperimentHealthCheckRuleApi {
      * * `since_launch_hours` - Hours since launch
      * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
      * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+     * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
      * * `primary_metric_count` - Primary metrics that the calculation computes
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -2726,6 +2740,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share */
     key: ExperimentHealthCheckKeyEnumApi
