@@ -19,6 +19,8 @@ See [Android's adaptive icon guidelines](https://developer.android.com/develop/u
 The native splash follows the device appearance. The animated splash and in-app logos
 use the app's Appearance setting. Light uses the gradient artwork. Dark uses the
 [official white artwork](https://brand.posthog.com/logo) for the logomark and landscape logo.
+The checked-in artwork comes from `@posthog/brand`. With `rsvg-convert` installed, run
+`pnpm brand:generate app` from `products/mobile` to refresh the in-app SVGs and dark splash PNG.
 
 ## Tokens
 
