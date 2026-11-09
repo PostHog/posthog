@@ -518,7 +518,7 @@ def get_prompt_set_rankings(team_id: int, *, timezone_name: str, days: int) -> P
     """How often answers named the project against the brands behind the domains the engines cite
     most, over the last `days` days in the team's timezone, with the domains and pages cited most."""
     return rankings.get_rankings(
-        team_id, target_domains=settings.AEO_TARGET_DOMAINS, timezone_name=timezone_name, days=days
+        team_id, target_domains=catalog.own_domains(team_id), timezone_name=timezone_name, days=days
     )
 
 

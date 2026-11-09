@@ -840,8 +840,8 @@ class TestAEOPromptAPI(APIBaseTest):
             ids["replay?"], "exa-answer", minutes_ago=-5, answer_text="Late.", cited_urls=["https://late.example.net/x"]
         )
 
-        with override_settings(AEO_TARGET_DOMAINS=["docs.example.com"]):
-            response = self.client.get(f"{self.url}rankings/")
+        create_own_brand(self.team, "docs.example.com")
+        response = self.client.get(f"{self.url}rankings/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         rankings = response.json()
