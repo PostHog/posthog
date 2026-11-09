@@ -65,6 +65,10 @@ Call `integrations-email-status-retrieve` with `refresh=true`.
 It returns the overall `status`, the setup `steps` and `records`; each record has a `kind`, a fully qualified `hostname`, a `type`, a `value`, an MX `priority` and its own `status`.
 A record with status `found` or `verified` is already in place. Publish every record that is still `pending`.
 
+If `status` is `not_started`, the email provider has no setup for this domain yet and `records` is empty.
+Polling does not change that, so call `integrations-email-verify-create` once to start the setup, then call `integrations-email-status-retrieve` with `refresh=true` again to get the records.
+If verifying returns the project admin permission error, ask a project admin to verify the sender.
+
 ### 4. Publish the records
 
 Pick the first path that works:
