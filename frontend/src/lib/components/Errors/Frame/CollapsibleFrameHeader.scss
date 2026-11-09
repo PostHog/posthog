@@ -1,8 +1,16 @@
-button.collapsible-frame-header[aria-expanded='true']:not(:hover) {
-    background-color: transparent;
-}
-
 .collapsible-frame-header {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    overflow: hidden;
+    padding: 0 0.5rem;
+    font-size: 0.75rem;
+    text-align: left;
+
+    &[aria-expanded='true']:not(:hover) {
+        background-color: transparent;
+    }
+
     .frame-function {
         display: flex;
         flex: 0 0 auto;
