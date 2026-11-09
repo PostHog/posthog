@@ -39,7 +39,7 @@ class MergedPullRequest:
 class LandedChange:
     repository: str
     after: str
-    pull_request_number: int | None = None
+    pull_request_number: int
 
 
 class GitHubReader(Protocol):
@@ -150,9 +150,7 @@ def merged_pull_request(listed: Mapping[str, Any], commit_sha: str) -> MergedPul
     )
 
 
-def read_numbered_pull_request(github: GitHubReader, change: LandedChange) -> dict[str, Any] | None:
-    if change.pull_request_number is None:
-        return None
+def read_numbered_pull_request(github: GitHubReader, change: LandedChange) -> dict[str, Any]:
     response = read_github(
         github,
         f"/repos/{change.repository}/pulls/{change.pull_request_number}",
@@ -180,16 +178,6 @@ def reached_default_branch(github: GitHubReader, repository: str, listed: Mappin
     if not isinstance(status, str):
         raise UnexpectedGitHubResponse(f"compare of {default_branch}...{commit_sha} in {repository} returned no status")
     return status in ("behind", "identical")
-
-
-def find_merged_pull_request(github: GitHubReader, repository: str, commit_sha: str) -> MergedPullRequest | None:
-    response = read_github(
-        github,
-        f"/repos/{repository}/commits/{commit_sha}/pulls",
-        endpoint="/repos/{owner}/{repo}/commits/{sha}/pulls",
-    )
-    merged = (merged_pull_request(listed, commit_sha) for listed in response.json())
-    return next((pull_request for pull_request in merged if pull_request is not None), None)
 
 
 def read_diff_by_path(github: GitHubReader, change: LandedChange) -> dict[str, str]:

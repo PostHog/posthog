@@ -160,21 +160,22 @@ def test_a_redelivered_merged_pull_request_starts_one_merge_check(team, writer_e
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "installation_id, is_writer_enabled, reads_github",
+    "installation_id, pull_request_number, is_writer_enabled, reads_github",
     [
-        pytest.param(str(LINKED_INSTALLATION_ID), True, True, id="linked_installation"),
-        pytest.param("9999", True, False, id="installation_not_linked"),
-        pytest.param(str(LINKED_INSTALLATION_ID), False, False, id="writer_disabled"),
-        pytest.param(None, False, True, id="started_by_the_reconcile"),
+        pytest.param(str(LINKED_INSTALLATION_ID), PULL_REQUEST_NUMBER, True, True, id="linked_installation"),
+        pytest.param("9999", PULL_REQUEST_NUMBER, True, False, id="installation_not_linked"),
+        pytest.param(str(LINKED_INSTALLATION_ID), PULL_REQUEST_NUMBER, False, False, id="writer_disabled"),
+        pytest.param(None, PULL_REQUEST_NUMBER, False, True, id="started_by_the_reconcile"),
+        pytest.param(None, None, False, False, id="started_without_a_pull_request_number"),
     ],
 )
-def test_a_merge_check_from_a_delivery_reads_github_only_for_the_linked_writer(
-    team, writer_env, installation_id, is_writer_enabled, reads_github
+def test_a_merge_check_reads_github_only_for_a_numbered_pull_request_of_the_linked_writer(
+    team, writer_env, installation_id, pull_request_number, is_writer_enabled, reads_github
 ) -> None:
     inputs = MergeCheckInputs(
         commit_sha=MERGE_COMMIT_SHA,
         team_id=team.id,
-        pull_request_number=PULL_REQUEST_NUMBER,
+        pull_request_number=pull_request_number,
         installation_id=installation_id,
     )
     with (
