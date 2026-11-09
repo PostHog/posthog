@@ -38,15 +38,35 @@ function ChecksLoadError(): JSX.Element | null {
     )
 }
 
+function MetricsContent(): JSX.Element {
+    const { allMetrics, allMetricsLoading, metricsLoadState } = useValues(metricsLogic)
+    const { loadMetrics } = useActions(metricsLogic)
+    if (allMetrics.length > 0) {
+        return <CatalogMetricsTable />
+    }
+    if (allMetricsLoading) {
+        return <LoadingRows />
+    }
+    if (metricsLoadState === 'failed') {
+        return (
+            <ModelsOverviewErrorCallout
+                message="Metrics could not be loaded."
+                onRetry={() => loadMetrics()}
+                dataAttr="data-catalog-metrics-load-error"
+            />
+        )
+    }
+    return <CatalogMetricsTable />
+}
+
 export function CatalogMetricsSection(): JSX.Element {
-    const { allMetrics, allMetricsLoading } = useValues(metricsLogic)
     const { selectedMetricIds } = useValues(catalogMetricsLogic)
 
     return (
         <section aria-label="Metrics" className="flex flex-col gap-3" data-attr="data-catalog-metrics">
             <CatalogMetricsToolbar />
             <ChecksLoadError />
-            {allMetricsLoading && allMetrics.length === 0 ? <LoadingRows /> : <CatalogMetricsTable />}
+            <MetricsContent />
             {selectedMetricIds.length > 0 && <CatalogMetricsBulkBar />}
         </section>
     )
