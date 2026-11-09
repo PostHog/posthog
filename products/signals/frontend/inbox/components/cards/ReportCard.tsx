@@ -34,7 +34,6 @@ import {
 import { useReportClaim } from '../badges/useReportClaim'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
-import { ReportCardPersonalTier } from './ReportCardPersonalTier'
 import { ReportCardRankingPill } from './ReportCardRankingPill'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
 import { useReportCardSelection } from './useReportCardSelection'
@@ -164,7 +163,6 @@ function ReportCardRaw({
     // per team as the metric quality is verified.
     const showImpactColumn = useFeatureFlag('SIGNALS_REPORT_METRICS')
     const detailUrl = inboxReportDetailUrl(report.id, backUrl)
-    const personalTier = personalSort ? report.personal_tier : null
     const personalReason = personalSort ? report.personal_reason : null
 
     const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
@@ -295,7 +293,6 @@ function ReportCardRaw({
                         </Tooltip>
                     )}
                     <SignalReportBillingBadge report={report} />
-                    {personalTier && <ReportCardPersonalTier tier={personalTier} />}
                     {rankingSortField ? (
                         <ReportCardRankingTag report={report} sortField={rankingSortField} />
                     ) : rankingPill ? (

@@ -16,6 +16,7 @@ import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
@@ -25,7 +26,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, HogFunctionTemplateType, IntegrationType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType, IntegrationType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
@@ -3383,7 +3384,8 @@ export interface workflowLogicMeta {
         manualTriggerDisabledReason: (
             workflow: HogFlow,
             originalWorkflow: HogFlow | null,
-            hasUnsavedChanges: boolean
+            hasUnsavedChanges: boolean,
+            workflowUserAccessLevel: AccessControlLevel | null
         ) => string | undefined
     }
 }
@@ -4448,8 +4450,21 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         manualTriggerDisabledReason: [
-            (s) => [s.workflow, s.originalWorkflow, s.hasUnsavedChanges],
-            (workflow: HogFlow, originalWorkflow: HogFlow | null, hasUnsavedChanges: boolean): string | undefined => {
+            (s) => [s.workflow, s.originalWorkflow, s.hasUnsavedChanges, s.workflowUserAccessLevel],
+            (
+                workflow: HogFlow,
+                originalWorkflow: HogFlow | null,
+                hasUnsavedChanges: boolean,
+                workflowUserAccessLevel: AccessControlLevel | null
+            ): string | undefined => {
+                const accessDisabledReason = getAccessControlDisabledReason(
+                    AccessControlResourceType.Workflow,
+                    AccessControlLevel.Editor,
+                    workflowUserAccessLevel ?? undefined
+                )
+                if (accessDisabledReason) {
+                    return accessDisabledReason
+                }
                 if (workflow?.status !== 'active') {
                     return 'Must enable workflow to use trigger'
                 }

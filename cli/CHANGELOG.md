@@ -1,5 +1,14 @@
 # posthog-cli
 
+## 0.19.4 — 2026-11-09
+
+### Patch changes
+
+- [38c2c033da4](https://github.com/PostHog/posthog/commit/38c2c033da4dd637440f7358c04fd271b3b0e79b) Remove the `--env-file` alias of `--dotenv-file`. Use `--dotenv-file` or `POSTHOG_CLI_DOTENV_FILE` instead. `posthog-cli api` now starts the API tools with `node --`. — Thanks @JamesPatrickGill!
+- [52b6f99eb60](https://github.com/PostHog/posthog/commit/52b6f99eb60fd49f0ef248ddd272f3eaf6131f9f) Do not write through a symlink in the output directory of `symbol-sets extract` and `symbol-sets download` — Thanks @JamesPatrickGill!
+- [b3466117df4](https://github.com/PostHog/posthog/commit/b3466117df4358f432a725d46630714ca8ce6a78) Keep all files from `symbol-sets extract` and `symbol-sets download` inside the output directory — Thanks @JamesPatrickGill!
+- [dcc1bd9fe4c](https://github.com/PostHog/posthog/commit/dcc1bd9fe4ccb542b7fe98c78ff64673a0197b42) Open only http and https server URLs with expected characters, and open them on Windows without `cmd` — Thanks @JamesPatrickGill!
+
 ## 0.19.3 — 2026-11-04
 
 ### Patch changes
