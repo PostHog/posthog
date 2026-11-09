@@ -90,7 +90,7 @@ describe('CodeEmailTabs', () => {
         expect(workflowAnswers).toBe(2)
     })
 
-    it('opens the sends behind a clicked email metric on this page', async () => {
+    it('opens the sends behind a clicked email metric on this page, also when the link is opened again', async () => {
         useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
         renderTabs()
         router.actions.push(urls.transactionalCodeEmail('email-id'))
@@ -101,6 +101,13 @@ describe('CodeEmailTabs', () => {
         expect(logic.values.tab).toEqual('sends')
         expect(router.values.location.pathname).toEqual(page)
         expect(router.values.searchParams).toMatchObject({ inv_search: 'Transient bounce' })
+
+        cleanup()
+        logic.unmount()
+        expect(codeEmailLogic.findMounted({ id: 'email-id' })).toBeNull()
+        logic = codeEmailLogic({ id: 'email-id' })
+        logic.mount()
+        expect(logic.values.tab).toEqual('sends')
     })
 
     it('offers no re-run of a sensitive email, whose sends keep no content', async () => {

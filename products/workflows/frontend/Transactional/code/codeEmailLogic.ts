@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -23,6 +23,8 @@ export interface CodeEmailLogicProps {
 }
 
 export type CodeEmailTab = 'metrics' | 'sends' | 'api'
+
+const CODE_EMAIL_TABS: CodeEmailTab[] = ['metrics', 'sends', 'api']
 
 export type CodeEmailLoadState = 'loading' | 'loaded' | 'not-found' | 'failed'
 
@@ -248,11 +250,30 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
             updateCodeEmailFailure: ({ error }) => {
                 lemonToast.error(error)
             },
+            setTab: ({ tab }) => {
+                const { tab: shownTab, ...searchParams } = router.values.searchParams
+                if ((shownTab ?? 'metrics') !== tab) {
+                    const next = tab === 'metrics' ? searchParams : { ...searchParams, tab }
+                    router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
+                }
+            },
             showSends: ({ searchParams }) => {
                 // The Sends tab reads its filters from the URL, so the drilldown stays on this page.
-                router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
+                router.actions.replace(
+                    router.values.location.pathname,
+                    { ...searchParams, tab: 'sends' },
+                    router.values.hashParams
+                )
             },
         }
     }),
+    urlToAction(({ actions, values, props }) => ({
+        '/transactional/code-emails/:id': ({ id }, searchParams) => {
+            const tab = CODE_EMAIL_TABS.find((known) => known === searchParams.tab) ?? 'metrics'
+            if (id === props.id && tab !== values.tab) {
+                actions.setTab(tab)
+            }
+        },
+    })),
     afterMount(({ actions }) => actions.loadCodeEmail()),
 ])
