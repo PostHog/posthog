@@ -8,10 +8,11 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_ast_for_printing
-from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.team_first_prewhere import _events_last_year_cache, should_check_team_first_in_prewhere
 
 from posthog.models.team.team_event_volume import TeamEventVolume
@@ -93,3 +94,20 @@ class TestShouldCheckTeamFirstInPrewhere(BaseTest):
             sql, _ = HogQLQueryExecutor(query=query, team=self.team, query_type="HogQLQuery").generate_clickhouse_sql()
 
         assert ("move_primary_key_columns_to_end_of_prewhere=0" in sql) is expected
+
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_query_settings_without_the_field_run_without_the_setting(self, _name: str, flag: bool) -> None:
+        self._add_volume(1)
+
+        with (
+            patch(FLAG_CHECK, return_value=flag),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as clickhouse,
+        ):
+            execute_hogql_query(
+                query="SELECT count() FROM events",
+                team=self.team,
+                query_type="HogQLQuery",
+                settings=HogQLQuerySettings(),
+            )
+
+        assert "move_primary_key_columns_to_end_of_prewhere" not in clickhouse.call_args.args[0]

@@ -681,7 +681,7 @@ class HogQLQueryExecutor:
     def _modifiers_tag(self) -> dict[str, Any]:
         tag = {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
         if (
-            self.clickhouse_settings is not None
+            isinstance(self.clickhouse_settings, HogQLGlobalSettings)
             and self.clickhouse_settings.move_primary_key_columns_to_end_of_prewhere is False
         ):
             # Temporary rollout marker, not a real modifier. Remove it with the `hogql-team-first-prewhere` flag.
@@ -845,7 +845,10 @@ class HogQLQueryExecutor:
                 if settings.read_overflow_mode is None:
                     settings.read_overflow_mode = "throw"
 
-            if should_check_team_first_in_prewhere(self.team, self.clickhouse_prepared_ast):
+            # Batch exports pass a `HogQLQuerySettings` subclass, which has no field for this setting.
+            if isinstance(settings, HogQLGlobalSettings) and should_check_team_first_in_prewhere(
+                self.team, self.clickhouse_prepared_ast
+            ):
                 # ON can help when index selection is precise; OFF can help when it leaves lots of irrelevant
                 # rows inside the selected granules. Small teams can share granules with many other teams,
                 # so an early team_id check can avoid expensive property evaluation on other teams' rows.
