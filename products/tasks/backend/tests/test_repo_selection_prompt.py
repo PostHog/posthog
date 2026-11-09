@@ -491,7 +491,7 @@ def test_select_repository_drops_server_fields_the_model_emitted() -> None:
             1,
             1,
             "Find the repository for this issue.",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
