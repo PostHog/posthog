@@ -2,14 +2,17 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
+import { createHash, randomBytes } from 'node:crypto'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
+import { getDefaultCdpConfig } from '~/cdp/config'
 import { EmailStatusOutput } from '~/cdp/outputs/outputs'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersEmailType,
+    EmailAttachmentMetadata,
 } from '~/cdp/schema/cyclotron'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
@@ -27,6 +30,7 @@ import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { AttachmentStoreUnavailableError, buildAttachmentStore } from './attachment-store'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
@@ -175,6 +179,50 @@ const createEmailParams = (
         },
     }
 }
+const attachmentStore = buildAttachmentStore({
+    ...getDefaultCdpConfig(),
+    CDP_EMAIL_ATTACHMENTS_S3_PREFIX: `email-service-test/${Date.now()}`,
+})!
+
+type StoredFile = { bytes: Buffer; metadata: EmailAttachmentMetadata }
+
+const attachmentFile = (ref: Omit<Partial<EmailAttachmentMetadata>, 'sha256' | 'sizeBytes'> = {}): StoredFile => {
+    const bytes = Buffer.from(`%PDF-1.4 ${randomBytes(16).toString('hex')}`)
+    return {
+        bytes,
+        metadata: {
+            filename: 'a.pdf',
+            ...ref,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+            sizeBytes: bytes.length,
+        },
+    }
+}
+
+const uploadAttachment = async (
+    teamId: number,
+    ref: Omit<Partial<EmailAttachmentMetadata>, 'sha256' | 'sizeBytes'>
+): Promise<StoredFile> => {
+    const file = attachmentFile(ref)
+    const [slot] = await attachmentStore.prepareUploads(teamId, [
+        { sha256: file.metadata.sha256, size: file.bytes.length },
+    ])
+    if (slot.status !== 'upload') {
+        throw new Error(`expected an upload slot, got ${slot.status}`)
+    }
+    const { internalFetch } = jest.requireActual('~/common/utils/request')
+    const response = await internalFetch(slot.url, { method: slot.method, headers: slot.headers, body: file.bytes })
+    expect(response.status).toBe(200)
+    return file
+}
+
+const rejectOnAbort = (signal: AbortSignal): Promise<never> =>
+    new Promise((_, reject) =>
+        signal.addEventListener('abort', () =>
+            reject(Object.assign(new Error('Request aborted'), { name: 'AbortError' }))
+        )
+    )
+
 describe('EmailService', () => {
     let service: EmailService
     let hub: Hub
@@ -757,28 +805,6 @@ describe('EmailService', () => {
                 expect(result.metrics ?? []).toEqual([])
             })
 
-            it('fails a send that lists files at once, without claiming a token or waiting for one', async () => {
-                claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs: 5000, reserved: true })
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 1 },
-                    attachments: [
-                        {
-                            filename: 'report.pdf',
-                            contentType: 'application/pdf',
-                            sizeBytes: 7,
-                            sha256: 'a'.repeat(64),
-                        },
-                    ],
-                })
-
-                const result = await limitedService.executeSendEmail(invocation)
-
-                expect(claimOrReserve).not.toHaveBeenCalled()
-                expect(limitedSendSpy).not.toHaveBeenCalled()
-                expect(result).toMatchObject({ finished: true, error: expect.stringMatching(/^attachments_missing: /) })
-                expect(result.invocation.queueScheduledAt).toBeFalsy()
-            })
-
             it('parks consecutive denials on their exact reserved slots', async () => {
                 // At 30/minute the limiter hands out slots 2s apart. Each send has to wake at
                 // its own slot, exactly. If one wake moves even a little earlier, its token is
@@ -1327,6 +1353,9 @@ describe('EmailService', () => {
             })
             sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send')
         })
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
 
         it('should error if not verified', async () => {
             sendEmailSpy.mockRejectedValue(new Error('Email address not verified "Test User" <test@posthog-test.com>'))
@@ -1415,24 +1444,180 @@ describe('EmailService', () => {
             sesAccepts()
             jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
         }
-        const filesListed = (): void => {
+        const filesGone = (): void => {
             sesAccepts()
+            service['attachmentStore'] = attachmentStore
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
-                attachments: [
-                    { filename: 'report.pdf', contentType: 'application/pdf', sizeBytes: 7, sha256: 'a'.repeat(64) },
-                ],
+                attachments: [{ ...attachmentFile().metadata, filename: 'report.pdf' }],
             })
         }
+        const filesUnreachableAfterEveryRetry = (): void => {
+            filesGone()
+            invocation.queueMetadata = { attachmentLoadTries: 10 }
+            jest.spyOn(attachmentStore, 'load').mockRejectedValue(
+                new AttachmentStoreUnavailableError(new Error('connect ECONNREFUSED'))
+            )
+        }
 
-        it('fails a queued email that lists files as attachments_missing and sends nothing', async () => {
-            filesListed()
+        describe('attachments', () => {
+            let pdf: StoredFile
+            let logo: StoredFile
 
-            const result = await service.executeSendEmail(invocation)
+            const send = (...files: StoredFile[]): void => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    attachments: files.map((file) => file.metadata),
+                })
+            }
+            beforeEach(async () => {
+                service['attachmentStore'] = attachmentStore
+                pdf = await uploadAttachment(team.id, { filename: 'report.pdf', contentType: 'application/pdf' })
+                logo = await uploadAttachment(team.id, {
+                    filename: 'logo.png',
+                    contentType: 'image/png',
+                    contentId: 'logo',
+                })
+                send(pdf, logo)
+            })
 
-            expect(sendEmailSpy).not.toHaveBeenCalled()
-            expect(result.finished).toBe(true)
-            expect(result.error).toMatch(/^attachments_missing: /)
+            it.each([
+                ['on the first try', null],
+                [
+                    'on the retry after an SES throttle',
+                    () =>
+                        sendEmailSpy.mockRejectedValueOnce(
+                            new TooManyRequestsException({ message: 'slow down', $metadata: {} })
+                        ),
+                ],
+                [
+                    'on the retry after the attachment store fails to answer',
+                    () =>
+                        jest
+                            .spyOn(attachmentStore, 'load')
+                            .mockRejectedValueOnce(
+                                new AttachmentStoreUnavailableError(new Error('connect ECONNREFUSED'))
+                            ),
+                ],
+            ])('delivers the stored files to SES as attachments %s', async (_name, failFirstTry) => {
+                sesAccepts()
+                failFirstTry?.()
+
+                let result = await service.executeSendEmail(invocation)
+                if (failFirstTry) {
+                    expect(result.finished).toBe(false)
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
+                    result = await service.executeSendEmail(result.invocation)
+                }
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls.at(-1)![0] as { input: any }
+                expect(sentCommand.input.Content.Simple.Attachments).toEqual([
+                    {
+                        RawContent: new Uint8Array(pdf.bytes),
+                        FileName: 'report.pdf',
+                        ContentType: 'application/pdf',
+                        ContentId: undefined,
+                        ContentDisposition: 'ATTACHMENT',
+                        ContentTransferEncoding: 'BASE64',
+                    },
+                    {
+                        RawContent: new Uint8Array(logo.bytes),
+                        FileName: 'logo.png',
+                        ContentType: 'image/png',
+                        ContentId: 'logo',
+                        ContentDisposition: 'INLINE',
+                        ContentTransferEncoding: 'BASE64',
+                    },
+                ])
+            })
+
+            it.each([
+                ['was never uploaded', () => Promise.resolve(attachmentFile())],
+                ['belongs to another team', async () => await uploadAttachment(team.id + 1, { filename: 'a.pdf' })],
+            ])('fails as attachments_missing and sends nothing when a file %s', async (_name, otherFile) => {
+                sesAccepts()
+                send(pdf, await otherFile())
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.finished).toBe(true)
+                expect(result.error).toMatch(/^attachments_missing: /)
+            })
+
+            it.each([
+                [
+                    'the store does not answer',
+                    () =>
+                        jest.spyOn(attachmentStore, 'load').mockImplementation((_teamId, _files, signal) =>
+                            rejectOnAbort(signal).catch((error) => {
+                                throw new AttachmentStoreUnavailableError(error)
+                            })
+                        ),
+                ],
+                [
+                    'the SES call hangs',
+                    () =>
+                        sendEmailSpy.mockImplementation((_command, options: { abortSignal: AbortSignal }) =>
+                            rejectOnAbort(options.abortSignal)
+                        ),
+                ],
+            ])('reschedules the send as a load retry when %s past the deadline', async (_name, hang) => {
+                service['sesConfig'].attachmentSendDeadlineMs = 100
+                hang()
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(false)
+                expect(result.error).toBeUndefined()
+                expect(result.invocation.queueMetadata).toMatchObject({ attachmentLoadTries: 1 })
+                expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
+                expect(result.metrics.map((metric) => metric.metric_name)).not.toContain('email_failed')
+            })
+
+            it.each([
+                [9, 'retries once more', false, undefined],
+                [10, 'fails as attachment_unavailable', true, expect.stringMatching(/^attachment_unavailable: /)],
+            ])(
+                'after %s load retries, %s when the store still does not answer',
+                async (retriesSoFar, _outcome, finished, error) => {
+                    invocation.queueMetadata = { attachmentLoadTries: retriesSoFar }
+                    jest.spyOn(attachmentStore, 'load').mockRejectedValue(
+                        new AttachmentStoreUnavailableError(new Error('connect ECONNREFUSED'))
+                    )
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect(result.finished).toBe(finished)
+                    expect(result.error).toEqual(error)
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                }
+            )
+
+            it.each([
+                ['$workflows_email_sent', sesAccepts],
+                ['$workflows_email_failed', sesRejects],
+            ])('counts the files and their bytes on %s', async (event, outcome) => {
+                jest.spyOn(service['teamWorkflowsConfigService'], 'shouldCaptureEngagementEvents').mockResolvedValue(
+                    true
+                )
+                outcome()
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.capturedPostHogEvents).toEqual([
+                    expect.objectContaining({
+                        event,
+                        properties: expect.objectContaining({
+                            $email_attachment_count: 2,
+                            $email_attachment_bytes: pdf.bytes.length + logo.bytes.length,
+                        }),
+                    }),
+                ])
+            })
         })
 
         it.each([
@@ -1478,12 +1663,20 @@ describe('EmailService', () => {
                 'recipient_suppressed',
             ],
             [
-                'a transactional email that lists files',
+                'a transactional email whose files are gone',
                 TRANSACTIONAL_EMAIL_EVENT,
                 false,
-                filesListed,
+                filesGone,
                 'failed',
                 'attachments_missing',
+            ],
+            [
+                'a transactional email whose files could not be loaded in any retry',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                filesUnreachableAfterEveryRetry,
+                'failed',
+                'attachment_unavailable',
             ],
             ['a test send of a transactional email', TRANSACTIONAL_EMAIL_EVENT, true, sesAccepts, null, null],
             [
@@ -1513,7 +1706,10 @@ describe('EmailService', () => {
 
             const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
             const sendingDomain =
-                status === 'sent' || reason === 'provider_error' || reason === 'attachments_missing'
+                status === 'sent' ||
+                reason === 'provider_error' ||
+                reason === 'attachments_missing' ||
+                reason === 'attachment_unavailable'
                     ? 'posthog-test.com'
                     : ''
             expect(rows).toEqual(
