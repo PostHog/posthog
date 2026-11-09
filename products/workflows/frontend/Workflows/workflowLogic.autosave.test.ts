@@ -8,6 +8,7 @@ import { LemonDialog, LemonDialogProps } from 'lib/lemon-ui/LemonDialog'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo, MockSignature } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
@@ -50,6 +51,7 @@ const makeWorkflow = (overrides: Partial<HogFlow> = {}): HogFlow => ({
     trigger: { type: 'event', filters: {} } as HogFlow['trigger'],
     created_at: '2026-05-01T00:00:00.000Z',
     updated_at: '2026-05-01T00:00:00.000Z',
+    user_access_level: AccessControlLevel.Editor,
     ...overrides,
 })
 

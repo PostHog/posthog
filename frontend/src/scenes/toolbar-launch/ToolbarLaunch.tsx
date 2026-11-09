@@ -36,6 +36,7 @@ import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ToolbarAuthorizedUrls } from './ToolbarAuthorizedUrls'
+import { ToolbarExtensionCard } from './ToolbarExtensionCard'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
@@ -100,6 +101,7 @@ export function ToolbarLaunch(): JSX.Element {
                 />
 
                 <div className="@container/toolbar-launch mt-4 flex max-w-6xl flex-col gap-4">
+                    <ToolbarExtensionCard />
                     <div className="grid grid-cols-1 gap-4 @min-[64rem]/toolbar-launch:grid-cols-3">
                         <Card className="min-w-0 @min-[64rem]/toolbar-launch:col-span-2">
                             <CardHeader>

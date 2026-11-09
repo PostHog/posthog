@@ -41,9 +41,6 @@ console.log('[test-runner] Storybook snapshots will be saved to', customSnapshot
 const JEST_TIMEOUT_MS = 60000 // Multi-viewport snapshots can take substantially longer in CI
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
-const QUIET_WINDOW_MS = 250
-const RESIZE_SETTLE_TIMEOUT_MS = 300
-const CONTENT_SETTLE_TIMEOUT_MS = 1300
 
 // Each story file gets a fresh browser context, so `prepare` reloads the whole preview bundle with a
 // cold HTTP cache. Under CI contention that tail overruns Playwright's 30s default. RETRY_TIMES can't
@@ -87,41 +84,17 @@ export default {
     // making the marker visible from the very first module evaluation.
     async prepare({ page, browserContext, testRunnerConfig }) {
         await page.addInitScript(() => {
-            // A pending timer or request can still change the page, so waitForQuiet waits for them.
-            const pendingTimers = new Map<number, number>()
-            let pendingFetches = 0
-            const untrackedSetTimeout = window.setTimeout.bind(window)
-            const untrackedClearTimeout = window.clearTimeout.bind(window)
-            const untrackedFetch = window.fetch.bind(window)
-            window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
-                if (typeof handler !== 'function') {
-                    return untrackedSetTimeout(handler, timeout, ...args)
-                }
-                const id = untrackedSetTimeout(
-                    (...callbackArgs: unknown[]) => {
-                        pendingTimers.delete(id)
-                        handler(...callbackArgs)
-                    },
-                    timeout,
-                    ...args
-                )
-                pendingTimers.set(id, performance.now() + (Number(timeout) || 0))
-                return id
-            }) as typeof window.setTimeout
-            window.clearTimeout = ((id?: number) => {
-                if (id !== undefined) {
-                    pendingTimers.delete(id)
-                }
-                untrackedClearTimeout(id)
-            }) as typeof window.clearTimeout
-            window.fetch = (...fetchArgs: Parameters<typeof fetch>) => {
-                pendingFetches++
-                return untrackedFetch(...fetchArgs).finally(() => pendingFetches--)
+            // Seeded (mulberry32) and restarted per story in preVisit, so random placeholders render the same every run.
+            const RANDOM_SEED = 1
+            let randomState = RANDOM_SEED
+            Math.random = (): number => {
+                randomState = (randomState + 0x6d2b79f5) | 0
+                let value = Math.imul(randomState ^ (randomState >>> 15), 1 | randomState)
+                value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value
+                return ((value ^ (value >>> 14)) >>> 0) / 4294967296
             }
-            ;(window as unknown as { __testRunnerWork: unknown }).__testRunnerWork = {
-                pendingBefore: (time: number): boolean =>
-                    pendingFetches > 0 || Array.from(pendingTimers.values()).some((due) => due <= time),
-                setTimeout: untrackedSetTimeout,
+            ;(window as unknown as { __testRunnerRestartRandom: () => void }).__testRunnerRestartRandom = (): void => {
+                randomState = RANDOM_SEED
             }
 
             const patchedUserAgent = `${navigator.userAgent} StorybookTestRunner`
@@ -166,7 +139,11 @@ export default {
     async preVisit(page, context) {
         // Resets the scheme `takeSnapshotWithTheme` emulates, which is page-level and outlasts the story.
         // Not `null`: that stops emulation, so WebKit follows a dark host.
-        await page.emulateMedia({ colorScheme: 'light' })
+        // Reduced motion also stops requestAnimationFrame motion (React Flow, d3) that the CSS override cannot reach.
+        await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+        await page.evaluate(() =>
+            (window as unknown as { __testRunnerRestartRandom?: () => void }).__testRunnerRestartRandom?.()
+        )
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
@@ -431,7 +408,7 @@ async function expectStoryToMatchSnapshot(
         window.dispatchEvent(new Event('resize'))
     })
     // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
-    await waitForQuiet(page, RESIZE_SETTLE_TIMEOUT_MS)
+    await page.waitForTimeout(300)
 
     const {
         waitForLoadersToDisappear = true,
@@ -481,62 +458,6 @@ async function waitForPossiblyFramedSelector(page: Page, selector: string, timeo
     await page.frameLocator(frameSelector.trim()).locator(innerSelector.trim()).first().waitFor({ timeout })
 }
 
-/** Resolves when the DOM is quiet for QUIET_WINDOW_MS and no timer or request is due before `timeout`, or at `timeout`. */
-async function waitForQuiet(page: Page, timeout: number): Promise<void> {
-    await page
-        .evaluate(
-            ([quietWindowMs, timeoutMs]) =>
-                new Promise<void>((resolve) => {
-                    const work = (
-                        window as unknown as {
-                            __testRunnerWork?: {
-                                pendingBefore: (time: number) => boolean
-                                setTimeout: typeof setTimeout
-                            }
-                        }
-                    ).__testRunnerWork
-                    const deadlineAt = performance.now() + timeoutMs
-                    let lastChange = performance.now()
-                    let lastSize = ''
-                    const observer = new MutationObserver(() => {
-                        lastChange = performance.now()
-                    })
-                    let resolved = false
-                    const finish = (): void => {
-                        if (!resolved) {
-                            resolved = true
-                            observer.disconnect()
-                            resolve()
-                        }
-                    }
-                    ;(work?.setTimeout ?? setTimeout)(finish, timeoutMs)
-                    observer.observe(document.documentElement, {
-                        subtree: true,
-                        childList: true,
-                        attributes: true,
-                        characterData: true,
-                    })
-                    const check = (): void => {
-                        const size = `${document.body.scrollWidth}:${document.body.scrollHeight}`
-                        if (size !== lastSize) {
-                            lastSize = size
-                            lastChange = performance.now()
-                        }
-                        if (performance.now() - lastChange >= quietWindowMs && !work?.pendingBefore(deadlineAt)) {
-                            finish()
-                            return
-                        }
-                        if (!resolved) {
-                            requestAnimationFrame(check)
-                        }
-                    }
-                    requestAnimationFrame(check)
-                }),
-            [QUIET_WINDOW_MS, timeout]
-        )
-        .catch(() => undefined)
-}
-
 /** A resize wipes a quill chart canvas before its repaint, and the body-size check cannot see a chart resizing inside a fixed-height card. */
 async function waitForChartCanvasesPainted(page: Page): Promise<void> {
     await page
@@ -573,7 +494,7 @@ async function takeSnapshotWithTheme(
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
     // `isDarkModeOn` does not list that attribute as a selector input, so only a scheme change recomputes it.
-    await page.emulateMedia({ colorScheme: theme })
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
@@ -636,6 +557,7 @@ async function takeSnapshotWithTheme(
                         const iframes = Array.from(document.querySelectorAll('iframe'))
                         return iframes.every((iframe) => iframe.getAttribute('data-load-tracked') === 'loaded')
                     },
+                    undefined,
                     { timeout: 8000 }
                 )
                 .catch(() => {
@@ -657,12 +579,73 @@ async function takeSnapshotWithTheme(
         }
     })
 
-    await waitForQuiet(page, CONTENT_SETTLE_TIMEOUT_MS)
+    // wait for content to stabilize - detects when DOM stops changing
+    await page
+        .waitForFunction(
+            () => {
+                return new Promise<boolean>((resolve) => {
+                    let lastHeight = document.body.scrollHeight
+                    let lastWidth = document.body.scrollWidth
+                    let stableCount = 0
+
+                    const checkStability = (): void => {
+                        const currentHeight = document.body.scrollHeight
+                        const currentWidth = document.body.scrollWidth
+
+                        if (currentHeight === lastHeight && currentWidth === lastWidth) {
+                            stableCount++
+                            if (stableCount >= 3) {
+                                resolve(true)
+                                return
+                            }
+                        } else {
+                            stableCount = 0
+                            lastHeight = currentHeight
+                            lastWidth = currentWidth
+                        }
+
+                        setTimeout(checkStability, 100)
+                    }
+
+                    checkStability()
+                })
+            },
+            undefined,
+            { timeout: 3000 }
+        )
+        .catch(() => {
+            // if content keeps changing, that's okay - we'll proceed anyway
+        })
+
+    // final wait for any remaining renders
+    await page.waitForTimeout(1000)
 
     await waitForChartCanvasesPainted(page)
 
+    await finishAnimations(page)
+
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
+}
+
+/** Headless Chromium sometimes paints the first keyframe of the 0 ms animations base.scss forces; this commits the last. */
+async function finishAnimations(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        // document.getAnimations() leaves out shadow trees, and the toolbar renders in one.
+        const roots: (Document | ShadowRoot)[] = [document]
+        document.querySelectorAll('*').forEach((element) => {
+            if (element.shadowRoot) {
+                roots.push(element.shadowRoot)
+            }
+        })
+        for (const animation of roots.flatMap((root) => root.getAnimations())) {
+            try {
+                animation.finish()
+            } catch {
+                continue
+            }
+        }
+    })
 }
 
 async function doTakeSnapshotWithTheme(
@@ -919,6 +902,7 @@ async function resizeViewportAndWait(page: Page, viewport: { width: number; heig
                     checkStability()
                 })
             },
+            undefined,
             { timeout: VIEWPORT_SETTLE_TIMEOUT_MS }
         )
         .catch(() => {
