@@ -593,6 +593,32 @@ const namedJobs = (file: string): Set<string> =>
 
 describe('CI workflow run plans', () => {
     it.each([
+        ['MCP-only PR', pullRequest(), 'false', '2', 2, 'success', false],
+        ['MCP-only fork PR', pullRequest({ fork: true }), 'false', '2', 2, 'success', false],
+        ['Rust CLI change', pullRequest(), 'true', '2', 2, 'success', true],
+        ['missing filter output', pullRequest(), '', '', 2, 'success', true],
+        ['incomplete file list', pullRequest(), 'false', '1', 2, 'success', true],
+        ['API file cap', pullRequest(), 'false', '3000', 3000, 'success', true],
+        ['failed detector', pullRequest(), '', '', 2, 'failure', true],
+        ['merge queue', mergeQueue(), 'true', '2', 2, 'success', false],
+    ] as const)('CLI Rust checks retain coverage (%s)', (name, github, rust, count, changedFiles, outcome, runs) => {
+        const event = github.event as Record<string, JsonValue>
+        const plan = planWorkflow(workflow('ci-cli.yml'), {
+            name,
+            github: {
+                ...github,
+                event: { ...event, pull_request: { ...(event.pull_request as object), changed_files: changedFiles } },
+            },
+            steps: { changes: { filter: { outcome, outputs: { rust, all_count: count } } } },
+        })
+        expect(plan.errors).toEqual([])
+        for (const job of ['tests', 'clippy', 'format']) {
+            expect(runningJobs(plan).includes(job)).toBe(runs)
+        }
+        expect(runningJobs(plan).includes('api-cli-release-bundle')).toBe(name !== 'merge queue')
+    })
+
+    it.each([
         ['unrelated PR', pullRequest(), 'false', '2', 2, false],
         ['unrelated fork PR', pullRequest({ fork: true }), 'false', '2', 2, false],
         ['Markdown inputs changed', pullRequest(), 'true', '2', 2, true],
