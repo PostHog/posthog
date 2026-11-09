@@ -216,7 +216,7 @@ class OrganizationDataTool(ConsoleTool):
         return Page(
             blocks=(
                 Notice(
-                    text=f"{organization.name}. Deleting the organization removes the data below.",
+                    text=f"Deleting {organization.name} removes the data below.",
                     link_text="Back to the organization",
                     href=RECORD_TYPES["organization"].url(organization),
                 ),
