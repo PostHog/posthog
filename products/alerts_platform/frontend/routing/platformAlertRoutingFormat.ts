@@ -1,3 +1,5 @@
+import { slackChannelId, slackChannelName } from 'lib/integrations/slackChannel'
+
 import type {
     AlertReceiverApi,
     AlertReceiverWriteApi,
@@ -68,9 +70,14 @@ export function receiverFormFor(receiver: AlertReceiverApi): ReceiverForm {
 export function routeFormFor(route: AlertRouteApi): RouteForm {
     return {
         receiverId: route.receiver_id,
-        matchers: route.matchers ?? [],
-        eventKinds: route.event_kinds ?? ALL_ROUTE_EVENT_KINDS,
+        matchers: route.matchers,
+        eventKinds: route.event_kinds,
     }
+}
+
+/** An edit to a webhook-style receiver of the same type may leave the URL blank, because reads return it redacted. */
+export function keepsStoredUrl(form: ReceiverForm, editing: AlertReceiverApi | null): boolean {
+    return form.type !== 'slack' && editing?.type === form.type
 }
 
 /** Null when an edit leaves the stored destination as it is. */
@@ -80,7 +87,7 @@ export function receiverDestinationBody(
     editing: AlertReceiverApi | null
 ): Omit<AlertReceiverWriteApi, 'name' | 'enabled'> | null {
     if (form.type === 'slack') {
-        const [channelId, channelLabel] = (form.slackChannel ?? '').split('|')
+        const channelId = slackChannelId(form.slackChannel ?? '')
         if (
             editing?.type === 'slack' &&
             editing.slack_channel_id === channelId &&
@@ -92,11 +99,11 @@ export function receiverDestinationBody(
             type: 'slack',
             slack_workspace_id: slackWorkspaceId,
             slack_channel_id: channelId,
-            slack_channel_name: channelLabel?.replace(/^#/, '') ?? channelId,
+            slack_channel_name: slackChannelName(form.slackChannel ?? '') ?? channelId,
         }
     }
     const webhookUrl = form.webhookUrl.trim()
-    if (editing?.type === form.type && !webhookUrl) {
+    if (keepsStoredUrl(form, editing) && !webhookUrl) {
         return null
     }
     return { type: form.type, webhook_url: webhookUrl }
@@ -106,12 +113,13 @@ export function receiverFormErrors(
     form: ReceiverForm,
     editing: AlertReceiverApi | null
 ): Partial<Record<keyof ReceiverForm, string>> {
-    const keepsStoredUrl = editing?.type === form.type && form.type !== 'slack'
     return {
         name: form.name.trim() ? undefined : 'Enter a name',
         slackChannel: form.type === 'slack' && !form.slackChannel ? 'Choose a channel' : undefined,
         webhookUrl:
-            form.type !== 'slack' && !keepsStoredUrl && !form.webhookUrl.trim() ? 'Enter a webhook URL' : undefined,
+            form.type !== 'slack' && !keepsStoredUrl(form, editing) && !form.webhookUrl.trim()
+                ? 'Enter a webhook URL'
+                : undefined,
     }
 }
 

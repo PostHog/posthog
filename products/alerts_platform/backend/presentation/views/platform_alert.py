@@ -20,7 +20,6 @@ from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, as_drf_validation_error
-from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, User
 from posthog.permissions import (
     FEATURE_FLAG_REQUIRED_ERROR_CODE,
@@ -67,6 +66,7 @@ from products.alerts_platform.backend.presentation.views.platform_alert_destinat
     PlatformAlertCreateDestinationSerializer,
     PlatformAlertDeleteDestinationSerializer,
     PlatformAlertDestinationSerializer,
+    check_slack_workspace,
     serialized_destination,
 )
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
@@ -449,6 +449,16 @@ EDIT_RESPONSES = {
 }
 
 
+def platform_flag_enabled(request: Request, team: Team, flag: str) -> bool:
+    return permissions.posthog_feature_flag_enabled(
+        flag,
+        str(cast(User, request.user).distinct_id),
+        organization_id=team.organization_id,
+        team_id=team.id,
+        caller_properties=get_authenticator_client(getattr(request, "successful_authenticator", None)),
+    )
+
+
 class PlatformAlertsFlagPermission(BasePermission):
     """Lets a caller in when the flag of at least one source kind is on. Each action then serves only
     the kinds whose flag is on."""
@@ -498,13 +508,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         )
 
     def _flag_enabled(self, flag: str) -> bool:
-        return permissions.posthog_feature_flag_enabled(
-            flag,
-            str(cast(User, self.request.user).distinct_id),
-            organization_id=self.team.organization_id,
-            team_id=self.team.id,
-            caller_properties=get_authenticator_client(getattr(self.request, "successful_authenticator", None)),
-        )
+        return platform_flag_enabled(self.request, self.team, flag)
 
     @cached_property
     def canonical_team(self) -> Team:
@@ -808,12 +812,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data["data"])
         event_kinds: tuple[AlertEventKind, ...] = serializer.validated_data["event_kinds"]
-        if data["type"] == DestinationType.SLACK:
-            # The accessor native delivery sends through, so a destination it would refuse is never saved.
-            try:
-                IntegrationManager.slack.oauth.get(team_id, data["slack_workspace_id"])
-            except IntegrationNotFound:
-                raise ValidationError({"slack_workspace_id": "Choose a Slack workspace connected to this project."})
+        check_slack_workspace(team_id, data)
         try:
             with transaction.atomic():
                 # The alert's row stays locked until the destinations commit. A delete that got there

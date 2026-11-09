@@ -3,7 +3,7 @@ import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import type { AlertRouteMatcherApi } from '../generated/api.schemas'
 
-export interface RouteMatchersFieldProps {
+interface RouteMatchersFieldProps {
     value?: AlertRouteMatcherApi[]
     onChange?: (matchers: AlertRouteMatcherApi[]) => void
 }

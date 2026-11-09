@@ -17,7 +17,7 @@ export function PlatformAlertRoutesTable(): JSX.Element {
         {
             title: 'Matches',
             render: (_, route) =>
-                route.matchers?.length ? (
+                route.matchers.length ? (
                     <div className="flex flex-wrap gap-1" translate="no">
                         {route.matchers.map((matcher) => (
                             <LemonTag key={matcher.label} className="font-mono">
@@ -36,7 +36,7 @@ export function PlatformAlertRoutesTable(): JSX.Element {
         {
             title: 'Events',
             render: (_, route) => {
-                const kinds = route.event_kinds ?? ALL_ROUTE_EVENT_KINDS
+                const kinds = route.event_kinds
                 return kinds.length === ALL_ROUTE_EVENT_KINDS.length
                     ? 'All'
                     : ROUTE_EVENT_KIND_OPTIONS.filter((option) => kinds.includes(option.value))
@@ -48,7 +48,7 @@ export function PlatformAlertRoutesTable(): JSX.Element {
             title: 'Enabled',
             render: (_, route) => (
                 <LemonSwitch
-                    checked={route.enabled ?? true}
+                    checked={route.enabled}
                     onChange={(enabled) => setRouteEnabled(route, enabled)}
                     data-attr="platform-alert-route-enabled"
                 />

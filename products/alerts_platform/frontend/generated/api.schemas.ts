@@ -123,7 +123,18 @@ export const PlatformAlertDestinationEventKindEnumApi = {
 
 export interface AlertRouteApi {
     /** ID of the route. */
-    readonly id: string
+    id: string
+    /** ID of the receiver this route sends to. */
+    receiver_id: string
+    /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
+    matchers: AlertRouteMatcherApi[]
+    /** The alert transitions the receiver hears about through this route. */
+    event_kinds: PlatformAlertDestinationEventKindEnumApi[]
+    /** Whether this route sends. */
+    enabled: boolean
+}
+
+export interface AlertRouteWriteApi {
     /** ID of the receiver this route sends to. */
     receiver_id: string
     /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
@@ -137,9 +148,7 @@ export interface AlertRouteApi {
     enabled?: boolean
 }
 
-export interface PatchedAlertRouteApi {
-    /** ID of the route. */
-    readonly id?: string
+export interface PatchedAlertRouteWriteApi {
     /** ID of the receiver this route sends to. */
     receiver_id?: string
     /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */

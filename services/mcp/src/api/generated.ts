@@ -14255,7 +14255,18 @@ export namespace Schemas {
 
     export interface AlertRoute {
       /** ID of the route. */
-      readonly id: string;
+      id: string;
+      /** ID of the receiver this route sends to. */
+      receiver_id: string;
+      /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
+      matchers: AlertRouteMatcher[];
+      /** The alert transitions the receiver hears about through this route. */
+      event_kinds: PlatformAlertDestinationEventKindEnum[];
+      /** Whether this route sends. */
+      enabled: boolean;
+    }
+
+    export interface AlertRouteWrite {
       /** ID of the receiver this route sends to. */
       receiver_id: string;
       /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
@@ -82230,9 +82241,7 @@ export namespace Schemas {
       webhook_url?: string;
     }
 
-    export interface PatchedAlertRoute {
-      /** ID of the route. */
-      readonly id?: string;
+    export interface PatchedAlertRouteWrite {
       /** ID of the receiver this route sends to. */
       receiver_id?: string;
       /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */

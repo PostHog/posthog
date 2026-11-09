@@ -12,6 +12,8 @@ from django.db import models
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+
 from products.alerts_platform.backend.facade.api import redact_destination_data
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -198,6 +200,16 @@ def destination_data(attrs: dict[str, Any]) -> AlertDestinationData:
     if missing := [key for key in _REQUIRED_FIELDS[destination_type] if not data.get(key)]:
         raise ValidationError(dict.fromkeys(missing, f"Required for {destination_type.label} destinations."))
     return data
+
+
+def check_slack_workspace(team_id: int, data: AlertDestinationData) -> None:
+    if data["type"] != DestinationType.SLACK:
+        return
+    # The accessor native delivery sends through, so a destination it would refuse is never saved.
+    try:
+        IntegrationManager.slack.oauth.get(team_id, data["slack_workspace_id"])
+    except IntegrationNotFound:
+        raise ValidationError({"slack_workspace_id": "Choose a Slack workspace connected to this project."})
 
 
 def serialized_destination(destination: StoredAlertDestination) -> dict[str, Any]:

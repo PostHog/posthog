@@ -526,7 +526,7 @@ def update_alert_receiver(*, team_id: int, receiver_id: UUID, edit: AlertReceive
 
 
 def delete_alert_receiver(*, team_id: int, receiver_id: UUID) -> None:
-    """Deletes the receiver and its routes."""
+    """Deletes the receiver and its routes. Raises `UnknownAlertRouting` for an id the team has no receiver with."""
     alert_routing.delete_receiver(team_id=team_id, receiver_id=receiver_id)
 
 
@@ -539,8 +539,10 @@ def create_alert_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRout
 
 
 def update_alert_route(*, team_id: int, route_id: UUID, edit: AlertRouteEdit) -> StoredAlertRoute:
+    """Raises `UnknownAlertRouting` for an id the team has no route with."""
     return alert_routing.update_route(team_id=team_id, route_id=route_id, edit=edit)
 
 
 def delete_alert_route(*, team_id: int, route_id: UUID) -> None:
+    """Raises `UnknownAlertRouting` for an id the team has no route with."""
     alert_routing.delete_route(team_id=team_id, route_id=route_id)

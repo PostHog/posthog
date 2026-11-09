@@ -6,7 +6,7 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect, Spinner } from '@post
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { RECEIVER_TYPE_OPTIONS } from './platformAlertRoutingFormat'
+import { RECEIVER_TYPE_OPTIONS, keepsStoredUrl } from './platformAlertRoutingFormat'
 import { platformAlertRoutingLogic } from './platformAlertRoutingLogic'
 
 export function PlatformAlertReceiverModal(): JSX.Element {
@@ -19,7 +19,7 @@ export function PlatformAlertReceiverModal(): JSX.Element {
         integrationsLoading,
     } = useValues(platformAlertRoutingLogic)
     const { closeReceiverModal, submitReceiverForm } = useActions(platformAlertRoutingLogic)
-    const keepsStoredUrl = editingReceiver !== null && editingReceiver.type === receiverForm.type
+    const keepsUrl = keepsStoredUrl(receiverForm, editingReceiver)
 
     return (
         <LemonModal
@@ -75,10 +75,10 @@ export function PlatformAlertReceiverModal(): JSX.Element {
                     <LemonField
                         name="webhookUrl"
                         label="Webhook URL"
-                        help={keepsStoredUrl ? 'Leave blank to keep the current URL.' : undefined}
+                        help={keepsUrl ? 'Leave blank to keep the current URL.' : undefined}
                     >
                         <LemonInput
-                            placeholder={keepsStoredUrl ? editingReceiver?.webhook_url : 'https://example.com/webhook'}
+                            placeholder={keepsUrl ? editingReceiver?.webhook_url : 'https://example.com/webhook'}
                             data-attr="platform-alert-receiver-webhook-url"
                         />
                     </LemonField>
