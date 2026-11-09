@@ -4417,9 +4417,10 @@ export const LogsAlertStateChangeSignalExtraActionEnumApi = {
     Broken: 'broken',
 } as const
 
-export type ThresholdOperatorEnumApi = (typeof ThresholdOperatorEnumApi)[keyof typeof ThresholdOperatorEnumApi]
+export type LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi =
+    (typeof LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi)[keyof typeof LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi]
 
-export const ThresholdOperatorEnumApi = {
+export const LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi = {
     Above: 'above',
     Below: 'below',
 } as const
@@ -4433,7 +4434,7 @@ export interface LogsAlertStateChangeSignalExtraApi {
     alert_name: string
     action: LogsAlertStateChangeSignalExtraActionEnumApi
     threshold_count: number
-    threshold_operator: ThresholdOperatorEnumApi
+    threshold_operator: LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi
     window_minutes: number
     result_count: number | null
     consecutive_failures: number
