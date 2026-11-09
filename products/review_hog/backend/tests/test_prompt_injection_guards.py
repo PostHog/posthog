@@ -175,6 +175,6 @@ class TestPromptInjectionGuards:
             ("deep_validation", _validation_prompt),
         ]
     )
-    def test_review_prompts_include_the_shared_standards_policy(self, _name: str, render: Callable[[], str]) -> None:
-        policy = (PROMPTS_DIR / "review_standards.md").read_text().strip()
+    def test_review_prompts_include_devex_review_standards(self, _name: str, render: Callable[[], str]) -> None:
+        policy = (PROMPTS_DIR / "devex_review_standards.md").read_text().strip()
         assert render().count(policy) == 1

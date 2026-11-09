@@ -1844,8 +1844,7 @@ def _changed_since_last_review(
 ) -> ChangedSinceReview | None:
     """What changed since the head the last completed turn reviewed, or None for a first review or a re-run at that head.
 
-    Only a single-agent snapshot is a baseline: a Full turn at that head fetched a different file set, so the check
-    then does not run.
+    Use a single-agent baseline because older pipeline snapshots can omit tests and text files.
     """
     reviewed_head = (
         ReviewReport.objects.for_team(team_id).filter(id=report_id).values_list("completed_head_sha", flat=True).first()

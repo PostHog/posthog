@@ -130,14 +130,14 @@ class TestRecordTurnMarker(BaseTest):
             ("deep", REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE),
         ]
     )
-    def test_shared_standards_edits_change_each_designs_fingerprint(
+    def test_devex_standards_edits_change_each_designs_fingerprint(
         self, _name: str, review_mode: str, review_design: str
     ) -> None:
         original = self._record(run_index=1, review_mode=review_mode, review_design=review_design)
         with tempfile.TemporaryDirectory() as directory:
             edited_dir = Path(directory) / "prompts"
             shutil.copytree(PROMPTS_DIR, edited_dir)
-            policy = edited_dir / "review_standards.md"
+            policy = edited_dir / "devex_review_standards.md"
             policy.write_text(policy.read_text() + "\nCheck the required recording outcome.\n")
             with patch("products.review_hog.backend.reviewer.fingerprint.PROMPTS_DIR", edited_dir):
                 changed = self._record(run_index=2, review_mode=review_mode, review_design=review_design)

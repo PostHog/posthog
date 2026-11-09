@@ -2,10 +2,10 @@
 
 The main session's prompt is one `prompt.jinja` render. It starts with the PR (title, description,
 numbered diff) and the findings of earlier turns, then `PROMPT_CACHE_MARKER`, then `core.md`, the
-DevEx-owned review rubric, then the finding format. `schema.json` is generated from
+shared `devex_review_standards.md`, and the finding format. `schema.json` is generated from
 `SingleAgentReview`. A lens session swaps `core.md` for its lens prompt (`FLASH_LENSES`), can see only
-its part of the PR, and gets `lens_priority.md` after the finding format. Every file lives in
-`prompts/single_agent_review/`, so a prompt iteration edits files and no code.
+its part of the PR, and gets `lens_priority.md` after the finding format. The shared DevEx standards
+live under `prompts/`; Standard-specific files live in `prompts/single_agent_review/`.
 """
 
 import re

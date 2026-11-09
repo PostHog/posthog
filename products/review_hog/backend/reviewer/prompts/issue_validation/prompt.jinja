@@ -37,7 +37,7 @@ The bar for what counts as a valid, worth-keeping issue lives in a skill you MUS
 Pin to version {{ VALIDATION_SKILL_VERSION }} explicitly — this review was planned against it; fetching by name alone could race a version published mid-run. The skill defines what this team considers worth flagging and what to drop (overengineering, speculative edge cases, defensive paranoia, style, and the like). Apply it as the standard for your `is_valid` decision. If the skill body references bundled files, pull them on demand with `skill-file-get`. Do not decide before you have read it.
 </your_validation_criteria>
 
-{% include "review_standards.md" %}
+{% include "devex_review_standards.md" %}
 
 <output_format>
 Generate your analysis as a JSON object that conforms to the provided schema.
