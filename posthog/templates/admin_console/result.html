@@ -3,7 +3,7 @@
     {% if result %}
         {{ result.operation_label }} · {{ result.target.title }} · PostHog Admin
     {% else %}
-        Result already shown · PostHog Admin
+        Result · PostHog Admin
     {% endif %}
 {% endblock %}
 {% block content %}
@@ -21,6 +21,16 @@
                href="{{ result.target.back_url }}">Back to {{ result.target.title }}</a>
         </div>
         {% include "admin_console/_blocks.html" with page=result.page %}
+    {% elif state == "key-missing" %}
+        <h1 class="mt-1.5 mb-1 text-[22px] font-extrabold">Result key missing</h1>
+        <p class="m-0 max-w-3xl text-muted-foreground">
+            The key for this result is missing. The result stays available for a minute. Open it from the same browser that ran the operation.
+        </p>
+    {% elif state == "unreadable" %}
+        <h1 class="mt-1.5 mb-1 text-[22px] font-extrabold">Result could not be read</h1>
+        <p class="m-0 max-w-3xl text-muted-foreground">
+            PostHog was updated while this result was stored, so it cannot be shown. The operation ran. Open the record or tool page to see the current state.
+        </p>
     {% else %}
         <h1 class="mt-1.5 mb-1 text-[22px] font-extrabold">Result already shown</h1>
         <p class="m-0 max-w-3xl text-muted-foreground">

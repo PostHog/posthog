@@ -22,7 +22,7 @@ from posthog.admin.console.confirm import ConfirmationToken
 from posthog.admin.console.panels import Fact, Gate, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES, RecordLink, RecordType
 from posthog.admin.console.registry import console
-from posthog.admin.console.results import OperationResult, OperationResults
+from posthog.admin.console.results import OperationResult, OperationResults, ResultState
 from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
 from posthog.dataclasses import frozen
 from posthog.git import get_git_commit_short
@@ -357,10 +357,12 @@ def _show_result(
 @require_GET
 def operation_result(request: HttpRequest, result_id: str) -> HttpResponse:
     """The result page of an operation that ran. It shows once, so a reload never runs the operation again."""
-    result = OperationResults.take(request, result_id)
-    context = {**ConsoleEnvironment.context(), "result": result}
-    response = render(request, "admin_console/result.html", context, status=200 if result else 410)
-    return _no_store(OperationResults.forget_key(response, result_id))
+    read = OperationResults.take(request, result_id)
+    context = {**ConsoleEnvironment.context(), "result": read.result, "state": read.state}
+    response = render(request, "admin_console/result.html", context, status=200 if read.result else 410)
+    if read.state != ResultState.KEY_MISSING:
+        OperationResults.forget_key(response, result_id)
+    return _no_store(response)
 
 
 def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str, operation_key: str) -> HttpResponse:

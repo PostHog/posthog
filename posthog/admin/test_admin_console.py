@@ -30,6 +30,7 @@ from posthog.admin.console.results import (
     CACHE_ALIAS as RESULTS_CACHE_ALIAS,
     KEY_COOKIE,
     KEY_PREFIX as RESULTS_KEY_PREFIX,
+    ResultCodec,
 )
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Secret, Table, ToolOperation
 from posthog.csp_middleware import CSPMiddleware
@@ -324,6 +325,7 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 403
 
+    @override_settings(SESSION_COOKIE_SECURE=True)
     def test_a_secret_result_shows_once_and_a_reload_does_not_run_the_operation_again(self) -> None:
         _SecretTool.runs = 0
         with patch.object(console, "get_tool", return_value=_SecretTool()), capture_logs() as audit_log:
@@ -350,6 +352,28 @@ class TestAdminConsoleViews(BaseTest):
             assert "no-store" in page["Cache-Control"]
         assert any(entry.get("reason") == "Customer onboarding" for entry in audit_log)
         assert "example-secret-value" not in repr(audit_log)
+
+    @parameterized.expand(
+        [
+            ("without_its_key", None, 410, "The key for this result is missing", True),
+            ("stored_by_another_version", KeyError("RenamedBlock"), 410, "PostHog was updated", False),
+        ]
+    )
+    def test_a_result_that_cannot_be_opened_explains_why(
+        self, _name: str, decode_error: Exception | None, status: int, explanation: str, kept: bool
+    ) -> None:
+        with patch.object(console, "get_tool", return_value=_SecretTool()):
+            response = self.client.post("/admin/console/tools/issue-password/issue/", {"reason": "Customer onboarding"})
+        result_id = response["Location"].rstrip("/").rsplit("/", 1)[-1]
+        if decode_error is None:
+            self.client.cookies.pop(KEY_COOKIE)
+        with patch.object(ResultCodec, "loads", side_effect=decode_error):
+            page = self.client.get(response["Location"])
+
+        assert page.status_code == status
+        assert explanation in page.content.decode()
+        assert "example-secret-value" not in page.content.decode()
+        assert (caches[RESULTS_CACHE_ALIAS].get(f"{RESULTS_KEY_PREFIX}:{result_id}") is not None) == kept
 
     def test_team_page_shows_core_and_product_panels(self) -> None:
         response = self.client.get(f"/admin/console/teams/{self.team.pk}/")

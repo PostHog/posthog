@@ -1,8 +1,10 @@
 import json
 import secrets
 import dataclasses
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.core.cache import caches
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.urls import reverse
@@ -31,6 +33,22 @@ class OperationResult:
     def __post_init__(self) -> None:
         if any(isinstance(block, Live) for block in self.page.blocks):
             raise ValueError("A result page shows what happened once. Put live blocks on the tool page instead.")
+
+
+class ResultState(StrEnum):
+    SHOWN = "shown"
+    # Already shown, expired, or stored by another staff member.
+    GONE = "gone"
+    # The browser sent no key or a wrong one. The entry stays, so the browser that ran the operation can open it.
+    KEY_MISSING = "key-missing"
+    # Stored in a format this version cannot read, for example by a pod of the previous deploy.
+    UNREADABLE = "unreadable"
+
+
+@frozen
+class ResultRead:
+    state: ResultState
+    result: OperationResult | None = None
 
 
 class ResultCodec:
@@ -105,31 +123,37 @@ class OperationResults:
             key.decode(),
             max_age=RESULT_TTL_SECONDS,
             path=cls._cookie_path(result_id),
-            secure=True,
+            secure=settings.SESSION_COOKIE_SECURE,
             httponly=True,
             samesite="Strict",
         )
         return response
 
     @classmethod
-    def take(cls, request: HttpRequest, result_id: str) -> OperationResult | None:
-        """The result, or None when it was already shown, expired, or belongs to another staff member."""
+    def take(cls, request: HttpRequest, result_id: str) -> ResultRead:
         cache = caches[CACHE_ALIAS]
         cache_key = cls._cache_key(result_id)
         entry = cache.get(cache_key)
         if not isinstance(entry, tuple) or entry[0] != request.user.pk:
-            return None
+            return ResultRead(state=ResultState.GONE)
+        try:
+            plaintext = Fernet(request.COOKIES.get(KEY_COOKIE, "")).decrypt(entry[1])
+        except (InvalidToken, ValueError):
+            return ResultRead(state=ResultState.KEY_MISSING)
+        try:
+            result = ResultCodec.loads(plaintext)
+        except (KeyError, TypeError, ValueError):
+            result = None
         # The delete decides who shows it: when two requests read the entry at once, only the one whose
         # delete removed it shows the page.
         if not cache.delete(cache_key):
-            return None
-        try:
-            result = ResultCodec.loads(Fernet(request.COOKIES.get(KEY_COOKIE, "")).decrypt(entry[1]))
-        except (InvalidToken, ValueError):
-            return None
-        return result if isinstance(result, OperationResult) else None
+            return ResultRead(state=ResultState.GONE)
+        if not isinstance(result, OperationResult):
+            return ResultRead(state=ResultState.UNREADABLE)
+        return ResultRead(state=ResultState.SHOWN, result=result)
 
     @classmethod
     def forget_key(cls, response: HttpResponse, result_id: str) -> HttpResponse:
+        """Clears the key cookie once the entry is gone, so it does not outlive the result."""
         response.delete_cookie(KEY_COOKIE, path=cls._cookie_path(result_id), samesite="Strict")
         return response
