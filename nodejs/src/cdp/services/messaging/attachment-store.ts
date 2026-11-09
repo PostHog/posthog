@@ -80,6 +80,8 @@ const attachmentStoreFiles = new Counter({
 
 type S3AttachmentStoreConfig = { bucket: string; prefix: string; timeoutMs: number }
 
+type StoredFile = { key: string; sizeBytes: number; expiresAt: Date }
+
 export class S3AttachmentStore implements AttachmentStore {
     constructor(
         readonly s3: S3Client,
@@ -97,16 +99,29 @@ export class S3AttachmentStore implements AttachmentStore {
         refs: AttachmentRef[],
         needsUntil: Date
     ): Promise<AcceptedForSend | RefusedForSend> {
-        const sizes = await Promise.all(refs.map((ref) => this.keepUntil('accept', teamId, ref.sha256, needsUntil)))
-        const missing = refs.find((_, index) => sizes[index] === null)
+        const found = await Promise.all(
+            refs.map(async (ref) => ({ ref, stored: await this.storedFile('accept', teamId, ref.sha256) }))
+        )
+        const present = found.filter((file): file is { ref: AttachmentRef; stored: StoredFile } => !!file.stored)
+        const missing = found.find((file) => !file.stored)
         if (missing) {
-            return { refusal: 'attachment_not_uploaded', sha256: missing.sha256 }
+            return { refusal: 'attachment_not_uploaded', sha256: missing.ref.sha256 }
         }
-        return { files: refs.map((ref, index) => ({ ...ref, sizeBytes: sizes[index]! })) }
+        await this.keepUntil(
+            'accept',
+            present.map(({ stored }) => stored),
+            needsUntil
+        )
+        return { files: present.map(({ ref, stored }) => ({ ...ref, sizeBytes: stored.sizeBytes })) }
     }
 
     async extend(teamId: number, sha256s: Sha256Hex[], needsUntil: Date): Promise<void> {
-        await Promise.all(sha256s.map((sha256) => this.keepUntil('extend', teamId, sha256, needsUntil)))
+        const stored = await Promise.all(sha256s.map((sha256) => this.storedFile('extend', teamId, sha256)))
+        await this.keepUntil(
+            'extend',
+            stored.filter((file): file is StoredFile => !!file),
+            needsUntil
+        )
     }
 
     async load(teamId: number, files: EmailAttachmentMetadata[], signal: AbortSignal): Promise<LoadedAttachment[]> {
@@ -165,30 +180,30 @@ export class S3AttachmentStore implements AttachmentStore {
         }
     }
 
-    private async keepUntil(
+    private async storedFile(
         operation: 'accept' | 'extend',
         teamId: number,
-        sha256: Sha256Hex,
-        needsUntil: Date
-    ): Promise<number | null> {
+        sha256: Sha256Hex
+    ): Promise<StoredFile | null> {
         const key = this.key(teamId, sha256)
         const head = await this.head(key)
         if (!head || (head.ChecksumSHA256 && head.ChecksumSHA256 !== Buffer.from(sha256, 'hex').toString('base64'))) {
             attachmentStoreFiles.labels({ operation, outcome: 'missing' }).inc()
             return null
         }
-        if (expiryOf(head) < needsUntil) {
-            if (needsUntil > this.latestKeepable()) {
-                throw new RangeError(
-                    `A file can be kept until ${this.latestKeepable().toISOString()} at the latest, not ${needsUntil.toISOString()}`
-                )
-            }
-            await this.copyOntoItself(key)
-            attachmentStoreFiles.labels({ operation, outcome: 'copied' }).inc()
-        } else {
-            attachmentStoreFiles.labels({ operation, outcome: 'kept' }).inc()
+        return { key, sizeBytes: head.ContentLength ?? 0, expiresAt: expiryOf(head) }
+    }
+
+    private async keepUntil(operation: 'accept' | 'extend', files: StoredFile[], needsUntil: Date): Promise<void> {
+        const toCopy = files.filter(({ expiresAt }) => expiresAt < needsUntil)
+        if (toCopy.length && needsUntil > this.latestKeepable()) {
+            throw new RangeError(
+                `A file can be kept until ${this.latestKeepable().toISOString()} at the latest, not ${needsUntil.toISOString()}`
+            )
         }
-        return head.ContentLength ?? 0
+        await Promise.all(toCopy.map(({ key }) => this.copyOntoItself(key)))
+        attachmentStoreFiles.labels({ operation, outcome: 'copied' }).inc(toCopy.length)
+        attachmentStoreFiles.labels({ operation, outcome: 'kept' }).inc(files.length - toCopy.length)
     }
 
     // A self-copy keeps a file for one lifetime from the copy. S3 stores the copy's time to the second.
