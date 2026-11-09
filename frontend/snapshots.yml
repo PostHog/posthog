@@ -220,6 +220,10 @@ snapshots:
         hash: v1.k794b7964.04d2ff46eedb4abbbf53e6ff3d57d3c988dd28cdd586ddd668e35e44a0721f7d.8RuH8reglzDiytwl80lQfmBTttaH_PLi-W-6qHpm9bQ
     charts-flamegraph--cpu-profile--light:
         hash: v1.k794b7964.e0cb78f562af6c8335d49a678fba4f711fc9307f1bd4c10a261809e1f3d05fbc.74CfuoOGMVNroT6ULlRe3Elcj4ugMrOtM8v2RhDGLCw
+    charts-flamegraph--custom-colors--dark:
+        hash: v1.k794b7964.6e20de34907d64667bb5d4f6565edd5bf41f5dd2e7fc007abfdebec5700b577a.Xh5BzdOhmyiFfKAfTxoJ9bh3huzyJpiG11IbedJZd6I
+    charts-flamegraph--custom-colors--light:
+        hash: v1.k794b7964.d7d6efd6c70d7bf3fca8ed62865490e77ccb8f2c2ab72dbb9ac0e22a2a798148.irhPiYtIZkkbElV7wCbPuIXUOEPlecglveKopuimRLM
     charts-flamegraph--edge-cases--dark:
         hash: v1.k794b7964.4c0d2e40826f347ed50d38313ce654db31b4accb45b44b370e306c18e697c103.AT8IYSD2sVjd8EyQgp2dHCdu5XFe5B5AC-m7rcemzkI
     charts-flamegraph--edge-cases--light:
@@ -3473,9 +3477,9 @@ snapshots:
     experiments-healthcheckspanel--narrow-with-an-issue--light:
         hash: v1.k794b7964.79b21158d70a6475aa255d50d6cd9345bd9b37c6ff1705b7601ffe24597ea2b6.Tz0BCGqeLvaQgEIgzuVKbqG-e9u6_TsLozrf28cicNM
     experiments-healthcheckspanel--running-with-an-issue--dark:
-        hash: v1.k794b7964.0700c5e6744a73615ae4108197b6399709eb1041587c25fa9351f6f3849207c6.l0UGiN040vwuYuzwaZkmnhUFKIK5O35Z1r2tBPl7A6I
+        hash: v1.k794b7964.beffc9f1479824d4f8feaed46488848c4cfa8d27db7b6b2c1358c3fca13d4ccc.FmEMx9G_fuFTt0F-UqnAf1OpEuZq1g_l0oeE5HJKJzY
     experiments-healthcheckspanel--running-with-an-issue--light:
-        hash: v1.k794b7964.47cf2015bc2b18d9f0ca6a95315267c0419b27877a1879e2900471d6ec11a744.ouf9GoQcvpvOFuTAOynV9j2b5ExijFaQbueCImJt_SI
+        hash: v1.k794b7964.47b45c84cd31c98b3505d208a833ed5e4db7500332c1241ee220e9ef31381607.Rc0C14w1W408o5q48V5IoBLByVwaVmlJEyeqk6SBILw
     experiments-howtoreadtooltip--intervals-bayesian--dark:
         hash: v1.k794b7964.a06d267cee9cb54bafc732335b35d461d3c1a59250c6daa8becace0fcb8492d2.vR5tecOozn6B51xE8LrByAFVsi03J4w-iUu-j2hQUTU
     experiments-howtoreadtooltip--intervals-bayesian--light:
@@ -10833,13 +10837,13 @@ snapshots:
     scenes-app-data-management-definition-view--event-definition-with-owner--wide--light:
         hash: v1.k794b7964.d3c70681989615c3caf69ffcb023bc6d089df3f4c5e5046b8dd5113cdbda01df.YJB9yKIYy2l9Aq-uI994iTQCn_IKackSepXf_bGVFj8
     scenes-app-data-management-event-definitions--default--dark:
-        hash: v1.k794b7964.57a8cc3dd49e0e59d361157e381f58071dba61c56ca530edaa40757922eceb78.1BgEfSXYBfS1K9_g4Oxn6LB-1hFGeajs9Hc9OEWRWYk
+        hash: v1.k794b7964.57d5c2f8232bfd562f062a2ab55b53ab6bac1495913454d475525ae7f150f386.YWraOxlzRocKYVX6UkO6tvf8aco7LI45xSXb5WDnyIA
     scenes-app-data-management-event-definitions--default--light:
-        hash: v1.k794b7964.fa1910b9fa3a13d2ab50bd0b6bcc0a93fe2e02ac3b9d0b50aff51937929a8fde.CnETLoq86U1Yh3q3beVKtA6gpK7ZcbLQSLI4gLTOiQw
+        hash: v1.k794b7964.e86417e8f83a3548bd4173015bc49b482300b3cb3daa0644f66fb4d0712c5a45.I3m4i-CFMxlzzlAz5V8Ax9IsT88sx98pX5kmx6JUZhc
     scenes-app-data-management-event-definitions--filtered-unverified-only--dark:
-        hash: v1.k794b7964.34c42644b0773f19ef3a3a81eebefbe88982ec1acffe835f9600fa3e1e2d79b8.z_A5gsfD1EenU4x2aSjT8KNvoBwvmAe9XWlYxycF56E
+        hash: v1.k794b7964.6fff7155a216ffb5b395ecb725853846deb79e9d73c494eefff484a5e2f553b2.8I4NUr3uJjNtN_5RMG9jzX-R3hOuzOeh66k4aKomrNM
     scenes-app-data-management-event-definitions--filtered-unverified-only--light:
-        hash: v1.k794b7964.0d57cb8f4294292dfa934426169e2d70667d103934e4d686f62bb7d5ca414394.PdRLunaI-H8cw9oj5AhGfTZwas37tLa9cwWKInMFDB0
+        hash: v1.k794b7964.ccf6553d7a5e971071e747e27d3c89787d02ce061d8ec72303f6dbb412e8b28e.CmWbJFXm1Nsi_iMjZUa7vPwsRIOMHwTMhRDwZaZ8-aA
     scenes-app-data-management-event-definitions--filtered-verified-only--dark:
         hash: v1.k794b7964.5fcc4c5f30d1e909d3f2ae2a1e9bd5b9c54e917579a403acbbc75cc75aa89996.hjMD-38vlCj3JKBYSX5j-b6e6qeYOKUzWrusON0uGSs
     scenes-app-data-management-event-definitions--filtered-verified-only--light:
@@ -11629,9 +11633,9 @@ snapshots:
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.4ddea1c7537af9d50c57b4b9a76d4bcba39f743a23b4715683c0ce59d4c24f57.0ueR8XMLqRby_u6I0EyNIiUwXkbjmWMH3vBdoFNYmII
     scenes-app-experiments--experiment-health-debug-tab--dark:
-        hash: v1.k794b7964.2da45294101f9c2890536496ae40d1f042deadc0266580c3cba8313f908b258e.Yjeu1JhMX0ISDHC8ZjR4gQeOzCHvdQk-HGpeHbdUSuM
+        hash: v1.k794b7964.3303cbd0f3c9f99bfc9bd714c8200d22ac5943ead985f33c2ad2db1bc7aa0393.xmwDE12o4HsiAbFKvgo46dVaU0PGORHjHQdINZDQdLw
     scenes-app-experiments--experiment-health-debug-tab--light:
-        hash: v1.k794b7964.8953664353de37280ca46e1fa60826308061b8c248aa571f393cc9fdd9bcd56e.BKEvDi2gCcya7wCGrTvJi_JMsWjPbsnRAXxelm9d97E
+        hash: v1.k794b7964.b1d2e47995a70101076b46ccfe5673a4817a6ad81bdf96e2d1eeb1b687f92205.dvq4BrXMBgyYq9KoJgSoT2A9njBj2kisvhnRNr3rFUc
     scenes-app-experiments--experiment-recordings-dropped-metric--dark:
         hash: v1.k794b7964.9ce950830524de179a4d761af104781fdc05347d59f18de814e72bc40a486158.T1SiGxL_fGBQT61rjwuJe9MPz1NPcjeZBRv6rKiSzrE
     scenes-app-experiments--experiment-recordings-dropped-metric--light:
@@ -12265,13 +12269,13 @@ snapshots:
     scenes-app-inbox-cards--report-card-claims--light:
         hash: v1.k794b7964.d90cc6cf13a21f5e8af8e654ce1216007c270ef78f1e63814d272f402b41826e.CU4tFX0Ls2pkuTKW733dSniMqCpGSKkoWudm2mLxEko
     scenes-app-inbox-cards--report-card-personalized--dark:
-        hash: v1.k794b7964.5e03a48442dd4e59512db7345917af09ee9f322013cb0dc46a3a1a9aaa6ab175.5IZzjXGYoGtaddBdfWYv-QdrdGucHLggKnrW7lBrDUY
+        hash: v1.k794b7964.279681bff155a55201c5b7840522758c4f0d94af1eaeff9f695e3f32e91e3446.tG41kHzkT13kkKmx9Cdqp7OQoz55iecuW_Ck2T7sQ5s
     scenes-app-inbox-cards--report-card-personalized--light:
-        hash: v1.k794b7964.2994a33869eb0f081148cc01bff55ea5ff7af17fcb175efa24520c41e32f45ad.EzU3B-HkFPpylfuqsKDTQRdV2PVvOMTTYMAz9oO5L7Q
+        hash: v1.k794b7964.a8ba5bdd55fd459ec8be2189a420e8beaef883a207a8a1da34b7792c882bc473.TZZsqrN1ih-54CWJccexeEee0zEPbP-2tFHhlni0S5E
     scenes-app-inbox-cards--report-card-personalized-narrow--dark:
-        hash: v1.k794b7964.cc1688e37dce5206be188e2e89bcf1bf09fa2dd0cfd2d76fc7fc3cde6a45d421.A3KiHKUs7-r0dDHQqd33LpOEptlqv0XrQauXNymI2N0
+        hash: v1.k794b7964.9ba5a296fb78cb70228541dc43a64827fe6a0dd29a8b9820f3f771197764344e.Z3yxyluHx17l8soS6X0hIabrRzbsF1nFsQJzGkRH5Jc
     scenes-app-inbox-cards--report-card-personalized-narrow--light:
-        hash: v1.k794b7964.b785a835a3dd3a4303a93a1d78103134e231486c7d008be822251b821a1dcf3c.Lryx9HjgzLAFWqNufjOXI7n_IYhKuRUQ_l0dwm7rSlg
+        hash: v1.k794b7964.99d7783c1049696c41cd6ddd454dfcbc7386ab53d41df5a6db5ed4a64346bb7d.ALkMjRh5CFA7iNDmQenS-ImzVJ5LWbqs9xLBqN79kS0
     scenes-app-inbox-cards--report-card-ranking-pills--dark:
         hash: v1.k794b7964.7d1045b4a08919f2a3c51d2356d7721a641bb1b7a2ff7012429b2b7582e5449f.6uUmD7_Y05ohhBm3uy2EXQPPbBkUMfRmFVhBASj0Lvw
     scenes-app-inbox-cards--report-card-ranking-pills--light:
@@ -12589,9 +12593,9 @@ snapshots:
     scenes-app-inbox-focused-setup--paused-reminder--light:
         hash: v1.k794b7964.41b6bcc6d2de7d68b9bf72f1a3a248c326c44dea7905d7bcc1161ad09526d7e9.QsmJmhJ0CE7F08oOOjP9PhKhV5BDVCvW1CXDWtD5QlI
     scenes-app-inbox-focused-setup--quick-activated--dark:
-        hash: v1.k794b7964.653864650883238be09ff223e227c4aef6d637308cd9cb5337bbd122ba0e16c6.KmAERZYNS8d-FYi019q153Z49JfnWLSi5oewFlizVZs
+        hash: v1.k794b7964.cf4a1a4dcabf3e44d17a86dc6ae17ffa8b3e9ed32c0a0384910ce9e3c4279de1.D5158sGOY1gyeth48lyv2_dVih5F1_67HV7pCMwP7l0
     scenes-app-inbox-focused-setup--quick-activated--light:
-        hash: v1.k794b7964.fd316d377c5a14dc45c7359ea18419d3da11c4c8a9e3c33edb29f7c20c42d82c.8bPWIes64TfbjuoTB-n963_IoRvpIj4q1ZATzDvvUj0
+        hash: v1.k794b7964.eaeeab88bd7ff534fb412547cd1879335f92c77212e794aae2438744c575546c.D0B-BKgWWZ4o4_Im4IKGIv4mqcasTkJPbq00750uSL0
     scenes-app-inbox-focused-setup--quick-activation-failed--dark:
         hash: v1.k794b7964.5be3ea2ca1b0fc3f73bebe7cb6fd6594f8b2464747267e6063c6f40ce3191d49.wbnLZzbhUG9p-lw0leQKJi6gIlb8GXolublF2gAlXx8
     scenes-app-inbox-focused-setup--quick-activation-failed--light:
@@ -12729,9 +12733,9 @@ snapshots:
     scenes-app-inbox-scene--empty-with-many-scouts--light:
         hash: v1.k794b7964.49f146b6f7d911ede15b4132858c7fadee216ba3356602fbbaf22435bc617c61.8uW9y03sO0KCYQr6pAkIkBJuqAnnvIylezQVOXg8oOI
     scenes-app-inbox-scene--guided-onboarding-complete--dark:
-        hash: v1.k794b7964.80a3d8bbd386091f6c17d3de0178ac2bb00c9368a54550ab6d845a37f2417bc3.-LKfuV7PTEBcFCmmHUnfL-Y_IIsCOhofsFlnFzqLUdU
+        hash: v1.k794b7964.2a9b8db252d19dc8612f20731dd1bec6c3fb9750ea381e98ea469fab6b44f067.qZX0MqJ8lYVGAcjz7G1v2a_AdunOVL4xwqfG37SKGVA
     scenes-app-inbox-scene--guided-onboarding-complete--light:
-        hash: v1.k794b7964.476742f0f8472b32d45e3a47a6bca5aed126a66ae353ec3c145eab216e073817.41OeGZz6vcpdt_7YNw3GaQbLWKG4CBSSxOF-plQ6NPw
+        hash: v1.k794b7964.b6aac0b26fd3ee32209a17b3daff0fc7cbd9c4a2abfbcba4b80bab5c0bf7c386.2DKdzB41aOZzWc9oa4ZkXEMuAmOCGvG0bqK-QGtDyxs
     scenes-app-inbox-scene--inbox--dark:
         hash: v1.k794b7964.33cde46dc5e8e5d65c513a98cc9483862750f5cab828cf173f6536676c7b3985.wuWtLhUEqwmgH4rjPJvoF3E8CcjQaqOM2qvXWjzj6N8
     scenes-app-inbox-scene--inbox--light:
@@ -16937,9 +16941,9 @@ snapshots:
     scenes-other-billing--billing-unsubscribe-modal-with-grandfathered-events-retention--light:
         hash: v1.k794b7964.979cb3b555fc84876881dcc2be3c88c7735263feb381647d75783ca920e0473d.HGrF-R6zk0loTpbU_KVBJ8xjHo02vjSGXg3jVVkt9f8
     scenes-other-billing--billing-with-credit-cta--dark:
-        hash: v1.k794b7964.23945681b34a2f84c7162d639dc4abca8d0e08bd9284df41e17380a7a68cf863._aUuTLLQFXc6McIFJBmYHKv1ED-c24XE9NXnAL0VEAU
+        hash: v1.k794b7964.e943e07d0eb6d487fc3823a992b377c943de79abb64c2f0cf7e132cb1ae6775c.NDyA0Zx7sasEBV5knj5yTJse0VEUaJsxdczIhfqPh7s
     scenes-other-billing--billing-with-credit-cta--light:
-        hash: v1.k794b7964.e5b7a8d505d67e335dd5fe30899e308ffe12fefec931f57c885c5cdf7eff2730.ZkJaA_ue5R7WO7W911R74z9rwW8n3f9ZRhjrhfaYhFA
+        hash: v1.k794b7964.ddb94464e2691d06f9f360b4edf982f2693e163b878556b31eea63145e2cb06d.kdT-OwLcs2IUpKPzdwolIwjficPlSwy6IrVRH3k_yzI
     scenes-other-billing--billing-with-credits--dark:
         hash: v1.k794b7964.7b97b075096e4060e1cca18e125b7ba9f5a92aaf4bb670d67fe5200908768ad3.EWEZDVB5oFn1hQQbt30wMI8sV9SYdrTLSgnTXQAsXVw
     scenes-other-billing--billing-with-credits--light:

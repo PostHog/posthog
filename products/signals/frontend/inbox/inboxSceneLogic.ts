@@ -614,6 +614,7 @@ export interface inboxSceneLogicActions {
 export interface inboxSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activeTab: (activeTabState: InboxTabKey | null) => InboxTabKey
+        breadcrumbs: (selectedReport: SignalReport | null, selectedReportId: string | null) => Breadcrumb[]
         isStaff: (user: UserType | null) => boolean
         signalRuns: (signalRunsResponse: SignalRun[] | null) => SignalRun[]
         signalRunsLoading: (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean) => boolean
@@ -890,13 +891,17 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 activeTabState && isInboxTabKey(activeTabState) ? activeTabState : 'reports',
         ],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
+            (s) => [s.selectedReport, s.selectedReportId],
+            (selectedReport: SignalReport | null, selectedReportId: string | null): Breadcrumb[] => [
                 {
                     key: 'inbox',
                     name: sceneConfigurations[Scene.Inbox].name,
                     iconType: 'inbox',
+                    path: urls.inbox('reports'),
                 },
+                ...(selectedReport && selectedReport.id === selectedReportId
+                    ? [{ key: selectedReport.id, name: selectedReport.title }]
+                    : []),
             ],
         ],
         isStaff: [
