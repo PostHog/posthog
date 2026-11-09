@@ -3,6 +3,8 @@
 import json
 import datetime as dt
 
+from django.conf import settings
+
 import structlog
 from asgiref.sync import sync_to_async
 
@@ -15,8 +17,6 @@ from products.logs.backend.facade.internal_logs import (
 )
 
 logger = structlog.get_logger(__name__)
-
-DRAIN_TIMEOUT_SECONDS = 10
 
 
 async def _api_token(team_id: int) -> str | None:
@@ -62,4 +62,5 @@ class InternalLogsSink:
             logger.exception("Failed to send a Temporal log to the logs product")
 
     async def drain(self) -> None:
-        await self._producer.drain(DRAIN_TIMEOUT_SECONDS)
+        # As long as a record may still retry, like the Kafka flush that runs before this.
+        await self._producer.drain(settings.LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS / 1000)
