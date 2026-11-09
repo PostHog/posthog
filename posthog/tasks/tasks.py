@@ -939,7 +939,7 @@ class Polling:
     _SINGLETON_REDIS_KEY = "POLL_QUERY_PERFORMANCE_SINGLETON_REDIS_KEY"
     NANOSECONDS_IN_SECOND = int(1e9)
     TIME_BETWEEN_RUNS_SECONDS = 2
-    # Hobby only needs the query heartbeat, which lives HEARTBEAT_TTL_SECONDS, not second-by-second progress.
+    # Hobby only needs the query heartbeat, which lives QueryStatusManager.HEARTBEAT_TTL_SECONDS, not second-by-second progress.
     # Stays below ASSUME_TASK_DEAD_SECONDS, or start_poll_query_performance would restart a healthy loop.
     HOBBY_TIME_BETWEEN_RUNS_SECONDS = 10
     SOFT_TIME_LIMIT_SECONDS = 10
