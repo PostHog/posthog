@@ -1,16 +1,12 @@
 import ast
 import subprocess
 from collections import Counter
-from datetime import date
 from pathlib import Path
 
 import pytest
 
-from ratchet import enforce_baseline
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BASELINE = Path(__file__).with_name("test_sleep_baseline.txt")
-BLOCKING_FROM = date(2026, 11, 12)
 
 
 def sleep_calls(source: str, *, filename: str = "<unknown>") -> Counter[str]:
@@ -83,16 +79,11 @@ def test_no_new_test_sleeps() -> None:
     found = collect_sleeps()
     added = list((found - recorded).elements())
     removed = list((recorded - found).elements())
-    enforce_baseline(
-        added=added,
-        removed=removed,
-        blocking_from=BLOCKING_FROM,
-        message=(
-            "Test sleep calls changed. Wait for an event or condition, control the clock, or set timestamps explicitly.\n"
-            "Inline noqa comments do not exempt calls. The baseline records existing calls, not whole files or functions.\n"
-            "Remove stale baseline entries when deleting a sleep. New exceptions require review of the baseline change.\n"
-            + "\n".join([*(f"+ {call}" for call in added), *(f"- {call}" for call in removed)])
-        ),
+    assert not added and not removed, (
+        "Test sleep calls changed. Wait for an event or condition, control the clock, or set timestamps explicitly.\n"
+        "Inline noqa comments do not exempt calls. The baseline records existing calls, not whole files or functions.\n"
+        "Remove stale baseline entries when deleting a sleep. New exceptions require review of the baseline change.\n"
+        + "\n".join([*(f"+ {call}" for call in added), *(f"- {call}" for call in removed)])
     )
 
 
@@ -141,7 +132,6 @@ def test_an_existing_exception_does_not_allow_another_sleep(tmp_path: Path, monk
     baseline.write_text("1 test_calls.py::test_poll::sleep(0.1)\n")
     monkeypatch.setattr(f"{__name__}.REPO_ROOT", tmp_path)
     monkeypatch.setattr(f"{__name__}.BASELINE", baseline)
-    monkeypatch.setattr(f"{__name__}.BLOCKING_FROM", date.min)
 
     test_no_new_test_sleeps()
 

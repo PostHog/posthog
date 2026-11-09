@@ -172,7 +172,7 @@ Escalating to the next rung is the last resort, not the default.
     Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
     pending on the next line. Test setup may shorten internal delays without changing
     production behavior.
-- **No new `time.sleep` calls in test code.** CI and pre-push checks compare calls with `posthog/test/repo_invariants/test_sleep_baseline.txt`. `noqa` comments cannot suppress this check. Existing exceptions cover exact calls and counts, not files or functions. New exceptions require review of the baseline change. The check becomes blocking on November 12, 2026, after the standard rollout grace period.
+- **No new `time.sleep` calls in test code.** CI and pre-push checks compare calls with `posthog/test/repo_invariants/test_sleep_baseline.txt`. `noqa` comments cannot suppress this check. Existing exceptions cover exact calls and counts, not files or functions. New exceptions require review of the baseline change.
   A fixed delay does not prove another operation finished.
   Replace the sleep with the control that matches the wait:
   - `time.time()` or `datetime.now()`: `time_machine.travel(..., tick=False)`, then `traveller.shift(...)`.
