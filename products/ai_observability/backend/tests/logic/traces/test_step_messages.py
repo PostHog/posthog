@@ -423,7 +423,7 @@ def test_a_tool_result_with_a_multi_megabyte_string_parses_in_bounded_memory():
     finally:
         tracemalloc.stop()
 
-    assert message.parts[0].result == {"log": "x" * 5_000_000}
+    assert message.parts == [tool_call("lookup", {}, {"log": "x" * 5_000_000})]
     assert peak < 4 * len(content)
 
 
