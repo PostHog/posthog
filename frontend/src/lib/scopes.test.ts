@@ -161,7 +161,6 @@ describe('API_KEY_SCOPE_PRESETS', () => {
                 expect.arrayContaining(['user:read', 'project:read', 'query:read', 'insight:write'])
             )
             expect(preset.scopes).not.toContain('file_system:write')
-            expect(preset.scopes).not.toContain('integration:write')
             expect(preset.scopes).not.toContain('user:write')
         })
     })

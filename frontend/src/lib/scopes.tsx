@@ -213,7 +213,7 @@ const API_KEY_CREATION_RENDERABLE_SCOPES = new Set(
 )
 
 // Actions the manual key-creation UI withholds from Personal API Keys
-// (e.g. file_system:write, integration:write, user:write) — see `disabledActions`
+// (e.g. file_system:write, user:write) — see `disabledActions`
 // above.
 export const API_KEY_CREATION_DISABLED_SCOPES = new Set(
     API_SCOPES.flatMap(({ key, disabledActions }) => (disabledActions ?? []).map((action) => `${key}:${action}`))

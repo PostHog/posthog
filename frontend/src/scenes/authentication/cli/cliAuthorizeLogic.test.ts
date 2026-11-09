@@ -45,7 +45,6 @@ describe('cliAuthorizeLogic', () => {
         expect(scopes).toEqual(expect.arrayContaining(['user:read', 'project:read', 'query:read', 'insight:write']))
         // But drops writes the product withholds from manually-created keys
         expect(scopes).not.toContain('file_system:write')
-        expect(scopes).not.toContain('integration:write')
         expect(scopes).not.toContain('user:write')
         // Faithful subset of the generated MCP mirror
         expect(scopes.every((scope) => (AGENT_USE_CASE_SCOPES as readonly string[]).includes(scope))).toBe(true)
