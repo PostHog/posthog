@@ -45,7 +45,8 @@ export type SendRefusal = {
         [key: string]: unknown
     }
 }
-export type MessageBodySizing = { bodyBytes: number[] } | { refused: SendRefusal }
+export type MessageBodies = { bodyBytes: number[]; subject: string }
+export type MessageBodySizing = MessageBodies | { refused: SendRefusal }
 export type AcceptedSendFiles = { files: EmailAttachmentMetadata[]; attachmentBytes: number }
 
 const DJANGO_SEND_TIMEOUT_MS = 10_000
@@ -200,7 +201,7 @@ export class AttachmentUploads {
         }
         const sizes = verified.files.map((file) => file.sizeBytes)
         const attachmentBytes = sizes.reduce((total, size) => total + size, 0)
-        const messageBytes = estimateMessageBytes([...sizes, ...sizing.bodyBytes])
+        const messageBytes = estimateMessageBytes([...sizes, ...sizing.bodyBytes], [], sizing.subject)
         if (messageBytes > MESSAGE_MAX_BYTES) {
             return {
                 refused: {

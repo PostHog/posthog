@@ -80,6 +80,7 @@ import { TeamWorkflowsConfigService } from './services/managers/team-workflows-c
 import {
     ATTACHMENT_VERIFICATION_DEADLINE_MS,
     AttachmentUploads,
+    MessageBodies,
     MessageBodySizing,
     SendRefusal,
     countUploadRequest,
@@ -241,9 +242,12 @@ const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | 
     return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
 }
 
-const sendBodyBytes = (invocation: CyclotronJobInvocationHogFlow): number[] => {
+const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies => {
     const sendFields = acceptedSendEmailFields(invocation.state.send)
-    return [sendFields.html ?? '', sendFields.text ?? ''].map((body) => Buffer.byteLength(body))
+    return {
+        bodyBytes: [sendFields.html ?? '', sendFields.text ?? ''].map((body) => Buffer.byteLength(body)),
+        subject: sendFields.subject ?? '',
+    }
 }
 
 export class CdpApi {
@@ -1571,7 +1575,7 @@ export class CdpApi {
         const renderContext = await this.workerRenderContext(hogFlow, invocation)
         deadline.throwIfAborted()
         try {
-            return { bodyBytes: await this.emailStepBodyBytes(hogFlow, invocation, emailStep, renderContext, deadline) }
+            return await this.emailStepBodies(hogFlow, invocation, emailStep, renderContext, deadline)
         } catch (error) {
             if (isHogLimitError(error)) {
                 return { refused: emailRenderLimitExceeded(emailStep) }
@@ -1584,7 +1588,7 @@ export class CdpApi {
                 hog_flow_id: hogFlow.id,
                 error: error instanceof Error ? error.message : String(error),
             })
-            return { bodyBytes: sendBodyBytes(invocation) }
+            return sendBodies(invocation)
         }
     }
 
@@ -1611,13 +1615,13 @@ export class CdpApi {
         return lookup ? await loadHogFlowPerson(this.personsManager, hogFlow, lookup) : undefined
     }
 
-    private async emailStepBodyBytes(
+    private async emailStepBodies(
         hogFlow: HogFlow,
         invocation: CyclotronJobInvocationHogFlow,
         step: EmailStep,
         { person, groups }: WorkerRenderContext,
         deadline: AbortSignal
-    ): Promise<number[]> {
+    ): Promise<MessageBodies> {
         const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, step.config, step.name)
         deadline.throwIfAborted()
         const atEmailStep = {
@@ -1632,12 +1636,15 @@ export class CdpApi {
         })
         deadline.throwIfAborted()
         const email = { ...rendered.state.globals.inputs?.email, ...acceptedSendEmailFields(invocation.state.send) }
-        return [
-            typeof email.html === 'string' && email.html
-                ? this.sesHtmlMaxBytes(rendered, email.html, email.preheader)
-                : 0,
-            typeof email.text === 'string' ? Buffer.byteLength(email.text) : 0,
-        ]
+        return {
+            bodyBytes: [
+                typeof email.html === 'string' && email.html
+                    ? this.sesHtmlMaxBytes(rendered, email.html, email.preheader)
+                    : 0,
+                typeof email.text === 'string' ? Buffer.byteLength(email.text) : 0,
+            ],
+            subject: typeof email.subject === 'string' ? email.subject : '',
+        }
     }
 
     private sesHtmlMaxBytes(rendered: CyclotronJobInvocationHogFunction, html: string, preheader: unknown): number {

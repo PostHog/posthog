@@ -2943,7 +2943,6 @@ describe('CDP API', () => {
                         reason: expect.any(String),
                         fix: expect.any(String),
                     })
-                    // The reserve and the release of the key count once, as one idempotency observation.
                     expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({
                         auth: 1,
                         validate: 1,
@@ -3317,7 +3316,7 @@ describe('CDP API', () => {
 
                     const refused = await sendWithFiles(key, [reference(invoice)], options)
                     const bodiesLoadedAfterTheAnswer = jest.spyOn(api as any, 'messageBodyBytes')
-                    const emailStepsRenderedAfterTheAnswer = jest.spyOn(api as any, 'emailStepBodyBytes')
+                    const emailStepsRenderedAfterTheAnswer = jest.spyOn(api as any, 'emailStepBodies')
                     const emailStepsBuiltAfterTheAnswer = jest.spyOn(
                         api['hogFlowFunctionsService']['hogFunctionExecutor']['hogExecutor'],
                         'buildInputsWithGlobals'
@@ -3459,6 +3458,20 @@ describe('CDP API', () => {
                             { html: '<p>Your report</p>{% if groups %}{{ variables.chunk }}{% endif %}' },
                             bodyThatOverflows
                         ),
+                ],
+                [
+                    'content whose subject',
+                    () =>
+                        Promise.resolve({
+                            acceptedSend: {
+                                ...codeSend,
+                                content: { subject: bodyThatOverflows, html: '<p>Your report</p>' },
+                            },
+                        }),
+                ],
+                [
+                    'a stored template whose rendered subject',
+                    () => storedTemplateRendering({ subject: '{{ variables.chunk }}' }, bodyThatOverflows),
                 ],
             ])(
                 'refuses a send with files and %s too large to fit beside them, and its key sends smaller files',

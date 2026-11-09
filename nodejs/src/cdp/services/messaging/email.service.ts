@@ -1443,7 +1443,8 @@ export class EmailService {
             files.length > 0 &&
             estimateMessageBytes(
                 files.map(({ bytes }) => bytes.byteLength),
-                [html ?? '', params.text ?? '']
+                [html ?? '', params.text ?? ''],
+                sanitizeEmailSubject(params.subject)
             ) > MESSAGE_MAX_BYTES
         ) {
             throw new MessageTooLargeError()
