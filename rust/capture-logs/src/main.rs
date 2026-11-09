@@ -128,7 +128,6 @@ async fn main() {
         config.firehose_max_request_body_size_bytes,
         config.max_backfill_days,
         config.max_expanded_request_bytes,
-        config.firehose_max_expanded_request_bytes,
     )
     .await
     {

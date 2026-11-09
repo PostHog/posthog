@@ -1,7 +1,4 @@
 use crate::authorizer::{Authorizer, Signal};
-use crate::expansion::{
-    check_logs_request, check_metrics_request, check_traces_request, ExpansionExceeded,
-};
 use crate::log_record::{default_max_past, KafkaLogRow};
 use crate::metric_record::{flatten_metric, KafkaMetricRow};
 use crate::trace_record::KafkaTraceRow;
@@ -17,6 +14,8 @@ use common_compression::{decompress_gzip_capped, has_gzip_magic_header, Compress
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+use opentelemetry_proto::tonic::common::v1::InstrumentationScope;
+use opentelemetry_proto::tonic::resource::v1::Resource;
 use prost::Message;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -311,8 +310,7 @@ pub struct Service {
     pub(crate) max_request_body_size_bytes: usize,
     pub(crate) firehose_max_request_body_size_bytes: usize,
     pub(crate) max_backfill_days: u32,
-    pub(crate) max_expanded_request_bytes: u64,
-    pub(crate) firehose_max_expanded_request_bytes: u64,
+    pub(crate) max_expanded_request_bytes: usize,
 }
 
 #[derive(Deserialize)]
@@ -333,8 +331,7 @@ impl Service {
         max_request_body_size_bytes: usize,
         firehose_max_request_body_size_bytes: usize,
         max_backfill_days: u32,
-        max_expanded_request_bytes: u64,
-        firehose_max_expanded_request_bytes: u64,
+        max_expanded_request_bytes: usize,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
@@ -343,7 +340,6 @@ impl Service {
             firehose_max_request_body_size_bytes,
             max_backfill_days,
             max_expanded_request_bytes,
-            firehose_max_expanded_request_bytes,
         })
     }
 }
@@ -396,18 +392,28 @@ pub(crate) fn resolve_backfill_window(
     Ok(TimeDelta::days(days as i64))
 }
 
-pub(crate) fn expansion_rejection(
-    signal: &'static str,
-    exceeded: ExpansionExceeded,
-) -> (StatusCode, Json<serde_json::Value>) {
-    counter!("capture_logs_expanded_request_rejected_total", "signal" => signal).increment(1);
+pub(crate) const ROW_OVERHEAD_BYTES: usize = 256;
+pub(crate) const ATTRIBUTE_OVERHEAD_BYTES: usize = 64;
+
+/// Every row copies its resource and scope, so the body cap does not bound the rows a request
+/// builds. Handlers add this per row and reject the request once the total passes the limit.
+pub(crate) fn shared_row_bytes(
+    resource: Option<&Resource>,
+    scope: Option<&InstrumentationScope>,
+) -> usize {
+    ROW_OVERHEAD_BYTES
+        + resource.map_or(0, |r| {
+            r.encoded_len() + r.attributes.len() * ATTRIBUTE_OVERHEAD_BYTES
+        })
+        + scope.map_or(0, |s| s.encoded_len())
+}
+
+pub(crate) fn expansion_rejection(limit: usize) -> (StatusCode, Json<serde_json::Value>) {
+    counter!("capture_logs_expanded_request_rejected_total").increment(1);
     (
         StatusCode::PAYLOAD_TOO_LARGE,
         Json(json!({
-            "error": format!(
-                "Request expands to more than {} bytes of rows. Send fewer records per request.",
-                exceeded.limit
-            )
+            "error": format!("Request expands to more than {limit} bytes of rows. Send fewer records per request.")
         })),
     )
 }
@@ -515,14 +521,18 @@ pub async fn export_logs_http(
         },
     };
 
-    check_logs_request(&export_request, service.max_expanded_request_bytes)
-        .map_err(|e| expansion_rejection("logs", e))?;
-
     let mut rows: Vec<KafkaLogRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
+    let mut expanded_bytes: usize = 0;
     for resource_logs in export_request.resource_logs {
         for scope_logs in resource_logs.scope_logs {
+            let shared =
+                shared_row_bytes(resource_logs.resource.as_ref(), scope_logs.scope.as_ref());
             for log_record in scope_logs.log_records {
+                expanded_bytes += shared + log_record.encoded_len();
+                if expanded_bytes > service.max_expanded_request_bytes {
+                    return Err(expansion_rejection(service.max_expanded_request_bytes));
+                }
                 let (row, was_overridden) = match KafkaLogRow::new(
                     log_record,
                     resource_logs.resource.clone(),
@@ -673,14 +683,18 @@ pub async fn export_traces_http(
         },
     };
 
-    check_traces_request(&export_request, service.max_expanded_request_bytes)
-        .map_err(|e| expansion_rejection("traces", e))?;
-
     let mut rows: Vec<KafkaTraceRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
+    let mut expanded_bytes: usize = 0;
     for resource_spans in export_request.resource_spans {
         for scope_spans in resource_spans.scope_spans {
+            let shared =
+                shared_row_bytes(resource_spans.resource.as_ref(), scope_spans.scope.as_ref());
             for span in scope_spans.spans {
+                expanded_bytes += shared + span.encoded_len();
+                if expanded_bytes > service.max_expanded_request_bytes {
+                    return Err(expansion_rejection(service.max_expanded_request_bytes));
+                }
                 let (row, was_overridden) = match KafkaTraceRow::new(
                     span,
                     resource_spans.resource.clone(),
@@ -813,9 +827,6 @@ pub async fn export_metrics_http(
             }
         },
     };
-
-    check_metrics_request(&export_request, service.max_expanded_request_bytes)
-        .map_err(|e| expansion_rejection("metrics", e))?;
 
     let mut rows: Vec<KafkaMetricRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
@@ -993,6 +1004,20 @@ mod tests {
         let decoded = decode_body_if_gzip_magic(body.clone(), 1024).unwrap();
 
         assert_eq!(decoded, body);
+    }
+
+    #[test]
+    fn shared_row_bytes_counts_each_resource_attribute() {
+        use opentelemetry_proto::tonic::common::v1::KeyValue;
+        let resource = |attributes: usize| Resource {
+            attributes: vec![KeyValue::default(); attributes],
+            ..Default::default()
+        };
+
+        let one = shared_row_bytes(Some(&resource(1)), None);
+        let many = shared_row_bytes(Some(&resource(1_000)), None);
+
+        assert!(many - one >= 999 * ATTRIBUTE_OVERHEAD_BYTES);
     }
 
     #[test]

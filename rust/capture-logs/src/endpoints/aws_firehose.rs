@@ -8,14 +8,13 @@
 //! decode to many megabytes.
 
 use crate::authorizer::Signal;
-use crate::expansion::{
-    ExpansionBudget, ExpansionExceeded, ATTRIBUTE_OVERHEAD_BYTES, ROW_OVERHEAD_BYTES,
-};
 use crate::log_record::{
     apply_timestamp_override, convert_severity_text_to_number, datetime_from_millis,
     severity_alias, try_extract_severity, KafkaLogRow,
 };
-use crate::service::{expansion_rejection, gunzip_if_magic, Service};
+use crate::service::{
+    expansion_rejection, gunzip_if_magic, Service, ATTRIBUTE_OVERHEAD_BYTES, ROW_OVERHEAD_BYTES,
+};
 use axum::{
     extract::{Request, State},
     http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
@@ -48,9 +47,6 @@ const DECODED_BUDGET_FACTOR: usize = 8;
 /// Fraction of the producer's message cap a batch of rows may fill before zstd; the Avro framing
 /// plus attribute strings compress well enough that half is a safe budget.
 const KAFKA_BATCH_BUDGET_DIVISOR: usize = 2;
-
-/// Every row copies the common attributes, so their size multiplies with the event count.
-pub const MAX_COMMON_ATTRIBUTES_HEADER_BYTES: usize = 64 * 1024;
 
 type Rejection = (StatusCode, Json<Value>);
 
@@ -185,13 +181,6 @@ pub fn parse_common_attributes(raw: Option<&str>) -> HashMap<String, Value> {
     let Some(raw) = raw else {
         return HashMap::new();
     };
-    if raw.len() > MAX_COMMON_ATTRIBUTES_HEADER_BYTES {
-        warn!(
-            "Ignoring {COMMON_ATTRIBUTES_HEADER} header of {} bytes, above the {MAX_COMMON_ATTRIBUTES_HEADER_BYTES} byte cap",
-            raw.len()
-        );
-        return HashMap::new();
-    }
     let Ok(mut value) = serde_json::from_str::<Value>(raw) else {
         warn!("Ignoring unparseable {COMMON_ATTRIBUTES_HEADER} header");
         return HashMap::new();
@@ -275,33 +264,6 @@ struct RowTemplate {
     service_name: String,
     resource_attributes: HashMap<String, String>,
     attributes: HashMap<String, String>,
-}
-
-fn map_cost(map: &HashMap<String, String>) -> u64 {
-    map.iter().fold(0u64, |total, (k, v)| {
-        total
-            .saturating_add((k.len() + v.len()) as u64)
-            .saturating_add(ATTRIBUTE_OVERHEAD_BYTES)
-    })
-}
-
-impl RowTemplate {
-    fn row_cost(&self) -> u64 {
-        ROW_OVERHEAD_BYTES
-            .saturating_add(self.service_name.len() as u64)
-            .saturating_add(map_cost(&self.resource_attributes))
-            .saturating_add(map_cost(&self.attributes))
-    }
-
-    fn charge(
-        &self,
-        budget: &mut ExpansionBudget,
-        rows: u64,
-        content_bytes: u64,
-    ) -> Result<(), ExpansionExceeded> {
-        budget.charge_rows(rows, self.row_cost())?;
-        budget.charge(content_bytes)
-    }
 }
 
 impl FirehoseContext {
@@ -398,13 +360,6 @@ pub fn cloudwatch_envelope_to_rows(
     ctx: &FirehoseContext,
 ) -> DecodedRows {
     let template = ctx.template(Some(&envelope));
-    envelope_rows_from_template(envelope, &template)
-}
-
-fn envelope_rows_from_template(
-    envelope: CloudWatchEnvelope,
-    template: &RowTemplate,
-) -> DecodedRows {
     let now = Utc::now();
     envelope
         .log_events
@@ -417,7 +372,7 @@ fn envelope_rows_from_template(
              }| {
                 let event_id = (!id.is_empty()).then_some(id.as_str());
                 build_row(
-                    template,
+                    &template,
                     message,
                     datetime_from_millis(timestamp),
                     event_id,
@@ -431,17 +386,11 @@ fn envelope_rows_from_template(
 /// Lines from a record that is not a CloudWatch envelope. There is no per-line timestamp, so
 /// every row gets the request's observed time.
 pub fn raw_record_to_rows(text: &str, ctx: &FirehoseContext) -> DecodedRows {
-    raw_rows_from_template(text, &ctx.template(None))
-}
-
-fn raw_lines(text: &str) -> impl Iterator<Item = &str> {
-    text.lines().filter(|line| !line.trim().is_empty())
-}
-
-fn raw_rows_from_template(text: &str, template: &RowTemplate) -> DecodedRows {
+    let template = ctx.template(None);
     let now = Utc::now();
-    raw_lines(text)
-        .map(|line| build_row(template, line.to_string(), now, None, now))
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| build_row(&template, line.to_string(), now, None, now))
         .collect()
 }
 
@@ -477,32 +426,44 @@ pub fn decode_record(
         })
 }
 
-fn decoded_record_to_rows(
-    decoded: DecodedRecord,
-    ctx: &FirehoseContext,
-    budget: &mut ExpansionBudget,
-) -> Result<Option<DecodedRows>, ExpansionExceeded> {
+/// Every row copies the record template, which holds the common attributes, so this is charged
+/// before the rows are built.
+fn expanded_bytes(decoded: &DecodedRecord, ctx: &FirehoseContext) -> usize {
+    let (template, rows, content) = match decoded {
+        DecodedRecord::CloudWatch(env) if env.message_type == "CONTROL_MESSAGE" => return 0,
+        DecodedRecord::CloudWatch(env) => (
+            ctx.template(Some(env)),
+            env.log_events.len(),
+            env.log_events
+                .iter()
+                .map(|e| e.message.len() + e.id.len())
+                .sum(),
+        ),
+        DecodedRecord::Raw(text) => (ctx.template(None), text.lines().count(), text.len()),
+    };
+    let per_row = ROW_OVERHEAD_BYTES
+        + template.service_name.len()
+        + [&template.resource_attributes, &template.attributes]
+            .iter()
+            .flat_map(|map| map.iter())
+            .map(|(k, v)| k.len() + v.len() + ATTRIBUTE_OVERHEAD_BYTES)
+            .sum::<usize>();
+    rows.saturating_mul(per_row).saturating_add(content)
+}
+
+fn decoded_record_to_rows(decoded: DecodedRecord, ctx: &FirehoseContext) -> Option<DecodedRows> {
     match decoded {
         DecodedRecord::CloudWatch(envelope) if envelope.message_type == "CONTROL_MESSAGE" => {
             counter!(RECORDS_COUNTER, "kind" => "control").increment(1);
-            Ok(None)
+            None
         }
         DecodedRecord::CloudWatch(envelope) => {
             counter!(RECORDS_COUNTER, "kind" => "data").increment(1);
-            let template = ctx.template(Some(&envelope));
-            let content_bytes = envelope
-                .log_events
-                .iter()
-                .map(|event| (event.message.len() + event.id.len()) as u64)
-                .sum();
-            template.charge(budget, envelope.log_events.len() as u64, content_bytes)?;
-            Ok(Some(envelope_rows_from_template(envelope, &template)))
+            Some(cloudwatch_envelope_to_rows(envelope, ctx))
         }
         DecodedRecord::Raw(text) => {
             counter!(RECORDS_COUNTER, "kind" => "raw").increment(1);
-            let template = ctx.template(None);
-            template.charge(budget, raw_lines(&text).count() as u64, text.len() as u64)?;
-            Ok(Some(raw_rows_from_template(&text, &template)))
+            Some(raw_record_to_rows(&text, ctx))
         }
     }
 }
@@ -637,13 +598,13 @@ pub async fn export_aws_firehose_logs_http(
 
     let decoded_budget = body_cap.saturating_mul(DECODED_BUDGET_FACTOR);
     let mut decoded_total: usize = 0;
+    let mut expanded_total: usize = 0;
     let mut invalid_records: usize = 0;
     let mut total_events: u64 = 0;
     let mut batches = BatchBuilder::new(
         (service.sink.logs_message_max_bytes() / KAFKA_BATCH_BUDGET_DIVISOR) as u64,
     );
     let mut writes: JoinSet<anyhow::Result<()>> = JoinSet::new();
-    let mut expansion = ExpansionBudget::new(service.firehose_max_expanded_request_bytes);
     let record_count = request.records.len();
 
     for (index, record) in request.records.into_iter().enumerate() {
@@ -678,21 +639,19 @@ pub async fn export_aws_firehose_logs_http(
             ));
         }
 
-        let decoded_rows = match decoded_record_to_rows(decoded, &ctx, &mut expansion) {
-            Ok(Some(rows)) => rows,
-            Ok(None) => continue,
-            Err(exceeded) => {
-                writes.abort_all();
-                let (status, _) = expansion_rejection("firehose", exceeded);
-                return Err(rejection(
-                    status,
-                    &request_id,
-                    &format!(
-                        "records expand to more than {} bytes of rows; lower the Firehose buffer size",
-                        exceeded.limit
-                    ),
-                ));
-            }
+        expanded_total = expanded_total.saturating_add(expanded_bytes(&decoded, &ctx));
+        if expanded_total > service.max_expanded_request_bytes {
+            writes.abort_all();
+            let (status, _) = expansion_rejection(service.max_expanded_request_bytes);
+            return Err(rejection(
+                status,
+                &request_id,
+                "records expand to too many rows; lower the Firehose buffer size",
+            ));
+        }
+
+        let Some(decoded_rows) = decoded_record_to_rows(decoded, &ctx) else {
+            continue;
         };
         total_events += decoded_rows.len() as u64;
         for (row, overridden) in decoded_rows {
@@ -1071,43 +1030,15 @@ mod tests {
     }
 
     #[test]
-    fn an_oversized_common_attributes_header_is_ignored() {
-        let value = "x".repeat(MAX_COMMON_ATTRIBUTES_HEADER_BYTES);
-        let header = json!({ "env": value }).to_string();
-        assert!(header.len() > MAX_COMMON_ATTRIBUTES_HEADER_BYTES);
-
-        assert!(parse_common_attributes(Some(&header)).is_empty());
-    }
-
-    #[test]
-    fn a_record_whose_rows_exceed_the_expansion_budget_is_rejected_before_building() {
+    fn expanded_bytes_charge_the_template_once_per_line() {
         let ctx = FirehoseContext {
-            common_attributes: HashMap::from([("big".to_string(), json!("x".repeat(32 * 1024)))]),
+            common_attributes: HashMap::from([("big".to_string(), json!("x".repeat(10_000)))]),
             ..FirehoseContext::default()
         };
-        let lines = "a\n".repeat(1_000);
 
-        let mut roomy = ExpansionBudget::new(u64::MAX);
-        let rows = decoded_record_to_rows(DecodedRecord::Raw(lines.clone()), &ctx, &mut roomy)
-            .unwrap()
-            .unwrap();
-        assert_eq!(rows.len(), 1_000);
-        assert!(roomy.used() > 1_000 * 32 * 1024);
+        let bytes = expanded_bytes(&DecodedRecord::Raw("a\n".repeat(100)), &ctx);
 
-        let mut tight = ExpansionBudget::new(roomy.used() - 1);
-        assert!(decoded_record_to_rows(DecodedRecord::Raw(lines), &ctx, &mut tight).is_err());
-    }
-
-    #[test]
-    fn control_messages_cost_nothing() {
-        let control: CloudWatchEnvelope =
-            serde_json::from_str(&envelope_json("CONTROL_MESSAGE")).unwrap();
-        let mut budget = ExpansionBudget::new(0);
-
-        let rows =
-            decoded_record_to_rows(DecodedRecord::CloudWatch(control), &context(), &mut budget);
-
-        assert!(matches!(rows, Ok(None)));
+        assert!(bytes > 100 * 10_000);
     }
 
     #[test]
