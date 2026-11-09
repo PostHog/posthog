@@ -962,6 +962,7 @@ class TestTransactionalEmail(APIBaseTest):
                 "attachments",
                 ["send"],
                 "attachments",
+                (1, 4),
             ),
             (
                 "untracked",
@@ -969,11 +970,12 @@ class TestTransactionalEmail(APIBaseTest):
                 "trackOpensAndClicks",
                 ["send", "tracking"],
                 "track_opens_and_clicks",
+                (0, 0),
             ),
         ]
     )
     def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(
-        self, mock_post, _flag, capture, _name, fields, refused_key, refused_path, field
+        self, mock_post, _flag, capture, _name, fields, refused_key, refused_path, field, attachment_size
     ):
         issues = [{"code": "unrecognized_keys", "keys": [refused_key], "path": refused_path, "message": "Unrecognized"}]
         mock_post.return_value = MagicMock(status_code=400, json=lambda: {"error": json.dumps(issues)})
@@ -994,7 +996,7 @@ class TestTransactionalEmail(APIBaseTest):
             )
             for call in capture.call_args_list
             if call.kwargs.get("event") == "transactional email api send"
-        ] == [("field_not_accepted", 1, 4)]
+        ] == [("field_not_accepted", *attachment_size)]
 
     @parameterized.expand(
         [
