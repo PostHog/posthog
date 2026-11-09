@@ -220,7 +220,7 @@ class EndpointCrudService:
             # touch the endpoint or the current version's materialization.
             if data.is_active is not None and not version_targeted:
                 endpoint.is_active = data.is_active
-            endpoint.save()
+            endpoint.save(update_fields=["is_active", "updated_at"])
             if not version_targeted and not endpoint.is_active:
                 # A deactivated endpoint serves no version, so none should keep a
                 # materialization schedule running — tear down every materialized
