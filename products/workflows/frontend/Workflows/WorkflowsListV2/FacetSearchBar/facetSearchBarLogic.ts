@@ -181,8 +181,9 @@ function filterNamedBy(draft: FacetDraft, { facets, items, value, matchesText }:
         return null
     }
     const facet = findFacet(facets, draft.facetKey)!
-    const typed = draft.partial.toLowerCase()
-    const namesOf = (v: string): string[] => [v.toLowerCase(), formatFacetValue(facet, v).toLowerCase()]
+    const comparable = (text: string): string => (facet.caseSensitive ? text : text.toLowerCase())
+    const typed = comparable(draft.partial)
+    const namesOf = (v: string): string[] => [comparable(v), comparable(formatFacetValue(facet, v))]
     const valuesFor = (scope: FacetSearchValue): string[] =>
         createFacetCounter(items, scope, facets, matchesText)(facet.key).map(({ value: v }) => v)
     const named = valuesFor({ filters: value.filters, text: draft.rest }).filter((v) => namesOf(v).includes(typed))
@@ -590,9 +591,9 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             }
         },
         removeFilter: ({ filter }) => {
-            const removed = facetFilterKey(filter)
+            const removed = facetFilterKey(filter, props.facets)
             props.onChange({
-                filters: props.value.filters.filter((f) => facetFilterKey(f) !== removed),
+                filters: props.value.filters.filter((f) => facetFilterKey(f, props.facets) !== removed),
                 text: props.value.text,
             })
             reportFilterChange(props.id, 'removed', filter, 'remove button')

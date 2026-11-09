@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom'
 
+import { DndContext, useDndContext } from '@dnd-kit/core'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
@@ -10,6 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
@@ -254,28 +256,73 @@ describe('WorkflowsScene', () => {
         }
     )
 
-    it('offers a metrics retry instead of an empty health result when metrics fail', async () => {
+    const emptyProjectFiles = {
+        '/api/projects/:team_id/file_system/unfiled/': () => [200, { count: 0 }],
+        '/api/projects/:team_id/file_system/': () => [200, paginated([])],
+    } as const
+
+    it.each([
+        ['the flat list', false],
+        ['the folder view', true],
+    ])('offers a metrics retry instead of an empty health result when metrics fail in %s', async (_, folders) => {
+        useMocks({ get: emptyProjectFiles })
         useMocks({
             get: { '/api/projects/:team_id/hog_flows/metrics/global/': () => [500, { detail: 'Unavailable' }] },
         })
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: folders,
+        })
         router.actions.push(urls.workflows(), { q: 'health:failing' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() =>
             expect(document.querySelector('[data-attr="workflows-list-v2-metrics-retry"]')).not.toBeNull()
         )
         expect(document.body).not.toHaveTextContent('No workflows match these filters')
+        expect(document.body).not.toHaveTextContent('Nothing matches')
     })
 
-    it('keeps the loaded rows when a reload fails', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+    it('keeps the Customer.io import next to the folder view', async () => {
+        useMocks({ get: emptyProjectFiles })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true,
+            [FEATURE_FLAGS.WORKFLOWS_CUSTOMERIO_IMPORT]: true,
+        })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
+            </Provider>
+        )
+        await waitFor(() => expect(document.querySelector('[data-attr="workflows-folder-toolbar"]')).not.toBeNull())
+        expect(document.querySelector('[data-attr="workflows-import-customerio"]')).not.toBeNull()
+    })
+
+    it.each([
+        ['the flat list', false],
+        ['the folder view', true],
+    ])('keeps the loaded rows when a reload fails in %s', async (_, folders) => {
+        useMocks({ get: emptyProjectFiles })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: folders,
+        })
+        if (folders) {
+            router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
+        }
+        render(
+            <Provider>
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
@@ -285,6 +332,7 @@ describe('WorkflowsScene', () => {
         await waitFor(() => expect(workflowsListV2Logic.values.loadFailed).toBe(true))
         expect(shownRowNames()).toContain('Welcome series')
         expect(document.querySelector('[data-attr="workflows-list-v2-retry"]')).toBeNull()
+        expect(document.querySelector('[data-attr="workflows-folder-contents"]') !== null).toBe(folders)
     })
 
     it('keeps guided automation setup on an empty automation view', async () => {
@@ -325,7 +373,11 @@ describe('WorkflowsScene', () => {
         expect(input).toHaveValue('')
     })
 
-    it('pages past the first 100 rows, and a new filter starts again on page one', async () => {
+    it.each([
+        ['the flat list', false],
+        ['the folder view', true],
+    ])('pages past the first 100 rows in %s, and a new filter starts again on page one', async (_, folders) => {
+        useMocks({ get: emptyProjectFiles })
         workflows = Array.from({ length: 250 }, (_, i) =>
             buildWorkflowRow({
                 id: `wf-${i}`,
@@ -333,21 +385,31 @@ describe('WorkflowsScene', () => {
                 updated_at: new Date(Date.UTC(2026, 9, 1) - i * 60_000).toISOString(),
             })
         )
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: folders,
+        })
+        const scope = folders ? [{ facet: 'in', value: 'Unfiled', negated: false }] : []
+        if (folders) {
+            router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
+        }
         const user = userEvent.setup()
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 000 even'))
 
         await user.click(document.querySelector('[aria-label="Next page"]')!)
-        await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 100 even'))
+        // The folder view spends one row of each page on the ".." row.
+        await waitFor(() => expect(shownRowNames()[0]).toEqual(folders ? 'Flow 099 odd' : 'Flow 100 even'))
         expect(shownRowNames()).toHaveLength(100)
 
         // 125 rows match, so a kept page would still show matches 101 and up.
-        act(() => workflowsListV2Logic.actions.setValue({ filters: [], text: 'odd' }))
+        act(() => workflowsListV2Logic.actions.setValue({ filters: scope, text: 'odd' }))
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 001 odd'))
     })
 
@@ -467,5 +529,169 @@ describe('WorkflowsScene', () => {
         expect(document.querySelector('input[data-attr="workflows-search"]')).toBeNull()
         await act(async () => {})
         expect(listRequests).toEqual([])
+    })
+
+    describe('project folders', () => {
+        let files: FileSystemEntry[]
+        let droppables: ReturnType<typeof useDndContext>['droppableContainers'] | null
+
+        function DroppableProbe(): null {
+            droppables = useDndContext().droppableContainers
+            return null
+        }
+
+        const renderFolder = async (folder: string, visibleWorkflow: string, filters = ''): Promise<void> => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+                [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true,
+            })
+            router.actions.push(urls.workflows(), { q: `in:${folder}${filters}` })
+            render(
+                <Provider>
+                    <DndContext>
+                        <DroppableProbe />
+                        <WorkflowsScene />
+                    </DndContext>
+                </Provider>
+            )
+            await waitFor(() => expect(shownRowNames()).toContain(visibleWorkflow))
+        }
+
+        beforeEach(() => {
+            droppables = null
+            files = [
+                { id: 'billing', path: 'Billing', type: 'folder' },
+                { id: 'cards', path: 'Billing/Cards', type: 'folder' },
+                { id: 'welcome', path: 'Billing/Welcome series', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id },
+                {
+                    id: 'renewal',
+                    path: 'Billing/Cards/Renewal reminder',
+                    type: 'hog_flow',
+                    ref: FIXTURE_WORKFLOWS[1].id,
+                },
+            ]
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/file_system/unfiled/': () => [200, { count: 0 }],
+                    '/api/projects/:team_id/file_system/': ({ request }) => {
+                        const search = new URL(request.url).searchParams.get('search') ?? ''
+                        const type = search.replace('type:', '')
+                        return [
+                            200,
+                            paginated(files.filter((file) => (type.startsWith('-') ? false : file.type === type))),
+                        ]
+                    },
+                },
+                post: {
+                    '/api/projects/:team_id/file_system/': async ({ request }) => {
+                        const body = (await request.json()) as { path: string; type: string }
+                        const created = { id: `created-${body.path}`, ...body }
+                        files.push(created)
+                        return [201, created]
+                    },
+                },
+            })
+        })
+
+        it('shows workflow descriptions inside a folder as the flat list does', async () => {
+            await renderFolder('Billing', 'Welcome series')
+            expect(document.querySelector('[data-attr="workflows-list-v2-description"]')).toHaveTextContent(
+                'Greets new sign-ups'
+            )
+        })
+
+        it('opens the template chooser on the kind facet from the folder toolbar', async () => {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT!,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT!.resource_access_control!,
+                    hog_flow: AccessControlLevel.Editor,
+                },
+            }
+            const user = userEvent.setup()
+            await renderFolder('Billing', 'Welcome series', ' kind:messaging')
+            await user.click(
+                document.querySelector('[data-attr="workflows-folder-toolbar"] [data-attr="new-workflow"]')!
+            )
+            expect(workflowTemplatesLogic.values.typeFilter).toEqual('messaging')
+        })
+
+        it('keeps sidebar folders, breadcrumbs and the up row as separate drop targets', async () => {
+            await renderFolder('Billing/Cards', 'Renewal reminder')
+            const targets = [...(droppables?.values() ?? [])].map((droppable) => ({
+                folder: droppable.data.current?.treeId,
+                inSidebar: !!droppable.node.current?.closest('[role="tree"]'),
+                inBreadcrumbs: !!droppable.node.current?.closest('[data-attr="workflows-folder-toolbar"]'),
+            }))
+            const countOf = (folder: string, inSidebar: boolean, inBreadcrumbs: boolean): number =>
+                targets.filter(
+                    (target) =>
+                        target.folder === folder &&
+                        target.inSidebar === inSidebar &&
+                        target.inBreadcrumbs === inBreadcrumbs
+                ).length
+            expect(countOf('project://', true, false)).toBe(1)
+            expect(countOf('project://Billing', true, false)).toBe(1)
+            expect(countOf('project://', false, true)).toBe(1)
+            expect(countOf('project://Billing', false, true)).toBe(1)
+            expect(countOf('project://Billing', false, false)).toBe(1)
+        })
+
+        it('lists a subfolder in the open folder after naming it inline', async () => {
+            const user = userEvent.setup()
+            await renderFolder('Billing', 'Welcome series')
+            await user.click(
+                document.querySelector<HTMLElement>(
+                    '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+                )!
+            )
+            const input = document.querySelector<HTMLInputElement>('input[data-attr="workflows-new-folder-name"]')
+            expect(input).not.toBeNull()
+            await user.type(input!, 'Invoices{Enter}')
+            await waitFor(() =>
+                expect(
+                    Array.from(document.querySelectorAll('[data-attr="workflows-folder-row"]')).map(
+                        (row) => row.textContent
+                    )
+                ).toContain('Invoices(0)')
+            )
+            expect(router.values.searchParams.q).toEqual('in:Billing')
+            expect(document.querySelector('[role="tree"]')?.textContent).toContain('Invoices')
+        })
+
+        const draftInputAfterNewFolder = async (): Promise<HTMLInputElement | null> => {
+            await userEvent
+                .setup()
+                .click(
+                    document.querySelector<HTMLElement>(
+                        '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+                    )!
+                )
+            return document.querySelector<HTMLInputElement>('input[data-attr="workflows-new-folder-name"]')
+        }
+
+        it('shows the inline folder name while a filter narrows the folder', async () => {
+            await renderFolder('Billing', 'Welcome series', ' status:active')
+            expect(await draftInputAfterNewFolder()).not.toBeNull()
+        })
+
+        it('shows the inline folder name from a later page of the folder', async () => {
+            workflows = Array.from({ length: 120 }, (_, i) =>
+                buildWorkflowRow({ id: `wf-${i}`, name: `Flow ${String(i).padStart(3, '0')}` })
+            )
+            files = [
+                { id: 'billing', path: 'Billing', type: 'folder' },
+                ...workflows.map((workflow) => ({
+                    id: `file-${workflow.id}`,
+                    path: `Billing/${workflow.name}`,
+                    type: 'hog_flow',
+                    ref: workflow.id,
+                })),
+            ]
+            await renderFolder('Billing', 'Flow 000')
+            await userEvent.setup().click(document.querySelector('[aria-label="Next page"]')!)
+            await waitFor(() => expect(shownRowNames()).toContain('Flow 119'))
+            expect(await draftInputAfterNewFolder()).not.toBeNull()
+        })
     })
 })

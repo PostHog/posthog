@@ -3600,12 +3600,18 @@ export const workflowLogic = kea<workflowLogicType>([
                         updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
                         if (!props.id || props.id === 'new') {
+                            const folder =
+                                posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES) &&
+                                posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_LIST_V2)
+                                    ? new URLSearchParams(router.values.location.search).get('_create_in_folder')
+                                    : null
                             // The editor's HogFlow schema and the generated HogFlowApi describe the same payload.
                             // The selected environment, as the legacy client used, not its parent project.
                             const teamId = String(ApiConfig.getCurrentTeamId())
                             const result = (await hogFlowsCreate(teamId, {
                                 ...updates,
                                 ...(createsBroadcast ? { origin_product: 'broadcasts' } : {}),
+                                ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
                             } as unknown as Parameters<typeof hogFlowsCreate>[1])) as unknown as HogFlow
                             actions.workflowCreated(result.id)
 

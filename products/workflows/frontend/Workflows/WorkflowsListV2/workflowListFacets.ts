@@ -1,3 +1,6 @@
+import { parentPath, splitPath, joinPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
+
 import type { FacetDefinition } from './FacetSearchBar/facetQuery'
 import { HEALTH_TAGS, STATUS_LABELS, TRIGGER_LABELS, TYPE_LABELS } from './workflowListLabels'
 import { WorkflowListRow } from './workflowListRows'
@@ -16,6 +19,20 @@ const valueFromLabel =
     (typed: string): string =>
         Object.keys(labels).find((value) => labels[value].toLowerCase() === typed.toLowerCase()) ?? typed
 
+/** The folder view lists everything under Unfiled in one place, so its subfolders are not scopes of their own. */
+export function displayedFolder(folder: string): string {
+    return folder === 'Unfiled' || folder.startsWith('Unfiled/') ? 'Unfiled' : folder
+}
+
+export function folderScopes(parent: string, includeDescendants: boolean): string[] {
+    const folder = displayedFolder(parent)
+    if (folder === 'Unfiled' || !includeDescendants) {
+        return [folder]
+    }
+    const parts = splitPath(folder)
+    return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
+}
+
 /** Every word of the text must appear in the name or description. */
 export function matchesWorkflowListText(row: WorkflowListRow, text: string): boolean {
     return text
@@ -26,7 +43,11 @@ export function matchesWorkflowListText(row: WorkflowListRow, text: string): boo
 }
 
 /** `rows` supplies the names shown for creator uuids. */
-export function buildWorkflowListFacets(rows: WorkflowListRow[]): FacetDefinition<WorkflowListRow>[] {
+export function buildWorkflowListFacets(
+    rows: WorkflowListRow[],
+    itemsByRef: Record<string, FileSystemEntry> = {},
+    includeDescendants: boolean = false
+): FacetDefinition<WorkflowListRow>[] {
     const creators = new Map(
         rows.flatMap(({ workflow }) => (workflow.created_by ? [[workflow.created_by.uuid, workflow.created_by]] : []))
     )
@@ -48,6 +69,18 @@ export function buildWorkflowListFacets(rows: WorkflowListRow[]): FacetDefinitio
     }
 
     return [
+        {
+            key: 'in',
+            aliases: ['path', 'folder'],
+            label: 'in',
+            description: 'Project folder',
+            caseSensitive: true,
+            formatValue: (value) => splitPath(value).join(' / '),
+            getValues: (row) => {
+                const entry = itemsByRef[`hog_flow::${row.id}`]
+                return !entry || entry.shortcut ? ['Unfiled'] : folderScopes(parentPath(entry.path), includeDescendants)
+            },
+        },
         {
             key: 'status',
             label: 'Status',

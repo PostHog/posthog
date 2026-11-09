@@ -213,7 +213,7 @@ export function FacetSearchBar<TItem>({
                                 )
                                 return (
                                     <LemonSnack
-                                        key={facetFilterKey(filter)}
+                                        key={facetFilterKey(filter, facets)}
                                         closeLabel={`Remove filter ${label}`}
                                         onClose={() => removePill(filter)}
                                         title={label}
