@@ -24,7 +24,6 @@ import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { themeLogic } from 'lib/logic/themeLogic'
-import posthog from 'lib/posthog-typed'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
@@ -333,17 +332,14 @@ function SearchRoot({
     const inputRef = useRef<HTMLInputElement>(null!)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
     const highlightedItemRef = useRef<SearchItem | null>(null)
-    // Kept current with the flat, DOM-order item list so a click handler can report
-    // the selected item's position without depending on it (it's computed further down).
-    const orderedItemsRef = useRef<SearchItem[]>([])
 
     const allItems = useMemo(() => {
         const items: SearchItem[] = []
         for (const category of allCategories) {
             items.push(...category.items)
         }
-        return logicKey === 'command' ? items : items.filter((item) => item.category !== 'shortcuts')
-    }, [allCategories, logicKey])
+        return items.filter((item) => item.category !== 'shortcuts')
+    }, [allCategories])
 
     // Compute filteredItems synchronously to avoid render gap between loading and content
     const filteredItems = useMemo(() => {
@@ -426,16 +422,6 @@ function SearchRoot({
             if (openInNewTab && !canOpenInNewTab(item)) {
                 return
             }
-            if (logicKey === 'command') {
-                const position = orderedItemsRef.current.findIndex((i) => i.id === item.id)
-                posthog.capture('command menu item selected', {
-                    category: item.category,
-                    item_type: item.itemType ?? null,
-                    matched_search_keyword: item.matchedSearchKeyword ?? null,
-                    result_position: position >= 0 ? position : null,
-                    opened_in_new_tab: openInNewTab,
-                })
-            }
             if (item.id === SETTINGS_THEME_ITEM_ID) {
                 const record = item.record as { themeMode?: UserTheme; toggleTheme?: boolean } | undefined
                 if (record?.themeMode) {
@@ -461,7 +447,7 @@ function SearchRoot({
                 }
             }
         },
-        [onItemSelect, onAskAiClick, updateUser, toggleTheme, logicKey]
+        [onItemSelect, onAskAiClick, updateUser, toggleTheme]
     )
 
     const groupedItems = useMemo(() => {
@@ -527,7 +513,6 @@ function SearchRoot({
     // exactly matches the DOM render order. Without this, Base UI's keyboard navigation
     // breaks at group boundaries where the two orderings diverge.
     const orderedItems = useMemo(() => stableGroupedItems.flatMap((g) => g.items), [stableGroupedItems])
-    orderedItemsRef.current = orderedItems
 
     const contextValue: SearchContextValue = useMemo(
         () => ({
