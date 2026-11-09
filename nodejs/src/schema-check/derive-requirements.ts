@@ -65,7 +65,7 @@ export interface DerivedSchemaRequirements {
 
 export interface SqlxMigrationDir {
     database: SqlxDatabase
-    versions: number[]
+    identifiersByVersion: Map<number, Set<string>>
     tables: Set<string>
 }
 
@@ -276,22 +276,23 @@ export function readSqlxMigrationDir(repoRoot: string, database: SqlxDatabase): 
     if (!existsSync(dir)) {
         throw new Error(`${dir} does not exist`)
     }
-    const versions = new Set<number>()
+    const identifiersByVersion = new Map<number, Set<string>>()
     const tables = new Set<string>()
     for (const fileName of readdirSync(dir)) {
         const version = fileName.match(SQLX_MIGRATION_FILE)?.[1]
         if (version === undefined) {
             continue
         }
-        versions.add(Number(version))
-        for (const table of matchAll(readFileSync(path.join(dir, fileName), 'utf8'), CREATE_TABLE)) {
+        const sql = readFileSync(path.join(dir, fileName), 'utf8')
+        identifiersByVersion.set(Number(version), new Set(sql.toLowerCase().match(LOWERCASE_IDENTIFIER)))
+        for (const table of matchAll(sql, CREATE_TABLE)) {
             tables.add(table.toLowerCase())
         }
     }
-    if (versions.size === 0) {
+    if (identifiersByVersion.size === 0) {
         throw new Error(`${dir} has no sqlx migrations`)
     }
-    return { database, versions: [...versions].sort((a, b) => a - b), tables }
+    return { database, identifiersByVersion, tables }
 }
 
 export function deriveSchemaRequirements(repoRoot: string): DerivedSchemaRequirements {
@@ -343,7 +344,13 @@ export function deriveSchemaRequirements(repoRoot: string): DerivedSchemaRequire
             continue
         }
         tablesByRequirement.set(`sqlx:${database}`, tables)
-        sqlxRequirements.push({ kind: 'sqlx', database, versions: migrationDir.versions })
+        // A version that names none of these tables cannot change what Node reads, for example a drop of
+        // a table that Node no longer uses. Requiring it would hold Node on an unrelated sqlx-migrate deploy.
+        const versions = [...migrationDir.identifiersByVersion]
+            .filter(([, identifiers]) => tables.some((table) => identifiers.has(table)))
+            .map(([version]) => version)
+            .sort((a, b) => a - b)
+        sqlxRequirements.push({ kind: 'sqlx', database, versions })
     }
 
     const findings = findUncoveredTables(
