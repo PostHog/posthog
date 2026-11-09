@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -32,6 +33,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DatabaseField, FieldTraverser, LazyJoin, StringJSONDatabaseField, VirtualTable
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.database.schema.util.where_clause_extractor import is_nondeterministic_function
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
@@ -829,15 +831,14 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 False,
                 mode=ONLY,
             ),
-            # Each scan exports one created_at, so the two fields never share a column.
+            # Each scan exports its own property columns, so paths that join to one name in separate scans never share a column.
             param(
-                "fields_of_one_name_in_separate_scans",
-                f"SELECT created_at FROM events WHERE {MIXED} UNION ALL "
-                f"SELECT person.created_at FROM events WHERE {MIXED}",
+                "property_paths_of_one_name_in_separate_scans",
+                f"SELECT properties.a.b FROM events WHERE {MIXED} UNION ALL "
+                f"SELECT properties.a___b FROM events WHERE {MIXED}",
                 True,
                 True,
                 mode=ONLY,
-                persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
             ),
             param(
                 "alias_of_event_in_a_mixed_filter_on_mode_2",
@@ -965,19 +966,9 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 warehouse_join=True,
             ),
             (
-                "field_and_virtual_field_of_one_name",
-                f"SELECT created_at, person.created_at FROM events WHERE {MIXED}",
-                "created_at and poe.created_at",
-            ),
-            (
                 "properties_whose_paths_join_to_one_name",
                 f"SELECT properties.a.b, properties.a___b FROM events WHERE {MIXED}",
                 "properties.a.b and properties.a___b",
-            ),
-            (
-                "properties_and_virtual_properties",
-                f"SELECT properties, person.properties FROM events WHERE {MIXED}",
-                "properties and poe.properties",
             ),
             param(
                 "property_in_a_typed_materialized_column",
@@ -1338,15 +1329,6 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 "WHERE in(e.event",
                 "WHERE in(event, tuple('$pageview', '$feature_flag_called')) LIMIT 10) AS e LEFT JOIN",
             ),
-            (
-                "json_extract_of_a_materialized_key_reads_its_column",
-                f"SELECT JSONExtractString(properties, 'mykey') FROM events WHERE {MIXED}",
-                PersonsOnEventsMode.DISABLED,
-                {},
-                "events.mat_mykey",
-                "events.properties, 'mykey'",
-                None,
-            ),
         ]
     )
     def test_union_scan_keeps_the_pushdown_that_events_gets(
@@ -1616,6 +1598,29 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             assert rows[:4] == [*history, *recent]
             assert [row[:3] for row in rows[4:]] == keyless
 
+    @parameterized.expand([("read_flag_evaluations", READ), ("flag_evaluations_only", ONLY)])
+    def test_flag_only_and_mixed_queries_count_a_call_from_before_the_coverage_start(
+        self, _name: str, mode: FlagEvaluationsMode
+    ):
+        # Mode 2 writes a flag call only to flag_evaluations.
+        timestamp = datetime.now(UTC) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS + 1)
+        if mode == READ:
+            _create_event(
+                event="$feature_flag_called",
+                distinct_id="edge",
+                team=self.team,
+                timestamp=timestamp,
+                properties={"$feature_flag": "edge-flag"},
+            )
+            flush_persons_and_events()
+        _create_flag_evaluations(self.team.pk, "edge-flag", timestamp=timestamp, distinct_id="edge")
+        bound = f"distinct_id = 'edge' AND timestamp >= now() - INTERVAL {FLAG_EVALUATIONS_COMPLETE_DAYS + 3} DAY"
+
+        flag_only = self._run(f"SELECT count() FROM events WHERE event = '$feature_flag_called' AND {bound}", mode)
+        mixed = self._run(f"SELECT countIf(event = '$feature_flag_called') FROM events WHERE {MIXED} AND {bound}", mode)
+
+        assert (flag_only.results, mixed.results) == ([(1,)], [(1,)])
+
     def test_inline_cohort_counts_flag_calls_that_only_flag_evaluations_holds(self):
         fresh = _create_person(distinct_ids=["fresh"], team_id=self.team.pk)
         _create_flag_evaluations(
@@ -1758,6 +1763,84 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results == [("$feature_flag_called", "flag_evaluations", 12.5), ("$pageview", None, 20.0)]
+
+    @parameterized.expand(
+        [
+            ("mode_1", FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
+            ("mode_2", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
+        ]
+    )
+    def test_fields_of_one_name_on_events_and_person_return_their_own_values(
+        self, _name: str, mode: FlagEvaluationsMode
+    ):
+        response = self._run(
+            f"SELECT event, properties.source, person.properties.email, properties, person.properties, created_at, "
+            f"person.created_at FROM events WHERE {MIXED} AND distinct_id = 'recent' "
+            "AND timestamp >= now() - INTERVAL 5 DAY ORDER BY event",
+            mode,
+            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+        )
+
+        flag_call, pageview = response.results
+        assert flag_call[:3] == ("$feature_flag_called", "flag_evaluations", "r@x.com")
+        assert json.loads(flag_call[3])["source"] == "flag_evaluations"
+        assert json.loads(flag_call[4]) == {"email": "r@x.com"}
+        assert pageview[:3] == ("$pageview", None, "r@x.com")
+        assert json.loads(pageview[4]) == {"email": "r@x.com"}
+        assert all(row[6] is not None and row[5] != row[6] for row in response.results)
+
+    @parameterized.expand([("read_flag_evaluations", READ), ("flag_evaluations_only", ONLY)])
+    def test_json_extract_string_reads_the_raw_json_value(self, _name: str, mode: FlagEvaluationsMode):
+        for name, kind in (
+            ("probe", PropertyDefinition.Type.EVENT),
+            ("amount", PropertyDefinition.Type.EVENT),
+            ("probe", PropertyDefinition.Type.PERSON),
+        ):
+            PropertyDefinition.objects.create(team=self.team, name=name, property_type="Numeric", type=kind)
+        now = datetime.now(UTC)
+        person = _create_person(distinct_ids=["probe"], team_id=self.team.pk)
+        properties = {"probe": "text", "amount": "12.5", "newline": "a\nb", "a": {"b": "nested"}, "a___b": "flat"}
+        for event in ("$pageview", "$feature_flag_called"):
+            _create_event(
+                event=event,
+                distinct_id="probe",
+                person_id=person.uuid,
+                person_properties={"probe": "text"},
+                team=self.team,
+                timestamp=now - timedelta(days=1),
+                properties={"$feature_flag": "probe-flag", "source": "events", **properties},
+            )
+        _create_flag_evaluations(
+            self.team.pk,
+            "probe-flag",
+            timestamp=now - timedelta(days=1),
+            distinct_id="probe",
+            person_id=person.uuid,
+            person_properties={"probe": "text"},
+            properties={"source": "flag_evaluations", **properties},
+        )
+        flush_persons_and_events()
+
+        def run(alias: str, expressions: str):
+            return self._run(
+                f"SELECT {alias}.event, {alias}.properties.source, {expressions} FROM events AS {alias} "
+                f"WHERE {alias}.{MIXED} AND {alias}.distinct_id = 'probe' ORDER BY {alias}.event",
+                mode,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+            ).results
+
+        def rows(*values) -> list[tuple]:
+            return [("$feature_flag_called", "flag_evaluations", *values), ("$pageview", "events", *values)]
+
+        # A rewritten read of the flat key `a___b` gets the export name of `properties.a.b`.
+        assert run(
+            "events",
+            "JSONExtractString(properties, 'probe'), toFloatOrZero(JSONExtractString(properties, 'amount')), "
+            "JSONExtractString(properties, 'newline'), properties.a.b, JSONExtractString(properties, 'a___b')",
+        ) == rows("text", 12.5, "a\nb", "nested", "flat")
+        assert run("e", "JSONExtractString(e.properties, 'probe')") == rows("text")
+        # The union refuses a query that reads both `properties` and `person.properties`.
+        assert run("events", "JSONExtractString(person.properties, 'probe')") == rows("text")
 
     def test_prewhere_reads_both_tables(self):
         response = self._run(
@@ -1910,16 +1993,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         } <= set(accepted)
         types: dict[bool, dict[str, str]] = {False: {}, True: {}}
         # One query per few fields keeps each union within the memory of a local ClickHouse.
-        # Two fields of one name, such as goe_0.key and goe_1.key, would return one column, so they go in different queries.
-        batches: list[list[str]] = []
-        for name in accepted:
-            batch = next(
-                (b for b in batches if len(b) < 8 and all(n.rsplit(".", 1)[-1] != name.rsplit(".", 1)[-1] for n in b)),
-                None,
-            )
-            if batch is None:
-                batches.append(batch := [])
-            batch.append(name)
+        batches = [accepted[i : i + 8] for i in range(0, len(accepted), 8)]
         for names in batches:
             types_query = f"SELECT {', '.join(f'toTypeName(any({name}))' for name in names)} FROM events WHERE {MIXED}"
             for union in (False, True):

@@ -1210,10 +1210,16 @@ function ChatThreadRenderer({
 }: ChatThreadRendererProps) {
   const optimisticItems = useOptimisticItemsForTask(taskId);
   const isCloud = useSessionIsCloud(taskId);
+  const tailAnchorsRef = useRef(new Map<string, string | null>());
 
   const items = useMemo<ConversationItem[]>(
     () =>
-      mergeConversationItems({ conversationItems, optimisticItems, isCloud }),
+      mergeConversationItems({
+        conversationItems,
+        optimisticItems,
+        isCloud,
+        tailAnchors: tailAnchorsRef.current,
+      }),
     [conversationItems, optimisticItems, isCloud],
   );
 

@@ -168,6 +168,18 @@ export interface SidebarProductMeta {
     docsHref?: string
 }
 
+/** Group paths come from configurable group type names, so groups share this copy. */
+export const SIDEBAR_GROUP_META = {
+    description:
+        'Explore the organizations, accounts, or other groups behind your events. Understand usage at the group level.',
+    example: 'Compare activity across customer accounts.',
+}
+
+/** The copy of one sidebar name, for a row that is not a tree item. */
+export function sidebarProductCopy(name: string): SidebarProductMeta {
+    return { description: descriptions[name], example: examples[name], docsHref: docsHrefs[name] }
+}
+
 /** Description and docs link for a sidebar product, both read from the product's scene config. */
 export function sidebarProductMeta(product: FileSystemImport): SidebarProductMeta {
     // Most tree items name their scene explicitly; the rest are generated with a single-scene list.
@@ -178,9 +190,9 @@ export function sidebarProductMeta(product: FileSystemImport): SidebarProductMet
     return {
         // Group paths come from configurable group type names, which can match a built-in app name.
         description: isGroup
-            ? 'Explore the organizations, accounts, or other groups behind your events. Understand usage at the group level.'
+            ? SIDEBAR_GROUP_META.description
             : (descriptions[product.path] ?? sceneConfig?.description),
-        example: isGroup ? 'Compare activity across customer accounts.' : examples[product.path],
+        example: isGroup ? SIDEBAR_GROUP_META.example : examples[product.path],
         docsHref: sceneConfig?.docsHref ?? docsHrefs[product.path],
     }
 }

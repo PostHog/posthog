@@ -19,7 +19,9 @@ export function ToolCallRevealCard({ call }: { call: MCPActivityRecentCallApi })
                     <span className="truncate">{client}</span>
                 </span>
                 <span className="text-secondary">called</span>
-                <span className="min-w-0 truncate font-mono font-semibold">{call.tool}</span>
+                <span className="min-w-0 truncate font-mono font-semibold" title={call.tool}>
+                    {call.tool}
+                </span>
                 <LemonTag type={call.is_error ? 'danger' : 'success'}>
                     {call.is_error
                         ? 'Failed'

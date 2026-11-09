@@ -43,12 +43,10 @@ import { SceneExport } from '~/scenes/sceneTypes'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
-import { BrandMark } from './components/BrandMark'
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
 import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
-import { HarnessPill } from './dashboard/harness'
-import { harnessMark } from './dashboard/harnessRegistry'
+import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
 import {
     type DailyChartData,
@@ -103,7 +101,7 @@ function HarnessLogos({ labels }: { labels: string[] }): JSX.Element {
     return (
         <div className="flex items-center gap-1">
             {labels.map((category) => (
-                <BrandMark key={category} name={harnessMark(category)} label={category} />
+                <HarnessLogo key={category} category={category} label={category} />
             ))}
         </div>
     )

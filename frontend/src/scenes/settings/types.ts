@@ -113,6 +113,7 @@ export type SettingSectionId =
     | 'user-reminders'
     | 'user-danger-zone'
     // Standalone
+    | 'mcp-analytics'
     | 'mcp-servers'
     | 'posthog-mcp'
 
@@ -216,6 +217,7 @@ export type SettingId =
     | 'human-friendly-comparison-periods'
     | 'integration-error-tracking'
     | 'integration-github'
+    | 'integration-gitlab'
     | 'integration-ip-allowlist'
     | 'integration-linear'
     | 'integration-other'
@@ -236,6 +238,7 @@ export type SettingId =
     | 'logs-retention'
     | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
+    | 'mcp-analytics-custom-harnesses'
     | 'mcp-servers-manage'
     | 'members'
     | 'member-notifications'
@@ -254,6 +257,7 @@ export type SettingId =
     | 'organization-id'
     | 'organization-integrations-list'
     | 'organization-ip-anonymization-default'
+    | 'organization-ip-restrictions'
     | 'organization-member-notice'
     | 'organization-oauth-apps-list'
     | 'organization-proxy'

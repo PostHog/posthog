@@ -60,7 +60,11 @@ from products.warehouse_sources.backend.facade.models import (
     get_or_create_warehouse_destination,
     sync_old_schemas_with_new_schemas,
 )
-from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.source_inputs import (
+    SourceCredentialsMissingError,
+    SourceInputsStore,
+    UnreadableSourceInputsError,
+)
 from products.warehouse_sources.backend.facade.source_management import (
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
@@ -377,9 +381,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str | None:
-        latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
-
-        return latest_completed_run.created_at.isoformat() if latest_completed_run else None
+        latest_completed_run_at = getattr(instance, "latest_completed_run_at", None)
+        return latest_completed_run_at.isoformat() if latest_completed_run_at else None
 
     def get_created_by(self, instance: ExternalDataSource) -> str | None:
         return instance.created_by.email if instance.created_by else None
@@ -461,7 +464,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     def _error_redaction_values(self, instance: ExternalDataSource) -> frozenset[str]:
         cached = getattr(instance, "_error_redaction_values", None)
         if cached is None:
-            cached = helpers.get_error_redaction_values(instance)
+            try:
+                job_inputs = self._source_inputs(instance)
+            except UnreadableSourceInputsError:
+                job_inputs = {}
+            cached = helpers.get_error_redaction_values(instance, job_inputs)
             instance._error_redaction_values = cached  # type: ignore[attr-defined]
         return cached
 
@@ -518,7 +525,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         else:
             validated_data["prefix"] = instance.prefix
 
-        existing_job_inputs = SourceInputsStore.load(instance)
+        try:
+            existing_job_inputs = SourceInputsStore.load(instance)
+        except SourceCredentialsMissingError:
+            # The credentials row of a stripped source is lost. The update must still accept new credentials, so it
+            # starts from the settings that `job_inputs` still holds.
+            existing_job_inputs = SourceInputsStore.load_settings(instance)
         job_inputs_were_submitted = "job_inputs" in validated_data
         incoming_job_inputs = validated_data.get("job_inputs", {})
 

@@ -1333,9 +1333,8 @@ def _target(current: ast.Type | None) -> tuple[str, ...]:
             current = current.table_type
         elif isinstance(current, ast.LazyJoinType):
             # A join reads another table. The tables can define a join of the same name differently, so the
-            # binding names the join recipe and what it joins on. Under PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-            # events.person joins persons, while flag_evaluations.person reads the person properties stored with the
-            # call. join_table can name the same table as an instance or as a string, so the binding leaves it out.
+            # binding names the join recipe and what it joins on. join_table can name the same table as an instance
+            # or as a string, so the binding leaves it out.
             join = current.lazy_join
             return (
                 "join",

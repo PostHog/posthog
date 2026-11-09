@@ -1,3 +1,4 @@
+import json
 import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -16,16 +17,16 @@ from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, 
 from posthog.hogql.database.database import Database
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 from posthog.utils import generate_cache_key
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend import intent_generation, logic, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 INTERNAL_CLIENT = "internal-bot"
@@ -1051,11 +1052,16 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 {"$mcp_oauth_client_name": "cursor-vscode"},
                 mcp_harness.UNIDENTIFIED_HARNESS_LABEL,
             ),
+            ("custom_rule_on_client_name", {"$mcp_client_name": "acme-agent"}, "Acme Agent"),
+            ("custom_rule_on_user_agent_only", {"$mcp_client_user_agent": "acme-agent/2.0 (node)"}, "Acme Agent"),
+            ("custom_rule_beats_built_in", {"$mcp_client_name": "cursor-internal"}, "Our Cursor"),
         ]
     )
     def test_attributes_clients_from_every_identity_signal(
         self, _name: str, properties: dict[str, Any], expected: str
     ) -> None:
+        MCPCustomHarness.objects.create(team=self.team, name="Acme Agent", match_pattern="acme-agent")
+        MCPCustomHarness.objects.create(team=self.team, name="Our Cursor", match_pattern="cursor-internal")
         self._emit_call(properties, count=2)
 
         overview = api.get_activity_overview(self.team)
@@ -1204,6 +1210,102 @@ class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         )
 
         assert [c.tool_name for c in page.results] == expected
+
+    @parameterized.expand(
+        [
+            (
+                "captured_failure",
+                {
+                    "$mcp_is_error": True,
+                    "$mcp_parameters": {"query": "select 1", "limit": 5},
+                    "$mcp_error_type": "api_5xx",
+                    "$mcp_error_status": 503,
+                    "$mcp_response": {"content": [{"type": "text", "text": "upstream 503"}], "isError": True},
+                },
+                {"query": "select 1", "limit": 5},
+                ("api_5xx", "503"),
+            ),
+            ("string_argument", {"$mcp_parameters": 'say "hi"\nnow \\ done'}, 'say "hi"\nnow \\ done', ("", "")),
+            ("numeric_string_argument", {"$mcp_parameters": "123"}, "123", ("", "")),
+            (
+                "big_integer_argument",
+                {"$mcp_parameters": {"id": 1234567890123456789}},
+                {"id": 1234567890123456789},
+                ("", ""),
+            ),
+            ("nothing_captured", {}, None, ("", "")),
+        ]
+    )
+    def test_returns_captured_arguments_result_and_error_bucket(
+        self,
+        _name: str,
+        extra_properties: dict[str, Any],
+        expected_parameters: Any,
+        expected_bucket: tuple[str, str],
+    ) -> None:
+        session_id = str(uuid7())
+        start = datetime.now(tz=UTC) - timedelta(minutes=5)
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=start,
+            properties={"$session_id": session_id, "$mcp_tool_name": "query_run", **extra_properties},
+        )
+
+        [call] = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=50, offset=0, date_from=start).results
+
+        assert (json.loads(call.parameters) if call.parameters else None) == expected_parameters
+        assert (call.error_type, call.error_status) == expected_bucket
+        assert (json.loads(call.response) if call.response else None) == extra_properties.get("$mcp_response")
+
+    @parameterized.expand(
+        [
+            (
+                "exec_discovery_with_failure_details",
+                {
+                    "$mcp_exec_verb": "info",
+                    "$mcp_exec_target_tool": "execute-sql",
+                    "$mcp_input_keys": ["context", "query"],
+                    "$mcp_error_code": "unknown_command",
+                    "$mcp_error_field": "query",
+                    "$mcp_llm_model": "claude-opus-5-5",
+                },
+                ("info", "execute-sql", ["context", "query"], "unknown_command", "query", "claude-opus-5-5"),
+            ),
+            ("nothing_captured", {}, ("", "", [], "", "", "")),
+            ("malformed_input_keys", {"$mcp_input_keys": "query"}, ("", "", [], "", "", "")),
+            ("deeply_nested_input_keys", {"$mcp_input_keys": [[[["query"]]]]}, ("", "", [], "", "", "")),
+            (
+                "blank_or_control_input_keys",
+                {"$mcp_input_keys": ["query", "", "  ", "line\nbreak"]},
+                ("", "", ["query"], "", "", ""),
+            ),
+        ]
+    )
+    def test_returns_exec_input_and_error_details(
+        self, _name: str, extra_properties: dict[str, Any], expected: tuple[str, str, list[str], str, str, str]
+    ) -> None:
+        session_id = str(uuid7())
+        start = datetime.now(tz=UTC) - timedelta(minutes=5)
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=start,
+            properties={"$session_id": session_id, "$mcp_tool_name": "exec", **extra_properties},
+        )
+
+        [call] = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=50, offset=0, date_from=start).results
+
+        assert (
+            call.exec_verb,
+            call.exec_target_tool,
+            call.input_keys,
+            call.error_code,
+            call.error_field,
+            call.llm_model,
+        ) == expected
 
     def test_has_next_signals_more_pages(self) -> None:
         session_id = str(uuid7())

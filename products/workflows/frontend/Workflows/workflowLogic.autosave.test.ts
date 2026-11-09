@@ -8,6 +8,7 @@ import { LemonDialog, LemonDialogProps } from 'lib/lemon-ui/LemonDialog'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo, MockSignature } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
@@ -50,6 +51,7 @@ const makeWorkflow = (overrides: Partial<HogFlow> = {}): HogFlow => ({
     trigger: { type: 'event', filters: {} } as HogFlow['trigger'],
     created_at: '2026-05-01T00:00:00.000Z',
     updated_at: '2026-05-01T00:00:00.000Z',
+    user_access_level: AccessControlLevel.Editor,
     ...overrides,
 })
 
@@ -861,10 +863,13 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.manualTriggerDisabledReason).toBeUndefined()
         })
 
-        it('reports a refused trigger instead of claiming the workflow ran', async () => {
+        it.each([
+            ['reports a run the API queued', 200, { status: 'queued', invocation_id: 'run-1' }, true],
+            ['reports a refused trigger instead of claiming the workflow ran', 403, { detail: 'No access' }, false],
+        ])('%s', async (_name, status, body, succeeded) => {
             useMocks({
                 get: { '/api/environments/:team_id/hog_flows/:id/': activeWorkflow() },
-                post: { '/public/webhooks/:id': () => [404, {}] },
+                post: { '/api/projects/:team_id/hog_flows/:id/run/': () => [status, body] },
             })
             await mountLoaded()
             const errorToast = jest.spyOn(lemonToast, 'error')
@@ -874,8 +879,8 @@ describe('workflowLogic auto-save', () => {
                 logic.actions.triggerManualWorkflow({})
             }).toFinishAllListeners()
 
-            expect(successToast).not.toHaveBeenCalled()
-            expect(errorToast).toHaveBeenCalled()
+            expect(successToast).toHaveBeenCalledTimes(succeeded ? 1 : 0)
+            expect(errorToast).toHaveBeenCalledTimes(succeeded ? 0 : 1)
         })
     })
 

@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime
 
 from django.db import transaction
@@ -12,13 +13,13 @@ from posthog.api.capture import capture_internal
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.mcp_analytics.backend import logic
+from products.mcp_analytics.backend import custom_harnesses, logic
 from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_DESCRIPTION_SQL,
     EFFECTIVE_TOOL_SQL,
     NEW_SDK_SOURCE,
 )
-from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL, harness_label_sql
+from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL, custom_arms_sql, harness_label_sql
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from . import contracts
@@ -26,12 +27,37 @@ from .constants import MCP_MISSING_CAPABILITY_EVENT
 from .enums import SubmissionKind
 
 
-def mcp_harness_virtual_field_expr() -> ast.Expr:
-    # nosemgrep: hogql-fstring-audit (both SQL fragments are fixed server-side expressions)
-    return parse_expr(
-        f"if(startsWith(event, '$mcp_'), arrayMap(h -> {harness_label_sql('h')}, [{HARNESS_TOKEN_SQL}])[1], NULL)",
-        cache_origin=CacheOrigin.BUILTIN,
-    )
+def custom_harness_rules(team: Team) -> tuple[contracts.CustomHarnessRule, ...]:
+    return custom_harnesses.custom_harness_rules(team)
+
+
+def invalidate_custom_harness_rules(team: Team) -> None:
+    custom_harnesses.invalidate_custom_harness_rules(team)
+
+
+_VIRTUAL_FIELD_SQL = (
+    f"if(startsWith(event, '$mcp_'), arrayMap(h -> {harness_label_sql('h')}, [{HARNESS_TOKEN_SQL}])[1], NULL)"
+)
+
+
+def mcp_harness_virtual_field_expr(custom_rules: Sequence[contracts.CustomHarnessRule] = ()) -> ast.Expr:
+    # The fixed body is too long for the user parse cache, so only the short team rules parse as user input.
+    expr = parse_expr(_VIRTUAL_FIELD_SQL, cache_origin=CacheOrigin.BUILTIN)
+    if custom_rules:
+        # nosemgrep: hogql-fstring-audit (the rule fields are escaped and character-restricted)
+        rule_arms = parse_expr(f"multiIf({custom_arms_sql('h', custom_rules)}NULL)", cache_origin=CacheOrigin.USER)
+        assert isinstance(rule_arms, ast.Call)
+        _harness_label_call(expr).args[:0] = rule_arms.args[:-1]
+    return expr
+
+
+def _harness_label_call(virtual_field: ast.Expr) -> ast.Call:
+    assert isinstance(virtual_field, ast.Call)
+    label_access = virtual_field.args[1]
+    assert isinstance(label_access, ast.ArrayAccess) and isinstance(label_access.array, ast.Call)
+    label_lambda = label_access.array.args[0]
+    assert isinstance(label_lambda, ast.Lambda) and isinstance(label_lambda.expr, ast.Call)
+    return label_lambda.expr
 
 
 def _to_submission(instance: MCPAnalyticsSubmission) -> contracts.Submission:

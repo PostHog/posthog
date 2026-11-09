@@ -645,7 +645,9 @@ class TestEmail(BaseTest):
                 with self.assertRaises(WorkflowsEmailError):
                     message.send(send_async=False, retry=False)
             else:
-                message.send(send_async=False, retry=False)
+                undeliverable = message.send(send_async=False, retry=False)
+                refused = "transactional email workflows rejected" in expected_events
+                self.assertEqual(undeliverable, ["test@posthog.com"] if refused else [])
 
         providers = [
             "workflows" if call.args[0].startswith("https://us.posthog.com") else "customer_io"

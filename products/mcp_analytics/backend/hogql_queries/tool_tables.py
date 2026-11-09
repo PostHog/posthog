@@ -5,6 +5,7 @@ Both resolve the client harness to a customer label server-side via `mcp_harness
 the dashboard donut — the frontend only maps a resolved label to its logo.
 """
 
+from collections.abc import Sequence
 from functools import cached_property
 from typing import TYPE_CHECKING
 
@@ -54,11 +55,13 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
+from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
     EFFECTIVE_DESCRIPTION_SQL,
     EFFECTIVE_TOOL_SQL,
-    NEW_SDK_SOURCE,
+    HarnessLabelQueryRunner,
     display_person_properties,
     effective_tool_expr,
     mcp_query_date_range,
@@ -76,10 +79,13 @@ if TYPE_CHECKING:
 # pipeline resolves descriptions identically to the Descriptions table here.
 _EFFECTIVE_DESCRIPTION = EFFECTIVE_DESCRIPTION_SQL
 
+
 # A per-row distinct-and-sorted list of resolved harness labels, collected from the
 # token computed in the inner subquery. groupArray evaluates the label per row, so the
 # token only has to be materialized once as `h`.
-_HARNESS_LABELS_AGG = f"arraySort(arrayDistinct(groupArray({mcp_harness.harness_label_sql('h')})))"
+def _harness_labels_agg(custom_rules: Sequence[CustomHarnessRule]) -> str:
+    return f"arraySort(arrayDistinct(groupArray({mcp_harness.harness_label_sql('h', custom_rules)})))"
+
 
 # Raw failure-bucket parts of an errored $mcp_tool_call: the SDK stamps a semantic bucket
 # ($mcp_error_type: internal, validation, api_4xx, api_5xx, permission, timeout, rate_limited,
@@ -101,6 +107,7 @@ _ToolDetailQuery = (
     | MCPToolDescriptionsQuery
     | MCPToolFailureOccurrencesQuery
     | MCPToolFailuresQuery
+    | MCPToolNeighborsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolStatsQuery
     | MCPToolTopUsersQuery
@@ -133,7 +140,7 @@ def _tool_call_where(
     return ast.And(exprs=exprs)
 
 
-class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryResponse]):
+class MCPToolTopUsersQueryRunner(HarnessLabelQueryRunner[MCPToolTopUsersQueryResponse]):
     query: MCPToolTopUsersQuery
     cached_response: CachedMCPToolTopUsersQueryResponse
 
@@ -175,7 +182,7 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
             LIMIT 5
             """,
             placeholders={
-                "_HARNESS_LABELS_AGG": parse_expr(_HARNESS_LABELS_AGG),
+                "_HARNESS_LABELS_AGG": parse_expr(_harness_labels_agg(custom_harness_rules(self.team))),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": self._where(),
             },
@@ -219,7 +226,7 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
         )
 
 
-class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryResponse]):
+class MCPToolFailuresQueryRunner(HarnessLabelQueryRunner[MCPToolFailuresQueryResponse]):
     query: MCPToolFailuresQuery
     cached_response: CachedMCPToolFailuresQueryResponse
 
@@ -266,7 +273,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
             LIMIT 20
             """,
             placeholders={
-                "_HARNESS_LABELS_AGG": parse_expr(_HARNESS_LABELS_AGG),
+                "_HARNESS_LABELS_AGG": parse_expr(_harness_labels_agg(custom_harness_rules(self.team))),
                 "_COMPOSED_FAILURE_LABEL": parse_expr(_COMPOSED_FAILURE_LABEL),
                 "_RAW_ERROR_TYPE": parse_expr(_RAW_ERROR_TYPE),
                 "_RAW_ERROR_STATUS": parse_expr(_RAW_ERROR_STATUS),
@@ -315,7 +322,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
 _ERROR_MESSAGE = "substring(coalesce(toString(properties.$mcp_error_message), ''), 1, 2048)"
 
 
-class MCPToolFailureOccurrencesQueryRunner(AnalyticsQueryRunner[MCPToolFailureOccurrencesQueryResponse]):
+class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailureOccurrencesQueryResponse]):
     query: MCPToolFailureOccurrencesQuery
     cached_response: CachedMCPToolFailureOccurrencesQueryResponse
 
@@ -381,7 +388,7 @@ class MCPToolFailureOccurrencesQueryRunner(AnalyticsQueryRunner[MCPToolFailureOc
             LIMIT 50
             """,
             placeholders={
-                "harness_label": parse_expr(mcp_harness.harness_label_sql("h")),
+                "harness_label": parse_expr(mcp_harness.harness_label_sql("h", custom_harness_rules(self.team))),
                 "_CONVERSATION_ID": parse_expr(CONVERSATION_ID_SQL),
                 "_ERROR_MESSAGE": parse_expr(_ERROR_MESSAGE),
                 "_RAW_ERROR_STATUS": parse_expr(_RAW_ERROR_STATUS),
@@ -666,7 +673,7 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
         )
 
 
-class MCPToolSampleIntentsQueryRunner(AnalyticsQueryRunner[MCPToolSampleIntentsQueryResponse]):
+class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleIntentsQueryResponse]):
     query: MCPToolSampleIntentsQuery
     cached_response: CachedMCPToolSampleIntentsQueryResponse
 
@@ -707,7 +714,7 @@ class MCPToolSampleIntentsQueryRunner(AnalyticsQueryRunner[MCPToolSampleIntentsQ
             LIMIT 5
             """,
             placeholders={
-                "harness_label": parse_expr(mcp_harness.harness_label_sql("h")),
+                "harness_label": parse_expr(mcp_harness.harness_label_sql("h", custom_harness_rules(self.team))),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": where,
             },
@@ -746,9 +753,10 @@ class MCPToolSampleIntentsQueryRunner(AnalyticsQueryRunner[MCPToolSampleIntentsQ
         )
 
 
-_WINDOW_FN: dict[NeighborDirection, str] = {
-    NeighborDirection.BEFORE: "lagInFrame",
-    NeighborDirection.AFTER: "leadInFrame",
+# The sequence shifted one place, so each call lines up with its neighbour without a lambda capturing `tools`.
+_NEIGHBORS_SQL: dict[NeighborDirection, str] = {
+    NeighborDirection.BEFORE: "arrayPushFront(arrayPopBack(tools), NULL)",
+    NeighborDirection.AFTER: "arrayPushBack(arrayPopFront(tools), NULL)",
 }
 
 
@@ -764,52 +772,35 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
         return mcp_query_date_range(self.team, self.query.dateRange)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        # The CTE collects every tool call in qualifying conversations (not just the target
-        # tool) so the window function can see each call's neighbour; the target tool is
-        # selected in the outer WHERE. window_fn is chosen from a fixed map, never input.
-        window_fn = _WINDOW_FN[self.query.neighborDirection]
-        # Built from a fixed function name + hardcoded window, never user input; passed to
-        # parse_expr as a variable (not a literal f-string) so hogql-fstring-audit stays clean.
-        neighbor_expr = (
-            f"{window_fn}(tool) OVER ("
-            "PARTITION BY conv_id ORDER BY timestamp "
-            "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)"
-        )
-        cte_where = ast.And(
-            exprs=[
-                parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
-                parse_expr(
-                    "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
-                ),
-                parse_expr(
-                    "timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}
-                ),
-                parse_expr(
-                    "properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}
-                ),
-                parse_expr("notEmpty({conv_id})", placeholders={"conv_id": parse_expr(CONVERSATION_ID_SQL)}),
-                # In the CTE so a filtered-out call cannot count as a neighbour either.
-                *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
-            ]
+        # groupArray, not a window function: a window sorts every call in the range by conversation,
+        # which costs several times the scan on a busy server.
+        where = _tool_call_where(
+            self.query,
+            self.query_date_range,
+            self.team,
+            scope_to_tool=False,
+            extra=[parse_expr("notEmpty({conv_id})", placeholders={"conv_id": parse_expr(CONVERSATION_ID_SQL)})],
         )
         return parse_select(
             """
-            WITH tool_calls AS (
-                SELECT
-                    {_CONVERSATION_ID} AS conv_id,
-                    timestamp,
-                    {effective_tool} AS tool
-                FROM events
-                WHERE {cte_where}
-            )
             SELECT neighbor_tool, count() AS co_occurrences
             FROM (
-                SELECT
-                    tool,
-                    {neighbor_expr} AS neighbor_tool
-                FROM tool_calls
+                SELECT arrayJoin(arrayFilter((neighbor, tool) -> tool = {tool}, {neighbors}, tools)) AS neighbor_tool
+                FROM (
+                    SELECT arrayMap(call -> call.2, arraySort(call -> call.1, groupArray((timestamp, tool)))) AS tools
+                    FROM (
+                        SELECT
+                            {_CONVERSATION_ID} AS conv_id,
+                            timestamp,
+                            {effective_tool} AS tool
+                        FROM events
+                        WHERE {where}
+                    )
+                    GROUP BY conv_id
+                    HAVING has(tools, {tool})
+                )
             )
-            WHERE tool = {tool} AND neighbor_tool IS NOT NULL AND neighbor_tool != '' AND neighbor_tool != tool
+            WHERE neighbor_tool IS NOT NULL AND neighbor_tool != '' AND neighbor_tool != {tool}
             GROUP BY neighbor_tool
             ORDER BY co_occurrences DESC
             LIMIT 5
@@ -817,8 +808,8 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
             placeholders={
                 "_CONVERSATION_ID": parse_expr(CONVERSATION_ID_SQL),
                 "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
-                "neighbor_expr": parse_expr(neighbor_expr),
-                "cte_where": cte_where,
+                "neighbors": parse_expr(_NEIGHBORS_SQL[self.query.neighborDirection]),
+                "where": where,
                 "tool": ast.Constant(value=self.query.toolName),
             },
         )

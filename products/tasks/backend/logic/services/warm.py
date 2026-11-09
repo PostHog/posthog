@@ -31,6 +31,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.tasks.backend.access import get_posthog_ai_access_decision
+from products.tasks.backend.facade.profiles import TaskProfile, WarmQuota
 from products.tasks.backend.logic.services.compute_quota import organization_deactivated
 from products.tasks.backend.logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from products.tasks.backend.metrics import observe_warm_churn_throttled
@@ -104,6 +105,13 @@ def _posthog_ai_checker(team: Team, user: User) -> None:
     _ai_credits_checker(team, user)
 
 
+_CHECKERS_BY_WARM_QUOTA: dict[WarmQuota, Callable[[Team, User], None] | None] = {
+    WarmQuota.AI_CREDITS: _ai_credits_checker,
+    WarmQuota.POSTHOG_AI: _posthog_ai_checker,
+    WarmQuota.NONE: None,
+}
+
+
 class SandboxWarmer:
     """Idempotently warm a sandbox Run for an existing Task, enforcing the product's quota gate and a
     state-derived warm-pool cap, then dispatching the processing workflow after commit.
@@ -149,22 +157,28 @@ class SandboxWarmer:
         self.user = user
 
     @classmethod
-    def enforce_quota(cls, origin_product: str, team: Team, user: User) -> None:
+    def enforce_quota(cls, origin_product: str, team: Team, user: User, *, profile: TaskProfile | None = None) -> None:
         """Raise if ``team`` may not warm a Run for ``origin_product`` (over quota, or origin not registered).
 
         Fail-closed: an origin absent from the registry is denied. A registered origin whose gate is
-        ``None`` is allowed with no billing quota (enablement + caps gate it elsewhere).
+        ``None`` is allowed with no billing quota (enablement + caps gate it elsewhere). A profile
+        answers from its warm policy instead of the origin registry.
         """
-        if origin_product not in cls.ORIGIN_PRODUCT_QUOTA:
-            raise PermissionDenied(f"Warming is not enabled for origin product '{origin_product}'.")
+        if profile is not None:
+            if profile.warm is None:
+                raise PermissionDenied(f"Warming is not enabled for origin product '{origin_product}'.")
+            checker = _CHECKERS_BY_WARM_QUOTA[profile.warm.quota]
+        else:
+            if origin_product not in cls.ORIGIN_PRODUCT_QUOTA:
+                raise PermissionDenied(f"Warming is not enabled for origin product '{origin_product}'.")
+            checker = cls.ORIGIN_PRODUCT_QUOTA[origin_product]
         if organization_deactivated(team.id):
             raise PermissionDenied("Your organization has been deactivated.")
-        checker = cls.ORIGIN_PRODUCT_QUOTA[origin_product]
         if checker is not None:
             checker(team, user)
 
     @classmethod
-    def at_capacity(cls, origin_product: str, team: Team, user: User) -> bool:
+    def at_capacity(cls, origin_product: str, team: Team, user: User, *, profile: TaskProfile | None = None) -> bool:
         """True if the user or org already holds the max concurrent *warm* Runs.
 
         Counts only Runs still awaiting their first message (``state.await_user_message`` set) — so the
@@ -174,21 +188,28 @@ class SandboxWarmer:
         serialized by the per-Task lock, so it may overshoot slightly under heavy concurrency — acceptable
         for a best-effort resource guard.
         """
-        caps = cls.ORIGIN_PRODUCT_CAPS.get(origin_product, cls._DEFAULT_CAPS)
+        if profile is not None and profile.warm is not None:
+            caps = WarmPoolCaps(per_user=profile.warm.per_user_cap, per_org=profile.warm.per_org_cap)
+        else:
+            caps = cls.ORIGIN_PRODUCT_CAPS.get(origin_product, cls._DEFAULT_CAPS)
         # `await_user_message` is stored literally (the field is alias-free in PostHogAIRunState); see the
         # comment there before adding an alias, which would silently break this filter and open the cap.
         warm_runs = TaskRun.objects.filter(
-            task__origin_product=origin_product,
+            origin_product=origin_product,
             status__in=cls._NON_TERMINAL_STATUSES,
             state__await_user_message=True,
         ).exclude(task__deleted=True)
 
         if warm_runs.filter(task__created_by_id=user.pk).count() >= caps.per_user:
             return True
-        return warm_runs.filter(task__team__organization_id=team.organization_id).count() >= caps.per_org
+        return warm_runs.filter(team__organization_id=team.organization_id).count() >= caps.per_org
 
     @classmethod
     def _active_session_caps(cls, origin_product: str, signal_report_id: UUID | str | None) -> ActiveSessionCaps | None:
+        # Server-only, but a member starts these from a page, one sandbox per flag, so they are capped like
+        # PostHog AI runs.
+        if origin_product == Task.OriginProduct.FEATURE_FLAGS:
+            return cls.ORIGIN_ACTIVE_SESSION_CAPS[Task.OriginProduct.POSTHOG_AI]
         if origin_product in Task.SERVER_ONLY_ORIGIN_PRODUCTS:
             return None
         # A report-linked task, from the signals batch or a person starting work on a report, is bounded
@@ -317,13 +338,24 @@ class SandboxWarmer:
         """
         # Quota is a gateway/cache call — check it before taking the row lock, never while holding it.
         origin_product = self.task.origin_product
+        profile = self.task.stored_profile
         team = self.task.team
-        self.enforce_quota(origin_product, team, self.user)
+        self.enforce_quota(origin_product, team, self.user, profile=profile)
         churned = self._warm_churn_exceeded()
-        pool_full = self.at_capacity(origin_product, team, self.user)
+        pool_full = self.at_capacity(origin_product, team, self.user, profile=profile)
 
+        from products.signals.backend.facade.trial import prepare_task_trial  # noqa: PLC0415 -- Signals imports Tasks
+
+        trial_admission = prepare_task_trial(
+            team=team,
+            origin=origin_product,
+            report_id=self.task.signal_report_source_id,
+            mode=mode if self.task.uses_self_driving_billing(mode) else "interactive",
+        )
         new_run: TaskRun
         with transaction.atomic():
+            if trial_admission is not None:
+                trial_admission.lock_report(self.task.signal_report_source_id)
             locked = Task.objects.select_for_update().get(id=self.task.id)
             existing = locked.latest_run
             if existing is not None and not existing.is_terminal:
@@ -381,7 +413,9 @@ class SandboxWarmer:
                 run_state["resume_from_run_id"] = str(resume_source.id)
                 run_state.update(parse_run_state(resume_source.state).resume_snapshot_carry_state())
 
-            new_run = locked.create_run(mode=mode, extra_state=run_state, branch=run_state.get("branch"))
+            new_run = locked.create_run(
+                mode=mode, extra_state=run_state, branch=run_state.get("branch"), _trial_admission=trial_admission
+            )
 
             # Dispatch only after the row commits, so a rollback can't leave an orphaned sandbox.
             enqueue_or_start_workflow(

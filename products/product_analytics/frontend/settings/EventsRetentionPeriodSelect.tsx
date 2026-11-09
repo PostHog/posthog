@@ -3,12 +3,14 @@ import { useState } from 'react'
 import { LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { EventsRetentionChangeNote } from './EventsRetentionChangeNote'
+import { EventsRetentionLevel } from './eventsRetentionDeletionCountLogic'
 import { EventsRetentionPeriodChoices, eventsRetentionPeriodOptions } from './eventsRetentionPeriodOptions'
 import { EventsRetentionSupportPeriodModal } from './EventsRetentionSupportPeriodModal'
 import { RetentionPeriods, retentionChangeDeletion } from './retentionChangeDeletion'
 import { retentionPeriodLabel } from './retentionPeriodLabel'
 
 export interface EventsRetentionPeriodSelectProps extends RetentionPeriods, EventsRetentionPeriodChoices {
+    level: EventsRetentionLevel
     scope: string
     owner: string
     note: string | JSX.Element
@@ -18,8 +20,19 @@ export interface EventsRetentionPeriodSelectProps extends RetentionPeriods, Even
 }
 
 export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectProps): JSX.Element {
-    const { retentionMonths, defaultMonths, choices, scope, owner, note, saving, restrictionReason, onSave, dataAttr } =
-        props
+    const {
+        retentionMonths,
+        defaultMonths,
+        choices,
+        level,
+        scope,
+        owner,
+        note,
+        saving,
+        restrictionReason,
+        onSave,
+        dataAttr,
+    } = props
     const [changingSupportPeriod, setChangingSupportPeriod] = useState(false)
     const options = eventsRetentionPeriodOptions(props)
     const supportMonths = retentionMonths !== null && !choices.includes(retentionMonths) ? retentionMonths : null
@@ -30,7 +43,14 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
         LemonDialog.open({
             title: `Keep events for ${period}?`,
             maxWidth: '32rem',
-            content: <EventsRetentionChangeNote months={months ?? defaultMonths} scope={scope} deletion={deletion} />,
+            content: (
+                <EventsRetentionChangeNote
+                    level={level}
+                    months={months ?? defaultMonths}
+                    scope={scope}
+                    deletion={deletion}
+                />
+            ),
             primaryButton: {
                 children: `Keep events for ${period}`,
                 status: deletion ? 'danger' : 'default',
@@ -80,6 +100,7 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
                 <EventsRetentionSupportPeriodModal
                     periods={props}
                     supportMonths={supportMonths}
+                    level={level}
                     owner={owner}
                     scope={scope}
                     options={options}

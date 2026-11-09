@@ -13,6 +13,8 @@ interface ViewScreenFrameProps {
     children: ReactNode
     /** The floating top chrome. It sits inside the chart selection, so a tap on it closes a pinned tooltip. */
     chrome: ReactNode
+    /** False for a screen drawn as a navigation tab, which already sits under the tabs layout's overlay host. */
+    overlayHost?: boolean
 }
 
 /**
@@ -20,20 +22,19 @@ interface ViewScreenFrameProps {
  * bar's overlay host, so the frame brings its own host for sheets and toasts. The sheets draw outside the chart
  * selection, so the pinned tooltip stays behind an open Point sheet.
  */
-export function ViewScreenFrame({ children, chrome }: ViewScreenFrameProps): ReactElement {
+export function ViewScreenFrame({ children, chrome, overlayHost = true }: ViewScreenFrameProps): ReactElement {
     const styles = useStyles()
-    return (
-        <OverlayHost>
-            <View style={styles.screen} testID="view-screen">
-                <ChartSheetsProvider>
-                    <ChartSelectionProvider>
-                        {children}
-                        {chrome}
-                    </ChartSelectionProvider>
-                </ChartSheetsProvider>
-            </View>
-        </OverlayHost>
+    const screen = (
+        <View style={styles.screen} testID="view-screen">
+            <ChartSheetsProvider>
+                <ChartSelectionProvider>
+                    {children}
+                    {chrome}
+                </ChartSelectionProvider>
+            </ChartSheetsProvider>
+        </View>
     )
+    return overlayHost ? <OverlayHost>{screen}</OverlayHost> : screen
 }
 
 /** Back to the previous screen, or to the default page when a deep link opened the view. */

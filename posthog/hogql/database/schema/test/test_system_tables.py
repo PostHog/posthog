@@ -124,6 +124,7 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutEmission,
     SignalScoutRun,
+    SignalSpend,
 )
 from products.surveys.backend.models import Survey, SurveyResponseArchive
 from products.tasks.backend.facade import testing as tasks_testing
@@ -1043,6 +1044,12 @@ def _create_scout_run_emission(team: Team, label: str) -> SignalScoutEmission:
     )
 
 
+def _create_signal_spend(team: Team, label: str) -> SignalSpend:
+    return SignalSpend.objects.for_team(team.pk).create(
+        team=team, kind=SignalSpend.Kind.AD_HOC, signal_id=uuid.uuid4(), spend="1.2345", finalized_at=timezone.now()
+    )
+
+
 def _create_task_artifact(team: Team, label: str) -> uuid.UUID:
     run = _create_task_run(team, label)
     return tasks_testing.create_task_artifact(
@@ -1196,6 +1203,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("scout_configs", _create_scout_config),
     ("scout_run_emissions", _create_scout_run_emission),
     ("scout_runs", _create_scout_run),
+    ("signal_spend", _create_signal_spend),
+    ("_signal_spend_scout_runs", _create_scout_run),
     ("session_recording_playlists", _create_session_recording_playlist),
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
@@ -1510,6 +1519,15 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
 
 class TestSystemTablesInboxAccess(BaseTest):
+    @parameterized.expand([("signal_usage:read", True), ("signal_scout:read", False)])
+    def test_spend_tables_require_usage_scope(self, scope: str, expected_visible: bool) -> None:
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="spend-tables", secure_value="sha256$" + "e" * 64, scopes=[scope]
+        )
+        _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
+        assert ("signal_spend" not in denied) is expected_visible
+        assert ("_signal_spend_scout_runs" not in denied) is expected_visible
+
     @parameterized.expand(
         [
             ("inbox_read", ["inbox:read"], True),
@@ -1601,15 +1619,34 @@ class TestSystemTablesScoutTrialExclusionIsolation(NonAtomicBaseTest):
         SignalScoutRun.objects.for_team(self.team.pk).filter(id=trial.scout_run_id).update(
             metadata={"scout_trial": {"version": 1}}
         )
+        for emission in (visible, trial):
+            run = SignalScoutRun.objects.for_team(self.team.pk).get(id=emission.scout_run_id)
+            SignalSpend.objects.for_team(self.team.pk).create(
+                team=self.team,
+                kind=SignalSpend.Kind.SCOUT_RUN,
+                scout_run=run,
+                task_run_id=run.task_run_id,
+                spend="12.3456",
+                finalized_at=timezone.now(),
+            )
+            SignalScoutRun.objects.for_team(self.team.pk).filter(id=run.id).update(total_spend="12.3456")
         runs = execute_hogql_query("SELECT id FROM system.scout_runs", team=self.team, user=self.user)
         emissions = execute_hogql_query(
             "SELECT id, run_id FROM system.scout_run_emissions", team=self.team, user=self.user
+        )
+        spend = execute_hogql_query(
+            "SELECT scout_run_id, credits FROM system.signal_spend", team=self.team, user=self.user
+        )
+        run_spend = execute_hogql_query(
+            "SELECT id, spend_credits FROM system.scout_runs", team=self.team, user=self.user
         )
 
         assert {str(row[0]) for row in runs.results} == {str(visible.scout_run_id)}
         assert {(str(row[0]), str(row[1])) for row in emissions.results} == {
             (str(visible.pk), str(visible.scout_run_id))
         }
+        assert [(str(row[0]), str(row[1])) for row in spend.results] == [(str(visible.scout_run_id), "12.3456")]
+        assert [(str(row[0]), str(row[1])) for row in run_spend.results] == [(str(visible.scout_run_id), "12.3456")]
 
 
 class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):

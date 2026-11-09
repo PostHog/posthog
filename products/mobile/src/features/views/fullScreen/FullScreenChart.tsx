@@ -73,7 +73,9 @@ export function FullScreenChart({ shortId, queryKey }: FullScreenChartProps): Re
         snapshot &&
         insightRenderState(snapshot) === 'ready' &&
         snapshot.chartKind === 'bar' &&
-        snapshot.allSeries.filter((series) => series.compare !== 'previous').length > 1
+        snapshot.allSeries.filter(
+            (series) => series.compare !== 'previous' && (series.chartKind ?? snapshot.chartKind) === 'bar'
+        ).length > 1
     return (
         <ViewScreenFrame
             chrome={
@@ -218,7 +220,7 @@ function FullScreenBody({
     } else if (display === 'number' && snapshot.value !== null) {
         body = <Text style={styles.number}>{snapshotFormatter(snapshot)(snapshot.value)}</Text>
     } else {
-        body = <OpensOnWeb shortId={snapshot.shortId} />
+        body = <OpensOnWeb shortId={snapshot.shortId} reason={snapshot.capabilities.chartReason} />
     }
     return (
         <ScrollView
@@ -237,7 +239,7 @@ function FullScreenBody({
 }
 
 function metaLead(snapshot: InsightSnapshot, display: InsightDisplay): string | null {
-    if (display === 'chart') {
+    if (display === 'chart' && !snapshot.allSeries[0]?.points[0]?.label) {
         return intervalLabel(snapshot.interval)
     }
     return display === 'table' && snapshot.sqlTable ? sqlRowsText(snapshot.sqlTable, SQL_TABLE_MAX_ROWS) : null

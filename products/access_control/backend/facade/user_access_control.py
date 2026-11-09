@@ -650,6 +650,11 @@ class UserAccessControl:
         return self._team
 
     @property
+    def organization_membership(self) -> Optional[OrganizationMembership]:
+        """The user's membership in this instance's organization, looked up once per instance."""
+        return self._organization_membership
+
+    @property
     def rbac_supported(self) -> bool:
         if not self._organization:
             return False
@@ -838,7 +843,7 @@ class UserAccessControl:
         """Fill self._cache for these filter groups. When every group is team-scoped they're served
         from the single bulk preload (_cached_access_controls) in memory - no extra query; otherwise
         a targeted OR-combined query is issued for them."""
-        if not filter_groups:
+        if not filter_groups or not self.access_controls_supported:
             return
 
         if all(self._can_serve_from_preload(filters) for filters in filter_groups):
@@ -1311,6 +1316,56 @@ class UserAccessControl:
                 return True
 
         return False
+
+    def stored_rule_floor(self, resources: Iterable[APIScopeObject]) -> Optional[AccessControlLevel]:
+        """The lowest level the stored rules on ``resources`` can give this user in this team.
+
+        For a caller that copies access to a place that cannot follow PostHog's resolution, such as
+        a grant over a whole warehouse namespace. The floor holds under either resolution mode and
+        whether or not the organization is entitled to access control or roles. So a later change
+        to either can only raise what PostHog enforces above it, never drop it below.
+
+        Each scope (the resource, or one object) contributes its lowest candidate row. The
+        candidates are the user's member rows, if the scope has any. Otherwise they are the rows of
+        the user's roles and the default rows, because a role rule may not apply. Every resolution
+        picks one of the candidates or a level from a broader scope, which contributes on its own.
+        A ``project`` rule on this team contributes only when it denies the project.
+
+        ``None`` means no stored rule applies. This includes org admins, who bypass every rule.
+        """
+        membership = self._organization_membership
+        if not EE_AVAILABLE or not self._team or not membership or self.is_organization_admin:
+            return None
+        role_ids = list(
+            cast(Any, self._user)
+            .role_memberships.filter(role__organization_id=self._organization_id)
+            .valid_for_authorization()
+            .values_list("role_id", flat=True)
+        )
+        rows = AccessControl.objects.filter(team_id=self._team.id, resource__in=list(resources)).filter(
+            Q(organization_member=None, role=None)
+            | Q(organization_member_id=membership.id, role=None)
+            | Q(organization_member=None, role_id__in=role_ids)
+        )
+        rows_by_scope: dict[tuple[str, Optional[str]], list[AccessControl]] = defaultdict(list)
+        for row in rows:
+            rows_by_scope[(row.resource, row.resource_id)].append(row)
+
+        lowest: Optional[AccessControlLevel] = None
+        for (resource, resource_id), scope_rows in rows_by_scope.items():
+            member_rows = [row for row in scope_rows if row.organization_member_id is not None]
+            candidates = member_rows or scope_rows
+            if resource == "project":
+                if resource_id == str(self._team.id) and any(r.access_level == NO_ACCESS_LEVEL for r in candidates):
+                    return cast(AccessControlLevel, NO_ACCESS_LEVEL)
+                continue
+            order = ordered_access_levels(cast(APIScopeObject, resource))
+            for row in candidates:
+                # A level outside the order is unknown: count it as no access.
+                level = cast(AccessControlLevel, row.access_level if row.access_level in order else NO_ACCESS_LEVEL)
+                if lowest is None or order.index(level) < order.index(lowest):
+                    lowest = level
+        return lowest
 
     def effective_access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
         """

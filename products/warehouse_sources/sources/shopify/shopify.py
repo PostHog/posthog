@@ -415,8 +415,13 @@ def iter_shopify_pages(
             raise ShopifyRetryableError(
                 f"Shopify: internal error from request {response.status_code} {response.reason}"
             )
-        else:
-            response.raise_for_status()
+        if response.status_code == 408:
+            # Shopify's edge timed out waiting on the request rather than refusing it; retrying
+            # the identical request is the recovery, same as a 5xx.
+            raise ShopifyRetryableError(
+                f"Shopify: request timeout from request {response.status_code} {response.reason}"
+            )
+        response.raise_for_status()
         payload = response.json()
         retryable_error = _get_retryable_error(payload)
         if retryable_error:

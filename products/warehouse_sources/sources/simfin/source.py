@@ -6,7 +6,8 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     FieldType,
     ReleaseStatus,
-    SimpleSource,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -19,6 +20,8 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.simfin._config import SimFinSourceConfig
 from products.warehouse_sources.sources.simfin.settings import SIMFIN_ENDPOINTS
 from products.warehouse_sources.sources.simfin.simfin import (
+    SimFinResumeConfig,
+    change_log_source,
     simfin_source,
     validate_credentials as validate_simfin_credentials,
     validate_tickers,
@@ -26,7 +29,7 @@ from products.warehouse_sources.sources.simfin.simfin import (
 
 
 @SourceRegistry.register
-class SimFinSource(SimpleSource[SimFinSourceConfig]):
+class SimFinSource(ResumableSource[SimFinSourceConfig, SimFinResumeConfig]):
     codebase_detection = detect(env=("^(SIM_FIN|SIMFIN)_",), pypi=("simfin",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -58,9 +61,8 @@ class SimFinSource(SimpleSource[SimFinSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # SimFin has no server-side change cursor (statement/price date filters scope the record's
-        # own date, and price history is split-adjusted retroactively), so every table is full
-        # refresh only.
+        # Financial date filters miss revisions. The utility endpoints do not document a row-level
+        # change cursor, so they cannot safely advance an incremental watermark either.
         schemas = [
             SourceSchema(
                 name=endpoint.name,
@@ -96,11 +98,31 @@ class SimFinSource(SimpleSource[SimFinSourceConfig]):
 
         return False, "Invalid SimFin API key"
 
-    def source_for_pipeline(self, config: SimFinSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SimFinResumeConfig]:
+        return ResumableSourceManager(inputs, SimFinResumeConfig)
+
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        return not incremental_or_append and schema_name == "data_change_log"
+
+    def source_for_pipeline(
+        self,
+        config: SimFinSourceConfig,
+        resumable_source_manager: ResumableSourceManager[SimFinResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         # Re-validate here so a previously-saved oversized ticker list can't trigger a runaway sync.
         tickers, tickers_error = validate_tickers(config.tickers)
         if tickers_error:
             raise ValueError(f"SimFin source misconfigured: {tickers_error}")
+
+        if inputs.schema_name == "data_change_log":
+            return change_log_source(
+                api_key=config.api_key,
+                api_version=self.resolve_api_version(inputs.api_version),
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                resumable_source_manager=resumable_source_manager,
+            )
 
         return simfin_source(
             api_key=config.api_key,
@@ -122,7 +144,7 @@ class SimFinSource(SimpleSource[SimFinSourceConfig]):
 
 You can find your API key in the [SimFin app](https://app.simfin.com/data-api) (confirm your account e-mail first).
 
-Note: each selected table costs one request per ticker on every sync, and SimFin rate limits requests per second by plan tier. Historical depth and some datasets depend on your SimFin plan.""",
+Note: most tables cost one request per ticker on every sync. The data change log and changed companies cover all companies and ignore the ticker setting. The data change log requires one request per page. SimFin rate limits requests per second by plan tier. Historical depth and some datasets depend on your SimFin plan.""",
             iconPath="/static/services/simfin.png",
             docsUrl="https://posthog.com/docs/cdp/sources/simfin",
             fields=cast(

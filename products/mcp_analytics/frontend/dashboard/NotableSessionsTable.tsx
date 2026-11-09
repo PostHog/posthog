@@ -16,19 +16,20 @@ import {
     TableHead,
     TableHeader,
     TableRow,
+    cn,
 } from '@posthog/quill-primitives'
 
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { type NotableSession } from '../mcpDashboardOverviewLogic'
 import { mcpSessionUrl, mcpSessionsUrl } from '../sessionUrls'
-import { formatDuration, truncateSessionId } from './formatters'
+import { CardError } from './Card'
+import { DESTRUCTIVE_ERROR_RATE_PCT, formatDuration, truncateSessionId } from './formatters'
 
-const DESTRUCTIVE_ERROR_PCT = 5
 const WARNING_ERROR_PCT = 1
 
 function statusVariant(errorRatePct: number): 'destructive' | 'warning' | 'success' {
-    if (errorRatePct > DESTRUCTIVE_ERROR_PCT) {
+    if (errorRatePct >= DESTRUCTIVE_ERROR_RATE_PCT) {
         return 'destructive'
     }
     if (errorRatePct >= WARNING_ERROR_PCT) {
@@ -49,12 +50,23 @@ function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
 function SessionRows({
     sessions,
     loading,
+    failed,
+    onRetry,
     searchParams,
 }: {
     sessions: NotableSession[]
     loading: boolean
+    failed?: boolean
+    onRetry?: () => void
     searchParams: Record<string, any>
 }): JSX.Element {
+    if (failed) {
+        return (
+            <TableEmpty className="py-6">
+                <CardError onRetry={onRetry} />
+            </TableEmpty>
+        )
+    }
     if (loading && sessions.length === 0) {
         return (
             <TableBody>
@@ -71,10 +83,14 @@ function SessionRows({
         )
     }
     if (sessions.length === 0) {
-        return <TableEmpty className="py-6 text-secondary">No sessions were flagged in this period.</TableEmpty>
+        return (
+            <TableEmpty className="py-6 text-secondary">
+                No sessions were flagged in this date range. Try a wider range.
+            </TableEmpty>
+        )
     }
     return (
-        <TableBody>
+        <TableBody aria-busy={loading} className={cn('transition-opacity', loading && 'opacity-50')}>
             {sessions.map((entry) => (
                 <TableRow key={entry.session.session_id}>
                     <TableCell className="whitespace-nowrap">
@@ -86,8 +102,12 @@ function SessionRows({
                             {truncateSessionId(entry.session.session_id)}
                         </Link>
                     </TableCell>
-                    <TableCell align="right">{entry.session.tool_calls}</TableCell>
-                    <TableCell align="right">{formatDuration(entry.session.duration_seconds)}</TableCell>
+                    <TableCell align="right" className="tabular-nums">
+                        {entry.session.tool_calls}
+                    </TableCell>
+                    <TableCell align="right" className="tabular-nums">
+                        {formatDuration(entry.session.duration_seconds)}
+                    </TableCell>
                     <TableCell>
                         <StatusPill errorRatePct={entry.session.error_rate_pct} />
                     </TableCell>
@@ -103,9 +123,13 @@ function SessionRows({
 export function NotableSessionsTable({
     sessions,
     loading,
+    failed,
+    onRetry,
 }: {
     sessions: NotableSession[]
     loading: boolean
+    failed?: boolean
+    onRetry?: () => void
 }): JSX.Element {
     const { searchParams } = useValues(router)
     return (
@@ -123,11 +147,17 @@ export function NotableSessionsTable({
                         <TableHead expand>Why notable</TableHead>
                     </TableRow>
                 </TableHeader>
-                <SessionRows sessions={sessions} loading={loading} searchParams={searchParams} />
+                <SessionRows
+                    sessions={sessions}
+                    loading={loading}
+                    failed={failed}
+                    onRetry={onRetry}
+                    searchParams={searchParams}
+                />
             </Table>
             <CardFooter className="justify-end">
-                <Link to={mcpSessionsUrl(searchParams)} className="text-[10px]">
-                    Open in Sessions tab ↗
+                <Link to={mcpSessionsUrl(searchParams)} className="text-xs">
+                    Open in Sessions tab
                 </Link>
             </CardFooter>
         </Card>
