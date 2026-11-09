@@ -37,6 +37,7 @@ from products.messaging.backend.presentation.views.message_templates import (
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
+from products.messaging.backend.tasks.tasks import detect_code_email_source_task
 from products.messaging.backend.tests.test_code_send_fields import ADDRESS_VERDICTS
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
@@ -592,6 +593,24 @@ class TestTransactionalEmail(APIBaseTest):
             "template_key",
             "queued",
         )
+
+    @parameterized.expand([("queued", None), ("queue_unavailable", ConnectionError("broker unreachable"))])
+    def test_a_new_keys_first_send_queues_source_detection_after_commit(
+        self, mock_post, _flag, _capture, _name, queue_error
+    ):
+        self._cdp_accepts(mock_post)
+        psak = self._psak_client(["hog_flow:write"])
+
+        with patch.object(detect_code_email_source_task, "delay", side_effect=queue_error) as queue:
+            with self.captureOnCommitCallbacks(execute=True):
+                first = psak.post(self.send_email_url, self._code_send(), format="json")
+                assert queue.call_count == 0
+            with self.captureOnCommitCallbacks(execute=True):
+                second = psak.post(self.send_email_url, self._code_send(), format="json")
+
+        assert first.status_code == second.status_code == status.HTTP_202_ACCEPTED, first.json()
+        key = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome")
+        queue.assert_called_once_with(self.team.id, str(key.id))
 
     def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)

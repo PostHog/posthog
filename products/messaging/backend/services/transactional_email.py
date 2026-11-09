@@ -55,6 +55,7 @@ from products.messaging.backend.facade.contracts import (
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
 from products.messaging.backend.services.html_text import text_from_html
+from products.messaging.backend.tasks import detect_code_email_source_task
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContent,
@@ -441,7 +442,9 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
                 "reuse it for every recipient."
             )
         hog_flow_id = create_code_email_workflow(team_id=team_id, key=key)
-        keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id)
+        key_id = str(keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id).id)
+        # robust=True logs a failed publish instead of raising it, so detection can never fail a send.
+        transaction.on_commit(lambda: detect_code_email_source_task.delay(team_id, key_id), robust=True)
         return hog_flow_id
 
 
