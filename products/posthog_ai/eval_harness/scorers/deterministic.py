@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, TypeGuard
 
 from posthog.dataclasses import frozen
 
@@ -284,8 +284,10 @@ class ToolOrder(Scorer):
         if not after_calls:
             return Score(name=self._name(), score=None, metadata={"reason": "No guarded call ran"})
         before_calls = [call for call in calls if self.before.matches(call)]
-        first_before = _call_order(before_calls[0]) if before_calls else None
-        early = [call for call in after_calls if first_before is None or _call_order(call) < first_before]
+        # A strict order, so a call that both matchers accept cannot satisfy its own prerequisite.
+        early = [
+            call for call in after_calls if not any(_call_order(prior) < _call_order(call) for prior in before_calls)
+        ]
         return Score(
             name=self._name(),
             score=0.0 if early else 1.0,
@@ -303,6 +305,13 @@ def _table_aliases(entry: object) -> list[str]:
     if isinstance(entry, list) and all(isinstance(alias, str) for alias in entry):
         return entry
     return []
+
+
+def _valid_tables(tables: object) -> TypeGuard[list[object]]:
+    """A non-empty list where each entry is a table name or a non-empty list of aliases, none of them empty."""
+    if not isinstance(tables, list) or not tables:
+        return False
+    return all(_table_aliases(entry) and all(_table_aliases(entry)) for entry in tables)
 
 
 class SourcesConsulted(Scorer):
@@ -324,13 +333,14 @@ class SourcesConsulted(Scorer):
         if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
         tables = spec.get("tables")
-        if not isinstance(tables, list) or not tables:
+        if not _valid_tables(tables):
             return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
         queries = [_query(call) for call in _successful_data_queries(parser)]
-        read, missing = [], []
+        read: list[object] = []
+        missing: list[object] = []
         for entry in tables:
             aliases = _table_aliases(entry)
             (read if any(reads_table(query, aliases) for query in queries) else missing).append(entry)
@@ -342,8 +352,9 @@ class SourcesAvoided(Scorer):
 
     Entries take the same names or alias lists as ``SourcesConsulted``.
 
-    ``"scope": "answer"`` checks only the last successful data query, so a case can let the agent inspect a
-    table (to find it empty, say) as long as the answer does not come from it. The default scope checks every
+    ``"scope": "answer"`` fails only when every successful data query reads a listed table, so the agent can
+    inspect one (to find it empty, say) before or after the query that answers. Pair it with a value check or a
+    judge, because this scope cannot tell which query the answer came from. The default scope checks every
     successful data query.
     """
 
@@ -358,18 +369,21 @@ class SourcesAvoided(Scorer):
         if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
         tables = spec.get("tables")
-        if not isinstance(tables, list) or not tables:
+        if not _valid_tables(tables):
             return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
         queries = [_query(call) for call in _successful_data_queries(parser)]
+        names = [alias for entry in tables for alias in _table_aliases(entry)]
+        offending = [query for query in queries if reads_table(query, names)]
         if spec.get("scope") == "answer":
             if not queries:
                 return Score(name=self._name(), score=None, metadata={"reason": "No successful data query"})
-            queries = queries[-1:]
-        names = [alias for entry in tables for alias in _table_aliases(entry)]
-        offending = [query for query in queries if reads_table(query, names)]
+            answered_elsewhere = len(offending) < len(queries)
+            return Score(
+                name=self._name(), score=1.0 if answered_elsewhere else 0.0, metadata={"offending_queries": offending}
+            )
         return Score(name=self._name(), score=0.0 if offending else 1.0, metadata={"offending_queries": offending})
 
 
