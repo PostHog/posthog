@@ -1,4 +1,4 @@
-"""Sends the `log_entries` messages of the Temporal sources to the team's logs product as well."""
+"""Sends Temporal logs to the team's logs product as signed internal logs."""
 
 import json
 import datetime as dt
@@ -28,13 +28,13 @@ async def _api_token(team_id: int) -> str | None:
         return None
 
 
-class InternalLogsMirror:
+class InternalLogsSink:
     def __init__(self, producer: InternalLogsProducer, sources: frozenset[str]) -> None:
         self._producer = producer
         self._sources = sources
 
     @classmethod
-    def from_settings(cls) -> "InternalLogsMirror | None":
+    def from_settings(cls) -> "InternalLogsSink | None":
         sources = frozenset(s.strip() for s in settings.TEMPORAL_INTERNAL_LOGS_SOURCES.split(",") if s.strip())
         if not sources:
             return None
@@ -62,8 +62,8 @@ class InternalLogsMirror:
             )
             self._producer.flush()
         except Exception:
-            # The logs product copy must never stop the `log_entries` write it mirrors.
-            logger.exception("Failed to mirror a Temporal log to the logs product")
+            # A logs product failure must never stop the `log_entries` write.
+            logger.exception("Failed to send a Temporal log to the logs product")
 
     async def drain(self) -> None:
         await self._producer.drain(DRAIN_TIMEOUT_SECONDS)

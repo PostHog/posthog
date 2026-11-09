@@ -47,7 +47,7 @@ from posthog.logging.exceptions import add_otel_exception_attributes
 
 if typing.TYPE_CHECKING:
     from posthog.kafka_client.client import _AsyncKafkaProducer
-    from posthog.temporal.common.internal_logs import InternalLogsMirror
+    from posthog.temporal.common.internal_logs import InternalLogsSink
 
 BACKGROUND_LOGGER_TASKS: dict[str, asyncio.Task[typing.Any]] = {}
 
@@ -496,7 +496,7 @@ def configure_logger(
     file: typing.TextIO | None = None,
     raise_on_producer_error: bool = False,
     otel_log_mirror: structlog.types.Processor | None = None,
-    internal_logs: "InternalLogsMirror | None" = None,
+    internal_logs: "InternalLogsSink | None" = None,
 ) -> None:
     """Configure a structlog for Temporal workflows.
 
@@ -690,7 +690,7 @@ class KafkaLogProducerFromQueueAsync:
         topic: str = KAFKA_LOG_ENTRIES,
         producer: "_AsyncKafkaProducer | None" = None,
         key: str | None = None,
-        internal_logs: "InternalLogsMirror | None" = None,
+        internal_logs: "InternalLogsSink | None" = None,
     ):
         self.queue = queue
         self.topic = topic

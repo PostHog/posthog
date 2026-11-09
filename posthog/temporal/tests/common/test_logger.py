@@ -982,10 +982,10 @@ class _RecordingProducer:
         ("some-unmapped-workflow", "wf-1", "external_data_jobs", None),
     ],
 )
-def test_internal_logs_mirror_sends_rendered_messages_of_enabled_sources(
+def test_internal_logs_sink_sends_rendered_messages_of_enabled_sources(
     workflow_type: str, workflow_id: str, sources: str, expected_source: str | None
 ) -> None:
-    from posthog.temporal.common.internal_logs import InternalLogsMirror
+    from posthog.temporal.common.internal_logs import InternalLogsSink
     from posthog.temporal.common.logger import Logger, LogMessagesRenderer
 
     from products.logs.backend.facade.internal_logs import InternalLogEntry
@@ -1004,10 +1004,10 @@ def test_internal_logs_mirror_sends_rendered_messages_of_enabled_sources(
         },
     )
     producer = _RecordingProducer()
-    mirror = InternalLogsMirror(cast(typing.Any, producer), frozenset(sources.split(",")))
+    sink = InternalLogsSink(cast(typing.Any, producer), frozenset(sources.split(",")))
 
     if rendered["produce_message"] is not None:
-        mirror.offer(rendered["produce_message"])
+        sink.offer(rendered["produce_message"])
 
     if expected_source is None:
         assert producer.enqueued == []
