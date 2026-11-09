@@ -16,7 +16,7 @@ from dataclasses import replace
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
@@ -418,7 +418,11 @@ def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsIn
 def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> RenderedChart | None:
     """Sync, because the render blocks for its whole duration. Only a full render pool raises, for a
     retry. Any other failure sends the firing without a chart, as production does."""
-    from products.alerts.backend.platform_source_cycle import ChartRenderPoolFull, render_firing_chart  # noqa: PLC0415
+    from products.alerts.backend.platform_source_cycle import (  # noqa: PLC0415
+        ChartRenderPoolFull,
+        ChartRenderTimedOut,
+        render_firing_chart,
+    )
 
     try:
         # A slot of its own per attempt, so a timed-out attempt cannot release its retry's slot.
@@ -427,6 +431,9 @@ def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> Render
         )
     except ChartRenderPoolFull:
         raise
+    except ChartRenderTimedOut:
+        # Not retried: a second render would hold the firing past its budget.
+        raise ApplicationError("The chart render timed out", type="ChartRenderTimedOut", non_retryable=True)
     except Exception:
         activity.logger.exception(
             "Could not render a platform insight firing's chart", extra={"alert_id": inputs.alert_id}

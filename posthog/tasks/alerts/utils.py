@@ -56,6 +56,9 @@ from products.alerts_platform.backend.facade.scheduling import (
 )
 from products.exports.backend.facade import api as exports
 
+# How long an alert chart render may take before the export gives up and the chart is lost.
+CHART_RENDER_TIMEOUT = exports.RENDER_TIMEOUT
+
 logger = structlog.get_logger(__name__)
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
