@@ -20,6 +20,7 @@ from products.ai_observability.backend.logic.message_normalizer.errors import (
 )
 from products.ai_observability.backend.logic.message_normalizer.normalizer import RecipeNormalizer
 from products.ai_observability.backend.logic.message_normalizer.run_limits import time_limit
+from products.ai_observability.backend.logic.message_normalizer.values import CompatMessage
 from products.ai_observability.backend.logic.traces.step_messages import UnrenderableToolValueError, to_messages
 
 TEAM_ID = 7
@@ -424,6 +425,33 @@ def test_a_tool_result_with_a_multi_megabyte_string_parses_in_bounded_memory():
 
     assert message.parts[0].result == {"log": "x" * 5_000_000}
     assert peak < 4 * len(content)
+
+
+# The value fails validation only halfway through, so the walk crosses a hundred thousand values before it ends.
+WIDE_UNRENDERABLE_ARGUMENTS: list[CompatMessage] = [
+    {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"function": {"name": "f", "arguments": [*[[]] * 100_000, 10**20, *[[]] * 100_000]}}],
+    }
+]
+
+
+def test_validating_a_wide_tool_value_holds_memory_to_its_depth():
+    tracemalloc.start()
+    try:
+        with pytest.raises(UnrenderableToolValueError):
+            to_messages(WIDE_UNRENDERABLE_ARGUMENTS, id_prefix="out", source_node_id=None, team_id=TEAM_ID)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert peak < 1_000_000
+
+
+def test_validating_a_wide_tool_value_stops_at_the_deadline():
+    with time_limit(0), pytest.raises(RecipeTimeoutError):
+        to_messages(WIDE_UNRENDERABLE_ARGUMENTS, id_prefix="out", source_node_id=None, team_id=TEAM_ID)
 
 
 def test_a_tool_result_longer_than_the_parse_cap_stays_its_raw_text():

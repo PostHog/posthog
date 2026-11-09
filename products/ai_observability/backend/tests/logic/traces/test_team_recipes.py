@@ -1,10 +1,14 @@
+import itertools
+
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 from posthog.models import Organization, Team
 
+from products.ai_observability.backend.logic.message_normalizer import run_limits as run_limits_module
 from products.ai_observability.backend.logic.message_normalizer.run_limits import time_limit
 from products.ai_observability.backend.logic.message_normalizer.values import Value
 from products.ai_observability.backend.logic.traces.team_recipes import team_normalizer
@@ -76,4 +80,18 @@ class TestTeamNormalizer(BaseTest):
             past_deadline = team_normalizer(self.team.id)
 
         assert not past_deadline.normalize_messages(TICKET, "user").recognized
+        assert self._contents(self.team.id, TICKET) == ["Ticket T-42: Refund requested"]
+
+    def test_a_recipe_whose_compile_overruns_the_deadline_is_skipped_for_that_read_only(self):
+        ParserRecipe.objects.unscoped().create(team=self.team, name="tickets", source=TICKET_RECIPE)
+        # The deadline is set at 0 and expires at 1, the check before the parse reads 0.5, and every later check reads
+        # 2, so the read runs out of time inside the compile.
+        clock = itertools.chain([0.0, 0.5], itertools.repeat(2.0))
+
+        with patch.object(run_limits_module, "time") as fake_time:
+            fake_time.monotonic.side_effect = clock
+            with time_limit(1):
+                overran = team_normalizer(self.team.id)
+
+        assert not overran.normalize_messages(TICKET, "user").recognized
         assert self._contents(self.team.id, TICKET) == ["Ticket T-42: Refund requested"]

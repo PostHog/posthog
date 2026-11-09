@@ -54,14 +54,14 @@ def _compiled_recipe(version: _RecipeVersion, source: str | None) -> Recipe | No
     # A recipe deleted between the two reads has no source.
     if source is None:
         return None
-    # A compile cannot be interrupted, so the read's deadline is checked before each one. A recipe skipped here
-    # leaves the cache untouched and compiles on a later read.
+    # The YAML parse cannot be interrupted, so the read's deadline is checked before it, and the compile after it
+    # checks the deadline as it goes. A recipe skipped here leaves the cache untouched and compiles on a later read.
     try:
         check_time_limit()
+        recipe = compile_stored_recipe(StoredRecipe(id=version[0], source=source))
     except RecipeTimeoutError:
         logger.warning("llma_team_recipe_skipped_at_deadline", recipe_id=version[0])
         return None
-    recipe = compile_stored_recipe(StoredRecipe(id=version[0], source=source))
     with _compiled_recipes_lock:
         _compiled_recipes[version] = recipe
     return recipe

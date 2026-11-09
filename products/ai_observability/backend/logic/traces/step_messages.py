@@ -1,10 +1,10 @@
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 from ...facade import contracts
 from ..message_normalizer.errors import RecipeRuntimeError
 from ..message_normalizer.roles import AVAILABLE_TOOLS_ROLE, THINKING_ROLE, TOOL_RESULT_ROLE
-from ..message_normalizer.run_limits import execution_budget
+from ..message_normalizer.run_limits import OUTPUT_NODES_PER_CLOCK_CHECK, check_time_limit, execution_budget
 from ..message_normalizer.values import CompatMessage, JsonValue, charge_kept_parse, parse_json_text
 from .attachments import is_attachment_item_type, to_attachment
 from .json_numbers import has_lossy_number
@@ -150,20 +150,43 @@ def _tool_value(value: JsonValue) -> JsonValue:
 
 
 def _renders(value: JsonValue) -> bool:
-    pending: list[tuple[JsonValue, int]] = [(value, 0)]
-    while pending:
-        node, depth = pending.pop()
-        if isinstance(node, dict | list):
-            if depth == _MAX_TOOL_VALUE_DEPTH:
+    # The walk holds one child iterator per open container, so its memory follows the depth of the value, not its
+    # width. It visits values that no budget has charged yet, so it checks the clock itself.
+    if not _node_renders(value):
+        return False
+    open_containers = [_children(value)]
+    visited = 0
+    while open_containers:
+        for child in open_containers[-1]:
+            visited += 1
+            if visited % OUTPUT_NODES_PER_CLOCK_CHECK == 0:
+                check_time_limit()
+            if not _node_renders(child):
                 return False
-            if isinstance(node, dict) and any(_SURROGATE.search(key) for key in node):
-                return False
-            pending.extend((child, depth + 1) for child in (node.values() if isinstance(node, dict) else node))
-        elif isinstance(node, str) and _SURROGATE.search(node):
-            return False
-        elif isinstance(node, int) and node not in _RENDERABLE_INTEGERS:
-            return False
+            if isinstance(child, dict | list):
+                if len(open_containers) == _MAX_TOOL_VALUE_DEPTH:
+                    return False
+                open_containers.append(_children(child))
+                break
+        else:
+            open_containers.pop()
     return True
+
+
+def _node_renders(node: JsonValue) -> bool:
+    if isinstance(node, dict):
+        return not any(_SURROGATE.search(key) for key in node)
+    if isinstance(node, str):
+        return not _SURROGATE.search(node)
+    if isinstance(node, int):
+        return node in _RENDERABLE_INTEGERS
+    return True
+
+
+def _children(node: JsonValue) -> Iterator[JsonValue]:
+    if isinstance(node, dict):
+        return iter(node.values())
+    return iter(node) if isinstance(node, list) else iter(())
 
 
 def _parse_tool_result(result: JsonValue) -> JsonValue:
