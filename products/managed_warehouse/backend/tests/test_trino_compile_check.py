@@ -78,5 +78,4 @@ class TestTrinoCompileCheck(BaseTest):
             ),
         ]
         statements = [call.args[0] for call in cursor.execute.call_args_list]
-        assert all(s.startswith(("SET SESSION", "EXPLAIN ")) for s in statements)
-        assert "SET SESSION query_max_run_time = '30s'" in statements
+        assert all(s.startswith("EXPLAIN ") for s in statements)
