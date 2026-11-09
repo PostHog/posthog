@@ -14,6 +14,7 @@ import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { credentialAuthCounter } from '../utils/credential-auth'
 import { deadlineAfter } from '../utils/deadline'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError, classifyHogError } from '../utils/hog-error-classification'
@@ -877,6 +878,60 @@ describe('Hog Inputs', () => {
             expect(await hogInputsService.resolveCredential(hogFunction, 'api_key')).toMatchObject({
                 credential: { secret: 'sk_secret', origins: ['https://api.example.com'] },
             })
+        })
+
+        // Anyone who can edit the function can edit its schema, so the shape a connection resolves to follows its kind.
+        it.each([
+            {
+                trick: 'auth removed from the schema',
+                key: 'slack',
+                schema: [{ key: 'slack', type: 'integration' }],
+                inputs: (id: number) => ({ slack: { value: id } }),
+            },
+            {
+                trick: 'a second input on the same connection',
+                key: 'copy',
+                schema: [
+                    { key: 'slack', type: 'integration', auth: { scheme: 'bearer' } },
+                    { key: 'copy', type: 'integration' },
+                ],
+                inputs: (id: number) => ({ slack: { value: id }, copy: { value: id } }),
+            },
+            {
+                trick: 'an integration_multi input',
+                key: 'many',
+                schema: [{ key: 'many', type: 'integration_multi' }],
+                inputs: (id: number) => ({ many: { value: [id] } }),
+            },
+        ])('resolves a slack connection reached through $trick by its kind', async ({ key, schema, inputs }) => {
+            const legacyResolutions = async (mode: string): Promise<number> =>
+                (await credentialAuthCounter.get()).values.find(
+                    (v) => v.labels.outcome === 'legacy_integration' && v.labels.mode === mode
+                )?.value ?? 0
+            const fn = createHogFunction({
+                ...hogFunction,
+                inputs: inputs(integrationId1),
+                inputs_schema: schema as HogFunctionType['inputs_schema'],
+            })
+            const enforced = new HogInputsService(
+                hub.integrationManager,
+                recipientTokensService,
+                hub.encryptedFields,
+                String(team.id)
+            )
+
+            const enforcedValue = (await enforced.buildInputs(fn, globals))[key]
+            const replacements = await enforced.loadIntegrationInputs(fn)
+
+            const handle = { $integration_id: integrationId1, team: 'foobar' }
+            expect(enforcedValue).toEqual(Array.isArray(enforcedValue) ? [handle] : { ...handle, $credential: key })
+            expect(JSON.stringify(replacements)).not.toContain('access_token')
+
+            const before = await legacyResolutions('observe')
+            const observedValue = (await hogInputsService.buildInputs(fn, globals))[key]
+
+            expect([observedValue].flat()[0]).toMatchObject({ access_token_raw: 'token' })
+            expect((await legacyResolutions('observe')) - before).toBe(1)
         })
 
         it('should coerce string results to booleans for boolean schema fields', async () => {

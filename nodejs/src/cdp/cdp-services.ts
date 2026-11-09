@@ -522,7 +522,12 @@ export function createCdpCoreServices(
         attachmentStore
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
-    const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
+    const hogInputsService = new HogInputsService(
+        deps.integrationManager,
+        recipientTokensService,
+        deps.encryptedFields,
+        config.CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS
+    )
     const pushNotificationService = new PushNotificationService(
         deps.integrationManager,
         deps.encryptedFields,
