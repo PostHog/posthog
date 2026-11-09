@@ -370,10 +370,6 @@ def _mint_backfill_service_credential(target: DucklingTarget) -> ServiceCredenti
         return None
 
 
-# duckgres refuses a connection with this FATAL message in two cases: the hostname is not a managed warehouse hostname,
-# or duckgres has no organization for the managed hostname. The hint after it names each managed suffix, as in
-# "<org-id>.dw.us.postwh.com". hogtower creates new warehouses without a duckgres organization, so duckgres refuses every
-# connection for them in the second way.
 _DUCKGRES_HOSTNAME_REFUSAL = re.compile(r"this server requires connecting via ([^\n]+)")
 _DUCKGRES_MANAGED_SUFFIX = re.compile(r"<org-id>(\S+)")
 
@@ -389,6 +385,13 @@ class DuckgresOrganizationUnavailable(DuckgresConnectionRefused):
 def _duckgres_refusal(
     conninfo: str, organization_id: str, error: psycopg.OperationalError
 ) -> DuckgresConnectionRefused | None:
+    """The refusal that `error` carries, or None when duckgres did not refuse the hostname.
+
+    duckgres sends "this server requires connecting via <hint>" both for a hostname that is not a managed warehouse
+    hostname and for a managed hostname whose organization it does not have. The hint names each managed suffix, as in
+    "<org-id>.dw.us.postwh.com". hogtower creates new warehouses without a duckgres organization, so their connections
+    get the second refusal.
+    """
     match = _DUCKGRES_HOSTNAME_REFUSAL.search(str(error))
     if match is None:
         return None
@@ -998,8 +1001,6 @@ def _stale_run_outcome(run: DagsterRun | None) -> BackfillOutcome | None:
     return None if outcome is BackfillOutcome.RUNNING else outcome
 
 
-# The number of a partition's latest runs that a sensor reads to count consecutive failures. It caps the wait before a
-# retry at 2 ** (RETRY_HISTORY_LIMIT - 1) times the base wait.
 RETRY_HISTORY_LIMIT = 6
 
 
@@ -1008,6 +1009,7 @@ def _failed_run_retry_due(history: Sequence[RunRecord], *, now: datetime, base_s
 
     The wait after the latest run starts at `base_seconds` and doubles with each consecutive failed or canceled run, so
     a partition that keeps failing gets fewer and fewer of the concurrency slots that its job shares with other teams.
+    Sensors read RETRY_HISTORY_LIMIT runs, which caps the wait at 2 ** (RETRY_HISTORY_LIMIT - 1) times `base_seconds`.
     """
     failures = 0
     for record in history:
@@ -1140,6 +1142,11 @@ class _DucklakeRegistration:
 def _open_ducklake_registration(
     context: AssetExecutionContext | OpExecutionContext, config: DucklingBackfillConfig, target: DucklingTarget
 ) -> _DucklakeRegistration:
+    """Choose Trino or duckgres for the run, and open the duckgres session when the run registers through it.
+
+    An organization that duckgres does not have registers through Trino, because PostHog provisions every warehouse with
+    Trino. Only duckgres knows which organizations it has, so its refusal of the connection is the signal.
+    """
     if config.register_through_trino or backfills_through_trino(target.organization_id):
         return _DucklakeRegistration(through_trino=True)
     if config.dry_run or config.skip_ducklake_registration:
@@ -1147,8 +1154,6 @@ def _open_ducklake_registration(
     try:
         return _DucklakeRegistration(through_trino=False, session=_DuckgresSession(context, target))
     except DuckgresOrganizationUnavailable as error:
-        # PostHog provisions every warehouse with Trino, so an organization that duckgres does not have can still
-        # register its exports. Only duckgres knows which organizations it has, so its refusal is the signal.
         context.log.warning(f"{error}. Registering through Trino instead.")
         logger.warning(
             "duckling_backfill_duckgres_organization_unavailable",
@@ -2969,7 +2974,6 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
-    # One duckgres connection serves all metadata operations. A run that only exports opens none.
     registration = _open_ducklake_registration(context, config, target)
     if registration.through_trino:
         _backfill_events_through_trino(context, config, target, dates)
@@ -3288,7 +3292,6 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
-    # One duckgres connection serves all metadata operations. A run that only exports opens none.
     registration = _open_ducklake_registration(context, config, target)
     if registration.through_trino:
         _backfill_persons_through_trino(context, config, target, None if is_full else dates)
@@ -3856,9 +3859,8 @@ duckling_events_backfill_job = define_asset_job(
 )
 
 
-# A failed persons run retries one sensor interval after it ended at the earliest. Both persons sensors share the
-# persons concurrency slots, so the wait doubles with each further failure to keep one broken organization from holding
-# the slots.
+# Both persons sensors share the persons concurrency slots, so a failed run waits at least one sensor interval before a
+# retry, and the wait doubles with each further failure.
 PERSONS_DAILY_SENSOR_INTERVAL_SECONDS = 3600
 PERSONS_FULL_SENSOR_INTERVAL_SECONDS = 600
 
