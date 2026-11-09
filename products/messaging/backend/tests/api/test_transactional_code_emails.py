@@ -1,3 +1,4 @@
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -130,6 +131,29 @@ class TestTransactionalCodeEmails(APIBaseTest):
         }
         assert self.client.get(self._url(f"{email.id}/")).json()["tags"] == ["auth"]
         assert self._sending_config(email) == sending_config
+
+    @parameterized.expand(
+        [
+            ("description", {"description": "Sign-in link"}),
+            ("tags", {"tags": ["auth"]}),
+        ]
+    )
+    def test_a_workflow_save_based_on_older_labels_is_rejected(self, _post, _flag, _name, labels):
+        with time_machine.travel("2026-06-15T12:00:00Z", tick=False):
+            email = self._code_email("magic-link")
+            loaded = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{email.hog_flow_id}").json()
+        with time_machine.travel("2026-06-15T12:05:00Z", tick=False):
+            assert self.client.patch(self._url(f"{email.id}/"), labels, format="json").status_code == 200
+
+            stale = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{email.hog_flow_id}",
+                {"description": "Older copy", "tags": ["older"], "base_updated_at": loaded["updated_at"]},
+                format="json",
+            )
+
+        assert stale.status_code == status.HTTP_409_CONFLICT, stale.json()
+        stored = self.client.get(self._url(f"{email.id}/")).json()
+        assert {key: stored[key] for key in labels} == labels
 
     def test_rejects_a_source_url_that_is_not_a_web_link(self, _post, _flag):
         email = self._code_email("export-ready")
