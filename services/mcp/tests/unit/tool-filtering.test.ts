@@ -1151,6 +1151,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-email-from-code',
             'activity-summary',
             'personal-inbox-ranking',
+            'inbox-reports-search',
             'anomalies-search',
             'workflows-email-domain-agent-setup',
             'feature-flag-rules-v2-mcp',
