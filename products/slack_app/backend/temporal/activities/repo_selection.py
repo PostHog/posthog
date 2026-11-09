@@ -21,6 +21,12 @@ from products.slack_app.backend.temporal.types import (
 
 logger = structlog.get_logger(__name__)
 
+# Pinned so that a change to the agent server's default model does not move this step with it.
+# No service tier is set, because the flex tier queues requests and a person waits in the thread.
+REPO_SELECTION_RUNTIME_ADAPTER = "codex"
+REPO_SELECTION_MODEL = "gpt-6-luna"
+REPO_SELECTION_REASONING_EFFORT = "medium"
+
 
 @activity.defn
 @close_db_connections
@@ -171,6 +177,9 @@ async def discover_posthog_code_repository_via_agent_activity(
                 # A person waits in the Slack thread for the answer.
                 priority=Priority.NORMAL,
                 on_research_session=_capture_research_session,
+                model=REPO_SELECTION_MODEL,
+                runtime_adapter=REPO_SELECTION_RUNTIME_ADAPTER,
+                reasoning_effort=REPO_SELECTION_REASONING_EFFORT,
             )
     except RepoSelectionRejectedError as exc:
         logger.warning(
