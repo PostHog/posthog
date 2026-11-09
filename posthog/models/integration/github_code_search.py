@@ -11,6 +11,7 @@ from itertools import islice
 from urllib.parse import quote
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration.github import GitHubIntegration
 
@@ -59,8 +60,8 @@ class GitHubExactCodeSearch:
         ``complete`` is False when GitHub did not return every candidate, a candidate could not be
         read, or a file held more than ``MAX_MATCHED_LINES_PER_FILE`` matches, so a caller can tell
         "nowhere" from "not found in what was searched". Reading stops, incomplete, once ``time.monotonic()``
-        passes ``deadline``.
-        Raises ``GitHubEgressBudgetExhausted`` when the egress lane sheds a request.
+        passes ``deadline``, or when the egress lane sheds a file read.
+        Raises ``GitHubEgressBudgetExhausted`` when the egress lane sheds the search itself.
         """
         if not is_searchable_literal(literal):
             raise ValueError(f"literal must be one line of 1 to {MAX_LITERAL_LENGTH} characters")
@@ -78,6 +79,9 @@ class GitHubExactCodeSearch:
             path = candidate["path"]
             try:
                 file = self.github.get_file_contents(repository, quote(path))
+            except GitHubEgressBudgetExhausted:
+                complete = False
+                break
             except (GitHubIntegrationError, UnicodeDecodeError):
                 file = None
             if file is None:

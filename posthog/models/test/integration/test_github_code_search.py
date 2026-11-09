@@ -7,6 +7,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
 from posthog.models.integration.github_code_search import (
@@ -43,7 +44,7 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
         github: GitHubIntegration,
         literal: str,
         search_body: dict[str, Any],
-        files: dict[str, MagicMock],
+        files: dict[str, MagicMock | Exception],
         deadline: float | None = None,
     ) -> tuple[Any, list[dict[str, Any]]]:
         requests_made: list[dict[str, Any]] = []
@@ -52,7 +53,10 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
             requests_made.append({"path": path, **kwargs})
             if path == "/search/code":
                 return MagicMock(status_code=200, json=MagicMock(return_value=search_body))
-            return files[path]
+            response = files[path]
+            if isinstance(response, Exception):
+                raise response
+            return response
 
         with patch.object(github, "api_request", side_effect=api_request):
             result = GitHubExactCodeSearch(github).find(literal, deadline=deadline)
@@ -125,7 +129,13 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
 
         assert result.complete is False
 
-    def test_stops_reading_files_once_the_deadline_passes(self) -> None:
+    @parameterized.expand([("deadline_passed",), ("read_shed",)])
+    def test_keeps_what_it_read_when_reading_stops_early(self, case: str) -> None:
+        files: dict[str, MagicMock | Exception] = {
+            "/repos/acme/web/contents/a.py": _contents("send('welcome')", "sha-1")
+        }
+        if case == "read_shed":
+            files["/repos/acme/web/contents/b.py"] = GitHubEgressBudgetExhausted("shed")
         with patch("posthog.models.integration.github_code_search.time.monotonic", side_effect=[0.0, 10.0]):
             result, requests_made = self._search(
                 _github(),
@@ -135,11 +145,14 @@ class TestGitHubExactCodeSearch(SimpleTestCase):
                     "incomplete_results": False,
                     "items": [_search_item("acme/web", "a.py"), _search_item("acme/web", "b.py")],
                 },
-                {"/repos/acme/web/contents/a.py": _contents("send('welcome')", "sha-1")},
-                deadline=5.0,
+                files,
+                deadline=5.0 if case == "deadline_passed" else None,
             )
 
-        assert [request["path"] for request in requests_made] == ["/search/code", "/repos/acme/web/contents/a.py"]
+        read = ["/search/code", "/repos/acme/web/contents/a.py"]
+        assert [request["path"] for request in requests_made] == (
+            read if case == "deadline_passed" else [*read, "/repos/acme/web/contents/b.py"]
+        )
         assert [match.path for match in result.matches] == ["a.py"]
         assert result.complete is False
 

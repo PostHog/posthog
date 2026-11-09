@@ -36,7 +36,7 @@ export function SourceCandidatePicker(): JSX.Element {
             ) : !sourceCandidates?.candidates.length ? (
                 <p className="m-0 text-secondary">
                     {incomplete
-                        ? "GitHub didn't finish the search. Try again in a minute."
+                        ? "GitHub didn't finish the search, so a file may be missing. Paste a link instead."
                         : 'No file in your GitHub repos uses this key.'}
                 </p>
             ) : (

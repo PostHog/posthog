@@ -51,7 +51,8 @@ logger = structlog.get_logger(__name__)
 # Target it by organization: detection checks it for a team with no person, and the picker's button for a person.
 SOURCE_DETECTION_FLAG = "workflows-code-email-source-detection"
 SOURCE_DETECTED_EVENT = "transactional email source detected"
-# Bounds how long a person waits on the picker, and how long their search holds a web worker.
+# After this, the picker's search starts no new GitHub request. One already running finishes, so a slow GitHub can add
+# that request's timeout and its retry.
 SOURCE_SEARCH_SECONDS = 15
 
 # "kept" means the search found one call site, but a person linked or unlinked the key before detection could write it.
