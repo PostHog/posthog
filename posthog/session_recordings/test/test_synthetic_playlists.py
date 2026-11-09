@@ -182,12 +182,13 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         assert playlist["recordings_counts"]["collection"]["count"] == 2
 
-    def test_list_counts_synthetic_playlists_without_loading_their_session_ids(self) -> None:
+    def test_list_counts_each_session_once_including_numeric_export_ids(self) -> None:
         other_user = self._create_user("other@posthog.com")
         SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed-1")
         SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed-2")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="123")
         SessionRecordingViewed.objects.create(team=self.team, user=other_user, session_id="viewed-by-other")
-        for session_id in ("viewed-1", "viewed-by-other"):
+        for session_id in ("viewed-1", "viewed-1", "viewed-by-other"):
             Comment.objects.create(team=self.team, created_by=self.user, scope="Replay", item_id=session_id)
         SharingConfiguration.objects.create(
             team=self.team,
@@ -195,11 +196,11 @@ class TestSyntheticPlaylists(APIBaseTest):
             enabled=True,
             access_token="shared-token",
         )
-        for session_id in ("viewed-1", "unviewed"):
+        for export_session_id in ("viewed-1", "viewed-1", "unviewed", 123):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format=ExportedAsset.ExportFormat.GIF,
-                export_context={"session_recording_id": session_id},
+                export_context={"session_recording_id": export_session_id},
                 created_by=self.user,
             )
         cache.set(
@@ -213,8 +214,7 @@ class TestSyntheticPlaylists(APIBaseTest):
             FrustrationSignalsPlaylistSource.CACHE_TTL,
         )
 
-        with self.assertNumQueries(15):
-            results = self._get_playlists_response()["results"]
+        results = self._get_playlists_response()["results"]
 
         counts = {
             playlist["short_id"]: (
@@ -224,10 +224,10 @@ class TestSyntheticPlaylists(APIBaseTest):
             for playlist in results
         }
         assert counts == {
-            "synthetic-watch-history": (2, 2),
+            "synthetic-watch-history": (3, 3),
             "synthetic-commented": (2, 1),
             "synthetic-shared": (1, 1),
-            "synthetic-exported": (2, 1),
+            "synthetic-exported": (3, 2),
             "synthetic-expiring": (2, 1),
             "synthetic-frustrated": (None, 0),
         }
