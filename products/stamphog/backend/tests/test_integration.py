@@ -47,7 +47,6 @@ from products.stamphog.backend.models import DigestRun, PullRequest, PullRequest
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.tasks.tasks import (
     process_inbox_pr_review,
-    publish_withheld_verdict_or_review,
     request_manual_review,
     rereview_after_external_review,
     silent_review_after_clean_external_review,
@@ -66,6 +65,7 @@ from products.stamphog.backend.temporal.activities import (
     post_verdict,
     refresh_review_evidence,
     rereview_after_external_review_finished,
+    reuse_withheld_verdict,
     run_review_in_sandbox,
     start_review_sandbox,
 )
@@ -2487,58 +2487,47 @@ def test_visible_request_publishes_a_withheld_verdict_only_while_its_inputs_hold
         base_sha = "base001"
         pr["base"] = {**pr["base"], "sha": base_sha}
     sandbox = fakes.make_fake_sandbox_class(_refused_engine_output())
-    capture = MagicMock()
-
-    def request() -> None:
-        if request_kind == "label":
-            assert (
-                stamphog_chain.post_webhook(_labeled_event(162, head_sha, base_sha), delivery_id=str(uuid.uuid4()))
-                == 202
-            )
-        else:
-            request_manual_review(team.id, None, REPO, 162)
-
+    capture_fn = MagicMock()
     check_runs = (
         [{"name": "Migration risk", "status": "completed", "conclusion": "success"}]
         if change == "migration_check"
         else []
     )
+
     with (
         patch.object(activities, "get_sandbox_class_for_backend", lambda backend: sandbox),
         patch.object(StamphogGitHubClient, "get_check_runs", return_value=check_runs),
-        patch("products.stamphog.backend.tasks.tasks.ph_scoped_capture") as scoped_capture,
+        patch.object(activities, "ph_background_capture", return_value=capture_fn),
     ):
-        scoped_capture.return_value.__enter__.return_value = capture
-        request()
-        publish_withheld_verdict_or_review(
-            team_id=team.id, review_run_id=str(silent_run.id), request_output={"review_trigger": "label"}
-        )
+        if request_kind == "label":
+            event = _labeled_event(162, head_sha, base_sha)
+            assert stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4())) == 202
+        else:
+            assert request_manual_review(team.id, None, REPO, 162).created is True
 
     silent_run.refresh_from_db()
     runs = list(ReviewRun.objects.for_team(team.id).filter(pull_request__pr_number=162).order_by("created_at"))
-    comment_reviews = [w for w in recorder.github_writes if w["kind"] == "comment_review"]
-    first_answer = capture.call_args_list[0].kwargs["properties"]
-    if change is None:
-        assert runs == [silent_run]
-        assert sandbox.created_configs == []
-        assert silent_run.verdict_posted_at is not None
-        assert len(comment_reviews) == 1
-        body = comment_reviews[0]["body"]["body"]
-        assert body.startswith("**Not approved")
-        assert "Re-add the `stamphog` label" in body
-        assert [w["label"] for w in recorder.github_writes if w["kind"] == "remove_label"] == ["stamphog"]
-        assert first_answer["stamphog_withheld_verdict_reused"] is True
-        assert first_answer["stamphog_withheld_verdict_outcome"] == "published"
-        return
-    assert silent_run.verdict_withheld
     assert len(runs) == 2
-    fresh = runs[1]
-    assert fresh.output["review_trigger"] == ("manual" if request_kind == "manual" else "label")
-    assert len(sandbox.created_configs) == 1
+    visible_run = runs[1]
+    assert visible_run.output["review_trigger"] == request_kind
+    assert (visible_run.status, visible_run.verdict) == (ReviewRunStatus.COMPLETED, ReviewVerdict.REFUSED)
+    assert visible_run.verdict_posted_at is not None
+    comment_reviews = [w for w in recorder.github_writes if w["kind"] == "comment_review"]
     assert len(comment_reviews) == 1
-    assert first_answer["stamphog_withheld_verdict_reused"] is False
-    assert first_answer["stamphog_withheld_verdict_outcome"] in ("inputs_changed", "base_moved")
-    assert first_answer["stamphog_fresh_review_outcome"] == "queued"
+    assert [w["label"] for w in recorder.github_writes if w["kind"] == "remove_label"] == ["stamphog"]
+    timings = next(c for c in capture_fn.call_args_list if c.kwargs["event"] == "stamphog_review_timings")
+    reused = change is None
+    assert timings.kwargs["properties"]["stamphog_verdict_reused"] is reused
+    assert len(sandbox.created_configs) == (0 if reused else 1)
+    if reused:
+        assert visible_run.output["reused_from_run_id"] == str(silent_run.id)
+        assert not silent_run.verdict_withheld
+        assert silent_run.verdict_posted_at == visible_run.verdict_posted_at
+        assert comment_reviews[0]["body"]["body"].startswith("**Not approved")
+        return
+    assert "reused_from_run_id" not in visible_run.output
+    assert visible_run.output["withheld_verdict_outcome"] in ("inputs_changed", "base_moved")
+    assert silent_run.verdict_withheld
 
 
 @pytest.mark.parametrize(
@@ -2549,7 +2538,7 @@ def test_visible_request_publishes_a_withheld_verdict_only_while_its_inputs_hold
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_publishing_a_withheld_verdict_posts_no_approval_and_no_wait(
+def test_a_withheld_approval_or_wait_is_never_reused(
     team, stamphog_chain: StamphogChain, stored_verdict: ReviewVerdict, engine_output: str, expected_outcome: str
 ) -> None:
     repo_config = _silent_repo_config(team.id)
@@ -2557,7 +2546,7 @@ def test_publishing_a_withheld_verdict_posts_no_approval_and_no_wait(
         team_id=team.id, repo_config=repo_config, pr_number=163, author_login="devex-dev"
     )
     raw = fakes.approved_engine_output() if engine_output == "approved" else _waiting_engine_output()
-    run = ReviewRun.objects.for_team(team.id).create(
+    silent_run = ReviewRun.objects.for_team(team.id).create(
         team_id=team.id,
         pull_request=pull_request,
         head_sha="sha163a",
@@ -2565,12 +2554,21 @@ def test_publishing_a_withheld_verdict_posts_no_approval_and_no_wait(
         verdict=stored_verdict,
         output={"review_trigger": "reviewhog_clean", "reviewer_raw": raw, "decision_fingerprint": "x"},
     )
+    visible_run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha163a",
+        status=ReviewRunStatus.QUEUED,
+        output={"review_trigger": "manual", "withheld_run_id": str(silent_run.id)},
+    )
 
-    assert activities.publish_withheld_verdict(run) == expected_outcome
+    result = _run_activity(reuse_withheld_verdict, StamphogReviewInput(str(visible_run.id), team.id))
 
+    assert result == {"reused": False}
+    visible_run.refresh_from_db()
+    assert visible_run.output["withheld_verdict_outcome"] == expected_outcome
+    assert "reviewer_raw" not in visible_run.output
     assert stamphog_chain.recorder.github_writes == []
-    run.refresh_from_db()
-    assert run.verdict_posted_at is None
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

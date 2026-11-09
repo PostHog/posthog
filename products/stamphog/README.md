@@ -54,11 +54,12 @@ A stored verdict that was not posted has an empty `verdict_posted_at`.
 The silent trigger skips the review mode and nothing else, so the same PRs are refused as for a direct request, and so is a head that moved or already has a review.
 
 A silent run never answers a visible request: adding the trigger label or asking for a review while a silent run is in flight supersedes it with a normal review.
-When the latest run of the head already withheld a refusal or an escalation, the request reads the PR's review inputs from GitHub again, without a sandbox or an LLM call.
-If nothing changed (reviews, comments, review threads and their resolution, the base, the merge base, the `Migration risk` check, the default-branch policy, the author's teams and history, external review evidence), the stored verdict is posted as the normal review would post it, and the trigger label is removed in label mode.
-If anything changed, or the check fails, a normal review runs.
+A visible request always gets its own run.
+When the latest run of the head already withheld a refusal or an escalation, that run first reads the PR's review inputs from GitHub again, without a sandbox or an LLM call.
+If nothing changed (reviews, comments, review threads and their resolution, the base, the merge base, the `Migration risk` check, the default-branch policy, the author's teams and history, external review evidence), it completes with the stored verdict and posts it as a normal review would, with the trigger label removed in label mode.
+If anything changed, or the check fails, the same run reviews the PR normally.
 A stored WAIT is never reused, and an approval is never posted this way, because a silent approval was already posted.
-The `stamphog_withheld_verdict_requested` event counts both outcomes.
+The `stamphog_review_timings` event marks a reused verdict with `stamphog_verdict_reused`.
 
 ## Connect a repository
 

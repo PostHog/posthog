@@ -17,6 +17,7 @@ from products.stamphog.backend.temporal.activities import (
     refresh_review_evidence,
     refuse_on_pre_gates,
     rereview_after_external_review_finished,
+    reuse_withheld_verdict,
     review_in_sandbox,
     run_review_in_sandbox,
     signal_review_started,
@@ -29,6 +30,7 @@ WORKFLOWS = [StamphogReviewWorkflow]
 ACTIVITIES = [
     dismiss_stale_approvals,
     signal_review_started,
+    reuse_withheld_verdict,
     start_review_sandbox,
     fetch_review_context,
     checkout_review_sandbox,

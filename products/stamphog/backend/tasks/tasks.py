@@ -28,7 +28,6 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
-from posthog.ph_client import ph_scoped_capture
 
 from products.stamphog.backend.activity_logging import DISABLED_FIELDS, log_repo_configs_disabled_by_webhook
 from products.stamphog.backend.facade.contracts import ReviewRequestRefusedError, StamphogGitHubError
@@ -53,10 +52,7 @@ from products.stamphog.backend.logic.approval_retention import (
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
-from products.stamphog.backend.logic.decision_fingerprint import (
-    WITHHELD_VERDICT_ALREADY_PUBLISHED,
-    WITHHELD_VERDICT_PUBLISHED,
-)
+from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, is_silent_output
@@ -347,14 +343,6 @@ def _author_lacks_write_permission(repo_config: StamphogRepoConfig, repo: str, p
 
 def _label_cooldown_key(repo_config: StamphogRepoConfig, pr_number: int) -> str:
     return f"{STAMPHOG_LABEL_REREVIEW_KEY_PREFIX}{repo_config.id}:{pr_number}"
-
-
-def _arm_label_cooldown(repo_config: StamphogRepoConfig, pr_number: int) -> None:
-    cache.set(
-        _label_cooldown_key(repo_config, pr_number),
-        timezone.now().timestamp() + STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS,
-        timeout=STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS,
-    )
 
 
 def _review_mode_skip_reason(
@@ -1384,33 +1372,6 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 _mark_pr_event_processed(delivery_id)
             return
 
-    if action == "labeled" and inbox_review is None:
-        try:
-            withheld = _reusable_withheld_run(repo_config, pr)
-            if withheld is not None:
-                _request_withheld_verdict(
-                    withheld,
-                    {
-                        "review_trigger": derive_review_trigger(
-                            has_inbox_review=False, review_mode=repo_config.review_mode
-                        ).value
-                    },
-                )
-        except Exception as e:
-            logger.exception("stamphog_pr_event_withheld_verdict_failed", delivery_id=delivery_id, error=str(e))
-            raise cast(Any, process_pull_request_event).retry(exc=e)
-        if withheld is not None:
-            _arm_label_cooldown(repo_config, pr_number)
-            logger.info(
-                "stamphog_pr_event_withheld_verdict_requested",
-                repo=repo,
-                pr_number=pr_number,
-                review_run_id=str(withheld.id),
-            )
-            if delivery_id:
-                _mark_pr_event_processed(delivery_id)
-            return
-
     # Bind the transaction and its on_commit hook to the model's routed DB. A bare atomic() opens on
     # the default connection, so when the product DB is configured the select_for_update in
     # _supersede_prior_runs and this create would run outside any transaction, and on_commit would fire
@@ -1451,6 +1412,8 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 # review_mode an admin may have changed since this delivery was admitted.
                 output={
                     **({"inbox_review": inbox_review} if inbox_review is not None else {}),
+                    # Only the trigger label asks for a visible verdict. Other deliveries review as before.
+                    **(_withheld_run_output(repo_config, pr) if action == "labeled" else {}),
                     "review_trigger": derive_review_trigger(
                         has_inbox_review=inbox_review is not None, review_mode=repo_config.review_mode
                     ).value,
@@ -1485,7 +1448,11 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # Arm the cooldown only once a label-triggered run actually queued, so a skipped or failed
     # attempt doesn't block the next legitimate label add.
     if action == "labeled" and repo_config.review_mode == ReviewMode.LABEL:
-        _arm_label_cooldown(repo_config, pr_number)
+        cache.set(
+            _label_cooldown_key(repo_config, pr_number),
+            timezone.now().timestamp() + STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS,
+            timeout=STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS,
+        )
 
     logger.info(
         "stamphog_pr_event_queued",
@@ -1652,110 +1619,10 @@ def _reusable_withheld_run(repo_config: StamphogRepoConfig, pr: dict[str, Any]) 
     return latest
 
 
-def _request_withheld_verdict(run: ReviewRun, request_output: dict[str, Any]) -> None:
-    publish_withheld_verdict_or_review.delay(
-        team_id=run.team_id, review_run_id=str(run.id), request_output=request_output
-    )
-
-
-def _queue_fresh_review_of_withheld_head(
-    repo_config: StamphogRepoConfig, run: ReviewRun, request_output: dict[str, Any]
-) -> str:
-    """Queue the review the visible request would have started, or return why not. For the log."""
-    pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo_config.repository, run.pull_request.pr_number)
-    if (pr.get("state") or "") != "open":
-        return "not_open"
-    # The push that moved the head brings its own delivery. Every gate passed for this head only.
-    if ((pr.get("head") or {}).get("sha") or "") != run.head_sha:
-        return "head_moved"
-    queued = _queue_review_at_head(repo_config, pr, run.head_sha, output=request_output)
-    if queued.run is None:
-        return "stale_snapshot"
-    return "queued" if queued.created else "already_covered"
-
-
-def _capture_withheld_verdict_outcome(
-    run: ReviewRun, request_output: dict[str, Any], publish_outcome: str, review_outcome: str | None
-) -> None:
-    """Count how often a stored verdict answers a visible request. Best effort: the outcome already happened."""
-    pull_request = run.pull_request
-    repo = pull_request.repo_config.repository
-    try:
-        with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=pull_request.author_login or repo,
-                event="stamphog_withheld_verdict_requested",
-                properties={
-                    "stamphog_repo": repo,
-                    "stamphog_pr_number": pull_request.pr_number,
-                    "stamphog_team_id": run.team_id,
-                    "stamphog_review_run_id": str(run.id),
-                    "stamphog_review_trigger": request_output.get("review_trigger"),
-                    "stamphog_withheld_verdict": run.verdict,
-                    "stamphog_withheld_verdict_reused": publish_outcome
-                    in (WITHHELD_VERDICT_PUBLISHED, WITHHELD_VERDICT_ALREADY_PUBLISHED),
-                    "stamphog_withheld_verdict_outcome": publish_outcome,
-                    "stamphog_fresh_review_outcome": review_outcome,
-                },
-            )
-    except Exception:
-        logger.warning("stamphog_withheld_verdict_capture_failed", review_run_id=str(run.id), exc_info=True)
-
-
-@shared_task(bind=True, ignore_result=True, max_retries=_REREVIEW_MAX_RETRIES)
-def publish_withheld_verdict_or_review(
-    self: Task, team_id: int, review_run_id: str, request_output: dict[str, Any]
-) -> None:
-    """Answer a visible review request with a silent run's withheld verdict, or with a fresh review.
-
-    The stored verdict is published only when every input it was decided on is unchanged (see
-    ``publish_withheld_verdict``). Anything else, an error included, queues a review of the head the
-    normal way, stamped with ``request_output`` as the request would have stamped it. A GitHub or
-    Temporal error while queueing retries with backoff. A retry starts over and is safe: a published
-    verdict is never posted twice, and the head dedupe collapses repeated queueing into one run.
-    """
-    # The activities module imports this module, so a module-level import would be a cycle.
-    from products.stamphog.backend.temporal.activities import publish_withheld_verdict  # noqa: PLC0415
-
-    run = (
-        ReviewRun.objects.for_team(team_id)
-        .using(router.db_for_write(ReviewRun))
-        .select_related("pull_request__repo_config")
-        .filter(id=review_run_id)
-        .first()
-    )
-    if run is None:
-        return
-    repository = run.pull_request.repo_config.repository
-    pr_number = run.pull_request.pr_number
-    repo_config = _reviewable_repo_config(team_id, repository)
-    if repo_config is None:
-        logger.info("stamphog_withheld_verdict_skipped", repository=repository, pr_number=pr_number)
-        return
-    try:
-        publish_outcome = publish_withheld_verdict(run)
-    except Exception:
-        logger.warning("stamphog_withheld_verdict_publish_failed", review_run_id=review_run_id, exc_info=True)
-        publish_outcome = "error"
-    review_outcome: str | None = None
-    if publish_outcome not in (WITHHELD_VERDICT_PUBLISHED, WITHHELD_VERDICT_ALREADY_PUBLISHED):
-        try:
-            review_outcome = _queue_fresh_review_of_withheld_head(repo_config, run, request_output)
-        except GitHubRateLimitError as e:
-            logger.warning("stamphog_withheld_verdict_rate_limited", repository=repository, pr_number=pr_number)
-            raise self.retry(exc=e, countdown=max(e.retry_after or 0, 60))
-        except Exception as e:
-            logger.exception("stamphog_withheld_verdict_review_failed", repository=repository, pr_number=pr_number)
-            raise self.retry(exc=e, countdown=_REREVIEW_RETRY_BASE_SECONDS * 2**self.request.retries)
-    logger.info(
-        "stamphog_withheld_verdict_answered",
-        repository=repository,
-        pr_number=pr_number,
-        review_run_id=review_run_id,
-        publish_outcome=publish_outcome,
-        review_outcome=review_outcome,
-    )
-    _capture_withheld_verdict_outcome(run, request_output, publish_outcome, review_outcome)
+def _withheld_run_output(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> dict[str, Any]:
+    """Point a visible request's new run at the withheld silent verdict it may publish, if there is one."""
+    withheld = _reusable_withheld_run(repo_config, pr)
+    return {WITHHELD_RUN_OUTPUT_KEY: str(withheld.id)} if withheld is not None else {}
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -1977,21 +1844,11 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
             "so Stamphog will not review it.",
         )
 
-    manual_output = {"manual_review": {"acting_user_id": user_id}, "review_trigger": ReviewTrigger.MANUAL.value}
-    # Returned at once, because the check reads the whole review context from GitHub. A changed
-    # input queues a fresh run in the background.
-    withheld = _reusable_withheld_run(repo_config, pr)
-    if withheld is not None:
-        _request_withheld_verdict(withheld, manual_output)
-        logger.info(
-            "stamphog_manual_review_withheld_verdict_requested",
-            repository=repo,
-            pr_number=pr_number,
-            review_run_id=str(withheld.id),
-            team_id=team_id,
-        )
-        return QueuedReview(run=withheld, created=False)
-
+    manual_output = {
+        "manual_review": {"acting_user_id": user_id},
+        "review_trigger": ReviewTrigger.MANUAL.value,
+        **_withheld_run_output(repo_config, pr),
+    }
     queued = _queue_review_at_head(repo_config, pr, pr["head"]["sha"], output=manual_output)
     if queued.run is None:
         raise ReviewRequestRefusedError(

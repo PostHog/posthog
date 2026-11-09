@@ -73,8 +73,8 @@ from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_fo
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.decision_fingerprint import (
     DECISION_FINGERPRINT_OUTPUT_KEY,
-    WITHHELD_VERDICT_ALREADY_PUBLISHED,
-    WITHHELD_VERDICT_PUBLISHED,
+    REUSED_FROM_RUN_OUTPUT_KEY,
+    WITHHELD_RUN_OUTPUT_KEY,
     decision_fingerprint,
 )
 from products.stamphog.backend.logic.engine_pregate import (
@@ -1654,6 +1654,8 @@ def _review_timing_properties(run: ReviewRun, verdict: str, post_verdict_ms: int
         "stamphog_final_verdict": verdict,
         "stamphog_review_trigger": trigger_for_run(output=output, review_mode=pull_request.repo_config.review_mode),
         "stamphog_verdict_published": run.verdict_posted_at is not None,
+        "stamphog_verdict_reused": bool(output.get(REUSED_FROM_RUN_OUTPUT_KEY)),
+        "stamphog_withheld_verdict_outcome": output.get("withheld_verdict_outcome"),
         "stamphog_fast_path": bool(output.get("fast_path")),
         "stamphog_pregate_outcome": output.get("pregate_outcome"),
         "stamphog_familiarity_status": output.get("familiarity_status"),
@@ -1736,6 +1738,95 @@ def _decision_fingerprint(run: ReviewRun, context: dict[str, Any]) -> str:
         head_sha=run.head_sha,
         ignored_labels={repo_config.trigger_label, *fork_labels(repo_config).values()},
     )
+
+
+_REUSABLE_WITHHELD_VERDICTS = frozenset({ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE})
+
+
+def _adopt_withheld_verdict(run: ReviewRun) -> str:
+    """Give ``run`` the verdict a silent run withheld for its head, when nothing it was decided on changed.
+
+    Returns ``reused``, or why ``run`` has to review the PR itself.
+    """
+    output = run.output or {}
+    withheld = (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(id=output.get(WITHHELD_RUN_OUTPUT_KEY), pull_request=run.pull_request)
+        .first()
+    )
+    if withheld is None:
+        return "missing"
+    withheld_output = withheld.output or {}
+    parsed = parse_reviewer_output(withheld_output.get("reviewer_raw", ""))
+    # A silent approval was posted when it was decided, and post_verdict attests and posts any
+    # approval it finds, so a stored approval must never reach it from here.
+    if ReviewVerdict.APPROVED in (withheld.verdict, parsed.verdict):
+        return "approval"
+    if not withheld.verdict_withheld or parsed.verdict not in _REUSABLE_WITHHELD_VERDICTS:
+        return "not_reusable"
+    if withheld.head_sha != run.head_sha:
+        return "head_moved"
+    stored_fingerprint = withheld_output.get(DECISION_FINGERPRINT_OUTPUT_KEY)
+    if not stored_fingerprint:
+        return "no_fingerprint"
+    # Another run between the two decided this PR after the silent one, so the silent verdict is not the latest.
+    if (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request=run.pull_request, created_at__gt=withheld.created_at)
+        .exclude(id=run.id)
+        .exists()
+    ):
+        return "newer_run"
+
+    context = _read_review_context(run)
+    context["review_evidence"] = _read_review_evidence(run, [])
+    current_pr = context["pr"]
+    if (current_pr.get("state") or "") != "open":
+        return "not_open"
+    if ((current_pr.get("head") or {}).get("sha") or "") != run.head_sha:
+        return "head_moved"
+    reviewed_base = (withheld_output.get("pr") or {}).get("base") or {}
+    current_base = current_pr.get("base") or {}
+    if (reviewed_base.get("ref"), reviewed_base.get("sha")) != (current_base.get("ref"), current_base.get("sha")):
+        return "base_moved"
+    if _decision_fingerprint(run, context) != stored_fingerprint:
+        return "inputs_changed"
+    _merge_run_output(
+        run,
+        {
+            **context,
+            "reviewer_raw": withheld_output.get("reviewer_raw", ""),
+            REUSED_FROM_RUN_OUTPUT_KEY: str(withheld.id),
+        },
+    )
+    return "reused"
+
+
+@activity.defn
+@asyncify
+def reuse_withheld_verdict(input: StamphogReviewInput) -> dict:
+    """Take over a withheld silent verdict for this visible run, before any sandbox starts.
+
+    The request that created the run found a silent run that withheld a refusal or an escalation of
+    this head (``withheld_run_id``). The engine context is read from GitHub again, without a sandbox
+    or an LLM call, and compared with the silent run's decision fingerprint. On a match the run gets
+    the silent run's reviewer output and the workflow goes straight to ``post_verdict``, which posts
+    it under its usual guards and marks the silent run published. Anything else, an error included,
+    returns ``reused: False`` and the run reviews the PR the normal way. The outcome is stored for
+    the timings event.
+    """
+    run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED or not (run.output or {}).get(WITHHELD_RUN_OUTPUT_KEY):
+        return {"reused": False}
+    try:
+        outcome = _adopt_withheld_verdict(run)
+    except Exception:
+        activity.logger.warning(f"Run {run.id}: could not reuse the withheld verdict; reviewing", exc_info=True)
+        outcome = "error"
+    _merge_run_output(run, {"withheld_verdict_outcome": outcome})
+    return {"reused": outcome == "reused"}
 
 
 @activity.defn
@@ -1959,6 +2050,13 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
         return {"verdict": "skipped_superseded"}
+
+    reused_from = output.get(REUSED_FROM_RUN_OUTPUT_KEY)
+    if reused_from and run.verdict_posted_at is not None:
+        # The silent run's verdict reached the PR through this run, so it no longer reads as withheld.
+        ReviewRun.objects.for_team(input.team_id).filter(id=reused_from, verdict_posted_at__isnull=True).update(
+            verdict_posted_at=run.verdict_posted_at, updated_at=timezone.now()
+        )
 
     # Right after the save wins: the GitHub steps below can still fail the activity, and the
     # outcome must not wait on them. Running it before the save would hand a stale refusal to
@@ -2613,70 +2711,3 @@ def _reasoning_detail(parsed: ReviewerVerdict) -> str:
     if parsed.showstoppers:
         body += "\n\n**Showstoppers:**\n" + "\n".join(f"- {item}" for item in parsed.showstoppers)
     return body.strip()
-
-
-def publish_withheld_verdict(run: ReviewRun) -> str:
-    """Post a silent run's withheld verdict on the PR when nothing it was decided on has changed.
-
-    For a visible request (the trigger label, or a manual request) on a head whose latest run is a
-    silent run that withheld a refusal or an escalation. The engine context is read from GitHub
-    again, without a sandbox or an LLM call, and the verdict is posted only when its decision
-    fingerprint equals the stored one. The post is what ``post_verdict`` would have posted in the
-    repo's current mode, behind the same guards: the PR is open, the head and the base are the
-    reviewed ones, and a writer-pinned read finds no newer run.
-
-    Returns ``published`` or ``already_published``, or else why the caller must run a fresh review.
-    A repeat call is a no-op: the review id persists the moment GitHub accepts the review, a removed
-    label is skipped, and ``verdict_posted_at`` is stamped once.
-    """
-    if run.verdict_posted_at is not None:
-        return WITHHELD_VERDICT_ALREADY_PUBLISHED
-    output = run.output or {}
-    parsed = parse_reviewer_output(output.get("reviewer_raw", ""))
-    # A silent approval was posted when it was decided, so a stored approval here is never posted again.
-    if ReviewVerdict.APPROVED in (run.verdict, parsed.verdict):
-        return "approval"
-    if not run.verdict_withheld or parsed.verdict not in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
-        return "not_reusable"
-    stored_fingerprint = output.get(DECISION_FINGERPRINT_OUTPUT_KEY)
-    if not stored_fingerprint:
-        return "no_fingerprint"
-
-    pull_request = run.pull_request
-    repo_config = pull_request.repo_config
-    repo = repo_config.repository
-    context = _read_review_context(run)
-    context["review_evidence"] = _read_review_evidence(run, [])
-    current_pr = context["pr"]
-    if (current_pr.get("state") or "") != "open":
-        return "not_open"
-    if ((current_pr.get("head") or {}).get("sha") or "") != run.head_sha:
-        return "head_moved"
-    reviewed_base = (output.get("pr") or {}).get("base") or {}
-    current_base = current_pr.get("base") or {}
-    if (reviewed_base.get("ref"), reviewed_base.get("sha")) != (current_base.get("ref"), current_base.get("sha")):
-        return "base_moved"
-    if _decision_fingerprint(run, context) != stored_fingerprint:
-        return "inputs_changed"
-    # Last look before any GitHub write. A newer run owns the PR's verdict, whatever its status.
-    newer_run_exists = (
-        ReviewRun.objects.for_team(run.team_id)
-        .using(router.db_for_write(ReviewRun))
-        .filter(pull_request=pull_request, created_at__gt=run.created_at)
-        .exists()
-    )
-    if newer_run_exists:
-        return "newer_run"
-
-    client = StamphogGitHubClient(repo_config.installation_id)
-    strips_label = repo_config.review_mode == ReviewMode.LABEL
-    relabel_label = repo_config.trigger_label if strips_label else None
-    _post_non_approval_review(client, repo, run, pull_request, _verdict_body(parsed, run.verdict, relabel_label))
-    if strips_label:
-        client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
-    now = timezone.now()
-    ReviewRun.objects.for_team(run.team_id).filter(id=run.id, verdict_posted_at__isnull=True).update(
-        verdict_posted_at=now, updated_at=now
-    )
-    run.verdict_posted_at = now
-    return WITHHELD_VERDICT_PUBLISHED

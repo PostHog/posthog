@@ -16,8 +16,10 @@ from products.stamphog.backend.temporal.constants import STAMPHOG_TRUSTED_REACTO
 
 DECISION_FINGERPRINT_OUTPUT_KEY = "decision_fingerprint"
 
-WITHHELD_VERDICT_PUBLISHED = "published"
-WITHHELD_VERDICT_ALREADY_PUBLISHED = "already_published"
+# On a visible request's run: the silent run whose withheld verdict it publishes when the inputs
+# still match, and, once it did, the run it took the verdict from.
+WITHHELD_RUN_OUTPUT_KEY = "withheld_run_id"
+REUSED_FROM_RUN_OUTPUT_KEY = "reused_from_run_id"
 
 # Mirrors CHECK_NAME in packages/pr-approval-agent/migration_risk.py. The engine reads no other
 # check run, so a CI check that finishes between two reads must not count as a changed input.
