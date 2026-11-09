@@ -56,7 +56,15 @@ export const INTEGRATION_AUTH: Record<string, IntegrationAuthRule> = {
     slack: { declaration: { scheme: 'bearer' }, origins: () => ['https://slack.com'] },
 }
 
-const CREDENTIAL_CONFIG_FIELDS = new Set(['access_token', 'access_token_raw', 'refresh_token', 'id_token'])
+// `authed_user` holds a user token and `incoming_webhook` a webhook URL once Slack grants those scopes.
+const CREDENTIAL_CONFIG_FIELDS = new Set([
+    'access_token',
+    'access_token_raw',
+    'refresh_token',
+    'id_token',
+    'authed_user',
+    'incoming_webhook',
+])
 
 export function publicIntegrationConfig(
     config: Record<string, unknown> | null | undefined,
@@ -90,7 +98,7 @@ export function requestOrigin(url: string): string | null {
 // from `host`, so a request can reach a host other than the one in its URL on a server that routes by either.
 const AUTHORITY_HEADERS = new Set(['host', ':authority'])
 
-function routedOrigins(request: CredentialRequest): string[] | null {
+export function routedOrigins(request: CredentialRequest): string[] | null {
     const urlOrigin = requestOrigin(request.url)
     if (!urlOrigin) {
         return null
@@ -116,7 +124,14 @@ function withHeader(headers: Record<string, string>, name: string, value: string
     return { ...Object.fromEntries(kept), [name]: value }
 }
 
+// Writing through these keys reaches an object's prototype instead of a JSON key.
+const PROTOTYPE_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
 function withBodyPath(body: string | undefined, path: string, value: string): string | null {
+    const parts = path.split('.')
+    if (parts.some((part) => PROTOTYPE_KEYS.has(part))) {
+        return null
+    }
     let parsed: unknown
     try {
         parsed = parseJSON(body ?? '{}')
@@ -126,7 +141,6 @@ function withBodyPath(body: string | undefined, path: string, value: string): st
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
         return null
     }
-    const parts = path.split('.')
     let target = parsed as Record<string, unknown>
     for (const part of parts.slice(0, -1)) {
         const next = Object.hasOwn(target, part) ? target[part] : undefined
@@ -170,7 +184,10 @@ export function applyCredential(request: CredentialRequest, credential: Resolved
         case 'body': {
             const body = withBodyPath(request.body, declaration.path!, secret)
             if (body === null) {
-                return { ok: false, error: 'The request body must be a JSON object to carry this credential.' }
+                return {
+                    ok: false,
+                    error: 'The request body must be a JSON object, and the credential path must name its keys.',
+                }
             }
             return { ok: true, request: { ...request, body } }
         }
@@ -181,16 +198,21 @@ type Mode = 'observe' | 'enforce'
 
 export const credentialAuthCounter = new Counter({
     name: 'cdp_credential_auth_total',
-    help: 'Fetches that pass a credential handle, by whether every origin the request routes to is bound to the credential.',
+    help: 'Credential handles by outcome: a fetch to a bound or unbound origin, or a connection resolved to code in the legacy shape with its token.',
     labelNames: ['outcome', 'mode'],
 })
+
+export const credentialAuthEnforcedTeams = (enforceTeams: string): ((teamId: number) => boolean) =>
+    buildIntegerMatcher(enforceTeams.trim(), true)
+
+export const appliesIntegrationCredential = (kind: string): boolean => Object.hasOwn(INTEGRATION_AUTH, kind)
 
 // An observed team still sends a mismatched request, so a binding that misses an origin shows in the metric first.
 export class CredentialInjector {
     private readonly enforcedForTeam: (teamId: number) => boolean
 
     constructor(enforceTeams: string) {
-        this.enforcedForTeam = buildIntegerMatcher(enforceTeams.trim(), true)
+        this.enforcedForTeam = credentialAuthEnforcedTeams(enforceTeams)
     }
 
     apply(
