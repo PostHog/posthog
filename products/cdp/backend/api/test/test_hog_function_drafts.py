@@ -446,6 +446,13 @@ class TestHogFunctionDrafts(DraftTestCase):
                 status.HTTP_400_BAD_REQUEST,
                 "inputs__url",
             ),
+            (
+                "keeps_the_liquid_templating_of_the_stored_secret",
+                {"token": {"value": "Bearer {{ event.uuid }}"}},
+                status.HTTP_200_OK,
+                None,
+                "liquid",
+            ),
             ("enters_an_empty_secret", {"token": {"value": ""}}, status.HTTP_400_BAD_REQUEST, "inputs__token"),
             (
                 "enters_a_dictionary_for_a_text_secret",
@@ -462,13 +469,18 @@ class TestHogFunctionDrafts(DraftTestCase):
         ]
     )
     def test_publish_refused_for_a_moved_secret_takes_the_secret_entered_again(
-        self, _name: str, entered: dict, expected_status: int, expected_attr: str | None
+        self,
+        _name: str,
+        entered: dict,
+        expected_status: int,
+        expected_attr: str | None,
+        templating: str = "hog",
     ):
         spare_secret = {"key": "spare_token", "type": "string", "label": "Spare", "secret": True, "required": False}
         function_id = self._create(
             hog=SENDER_HOG,
             inputs_schema=[*BASE_FUNCTION["inputs_schema"], spare_secret],
-            inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}},
+            inputs={"url": {"value": SENDER_URL}, "token": {"value": "live", "templating": templating}},
         )
 
         with secret_host_binding_flag(True):
@@ -491,8 +503,9 @@ class TestHogFunctionDrafts(DraftTestCase):
         function = HogFunction.objects.get(id=function_id)
         if expected_status == status.HTTP_200_OK:
             assert function.draft is None
-            assert function.encrypted_inputs["token"]["value"] == "entered at publish"
-            assert function.encrypted_inputs["token"]["allowed_origins"] == ["https://evil.example.com"]
+            stored = function.encrypted_inputs["token"]
+            assert (stored["value"], stored["templating"]) == (entered["token"]["value"], templating)
+            assert stored["allowed_origins"] == ["https://evil.example.com"]
         else:
             assert retried.json()["attr"] == expected_attr
             assert function.draft is not None

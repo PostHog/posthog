@@ -384,9 +384,15 @@ def _raise_secret_reentry(errors: Any) -> None:
         raise _secret_reentry_error(refused)
 
 
-def _draft_with_entered_secrets(draft: dict, entered: Optional[dict], stored_secrets: dict) -> dict:
+def _templating_of(held: Any) -> dict[str, Any]:
+    templating = held.get("templating") if isinstance(held, dict) else None
+    return {"templating": templating} if templating else {}
+
+
+def _draft_with_entered_secrets(draft: dict, entered: Optional[dict], held_secrets: dict) -> dict:
     """The draft to publish, with the secrets the publisher entered again. Only secrets the draft already
-    holds are taken, so publishing can't change config or add a secret the preview didn't show."""
+    holds are taken, so publishing can't change config or add a secret the preview didn't show. An entered
+    secret keeps the templating of the held one, because the dialog asks only for the value."""
     if not entered:
         return dict(draft)
     secret_keys = {
@@ -396,13 +402,15 @@ def _draft_with_entered_secrets(draft: dict, entered: Optional[dict], stored_sec
     }
     errors = {}
     for key, item in entered.items():
-        if key not in secret_keys or not stored_secrets.get(key):
+        if key not in secret_keys or not held_secrets.get(key):
             errors[key] = "Only a secret the draft already holds can be entered when publishing."
         elif _is_blank_secret(item["value"]):
             errors[key] = "Enter a value for the secret, and for every entry of a dictionary secret."
     if errors:
         raise exceptions.ValidationError({"inputs": errors})
-    entered_inputs = {key: {"value": item["value"]} for key, item in entered.items()}
+    entered_inputs = {
+        key: {"value": item["value"], **_templating_of(held_secrets[key])} for key, item in entered.items()
+    }
     return {**draft, "inputs": {**(draft.get("inputs") or {}), **entered_inputs}}
 
 
@@ -2194,7 +2202,9 @@ class HogFunctionViewSet(
             serializer = self.get_serializer(
                 locked,
                 data=_draft_with_entered_secrets(
-                    locked.draft, param_serializer.validated_data.get("inputs"), locked.encrypted_inputs
+                    locked.draft,
+                    param_serializer.validated_data.get("inputs"),
+                    staged_secret_context(locked)["secrets_to_recover"],
                 ),
                 partial=True,
                 context={**self.get_serializer_context(), "live_encrypted_inputs": live_secrets},
