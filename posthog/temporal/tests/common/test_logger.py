@@ -1,6 +1,7 @@
 import json
 import uuid
 import random
+import typing
 import asyncio
 import datetime as dt
 import operator
@@ -960,3 +961,69 @@ def test_logger_skips_produce_when_its_loop_is_closed():
     loop.close()
 
     Logger("test", queue=asyncio.Queue(), loop=loop).produce(b"late message")
+
+
+class _RecordingProducer:
+    def __init__(self) -> None:
+        self.enqueued: list[tuple[str, list]] = []
+
+    def enqueue(self, source: str, entries: list) -> None:
+        self.enqueued.append((source, list(entries)))
+
+    def flush(self) -> None:
+        pass
+
+
+@pytest.mark.parametrize(
+    "workflow_type, workflow_id, sources, expected_source",
+    [
+        ("external-data-job", "schema-1-2024-01-01T00:00:00Z", "external_data_jobs", "external_data_jobs"),
+        ("external-data-job", "schema-1-2024-01-01T00:00:00Z", "batch_exports", None),
+        ("some-unmapped-workflow", "wf-1", "external_data_jobs", None),
+    ],
+)
+def test_internal_logs_mirror_sends_rendered_messages_of_enabled_sources(
+    workflow_type: str, workflow_id: str, sources: str, expected_source: str | None
+) -> None:
+    from posthog.temporal.common.internal_logs import InternalLogsMirror
+    from posthog.temporal.common.logger import Logger, LogMessagesRenderer
+
+    from products.logs.backend.facade.internal_logs import InternalLogEntry
+
+    rendered = LogMessagesRenderer(event_key="msg")(
+        logger=cast(Logger, None),
+        name="info",
+        event_dict={
+            "msg": "synced 3 rows",
+            "level": "info",
+            "team_id": 2,
+            "timestamp": "2024-01-01 00:00:00.123456",
+            "workflow_type": workflow_type,
+            "workflow_id": workflow_id,
+            "workflow_run_id": "run-1",
+        },
+    )
+    producer = _RecordingProducer()
+    mirror = InternalLogsMirror(cast(typing.Any, producer), frozenset(sources.split(",")))
+
+    if rendered["produce_message"] is not None:
+        mirror.offer(rendered["produce_message"])
+
+    if expected_source is None:
+        assert producer.enqueued == []
+    else:
+        assert producer.enqueued == [
+            (
+                expected_source,
+                [
+                    InternalLogEntry(
+                        team_id=2,
+                        log_source_id="schema-1",
+                        instance_id="run-1",
+                        timestamp=dt.datetime(2024, 1, 1, 0, 0, 0, 123456),
+                        level="info",
+                        message="synced 3 rows",
+                    )
+                ],
+            )
+        ]

@@ -47,6 +47,7 @@ from posthog.logging.exceptions import add_otel_exception_attributes
 
 if typing.TYPE_CHECKING:
     from posthog.kafka_client.client import _AsyncKafkaProducer
+    from posthog.temporal.common.internal_logs import InternalLogsMirror
 
 BACKGROUND_LOGGER_TASKS: dict[str, asyncio.Task[typing.Any]] = {}
 
@@ -495,6 +496,7 @@ def configure_logger(
     file: typing.TextIO | None = None,
     raise_on_producer_error: bool = False,
     otel_log_mirror: structlog.types.Processor | None = None,
+    internal_logs: "InternalLogsMirror | None" = None,
 ) -> None:
     """Configure a structlog for Temporal workflows.
 
@@ -526,6 +528,8 @@ def configure_logger(
             prefer only logging as most products can survive without logs.
         otel_log_mirror: Optionally, a processor inserted before the renderer to mirror
             records to the Logs product over OTLP.
+        internal_logs: Optionally, also send each produced `log_entries` message to the
+            team's logs product as a signed internal log.
     """
     base_processors: list[structlog.types.Processor] = [
         structlog.stdlib.add_log_level,
@@ -569,6 +573,7 @@ def configure_logger(
                 queue=log_queue,
                 topic=KAFKA_LOG_ENTRIES,
                 producer=producer,
+                internal_logs=internal_logs,
             )
         except Exception as e:
             # Skip putting logs in queue if we don't have a producer that can consume the queue.
@@ -626,6 +631,9 @@ def configure_logger(
 
         await asyncio.wait([listen_task])
 
+        if internal_logs is not None:
+            await internal_logs.drain()
+
     create_background_task(handle_worker_shutdown(), loop or asyncio.get_running_loop(), name="handle_worker_shutdown")
 
 
@@ -682,11 +690,13 @@ class KafkaLogProducerFromQueueAsync:
         topic: str = KAFKA_LOG_ENTRIES,
         producer: "_AsyncKafkaProducer | None" = None,
         key: str | None = None,
+        internal_logs: "InternalLogsMirror | None" = None,
     ):
         self.queue = queue
         self.topic = topic
         self.key = key
         self._producer = producer
+        self._internal_logs = internal_logs
         self.logger = structlog.get_logger("posthog.temporal.common.logger.KafkaLogProducerFromQueueAsync")
 
     @property
@@ -710,6 +720,8 @@ class KafkaLogProducerFromQueueAsync:
             while True:
                 msg = await self.queue.get()
                 await self.produce(msg)
+                if self._internal_logs is not None:
+                    self._internal_logs.offer(msg)
 
         finally:
             await self.flush()

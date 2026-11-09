@@ -55,6 +55,7 @@ from posthog.temporal.cleanup_property_definitions import (
 )
 from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.interceptor import is_task_queue_supported
+from posthog.temporal.common.internal_logs import InternalLogsMirror
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.shutdown import ShutdownSignalListener
@@ -1015,7 +1016,9 @@ class Command(BaseCommand):
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
             otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
-            configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)
+            configure_logger(
+                loop=loop, otel_log_mirror=otel_log_mirror, internal_logs=InternalLogsMirror.from_settings()
+            )
 
             logger = LOGGER.bind(
                 host=temporal_host,

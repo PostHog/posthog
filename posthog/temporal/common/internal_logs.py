@@ -1,0 +1,69 @@
+"""Sends the `log_entries` messages of the Temporal sources to the team's logs product as well."""
+
+import json
+import datetime as dt
+
+from django.conf import settings
+
+import structlog
+from asgiref.sync import sync_to_async
+
+from posthog.temporal.ai_observability.team_capture import TeamNotFound, get_team_api_token
+
+from products.logs.backend.facade.internal_logs import (
+    InternalLogEntry,
+    InternalLogsProducer,
+    InternalLogsProducerConfig,
+)
+
+logger = structlog.get_logger(__name__)
+
+DRAIN_TIMEOUT_SECONDS = 10
+
+
+async def _api_token(team_id: int) -> str | None:
+    try:
+        return await sync_to_async(get_team_api_token)(team_id)
+    except TeamNotFound:
+        return None
+
+
+class InternalLogsMirror:
+    def __init__(self, producer: InternalLogsProducer, sources: frozenset[str]) -> None:
+        self._producer = producer
+        self._sources = sources
+
+    @classmethod
+    def from_settings(cls) -> "InternalLogsMirror | None":
+        sources = frozenset(s.strip() for s in settings.TEMPORAL_INTERNAL_LOGS_SOURCES.split(",") if s.strip())
+        if not sources:
+            return None
+        return cls(InternalLogsProducer(InternalLogsProducerConfig.from_settings(), _api_token), sources)
+
+    def offer(self, message: bytes) -> None:
+        """Takes one rendered `log_entries` message. Call it from the event loop the worker runs on."""
+        try:
+            entry = json.loads(message)
+            source = entry["log_source"]
+            if source not in self._sources:
+                return
+            self._producer.enqueue(
+                source,
+                [
+                    InternalLogEntry(
+                        team_id=int(entry["team_id"]),
+                        log_source_id=str(entry["log_source_id"] or ""),
+                        instance_id=str(entry["instance_id"] or ""),
+                        timestamp=dt.datetime.strptime(entry["timestamp"], "%Y-%m-%d %H:%M:%S.%f"),
+                        level=str(entry["level"]),
+                        message=str(entry["message"]),
+                    )
+                ],
+            )
+            self._producer.flush()
+        except Exception:
+            # The logs product copy must never stop the `log_entries` write it mirrors.
+            logger.exception("Failed to mirror a Temporal log to the logs product")
+
+    async def drain(self) -> None:
+        await self._producer.drain(DRAIN_TIMEOUT_SECONDS)
