@@ -4,7 +4,7 @@ This module pulls the build path (and Temporal) onto import. Put reads that run 
 ``django.setup()`` or on hot request paths in ``facade/search.py`` or ``facade/access.py``.
 """
 
-from django.http import Http404, HttpRequest
+from django.http import Http404, HttpRequest, QueryDict
 
 from products.canvas.backend.actions import canvas_actions_disabled as canvas_actions_disabled
 from products.canvas.backend.artifacts import (
@@ -125,7 +125,7 @@ def render_canvas_sandbox_document(*, host: str, content_hash: str, framed: bool
     request = HttpRequest()
     request.META["HTTP_HOST"] = host
     if framed:
-        request.GET["framed"] = "1"
+        request.GET = QueryDict("framed=1")
     try:
         response = _canvas_sandbox_document(request, content_hash)
     except Http404:

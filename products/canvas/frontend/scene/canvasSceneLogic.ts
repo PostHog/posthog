@@ -170,6 +170,8 @@ export interface canvasSceneLogicValues {
     draftCode: string | null
     fixRequestPending: boolean
     fixTaskId: string | null
+    frameDocumentUrl: string | null
+    frameWrapperRequired: boolean
     generationError: string | null
     generationPhase: CanvasGenerationPhase | null
     generationStarting: boolean
@@ -184,8 +186,6 @@ export interface canvasSceneLogicValues {
     makePublicOpen: boolean
     runtimeError: string | null
     sandboxDocumentUrl: string | null
-    frameDocumentUrl: string | null
-    frameWrapperRequired: boolean
     shouldPoll: boolean
     sidePanelAvailable: boolean
     sidePanelContext: SidePanelSceneContext
@@ -386,8 +386,8 @@ export interface canvasSceneLogicMeta {
         visibility: (canvas: CanvasApi | null, space: CanvasSpace | null) => CanvasVisibility | null
         isCreator: (canvas: CanvasApi | null, user: UserType | null) => boolean
         sandboxDocumentUrl: (view: CanvasViewResponseApi | null) => string | null
-        frameDocumentUrl: (view: CanvasViewResponseApi | null, frameWrapperRequired: boolean) => string | null
         frameWrapperRequired: (featureFlags: FeatureFlagsSet) => boolean
+        frameDocumentUrl: (view: CanvasViewResponseApi | null, frameWrapperRequired: boolean) => string | null
         liveBuild: (view: CanvasViewResponseApi | null) => CanvasBuildApi | null
         draftCode: (view: CanvasViewResponseApi | null) => string | null
         liveRenderSource: (liveBuild: CanvasBuildApi | null, view: CanvasViewResponseApi | null) => CanvasRenderSource
