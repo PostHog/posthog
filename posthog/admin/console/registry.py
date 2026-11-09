@@ -85,6 +85,7 @@ class ConsoleRegistry:
         import posthog.admin.console.usage_reports_tool  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.organization_panels  # noqa: F401, PLC0415 — registers the core Organization panels
         import posthog.admin.console.events_retention_tool  # noqa: F401, PLC0415 — registers a core tool
+        import posthog.admin.console.organization_deletion  # noqa: F401, PLC0415 — registers the core Organization deletion panel
         import posthog.admin.console.deletion_request_panels  # noqa: F401, PLC0415 — registers the core deletion request panels
 
         autodiscover_modules("console")

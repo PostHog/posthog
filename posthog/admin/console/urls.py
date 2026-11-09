@@ -23,6 +23,8 @@ MOVED_ORGANIZATION_ACTIONS = {
     "limit-product": "#panel-billing",
     "unlimit-product": "#panel-billing",
     "sync-to-billing": "#panel-billing",
+    "trigger-deletion": "deletion/delete/",
+    "model-counts": "#panel-deletion",
 }
 
 MOVED_DELETION_REQUEST_ACTIONS = {

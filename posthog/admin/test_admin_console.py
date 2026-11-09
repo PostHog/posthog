@@ -15,7 +15,9 @@ from django.test import Client, RequestFactory, SimpleTestCase, override_setting
 from django.utils.html import format_html
 
 from parameterized import parameterized
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
@@ -296,7 +298,7 @@ class TestAdminConsoleViews(BaseTest):
         organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
         assert organization_page.status_code == 200
         organization_content = organization_page.content.decode()
-        for title in ("Overview", "Teams", "Billing"):
+        for title in ("Overview", "Teams", "Billing", "Deletion", "Early access features"):
             assert title in organization_content
         assert f"/admin/console/teams/{self.team.pk}/" in organization_content
 
@@ -333,6 +335,7 @@ class TestAdminConsoleViews(BaseTest):
                 "email-sending/suspend/?from=ticket",
             ),
             ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
+            ("organization_deletion_form", "organization", "trigger-deletion/", "deletion/delete/"),
             (
                 "deletion_request_form_page",
                 "datadeletionrequest",
@@ -531,6 +534,49 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == expected_status
         assert (QuotaResource.EVENTS in QuotaLimits.limited(self.organization)) == expect_limited
+
+    @parameterized.expand(
+        [
+            ("starts_the_workflow", True, False, None, 302, True),
+            ("staff_outside_the_deletion_group", False, False, None, 403, False),
+            ("bulk_deletes_paused", True, True, None, 503, False),
+            ("workflow_start_fails", True, False, RuntimeError("temporal down"), 500, False),
+            ("workflow_already_running", True, False, WorkflowAlreadyStartedError("id", "type"), 302, True),
+        ]
+    )
+    @patch("posthog.admin.console.organization_deletion.start_delete_organization_workflow")
+    def test_deleting_an_organization_needs_the_deletion_group_and_a_confirmed_preview(
+        self,
+        _name: str,
+        in_group: bool,
+        bulk_deletes_paused: bool,
+        start_error: Exception | None,
+        expected_status: int,
+        expect_pending: bool,
+        start: MagicMock,
+    ) -> None:
+        if in_group:
+            Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0].user_set.add(self.user)
+        start.side_effect = start_error
+        url = f"/admin/console/organizations/{self.organization.pk}/deletion/delete/"
+
+        with override_settings(DISABLE_BULK_DELETES=bulk_deletes_paused):
+            preview = self.client.post(url, {"reason": "Customer asked to delete the organization"})
+            response = (
+                self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+                if preview.status_code == 200
+                else preview
+            )
+
+        assert response.status_code == expected_status
+        if in_group:
+            assert self.team.name in preview.content.decode()
+        assert start.called == (in_group and not bulk_deletes_paused)
+        if start.called:
+            assert start.call_args.kwargs["team_ids"] == [self.team.pk]
+            assert start.call_args.kwargs["user_id"] == self.user.pk
+        self.organization.refresh_from_db()
+        assert self.organization.is_pending_deletion == expect_pending
 
     @parameterized.expand([("billing_staff", True, 302), ("other_staff", False, 403)])
     @patch("posthog.admin.console.usage_reports_tool.call_command")
