@@ -1040,15 +1040,33 @@ export interface CanvasSourcePublishResponseApi {
 }
 
 /**
- * 403 body for a change that adds capabilities when the caller did not create the canvas.
+ * * `capability_widening_requires_creator` - Capability widening requires creator
+ * * `pinned_version_requires_creator` - Pinned version requires creator
  */
-export interface CanvasCapabilityWideningDeniedApi {
+export type CanvasCreatorRequiredCodeEnumApi =
+    (typeof CanvasCreatorRequiredCodeEnumApi)[keyof typeof CanvasCreatorRequiredCodeEnumApi]
+
+export const CanvasCreatorRequiredCodeEnumApi = {
+    CapabilityWideningRequiresCreator: 'capability_widening_requires_creator',
+    PinnedVersionRequiresCreator: 'pinned_version_requires_creator',
+} as const
+
+/**
+ * 403 body for a change that only a creator can make: adding capabilities to a canvas, or pinning
+ * a component version other than that component's live version.
+ */
+export interface CanvasCreatorRequiredApi {
     /** Human-readable description of the refusal. */
     detail: string
-    /** Always "capability_widening_requires_creator". */
-    code: string
-    /** The capabilities the change adds, so the caller can ask the canvas creator to publish them. */
-    capability_widening: CanvasCapabilityWideningApi
+    /** `capability_widening_requires_creator`: the change adds capabilities and the caller did not create the canvas. `pinned_version_requires_creator`: a grid layout pins a component version other than that component's live version and the caller did not create that component.
+     *
+     * * `capability_widening_requires_creator` - Capability widening requires creator
+     * * `pinned_version_requires_creator` - Pinned version requires creator */
+    code: CanvasCreatorRequiredCodeEnumApi
+    /** Set for capability_widening_requires_creator. The capabilities the change adds, so the caller can ask the canvas creator to publish them. */
+    capability_widening?: CanvasCapabilityWideningApi
+    /** Set for pinned_version_requires_creator. IDs of the components whose placements must use the live version or `latest` instead. */
+    components?: string[]
 }
 
 /**
@@ -1394,19 +1412,6 @@ export interface CanvasLayoutPublishResponseApi {
     layout: CanvasLayoutApi
     /** Id of the layout version this publish created. */
     current_version_id: string
-}
-
-/**
- * 403 body for a layout that pins a component version other than that component's live version
- * when the caller did not create that component.
- */
-export interface CanvasPinnedVersionDeniedApi {
-    /** Human-readable description of the refusal. */
-    detail: string
-    /** Always "pinned_version_requires_creator". */
-    code: string
-    /** IDs of the components whose placements must use the live version or `latest` instead. */
-    components: string[]
 }
 
 /**

@@ -23261,18 +23261,6 @@ export namespace Schemas {
       connectors_added: CanvasConnectorDeclaration[];
     }
 
-    /**
-     * 403 body for a change that adds capabilities when the caller did not create the canvas.
-     */
-    export interface CanvasCapabilityWideningDenied {
-      /** Human-readable description of the refusal. */
-      detail: string;
-      /** Always "capability_widening_requires_creator". */
-      code: string;
-      /** The capabilities the change adds, so the caller can ask the canvas creator to publish them. */
-      capability_widening: CanvasCapabilityWidening;
-    }
-
     export interface CanvasCommentAnchor {
       /** Anchor kind: text or region. */
       kind?: string;
@@ -23599,6 +23587,36 @@ export namespace Schemas {
          * @maxLength 64
          */
       template_id?: string;
+    }
+
+    /**
+     * * `capability_widening_requires_creator` - Capability widening requires creator
+     * * `pinned_version_requires_creator` - Pinned version requires creator
+     */
+    export type CanvasCreatorRequiredCodeEnum = typeof CanvasCreatorRequiredCodeEnum[keyof typeof CanvasCreatorRequiredCodeEnum];
+
+
+    export const CanvasCreatorRequiredCodeEnum = {
+      CapabilityWideningRequiresCreator: 'capability_widening_requires_creator',
+      PinnedVersionRequiresCreator: 'pinned_version_requires_creator',
+    } as const;
+
+    /**
+     * 403 body for a change that only a creator can make: adding capabilities to a canvas, or pinning
+     * a component version other than that component's live version.
+     */
+    export interface CanvasCreatorRequired {
+      /** Human-readable description of the refusal. */
+      detail: string;
+      /** `capability_widening_requires_creator`: the change adds capabilities and the caller did not create the canvas. `pinned_version_requires_creator`: a grid layout pins a component version other than that component's live version and the caller did not create that component.
+       *
+       * * `capability_widening_requires_creator` - Capability widening requires creator
+       * * `pinned_version_requires_creator` - Pinned version requires creator */
+      code: CanvasCreatorRequiredCodeEnum;
+      /** Set for capability_widening_requires_creator. The capabilities the change adds, so the caller can ask the canvas creator to publish them. */
+      capability_widening?: CanvasCapabilityWidening;
+      /** Set for pinned_version_requires_creator. IDs of the components whose placements must use the live version or `latest` instead. */
+      components?: string[];
     }
 
     /**
@@ -24039,19 +24057,6 @@ export namespace Schemas {
       current_version_id: string | null;
       /** One entry per distinct (component, pinned version) the layout's live placements reference, present only when the request passes include_components. Components the caller may not see are omitted. */
       component_lifecycles?: CanvasComponentLifecycle[];
-    }
-
-    /**
-     * 403 body for a layout that pins a component version other than that component's live version
-     * when the caller did not create that component.
-     */
-    export interface CanvasPinnedVersionDenied {
-      /** Human-readable description of the refusal. */
-      detail: string;
-      /** Always "pinned_version_requires_creator". */
-      code: string;
-      /** IDs of the components whose placements must use the live version or `latest` instead. */
-      components: string[];
     }
 
     /**

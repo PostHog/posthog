@@ -73,7 +73,6 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBuildActionSerializer,
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
-    CanvasCapabilityWideningDeniedSerializer,
     CanvasCommentDetailQuerySerializer,
     CanvasCommentDetailSerializer,
     CanvasCommentsQuerySerializer,
@@ -82,6 +81,8 @@ from products.canvas.backend.presentation.serializers import (
     CanvasConnectorCallSerializer,
     CanvasConnectorsResponseSerializer,
     CanvasCreateSerializer,
+    CanvasCreatorRequiredCode,
+    CanvasCreatorRequiredSerializer,
     CanvasDraftSerializer,
     CanvasErrorReportResultSerializer,
     CanvasFixRequestResultSerializer,
@@ -89,7 +90,6 @@ from products.canvas.backend.presentation.serializers import (
     CanvasLayoutPublishResponseSerializer,
     CanvasLayoutPublishSerializer,
     CanvasLayoutWithComponentsResponseSerializer,
-    CanvasPinnedVersionDeniedSerializer,
     CanvasPromoteSerializer,
     CanvasPublishConflictSerializer,
     CanvasPublishCurrentVersionSerializer,
@@ -184,7 +184,7 @@ def _widening_denied_response(error: CanvasCapabilityWideningDenied) -> Response
         {
             "detail": "Only the canvas creator can add capabilities. Ask the creator to publish this change, "
             "or publish it without the added capabilities.",
-            "code": "capability_widening_requires_creator",
+            "code": CanvasCreatorRequiredCode.CAPABILITY_WIDENING,
             "capability_widening": error.widening,
         },
         status=status.HTTP_403_FORBIDDEN,
@@ -196,7 +196,7 @@ def _pinned_version_denied_response(error: CanvasPinnedVersionDenied) -> Respons
         {
             "detail": "Only a component's creator can pin a version other than its live version. "
             'Place these components on "latest" or their live version.',
-            "code": "pinned_version_requires_creator",
+            "code": CanvasCreatorRequiredCode.PINNED_VERSION,
             "components": error.component_ids,
         },
         status=status.HTTP_403_FORBIDDEN,
@@ -890,7 +890,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         responses={
             200: CanvasSourcePublishResponseSerializer,
             403: OpenApiResponse(
-                response=CanvasCapabilityWideningDeniedSerializer,
+                response=CanvasCreatorRequiredSerializer,
                 description="The caller is not the canvas creator and either supplied a name or added capabilities. "
                 "Adding capabilities carries code capability_widening_requires_creator.",
             ),
@@ -935,7 +935,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         responses={
             200: CanvasSourcePublishResponseSerializer,
             403: OpenApiResponse(
-                response=CanvasCapabilityWideningDeniedSerializer,
+                response=CanvasCreatorRequiredSerializer,
                 description="The caller is not the canvas creator and either supplied a name or added capabilities. "
                 "Adding capabilities carries code capability_widening_requires_creator.",
             ),
@@ -1176,7 +1176,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         responses={
             200: CanvasBuildSerializer,
             403: OpenApiResponse(
-                response=CanvasCapabilityWideningDeniedSerializer,
+                response=CanvasCreatorRequiredSerializer,
                 description="The change adds capabilities and the caller is not the canvas creator.",
             ),
             409: OpenApiResponse(
@@ -1227,10 +1227,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         responses={
             200: CanvasBuildSerializer,
             403: OpenApiResponse(
-                response=CanvasCapabilityWideningDeniedSerializer,
-                description="The change adds capabilities and the caller is not the canvas creator. On a grid "
-                "canvas, a version that pins a component version other than that component's live version is "
-                "refused with code pinned_version_requires_creator unless the caller created that component.",
+                response=CanvasCreatorRequiredSerializer,
+                description="The change adds capabilities and the caller is not the canvas creator "
+                "(capability_widening_requires_creator), or the grid version pins a component version other than "
+                "that component's live version and the caller did not create that component "
+                "(pinned_version_requires_creator).",
             ),
             429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
             503: OpenApiResponse(description="Canvas source storage is temporarily unavailable."),
@@ -1391,7 +1392,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         responses={
             200: CanvasLayoutPublishResponseSerializer,
             403: OpenApiResponse(
-                response=CanvasPinnedVersionDeniedSerializer,
+                response=CanvasCreatorRequiredSerializer,
                 description="The layout newly pins a component version other than that component's live version, "
                 "and the caller did not create that component.",
             ),
@@ -1434,7 +1435,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         responses={
             200: CanvasLayoutPublishResponseSerializer,
             403: OpenApiResponse(
-                response=CanvasPinnedVersionDeniedSerializer,
+                response=CanvasCreatorRequiredSerializer,
                 description="The layout newly pins a component version other than that component's live version, "
                 "and the caller did not create that component.",
             ),
