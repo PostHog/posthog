@@ -373,7 +373,10 @@ FROM {database}.{kafka_table}
 
 
 #
-# error_tracking_issue_tags: The answer to each issue tag question, one row per (team_id, key, issue_id).
+# error_tracking_issue_tags: The answers to issue tag questions. Each write adds a row. A merge keeps only the row
+# with the highest version for each (team_id, key, issue_id). A read before the merge sees every row. Thus a reader
+# must take the row with the highest version to get the current answer. A bare argMax(value, version) skips the rows
+# where value is null. Thus it returns an older answer when the newest answer is null.
 # The answers have their own table because cymbal writes complete rows to error_tracking_fingerprint_issue_state,
 # and each cymbal write would reset a tags column there. Django is the only writer of this table.
 #
@@ -471,8 +474,12 @@ FROM {settings.CLICKHOUSE_DATABASE}.{ERROR_TRACKING_ISSUE_TAGS_KAFKA_TABLE}
 """
 
 
-INSERT_ERROR_TRACKING_ISSUE_TAG = """
-INSERT INTO error_tracking_issue_tags (team_id, issue_id, key, value, is_deleted, version, _timestamp, _offset, _partition) SELECT %(team_id)s, %(issue_id)s, %(key)s, %(value)s, %(is_deleted)s, %(version)s, now(), 0, 0
+def TRUNCATE_ERROR_TRACKING_ISSUE_TAGS_TABLE_SQL() -> str:
+    return f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_ISSUE_TAGS_RAW_TABLE}"
+
+
+INSERT_ERROR_TRACKING_ISSUE_TAG = f"""
+INSERT INTO {ERROR_TRACKING_ISSUE_TAGS_TABLE} (team_id, issue_id, key, value, is_deleted, version, _timestamp, _offset, _partition) SELECT %(team_id)s, %(issue_id)s, %(key)s, %(value)s, %(is_deleted)s, %(version)s, now(), 0, 0
 """
 
 
