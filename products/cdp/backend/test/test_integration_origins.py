@@ -94,6 +94,31 @@ class TestIntegrationOrigins(SimpleTestCase):
                 False,
             ),
             ("connection_also_printed", "firebase", PUSH_HOG + "print(inputs.channels)", False),
+            (
+                "credential_handed_to_the_worker_function",
+                "apns",
+                "let res := sendPushNotification(base64Encode(inputs.channels.private_key))",
+                False,
+            ),
+            (
+                "credential_in_the_payload",
+                "firebase",
+                PUSH_HOG.replace("inputs.title", "base64Encode(inputs.channels.1.signing_key)"),
+                False,
+            ),
+            (
+                "integration_id_built_by_the_code",
+                "firebase",
+                "let c := {'$integration_id': inputs.channels.1.signing_key}\n"
+                "sendPushNotification({'integrationIds': [c.$integration_id], 'payload': {}})",
+                False,
+            ),
+            (
+                "integration_id_read_from_the_connection",
+                "apns",
+                "sendPushNotification({'integrationIds': [inputs.channels.$integration_id], 'payload': {}})",
+                True,
+            ),
         ]
     )
     def test_connection_handed_to_a_worker_function(self, _name: str, kind: str, hog: str, within: bool) -> None:

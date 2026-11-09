@@ -111,7 +111,15 @@ class _Derived:
     key: str
 
 
-_Taint = frozenset[str | _Derived]
+@frozen
+class _Reference:
+    """The id of the connection `key`, read off the object the worker resolves it to. The worker sets the
+    id itself, so it holds none of the connection's credentials."""
+
+    key: str
+
+
+_Taint = frozenset[str | _Derived | _Reference]
 
 
 def _derived(taint: _Taint) -> _Taint:
@@ -123,7 +131,9 @@ def _held(taint: _Taint) -> frozenset[str]:
 
 
 def _reached(taint: _Taint) -> frozenset[str]:
-    return frozenset(item.key if isinstance(item, _Derived) else item for item in taint)
+    return frozenset(
+        item.key if isinstance(item, _Derived) else item for item in taint if not isinstance(item, _Reference)
+    )
 
 
 class _CannotAnalyze(Exception):
@@ -364,13 +374,16 @@ class _Analysis:
         hog: str,
         input_sets: list[dict[str, Any]],
         secret_keys: set[str],
-        integration_configs: Optional[Mapping[str, Mapping[str, Any]]],
+        integration_configs: Optional[Mapping[str, Mapping[str, Any]]] = None,
         worker_calls: Optional[Mapping[str, frozenset[str]]] = None,
     ) -> None:
         self.secret_keys = frozenset(secret_keys)
         self.worker_calls = worker_calls or {}
         self.worker_call_names: frozenset[str] = frozenset().union(*self.worker_calls.values())
         self.evaluations_left = _MAX_EVALUATIONS
+        # Input templates run before the code, so they read the stored config, whatever the code writes.
+        self.aliasing_bases: set[str] = set()
+        self.connection_names: dict[str, str] = {}
         self.resolvable_by_name = integration_configs is None
         self.integration_configs = integration_configs or {}
         self.indexed_names: set[int] = set()
@@ -380,6 +393,7 @@ class _Analysis:
         self.statement_index = 0
         self.other_name_uses: set[str] = set()
         self.tables: dict[str, dict[str, str]] = {}
+        self.table_fallbacks: dict[int, _Values] = {}
         self.values: dict[str, _Values] = {}
         self.taints: dict[str, _Taint] = {}
         self.return_values: dict[str, _Values] = {}
@@ -430,6 +444,8 @@ class _Analysis:
         ]
         if self._rebinds_an_interpreted_name(variables) or self._hands_on_a_callee() or self._can_replace_inputs():
             raise _CannotAnalyze("unsupported_code")
+        self.aliasing_bases = {base for base, depth, _ in self.member_assignments if depth > 1 or base not in fresh}
+        self.connection_names = self._connection_names(variables)
 
         local = set(self.declared_names) | bound_elsewhere | set(self.functions)
         self.lambdas_only = self._lambda_only_names() - bound_elsewhere - set(self.functions)
@@ -459,6 +475,41 @@ class _Analysis:
         """The analysis reads input values as configured, so code must not be able to replace them."""
         writes_inputs = any(base == "inputs" for base, _, _ in self.member_assignments)
         return writes_inputs or (self.reads_all_inputs and bool(self.shared_assignments))
+
+    def _trusts_config(self) -> bool:
+        """A member write through a name that may hold a connection changes the object the code reads its
+        config from, so the stored config no longer says where a fetch goes."""
+        return not any(_held(self.taints.get(base, frozenset())) for base in self.aliasing_bases)
+
+    def _connection_names(self, variables: set[str]) -> dict[str, str]:
+        """Names bound only to the elements of a connection input that a worker function takes, as in
+        `arrayMap(channel -> channel.$integration_id, inputs.channels)`, by the input key. A member write
+        anywhere could replace the id on the object, so then there are none."""
+        if self.member_assignments:
+            return {}
+        feeds: dict[str, set[str | None]] = {}
+        for name, feed in self.fed_names:
+            keys = {_input_key(expr) if _is_whole_input(expr) else None for expr in feed or [None]}
+            feeds.setdefault(name, set()).update(keys)
+        bound_otherwise = variables - set(feeds) | {name for name, _ in self.assignments}
+        names: dict[str, str] = {}
+        for name, keys in feeds.items():
+            key = next(iter(keys))
+            if len(keys) == 1 and key is not None and name not in bound_otherwise and self._has_worker(keys):
+                names[name] = key
+        return names
+
+    def _has_worker(self, keys: set[str | None]) -> bool:
+        return all(key is not None and self.worker_calls.get(key) for key in keys)
+
+    def _reference(self, node: ast.AST) -> _Reference | None:
+        if not isinstance(node, ast.Field) or node.chain[-1] != "$integration_id" or self.member_assignments:
+            return None
+        if len(node.chain) == 3 and node.chain[0] == "inputs" and self._has_worker({str(node.chain[1])}):
+            return _Reference(key=str(node.chain[1]))
+        if len(node.chain) == 2 and str(node.chain[0]) in self.connection_names:
+            return _Reference(key=self.connection_names[str(node.chain[0])])
+        return None
 
     def _lambda_only_names(self) -> set[str]:
         assigned = {name for name, _ in self.assignments}
@@ -738,19 +789,30 @@ class _Analysis:
     def _leaving_secrets(self) -> set[str]:
         # Only a secret itself leaves this way. A digest of it or a response to it is logged, thrown and
         # stored by templates as a matter of course, and does not reveal it.
-        return set(_held(self._union_taint(self.exits) | (self.shared_taint if self.exits else frozenset())))
+        leaving = set(_held(self._union_taint(self.exits) | (self.shared_taint if self.exits else frozenset())))
+        for call in self.calls:
+            if call.name in self.worker_call_names:
+                # The worker resolves a connection only from its id. A credential, or anything made from
+                # one, can reach the logs or the provider as part of the payload.
+                handed = self._union_taint(call.args)
+                leaving |= _reached(handed)
+                leaving |= {
+                    item.key
+                    for item in handed
+                    if isinstance(item, _Reference) and call.name not in self.worker_calls.get(item.key, frozenset())
+                }
+        return leaving
 
     def _fetches(self) -> Iterator[tuple[frozenset[str], _Values]]:
         """The secrets each fetch sends, with the addresses it can send them to."""
         for call in self.calls:
-            if call.name in self.worker_call_names:
-                handed = _held(self._union_taint(call.args))
-                unbound |= {key for key in handed if call.name not in self.worker_calls.get(key, frozenset())}
             if call.name != "fetch":
                 continue
             carried = self._fetch_carries(call, self._union_taint(call.args) | self.shared_taint)
             if carried:
-                yield carried, self._value(call.args[0]) if call.args else _UNKNOWN
+                # No known value means a value the analysis missed, such as the null a function without a
+                # return gives, not a fetch that never runs.
+                yield carried, (self._value(call.args[0]) if call.args else frozenset()) or _UNKNOWN
 
     def _fetch_carries(self, call: ast.Call, taint: _Taint) -> frozenset[str]:
         """The secrets a fetch sends: those its arguments hold or were derived from, and every secret
@@ -797,7 +859,7 @@ class _Analysis:
         if isinstance(node, ast.Constant):
             return frozenset({(node.value, True)}) if isinstance(node.value, str) else _UNKNOWN
         config_field = _config_field(node)
-        if config_field is not None:
+        if config_field is not None and self._trusts_config():
             field = self.integration_configs.get(config_field.key, {}).get(config_field.name)
             return frozenset({(field, True)}) if isinstance(field, str) else _UNKNOWN
         input_key = _input_key(node)
@@ -822,11 +884,15 @@ class _Analysis:
 
     def _table_value(self, table: dict[str, str], key: ast.Expr) -> _Values:
         keys = self._value(key)
-        if all(complete and text in table for text, complete in keys):
+        if keys and all(complete and text in table for text, complete in keys):
             return _normalize(frozenset((table[text], True) for text, _ in keys))
         # A key the table lacks reads as null, which a template renders as an empty string. The host can
         # then be missing, so that the rest of the URL names it, as in `https:///evil.example.com`.
-        return _normalize(frozenset((value, True) for value in table.values()) | {("", True)})
+        if id(table) not in self.table_fallbacks:
+            self.table_fallbacks[id(table)] = _normalize(
+                frozenset((value, True) for value in table.values()) | {("", True)}
+            )
+        return self.table_fallbacks[id(table)]
 
     def _taint(self, node: ast.AST) -> _Taint:
         self._spend_evaluation()
@@ -834,6 +900,9 @@ class _Analysis:
             if not self.resolvable_by_name or not isinstance(node.value, str):
                 return frozenset()
             return frozenset({node.value}) & self.secret_keys
+        reference = self._reference(node)
+        if reference is not None:
+            return frozenset({reference})
         config_field = _config_field(node)
         if config_field is not None and config_field.name in self.integration_configs.get(config_field.key, {}):
             # A field from the public config holds none of the connection's credentials.
@@ -854,6 +923,14 @@ class _Analysis:
             return self.return_taints.get(node.name, frozenset())
         if isinstance(node, ast.Call) and node.name in self.lambdas_only:
             return self.taints.get(node.name, frozenset())
+        if (
+            isinstance(node, ast.Call)
+            and node.name == "arrayMap"
+            and node.args
+            and isinstance(node.args[0], ast.Lambda)
+        ):
+            # The result holds only what the lambda returns. Its parameter carries the taint of the array.
+            return self._taint(node.args[0].expr)
         taint = self._union_taint(_children(node))
         if isinstance(node, ast.Call) and node.name == "fetch":
             # A response can echo what its request sent, so passing it on moves those secrets too.
@@ -904,6 +981,10 @@ def _config_field(node: ast.AST) -> _ConfigField | None:
     ):
         return _ConfigField(key=str(node.array.chain[1]), name=node.property.value)
     return None
+
+
+def _is_whole_input(node: ast.AST) -> bool:
+    return isinstance(node, ast.Field) and len(node.chain) == 2 and node.chain[0] == "inputs"
 
 
 def _input_key(node: ast.AST) -> str | None:

