@@ -172,6 +172,11 @@ export interface ExecInnerCallProperties {
     output_tokens?: number
     input?: Record<string, unknown>
     /**
+     * The handler's result before formatting. Analytics redacts it by key, which the
+     * formatted text below would hide credential fields from.
+     */
+    result?: unknown
+    /**
      * The payload returned to the client, exactly as serialized. Consumed by the
      * `$ai_span` capture for data-catalog-relevant calls, which needs the tool's
      * result (e.g. which metrics a catalog lookup returned), not just its size.
@@ -1127,13 +1132,13 @@ function namedKeys(keys: readonly string[]): string {
         .join(', ')
 }
 
-/** Bound on the parameter description echoed back with a missing or wrong-type
- *  parameter rejection, so a tool with a long field description cannot inflate
+/** Bound on the parameter description echoed back with a missing, wrong-type or
+ *  too-long parameter rejection, so a tool with a long field description cannot inflate
  *  the analytics error message. */
 const MAX_PARAM_HINT = 200
 
 /**
- * The parameter's own description, appended to a missing or wrong-type rejection.
+ * The parameter's own description, appended to a missing, wrong-type or too-long rejection.
  *
  * A bare `missing required parameter: short_id` names the field to fill but not
  * what to fill it with, so a caller that never held the identifier retries the
@@ -1432,7 +1437,7 @@ export function formatInputValidationError(
         // is only present under `reportInput: true`; without it, or for
         // non-string origins, fall through to zod's limit-naming default.
         if (issue.code === 'too_big' && issue.origin === 'string' && typeof issue.input === 'string') {
-            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})`
+            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})${parameterHint(issue.path, schema)}`
         }
         return path ? `parameter "${path}": ${issue.message}` : issue.message
     })
@@ -2288,6 +2293,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateTokens(outputText),
                             input,
+                            result,
                             output: outputText,
                             ...resultShape,
                         })
@@ -2339,6 +2345,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
                             input,
+                            result,
                             output: payload,
                             ...resultShape,
                         })
@@ -2365,6 +2372,7 @@ export function createExecTool(
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
                         input,
+                        result,
                         output: outputText,
                         ...resultShape,
                     })

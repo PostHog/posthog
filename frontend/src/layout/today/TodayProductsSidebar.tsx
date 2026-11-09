@@ -5,13 +5,13 @@ import { Text } from '@posthog/quill'
 
 import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
 import { productsItemName } from '~/layout/panel-layout/navbar/tabs/productsCatalog'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
-import { TodayPaneRow } from './TodayPaneRow'
 import { analyticsTypesForPaneSearch } from './todayPaneSearch'
-import { TodayPaneSearchList } from './TodayPaneSearchList'
-import { TodayPaneSection } from './TodayPaneSection'
 import { productPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodayProductRow } from './TodayProductRow'
@@ -30,7 +30,7 @@ export function TodayProductsSidebar(): JSX.Element {
         activeHref,
         search,
     } = useValues(todayProductsLogic)
-    const { setSearch, setStarredOpen, setAllProductsOpen } = useActions(todayProductsLogic)
+    const { setSearch, setStarredOpen, setAllProductsOpen, productOpened } = useActions(todayProductsLogic)
     const searching = !!search.trim()
     const searchedAnalyticsTypes = analyticsTypesForPaneSearch(search)
     const hasProducts = pinnedProducts.length > 0 || starredProducts.length > 0 || productCount > 0
@@ -41,7 +41,7 @@ export function TodayProductsSidebar(): JSX.Element {
     )
 
     // A product can show in Starred and in its category, so the group keeps the rows apart on the keyboard path.
-    const renderProduct = (item: FileSystemImport, group: string): JSX.Element => (
+    const renderProduct = (item: FileSystemImport, group: string, position: number): JSX.Element => (
         <TodayProductRow
             key={item.href}
             value={`${group}:${item.href}`}
@@ -51,12 +51,14 @@ export function TodayProductsSidebar(): JSX.Element {
             active={item.href === activeHref}
             starred={starredHrefs.has(item.href ?? '')}
             inStarredGroup={group === 'starred'}
+            category={group === 'starred' ? null : group}
+            position={position}
         />
     )
 
     return (
         <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
-            <TodayPaneSearchList
+            <SidebarSearchList
                 query={search}
                 onQueryChange={setSearch}
                 searchLabel="Search products"
@@ -72,15 +74,16 @@ export function TodayProductsSidebar(): JSX.Element {
                     ))}
                 {pinnedProducts.length > 0 && (
                     <div className="flex flex-col gap-px pb-2">
-                        {pinnedProducts.map((item) => {
+                        {pinnedProducts.map((item, index) => {
                             const row = (
-                                <TodayPaneRow
+                                <SidebarRow
                                     value={`pinned:${item.href}`}
                                     label={productsItemName(item)}
                                     icon={<NavProductIcon item={item} />}
                                     to={item.href ?? ''}
                                     active={item.href === activeHref}
                                     dataAttr="today-tool-pinned"
+                                    onClick={() => productOpened(item, 'pinned', null, index)}
                                 />
                             )
                             const preview = pinnedPreviews.get(item.href)
@@ -95,18 +98,18 @@ export function TodayProductsSidebar(): JSX.Element {
                     </div>
                 )}
                 {starredProducts.length > 0 && (
-                    <TodayPaneSection
+                    <SidebarSection
                         label="Starred"
                         open={starredOpen || searching}
                         count={starredProducts.length}
                         onToggle={() => setStarredOpen(!starredOpen)}
                         dataAttr="today-section-starred"
                     >
-                        {starredProducts.map((item) => renderProduct(item, 'starred'))}
-                    </TodayPaneSection>
+                        {starredProducts.map((item, index) => renderProduct(item, 'starred', index))}
+                    </SidebarSection>
                 )}
                 {productCount > 0 && (
-                    <TodayPaneSection
+                    <SidebarSection
                         label="All products"
                         open={allProductsOpen || searching}
                         count={productCount}
@@ -116,12 +119,12 @@ export function TodayProductsSidebar(): JSX.Element {
                         {productGroups.map((group, index) => (
                             <div key={group.label}>
                                 <TodayPaneGroupLabel first={index === 0}>{group.label}</TodayPaneGroupLabel>
-                                {group.items.map((item) => renderProduct(item, group.label))}
+                                {group.items.map((item, index) => renderProduct(item, group.label, index))}
                             </div>
                         ))}
-                    </TodayPaneSection>
+                    </SidebarSection>
                 )}
-            </TodayPaneSearchList>
+            </SidebarSearchList>
         </div>
     )
 }

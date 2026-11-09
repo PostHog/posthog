@@ -4,7 +4,9 @@ import { toast } from 'react-toastify'
 
 import { IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { Checkbox, Field, FieldLabel } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -138,8 +140,13 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
     const { showGroupsOptions } = useValues(groupsModel)
     const { retentionFilter, dateRange } = useValues(retentionLogic(insightProps))
     const { updateInsightFilter, updateDateRange } = useActions(retentionLogic(insightProps))
+    const quillSurface = useQuillSurface()
     const { targetEntity, returningEntity, retentionType, totalIntervals, period, retentionCustomBrackets } =
         retentionFilter || {}
+
+    const setUseCustomBrackets = (checked: boolean): void => {
+        updateInsightFilter({ retentionCustomBrackets: checked ? [1, 3, 5] : undefined })
+    }
 
     return (
         <div className="deprecated-space-y-3 mb-4" data-attr="retention-condition">
@@ -259,17 +266,24 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                     </Fragment>
                 ) : null}
             </div>
-            <LemonCheckbox
-                label="Use custom return ranges"
-                checked={retentionCustomBrackets !== undefined}
-                onChange={(checked) => {
-                    if (checked) {
-                        updateInsightFilter({ retentionCustomBrackets: [1, 3, 5] })
-                    } else {
-                        updateInsightFilter({ retentionCustomBrackets: undefined })
-                    }
-                }}
-            />
+            {quillSurface ? (
+                <Field orientation="horizontal" className="gap-2">
+                    <Checkbox
+                        id="retention-custom-brackets"
+                        checked={retentionCustomBrackets !== undefined}
+                        onCheckedChange={setUseCustomBrackets}
+                    />
+                    <FieldLabel htmlFor="retention-custom-brackets" className="font-normal">
+                        Use custom return ranges
+                    </FieldLabel>
+                </Field>
+            ) : (
+                <LemonCheckbox
+                    label="Use custom return ranges"
+                    checked={retentionCustomBrackets !== undefined}
+                    onChange={setUseCustomBrackets}
+                />
+            )}
             {retentionCustomBrackets !== undefined ? <CustomBrackets insightProps={insightProps} /> : null}
         </div>
     )

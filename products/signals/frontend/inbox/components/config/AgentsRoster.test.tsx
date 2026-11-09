@@ -60,6 +60,12 @@ describe('AgentsRoster', () => {
                 '/api/environments/:team_id/integrations/': () => [200, EMPTY_LIST],
                 '/api/projects/:team_id/external_data_sources/wizard/': () => [200, { GitLab: GITLAB_WIZARD_CONFIG }],
             },
+            post: {
+                '/api/projects/:team_id/signals/source_configs/alert_pattern_preview/': () => [
+                    200,
+                    { alert_allow_patterns_error: null, alert_block_patterns_error: null, alerts: [], has_more: false },
+                ],
+            },
         })
         // The roster only loads its sources behind this flag, so without it every list stays empty.
         featureFlagLogic.mount()
