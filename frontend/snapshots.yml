@@ -11832,6 +11832,10 @@ snapshots:
         hash: v1.k794b7964.eb43a4c38ecbfb9fdd9cb509e82b0859cd8aa91c51204131273a3305151645d9.TkZ2ujs00BOFR420ksE6azLu0TAPSCC4xchfoeEHHYk
     scenes-app-experiments--experiment-with-multiple-metrics-reordered--light:
         hash: v1.k794b7964.c23e3ac865ba061b1643affa049d70fca3811416c38a61bd4219cc95c466c3f6.0mXfv3rFzXZKpmR8AkxKuYt_nxpMYNPbR68mYzRKkmc
+    scenes-app-experiments--experiment-with-percentile-metric--dark:
+        hash: v1.k794b7964.1710de864b1b7b912e82e7a6ba390eb5a4482184553e997ff4af38b0376370b6.kqU3ugcBGVvve86iOrm4ByGQmN5eXuV-RMTm5Gh_ciU
+    scenes-app-experiments--experiment-with-percentile-metric--light:
+        hash: v1.k794b7964.e0ca8f85ea03eb7989b009ebed8c8bcb82945f7931c11c1ab61951e6ee7e6ff2.L3uVd-EM7EF-6rX_dd9UbesowNlupdN9bQY0OJSZR6w
     scenes-app-experiments--experiment-with-ratio-metric--dark:
         hash: v1.k794b7964.b0fe6c8256a71e57c6e6f4f1f0451767affcbb67aaa4b12a51ee50a57f7956dc.Q0HEj0W2quLxIflI1JBQhSdHCzysA5jiMiCgT_RknZw
     scenes-app-experiments--experiment-with-ratio-metric--light:
