@@ -313,6 +313,7 @@ export class IngestionApiServer implements NodeServer {
             overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                localCacheMaxSize: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE,
                 strategies: createAnalyticsOverflowStrategies({
                     eventBucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                     eventReplenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,

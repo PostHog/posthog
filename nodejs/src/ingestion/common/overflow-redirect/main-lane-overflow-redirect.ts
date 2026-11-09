@@ -21,19 +21,12 @@ export interface MainLaneOverflowRedirectConfig {
     redisRepository: OverflowRedisRepository
     localCacheTTLSeconds: number
     /** Max entries in the in-memory flagged/not-flagged cache before LRU eviction. */
-    localCacheMaxSize?: number
+    localCacheMaxSize: number
     /** Overflow conditions to enforce; a key is redirected when any strategy's bucket is exhausted. */
     strategies: OverflowStrategyEntry[]
     /** Redis keyspace this service operates on. Fixed per pipeline. */
     overflowType: OverflowType
 }
-
-// Bounds the in-memory cache so a flood of unique partition keys cannot
-// grow it without limit; evicted keys simply re-check Redis on the next lookup.
-// The cache allocates its index arrays for `max` up front. An entry lives one TTL
-// (60 s by default): at 100 new keys per second per pod that is 6,000 entries.
-// 50,000 leaves room for bursts and for the expired entries between purges.
-const DEFAULT_LOCAL_CACHE_MAX_SIZE = 50_000
 
 /**
  * Main lane implementation of overflow redirect.
@@ -64,7 +57,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         this.localCacheTTLMs = config.localCacheTTLSeconds * 1000
         this.nextPurgeAt = Date.now() + this.localCacheTTLMs
         this.localCache = new LRUCache({
-            max: config.localCacheMaxSize ?? DEFAULT_LOCAL_CACHE_MAX_SIZE,
+            max: config.localCacheMaxSize,
             ttl: this.localCacheTTLMs,
         })
         this.strategies = config.strategies.map((entry) => ({

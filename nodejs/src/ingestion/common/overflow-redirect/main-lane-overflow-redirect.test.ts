@@ -37,6 +37,7 @@ describe('MainLaneOverflowRedirect', () => {
         return new MainLaneOverflowRedirect({
             redisRepository: mockRepository,
             localCacheTTLSeconds: 60,
+            localCacheMaxSize: 50_000,
             strategies: [{ ...eventRateStrategy(), bucketCapacity: 10, replenishRate: 1 }],
             overflowType: 'events',
             ...overrides,
