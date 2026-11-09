@@ -190,18 +190,25 @@ const FIRST_STEP_AFTER_SIGNING = 'deserialize'
 
 const BENEATH_THE_DESERIALIZER = 'low'
 
-function trackUnansweredAttempts(command: SendEmailCommand): () => boolean {
-    let unansweredAttempts = 0
+const sesRefused = (response: unknown): boolean => {
+    const statusCode = (response as { statusCode?: number } | undefined)?.statusCode
+    return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
+}
+
+function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boolean {
+    let attemptsSesMayHaveAccepted = 0
     command.middlewareStack.add(
         (next) => async (args) => {
-            unansweredAttempts++
+            attemptsSesMayHaveAccepted++
             const httpAnswer = await next(args)
-            unansweredAttempts--
+            if (sesRefused(httpAnswer.response)) {
+                attemptsSesMayHaveAccepted--
+            }
             return httpAnswer
         },
-        { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackUnansweredSesAttempts' }
+        { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttemptsSesMayHaveAccepted' }
     )
-    return () => unansweredAttempts > 0
+    return () => attemptsSesMayHaveAccepted > 0
 }
 
 const isAttachmentLoadFailure = (error: unknown): boolean =>
@@ -1552,7 +1559,7 @@ export class EmailService {
         }
 
         const command = new SendEmailCommand(sendEmailParams)
-        const anAttemptIsUnanswered = trackUnansweredAttempts(command)
+        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command)
         const sendStartedAt = performance.now()
         try {
             const response = deadline
@@ -1571,7 +1578,7 @@ export class EmailService {
             sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
             if (deadline?.aborted) {
-                if (!anAttemptIsUnanswered()) {
+                if (!anAttemptSesMayHaveAccepted()) {
                     throw new EmailSendDeadlineError(error)
                 }
                 throw new Error(
