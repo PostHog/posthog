@@ -6,8 +6,10 @@ from django import forms
 from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
+from django.urls import reverse
 
 import structlog
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -17,7 +19,7 @@ from posthog.admin.console.panels import Fact, Gate, Operation, Panel, ReasonFor
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
 from posthog.admin.console.team_panels import DEV_EXPERIENCE
-from posthog.admin.console.tools import Cell, Notice, Page, Row, Table
+from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table
 from posthog.event_usage import report_organization_deleted, report_organization_deletion_initiated
 from posthog.models.organization import Organization
 from posthog.models.user import User
@@ -48,6 +50,7 @@ BULK_DELETE_PERSONS_DB_MODELS: dict[str, str] = {
 }
 
 PREVIEW_TEAMS_LIMIT = 100
+DATA_TOOL_KEY = "organization-data"
 
 
 def _count_row(label: str, count: Callable[[], int]) -> Row:
@@ -74,13 +77,21 @@ def _persons_database_notice() -> Notice:
     )
 
 
-def _data_counts(team_ids: list[int]) -> Table:
+def data_counts(organization: Organization) -> list[Notice | Table]:
+    """The rows organization deletion removes from the default database, and a note on the persons database."""
+    team_ids = list(organization.teams.values_list("id", flat=True))
+    if not team_ids:
+        return [Notice(text="The organization has no teams, so it holds no team data.")]
     rows = [
         _count_row(label, partial(_model_count, model_label, team_field, team_ids))
         for model_label, team_field, label in BULK_DELETE_MODEL_REGISTRY
     ]
     rows.append(_count_row("Batch exports", lambda: batch_exports_api.count_batch_exports_for_teams(team_ids)))
-    return Table(columns=("Data", "Rows"), rows=tuple(rows))
+    return [Table(columns=("Data", "Rows"), rows=tuple(rows)), _persons_database_notice()]
+
+
+def data_tool_url(organization: Organization) -> str:
+    return f"{reverse('admin_console_tool', kwargs={'tool_key': DATA_TOOL_KEY})}?organization={organization.pk}"
 
 
 def preview_deletion(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
@@ -107,9 +118,7 @@ def preview_deletion(request: HttpRequest, obj: Model, form: forms.Form) -> Page
     if len(teams) > len(shown):
         blocks.append(Notice(text=f"Deletion also removes {obj.teams.count() - len(shown)} more teams."))
     if teams:
-        # Counted here, not in the panel, because these tables can be large and the panel renders on every page load.
-        blocks.append(_data_counts(list(obj.teams.values_list("id", flat=True))))
-        blocks.append(_persons_database_notice())
+        blocks.extend(data_counts(obj))
     return Page(blocks=tuple(blocks))
 
 
@@ -126,10 +135,10 @@ def delete_organization(request: HttpRequest, obj: Model, form: forms.Form | Non
         return HttpResponse(status=409)
 
     user = cast(User, request.user)
-    report_organization_deleted(user, obj)
-    report_organization_deletion_initiated(user, obj)
-    teams = list(obj.teams.only("id", "name"))
     try:
+        report_organization_deleted(user, obj)
+        report_organization_deletion_initiated(user, obj)
+        teams = list(obj.teams.only("id", "name"))
         start_delete_organization_workflow(
             team_ids=[team.pk for team in teams],
             organization_id=str(obj.pk),
@@ -159,12 +168,9 @@ class OrganizationDeletionPanel(Panel):
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
-        return [
-            Fact(
-                label="Data",
-                value="Delete organization lists the teams and counts the data it removes before you confirm.",
-            )
-        ]
+        assert isinstance(obj, Organization)
+        # The counts can be slow on large tables, and this panel renders on every organization page load.
+        return [Fact(label="Data", value="Counts of the data deletion removes", href=data_tool_url(obj))]
 
     def operations(self, obj: Model) -> list[Operation]:
         assert isinstance(obj, Organization)
@@ -187,3 +193,33 @@ class OrganizationDeletionPanel(Panel):
                 gate=Gate.group(DELETION_AUTHORIZED_GROUP),
             )
         ]
+
+
+@console.register_tool
+class OrganizationDataTool(ConsoleTool):
+    key = DATA_TOOL_KEY
+    title = "Organization data"
+    owner = DEV_EXPERIENCE
+    group = "Organizations"
+    description = "Counts the data that deleting one organization removes."
+
+    def page(self, request: HttpRequest) -> Page:
+        organization_id = request.GET.get("organization", "")
+        try:
+            organization = Organization.objects.filter(pk=organization_id).first() if organization_id else None
+        except ValidationError:
+            organization = None
+        if organization is None:
+            return Page(
+                blocks=(Notice(text="Open an organization's data counts from the Deletion panel on its page."),)
+            )
+        return Page(
+            blocks=(
+                Notice(
+                    text=f"{organization.name}. Deleting the organization removes the data below.",
+                    link_text="Back to the organization",
+                    href=RECORD_TYPES["organization"].url(organization),
+                ),
+                *data_counts(organization),
+            )
+        )

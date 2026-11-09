@@ -24,7 +24,6 @@ MOVED_ORGANIZATION_ACTIONS = {
     "unlimit-product": "#panel-billing",
     "sync-to-billing": "#panel-billing",
     "trigger-deletion": "deletion/delete/",
-    "model-counts": "#panel-deletion",
 }
 
 MOVED_DELETION_REQUEST_ACTIONS = {
@@ -108,6 +107,10 @@ urlpatterns = [
     path(
         "admin/posthog/organization/bulk-deactivate/",
         MovedToConsole.page_redirect("Bulk deactivation", "/admin/console/tools/bulk-deactivate-organizations/"),
+    ),
+    path(
+        "admin/posthog/organization/<uuid:pk>/model-counts/",
+        MovedToConsole.page_redirect("Child model counts", "/admin/console/tools/organization-data/?organization={pk}"),
     ),
     path(
         "admin/posthog/organization/send-ai-observability-usage-report/",

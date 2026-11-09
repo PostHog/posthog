@@ -538,13 +538,25 @@ class TestAdminConsoleViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("starts_the_workflow", True, False, None, 302, True),
-            ("staff_outside_the_deletion_group", False, False, None, 403, False),
-            ("bulk_deletes_paused", True, True, None, 503, False),
-            ("workflow_start_fails", True, False, RuntimeError("temporal down"), 500, False),
-            ("workflow_already_running", True, False, WorkflowAlreadyStartedError("id", "type"), 302, True),
+            ("starts_the_workflow", True, False, None, None, False, 302, True),
+            ("staff_outside_the_deletion_group", False, False, None, None, False, 403, False),
+            ("bulk_deletes_paused", True, True, None, None, False, 503, False),
+            ("workflow_start_fails", True, False, RuntimeError("temporal down"), None, False, 500, False),
+            (
+                "workflow_already_running",
+                True,
+                False,
+                WorkflowAlreadyStartedError("id", "type"),
+                None,
+                False,
+                302,
+                True,
+            ),
+            ("analytics_fails_before_the_start", True, False, None, RuntimeError("capture down"), False, 500, False),
+            ("already_pending_when_confirmed", True, False, None, None, True, 404, True),
         ]
     )
+    @patch("posthog.admin.console.organization_deletion.report_organization_deleted")
     @patch("posthog.admin.console.organization_deletion.start_delete_organization_workflow")
     def test_deleting_an_organization_needs_the_deletion_group_and_a_confirmed_preview(
         self,
@@ -552,17 +564,23 @@ class TestAdminConsoleViews(BaseTest):
         in_group: bool,
         bulk_deletes_paused: bool,
         start_error: Exception | None,
+        report_error: Exception | None,
+        pending_before_confirm: bool,
         expected_status: int,
         expect_pending: bool,
         start: MagicMock,
+        report_deleted: MagicMock,
     ) -> None:
         if in_group:
             Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0].user_set.add(self.user)
         start.side_effect = start_error
+        report_deleted.side_effect = report_error
         url = f"/admin/console/organizations/{self.organization.pk}/deletion/delete/"
 
         with override_settings(DISABLE_BULK_DELETES=bulk_deletes_paused):
             preview = self.client.post(url, {"reason": "Customer asked to delete the organization"})
+            if pending_before_confirm:
+                Organization.objects.filter(pk=self.organization.pk).update(is_pending_deletion=True)
             response = (
                 self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
                 if preview.status_code == 200
@@ -574,12 +592,30 @@ class TestAdminConsoleViews(BaseTest):
             preview_content = preview.content.decode()
             for text in (self.team.name, "Early access features", "Batch exports", "persons database"):
                 assert text in preview_content
-        assert start.called == (in_group and not bulk_deletes_paused)
+        assert start.called == (
+            in_group and not bulk_deletes_paused and not report_error and not pending_before_confirm
+        )
         if start.called:
             assert start.call_args.kwargs["team_ids"] == [self.team.pk]
             assert start.call_args.kwargs["user_id"] == self.user.pk
         self.organization.refresh_from_db()
         assert self.organization.is_pending_deletion == expect_pending
+
+    @parameterized.expand([("active", False), ("pending_deletion", True)])
+    def test_the_old_model_counts_page_opens_the_data_tool_for_every_staff_member(
+        self, _name: str, pending_deletion: bool
+    ) -> None:
+        Organization.objects.filter(pk=self.organization.pk).update(is_pending_deletion=pending_deletion)
+
+        response = self.client.get(f"/admin/posthog/organization/{self.organization.pk}/model-counts/", follow=True)
+
+        tool_url = f"/admin/console/tools/organization-data/?organization={self.organization.pk}"
+        assert response.redirect_chain == [(tool_url, 302)]
+        content = response.content.decode()
+        for text in ("Early access features", "Error tracking fingerprints", "Batch exports", "persons database"):
+            assert text in content
+        organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/").content.decode()
+        assert tool_url in organization_page
 
     @parameterized.expand([("billing_staff", True, 302), ("other_staff", False, 403)])
     @patch("posthog.admin.console.usage_reports_tool.call_command")

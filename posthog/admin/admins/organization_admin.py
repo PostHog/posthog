@@ -10,6 +10,7 @@ from django.utils.safestring import mark_safe
 
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.console.organization_deletion import data_tool_url
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
@@ -227,7 +228,9 @@ class OrganizationAdmin(admin.ModelAdmin):
     def bulk_delete_data_display(self, organization: Organization):
         if not organization.pk:
             return "-"
-        return MovedToConsole.action("organization", organization, "deletion", "Child model counts")
+        return format_html(
+            '<a href="{}">Child model counts: now in PostHog Admin &#8599;</a>', data_tool_url(organization)
+        )
 
     @admin.display(description="AI training opt-in history")
     def ai_training_opt_in_history_display(self, organization: Organization):
