@@ -9846,6 +9846,13 @@
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "exposed_by_library": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "description": "Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library.",
+                    "type": "object"
+                },
                 "health_checks": {
                     "description": "The result of each check behind `health_findings`, so that a check that did not run is not read as passed.",
                     "items": {
@@ -27242,6 +27249,13 @@
                 },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "exposed_by_library": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "description": "Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library.",
+                    "type": "object"
                 },
                 "health_checks": {
                     "description": "The result of each check behind `health_findings`, so that a check that did not run is not read as passed.",
@@ -45274,6 +45288,13 @@
                         },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
+                        },
+                        "exposed_by_library": {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/integer"
+                            },
+                            "description": "Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the libraries of PostHog's own SDKs keep their own key; any other value counts under `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library.",
+                            "type": "object"
                         },
                         "health_checks": {
                             "description": "The result of each check behind `health_findings`, so that a check that did not run is not read as passed.",

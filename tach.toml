@@ -555,6 +555,8 @@ depends_on = [
     "products.data_tools",
     "products.event_definitions",
     "products.feature_flags",
+    # Facade-only: the exposure counts keep the `$lib` names of PostHog's own SDKs and count the rest as other.
+    "products.growth",
     "products.notifications",
     # An experiment with a funnel metric runs the funnel through product analytics.
     "products.product_analytics",
