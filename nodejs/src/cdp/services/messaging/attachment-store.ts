@@ -19,7 +19,7 @@ import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { holdUntilSettled } from './in-flight-registry'
 
 const MINUTE_MS = 60 * 1000
-const DAY_MS = 24 * 60 * MINUTE_MS
+export const DAY_MS = 24 * 60 * MINUTE_MS
 export const ATTACHMENT_LIFETIME_MS = 37 * DAY_MS
 const LAST_MODIFIED_PRECISION_MS = 1000
 const UPLOAD_URL_LIFETIME_MS = 15 * MINUTE_MS
@@ -27,7 +27,7 @@ const SIGNING_CREDENTIALS_MIN_LIFETIME_MS = UPLOAD_URL_LIFETIME_MS + MINUTE_MS
 const S3_CLIENT_REFRESHES_CREDENTIALS_BEFORE_EXPIRY_MS = 5 * MINUTE_MS
 const METADATA_REPLACED_SO_S3_ACCEPTS_A_SELF_COPY = 'REPLACE'
 const PRESENT_MIN_REMAINING_MS = UPLOAD_URL_LIFETIME_MS + DAY_MS
-const SHA256_HEX = /^[0-9a-f]{64}$/
+export const SHA256_HEX = /^[0-9a-f]{64}$/
 
 export type Sha256Hex = string
 export type UploadRequest = { sha256: Sha256Hex; size: number }
@@ -68,13 +68,12 @@ export class AttachmentMissingError extends Error {
 export interface AttachmentStore {
     prepareUploads(teamId: number, files: UploadRequest[]): Promise<UploadSlot[]>
     acceptForSend(teamId: number, refs: AttachmentRef[], needsUntil: Date): Promise<AcceptedForSend | RefusedForSend>
-    extend(teamId: number, sha256s: Sha256Hex[], needsUntil: Date): Promise<void>
     load(teamId: number, files: EmailAttachmentMetadata[], signal: AbortSignal): Promise<LoadedAttachment[]>
 }
 
 const attachmentStoreFiles = new Counter({
     name: 'cdp_email_attachment_store_files_total',
-    help: 'Files the email attachment store handled, by operation (prepare, accept, extend, load) and outcome (present, upload, kept, copied, missing, loaded).',
+    help: 'Files the email attachment store handled, by operation (prepare, accept, load) and outcome (present, upload, kept, copied, missing, loaded).',
     labelNames: ['operation', 'outcome'],
 })
 
@@ -100,28 +99,19 @@ export class S3AttachmentStore implements AttachmentStore {
         needsUntil: Date
     ): Promise<AcceptedForSend | RefusedForSend> {
         const found = await Promise.all(
-            refs.map(async (ref) => ({ ref, stored: await this.storedFile('accept', teamId, ref.sha256) }))
+            refs.map(async (ref) => ({ ref, stored: await this.storedFile(teamId, ref.sha256) }))
         )
         const present = found.filter((file): file is { ref: AttachmentRef; stored: StoredFile } => !!file.stored)
         const missing = found.find((file) => !file.stored)
         if (missing) {
+            attachmentStoreFiles.labels({ operation: 'accept', outcome: 'missing' }).inc(found.length - present.length)
             return { refusal: 'attachment_not_uploaded', sha256: missing.ref.sha256 }
         }
         await this.keepUntil(
-            'accept',
             present.map(({ stored }) => stored),
             needsUntil
         )
         return { files: present.map(({ ref, stored }) => ({ ...ref, sizeBytes: stored.sizeBytes })) }
-    }
-
-    async extend(teamId: number, sha256s: Sha256Hex[], needsUntil: Date): Promise<void> {
-        const stored = await Promise.all(sha256s.map((sha256) => this.storedFile('extend', teamId, sha256)))
-        await this.keepUntil(
-            'extend',
-            stored.filter((file): file is StoredFile => !!file),
-            needsUntil
-        )
     }
 
     async load(teamId: number, files: EmailAttachmentMetadata[], signal: AbortSignal): Promise<LoadedAttachment[]> {
@@ -134,15 +124,13 @@ export class S3AttachmentStore implements AttachmentStore {
     }
 
     private async prepareUpload(teamId: number, { sha256, size }: UploadRequest): Promise<UploadSlot> {
-        const key = this.key(teamId, sha256)
-        const head = await this.head(key)
-        const expiresAt = head && expiryOf(head)
-        if (expiresAt && expiresAt.getTime() - this.now().getTime() >= PRESENT_MIN_REMAINING_MS) {
+        const stored = await this.storedFile(teamId, sha256)
+        if (stored && stored.expiresAt.getTime() - this.now().getTime() >= PRESENT_MIN_REMAINING_MS) {
             attachmentStoreFiles.labels({ operation: 'prepare', outcome: 'present' }).inc()
-            return { sha256, status: 'present', expiresAt }
+            return { sha256, status: 'present', expiresAt: stored.expiresAt }
         }
         attachmentStoreFiles.labels({ operation: 'prepare', outcome: 'upload' }).inc()
-        return await this.signUpload(key, sha256, size)
+        return await this.signUpload(this.key(teamId, sha256), sha256, size)
     }
 
     private async signUpload(key: string, sha256: Sha256Hex, size: number): Promise<UploadSlot> {
@@ -175,21 +163,16 @@ export class S3AttachmentStore implements AttachmentStore {
         }
     }
 
-    private async storedFile(
-        operation: 'accept' | 'extend',
-        teamId: number,
-        sha256: Sha256Hex
-    ): Promise<StoredFile | null> {
+    private async storedFile(teamId: number, sha256: Sha256Hex): Promise<StoredFile | null> {
         const key = this.key(teamId, sha256)
         const head = await this.head(key)
         if (!head || (head.ChecksumSHA256 && head.ChecksumSHA256 !== Buffer.from(sha256, 'hex').toString('base64'))) {
-            attachmentStoreFiles.labels({ operation, outcome: 'missing' }).inc()
             return null
         }
         return { key, sizeBytes: head.ContentLength ?? 0, expiresAt: expiryOf(head) }
     }
 
-    private async keepUntil(operation: 'accept' | 'extend', files: StoredFile[], needsUntil: Date): Promise<void> {
+    private async keepUntil(files: StoredFile[], needsUntil: Date): Promise<void> {
         const toCopy = files.filter(({ expiresAt }) => expiresAt < needsUntil)
         if (toCopy.length && needsUntil > this.latestKeepable()) {
             throw new RangeError(
@@ -197,8 +180,8 @@ export class S3AttachmentStore implements AttachmentStore {
             )
         }
         await Promise.all(toCopy.map(({ key }) => this.restartLifetimeBySelfCopy(key)))
-        attachmentStoreFiles.labels({ operation, outcome: 'copied' }).inc(toCopy.length)
-        attachmentStoreFiles.labels({ operation, outcome: 'kept' }).inc(files.length - toCopy.length)
+        attachmentStoreFiles.labels({ operation: 'accept', outcome: 'copied' }).inc(toCopy.length)
+        attachmentStoreFiles.labels({ operation: 'accept', outcome: 'kept' }).inc(files.length - toCopy.length)
     }
 
     private latestKeepable(): Date {
