@@ -12,6 +12,7 @@ import { initKeaTests } from '~/test/init'
 
 import { resetAnalyticsFeedSnapshot } from './analyticsFeedLogic'
 import { analyticsListLogic } from './analyticsListLogic'
+import { AnalyticsItem } from './analyticsUtils'
 
 jest.mock('lib/utils/getAppContext', () => ({
     ...jest.requireActual('lib/utils/getAppContext'),
@@ -237,6 +238,22 @@ describe('analyticsListLogic', () => {
         router.actions.push(urls.analyticsList({ orderBy: '-last_viewed_at' }))
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.items[0].entry?.last_viewed_at).toBe(lastViewedAt)
+    })
+
+    it('reports scope switches and item opens with the scope they happened in', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        router.actions.push(urls.analyticsMine())
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.itemOpened({ type: 'insight', id: 'i1', name: 'I1' } as AnalyticsItem, 3)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const events = capture.mock.calls
+            .filter(([name]) => name !== '$pageview')
+            .map(([name, properties]) => [name, properties?.scope])
+        expect(events).toContainEqual(['views scope changed', 'mine'])
+        expect(events).toContainEqual(['views list item opened', 'mine'])
+        expect(events).toContainEqual(['views list loaded', 'mine'])
     })
 
     it('reports a folder visit once, however it starts, and a space only when it changes', async () => {
