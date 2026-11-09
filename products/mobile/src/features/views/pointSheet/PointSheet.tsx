@@ -5,7 +5,7 @@ import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from '
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { ACTORS_LIMIT } from '@/api/actors'
 import { safeHttpsUrl } from '@/lib/urls'
-import type { ActorRow, InsightSnapshot } from '@/model/views'
+import type { ActorRow, InsightSnapshot, ViewKind } from '@/model/views'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { formatAxisDate, formatChange, formatTooltipDate } from '@/ui/chart/chartMath'
 import { tooltipContent } from '@/ui/chart/chartSeries'
@@ -47,7 +47,7 @@ interface PointSheetProps {
 
 type Page = 'point' | 'recordings' | 'people'
 
-function openLink(url: string | undefined, viewType: 'insight' | 'recordings' | 'person'): void {
+function openLink(url: string | undefined, viewType: ViewKind | 'recordings' | 'person'): void {
     const safe = url ? safeHttpsUrl(url) : undefined
     if (!safe) {
         return
@@ -175,7 +175,10 @@ function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: Point
                                     title="Open on web"
                                     detail={scope ? undefined : 'Not available in the demo'}
                                     onPress={() =>
-                                        openLink(viewWebUrl(scope, `/insights/${snapshot.shortId}`), 'insight')
+                                        openLink(
+                                            viewWebUrl(scope, source.web?.path ?? `/insights/${snapshot.shortId}`),
+                                            source.web?.viewType ?? 'insight'
+                                        )
                                     }
                                     disabled={!scope}
                                     chevron={false}
@@ -183,12 +186,14 @@ function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: Point
                                 />
                             </View>
                             <View style={styles.chips}>
-                                <Chip
-                                    icon={<InfoIcon size={17} />}
-                                    label="About this chart"
-                                    onPress={() => onOpenAbout(source)}
-                                    testID="point-about"
-                                />
+                                {source.about === false ? null : (
+                                    <Chip
+                                        icon={<InfoIcon size={17} />}
+                                        label="About this chart"
+                                        onPress={() => onOpenAbout(source)}
+                                        testID="point-about"
+                                    />
+                                )}
                                 <CopyValueChip point={point} formatValue={formatValue} />
                             </View>
                         </>

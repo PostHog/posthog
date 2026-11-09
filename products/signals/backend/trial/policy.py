@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
+from datetime import UTC, datetime
 from uuid import UUID
 
 from django.core.cache import cache
@@ -12,6 +13,7 @@ import posthoganalytics
 from rest_framework.exceptions import APIException, PermissionDenied
 
 from posthog.dataclasses import frozen
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -21,6 +23,7 @@ from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.usage import trial_usage
 
 TRIAL_FLAG = "self-driving-ubp"
+PRICING_LAUNCHED_AT = datetime(2026, 11, 9, 15, 26, tzinfo=UTC)
 POLICY_VERSION = 1
 logger = structlog.get_logger(__name__)
 
@@ -40,6 +43,41 @@ class TrialFlagDecision:
     confirmed: bool
 
 
+def activated_before_pricing_launch(organization_id: UUID) -> bool:
+    from products.signals.backend.models import (  # noqa: PLC0415 -- model registration cycle
+        SignalScoutConfig,
+        SignalSourceConfig,
+        SignalTeamConfig,
+    )
+
+    before_launch = {"team__organization_id": organization_id, "created_at__lt": PRICING_LAUNCHED_AT}
+    if SignalSourceConfig.objects.filter(**before_launch).exists():
+        return True
+    if SignalScoutConfig.objects.unscoped().filter(**before_launch).exists():
+        return True
+    completed = SignalTeamConfig.objects.filter(
+        team__organization_id=organization_id, onboarding__completed_at__isnull=False
+    ).values_list("onboarding__completed_at", flat=True)
+    return any(isinstance(value, str) and datetime.fromisoformat(value) < PRICING_LAUNCHED_AT for value in completed)
+
+
+def pricing_flag_distinct_id(organization_id: UUID) -> str:
+    # The pricing flag matches grandfathered orgs through a person cohort, so it needs the distinct id
+    # of a real person, not the org id. One fixed member per org gives every caller the same answer,
+    # including pipeline work that has no request user. An org that activated self-driving after the
+    # pricing launch cannot be grandfathered, so it uses the org id, which no cohort matches. Otherwise
+    # a cohort member would pass grandfathered pricing to every new org they set up.
+    if not activated_before_pricing_launch(organization_id):
+        return str(organization_id)
+    distinct_id = (
+        OrganizationMembership.objects.filter(organization_id=organization_id, user__is_active=True)
+        .order_by("joined_at", "id")
+        .values_list("user__distinct_id", flat=True)
+        .first()
+    )
+    return distinct_id or str(organization_id)
+
+
 def lock_organization_trial(organization_id: UUID) -> None:
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"signals-trial:{organization_id}"])
@@ -54,12 +92,12 @@ class TrialPolicy:
     def flag_decision(self) -> TrialFlagDecision:
         org_id = str(self.organization_id)
         try:
+            # Remote evaluation is required because the SDK cannot evaluate a static cohort locally.
             decision = posthoganalytics.feature_enabled(
                 TRIAL_FLAG,
-                org_id,
+                pricing_flag_distinct_id(self.organization_id),
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
-                only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
         except Exception:

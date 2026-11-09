@@ -54,6 +54,7 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
     TWO_FACTOR_ENFORCEMENT = "2fa_enforcement"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
+    IP_RESTRICTIONS = "ip_restrictions"
     MEMBER_GOVERNANCE = "member_governance"
     SSF = "ssf"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"

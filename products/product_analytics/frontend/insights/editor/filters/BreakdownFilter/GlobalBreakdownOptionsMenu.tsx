@@ -6,7 +6,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -22,7 +22,7 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element | null => {
 
     const { breakdownLimit, breakdownHideOtherAggregation, breakdownFilter } = useValues(taxonomicBreakdownFilterLogic)
     const { setBreakdownLimit, setBreakdownHideOtherAggregation } = useActions(taxonomicBreakdownFilterLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = useQuillSurface()
 
     // Cohort breakdowns are over an explicit, user-picked set — there's no long-tail to truncate
     // and nothing to bucket as "Other", so these controls don't apply.
@@ -32,7 +32,7 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element | null => {
 
     return (
         <>
-            {isTrends && todayRailNav ? (
+            {isTrends && quillSurface ? (
                 <div className="px-2">
                     <QuillChartOptionSwitch
                         label='Group remaining values under "Other"'
