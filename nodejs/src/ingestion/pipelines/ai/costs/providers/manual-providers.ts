@@ -42,6 +42,21 @@ const manualProviderCosts: ModelCostRow[] = [
             'google-ai-studio': { prompt_token: 0.000001, completion_token: 0.00002, audio_output: 0.00002 },
         },
     })),
+    // GPT Image 2 runs only on the image endpoints, so the OpenRouter catalog does not list it.
+    // Standard OpenAI API rates, USD per token: https://developers.openai.com/api/docs/pricing
+    // The model has no text output, so the completion rate is the image output rate.
+    ...['gpt-image-2', 'gpt-image-2-2026-04-21'].map((model) => ({
+        model,
+        cost: {
+            default: {
+                prompt_token: 0.000005,
+                completion_token: 0.00003,
+                cache_read_token: 0.00000125,
+                image: 0.000008,
+                image_output: 0.00003,
+            },
+        },
+    })),
     // Other
     {
         model: 'deepseek-v3-fireworks',
