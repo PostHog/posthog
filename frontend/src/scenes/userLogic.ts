@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig, getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { clearSupportTicketDrafts } from 'lib/components/Support/supportTicketDraftStorage'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -18,7 +19,6 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, NotificationSettings, OrganizationBasicType, UserRole, UserTheme, UserType } from '~/types'
 
-import { clearSupportTicketDrafts } from 'products/conversations/frontend/components/SidePanel/supportTicketDrafts'
 import {
     clearSQLEditorDraftFromStorageEvent,
     clearSQLEditorDrafts,

@@ -4,13 +4,13 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { DRAFT_KEY_PREFIX } from 'lib/components/Support/supportTicketDraftStorage'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
-import { DRAFT_KEY_PREFIX } from 'products/conversations/frontend/components/SidePanel/supportTicketDrafts'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 
 import { userLogic } from './userLogic'

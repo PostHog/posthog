@@ -1,7 +1,7 @@
 import { JSONContent } from '@tiptap/core'
 
-// pinned: localStorage key prefix. Renaming it drops every saved draft, and logout clears drafts by it.
-export const DRAFT_KEY_PREFIX = 'support-ticket-draft:'
+import { DRAFT_KEY_PREFIX } from 'lib/components/Support/supportTicketDraftStorage'
+
 const NEW_TICKET_SLOT = 'new'
 const TICKET_SLOT_PREFIX = 'ticket:'
 
@@ -96,18 +96,4 @@ export function appendDraft(existing: JSONContent | null, addition: JSONContent)
         return existing as JSONContent
     }
     return { ...existing, content: [...existingNodes, ...additionNodes] }
-}
-
-/** Drafts can hold anything a person typed to support, so logout removes them from a shared browser. */
-export function clearSupportTicketDrafts(): void {
-    try {
-        for (let index = localStorage.length - 1; index >= 0; index--) {
-            const key = localStorage.key(index)
-            if (key?.startsWith(DRAFT_KEY_PREFIX)) {
-                localStorage.removeItem(key)
-            }
-        }
-    } catch {
-        // Disabled storage must not prevent logout.
-    }
 }
