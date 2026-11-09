@@ -238,13 +238,13 @@ def DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
     )
 
 
-def QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(num_layers: int = 16):
+def QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL():
     """Buffer on OPS in front of the v3 data table."""
     return _v3_plain_table_sql(
         QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE,
         Buffer(
             destination_table=SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE,
-            num_layers=num_layers,
+            num_layers=16,
             min_time=10,
             max_time=60,
             min_rows=10_000,

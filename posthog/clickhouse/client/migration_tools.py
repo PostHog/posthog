@@ -1,6 +1,8 @@
+import re
 import logging
+from dataclasses import dataclass
 from functools import cache
-from typing import Optional
+from typing import Any, Optional
 
 from infi.clickhouse_orm import migrations
 
@@ -29,6 +31,21 @@ def get_migrations_cluster() -> ClickhouseCluster:
     )
 
 
+_TABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+@dataclass(frozen=True)
+class _QueryIfTableExists:
+    query: Query
+    table: str
+
+    def __call__(self, client) -> Any:
+        if not client.execute(f"EXISTS TABLE {self.table}")[0][0]:
+            logger.info("       Skipping, table %s does not exist on this host", self.table)
+            return None
+        return self.query(client)
+
+
 def collapses_to_all_nodes() -> bool:
     return (settings.E2E_TESTING or not run_mode().is_deployed_cloud) and not settings.MULTINODE_CLICKHOUSE
 
@@ -39,6 +56,7 @@ def run_sql_with_exceptions(
     sharded: Optional[bool] = None,
     is_alter_on_replicated_table: Optional[bool] = None,
     require_hosts: bool = False,
+    only_if_table_exists: str | None = None,
 ):
     """
     Executes a SQL query on each node separately with specific options, handling distributed execution and node roles.
@@ -61,6 +79,9 @@ def run_sql_with_exceptions(
         This will run on just one host per shard or one host for the whole cluster if there is no sharding.
     require_hosts: bool, optional (default is False)
         Raises when none of the requested node roles exist in the migration topology.
+    only_if_table_exists: str, optional
+        Runs the query only on hosts where this table exists in the default database. Use it for
+        objects that only some installs have, such as tables from an earlier generation of a schema.
 
     Returns:
     migrations.RunPython
@@ -72,6 +93,9 @@ def run_sql_with_exceptions(
         Raised in certain scenarios when the input arguments conflict with the expected
         configuration, such as when the sharded flag is set for roles other than DATA.
     """
+
+    if only_if_table_exists is not None and not _TABLE_NAME.match(only_if_table_exists):
+        raise ValueError(f"only_if_table_exists must be a plain table name, got {only_if_table_exists!r}")
 
     if node_roles and not isinstance(node_roles, list):
         node_roles = [node_roles]
@@ -91,7 +115,9 @@ def run_sql_with_exceptions(
     def run_migration():
         cluster = get_migrations_cluster()
 
-        query = Query(sql)
+        query: Query | _QueryIfTableExists = Query(sql)
+        if only_if_table_exists is not None:
+            query = _QueryIfTableExists(query, only_if_table_exists)
 
         if sharded and is_alter_on_replicated_table:
             is_local_or_test = collapses_to_all_nodes()
@@ -124,5 +150,6 @@ def run_sql_with_exceptions(
     operation._sharded = sharded
     operation._is_alter_on_replicated_table = is_alter_on_replicated_table
     operation._require_hosts = require_hosts
+    operation._only_if_table_exists = only_if_table_exists
 
     return operation
