@@ -9,11 +9,13 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/api.schemas'
+
 import { broadcastsLogic } from './broadcastsLogic'
 
 const DRAFT = { id: 'draft-1', name: 'Draft', status: 'draft', tags: ['vip'] }
 const LIVE = { id: 'live-1', name: 'Live', status: 'active', tags: ['vip'] }
-const RUN = { id: 'job-2', status: 'completed', created_at: '2026-01-01T00:00:00Z' }
+const RUN = { id: 'job-2', status: 'completed', created_at: '2026-01-01T00:00:00Z' } as HogFlowBatchJobApi
 
 describe('broadcastsLogic', () => {
     let logic: ReturnType<typeof broadcastsLogic.build>
