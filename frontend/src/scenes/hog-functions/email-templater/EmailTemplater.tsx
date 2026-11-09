@@ -862,7 +862,7 @@ function EmailBodyPreview({ html, text }: { html: string | undefined; text: stri
     // The floor keeps the preview readable where the host gives it no spare height to grow into
     if (!html && text) {
         return (
-            <pre className="flex-1 min-h-80 m-0 p-4 font-sans text-sm whitespace-pre-wrap wrap-anywhere bg-surface-primary">
+            <pre className="ph-no-capture flex-1 min-h-80 m-0 p-4 font-sans text-sm whitespace-pre-wrap wrap-anywhere bg-surface-primary">
                 {text}
             </pre>
         )
