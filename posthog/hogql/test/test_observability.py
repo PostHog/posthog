@@ -24,8 +24,8 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.property_types import build_property_swapper
 
 from posthog.clickhouse.query_tagging import Product
-from posthog.models import PropertyDefinition
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType as PropertyDefinitionType
 
 

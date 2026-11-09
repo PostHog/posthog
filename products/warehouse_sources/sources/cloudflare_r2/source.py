@@ -2,7 +2,6 @@ from typing import Any, cast
 
 from products.warehouse_sources.sources.cloudflare_r2._config import CloudflareR2SourceConfig
 from products.warehouse_sources.sources.sdk import (
-    FEATURE_FLAG,
     KEYWORDS,
     R2_EXAMPLE_URL,
     DataWarehouseSourceCategory,
@@ -34,7 +33,6 @@ class CloudflareR2Source(ObjectStorageSource[CloudflareR2SourceConfig]):
     codebase_detection = detect(env=("^R2_", "^CLOUDFLARE_R2_"))
 
     api_docs_url = "https://developers.cloudflare.com/r2/api/s3/api/"
-    requires_team_feature_flag = FEATURE_FLAG
     self_managed_service = "r2"
 
     @property
@@ -76,7 +74,6 @@ class CloudflareR2Source(ObjectStorageSource[CloudflareR2SourceConfig]):
             caption=source_caption("a Cloudflare R2 bucket"),
             iconPath="/static/services/cloudflare.png",
             releaseStatus=ReleaseStatus.ALPHA,
-            featureFlag=FEATURE_FLAG,
             fields=cast(
                 list[FieldType],
                 [

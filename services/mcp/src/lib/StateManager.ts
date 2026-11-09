@@ -739,6 +739,10 @@ export class StateManager {
     }
 
     async getAiConsentGiven(): Promise<boolean | undefined> {
+        const project = await this.getCachedOrFetchProject().catch(() => undefined)
+        if (project?.is_ai_data_processing_approved !== undefined) {
+            return !!project.is_ai_data_processing_approved
+        }
         return this.getOrgField((org) => !!org.is_ai_data_processing_approved)
     }
 

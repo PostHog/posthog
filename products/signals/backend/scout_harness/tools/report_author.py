@@ -139,6 +139,7 @@ class ScoutRunReportAuthor:
 
 USER_REPORT_DAILY_LIMIT = 20
 USER_REPORT_DAILY_LIMIT_REASON = "user_daily_report_limit"
+AI_PROCESSING_NOT_APPROVED_REASON = "ai_processing_not_approved"
 
 
 def user_reports_created_today(team: Team, user_id: int) -> int:
@@ -196,7 +197,7 @@ class UserReportAuthor:
 
     def preflight_skip_reason(self, team: Team) -> str | None:
         if not team.organization.is_ai_data_processing_approved:
-            return "ai_processing_not_approved"
+            return AI_PROCESSING_NOT_APPROVED_REASON
         if user_reports_created_today(team, self.user_id) >= USER_REPORT_DAILY_LIMIT:
             return USER_REPORT_DAILY_LIMIT_REASON
         return None

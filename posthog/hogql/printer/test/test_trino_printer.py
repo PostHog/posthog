@@ -637,10 +637,14 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
             "TRINO_REGEX_GROUPS_UNSUPPORTED",
         ),
         ("replaceRegexpOne(user_id, 'a', user_id)", "TRINO_REGEX_CONSTANT_REQUIRED"),
-        ("cityHash64(user_id)", "TRINO_FUNCTION_UNSUPPORTED"),
+        ("cityHash64(uuid)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("cityHash64(user_id, id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("cityHash64(18446744073709551615)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("toTypeName(user_id)", "TRINO_FUNCTION_UNSUPPORTED"),
         ("bitNot(id)", "TRINO_FUNCTION_UNSUPPORTED"),
         ("range(1, 10, id)", "TRINO_RANGE_STEP_UNSUPPORTED"),
+        ("JSONExtractKeysAndValues(properties, 'Array(Float64)')", "TRINO_JSON_TARGET_TYPE_UNSUPPORTED"),
+        ("JSONExtractKeysAndValues(properties, user_id, 'Float64')", "TRINO_JSON_DYNAMIC_PATH_UNSUPPORTED"),
     ],
 )
 def test_rejects_unsupported_printer_function_variants(expression: str, feature_code: str) -> None:
@@ -2091,7 +2095,21 @@ def test_rejects_with_fill_before_printing_invalid_trino_sql() -> None:
         ("date_part('year', created_at)", 'EXTRACT(YEAR FROM "users"."created_at")'),
         (
             "JSONExtractKeysAndValues(properties, 'Float64')",
-            'map_entries(transform_values(CAST(json_extract("users"."properties", \'$\') AS MAP(VARCHAR, JSON))',
+            'ch_json_extract_keys_and_values_float64(IF(typeof("users"."properties") = \'json\', '
+            'json_format(json_extract("users"."properties", \'$\')), CAST("users"."properties" AS VARCHAR)), '
+            "'[]', false)",
+        ),
+        # ClickHouse reads 'Float' as Float32 and 'Int' as Int32.
+        ("JSONExtractKeysAndValues(properties, 'Float')", "ch_json_extract_keys_and_values_float32("),
+        (
+            "JSONExtractKeysAndValues(properties, 'metrics', 1, 'Int')",
+            "'[\"metrics\", 1]', false, -2147483648, 2147483647) AS ARRAY(ROW(VARCHAR, INTEGER)))",
+        ),
+        ("JSONExtractKeysAndValues(properties, 'Int64')", "false, -9223372036854775807 - 1, 9223372036854775807)"),
+        # A Nullable type keeps a JSON null as a NULL value instead of dropping the key.
+        (
+            "JSONExtractKeysAndValues(properties, 'Nullable(UInt8)')",
+            "'[]', true, 0, 255) AS ARRAY(ROW(VARCHAR, SMALLINT)))",
         ),
         ("['a', 'b'][2:]", "slice(ARRAY[%(hogql_val_0)s, %(hogql_val_1)s], 2, 2147483647)"),
     ],
@@ -2451,6 +2469,10 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
         ("toMonday(created_at)", 'CAST(date_trunc(\'week\', "users"."created_at") AS DATE)'),
         ("yesterday()", "date_add('day', -1, CURRENT_DATE)"),
         ("md5(user_id)", 'to_hex(md5(to_utf8(CAST("users"."user_id" AS VARCHAR))))'),
+        ("cityHash64(user_id) % 10", 'ch_cityhash64("users"."user_id")'),
+        ("cityHash64(id)", 'ch_cityhash64("users"."id")'),
+        ("cityHash64(-1)", "ch_cityhash64(CAST(-1 AS TINYINT))"),
+        ("cityHash64(id = 1)", 'ch_cityhash64(CAST(("users"."id" = 1) AS TINYINT))'),
         ("power(2, 3)", "power(2, 3)"),
         ("ln(2)", "ln(2)"),
         ("log2(2)", "log2(2)"),

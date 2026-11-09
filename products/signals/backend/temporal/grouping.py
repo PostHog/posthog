@@ -39,10 +39,11 @@ from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, 
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.receivers import _is_safety_suppressed
-from products.signals.backend.recurrence import recurrence_dismissal_at
+from products.signals.backend.recurrence import forks_recurrence
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.report_monitoring_signals import current_research_attempt
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
+from products.signals.backend.source_issues import open_report_for_source_issue, schedule_source_issue_writeback
 from products.signals.backend.spend import begin_report_spend, complete_signal_pipeline, signal_spend_summaries
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal import metrics
@@ -470,6 +471,41 @@ class MatchSignalToReportInput:
     sync_with_source: bool = False
     source_match_signal_id: str | None = None
     source_match_report_id: str | None = None
+    # The issue URL of a GitHub issue signal, so an open report that names the issue as its source
+    # can take the signal before similarity matching runs.
+    source_issue_url: str | None = None
+
+
+def source_issue_url_for_signal(source_product: str, source_type: str, extra: dict | None) -> str | None:
+    if source_product != SignalSourceProduct.GITHUB or source_type != SignalSourceType.ISSUE:
+        return None
+    url = (extra or {}).get("html_url")
+    return url if isinstance(url, str) and url else None
+
+
+def _source_issue_match(team_id: int, url: str) -> ExistingReportMatch | None:
+    report = open_report_for_source_issue(team_id=team_id, url=url)
+    if report is None or report.triggering_signal_id is None:
+        return None
+    return ExistingReportMatch(
+        report_id=str(report.id),
+        match_metadata=MatchedMetadata(
+            parent_signal_id=str(report.triggering_signal_id),
+            match_query="source issue",
+            reason="The report names this GitHub issue as its source issue",
+        ),
+        source_issue_matched=True,
+    )
+
+
+async def _match_by_source_issue_or_similarity(input: MatchSignalToReportInput) -> MatchResult:
+    if input.team_id is not None and input.source_issue_url:
+        match = await database_sync_to_async(_source_issue_match, thread_sensitive=False)(
+            input.team_id, input.source_issue_url
+        )
+        if match is not None:
+            return match
+    return await match_signal_to_report(input)
 
 
 async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult:
@@ -569,9 +605,9 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
                     source_synced=True,
                 )
             else:
-                result = await match_signal_to_report(input)
+                result = await _match_by_source_issue_or_similarity(input)
         else:
-            result = await match_signal_to_report(input)
+            result = await _match_by_source_issue_or_similarity(input)
         if isinstance(result, ExistingReportMatch) and input.team_id is not None:
             report = await SignalReport.objects.filter(team_id=input.team_id, id=result.report_id).afirst()
             if report is not None and report.status != SignalReport.Status.DELETED:
@@ -852,6 +888,23 @@ def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, 
         )
 
 
+async def _schedule_writeback_for_source_issue_signal(input: "AssignAndEmitSignalInput", report_id: str) -> None:
+    # The report names this issue as its source, and the issue only now reached the pipeline, so this
+    # is the first moment the writeback may comment on it. Best-effort, like the writeback itself.
+    extra = input.extra or {}
+    signal = {
+        "source_product": input.source_product,
+        "source_type": input.source_type,
+        "extra": {key: extra.get(key) for key in ("html_url", "state", "locked")},
+    }
+    try:
+        await database_sync_to_async(schedule_source_issue_writeback, thread_sensitive=False)(
+            team_id=input.team_id, report_id=report_id, signals=[signal]
+        )
+    except Exception:
+        logger.exception("Failed to schedule source issue writeback", report_id=report_id, team_id=input.team_id)
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -930,15 +983,13 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # Wrong-repo feedback rejects the repository choice rather than the issue, so new
                 # evidence needs fresh research, just as it does after a fixed verdict.
                 report = signal_target_report(report, lock=True)
-                dismissed_for_recurrence_at = (
-                    recurrence_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
-                )
-                if (
-                    report.effective_status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}
-                    or dismissed_for_recurrence_at is not None
-                ):
+                if forks_recurrence(report):
                     parent_report = report
-                    inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
+                    # A failed report often holds only the matcher's first guess, so the fork keeps
+                    # its content only when a research pass completed.
+                    inherit_content = (
+                        parent_report.status != SignalReport.Status.FAILED or _has_completed_research(parent_report)
+                    ) and not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(
                         team_id=input.team_id,
                         status=SignalReport.Status.POTENTIAL,
@@ -992,6 +1043,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
             # Promotion rules by status:
             # - SUPPRESSED: never promoted. Fixed and wrong-repo dismissals spawn a fresh report above.
+            # - FAILED: never promoted. Unless a pull request is open or merged, a new signal spawns a fresh report above.
             # - RESOLVED: terminal — never receives new signals (a recurrence spawns a fresh report above).
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.
@@ -1207,6 +1259,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     team_id=input.team_id,
                     source_id=input.source_id,
                 )
+            if isinstance(match_result, ExistingReportMatch) and match_result.source_issue_matched:
+                await _schedule_writeback_for_source_issue_signal(input, db_result.report_id)
             # A signal on an already-researched report that did not spawn re-research, because the
             # report is either between buckets or past its last one. Emitted so the withheld
             # re-research volume is trackable, split by which of the two reasons held it back.

@@ -5,7 +5,7 @@ import { SubjectGroup, dataQualityOverviewLogic } from './dataQualityOverviewLog
 
 export function QuillSubjectRunBanners({ group }: { group: SubjectGroup }): JSX.Element | null {
     const { runTarget, runError, pollTimedOut } = useValues(dataQualityOverviewLogic)
-    const { runChecks, loadOverview } = useActions(dataQualityOverviewLogic)
+    const { retryRun, loadOverview } = useActions(dataQualityOverviewLogic)
 
     const scopedToThisSubject = runTarget?.kind === 'subject' && runTarget.subjectKey === group.subjectKey
     if (!scopedToThisSubject) {
@@ -20,17 +20,7 @@ export function QuillSubjectRunBanners({ group }: { group: SubjectGroup }): JSX.
                 </QuillCheckCallout>
             )}
             {runError && (
-                <QuillCheckCallout
-                    tone="destructive"
-                    action={{
-                        label: 'Retry',
-                        onClick: () =>
-                            runChecks(
-                                { kind: 'subject', subjectKey: group.subjectKey },
-                                group.checks.map((check) => check.id)
-                            ),
-                    }}
-                >
+                <QuillCheckCallout tone="destructive" action={{ label: 'Retry', onClick: retryRun }}>
                     {runError}
                 </QuillCheckCallout>
             )}

@@ -264,7 +264,7 @@ def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfill
     target = _resolve_duckling_target(team_id)
     table_name = resolve_groups_table(team_id)
     tags = dagster_tags(context)
-    if backfills_through_trino(target.organization_id):
+    if config.register_through_trino or backfills_through_trino(target.organization_id):
         result = backfill_through_trino(
             context,
             config,

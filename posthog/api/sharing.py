@@ -43,6 +43,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
 from posthog.hogql_queries.refresh_policy import ComputeSurface
+from posthog.ip_restrictions import ip_restrictions_exempt
 from posthog.models import SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
@@ -1005,6 +1006,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         return True
 
     @xframe_options_exempt
+    @ip_restrictions_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         try:
             resource = self.get_object()

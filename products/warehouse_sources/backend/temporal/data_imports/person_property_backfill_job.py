@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     failed_run_error,
     is_worker_interruption,
+    progress_recorder,
     record_completed_runs,
     record_failed_runs,
     record_started_runs,
@@ -87,7 +88,14 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
     )
     try:
         async with Heartbeater():
-            result = await run_person_property_backfill(team_id=inputs.team_id, binding=binding, trigger=inputs.trigger)
+            result = await run_person_property_backfill(
+                team_id=inputs.team_id,
+                binding=binding,
+                trigger=inputs.trigger,
+                on_progress=progress_recorder(
+                    team_id=inputs.team_id, binding=binding, job_id=None, trigger=inputs.trigger
+                ),
+            )
     except Exception as e:
         log.exception("Person-property backfill failed")
         capture_exception(e)

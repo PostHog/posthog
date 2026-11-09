@@ -1,18 +1,17 @@
 import { pluralize } from 'lib/utils/strings'
 
-import { CHECKS_LIMIT, OverviewChecksStatus } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
+export type ChecksHealth = 'none' | 'all-passed' | 'some-not-passed' | 'failing'
 
-const MODELS_CLAUSE = 'No failed, suspended or late models.'
-const TRUNCATED_CHECKS_CLAUSE = `No failing checks among the first ${CHECKS_LIMIT}.`
-const CHECKS_CLAUSES: Record<OverviewChecksStatus, string | null> = {
+const MODELS_CLAUSE = 'No models failed to refresh, are suspended, or are behind schedule.'
+const CHECKS_CLAUSES: Record<ChecksHealth, string | null> = {
     'all-passed': 'All checks passed.',
     'some-not-passed': "No checks are failing. Some haven't passed yet.",
     none: null,
-    unknown: null,
+    failing: null,
 }
 
-export function healthyMessage(checksStatus: OverviewChecksStatus, checksTruncated: boolean): string {
-    const checksClause = checksTruncated ? TRUNCATED_CHECKS_CLAUSE : CHECKS_CLAUSES[checksStatus]
+export function healthyMessage(checksHealth: ChecksHealth): string {
+    const checksClause = CHECKS_CLAUSES[checksHealth]
     return checksClause ? `${MODELS_CLAUSE} ${checksClause}` : MODELS_CLAUSE
 }
 

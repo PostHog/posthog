@@ -51,6 +51,8 @@ from ..logic.traces.feedback import FeedbackText, Score, TraceFeedback
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.node_contents_queries import load_trace_nodes
+from ..logic.traces.review import HumanReview, QueueAssignment
+from ..logic.traces.review_queries import load_trace_review_state
 from ..logic.traces.summary import (
     AIDataProcessingNotApprovedError as AIDataProcessingNotApprovedError,
     FailedSummary,
@@ -79,6 +81,7 @@ from ..logic.traces.trace_export import (
 )
 from ..logic.traces.trace_queries import (
     TraceNodeRow,
+    load_available_trace_ids,
     load_trace,
     load_trace_feedback_rows,
     load_trace_git_rows,
@@ -120,6 +123,10 @@ def is_usable_timestamp_hint(timestamp_hint: datetime) -> bool:
     except OverflowError:
         return False
     return True
+
+
+def get_available_trace_ids(team: Team, user: User | None, trace_ids: list[str]) -> list[str]:
+    return load_available_trace_ids(team, user, trace_ids)
 
 
 def get_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None) -> contracts.Trace:
@@ -285,9 +292,9 @@ def mentions_evaluation_pass_markers(text: str) -> bool:
 
 def get_trace_evaluation_results(team: Team, user: User | None, trace_id: str) -> contracts.TraceEvaluationResults:
     rows = load_evaluation_results(team, user, trace_id)
-    configs = load_output_configs(team, user, {row.evaluation_id for row in rows if row.evaluation_id})
+    configs = load_output_configs(team, user, {row.evaluation_uuid for row in rows if row.evaluation_uuid})
     results = [
-        EvaluationResult.from_row(row, trace_id=trace_id, output_config=configs.get(row.evaluation_id or "", {}))
+        EvaluationResult.from_row(row, trace_id=trace_id, output_config=configs.get(row.evaluation_uuid or "", {}))
         for row in rows
     ]
     return contracts.TraceEvaluationResults(
@@ -385,6 +392,32 @@ def get_trace_feedback(
             total=len(scores) + len(responses), thumbs_up=thumbs.up, thumbs_down=thumbs.down
         ),
     )
+
+
+def get_trace_review_status(team: Team, user: User, trace_id: str) -> contracts.TraceReviewStatus:
+    """The trace's human review and the review queue it waits in, as far as the user may see them. An unknown trace
+    has neither."""
+    state = load_trace_review_state(team, user, trace_id)
+    return contracts.TraceReviewStatus(
+        review=_to_human_review(state.review) if state.review else None,
+        queue=_to_review_queue_assignment(state.queue) if state.queue else None,
+    )
+
+
+def _to_human_review(review: HumanReview) -> contracts.TraceHumanReview:
+    return contracts.TraceHumanReview(
+        reviewed_by=review.reviewed_by,
+        reviewed_at=review.reviewed_at,
+        comment=review.comment,
+        scores=[
+            contracts.TraceHumanReviewScore(name=score.name, value=score.value, label=score.label)
+            for score in review.scores
+        ],
+    )
+
+
+def _to_review_queue_assignment(queue: QueueAssignment) -> contracts.TraceReviewQueueAssignment:
+    return contracts.TraceReviewQueueAssignment(id=queue.queue_id, name=queue.queue_name, item_id=queue.item_id)
 
 
 def _to_feedback_score(score: Score) -> contracts.TraceFeedbackScore:

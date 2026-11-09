@@ -209,7 +209,7 @@ impact/impact.py::_get_rows_fanout
 impact/impact.py::_get_rows_nested
 impact/impact.py::_get_rows_simple
 impact_partner/impact_partner.py::_get_rows_simple
-impact_partner/impact_partner.py::_get_rows_windowed
+impact_partner/impact_partner.py::_get_rows_windowed._run
 infisical/infisical.py::_get_audit_log_rows
 infisical/infisical.py::_get_offset_paginated_rows
 inngest/inngest.py::_get_event_rows
@@ -332,7 +332,6 @@ sonatype_nexus/sonatype_nexus.py::_get_repository_fanout_rows
 sonatype_nexus/sonatype_nexus.py::get_rows
 sourcegraph/sourcegraph.py::get_rows
 spacelift/spacelift.py::_get_rows
-split_io/split_io.py::_paginate_resource
 splunk_observability_cloud/splunk_observability_cloud.py::_get_detector_event_rows
 splunk_observability_cloud/splunk_observability_cloud.py::_paginate
 squadcast/squadcast.py::_iter_cursor_pages

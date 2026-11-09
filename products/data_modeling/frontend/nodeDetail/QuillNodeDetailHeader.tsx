@@ -3,14 +3,13 @@ import { useActions, useValues } from 'kea'
 import { Badge, Skeleton } from '@posthog/quill'
 
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NODE_TYPE_TAG_SETTINGS } from '../lineage/nodeStyles'
+import { canEditNodeDescription, isAiWrittenDescription } from './nodeDescriptionState'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 import { nodeTypeForDisplay } from './nodeTypeForDisplay'
 import { QuillNodeDetailActions } from './QuillNodeDetailActions'
@@ -31,19 +30,18 @@ export function QuillNodeDetailHeader({ id }: { id: string }): JSX.Element {
     )
     const savedQuery = currentSavedQuery ?? initialSavedQuery
     const nodeType = nodeTypeForDisplay(node, savedQuery)
-    const canEdit =
-        node?.type !== 'metric' &&
-        userHasAccess(
-            AccessControlResourceType.WarehouseObjects,
-            AccessControlLevel.Editor,
-            savedQuery?.user_access_level
-        )
+    const canEdit = canEditNodeDescription(node, savedQuery)
 
     return (
         <>
             <SceneTitleSection
                 name={node?.name}
-                nameSuffix={nodeType && <Badge>{NODE_TYPE_TAG_SETTINGS[nodeType].label}</Badge>}
+                nameSuffix={
+                    <span className="flex items-center gap-1">
+                        {nodeType && <Badge>{NODE_TYPE_TAG_SETTINGS[nodeType].label}</Badge>}
+                        {isAiWrittenDescription(node) && <Badge>AI-written description</Badge>}
+                    </span>
+                }
                 actions={
                     node && savedQuery ? (
                         <QuillNodeDetailActions id={id} node={node} savedQuery={savedQuery} />

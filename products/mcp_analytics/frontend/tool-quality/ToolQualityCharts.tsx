@@ -28,11 +28,6 @@ function formatCompactPercentage(value: number): string {
     return formatPercentage(value, { compact: true })
 }
 
-// A zoomed axis can span less than one percent, so whole-number ticks would repeat.
-function formatPrecisePercentage(value: number): string {
-    return formatPercentage(value, { precise: true, compact: true })
-}
-
 function buildConfig(
     timezone: string,
     interval: TimeInterval,
@@ -118,10 +113,7 @@ function ChartCard({
                     </div>
                 }
             >
-                {/* Dim while refreshing so date/tool changes give visible feedback. */}
-                <div className={`flex min-h-[220px] flex-1 flex-col transition-opacity ${loading ? 'opacity-50' : ''}`}>
-                    {children}
-                </div>
+                <div className="flex min-h-[220px] flex-1 flex-col">{children}</div>
             </CardState>
         </Card>
     )
@@ -218,7 +210,8 @@ export function ToolQualityCharts({
     const successRateConfig = useChartConfig(
         () =>
             buildConfig(timezone, interval, {
-                tickFormatter: formatPrecisePercentage,
+                format: 'percentage',
+                decimalPlaces: 3,
                 startAtZero: views.successRate !== 'zoom',
             }),
         [timezone, interval, views.successRate]

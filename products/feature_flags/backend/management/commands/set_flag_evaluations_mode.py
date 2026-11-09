@@ -43,11 +43,7 @@ class Command(BaseCommand):
             type=int,
             required=True,
             choices=FlagEvaluationsMode.values,
-            help=(
-                f"{FLAG_EVALUATIONS_MODES_HELP} "
-                "flag_evaluations holds rows only from the day ingestion started writing them "
-                "(2026-09-09 for PostHog Cloud), so on mode 1 or 2 the Usage tab shows no data for earlier days."
-            ),
+            help=FLAG_EVALUATIONS_MODES_HELP,
         )
         selector = parser.add_mutually_exclusive_group(required=True)
         selector.add_argument(

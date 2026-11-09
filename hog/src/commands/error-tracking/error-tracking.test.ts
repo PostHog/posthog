@@ -11,7 +11,8 @@ import {
     writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
+import { z } from 'zod'
 
 import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
@@ -31,6 +32,12 @@ function project(files: Record<string, string>): string {
     }
     return folder
 }
+
+const UploadOutput = z.looseObject({
+    symbolSets: z.array(z.looseObject({ contentHash: z.string() })).default([]),
+    skipped: z.array(z.object({ path: z.string(), reason: z.string() })).default([]),
+    release: z.unknown(),
+})
 
 describe('hog error-tracking upload', () => {
     test.each([
@@ -120,7 +127,7 @@ describe('hog error-tracking upload', () => {
             cwd: folder,
             useDisk: true,
         })
-        expect(result.json().symbolSets).toEqual([
+        expect(result.json(UploadOutput).symbolSets).toEqual([
             expect.objectContaining({ chunkId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-7/) }),
         ])
     })
@@ -152,10 +159,41 @@ describe('hog error-tracking upload', () => {
         const result = await runHog(['et', 'inject'], { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true })
 
         expect(result.exitCode).toBe(0)
-        expect(result.json().skipped).toEqual([
+        expect(result.json(UploadOutput).skipped).toEqual([
             { path: expect.stringMatching(/dist\/a\.js$/), reason: expect.stringContaining(reason) },
         ])
         expect(readFileSync(join(folder, untouched), 'utf8')).toBe(before)
+    })
+
+    test('upload --dry-run calls an empty map a bundler problem only when its file is 4096 bytes or more', async () => {
+        const files: Record<string, string> = {
+            'dist/ok.js': 'a();\n//# sourceMappingURL=ok.js.map\n//# chunkId=00000000-0000-4000-8000-000000000000',
+            'dist/ok.js.map': MAP,
+        }
+        for (const [name, size, id] of [
+            ['page', 2900, 1],
+            ['stub', 4095, 2],
+            ['chunk', 4096, 3],
+        ] as const) {
+            const tail = `\n//# sourceMappingURL=${name}.js.map\n//# chunkId=00000000-0000-4000-8000-00000000000${id}`
+            files[`dist/${name}.js`] = 'a'.repeat(size - tail.length) + tail
+            files[`dist/${name}.js.map`] = JSON.stringify({ version: 3, sources: [], names: [], mappings: '' })
+        }
+        const result = await runHog(['et', 'upload', '--dry-run', 'dist'], {
+            env: { CLAUDECODE: '1' },
+            cwd: project(files),
+            useDisk: true,
+        })
+
+        expect(result.exitCode).toBe(0)
+        const reasons = Object.fromEntries(
+            result.json(UploadOutput).skipped.map((skip) => [basename(skip.path), skip.reason])
+        )
+        expect(reasons).toEqual({
+            'page.js': 'the sourcemap is empty',
+            'stub.js': 'the sourcemap is empty',
+            'chunk.js': 'the sourcemap is empty although the file is large. Check your bundler sourcemap setting.',
+        })
     })
 
     test('--delete-after leaves alone CSS maps outside the selected paths, ignored maps, and JSON that is not a map', () => {
@@ -238,7 +276,9 @@ describe('hog error-tracking upload', () => {
             useDisk: true,
         })
         expect(result.exitCode).toBe(0)
-        expect(result.json().symbolSets).toEqual([expect.objectContaining({ path: composed, kind: 'hermes' })])
+        expect(result.json(UploadOutput).symbolSets).toEqual([
+            expect.objectContaining({ path: composed, kind: 'hermes' }),
+        ])
     })
 
     test('upload fails when Hermes bundles have no composed maps', async () => {
@@ -292,7 +332,9 @@ describe('hog error-tracking upload', () => {
             useDisk: true,
         })
         expect(result.exitCode).toBe(exitCode)
-        expect(exitCode === 0 ? JSON.stringify(result.json().symbolSets) : result.error().message).toContain(expected)
+        expect(
+            exitCode === 0 ? JSON.stringify(result.json(UploadOutput).symbolSets) : result.error().message
+        ).toContain(expected)
     })
 
     test.each([
@@ -317,7 +359,7 @@ describe('hog error-tracking upload', () => {
 
         if (linkOutside) {
             expect(result.exitCode).toBe(0)
-            expect(result.json().symbolSets).toEqual([
+            expect(result.json(UploadOutput).symbolSets).toEqual([
                 expect.objectContaining({ path: 'apple/Shop.app.dSYM', status: 'planned' }),
             ])
         } else {
@@ -351,7 +393,7 @@ describe('hog error-tracking upload', () => {
                 useDisk: true,
             })
             expect(result.exitCode).toBe(0)
-            return result.json().symbolSets[0].contentHash
+            return result.json(UploadOutput).symbolSets[0]!.contentHash
         }
         try {
             const all = await plan([])
@@ -376,7 +418,7 @@ describe('hog error-tracking upload', () => {
             cwd: outside,
             useDisk: true,
         })
-        expect(result.json().release).toEqual({
+        expect(result.json(UploadOutput).release).toEqual({
             name: 'example-app',
             version: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
             id: null,

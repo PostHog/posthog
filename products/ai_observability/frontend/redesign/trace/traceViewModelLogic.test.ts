@@ -205,7 +205,6 @@ describe('traceViewModelLogic', () => {
             releaseTrace = resolve
         })
         mountAt()
-        await waitFor(() => expect(nodeRequests).toEqual(['trace-1']))
 
         host.actions.requestStep('next-trace-step', 'trace-2')
         releaseTrace()
@@ -221,7 +220,6 @@ describe('traceViewModelLogic', () => {
         })
         mountAt()
 
-        await waitFor(() => expect(nodeRequests).toEqual(['trace-1']))
         expect(clusterRequests).toEqual([])
         expect(logic.values.clustersChip).toBeNull()
 
@@ -240,6 +238,17 @@ describe('traceViewModelLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready', clustersChip: null })
         expect(clusterRequests).toEqual([CREATED_AT])
         expect(toast).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['a root without state', 'gen-1'],
+        ['a root with state', 'trace-1'],
+    ])('reads only the default step and the thread when the trace opens on %s', async (_name, defaultNodeId) => {
+        traceResource = makeTraceResource({ defaultNodeId })
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect([...nodeRequests].sort()).toEqual([defaultNodeId, 'gen-2'].sort())
     })
 
     it('reports the reads that open the view as navigation and a click on an unread step as a selection', async () => {

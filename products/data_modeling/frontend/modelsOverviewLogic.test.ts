@@ -11,7 +11,7 @@ import { DataModelingNode } from '~/types'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
 import { lineageDataLogic } from './lineage/lineageDataLogic'
-import { modelsOverviewLogic } from './modelsOverviewLogic'
+import { AttentionRow, modelsOverviewLogic } from './modelsOverviewLogic'
 
 const NODES_URL = '/api/environments/:team_id/data_modeling_nodes/'
 const CHECKS_URL = '/api/projects/:team_id/data_quality_checks/'
@@ -43,7 +43,7 @@ function buildCheck(id: string, lastStatus: string, overrides: Record<string, un
 }
 
 const NODES = [
-    buildNode('broken', { last_run_status: 'Failed', last_run_error: 'boom' }),
+    buildNode('broken', { last_run_status: 'Failed', last_run_error: 'boom', last_run_at: '2026-01-01T10:00:00Z' }),
     buildNode('paused', {
         last_run_status: 'Failed',
         suspended: { clickhouse: { at: '2026-01-02T00:00:00Z', reason: 'stopped', job_id: 'j1' } },
@@ -53,6 +53,10 @@ const NODES = [
     buildNode('endpoint', { type: 'endpoint', last_run_status: 'Completed' }),
     buildNode('broken-in-second-dag', { saved_query_id: 'query-broken', last_run_status: 'Completed' }),
 ]
+function plainText(text: string): string {
+    return text.replace(/\u00a0/g, ' ')
+}
+
 const SAVED_QUERIES = { count: 3, results: ['a', 'b', 'c'].map((id) => ({ id, name: id, columns: [] })) }
 
 describe('modelsOverviewLogic', () => {
@@ -61,7 +65,8 @@ describe('modelsOverviewLogic', () => {
     function apiMocks(
         nodes: DataModelingNode[],
         checks: Record<string, unknown>[],
-        savedQueries = SAVED_QUERIES
+        savedQueries = SAVED_QUERIES,
+        health: Record<string, unknown>[] = []
     ): Parameters<typeof useMocks>[0] {
         return {
             get: {
@@ -70,10 +75,38 @@ describe('modelsOverviewLogic', () => {
                 '/api/environments/:team_id/warehouse_saved_queries/': savedQueries,
                 '/api/projects/:team_id/warehouse_saved_queries/': savedQueries,
                 [CHECKS_URL]: { count: checks.length, results: checks },
-                '/api/projects/:team_id/data_quality_checks/health/': [],
+                '/api/projects/:team_id/data_quality_checks/health/': health,
                 '/api/projects/:team_id/data_quality_checks/schedules/': [],
             },
         }
+    }
+
+    function nodesWithLate(overrides: Partial<DataModelingNode>): Parameters<typeof useMocks>[0] {
+        return {
+            get: {
+                [NODES_URL]: {
+                    count: NODES.length,
+                    results: NODES.map((node) => (node.id === 'late' ? { ...node, ...overrides } : node)),
+                },
+            },
+        }
+    }
+
+    function runMock(status: number): { calls: number; mocks: Parameters<typeof useMocks>[0] } {
+        const tracker = { calls: 0, mocks: {} as Parameters<typeof useMocks>[0] }
+        tracker.mocks = {
+            post: {
+                '/api/projects/:team_id/warehouse_saved_queries/:id/run/': () => {
+                    tracker.calls += 1
+                    return [status, { node_ids: [] }]
+                },
+            },
+        }
+        return tracker
+    }
+
+    function lateRow(): AttentionRow | undefined {
+        return logic.values.attentionRows.find(({ key }) => key === 'view-query-late')
     }
 
     async function mountLoaded(): Promise<void> {
@@ -170,7 +203,7 @@ describe('modelsOverviewLogic', () => {
         await mountLoaded()
 
         logic.actions.setAttentionFilter('failed')
-        expect(logic.values.filteredAttentionSubjects.map(({ key }) => key)).toEqual(['view-query-broken'])
+        expect(logic.values.filteredAttentionRows.map(({ key }) => key)).toEqual(['view-query-broken'])
 
         useMocks({
             get: {
@@ -185,63 +218,152 @@ describe('modelsOverviewLogic', () => {
         await expectLogic(lineageDataLogic, () => logic.actions.loadNodes()).toDispatchActions(['loadNodesSuccess'])
 
         expect(logic.values.activeAttentionFilter).toEqual('all')
-        expect(logic.values.filteredAttentionSubjects).toHaveLength(3)
+        expect(logic.values.filteredAttentionRows).toHaveLength(3)
     })
 
-    it.each<[string, number, string[]]>([
-        ['keeps the button disabled after a refresh starts', 200, ['query-broken']],
-        ['re-enables the button when the refresh fails to start', 500, []],
-    ])('%s', async (_case, status, expectedStarted) => {
-        useMocks({
-            post: {
-                '/api/environments/:team_id/warehouse_saved_queries/:id/run/': () => [status, {}],
-                '/api/projects/:team_id/warehouse_saved_queries/:id/run/': () => [status, {}],
-            },
-        })
+    it('builds each row with the copy and next step its cells render', async () => {
         await mountLoaded()
 
-        await expectLogic(logic, () => logic.actions.runDataWarehouseSavedQuery('query-broken')).toDispatchActions([
-            status === 200 ? 'runDataWarehouseSavedQuerySuccess' : 'runDataWarehouseSavedQueryFailure',
+        expect(
+            logic.values.attentionRows.map(({ name, statuses, detail, since, nextStep }) => ({
+                name,
+                labels: statuses.map(({ label }) => plainText(label)),
+                detail,
+                since: since?.label ?? null,
+                nextStep: nextStep?.kind === 'refresh' ? 'Refresh' : (nextStep?.label ?? null),
+            }))
+        ).toEqual([
+            { name: 'paused', labels: ['Suspended'], detail: 'stopped', since: null, nextStep: 'Open view' },
+            { name: 'broken', labels: ['Refresh failed'], detail: 'boom', since: 'Last tried', nextStep: 'Refresh' },
+            {
+                name: 'late',
+                labels: ['Behind schedule'],
+                detail: 'Should refresh every 1 hour',
+                since: '11h behind schedule',
+                nextStep: 'Refresh',
+            },
+            { name: 'events', labels: ['1 check failing'], detail: 'nulls', since: null, nextStep: null },
         ])
-
-        expect(logic.values.startedRefreshSavedQueryIds).toEqual(expectedStarted)
     })
 
-    it.each<[string, string, boolean]>([
-        ['re-enables the button when the run fails', 'Failed', true],
-        ['drops the row when the run succeeds', 'Completed', false],
-    ])('after a refresh starts, %s', async (_case, finalStatus, rowStays) => {
-        const nodesWithBrokenStatus = (status: string): Parameters<typeof useMocks>[0] => ({
-            get: {
-                [NODES_URL]: {
-                    count: NODES.length,
-                    results: NODES.map((node) => (node.id === 'broken' ? { ...node, last_run_status: status } : node)),
-                },
-            },
-        })
-        useMocks({
-            post: {
-                '/api/environments/:team_id/warehouse_saved_queries/:id/run/': () => [200, {}],
-                '/api/projects/:team_id/warehouse_saved_queries/:id/run/': () => [200, {}],
-            },
-        })
+    it('reads the cadence a model inherits from a view downstream of it', async () => {
+        useMocks(
+            apiMocks(
+                [
+                    buildNode('inherited', {
+                        last_run_status: 'Completed',
+                        sync_interval: '24hour',
+                        effective_sync_interval: '1hour',
+                        last_run_at: '2026-01-01T09:00:00Z',
+                    }),
+                ],
+                []
+            )
+        )
         await mountLoaded()
 
-        useMocks(nodesWithBrokenStatus('Running'))
-        await expectLogic(logic, () => logic.actions.runDataWarehouseSavedQuery('query-broken')).toDispatchActions([
-            'runDataWarehouseSavedQuerySuccess',
+        expect(logic.values.attentionRows.map(({ detail }) => detail)).toEqual(['Should refresh every 1 hour'])
+    })
+
+    it('shows a refresh as running from the request until the node finishes, then drops the row', async () => {
+        const run = runMock(200)
+        useMocks(run.mocks)
+        await mountLoaded()
+
+        await expectLogic(logic, () => logic.actions.requestRefresh('query-late')).toDispatchActions([
             'loadNodesSuccess',
         ])
-        expect(logic.values.startedRefreshSavedQueryIds).toEqual(['query-broken'])
+        expect(Object.keys(logic.values.refreshRequests)).toEqual(['query-late'])
+        expect(lateRow()?.nextStep).toEqual({ kind: 'refresh', savedQueryId: 'query-late', refreshing: true })
 
-        useMocks(nodesWithBrokenStatus(finalStatus))
+        useMocks(nodesWithLate({ last_run_status: 'Running' }))
         await expectLogic(logic, () => logic.actions.loadNodes()).toDispatchActions([
             'loadNodesSuccess',
-            'settleRefresh',
+            'clearRefreshRequests',
+        ])
+        expect(logic.values.refreshRequests).toEqual({})
+        expect(lateRow()?.nextStep).toEqual({ kind: 'refresh', savedQueryId: 'query-late', refreshing: true })
+
+        useMocks(nodesWithLate({ last_run_status: 'Completed', last_run_at: '2026-01-01T11:59:00Z' }))
+        await expectLogic(logic, () => logic.actions.loadNodes()).toDispatchActions(['loadNodesSuccess'])
+        expect(lateRow()).toBeUndefined()
+    })
+
+    it('frees the button when the refresh request fails', async () => {
+        const run = runMock(500)
+        useMocks(run.mocks)
+        await mountLoaded()
+
+        await expectLogic(logic, () => logic.actions.requestRefresh('query-late')).toDispatchActions([
+            'refreshRequestFailed',
         ])
 
-        expect(logic.values.startedRefreshSavedQueryIds).toEqual([])
-        expect(logic.values.attentionSubjects.some(({ key }) => key === 'view-query-broken')).toBe(rowStays)
+        expect(logic.values.refreshRequests).toEqual({})
+        expect(lateRow()?.nextStep).toEqual({ kind: 'refresh', savedQueryId: 'query-late', refreshing: false })
+    })
+
+    it('sends one refresh request when the button is pressed twice', async () => {
+        const run = runMock(200)
+        useMocks(run.mocks)
+        await mountLoaded()
+
+        logic.actions.requestRefresh('query-late')
+        await expectLogic(logic, () => logic.actions.requestRefresh('query-late')).toDispatchActions([
+            'loadNodesSuccess',
+        ])
+
+        expect(run.calls).toEqual(1)
+    })
+
+    it('counts failing checks from the health rollup, including subjects past the loaded check rows', async () => {
+        useMocks(
+            apiMocks(NODES, [buildCheck('nulls', 'failed', { subject_uuid: 'events-id' })], SAVED_QUERIES, [
+                {
+                    subject_type: 'posthog_table',
+                    subject_uuid: 'events-id',
+                    health: 'failing',
+                    checks_total: 4,
+                    checks_failing: 3,
+                },
+                {
+                    subject_type: 'table',
+                    subject_uuid: 'orders-id',
+                    health: 'failing',
+                    checks_total: 2,
+                    checks_failing: 1,
+                },
+            ])
+        )
+        await mountLoaded()
+
+        expect(logic.values.attentionRows.at(-1)?.statuses.map(({ label }) => plainText(label))).toEqual([
+            '3 checks failing',
+        ])
+        expect(logic.values.unlistedFailingSubjectCount).toEqual(1)
+        expect(logic.values.attentionCounts).toMatchObject({ all: 5, checks: 2 })
+    })
+
+    it.each<[string, Record<string, unknown>[], boolean]>([
+        ['nothing in the rollup is failing', [], true],
+        [
+            'a subject outside the loaded check rows is failing',
+            [
+                {
+                    subject_type: 'table',
+                    subject_uuid: 'orders-id',
+                    health: 'failing',
+                    checks_total: 2,
+                    checks_failing: 1,
+                },
+            ],
+            false,
+        ],
+    ])('reports a healthy overview only when %s', async (_case, health, expected) => {
+        const healthyNodes = NODES.filter((node) => ['plain-view', 'endpoint'].includes(node.id))
+        useMocks(apiMocks(healthyNodes, [buildCheck('ok', 'passed')], SAVED_QUERIES, health))
+        await mountLoaded()
+
+        expect(logic.values.nothingToReport).toBe(expected)
     })
 
     it('never reports a healthy overview when checks fail to load', async () => {
@@ -261,7 +383,7 @@ describe('modelsOverviewLogic', () => {
         lineageDataLogic.actions.loadNodes()
 
         expect(logic.values.modelsFirstLoading).toBe(false)
-        expect(logic.values.attentionSubjects).toHaveLength(4)
+        expect(logic.values.attentionRows).toHaveLength(4)
     })
 
     it.each<[string, Record<string, unknown>[], boolean]>([
