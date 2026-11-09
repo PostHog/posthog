@@ -244,7 +244,8 @@ export interface workflowFoldersLogicMeta {
         folderSearchItems: (
             rows: WorkflowListRow[],
             savedItems: FileSystemEntry[],
-            itemsByRef: Record<string, FileSystemEntry>
+            itemsByRef: Record<string, FileSystemEntry>,
+            currentTeamId: number | null
         ) => WorkflowFolderFileRow[]
         folderFacets: (
             facets: FacetDefinition<WorkflowListRow>[],
@@ -472,6 +473,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                                     shortcut: entry.shortcut ?? false,
                                     created_at: entry.created_at,
                                     user_access_level: entry.user_access_level,
+                                    team_id: entry.team_id,
                                 }))
                             )
                             if (!page.next || page.results.length === 0) {
@@ -666,11 +668,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             },
         ],
         folderSearchItems: [
-            (s) => [s.rows, s.savedItems, s.itemsByRef],
+            (s) => [s.rows, s.savedItems, s.itemsByRef, s.currentTeamId],
             (
                 rows: WorkflowListRow[],
                 entries: FileSystemEntry[],
-                items: Record<string, FileSystemEntry>
+                items: Record<string, FileSystemEntry>,
+                currentTeamId: number | null
             ): WorkflowFolderFileRow[] => [
                 ...rows.map(
                     (row): WorkflowFolderFileRow => ({
@@ -682,7 +685,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     })
                 ),
                 ...entries
-                    .filter((entry) => entry.type === 'message_template' && !entry.shortcut)
+                    .filter(
+                        (entry) =>
+                            entry.type === 'message_template' &&
+                            !entry.shortcut &&
+                            (entry.team_id ?? currentTeamId) === currentTeamId
+                    )
                     .map(
                         (entry): WorkflowFolderFileRow => ({
                             kind: 'email_template',

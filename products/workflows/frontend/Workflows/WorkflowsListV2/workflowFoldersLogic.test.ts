@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
@@ -53,6 +55,14 @@ describe('workflowFoldersLogic', () => {
                             path: 'Billing/Cards/Receipt',
                             type: 'message_template',
                             ref: 'template-receipt',
+                            team_id: MOCK_TEAM_ID,
+                        },
+                        {
+                            id: 'sibling-receipt',
+                            path: 'Billing/Cards/Staging receipt',
+                            type: 'message_template',
+                            ref: 'template-staging',
+                            team_id: MOCK_TEAM_ID + 1,
                         },
                     ]
                     return [
@@ -102,7 +112,7 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
     })
 
-    it('shows email templates in their open folder and includes them in folder counts', async () => {
+    it("shows this environment's email templates in their open folder and counts, not a sibling's", async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Billing/Cards')
         expect(logic.values.folderTemplates.map((entry) => entry.ref)).toEqual(['template-receipt'])

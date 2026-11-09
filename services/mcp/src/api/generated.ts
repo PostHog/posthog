@@ -50278,6 +50278,8 @@ export namespace Schemas {
       meta?: unknown;
       /** @nullable */
       shortcut?: boolean | null;
+      /** The environment the object belongs to. A project lists every environment's files. */
+      readonly team_id: number;
       readonly created_at: string;
       readonly created_by: UserBasic | null;
       /** @nullable */
@@ -84394,6 +84396,8 @@ export namespace Schemas {
       meta?: unknown;
       /** @nullable */
       shortcut?: boolean | null;
+      /** The environment the object belongs to. A project lists every environment's files. */
+      readonly team_id?: number;
       readonly created_at?: string;
       readonly created_by?: UserBasic | null;
       /** @nullable */

@@ -5164,6 +5164,8 @@ export interface FileSystemApi {
     meta?: unknown
     /** @nullable */
     shortcut?: boolean | null
+    /** The environment the object belongs to. A project lists every environment's files. */
+    readonly team_id: number
     readonly created_at: string
     readonly created_by: UserBasicApi | null
     /** @nullable */
@@ -5201,6 +5203,8 @@ export interface PatchedFileSystemApi {
     meta?: unknown
     /** @nullable */
     shortcut?: boolean | null
+    /** The environment the object belongs to. A project lists every environment's files. */
+    readonly team_id?: number
     readonly created_at?: string
     readonly created_by?: UserBasicApi | null
     /** @nullable */
