@@ -50,11 +50,11 @@ BULK_DELETE_PERSONS_DB_MODELS: dict[str, str] = {
 PREVIEW_TEAMS_LIMIT = 100
 
 
-def _count_fact(label: str, count: Callable[[], int]) -> Fact:
+def _count_row(label: str, count: Callable[[], int]) -> Row:
     try:
-        return Fact(label=label, value=f"{count():,}")
+        return Row(cells=(Cell(text=label), Cell(text=f"{count():,}")))
     except Exception as error:
-        return Fact(label=label, value=f"Could not count: {error}")
+        return Row(cells=(Cell(text=label), Cell(text=f"Could not count: {error}", muted=True)))
 
 
 def _model_count(model_label: str, team_field: str, team_ids: list[int]) -> int:
@@ -63,15 +63,24 @@ def _model_count(model_label: str, team_field: str, team_ids: list[int]) -> int:
     return model_class.objects.filter(**{f"{team_field}__in": team_ids}).count()
 
 
-def _persons_database_fact() -> Fact:
+def _persons_database_notice() -> Notice:
     for model_name in BULK_DELETE_PERSONS_DB_MODELS:
         if model_name not in PERSONS_DB_MODELS:
             raise ValueError(f"{model_name} is listed in BULK_DELETE_PERSONS_DB_MODELS but not in PERSONS_DB_MODELS")
     names = sorted(BULK_DELETE_PERSONS_DB_MODELS.values())
-    return Fact(
-        label="Persons database",
-        value=f"Deletion removes {', '.join(names[:-1])} and {names[-1]} too. They are not counted here.",
+    return Notice(
+        text=f"Deletion also removes {', '.join(names[:-1])} and {names[-1]} from the persons database. "
+        "They are not counted here."
     )
+
+
+def _data_counts(team_ids: list[int]) -> Table:
+    rows = [
+        _count_row(label, partial(_model_count, model_label, team_field, team_ids))
+        for model_label, team_field, label in BULK_DELETE_MODEL_REGISTRY
+    ]
+    rows.append(_count_row("Batch exports", lambda: batch_exports_api.count_batch_exports_for_teams(team_ids)))
+    return Table(columns=("Data", "Rows"), rows=tuple(rows))
 
 
 def preview_deletion(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
@@ -97,6 +106,10 @@ def preview_deletion(request: HttpRequest, obj: Model, form: forms.Form) -> Page
     ]
     if len(teams) > len(shown):
         blocks.append(Notice(text=f"Deletion also removes {obj.teams.count() - len(shown)} more teams."))
+    if teams:
+        # Counted here, not in the panel, because these tables can be large and the panel renders on every page load.
+        blocks.append(_data_counts(list(obj.teams.values_list("id", flat=True))))
+        blocks.append(_persons_database_notice())
     return Page(blocks=tuple(blocks))
 
 
@@ -146,17 +159,12 @@ class OrganizationDeletionPanel(Panel):
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
-        assert isinstance(obj, Organization)
-        team_ids = list(obj.teams.values_list("id", flat=True))
-        if not team_ids:
-            return [Fact(label="Data", value="The organization has no teams, so it holds no team data.")]
-        facts = [
-            _count_fact(label, partial(_model_count, model_label, team_field, team_ids))
-            for model_label, team_field, label in BULK_DELETE_MODEL_REGISTRY
+        return [
+            Fact(
+                label="Data",
+                value="Delete organization lists the teams and counts the data it removes before you confirm.",
+            )
         ]
-        facts.append(_count_fact("Batch exports", lambda: batch_exports_api.count_batch_exports_for_teams(team_ids)))
-        facts.append(_persons_database_fact())
-        return facts
 
     def operations(self, obj: Model) -> list[Operation]:
         assert isinstance(obj, Organization)

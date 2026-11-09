@@ -299,7 +299,7 @@ class TestAdminConsoleViews(BaseTest):
         organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
         assert organization_page.status_code == 200
         organization_content = organization_page.content.decode()
-        for title in ("Overview", "Teams", "Billing", "Deletion", "Early access features"):
+        for title in ("Overview", "Teams", "Billing", "Deletion"):
             assert title in organization_content
         assert f"/admin/console/teams/{self.team.pk}/" in organization_content
 
@@ -571,7 +571,9 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == expected_status
         if in_group:
-            assert self.team.name in preview.content.decode()
+            preview_content = preview.content.decode()
+            for text in (self.team.name, "Early access features", "Batch exports", "persons database"):
+                assert text in preview_content
         assert start.called == (in_group and not bulk_deletes_paused)
         if start.called:
             assert start.call_args.kwargs["team_ids"] == [self.team.pk]
