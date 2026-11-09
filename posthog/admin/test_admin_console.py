@@ -555,6 +555,10 @@ class TestAdminConsoleViews(BaseTest):
             f"&amp;team_id={self.team.pk}&amp;distinct_id=did&amp;pipelines=analytics"
         )
         assert entry_url in content
+        # The range notice refreshes with the entries, so its pin link follows the window on screen.
+        assert 'data-console-live="/admin/console/tools/tophog/live/range/' in content
+        live_range = self.client.get("/admin/console/tools/tophog/live/range/?preset=1h")
+        assert "Pin this time range" in live_range.content.decode()
 
     @parameterized.expand(
         [

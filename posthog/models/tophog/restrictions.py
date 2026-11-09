@@ -1,3 +1,5 @@
+from django.db import transaction
+
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.team.team import Team
 
@@ -95,10 +97,13 @@ def restriction_matches(
 
 def extend_restriction(restriction: EventIngestionRestrictionConfig, key: dict[str, str]) -> list[str]:
     """Append the tophog entry's key values to the restriction's filter lists; returns changed fields."""
-    changed = extendable_fields(restriction, key)
-    for key_field, config_field in RESTRICTION_FILTER_FIELDS.items():
-        if config_field in changed:
-            setattr(restriction, config_field, [*getattr(restriction, config_field), key[key_field]])
-    if changed:
-        restriction.save()
+    # Lock the row, so two staff extending the same restriction at once both keep their values.
+    with transaction.atomic():
+        locked = EventIngestionRestrictionConfig.objects.select_for_update().get(pk=restriction.pk)
+        changed = extendable_fields(locked, key)
+        for key_field, config_field in RESTRICTION_FILTER_FIELDS.items():
+            if config_field in changed:
+                setattr(locked, config_field, [*getattr(locked, config_field), key[key_field]])
+        if changed:
+            locked.save()
     return changed

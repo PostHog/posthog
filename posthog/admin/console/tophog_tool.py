@@ -319,16 +319,20 @@ class TopHogTool(ConsoleTool):
         except Exception:
             logger.exception("admin_console_tophog_filter_options_failed")
             options = TopHogFilterOptions(pipelines=[], lanes=[])
+        range_notice = self.live(request, "range")
         entries = self.live(request, "entries")
-        assert entries is not None
-        return Page(blocks=(_range_notice(filters), _filters_table(filters, options), entries))
+        assert range_notice is not None and entries is not None
+        return Page(blocks=(range_notice, _filters_table(filters, options), entries))
 
     def live(self, request: HttpRequest, key: str) -> Live | None:
-        if key != "entries" or request.GET.get("token"):
+        if key not in ("range", "entries") or request.GET.get("token"):
             return None
         filters = DashboardFilters.from_request(request)
         time_range = filters.time_range
         refresh_seconds = REFRESH_SECONDS if time_range.preset is not None else None
+        # The notice refreshes with the entries, so its times and pin link match the window on screen.
+        if key == "range":
+            return Live(key="range", block=_range_notice(filters), refresh_seconds=refresh_seconds)
         try:
             rows = query_tophog_metrics(
                 time_range.date_from,
