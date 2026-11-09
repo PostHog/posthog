@@ -49,7 +49,8 @@ class SonarCloudEndpointConfig:
     # Key in the JSON response holding the row list (SonarQube Cloud wraps rows differently per resource).
     data_key: str
     primary_keys: list[str] = field(default_factory=lambda: ["key"])
-    # Most resources are scoped to a single organization; metric definitions are global.
+    # Most resources are scoped to a single organization; metric definitions are global. For a
+    # fan-out table this says whether the child request takes the organization.
     requires_organization: bool = True
     # Stable creation-time field to partition by. Never an updated_at-style field, which would rewrite
     # partitions every sync. `None` disables partitioning for the endpoint.
@@ -102,10 +103,17 @@ SONAR_CLOUD_ENDPOINTS: dict[str, SonarCloudEndpointConfig] = {
         path="rules/search",
         data_key="rules",
     ),
+    "quality_profiles": SonarCloudEndpointConfig(
+        name="quality_profiles",
+        path="qualityprofiles/search",
+        data_key="profiles",
+        paginated=False,
+    ),
     # Current metric values per component (the project itself, its directories and its files).
     "measures": SonarCloudEndpointConfig(
         name="measures",
         path="measures/component_tree?component={component}",
+        requires_organization=False,
         # The project row sits in `baseComponent`, the descendants in `components`. `paging` is
         # selected too so the match is never a single object, which the client would unwrap.
         data_key="($.paging) | ($.baseComponent) | ($.components[*])",
@@ -123,6 +131,7 @@ SONAR_CLOUD_ENDPOINTS: dict[str, SonarCloudEndpointConfig] = {
     "measures_history": SonarCloudEndpointConfig(
         name="measures_history",
         path="measures/search_history?component={component}",
+        requires_organization=False,
         data_key="measures",
         primary_keys=["project_key", "metric", "date"],
         partition_key="date",
@@ -140,6 +149,7 @@ SONAR_CLOUD_ENDPOINTS: dict[str, SonarCloudEndpointConfig] = {
     "issue_changelog": SonarCloudEndpointConfig(
         name="issue_changelog",
         path="issues/changelog?issue={issue}",
+        requires_organization=False,
         data_key="changelog",
         primary_keys=["issue_key", "creationDate"],
         partition_key="creationDate",
@@ -151,6 +161,53 @@ SONAR_CLOUD_ENDPOINTS: dict[str, SonarCloudEndpointConfig] = {
             resolve_field="key",
             include_from_parent=["key", "project"],
             parent_field_renames={"key": "issue_key", "project": "project_key"},
+        ),
+    ),
+    # The component inventory of each project: its directories, files and test files.
+    "components": SonarCloudEndpointConfig(
+        name="components",
+        path="components/tree?component={component}",
+        requires_organization=False,
+        data_key="components",
+        primary_keys=["project_key", "key"],
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="component",
+            resolve_field="key",
+            include_from_parent=["key"],
+            parent_field_renames={"key": "project_key"},
+            child_params={"strategy": "all", "ps": MAX_PAGE_SIZE},
+        ),
+    ),
+    # The quality profile each project uses per language. qualityprofiles/projects is not used: it
+    # lists only projects bound to a profile explicitly, not the ones on the language's default profile.
+    "project_quality_profiles": SonarCloudEndpointConfig(
+        name="project_quality_profiles",
+        path="qualityprofiles/search?project={project}",
+        data_key="profiles",
+        primary_keys=["project_key", "key"],
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="project",
+            resolve_field="key",
+            include_from_parent=["key"],
+            parent_field_renames={"key": "project_key"},
+        ),
+    ),
+    "pull_requests": SonarCloudEndpointConfig(
+        name="pull_requests",
+        path="project_pull_requests/list?project={project}",
+        requires_organization=False,
+        data_key="pullRequests",
+        primary_keys=["project_key", "key"],
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="project",
+            resolve_field="key",
+            include_from_parent=["key"],
+            parent_field_renames={"key": "project_key"},
         ),
     ),
 }
