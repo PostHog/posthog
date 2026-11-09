@@ -29,13 +29,39 @@ export interface OrganizationEventsRetentionApi {
     readonly next_monthly_cleanup_on: string
 }
 
+/**
+ * * `1` - 1 month
+ * * `3` - 3 months
+ * * `12` - 1 year
+ * * `24` - 2 years
+ * * `36` - 3 years
+ * * `60` - 5 years
+ * * `84` - 7 years
+ */
+export type EventsRetentionMonthsEnumApi =
+    (typeof EventsRetentionMonthsEnumApi)[keyof typeof EventsRetentionMonthsEnumApi]
+
+export const EventsRetentionMonthsEnumApi = {
+    Number1: 1,
+    Number3: 3,
+    Number12: 12,
+    Number24: 24,
+    Number36: 36,
+    Number60: 60,
+    Number84: 84,
+} as const
+
 export interface EventsRetentionUpdateApi {
-    /**
-     * The period in months, one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.
-     * @minimum 1
-     * @nullable
-     */
-    retention_months: number | null
+    /** The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.
+     *
+     * * `1` - 1 month
+     * * `3` - 3 months
+     * * `12` - 1 year
+     * * `24` - 2 years
+     * * `36` - 3 years
+     * * `60` - 5 years
+     * * `84` - 7 years */
+    retention_months: EventsRetentionMonthsEnumApi | null
 }
 
 export interface EventsDeletedApi {
@@ -10240,7 +10266,7 @@ export type ElementsStatsRetrieveParams = {
      */
     offset?: number
     /**
-     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.
+     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, and element property filter types.
      */
     properties?: string
     /**

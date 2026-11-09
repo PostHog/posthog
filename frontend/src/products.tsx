@@ -1874,10 +1874,10 @@ export const productUrls = {
             }).url
         }
         if (isHogQLQuery(query)) {
-            return urls.sqlEditor({ query: query.query })
+            return urls.sqlEditor({ query: query.query, dashboard: dashboardId ?? undefined, tileGroupKey })
         }
         if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-            return urls.sqlEditor({ query })
+            return urls.sqlEditor({ query, dashboard: dashboardId ?? undefined, tileGroupKey })
         }
         return combineUrl(
             '/insights/new',
@@ -2929,7 +2929,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Settings', href: urls.inbox('settings') },
         ],
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
-        tags: ['beta'],
         sceneKey: 'Inbox',
         sceneKeys: ['Inbox'],
     },

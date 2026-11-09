@@ -452,6 +452,35 @@ describe('Hogflow Executor', () => {
             })
         })
 
+        it.each([
+            ['keeps the version a step rendered under', true, 2],
+            ['uses the live version for a step saved before the rendered version was stored', false, 3],
+        ])('%s when the workflow is republished before it sends', async (_name, storesRenderedVersion, expected) => {
+            await insertHogFunctionTemplate(hub.postgres, customerTaskTemplate)
+            const config = { template_id: customerTaskTemplate.id, inputs: { name: { value: 'Follow up' } } }
+            const renderedFlow = { ...hogFlow, version: 2 }
+            const invocation = createExampleHogFlowInvocation(renderedFlow, {
+                currentAction: { id: 'function_id_1', startedAtTimestamp: Date.now() },
+            })
+            const hogFunction = await hogFlowFunctionsService.buildHogFunction(renderedFlow, config)
+            const rendered = await hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
+                event: invocation.state.event,
+                person: invocation.person,
+            })
+            const { renderedWorkflowVersion, ...legacyState } = rendered.state
+            invocation.state.currentAction!.hogFunctionState = parseJSON(
+                JSON.stringify(storesRenderedVersion ? { ...legacyState, renderedWorkflowVersion } : legacyState)
+            )
+
+            invocation.hogFlow = { ...renderedFlow, version: 3 }
+            const resumed = await hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
+                event: invocation.state.event,
+                person: invocation.person,
+            })
+
+            expect(resumed.state.renderedWorkflowVersion).toBe(expected)
+        })
+
         it.each([false, true])('keeps legacy task keys with saved function state: %s', async (hasSavedState) => {
             await insertHogFunctionTemplate(hub.postgres, customerTaskTemplate)
             const config = {
@@ -3565,7 +3594,7 @@ if (not res.success) { throw Error(res.error) }`,
             expect(mockPushProviderFetch).toHaveBeenCalledTimes(4)
         })
 
-        it('keeps the team cap label on the delayed email only, not on the email after it', async () => {
+        it('keeps the team cap label and the suppression tries on the delayed email only, not on the email after it', async () => {
             await insertEmailSetup('ses')
             const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
             sesSend
@@ -3596,8 +3625,12 @@ if (not res.success) { throw Error(res.error) }`,
             })
 
             const routed = await executor.execute(invocation)
-            // As if the team sending cap had delayed email_1 on the email queue.
-            routed.invocation.queueMetadata = { ...routed.invocation.queueMetadata, teamCapped: true }
+            // As if the team sending cap and an unread suppression list had delayed email_1 on the email queue.
+            routed.invocation.queueMetadata = {
+                ...routed.invocation.queueMetadata,
+                teamCapped: true,
+                suppressionLookupAttempts: 7,
+            }
 
             const result = await executor.execute(routed.invocation)
 

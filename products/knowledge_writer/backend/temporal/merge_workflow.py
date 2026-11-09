@@ -17,7 +17,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from ...merge_check.check import run_merge_check
 from ...merge_check.judge import judge_client
-from ...merge_check.sources import POSTHOG_REPOSITORY
+from ...merge_check.sources import LandedChange
 from ..adapters.registry import REGISTRY
 from ..facade.contracts import AdapterVerdict
 from ..facade.enums import DocsRequestSource
@@ -27,20 +27,23 @@ from ..logic.pull_requests import docs_github
 MERGE_CHECK_FAILED_REASON = "merge_check_failed"
 MERGE_CHECK_ATTEMPTS = 3
 MERGE_CHECK_RETRY_INTERVAL = timedelta(minutes=1)
-MERGE_CHECK_RETRYABLE_ERRORS = (
+GITHUB_READ_ERRORS = (
     requests.RequestException,
     GitHubIntegrationError,
     GitHubRateLimitError,
     GitHubEgressBudgetExhausted,
-    httpx.HTTPError,
-    APIError,
 )
+MERGE_CHECK_RETRYABLE_ERRORS = (*GITHUB_READ_ERRORS, httpx.HTTPError, APIError)
+
+
+LEGACY_MERGE_CHECK_REPOSITORY = "PostHog/posthog"  # inputs started before pushes named the repository
 
 
 @dataclass(frozen=True)
 class MergeCheckInputs:
     commit_sha: str
     team_id: int
+    repository: str = LEGACY_MERGE_CHECK_REPOSITORY
 
 
 def record_merge_check_failed(inputs: MergeCheckInputs) -> None:
@@ -55,7 +58,7 @@ def record_merge_check_failed(inputs: MergeCheckInputs) -> None:
 
 
 def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
-    github = docs_github(inputs.team_id, POSTHOG_REPOSITORY.split("/", 1)[0], priority=Priority.NORMAL)
+    github = docs_github(inputs.team_id, inputs.repository.split("/", 1)[0], priority=Priority.NORMAL)
     if github is None:
         record_merge_check_failed(inputs)
         return
@@ -66,7 +69,13 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
         return
     try:
         with httpx.Client(timeout=30) as http, anthropic_client:
-            report = run_merge_check(inputs.commit_sha, github=github, http=http, anthropic_client=anthropic_client)
+            report = run_merge_check(
+                LandedChange(repository=inputs.repository, after=inputs.commit_sha),
+                is_final_attempt=is_final_attempt,
+                github=github,
+                http=http,
+                anthropic_client=anthropic_client,
+            )
     except MERGE_CHECK_RETRYABLE_ERRORS as error:
         if not is_final_attempt:
             raise

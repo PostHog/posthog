@@ -257,9 +257,33 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
     current_version: 1,
     version_count: 1,
     latest_checks: [
-        { engine: 'claude-web-search', cited: true, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
-        { engine: 'openai-web-search', cited: false, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
-        { engine: 'exa-answer', cited: true, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
+        {
+            engine: 'claude-web-search',
+            cited: true,
+            check_failed: false,
+            target_best_position: 1,
+            search_queries: [
+                'best open source product analytics for startups 2026',
+                'open source product analytics comparison',
+            ],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
+        {
+            engine: 'openai-web-search',
+            cited: false,
+            check_failed: false,
+            target_best_position: null,
+            search_queries: ['best open source product analytics for startups 2026'],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
+        {
+            engine: 'exa-answer',
+            cited: true,
+            check_failed: false,
+            target_best_position: 3,
+            search_queries: [],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
     ],
 }
 
@@ -270,9 +294,30 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         id: '00000000-0000-4000-8000-000000000302',
         prompt: 'How do I track funnels without writing SQL, and can I break the results down by country and browser?',
         latest_checks: [
-            { engine: 'claude-web-search', cited: false, check_failed: false, checked_at: '2026-09-28T09:00:00Z' },
-            { engine: 'openai-web-search', cited: false, check_failed: true, checked_at: '2026-09-28T09:00:00Z' },
-            { engine: 'gemini-google-search', cited: true, check_failed: false, checked_at: '2026-09-28T09:00:00Z' },
+            {
+                engine: 'claude-web-search',
+                cited: false,
+                check_failed: false,
+                target_best_position: null,
+                search_queries: ['funnel analysis without SQL breakdown by country'],
+                checked_at: '2026-09-28T09:00:00Z',
+            },
+            {
+                engine: 'openai-web-search',
+                cited: false,
+                check_failed: true,
+                target_best_position: null,
+                search_queries: [],
+                checked_at: '2026-09-28T09:00:00Z',
+            },
+            {
+                engine: 'gemini-google-search',
+                cited: true,
+                check_failed: false,
+                target_best_position: 2,
+                search_queries: [],
+                checked_at: '2026-09-28T09:00:00Z',
+            },
         ],
         last_checked_at: '2026-09-28T09:00:00Z',
     },
@@ -291,7 +336,14 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         prompt: 'Is there a free alternative to paid feature flag services?',
         topic: '',
         latest_checks: [
-            { engine: 'exa-answer', cited: false, check_failed: false, checked_at: '2026-09-27T09:00:00Z' },
+            {
+                engine: 'exa-answer',
+                cited: false,
+                check_failed: false,
+                target_best_position: null,
+                search_queries: [],
+                checked_at: '2026-09-27T09:00:00Z',
+            },
         ],
         last_checked_at: '2026-09-27T09:00:00Z',
     },
@@ -303,7 +355,14 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         active: false,
         archived_at: '2026-09-20T12:00:00Z',
         latest_checks: [
-            { engine: 'claude-web-search', cited: false, check_failed: false, checked_at: '2026-09-19T09:00:00Z' },
+            {
+                engine: 'claude-web-search',
+                cited: false,
+                check_failed: false,
+                target_best_position: null,
+                search_queries: [],
+                checked_at: '2026-09-19T09:00:00Z',
+            },
         ],
         last_checked_at: '2026-09-19T09:00:00Z',
     },
@@ -428,6 +487,7 @@ const EXAMPLE_PROMPT_DAILY: AEOPromptStatsApi['daily'] = Object.entries(EXAMPLE_
                 cited: status === 'cited' ? 1 : 0,
                 mentioned: status === 'cited' || status === 'mentioned' ? 1 : 0,
                 failed: status === 'failed' ? 1 : 0,
+                avg_position: status === 'cited' ? (index % 3) + 1 : null,
             }))
 )
 
@@ -442,6 +502,9 @@ const exampleEngineStats = (engine: string): AEOPromptStatsApi['engines'][number
         cited: sum('cited'),
         mentioned: sum('mentioned'),
         failed: sum('failed'),
+        avg_position: sum('cited')
+            ? days.reduce((total, row) => total + (row.avg_position ?? 0) * row.cited, 0) / sum('cited')
+            : null,
         citation_rate: answered ? sum('cited') / answered : null,
         mention_rate: answered ? sum('mentioned') / answered : null,
         first_checked_at: `${days[0].date}T09:00:00Z`,
@@ -487,11 +550,13 @@ export const EXAMPLE_PROMPT_STATS: AEOPromptStatsApi = {
 }
 
 const setCounts = (
-    counts: Pick<AEOPromptSetCountsApi, 'checks' | 'failed' | 'cited' | 'mentioned' | 'prompts' | 'prompts_cited'>
+    counts: Pick<AEOPromptSetCountsApi, 'checks' | 'failed' | 'cited' | 'mentioned' | 'prompts' | 'prompts_cited'>,
+    avgPosition: number | null = null
 ): AEOPromptSetCountsApi => {
     const answered = counts.checks - counts.failed
     return {
         ...counts,
+        avg_position: counts.cited ? avgPosition : null,
         citation_rate: answered ? counts.cited / answered : null,
         mention_rate: answered ? counts.mentioned / answered : null,
     }
@@ -504,8 +569,8 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     prompts_tracked: 42,
     target_domains: ['example.com'],
     brand_names: ['example'],
-    current: setCounts({ checks: 2520, failed: 60, cited: 984, mentioned: 1476, prompts: 44, prompts_cited: 31 }),
-    previous: setCounts({ checks: 2400, failed: 40, cited: 826, mentioned: 1416, prompts: 40, prompts_cited: 27 }),
+    current: setCounts({ checks: 2520, failed: 60, cited: 984, mentioned: 1476, prompts: 44, prompts_cited: 31 }, 2.3),
+    previous: setCounts({ checks: 2400, failed: 40, cited: 826, mentioned: 1416, prompts: 40, prompts_cited: 27 }, 2.8),
     engines: [
         {
             engine: 'claude-web-search',

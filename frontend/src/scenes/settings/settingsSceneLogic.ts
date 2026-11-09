@@ -12,6 +12,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { settingsLogic } from './settingsLogic'
+import { SETTINGS_SECTION_SCENES } from './settingsSectionScenes'
 import { SettingId, SettingLevelId, SettingLevelIds, SettingSectionId } from './types'
 import type { Setting, SettingSection } from './types'
 
@@ -231,6 +232,15 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     urlToAction(({ actions, values }) => ({
         '/settings/:section': ({ section }) => {
             if (!section) {
+                return
+            }
+
+            // Sections such as Billing have their own page, and the settings page renders nothing for them.
+            const scene = SETTINGS_SECTION_SCENES.find(
+                (s) => s.sectionId === section.replace(/^project-/, 'environment-')
+            )
+            if (scene) {
+                router.actions.replace(scene.url)
                 return
             }
 

@@ -799,16 +799,17 @@ describe('exec tool', () => {
             {
                 // Requires `reportInput: true` at the dispatch site — without it the
                 // message degrades to zod's default, which omits the actual length.
-                case: 'a string over its max length, naming actual length and limit',
+                case: 'a string over its max length, naming actual length and limit and echoing the field description',
                 input: `{"id":1,"description":"${'x'.repeat(401)}"}`,
-                expected: /parameter "description" is too long: 401 characters \(max 400\)/,
+                expected:
+                    /parameter "description" is too long: 401 characters \(max 400\) \(Short summary, not the full text\.\)$/,
             },
         ])('rejects a call with $case', async ({ input, expected }) => {
             const tool = makeMockTool({
                 name: 'action-get',
                 schema: z.object({
                     id: z.number(),
-                    description: z.string().max(400).optional(),
+                    description: z.string().max(400).optional().describe('Short summary, not the full text.'),
                     buckets: z.number().optional().describe('Bucket count, not a time unit.'),
                 }),
                 handler: async (_ctx, params) => params,

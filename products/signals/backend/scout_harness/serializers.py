@@ -103,6 +103,10 @@ from products.signals.backend.scout_harness.tools.report import (
     MAX_REPORT_TITLE_LENGTH,
     MAX_SUGGESTED_REVIEWERS,
 )
+from products.signals.backend.scout_harness.tools.report_quality import (
+    ReportQualityHintField,
+    ReportQualityHintSeverity,
+)
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
     DEFAULT_RUNS_PER_SCOUT,
@@ -1158,10 +1162,10 @@ class RememberRequestSerializer(serializers.Serializer):
     key = serializers.CharField(
         max_length=300,
         help_text=(
-            "Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. "
-            "Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run "
-            "id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key "
-            "and keep the timestamp in `content`."
+            "Short stable ID for what you're tracking, e.g. `noise:<fingerprint>`; max 300 chars, the note "
+            "goes in `content`. Unique per team; re-using a key overwrites the entry. Never embed a date, "
+            "timestamp, or run id (that mints a new row every run). For run state, use one fixed key and keep "
+            "the timestamp in `content`."
         ),
     )
     content = serializers.CharField(
@@ -1789,6 +1793,23 @@ class EmitReportRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class ReportQualityHintSerializer(serializers.Serializer):
+    check_id = serializers.CharField(help_text="Stable id of the quality check, e.g. `literal_newline_escapes`.")
+    severity = serializers.ChoiceField(
+        choices=ReportQualityHintSeverity.choices,
+        help_text="`repair`: the text was fixed before it was stored. `hint`: the text was stored as sent.",
+    )
+    field = serializers.ChoiceField(choices=ReportQualityHintField.choices, help_text="The field the check matched.")
+    message = serializers.CharField(help_text="What the check found and what to do next time.")
+
+
+QUALITY_HINTS_HELP_TEXT = (
+    "Quality checks the title or summary matched. A `repair` hint means the stored text differs from what "
+    "you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: "
+    "correct it with edit_report if the hint applies. Empty when no check matched."
+)
+
+
 class EmitReportResponseSerializer(serializers.Serializer):
     report_id = serializers.CharField(
         allow_null=True,
@@ -1824,6 +1845,7 @@ class EmitReportResponseSerializer(serializers.Serializer):
             "send it again."
         ),
     )
+    quality_hints = serializers.ListField(child=ReportQualityHintSerializer(), help_text=QUALITY_HINTS_HELP_TEXT)
 
 
 class EditReportRequestSerializer(ReviewerProposalSerializer):
@@ -2153,6 +2175,7 @@ class EditReportResponseSerializer(serializers.Serializer):
         child=EditReportWarningSerializer(),
         help_text="Request fields the edit did not apply, each with the reason. Empty when every field applied.",
     )
+    quality_hints = serializers.ListField(child=ReportQualityHintSerializer(), help_text=QUALITY_HINTS_HELP_TEXT)
     corroboration_collapsed = serializers.BooleanField(
         help_text=(
             "Whether your note raised the report's corroboration count instead of landing as its own "

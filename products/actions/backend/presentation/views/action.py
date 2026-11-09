@@ -1,5 +1,5 @@
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any, cast
@@ -42,7 +42,7 @@ from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.models import Team
-from posthog.models.event.event import Selector
+from posthog.models.event.event import MAX_SELECTOR_LENGTH, Selector, SelectorTooLongError
 from posthog.models.property.util import build_selector_regex
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
@@ -54,7 +54,6 @@ from products.access_control.backend.presentation.access_control import (
 from products.actions.backend.facade.contracts import ACTION_STEP_MATCHING_OPTIONS
 from products.actions.backend.facade.enums import ACTION_REFERENCE_JSONPATH, ACTIONS_ARRAY_JSONPATH
 from products.actions.backend.models.action import Action
-from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.actions import (
@@ -275,9 +274,12 @@ class ActionSerializer(
     def validate_steps(self, steps: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
         # ClickHouse compiles these with RE2 at query time, so one pattern RE2 rejects fails
         # every insight that uses the action. steps_to_expr runs this same check on stored steps.
-        # The check runs here and not on the step serializer because the error renderer turns an
+        # These checks run here and not on the step serializer because the error renderer turns an
         # error nested inside one list item into a Python repr instead of a readable message.
         for step in steps or []:
+            selector = step.get("selector")
+            if isinstance(selector, str) and len(selector) > MAX_SELECTOR_LENGTH:
+                raise serializers.ValidationError(str(SelectorTooLongError(len(selector))), code="max_length")
             for value_field, matching_field in (
                 ("url", "url_matching"),
                 ("href", "href_matching"),
@@ -400,27 +402,6 @@ class ActionReferenceSerializer(serializers.Serializer):
     url = serializers.CharField(help_text="Relative URL to the resource")
     created_at = serializers.DateTimeField(help_text="When the resource was created", allow_null=True)
     created_by = UserBasicSerializer(help_text="User who created the resource", allow_null=True)
-
-
-class ActionSelectorMatchChangesQuerySerializer(serializers.Serializer):
-    action_ids = serializers.ListField(
-        child=serializers.IntegerField(min_value=1),
-        allow_empty=False,
-        max_length=100,
-        help_text="Action IDs used by the insight whose selector changes should be returned.",
-    )
-
-
-class ActionSelectorMatchChangeSerializer(serializers.Serializer):
-    action_id = serializers.IntegerField(help_text="ID of an affected action.")
-    action_name = serializers.CharField(
-        allow_null=True,
-        help_text="Name of the affected action, or null when it has no name.",
-    )
-    selectors = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="CSS selectors whose matching behavior changed, in action step order.",
-    )
 
 
 def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
@@ -645,56 +626,6 @@ class ActionViewSet(
 
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
-
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "action_ids",
-                OpenApiTypes.INT,
-                location=OpenApiParameter.QUERY,
-                required=True,
-                many=True,
-                description="Action IDs used by the insight. Accepts repeated or comma-separated values.",
-            )
-        ],
-        responses={200: ActionSelectorMatchChangeSerializer(many=True)},
-    )
-    @drf_action(methods=["GET"], detail=False, required_scopes=["action:read"], pagination_class=None)
-    def selector_match_changes(self, request: request.Request, **kwargs: Any) -> Response:
-        raw_action_ids = [
-            part.strip()
-            for value in request.query_params.getlist("action_ids")
-            for part in value.split(",")
-            if part.strip()
-        ]
-        query = ActionSelectorMatchChangesQuerySerializer(data={"action_ids": raw_action_ids})
-        query.is_valid(raise_exception=True)
-        action_ids = list(dict.fromkeys(query.validated_data["action_ids"]))
-
-        visible_actions = self.user_access_control.filter_queryset_by_access_level(
-            Action.objects.filter(team_id=self.team_id, id__in=action_ids, deleted=False),
-            resource="action",
-        )
-        actions_by_id = {action.id: action for action in visible_actions}
-        selectors_by_action: dict[int, list[str]] = defaultdict(list)
-        stored_changes = (
-            ActionSelectorMatchChange.objects.for_team(self.team_id)
-            .filter(action_id__in=actions_by_id)
-            .order_by("action_id", "step_index")
-        )
-        for change in stored_changes:
-            if change.describes(actions_by_id[change.action_id]):
-                selectors_by_action[change.action_id].append(change.selector)
-
-        changes = [
-            {
-                "action_id": action_id,
-                "action_name": actions_by_id[action_id].name,
-                "selectors": selectors,
-            }
-            for action_id, selectors in sorted(selectors_by_action.items())
-        ]
-        return Response(ActionSelectorMatchChangeSerializer(changes, many=True).data)
 
     @extend_schema(responses={200: ActionReferenceSerializer(many=True)})
     @drf_action(methods=["GET"], detail=True, required_scopes=["action:read"], pagination_class=None)

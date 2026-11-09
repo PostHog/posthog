@@ -113,10 +113,7 @@ function ChartCard({
                     </div>
                 }
             >
-                {/* Dim while refreshing so date/tool changes give visible feedback. */}
-                <div className={`flex min-h-[220px] flex-1 flex-col transition-opacity ${loading ? 'opacity-50' : ''}`}>
-                    {children}
-                </div>
+                <div className="flex min-h-[220px] flex-1 flex-col">{children}</div>
             </CardState>
         </Card>
     )

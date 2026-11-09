@@ -546,6 +546,27 @@ class TestAnthropicFoundry:
         assert error_field_for_validation_message(message) == expected_field
         assert foundry.call_args.kwargs["base_url"] == "https://my-resource.services.ai.azure.com/anthropic/"
 
+    @parameterized.expand(
+        [
+            ("out_of_credits", "Your credit balance is too low to access the Anthropic API.", "out of credits"),
+            ("other_request_error", "messages: field required", "Validation failed"),
+        ]
+    )
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
+    def test_validate_key_names_an_empty_credit_balance(self, _name, provider_message, expected_message, client):
+        body = {"type": "error", "error": {"type": "invalid_request_error", "message": provider_message}}
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        response = httpx.Response(status_code=400, request=request, json=body)
+        # The SDK's message carries the provider's text, which is what the credit check reads.
+        client.return_value.messages.create.side_effect = anthropic.BadRequestError(
+            f"Error code: 400 - {body}", response=response, body=body
+        )
+
+        state, message = AnthropicAdapter.validate_key("sk-ant-test")
+
+        assert state == "error"
+        assert message is not None and expected_message in message
+
     @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.AnthropicFoundry")
     def test_validate_key_never_sends_the_key_to_a_non_azure_endpoint(self, foundry):
         state, message = AnthropicAdapter.validate_key("foundry-key", azure_endpoint="https://attacker.example.com/")

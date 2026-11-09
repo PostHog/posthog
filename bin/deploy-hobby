@@ -276,7 +276,7 @@ echo "Starting the stack!"
 # Retry docker-compose up with --pull always up to 3 times
 for attempt in 1 2 3; do
     echo "Starting stack (attempt $attempt/3)..."
-    if sudo -E docker-compose -f docker-compose.yml up -d --no-build --pull always; then
+    if sudo -E docker-compose -f docker-compose.yml up -d --no-build --pull always --remove-orphans; then
         echo "Stack started successfully"
         break
     else
