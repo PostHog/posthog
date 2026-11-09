@@ -11911,15 +11911,15 @@ Note: Diffed against the vendor's own OpenAPI 3.0 spec (294 paths). The synced c
 
 ## SurveyMonkey — gaps
 
-Today (5): `collectors`, `survey_pages`, `survey_questions`, `survey_responses`, `surveys`
+Today (9): `collector_message_stats`, `collector_messages`, `collector_recipients`, `collectors`, `survey_pages`, `survey_questions`, `survey_responses`, `survey_trends`, `surveys`
 
 Diffed against: <https://api.surveymonkey.com/v3/docs?shell>
 
 - [ ] `GET /v3/surveys/{id}/rollups (also /pages/{id}/rollups and /questions/{id}/rollups)` — vendor-computed answer counts per question and choice - the aggregate every survey analysis starts from, without reprocessing raw responses (high)
-- [ ] `GET /v3/surveys/{id}/trends (also page- and question-level)` — response and answer trends bucketed over time, the standard breakdown dimension (high)
-- [ ] `GET /v3/collectors/{id}/messages` — email invite and reminder messages sent per collector; the send side of the funnel is entirely missing today (high)
-- [ ] `GET /v3/collectors/{collector_id}/messages/{message_id}/stats` — per-message delivery, open, click, bounce and response counts - the email performance metric (high)
-- [ ] `GET /v3/collectors/{id}/recipients (and /messages/{id}/recipients)` — recipient-level delivery and response state, the join between contacts and responses (high)
+- [x] `GET /v3/surveys/{id}/trends (also page- and question-level)` — response and answer trends bucketed over time, the standard breakdown dimension (high) → `survey_trends` (full refresh, fan-out over `surveys`, daily buckets; page- and question-level trends are subsets of it and get no table)
+- [x] `GET /v3/collectors/{id}/messages` — email invite and reminder messages sent per collector; the send side of the funnel is entirely missing today (high) → `collector_messages` (full refresh, fan-out over email and SMS `collectors`)
+- [x] `GET /v3/collectors/{collector_id}/messages/{message_id}/stats` — per-message delivery, open, click, bounce and response counts - the email performance metric (high) → `collector_message_stats` (full refresh, fan-out over `collector_messages`)
+- [x] `GET /v3/collectors/{id}/recipients (and /messages/{id}/recipients)` — recipient-level delivery and response state, the join between contacts and responses (high) → `collector_recipients` (full refresh, fan-out over email and SMS `collectors`; the per-message recipient list is a subset of it and gets no table)
 - [ ] `GET /v3/contact_lists (and /v3/contact_lists/{id}/contacts)` — contact lists and membership, the audience definition behind each collector (medium)
 - [ ] `GET /v3/contacts` — lookup resolving the contact IDs on recipients and responses (medium)
 - [ ] `GET /v3/collectors/{id}/stats` — collector-level response and completion counts (medium)
