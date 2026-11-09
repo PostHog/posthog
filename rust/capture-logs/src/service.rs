@@ -1,6 +1,6 @@
 use crate::authorizer::{Authorizer, Signal};
 use crate::log_record::{default_max_past, KafkaLogRow};
-use crate::metric_record::{flatten_metric, KafkaMetricRow};
+use crate::metric_record::{extract_resource_attributes, flatten_metric, KafkaMetricRow};
 use crate::trace_record::KafkaTraceRow;
 use axum::{
     extract::Query,
@@ -14,11 +14,11 @@ use common_compression::{decompress_gzip_capped, has_gzip_magic_header, Compress
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
-use opentelemetry_proto::tonic::common::v1::InstrumentationScope;
-use opentelemetry_proto::tonic::resource::v1::Resource;
+use opentelemetry_proto::tonic::metrics::v1::{metric::Data, Metric};
 use prost::Message;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 
@@ -395,17 +395,23 @@ pub(crate) fn resolve_backfill_window(
 pub(crate) const ROW_OVERHEAD_BYTES: usize = 256;
 pub(crate) const ATTRIBUTE_OVERHEAD_BYTES: usize = 64;
 
-/// Every row copies its resource and scope, so the body cap does not bound the rows a request
-/// builds. Handlers add this per row and reject the request once the total passes the limit.
-pub(crate) fn shared_row_bytes(
-    resource: Option<&Resource>,
-    scope: Option<&InstrumentationScope>,
-) -> usize {
-    ROW_OVERHEAD_BYTES
-        + resource.map_or(0, |r| {
-            r.encoded_len() + r.attributes.len() * ATTRIBUTE_OVERHEAD_BYTES
-        })
-        + scope.map_or(0, |s| s.encoded_len())
+/// Every row copies its resource, so the body cap does not bound the rows a request builds.
+/// Handlers add up the size of the rows they build and reject the request past the limit.
+pub(crate) fn attributes_bytes(map: &HashMap<String, String>) -> usize {
+    map.iter()
+        .map(|(k, v)| k.len() + v.len() + ATTRIBUTE_OVERHEAD_BYTES)
+        .sum()
+}
+
+fn data_point_count(metric: &Metric) -> usize {
+    match &metric.data {
+        Some(Data::Gauge(d)) => d.data_points.len(),
+        Some(Data::Sum(d)) => d.data_points.len(),
+        Some(Data::Histogram(d)) => d.data_points.len(),
+        Some(Data::ExponentialHistogram(d)) => d.data_points.len(),
+        Some(Data::Summary(d)) => d.data_points.len(),
+        None => 0,
+    }
 }
 
 pub(crate) fn expansion_rejection(limit: usize) -> (StatusCode, Json<serde_json::Value>) {
@@ -526,13 +532,7 @@ pub async fn export_logs_http(
     let mut expanded_bytes: usize = 0;
     for resource_logs in export_request.resource_logs {
         for scope_logs in resource_logs.scope_logs {
-            let shared =
-                shared_row_bytes(resource_logs.resource.as_ref(), scope_logs.scope.as_ref());
             for log_record in scope_logs.log_records {
-                expanded_bytes += shared + log_record.encoded_len();
-                if expanded_bytes > service.max_expanded_request_bytes {
-                    return Err(expansion_rejection(service.max_expanded_request_bytes));
-                }
                 let (row, was_overridden) = match KafkaLogRow::new(
                     log_record,
                     resource_logs.resource.clone(),
@@ -548,6 +548,14 @@ pub async fn export_logs_http(
                         ));
                     }
                 };
+                expanded_bytes += ROW_OVERHEAD_BYTES
+                    + row.byte_count() as usize
+                    + row.service_name.len()
+                    + (row.resource_attributes.len() + row.attributes.len())
+                        * ATTRIBUTE_OVERHEAD_BYTES;
+                if expanded_bytes > service.max_expanded_request_bytes {
+                    return Err(expansion_rejection(service.max_expanded_request_bytes));
+                }
                 if was_overridden {
                     timestamps_overridden += 1;
                 }
@@ -688,13 +696,7 @@ pub async fn export_traces_http(
     let mut expanded_bytes: usize = 0;
     for resource_spans in export_request.resource_spans {
         for scope_spans in resource_spans.scope_spans {
-            let shared =
-                shared_row_bytes(resource_spans.resource.as_ref(), scope_spans.scope.as_ref());
             for span in scope_spans.spans {
-                expanded_bytes += shared + span.encoded_len();
-                if expanded_bytes > service.max_expanded_request_bytes {
-                    return Err(expansion_rejection(service.max_expanded_request_bytes));
-                }
                 let (row, was_overridden) = match KafkaTraceRow::new(
                     span,
                     resource_spans.resource.clone(),
@@ -709,6 +711,13 @@ pub async fn export_traces_http(
                         ));
                     }
                 };
+                expanded_bytes += ROW_OVERHEAD_BYTES
+                    + row.bytes_uncompressed.unwrap_or(0).max(0) as usize
+                    + (row.resource_attributes.len() + row.attributes.len())
+                        * ATTRIBUTE_OVERHEAD_BYTES;
+                if expanded_bytes > service.max_expanded_request_bytes {
+                    return Err(expansion_rejection(service.max_expanded_request_bytes));
+                }
                 if was_overridden {
                     timestamps_overridden += 1;
                 }
@@ -830,10 +839,26 @@ pub async fn export_metrics_http(
 
     let mut rows: Vec<KafkaMetricRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
+    let mut expanded_bytes: usize = 0;
 
     for resource_metrics in &export_request.resource_metrics {
+        let resource_bytes = ROW_OVERHEAD_BYTES
+            + attributes_bytes(&extract_resource_attributes(
+                resource_metrics.resource.as_ref(),
+            ));
         for scope_metrics in &resource_metrics.scope_metrics {
             for metric in &scope_metrics.metrics {
+                // flatten_metric converts the resource even for a metric with no data points.
+                expanded_bytes = expanded_bytes
+                    .saturating_add(
+                        data_point_count(metric)
+                            .max(1)
+                            .saturating_mul(resource_bytes),
+                    )
+                    .saturating_add(metric.encoded_len());
+                if expanded_bytes > service.max_expanded_request_bytes {
+                    return Err(expansion_rejection(service.max_expanded_request_bytes));
+                }
                 let (metric_rows, overridden) = match flatten_metric(
                     metric.clone(),
                     resource_metrics.resource.as_ref(),
@@ -1004,20 +1029,6 @@ mod tests {
         let decoded = decode_body_if_gzip_magic(body.clone(), 1024).unwrap();
 
         assert_eq!(decoded, body);
-    }
-
-    #[test]
-    fn shared_row_bytes_counts_each_resource_attribute() {
-        use opentelemetry_proto::tonic::common::v1::KeyValue;
-        let resource = |attributes: usize| Resource {
-            attributes: vec![KeyValue::default(); attributes],
-            ..Default::default()
-        };
-
-        let one = shared_row_bytes(Some(&resource(1)), None);
-        let many = shared_row_bytes(Some(&resource(1_000)), None);
-
-        assert!(many - one >= 999 * ATTRIBUTE_OVERHEAD_BYTES);
     }
 
     #[test]

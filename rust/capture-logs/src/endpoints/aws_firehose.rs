@@ -13,7 +13,7 @@ use crate::log_record::{
     severity_alias, try_extract_severity, KafkaLogRow,
 };
 use crate::service::{
-    expansion_rejection, gunzip_if_magic, Service, ATTRIBUTE_OVERHEAD_BYTES, ROW_OVERHEAD_BYTES,
+    attributes_bytes, expansion_rejection, gunzip_if_magic, Service, ROW_OVERHEAD_BYTES,
 };
 use axum::{
     extract::{Request, State},
@@ -439,15 +439,16 @@ fn expanded_bytes(decoded: &DecodedRecord, ctx: &FirehoseContext) -> usize {
                 .map(|e| e.message.len() + e.id.len())
                 .sum(),
         ),
-        DecodedRecord::Raw(text) => (ctx.template(None), text.lines().count(), text.len()),
+        DecodedRecord::Raw(text) => (
+            ctx.template(None),
+            text.lines().filter(|line| !line.trim().is_empty()).count(),
+            text.len(),
+        ),
     };
     let per_row = ROW_OVERHEAD_BYTES
         + template.service_name.len()
-        + [&template.resource_attributes, &template.attributes]
-            .iter()
-            .flat_map(|map| map.iter())
-            .map(|(k, v)| k.len() + v.len() + ATTRIBUTE_OVERHEAD_BYTES)
-            .sum::<usize>();
+        + attributes_bytes(&template.resource_attributes)
+        + attributes_bytes(&template.attributes);
     rows.saturating_mul(per_row).saturating_add(content)
 }
 
@@ -1039,6 +1040,19 @@ mod tests {
         let bytes = expanded_bytes(&DecodedRecord::Raw("a\n".repeat(100)), &ctx);
 
         assert!(bytes > 100 * 10_000);
+    }
+
+    #[test]
+    fn expanded_bytes_skip_blank_lines() {
+        let ctx = FirehoseContext {
+            common_attributes: HashMap::from([("big".to_string(), json!("x".repeat(10_000)))]),
+            ..FirehoseContext::default()
+        };
+        let text = format!("a{}", "\n".repeat(100_000));
+
+        let bytes = expanded_bytes(&DecodedRecord::Raw(text.clone()), &ctx);
+
+        assert!(bytes < text.len() + 2 * 10_000);
     }
 
     #[test]
