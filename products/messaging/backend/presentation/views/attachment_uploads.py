@@ -274,7 +274,7 @@ class MessagingAttachmentsViewSet(RequestBodyCapMixin, TeamAndOrgViewSetMixin, v
             requested,
             outcome="answered",
             upload_bytes=upload_bytes,
-            present_bytes=requested["requested_bytes"] - upload_bytes,
+            present_bytes=sum(file.size for file in files) - upload_bytes,
         )
         return Response(AttachmentUploadsResponseSerializer({"files": cast(list[AttachmentUploadSlot], slots)}).data)
 
