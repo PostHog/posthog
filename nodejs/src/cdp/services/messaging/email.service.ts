@@ -37,7 +37,12 @@ import {
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
-import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
+import {
+    fieldsWithControlCharacters,
+    quoteMailbox,
+    removeSuppressedRecipients,
+    unquoteMailbox,
+} from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, addWorkflowRunTagToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -626,6 +631,15 @@ export class EmailService {
                 result.skipped = true
                 result.invocation.state.vmState?.stack.push({ success: false })
                 return result
+            }
+
+            // Runs before every recipient lookup. Postgres text cannot hold a null character, and one in a batched lookup fails it for every email in the batch.
+            const fieldsWithControlCharacter = fieldsWithControlCharacters(params)
+            if (fieldsWithControlCharacter.length > 0) {
+                failureReason = 'recipient_unreachable'
+                throw new Error(
+                    `Email not sent: an email address can't contain a control character. Fix the template or person property that fills ${fieldsWithControlCharacter.join(' and ')}.`
+                )
             }
 
             // Single choke point for the suppression check — every send path lands here regardless

@@ -18,6 +18,18 @@ export type SuppressedRecipientsResult = {
 
 type ParsedAddress = { email: string; name?: string }
 
+// Tab, line feed and carriage return are left out: they separate the entries of an address list.
+const CONTROL_CHARACTERS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g
+
+const escapeControlCharacters = (value: string): string =>
+    value.replace(CONTROL_CHARACTERS, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+
+export const fieldsWithControlCharacters = ({ to, cc, bcc }: EmailRecipients): string[] =>
+    Object.entries({ To: to?.email, CC: cc, BCC: bcc }).flatMap(([field, value]) => {
+        const escaped = typeof value === 'string' ? escapeControlCharacters(value) : value
+        return escaped !== value ? [`${field} "${escaped}"`] : []
+    })
+
 // The suppression list stores bare addresses, so a quoted local part (`"jo"@x.com`) is checked unquoted.
 export const unquoteMailbox = (address: string): string => {
     const at = address.lastIndexOf('@')

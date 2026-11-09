@@ -10,7 +10,23 @@ import { PersonsManagerService } from '../managers/persons-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
-import { removeSuppressedRecipients } from './helpers/suppressed-recipients'
+import {
+    EmailRecipients,
+    fieldsWithControlCharacters,
+    removeSuppressedRecipients,
+} from './helpers/suppressed-recipients'
+
+const emailRecipients = (invocation: CyclotronJobInvocationHogFunction): EmailRecipients => {
+    const emailInputs = {
+        ...invocation.state.globals.inputs?.email,
+        ...acceptedSendEmailFields(invocation.state.send),
+    }
+    return {
+        to: { email: typeof emailInputs?.to?.email === 'string' ? emailInputs.to.email : undefined },
+        cc: typeof emailInputs?.cc === 'string' ? emailInputs.cc : undefined,
+        bcc: typeof emailInputs?.bcc === 'string' ? emailInputs.bcc : undefined,
+    }
+}
 
 type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_push'
 
@@ -129,6 +145,11 @@ export class RecipientPreferencesService {
             return null
         }
 
+        // EmailService fails a send to an address with a control character before any lookup, so none runs here.
+        if (action.type === 'function_email' && fieldsWithControlCharacters(emailRecipients(invocation)).length > 0) {
+            return null
+        }
+
         // Suppression is mostly a deliverability signal, not a messaging preference. We check it even for
         // transactional messages, and before the transactional opt-out bypass below. For those, only a hard
         // bounce blocks the send, because then the address can't receive mail.
@@ -156,21 +177,11 @@ export class RecipientPreferencesService {
 
         // Skip only when `to` is suppressed and no cc address can take its place. EmailService
         // removes the other suppressed addresses at send time, and the email still goes to the rest.
-        const emailInputs = {
-            ...invocation.state.globals.inputs?.email,
-            ...acceptedSendEmailFields(invocation.state.send),
-        }
         try {
-            const result = await removeSuppressedRecipients(
-                {
-                    to: { email: typeof emailInputs?.to?.email === 'string' ? emailInputs.to.email : undefined },
-                    cc: typeof emailInputs?.cc === 'string' ? emailInputs.cc : undefined,
-                    bcc: typeof emailInputs?.bcc === 'string' ? emailInputs.bcc : undefined,
-                },
-                (email) =>
-                    this.emailSuppressionService.isSuppressed(invocation.teamId, email, {
-                        transactional: action.config.message_category_type === 'transactional',
-                    })
+            const result = await removeSuppressedRecipients(emailRecipients(invocation), (email) =>
+                this.emailSuppressionService.isSuppressed(invocation.teamId, email, {
+                    transactional: action.config.message_category_type === 'transactional',
+                })
             )
             return result.skip
         } catch (error) {

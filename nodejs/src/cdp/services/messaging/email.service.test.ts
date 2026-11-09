@@ -1415,6 +1415,13 @@ describe('EmailService', () => {
             sesAccepts()
             jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
         }
+        const recipientWithNullCharacter = (): void => {
+            sesAccepts()
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                to: { email: 'jo\u0000@example.com', name: 'Jo' },
+            })
+        }
         const filesListed = (): void => {
             sesAccepts()
             invocation.queueParameters = createEmailParams({
@@ -1478,6 +1485,14 @@ describe('EmailService', () => {
                 'recipient_suppressed',
             ],
             [
+                'a transactional email to an address with a null character',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                recipientWithNullCharacter,
+                'failed',
+                'recipient_unreachable',
+            ],
+            [
                 'a transactional email that lists files',
                 TRANSACTIONAL_EMAIL_EVENT,
                 false,
@@ -1513,7 +1528,8 @@ describe('EmailService', () => {
 
             const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
             const sendingDomain =
-                status === 'sent' || reason === 'provider_error' || reason === 'attachments_missing'
+                status === 'sent' ||
+                ['provider_error', 'attachments_missing', 'recipient_unreachable'].includes(reason!)
                     ? 'posthog-test.com'
                     : ''
             expect(rows).toEqual(
@@ -1620,6 +1636,40 @@ describe('EmailService', () => {
                 reason: expect.stringContaining('the recipient has no email address'),
             })
             expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
+        })
+
+        it.each([
+            ['To', { to: { email: 'jo\u0000@example.com', name: 'Jo' } }, 'To "jo\\u0000@example.com"'],
+            ['CC', { cc: 'ok@example.com, jo\u0001@example.com' }, 'CC "ok@example.com, jo\\u0001@example.com"'],
+            ['BCC', { bcc: 'jo\u007F@example.com' }, 'BCC "jo\\u007f@example.com"'],
+        ])('fails the send before any lookup when %s has a control character', async (_field, recipients, named) => {
+            const isSuppressed = jest.spyOn(service['emailSuppressionService'], 'isSuppressed')
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, ...recipients })
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(sendEmailSpy).not.toHaveBeenCalled()
+            expect(isSuppressed).not.toHaveBeenCalled()
+            expect(result).toMatchObject({
+                finished: true,
+                error: `Email not sent: an email address can't contain a control character. Fix the template or person property that fills ${named}.`,
+            })
+            expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_failed'])
+        })
+
+        it('sends to a cc list that a template splits across lines', async () => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                cc: 'one@example.com,\n\ttwo@example.com\r\n',
+            })
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.Destination.CcAddresses).toEqual(['one@example.com', 'two@example.com'])
         })
 
         it.each([

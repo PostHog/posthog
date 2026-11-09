@@ -2823,6 +2823,7 @@ describe('CDP API', () => {
             ['a domain with a fullwidth dot', { to: 'user@ph\uFF0Eexample.com' }, 422, 'recipient_unreachable'],
             ['an ideographic full stop', { to: 'user@ph\u3002example.com' }, 422, 'recipient_unreachable'],
             ['a zero-width space', { to: 'user\u200B@example.com' }, 422, 'recipient_unreachable'],
+            ['a null character', { to: 'user\u0000@example.com' }, 422, 'recipient_unreachable'],
             ['no recipient', { to: undefined }, 400, 'invalid_request'],
             [
                 'a bad address and no distinct_id',
