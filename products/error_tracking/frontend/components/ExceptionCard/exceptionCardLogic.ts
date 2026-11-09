@@ -9,7 +9,7 @@ export type ExceptionCardLogicProps = {
     onShowOnlyWithRecording?: () => void
 }
 
-export type ExceptionCardTab = 'stack_trace' | 'properties' | 'timeline' | 'recording' | 'logs'
+export type ExceptionCardTab = 'stack_trace' | 'properties' | 'timeline' | 'recording' | 'logs' | 'trace'
 
 export type ExceptionLogsScope = 'trace' | 'span' | 'session' | 'window'
 
