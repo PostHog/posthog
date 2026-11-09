@@ -184,6 +184,10 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
+    // Comma-separated SNS topic ARNs the sandbox SES webhook accepts. Empty refuses every request.
+    SES_SANDBOX_ALLOWED_SNS_TOPIC_ARNS: string
+    // The address sandbox email is sent from. The sandbox SES webhook ignores feedback about other senders.
+    SES_SANDBOX_FROM_ADDRESS: string
 
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
@@ -440,6 +444,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
         SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
+        SES_SANDBOX_ALLOWED_SNS_TOPIC_ARNS: '',
+        SES_SANDBOX_FROM_ADDRESS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
         EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: false,
 
