@@ -2,9 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -28,13 +26,9 @@ interface SelectorMatchChangeNoticeContentProps {
 
 // Remove after 2026-12-31, once affected owners have had a quarter to see it.
 export function SelectorMatchChangeNotice({ insightProps }: SelectorMatchChangeNoticeProps): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { querySource } = useValues(insightVizDataLogic(insightProps as InsightLogicProps))
 
-    if (!featureFlags[FEATURE_FLAGS.SELECTOR_MATCH_CHANGE_NOTICE]) {
-        return null
-    }
     const actionIds = getSelectorMatchChangeActionIds(querySource)
     if (currentProjectId === null || actionIds.length === 0) {
         return null
@@ -54,7 +48,7 @@ function SelectorMatchChangeNoticeContent({
     }
 
     return (
-        <LemonBanner type="warning" dismissKey={FEATURE_FLAGS.SELECTOR_MATCH_CHANGE_NOTICE} className="mb-4">
+        <LemonBanner type="warning" dismissKey="selector-match-change-notice" className="mb-4">
             <p>
                 This insight uses an action that PostHog matched incorrectly. We've fixed how action selectors are
                 matched, but we couldn't rewrite this selector to keep its old counts. Counts in this insight are lower
