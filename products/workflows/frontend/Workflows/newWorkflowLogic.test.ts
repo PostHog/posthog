@@ -32,7 +32,60 @@ describe('newWorkflowLogic', () => {
         initKeaTests()
     })
 
+    it('keeps normal unfiled creation when no project folder is open', async () => {
+        setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2, FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES])
+        const logic = newWorkflowLogic()
+        logic.mount()
+        router.actions.push('/workflows', {}, {})
+        await expectLogic(logic, () => logic.actions.startNewWorkflow()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.createEmptyWorkflow()).toFinishAllListeners()
+        expect(router.values.searchParams._create_in_folder).toBeUndefined()
+        logic.unmount()
+    })
+
+    it('keeps the default workflow location when browsing Unfiled', async () => {
+        setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2, FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES])
+        const logic = newWorkflowLogic()
+        logic.mount()
+        router.actions.push('/workflows', { q: 'in:Unfiled' }, {})
+        await expectLogic(logic, () => logic.actions.startNewWorkflow()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.createEmptyWorkflow()).toFinishAllListeners()
+        expect(router.values.searchParams._create_in_folder).toBeUndefined()
+        logic.unmount()
+    })
+
+    it('carries the open project folder through the new workflow picker', async () => {
+        setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2, FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES])
+        const logic = newWorkflowLogic()
+        logic.mount()
+        router.actions.push('/workflows', { q: 'in:"Campaigns/Annual plans"' }, {})
+        logic.actions.startNewWorkflow()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.createEmptyWorkflow()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams._create_in_folder).toBe('Campaigns/Annual plans')
+        logic.unmount()
+    })
+
     describe('AI-first new workflow', () => {
+        it('keeps a number-like folder when switching from the composer to the editor', async () => {
+            setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2, FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES, ...AI_FIRST_FLAGS])
+            const logic = newWorkflowLogic()
+            logic.mount()
+            router.actions.locationChanged({
+                pathname: '/workflows/new/workflow',
+                search: '?_create_in_folder=007&mode=ai',
+                hash: '',
+                searchParams: { _create_in_folder: 7, mode: 'ai' },
+                hashParams: {},
+                url: '/workflows/new/workflow?_create_in_folder=007&mode=ai',
+                method: 'PUSH',
+            })
+            logic.actions.createEmptyWorkflow()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(new URLSearchParams(router.values.location.search).get('_create_in_folder')).toBe('007')
+            logic.unmount()
+        })
         // The flag-off path must stay byte-identical, and exposure is recorded only for a click the composer could answer.
         it.each([
             { name: 'flag on', flags: AI_FIRST_FLAGS, routed: true, exposed: true },
