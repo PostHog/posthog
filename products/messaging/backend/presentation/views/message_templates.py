@@ -542,8 +542,9 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         required=False,
         help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code "
         "rendered are captured as analytics events on the recipient's person. Defaults to true. Turning it off doesn't "
-        "change the email: PostHog still adds its open pixel and rewrites links to count opens and clicks. A project "
-        "whose admin turned engagement capture off captures nothing, whatever the send says.",
+        "change the email: PostHog still adds its open pixel to count opens. It never rewrites the links of an email "
+        "your code rendered, so it counts no clicks. A project whose admin turned engagement capture off captures "
+        "nothing, whatever the send says.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
