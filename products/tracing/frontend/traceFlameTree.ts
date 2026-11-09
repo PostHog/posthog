@@ -145,10 +145,17 @@ export function toFlameNodes(
     // A zero baseline has no ratio, so like the compare table it reads as unchanged rather than infinitely slower.
     const baselineSize = (node: FlameTreeNode): number =>
         node.node && node.previousNode?.[field] === 0 ? size(node.node) : size(node.previousNode)
-    const convert = (node: FlameTreeNode, parentId: string): FlameNode<TraceFlameMeta> => {
+    const roots: FlameNode<TraceFlameMeta>[] = []
+    // A single trace can nest thousands of spans deep, which would overflow the stack if this recursed.
+    const stack: { node: FlameTreeNode; parentId: string; siblings: FlameNode<TraceFlameMeta>[] }[] = root.children
+        .map((node) => ({ node, parentId: '', siblings: roots }))
+        .reverse()
+    while (stack.length > 0) {
+        const { node, parentId, siblings } = stack.pop()!
         const id = flameId(parentId, node)
         const current = node.node
-        return {
+        const children: FlameNode<TraceFlameMeta>[] = []
+        siblings.push({
             id,
             name:
                 !hasBaseline && current && current.count > 1
@@ -161,10 +168,13 @@ export function toFlameNodes(
             baselineCount: hasBaseline ? (node.previousNode?.count ?? 0) : undefined,
             color: !hasBaseline && (current?.error_count ?? 0) > 0 ? errorColor : undefined,
             meta: { serviceName: node.serviceName, current, previous: node.previousNode },
-            children: node.children.map((child) => convert(child, id)),
+            children,
+        })
+        for (let i = node.children.length - 1; i >= 0; i--) {
+            stack.push({ node: node.children[i], parentId: id, siblings: children })
         }
     }
-    return root.children.map((child) => convert(child, ''))
+    return roots
 }
 
 function flameId(parentId: string, node: FlameTreeNode): string {

@@ -155,21 +155,14 @@ function SpanFlameTooltip({
 }
 
 interface TraceCompareFlameProps {
-    /**
-     * A tree to draw instead of the one built from `current` and `previous`. A single trace passes the tree of its
-     * spans, which keeps an operation's calls apart under each caller. A given tree draws without diff colors,
-     * colors bars by service and labels a bar with its span count.
-     */
+    /** A single trace's own tree, drawn without diff colors instead of the one built from `current` and `previous`. */
     tree?: FlameTreeNode
     current: SpanTreeNode[]
     previous: SpanTreeNode[] | null
     loading: boolean
     /** Span name the modal was opened for — the flame initially focuses on this node. */
     initialSpanName?: string | null
-    /**
-     * The `compareRowKey` of the operation to focus first. It takes the place of `initialSpanName`, because two services
-     * can each run an operation of the same name.
-     */
+    /** Wins over `initialSpanName`, because two services can run an operation of the same name. */
     initialFocusKey?: string | null
     /** Which metric sets each bar's width. 'p50' is the per-call cost (the compare view); 'total' is wall-clock time summed over the calls (a single trace). */
     sizeBy?: TraceFlameSizeBy
@@ -227,8 +220,7 @@ export function TraceCompareFlame({
         const path = matches ? findFlamePath(tree, matches) : null
         return path ? { id: flameIdOf(path), depth: path.length } : null
     }, [tree, initialSpanName, initialFocusKey])
-    // The chart reads its focus on mount only. A highlight that clears on the same tree keeps the drill-down,
-    // because the trace view clears it on an inspector tab switch.
+    // The chart reads its focus on mount only, and a cleared highlight keeps the person's drill-down.
     const initialFocusId = initialFocus?.id ?? null
     const [mounted, setMounted] = useState({ tree, focus: initialFocus, seenFocusId: initialFocusId, version: 0 })
     if (mounted.tree !== tree || initialFocusId !== mounted.seenFocusId) {

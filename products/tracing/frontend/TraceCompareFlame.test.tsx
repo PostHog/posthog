@@ -31,9 +31,7 @@ describe('TraceCompareFlame', () => {
         cleanup()
     })
 
-    // The compare modal passes a null `previous` before its first tree fetch ends, and when the response has no
-    // comparison rows. Only a given call tree is a single trace, so a flame that reads a null `previous` as one drops
-    // the modal's diff colors and legend.
+    // A null `previous` still means compare mode; only a given tree is a single trace.
     it.each([
         { label: 'the compare modal without previous rows', tree: undefined, shown: 'Similar', hidden: 'checkout-api' },
         {

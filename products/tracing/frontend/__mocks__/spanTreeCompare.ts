@@ -49,8 +49,7 @@ function cacheReads(scale: number): SpanTreeNode[] {
     return TINY_CACHE_READS.map((child, i) => edge(PRICING, child, 0.4 * scale + i * 0.05, 1800, 2 + i))
 }
 
-/** A checkout request's call tree in the current window: payments slowed down, pricing sped up,
- *  fraud scoring is new and the inventory row lock is gone. */
+/** Payments slowed down, pricing sped up, fraud scoring is new and the inventory row lock is gone. */
 export const SPAN_TREE_CURRENT: SpanTreeNode[] = [
     edge(null, CHECKOUT, 640, 1800, 0, 12),
     edge(CHECKOUT, AUTH, 38, 1800, 1),

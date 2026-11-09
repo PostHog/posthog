@@ -272,10 +272,7 @@ describe('TraceDrawer', () => {
             jest.restoreAllMocks()
         })
 
-        // The toggle swaps one view for the other, so a regression that renders both, or neither, fails here. The
-        // call tree draws the two cache GET spans under POST /orders as one bar. The third runs under SELECT orders,
-        // so it gets a bar of its own: four bars, where a tree that merges an operation across its callers draws
-        // three. A click on the selected option also calls onChange, and must not count as a change.
+        // Four bars: the third cache GET runs under a different caller, so it is not merged with the other two.
         it('switches the left pane to the call tree, and captures the change once', () => {
             renderDrawer({
                 spans: [
@@ -302,8 +299,6 @@ describe('TraceDrawer', () => {
             ])
         })
 
-        // With the flag off nothing may offer the call tree, and a call tree that the person picked while the flag was
-        // on must not hide the span tree with no toggle to get it back.
         it('with the flag off, shows no toggle and keeps the span tree for a stored call tree', () => {
             setCallTreeFlag(false)
             tracingConfigLogic.mount()
@@ -315,10 +310,7 @@ describe('TraceDrawer', () => {
             expect(captureSpy.mock.calls.filter(([event]) => event === 'tracing trace view changed')).toEqual([])
         })
 
-        // Two services each run GET /x. A focus that matches on the name alone opens the first one, under which only
-        // web-only runs. A switch to another inspector tab clears the highlight, and must not undo the person's drill
-        // back to the root. The focus event counts only the person's own drill, so the highlight's focus and its
-        // clearing send nothing.
+        // Two services run GET /x, so a focus that matches on the name alone opens the wrong one.
         it('focuses the highlighted operation of its own service, keeps a drill when the highlight clears, and captures only clicked focus changes', () => {
             tracingConfigLogic.mount()
             tracingConfigLogic.actions.setTraceViewMode('calltree', 'drawer')
