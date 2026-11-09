@@ -6,6 +6,7 @@ import {
     EmailAttachmentMetadata,
     MAX_EMAIL_ATTACHMENTS,
 } from '~/cdp/schema/cyclotron'
+import { SHA256_HEX } from '~/cdp/services/messaging/attachment-store'
 
 export const MAX_COPY_RECIPIENTS = 10
 export const ATTACHMENT_FILENAME_MAX_LENGTH = 255
@@ -153,7 +154,7 @@ export const AcceptedSendSchema = z
             .array(
                 z
                     .object({
-                        sha256: z.string().regex(/^[0-9a-f]{64}$/),
+                        sha256: z.string().regex(SHA256_HEX),
                         filename: z
                             .string()
                             .min(1)
@@ -239,6 +240,7 @@ export type TransactionalEmailOutcome =
     | 'invalid_request'
     | 'not_found'
     | 'not_sendable'
+    | 'workflow_can_wait'
     | 'quota_limited'
     | 'sending_suspended'
     | 'sending_paused'

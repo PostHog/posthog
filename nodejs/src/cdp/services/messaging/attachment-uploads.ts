@@ -140,17 +140,17 @@ export class AttachmentUploads {
     public async acceptSend(
         teamId: number,
         refs: AttachmentRef[],
-        bodies: () => Promise<string[]>
+        messageBodyBytes: () => Promise<number[]>,
+        deadline: AbortSignal
     ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
         const store = this.store
         if (!store) {
             return { refused: unavailable(teamId, 'No attachment store to verify the files of a send', null) }
         }
-        const deadline = AbortSignal.timeout(ATTACHMENT_VERIFICATION_DEADLINE_MS)
         try {
             return await settleBeforeAbortEvenWhileCredentialsStall(
                 deadline,
-                this.verifySend(store, teamId, refs, bodies, deadline)
+                this.verifySend(store, teamId, refs, messageBodyBytes, deadline)
             )
         } catch (error) {
             if (deadline.aborted) {
@@ -164,9 +164,10 @@ export class AttachmentUploads {
         store: AttachmentStore,
         teamId: number,
         refs: AttachmentRef[],
-        bodies: () => Promise<string[]>,
+        messageBodyBytes: () => Promise<number[]>,
         deadline: AbortSignal
     ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
+        deadline.throwIfAborted()
         let verified: Awaited<ReturnType<AttachmentStore['acceptForSend']>>
         try {
             const needsUntil = new Date(Date.now() + SEND_NEEDS_FILES_FOR_MS)
@@ -182,16 +183,16 @@ export class AttachmentUploads {
             return { refused: { status: 400, body: { error: verified.refusal, sha256: verified.sha256 } } }
         }
         deadline.throwIfAborted()
-        let messageBodies: string[]
+        let bodySizes: number[]
         try {
-            messageBodies = await bodies()
+            bodySizes = await messageBodyBytes()
         } catch (error) {
             return { refused: unavailable(teamId, 'Could not load the email step of a send', error) }
         }
         deadline.throwIfAborted()
         const sizes = verified.files.map((file) => file.sizeBytes)
         const attachmentBytes = sizes.reduce((total, size) => total + size, 0)
-        const messageBytes = estimateMessageBytes(sizes, messageBodies)
+        const messageBytes = estimateMessageBytes([...sizes, ...bodySizes])
         if (messageBytes > MESSAGE_MAX_BYTES) {
             return {
                 refused: {

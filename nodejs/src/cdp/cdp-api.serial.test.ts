@@ -28,7 +28,7 @@ import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
-import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
+import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from './_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import {
     insertHogFunction as _insertHogFunction,
@@ -2375,6 +2375,7 @@ describe('CDP API', () => {
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
+            await insertHogFunctionTemplate(hub.postgres, emailTemplate)
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
             // The fixtures send to example.com, which publishes a null MX. Without this every send is refused.
             jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
@@ -2849,6 +2850,8 @@ describe('CDP API', () => {
             const roomForBodies = MESSAGE_MAX_BYTES - estimateMessageBytes([large.size])
             const bodyThatOverflows = 'x'.repeat(roomForBodies)
             const chunkThatFitsOnceNotTwice = 'x'.repeat(Math.ceil(roomForBodies / 2))
+            const link = '<a href="https://example.com/">x</a>'
+            const linksThatFitUntilTracked = link.repeat(Math.floor((roomForBodies * 0.7) / link.length))
             const newKey = () => `key-${new UUIDT().toString()}`
             type SendOptions = { acceptedSend?: object; flowId?: string; variables?: Record<string, string> }
             const sendWithFiles = (
@@ -2870,6 +2873,109 @@ describe('CDP API', () => {
             beforeAll(async () => {
                 await storeFile(team.id, large)
             })
+
+            const flowThrough = (
+                steps: SimpleHogFlowRepresentation['actions'],
+                edges: SimpleHogFlowRepresentation['edges'],
+                category: 'transactional' | 'marketing' = 'transactional'
+            ): Promise<HogFlow> =>
+                insertHogFlow(
+                    new FixtureHogFlowBuilder()
+                        .withTeamId(team.id)
+                        .withStatus('active')
+                        .withExitCondition('exit_only_at_end')
+                        .withWorkflow({
+                            actions: {
+                                trigger: { type: 'trigger', config: { type: 'api' } },
+                                ...steps,
+                                email: {
+                                    type: 'function_email',
+                                    config: {
+                                        template_id: 'template-email',
+                                        inputs: {},
+                                        message_category_type: category,
+                                    },
+                                },
+                            },
+                            edges,
+                        })
+                        .build()
+                )
+            const delay = { type: 'delay', config: { delay_duration: '1h' } } as const
+            const exit = { type: 'exit', config: {} } as const
+            const step = (from: string, to: string) => ({ from, to, type: 'continue' as const })
+
+            it.each<[string, () => Promise<HogFlow>]>([
+                ['a delay', () => flowThrough({ delay }, [step('trigger', 'delay'), step('delay', 'email')])],
+                [
+                    'a wait until a condition',
+                    () =>
+                        flowThrough(
+                            {
+                                wait: {
+                                    type: 'wait_until_condition',
+                                    config: { condition: { filters: {} }, max_wait_duration: '1h' },
+                                },
+                            },
+                            [step('trigger', 'wait'), step('wait', 'email')]
+                        ),
+                ],
+                [
+                    'a wait for a time window',
+                    () =>
+                        flowThrough(
+                            {
+                                window: {
+                                    type: 'wait_until_time_window',
+                                    config: { timezone: null, day: 'weekday', time: 'any' },
+                                },
+                            },
+                            [step('trigger', 'window'), step('window', 'email')]
+                        ),
+                ],
+                [
+                    'a branch to a delay',
+                    () =>
+                        flowThrough(
+                            {
+                                branch: { type: 'conditional_branch', config: { conditions: [{ filters: {} }] } },
+                                delay,
+                            },
+                            [
+                                step('trigger', 'branch'),
+                                { from: 'branch', to: 'delay', type: 'branch', index: 0 },
+                                step('branch', 'email'),
+                                step('delay', 'email'),
+                            ]
+                        ),
+                ],
+                [
+                    'an email step the frequency cap can hold',
+                    () => flowThrough({}, [step('trigger', 'email')], 'marketing'),
+                ],
+            ])(
+                'refuses a send with files to a workflow with %s before its email goes out, before it reserves the key',
+                async (_name, arrange) => {
+                    const flow = await arrange()
+                    const stagesBefore = await stageCounts()
+
+                    const res = await sendWithFiles(newKey(), [reference(invoice)], { flowId: flow.id })
+
+                    expect(res.status).toBe(400)
+                    expect(res.body).toEqual({
+                        error: 'workflow_can_wait',
+                        reason: expect.any(String),
+                        fix: expect.any(String),
+                    })
+                    expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({
+                        auth: 1,
+                        validate: 1,
+                        load: 1,
+                        total: 1,
+                    })
+                    expect(mockQueueInvocations).not.toHaveBeenCalled()
+                }
+            )
 
             it('queues the metadata of the files it verified, without their bytes, and answers their totals', async () => {
                 const logo = {
@@ -3086,6 +3192,18 @@ describe('CDP API', () => {
                     },
                 ],
                 [
+                    'the checks before the files use up the deadline',
+                    () => {
+                        const recipientChecks = jest
+                            .spyOn(api['emailValidationService'], 'getRecipientSkipReason')
+                            .mockImplementation(() => {
+                                expireTheVerificationDeadline()
+                                return Promise.resolve(null)
+                            })
+                        return Promise.resolve({ fix: () => void recipientChecks.mockResolvedValue(null) })
+                    },
+                ],
+                [
                     'the template lookup of the email step fails',
                     async () => {
                         const options = await storedTemplateRendering({ html: '<p>{{ variables.chunk }}</p>' }, 'x')
@@ -3108,7 +3226,7 @@ describe('CDP API', () => {
                     const key = newKey()
 
                     const refused = await sendWithFiles(key, [reference(invoice)], options)
-                    const bodiesLoadedAfterTheAnswer = jest.spyOn(api as any, 'messageBodies')
+                    const bodiesLoadedAfterTheAnswer = jest.spyOn(api as any, 'messageBodyBytes')
                     await fix()
                     const bodiesLoadedBeforeTheRetry = bodiesLoadedAfterTheAnswer.mock.calls.length
                     const retried = await sendWithFiles(key, [reference(invoice)], options)
@@ -3167,6 +3285,26 @@ describe('CDP API', () => {
                     'a stored template that fails to parse at accept, counted as no body, whose body',
                     () => storedTemplateRendering(chunkRenderedTwiceBehindAnUnclosedTag, chunkThatFitsOnceNotTwice),
                 ],
+                [
+                    'content on the generated workflow, a trigger, an email step and an exit, whose body',
+                    async () => ({
+                        ...contentOf('x'),
+                        flowId: (await flowThrough({ exit }, [step('trigger', 'email'), step('email', 'exit')])).id,
+                    }),
+                ],
+                [
+                    'content on a workflow with a delay only after its email step, whose body',
+                    async () => ({
+                        ...contentOf('x'),
+                        flowId: (
+                            await flowThrough({ delay, exit }, [
+                                step('trigger', 'email'),
+                                step('email', 'delay'),
+                                step('delay', 'exit'),
+                            ])
+                        ).id,
+                    }),
+                ],
             ])('accepts a send with files and %s fits beside them', async (_name, arrange) => {
                 const res = await sendWithFiles(newKey(), [reference(large)], await arrange())
 
@@ -3177,6 +3315,10 @@ describe('CDP API', () => {
 
             it.each<[string, () => Promise<SendOptions>]>([
                 ['content', () => Promise.resolve(contentOf(bodyThatOverflows))],
+                [
+                    'content whose links grow once the worker tracks them',
+                    () => Promise.resolve(contentOf(linksThatFitUntilTracked)),
+                ],
                 [
                     'a stored template that renders a chunk twice',
                     () => storedTemplateRendering(chunkRenderedTwice, chunkThatFitsOnceNotTwice),

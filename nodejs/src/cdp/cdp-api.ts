@@ -3,6 +3,7 @@ import express from 'ultimate-express'
 import { z } from 'zod'
 
 import { ModifiedRequest } from '~/common/api/router'
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import type { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT, delay } from '~/common/utils/utils'
@@ -64,22 +65,28 @@ import {
     TransactionalEmailRequest,
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
+    acceptedSendEmailFields,
     isRecipientFormatIssue,
     transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
+import { stepThatCanWaitBeforeEmail } from './services/hogflows/waits-before-email'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
-import { AttachmentUploads, countUploadRequest } from './services/messaging/attachment-uploads'
+import {
+    ATTACHMENT_VERIFICATION_DEADLINE_MS,
+    AttachmentUploads,
+    countUploadRequest,
+} from './services/messaging/attachment-uploads'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
-import { maybeAddPreheaderToEmail } from './services/messaging/helpers/preheader'
+import { htmlForSesMaxBytes, utmTagsFor } from './services/messaging/helpers/email-html'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
@@ -91,7 +98,13 @@ import {
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
-import { CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
+import {
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationHogFunction,
+    HogFunctionInvocationGlobals,
+    HogFunctionType,
+    MinimalLogEntry,
+} from './types'
 import {
     convertToHogFunctionInvocationGlobals,
     isConvertibleClickHouseEvent,
@@ -232,6 +245,7 @@ export class CdpApi {
     private hogQueue: JobQueue
     private hogflowQueue: JobQueue
     private emailTrackingService: EmailTrackingService
+    private emailTrackingCodeSigner: EmailTrackingCodeSigner
     private recipientTokensService: RecipientTokensService
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
@@ -292,13 +306,17 @@ export class CdpApi {
             jobQueues,
             new IdempotencyKeys(deps.idempotencyValkey ?? null, 'workflow-webhook')
         )
+        this.emailTrackingCodeSigner = new EmailTrackingCodeSigner(
+            config.ENCRYPTION_SALT_KEYS,
+            config.CDP_EMAIL_TRACKING_URL
+        )
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
             services.hogFunctionMonitoringService,
             services.capturedEventsService,
             services.teamWorkflowsConfigService,
-            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
+            this.emailTrackingCodeSigner,
             services.emailSuppressionService,
             services.emailStatusService,
             services.redis
@@ -1283,6 +1301,7 @@ export class CdpApi {
     private postTransactionalEmail =
         (schema: z.ZodType<TransactionalEmailRequest, unknown>, tokenClaims: Record<string, string | undefined>) =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            const verificationDeadline = AbortSignal.timeout(ATTACHMENT_VERIFICATION_DEADLINE_MS)
             const stages = new TransactionalEmailStageTimer()
             const reply = (outcome: TransactionalEmailOutcome, status: number, body: Record<string, unknown>) => {
                 transactionalEmailRequestsTotal.inc({ outcome })
@@ -1344,6 +1363,14 @@ export class CdpApi {
                 }
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
+                }
+                const stepThatCanWait = references.length > 0 ? stepThatCanWaitBeforeEmail(hogFlow) : null
+                if (stepThatCanWait) {
+                    return reply('workflow_can_wait', 400, {
+                        error: 'workflow_can_wait',
+                        reason: `The "${stepThatCanWait.name}" step can hold this send before its email goes out, so its files could expire first.`,
+                        fix: 'Send files through a workflow whose transactional email step follows the trigger directly, or send this email without files.',
+                    })
                 }
 
                 stages.start('build')
@@ -1444,7 +1471,8 @@ export class CdpApi {
                                 contentType: ref.content_type,
                                 contentId: ref.content_id,
                             })),
-                            () => this.messageBodies(hogFlow, invocation, send)
+                            () => this.messageBodyBytes(hogFlow, invocation),
+                            verificationDeadline
                         )
                         if ('refused' in files) {
                             await releaseKey()
@@ -1514,31 +1542,34 @@ export class CdpApi {
             }
         }
 
-    private async messageBodies(
-        hogFlow: HogFlow,
-        invocation: CyclotronJobInvocationHogFlow,
-        send: AcceptedSend
-    ): Promise<string[]> {
-        if (send.content) {
-            return [send.content.html ?? '', send.content.text ?? '']
-        }
+    private async messageBodyBytes(hogFlow: HogFlow, invocation: CyclotronJobInvocationHogFlow): Promise<number[]> {
+        const sendFields = acceptedSendEmailFields(invocation.state.send)
+        const sendBodyBytes = [sendFields.html ?? '', sendFields.text ?? ''].map((body) => Buffer.byteLength(body))
         const step = hogFlow.actions.find(
             (action): action is Extract<HogFlowAction, { type: 'function_email' }> => action.type === 'function_email'
         )
         if (!step) {
-            return []
+            return sendBodyBytes
         }
         try {
             const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, step.config, step.name)
-            const rendered = await this.hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
+            const atEmailStep = {
+                ...invocation,
+                state: { ...invocation.state, currentAction: { id: step.id, startedAtTimestamp: Date.now() } },
+            }
+            const rendered = await this.hogFlowFunctionsService.buildHogFunctionInvocation(atEmailStep, hogFunction, {
                 event: invocation.state.event,
                 person: invocation.person,
                 groups: invocation.groups,
                 variables: invocation.state.variables,
             })
-            const email = rendered.state.globals.inputs?.email
-            const html = typeof email?.html === 'string' ? maybeAddPreheaderToEmail(email.html, email.preheader) : null
-            return [html, email?.text].filter((body): body is string => typeof body === 'string')
+            const email = { ...rendered.state.globals.inputs?.email, ...sendFields }
+            return [
+                typeof email.html === 'string' && email.html
+                    ? this.sesHtmlMaxBytes(rendered, email.html, email.preheader)
+                    : 0,
+                typeof email.text === 'string' ? Buffer.byteLength(email.text) : 0,
+            ]
         } catch (error) {
             if (!isHogVMError(error)) {
                 throw error
@@ -1548,8 +1579,29 @@ export class CdpApi {
                 hog_flow_id: hogFlow.id,
                 error: error instanceof Error ? error.message : String(error),
             })
-            return []
+            return sendBodyBytes
         }
+    }
+
+    private sesHtmlMaxBytes(rendered: CyclotronJobInvocationHogFunction, html: string, preheader: unknown): number {
+        const tags = utmTagsFor(rendered, () => undefined)
+        const utm = tags
+            ? {
+                  tags,
+                  siteUrl: this.config.SITE_URL,
+                  fixedScanner: buildIntegerMatcher(
+                      this.config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
+                      true
+                  )(rendered.teamId),
+              }
+            : null
+        return htmlForSesMaxBytes(
+            html,
+            utm,
+            rendered.id,
+            { invocation: rendered, signer: this.emailTrackingCodeSigner, isTest: false },
+            typeof preheader === 'string' ? preheader : undefined
+        )
     }
 
     private postAttachmentUploads = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
