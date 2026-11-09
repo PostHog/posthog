@@ -8,18 +8,18 @@ from products.mcp_registry.backend.tasks.tasks import is_pipeline_enabled, run_m
 
 
 class TestPipelineGate(SimpleTestCase):
+    @parameterized.expand([("hobby", False), ("local_dev_or_self_hosted_with_debug", True)])
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_hobby_is_off_without_evaluating_the_flag(self, feature_enabled: MagicMock) -> None:
-        with override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False):
+    def test_off_outside_cloud_without_evaluating_the_flag(
+        self, _name: str, debug: bool, feature_enabled: MagicMock
+    ) -> None:
+        with override_settings(CLOUD_DEPLOYMENT=None, DEBUG=debug):
             self.assertFalse(is_pipeline_enabled())
         feature_enabled.assert_not_called()
 
-    @parameterized.expand([("cloud", "US", False), ("local_dev", None, True)])
     @patch("posthoganalytics.feature_enabled")
-    def test_follows_the_flag_and_fails_closed_outside_hobby(
-        self, _name: str, cloud_deployment: str | None, debug: bool, feature_enabled: MagicMock
-    ) -> None:
-        with override_settings(CLOUD_DEPLOYMENT=cloud_deployment, DEBUG=debug):
+    def test_cloud_follows_the_flag_and_fails_closed(self, feature_enabled: MagicMock) -> None:
+        with override_settings(CLOUD_DEPLOYMENT="US"):
             feature_enabled.return_value = True
             self.assertTrue(is_pipeline_enabled())
 
