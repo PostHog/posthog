@@ -269,6 +269,65 @@ class TestSavedQuery(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("hogql", "SELECT id FROM orders WHERE id > 1", "SELECT id FROM orders WHERE id > 2", False),
+            (
+                "raw",
+                "SELECT id FROM orders WHERE payload->>'kind' = 'paid'",
+                "SELECT id FROM orders WHERE payload->>'kind' = 'refunded'",
+                True,
+            ),
+        ]
+    )
+    def test_create_and_edit_a_view_on_a_direct_connection(
+        self, _name: str, sql: str, edited_sql: str, send_raw: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="shop",
+            job_inputs={"host": "localhost", "port": 5432, "database": "shop", "user": "u", "schema": "shop"},
+        )
+        DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        query = {"kind": "HogQLQuery", "connectionId": str(source.pk), **({"sendRawQuery": True} if send_raw else {})}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "paid_orders", "query": {**query, "query": sql}, "types": [["id", "Int64"]]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        view = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
+        self.assertEqual(view.engine.target, ViewEngineTarget.CONNECTION)
+        self.assertEqual(set(view.columns or {}), {"id"})
+        self.assertFalse(Node.objects.filter(saved_query=view).exists())
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}",
+            {
+                "query": {**query, "query": edited_sql},
+                "types": [["id", "Int64"]],
+                "edited_history_id": response.json()["latest_history_id"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        view.refresh_from_db()
+        assert view.query is not None
+        self.assertEqual(view.query["query"], edited_sql)
+
+    @parameterized.expand(
+        [
             ("rename", {"name": "occupancy_report"}),
             ("query_edit", {"query": {"kind": "HogQLQuery", "query": "SELECT 2 AS x FROM hub_occupancy"}}),
         ]
