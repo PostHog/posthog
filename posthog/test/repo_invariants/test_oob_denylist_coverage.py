@@ -40,10 +40,10 @@ RESOLUTION_MARKERS = (
 # also match an import, a `mod` declaration or a comment, none of which run the check.
 CHECK_MARKERS = (
     "matched_oob_domain(",
-    "note_oob_domain(",
+    "check_oob_domain(",
     # The TypeScript mirror names the same two helpers in camel case.
     "matchedOobDomain(",
-    "noteOobDomain(",
+    "checkOobDomain(",
 )
 SKIPPED_PARTS = ("node_modules", "__pycache__", "target", "dist", "migrations")
 
@@ -75,8 +75,8 @@ def test_naming_the_check_without_calling_it_does_not_exempt_a_resolver() -> Non
     resolve = "(host, 0).to_socket_addrs()"
     assert _resolves_hostnames(f"use common_dns::oob_domains;\n{resolve}")
     assert _resolves_hostnames(f"pub mod oob_domains;\n{resolve}")
-    assert not _resolves_hostnames(f'note_oob_domain(host, "g", None);\n{resolve}')
-    assert not _resolves_hostnames(f"noteOobDomain(host, 'g', ctx);\n{resolve}")
+    assert not _resolves_hostnames(f'check_oob_domain(host, "g", None);\n{resolve}')
+    assert not _resolves_hostnames(f"checkOobDomain(host, 'g', ctx);\n{resolve}")
 
 
 def test_resolvers_match_the_baseline() -> None:

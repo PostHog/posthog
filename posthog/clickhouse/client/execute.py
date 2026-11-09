@@ -629,7 +629,7 @@ def sync_execute(
         ).inc()
 
         if query_counter := getattr(thread_local_storage, "query_counter", None):
-            query_counter.total_query_time += execution_time
+            query_counter.record_query_time(execution_time)
 
         if app_settings.SHELL_PLUS_PRINT_SQL:
             print("Execution time: %.6fs" % (execution_time,))  # noqa T201

@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEvent, mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
-import { EventDefinitionType } from '~/types'
+import { EventDefinition, EventDefinitionType } from '~/types'
 
 describe('eventDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof eventDefinitionsTableLogic.build>
@@ -281,6 +281,36 @@ describe('eventDefinitionsTableLogic', () => {
                     }),
                 })
             expect(api.get).toHaveBeenCalledTimes(2)
+        })
+
+        it('bulk verify clears hidden and a scheduled delete, like the server', async () => {
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).toDispatchActions(['loadEventDefinitionsSuccess'])
+
+            const key = logic.values.eventDefinitions.current as string
+            const [verifiedRow, unverifiedRow] = logic.values.eventDefinitions.results
+            const scheduled = { hidden: true, scheduled_deletion_at: '2026-03-31T14:00:00Z' }
+            logic.cache.apiCache[key] = {
+                ...logic.cache.apiCache[key],
+                results: logic.cache.apiCache[key].results.map((d: EventDefinition) =>
+                    d.id === verifiedRow.id || d.id === unverifiedRow.id ? { ...d, ...scheduled } : d
+                ),
+            }
+            logic.cache.bulkVerifiedCacheKey = key
+
+            logic.actions.applyBulkVerifiedUpdates([
+                { id: verifiedRow.id, verified: true },
+                { id: unverifiedRow.id, verified: false },
+            ])
+
+            const results = logic.values.eventDefinitions.results
+            expect(results.find((d) => d.id === verifiedRow.id)).toMatchObject({
+                verified: true,
+                hidden: false,
+                scheduled_deletion_at: null,
+            })
+            // Unverifying leaves the event hidden, so its delete stays scheduled
+            expect(results.find((d) => d.id === unverifiedRow.id)).toMatchObject({ verified: false, ...scheduled })
         })
     })
 
