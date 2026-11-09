@@ -22,6 +22,14 @@ class TestWorkflowFolders(APIBaseTest):
         flag.start()
         self.addCleanup(flag.stop)
 
+    def _local_flag_answer(self, local: bool | None) -> None:
+        flag = patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda *args, only_evaluate_locally=False, **kwargs: local if only_evaluate_locally else True,
+        )
+        flag.start()
+        self.addCleanup(flag.stop)
+
     def test_template_tree_permissions_follow_workflow_access(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -327,7 +335,9 @@ class TestWorkflowFolders(APIBaseTest):
         activity = self.client.get(f"/api/projects/{self.team.id}/activity_log", {"scope": "HogFlow"}).json()["results"]
         self.assertTrue(any(entry["item_id"] == workflow_id and entry["activity"] == "deleted" for entry in activity))
 
-    def test_email_template_can_be_created_and_moved_in_project_files(self) -> None:
+    @parameterized.expand([("flag_on", True), ("local_evaluation_inconclusive", None)])
+    def test_email_template_can_be_created_and_moved_in_project_files(self, _name: str, local: bool | None) -> None:
+        self._local_flag_answer(local)
         created = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
             {"name": "Welcome email", "type": "email", "_create_in_folder": "Campaigns"},
@@ -345,8 +355,12 @@ class TestWorkflowFolders(APIBaseTest):
         reloaded = self.client.get(f"{files_url}{entry['id']}/")
         self.assertEqual(reloaded.json()["path"], "Campaigns/Retention/Welcome email")
 
+    @parameterized.expand([("flag_on", True), ("local_evaluation_inconclusive", None)])
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_new_workflow_is_created_in_the_requested_project_folder(self, _reload: MagicMock) -> None:
+    def test_new_workflow_is_created_in_the_requested_project_folder(
+        self, _name: str, local: bool | None, _reload: MagicMock
+    ) -> None:
+        self._local_flag_answer(local)
         created = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/",
             {

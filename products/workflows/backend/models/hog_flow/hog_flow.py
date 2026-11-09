@@ -333,11 +333,12 @@ class HogFlow(FileSystemSyncMixin, Taggable, UUIDTModel):
         )
 
     def files_new_rows(self) -> bool:
-        # A model save has no request user, so the flag is evaluated for the creator. A save never waits on
-        # a remote flag call: when local evaluation cannot decide, the unfiled saver files the object the
-        # next time someone with the flag opens the project tree.
+        # A model save has no request user, so the flag is evaluated for the creator. A plain save never waits
+        # on a remote flag call, because the unfiled saver files the object at its default place later. A save
+        # that asks for a folder comes from a request, and that placement exists only on this instance, so it
+        # may call remote evaluation when local evaluation cannot decide.
         return self.created_by is not None and workflow_project_files_enabled(
-            self.team, self.created_by, only_evaluate_locally=True
+            self.team, self.created_by, only_evaluate_locally=self._create_in_folder is None
         )
 
     def get_file_system_representation(self) -> FileSystemRepresentation:

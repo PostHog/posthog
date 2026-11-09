@@ -162,23 +162,33 @@ class FileSystemFrequentQuerySerializer(serializers.Serializer):
     )
 
 
-def _stored_spellings(team_id: int, file_type: str, ref: str) -> set[str]:
-    """Every stored ref of this type that reaches the same object as the canonical `ref`.
+def _normalized_ref_key(ref: str) -> str:
+    return ref.replace("-", "").lower().lstrip("0")
+
+
+def _stored_spellings(team_id: int, file_type: str, refs: set[str]) -> dict[str, set[str]]:
+    """For each canonical ref, every stored ref of this type that reaches the same object.
 
     Rows written before refs were canonicalized can spell a UUID without hyphens or in upper case,
-    or an integer with leading zeros. Their text, lowercased and without hyphens, still contains the
-    canonical key's, which narrows the candidates for the canonical check to confirm.
+    or an integer with leading zeros. Lowercased, without hyphens and without leading zeros, they
+    match the canonical key, which narrows the candidates for the canonical check to confirm. The
+    match expression has no index, so one query covers every ref of the type in a deletion batch.
     """
-    if not file_system_ref_has_spellings(file_type):
-        return {ref}
+    spellings = {ref: {ref} for ref in refs}
+    if not refs or not file_system_ref_has_spellings(file_type):
+        return spellings
     candidates = (
         FileSystem.objects.filter(team_id=team_id, type=file_type, shortcut=False)
-        .annotate(normalized_ref=Lower(Replace("ref", Value("-"), Value(""))))
-        .filter(normalized_ref__contains=ref.replace("-", "").lower())
+        .annotate(normalized_ref=Func(Lower(Replace("ref", Value("-"), Value(""))), Value("0"), function="LTRIM"))
+        .filter(normalized_ref__in={_normalized_ref_key(ref) for ref in refs})
         .values_list("ref", flat=True)
         .distinct()
     )
-    return {ref} | {stored for stored in candidates if canonical_file_system_ref(file_type, stored) == ref}
+    for stored in candidates:
+        canonical = canonical_file_system_ref(file_type, stored)
+        if canonical in spellings:
+            spellings[canonical].add(stored)
+    return spellings
 
 
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
@@ -1136,6 +1146,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             group_key = (current.team_id, current.type, ref, "" if current.ref else str(current.id))
             entries_by_group.setdefault(group_key, []).append(current)
 
+        refs_by_type: dict[tuple[int, str], set[str]] = {}
+        for team_id, file_type, ref, _row_key in entries_by_group:
+            if ref:
+                refs_by_type.setdefault((team_id, file_type), set()).add(ref)
+        spellings_by_type = {key: _stored_spellings(key[0], key[1], refs) for key, refs in sorted(refs_by_type.items())}
+
         objects_to_delete: builtins.list[tuple[str, str, int]] = []
         reaches_backing_object: dict[UUID, bool] = {}
 
@@ -1158,7 +1174,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # so a concurrent request deleting a sibling row locks the same row set in the
                 # same order and blocks on it, rather than each request locking a different subset
                 # and deadlocking against the other.
-                spellings = _stored_spellings(team_id, file_type, ref) | {row.ref for row in group if row.ref}
+                spellings = spellings_by_type[(team_id, file_type)][ref] | {row.ref for row in group if row.ref}
                 sibling_ids = {
                     row.id
                     for row in FileSystem.objects.select_for_update()
