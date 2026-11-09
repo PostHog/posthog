@@ -9,6 +9,7 @@ import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -21,6 +22,7 @@ import { ChartDisplayType } from '~/types'
 import { InsightDateFilter } from 'products/product_analytics/frontend/insights/editor/filters/InsightDateFilter'
 import { FunnelBinsPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelDisplayLayoutPicker'
+import { QuillFunnelVizType } from 'products/product_analytics/frontend/insights/funnels/filters/QuillFunnelVizType'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 import { PathStepPicker } from 'products/product_analytics/frontend/insights/paths/filters/PathStepPicker'
 import { RetentionBreakdownFilter } from 'products/product_analytics/frontend/insights/retention/filters/RetentionBreakdownFilter'
@@ -29,6 +31,7 @@ import { RetentionDatePicker } from 'products/product_analytics/frontend/insight
 
 import { insightDisplayOptions } from './insightDisplayOptions'
 import { InsightDisplayOptionsPanel } from './InsightDisplayOptionsPanel'
+import { QuillInsightDisplayOptionsButton } from './QuillInsightDisplayOptionsButton'
 
 export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: ReactNode }): JSX.Element {
     const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
@@ -73,6 +76,7 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
 
     const { tabs: displayOptionTabs, count: advancedOptionsCount } = useDisplayOptions(insightDisplayOptions)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <div
@@ -120,56 +124,68 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
                 )}
             </div>
             <div className="flex items-center gap-x-2">
-                {displayOptionTabs.length > 0 && (
-                    <>
-                        <LemonDropdown
-                            overlay={<InsightDisplayOptionsPanel tabs={displayOptionTabs} />}
-                            closeOnClickInside={false}
-                            placement="bottom-end"
-                        >
-                            <LemonButton
-                                size="small"
-                                disabledReason={editingDisabledReason}
-                                aria-label="Options"
-                                className="@max-[780px]:hidden"
+                {displayOptionTabs.length > 0 &&
+                    (todayRailNav ? (
+                        <QuillInsightDisplayOptionsButton
+                            tabs={displayOptionTabs}
+                            advancedOptionsCount={advancedOptionsCount}
+                            disabledReason={editingDisabledReason}
+                        />
+                    ) : (
+                        <>
+                            <LemonDropdown
+                                overlay={<InsightDisplayOptionsPanel tabs={displayOptionTabs} />}
+                                closeOnClickInside={false}
+                                placement="bottom-end"
                             >
-                                <span className="font-medium whitespace-nowrap">
-                                    Options
-                                    {advancedOptionsCount ? (
-                                        <span className="ml-0.5 text-secondary ligatures-none">
-                                            ({advancedOptionsCount})
-                                        </span>
-                                    ) : null}
-                                </span>
-                            </LemonButton>
-                        </LemonDropdown>
-                        <LemonDropdown
-                            overlay={<InsightDisplayOptionsPanel tabs={displayOptionTabs} />}
-                            closeOnClickInside={false}
-                            placement="bottom-end"
-                        >
-                            <LemonButton
-                                size="small"
-                                disabledReason={editingDisabledReason}
-                                icon={<IconEllipsis />}
-                                aria-label="Options"
-                                className="hidden @max-[780px]:flex order-[999]"
-                            />
-                        </LemonDropdown>
-                    </>
-                )}
+                                <LemonButton
+                                    size="small"
+                                    disabledReason={editingDisabledReason}
+                                    aria-label="Options"
+                                    className="@max-[780px]:hidden"
+                                >
+                                    <span className="font-medium whitespace-nowrap">
+                                        Options
+                                        {advancedOptionsCount ? (
+                                            <span className="ml-0.5 text-secondary ligatures-none">
+                                                ({advancedOptionsCount})
+                                            </span>
+                                        ) : null}
+                                    </span>
+                                </LemonButton>
+                            </LemonDropdown>
+                            <LemonDropdown
+                                overlay={<InsightDisplayOptionsPanel tabs={displayOptionTabs} />}
+                                closeOnClickInside={false}
+                                placement="bottom-end"
+                            >
+                                <LemonButton
+                                    size="small"
+                                    disabledReason={editingDisabledReason}
+                                    icon={<IconEllipsis />}
+                                    aria-label="Options"
+                                    className="hidden @max-[780px]:flex order-[999]"
+                                />
+                            </LemonDropdown>
+                        </>
+                    ))}
                 {supportsDisplay && <ConfigFilter>{chartTypeControl ?? <ChartFilter />}</ConfigFilter>}
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionChartPicker />
                     </ConfigFilter>
                 )}
-                {!!isStepsFunnel && (
+                {todayRailNav && isFunnels && (
+                    <ConfigFilter>
+                        <QuillFunnelVizType insightProps={insightProps} disabledReason={editingDisabledReason} />
+                    </ConfigFilter>
+                )}
+                {!!isStepsFunnel && !todayRailNav && (
                     <ConfigFilter>
                         <FunnelDisplayLayoutPicker />
                     </ConfigFilter>
                 )}
-                {!!isTimeToConvertFunnel && (
+                {!!isTimeToConvertFunnel && !todayRailNav && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
                     </ConfigFilter>

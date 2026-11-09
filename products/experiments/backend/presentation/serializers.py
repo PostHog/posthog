@@ -54,6 +54,9 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
     ExperimentHealthMetricCompileErrorKind,
+    ExperimentHealthRuleSide,
+    ExperimentHealthRuleTest,
+    ExperimentHealthValueKey,
     ExperimentValidationError,
     HealthExposureInputsStatus,
     RunningTimeMode,
@@ -208,6 +211,19 @@ class ExperimentHealthEvidenceField(serializers.DictField):
     pass
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {
+            "oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}],
+            "nullable": True,
+        },
+    }
+)
+class ExperimentHealthCheckValuesField(serializers.DictField):
+    pass
+
+
 class ExperimentHealthFindingSerializer(serializers.Serializer):
     code = serializers.ChoiceField(
         choices=ExperimentHealthFindingCode.choices,
@@ -255,6 +271,47 @@ class ExperimentHealthFindingSerializer(serializers.Serializer):
             "Null when the skill has none."
         ),
     )
+    check = serializers.ChoiceField(
+        choices=ExperimentHealthCheckKey.choices,
+        help_text=(
+            "The key of the check in `checks` that reported the finding. A check can report several codes, so the "
+            "code doesn't name the check."
+        ),
+    )
+
+
+class ExperimentHealthRuleMinimumSerializer(serializers.Serializer):
+    value = serializers.ChoiceField(
+        choices=ExperimentHealthValueKey.choices,
+        help_text="The key in `values` that must reach the threshold before the check judges.",
+    )
+    threshold = serializers.FloatField(
+        help_text="The value that the key must reach. Below it, the check reports no finding."
+    )
+
+
+class ExperimentHealthCheckRuleSerializer(serializers.Serializer):
+    value = serializers.ChoiceField(
+        choices=ExperimentHealthValueKey.choices,
+        help_text="The key in `values` that the check compares with the threshold.",
+    )
+    threshold = serializers.FloatField(help_text="The threshold, in the unit that the suffix of the key gives.")
+    warns = serializers.ChoiceField(
+        choices=ExperimentHealthRuleSide.choices,
+        help_text=(
+            "above: the check reports a finding when the value is above the threshold. below: when the value is "
+            "below it. A value at the threshold passes."
+        ),
+    )
+    test = serializers.ChoiceField(
+        choices=ExperimentHealthRuleTest.choices,
+        allow_null=True,
+        help_text="The statistical test that computes the value, for example chi_squared. Null for a count or a share.",
+    )
+    minimum = ExperimentHealthRuleMinimumSerializer(
+        allow_null=True,
+        help_text="What the check needs before it judges. Null when the check judges from the first value.",
+    )
 
 
 class ExperimentHealthCheckResultSerializer(serializers.Serializer):
@@ -266,6 +323,9 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
         ),
     )
     name = serializers.CharField(help_text="The problem the check looks for, for example 'Metrics not set up'.")
+    description = serializers.CharField(
+        help_text=("What the check looks for and why it matters. The same for every experiment and every status.")
+    )
     status = serializers.ChoiceField(
         choices=ExperimentHealthCheckStatus.choices,
         help_text=(
@@ -282,6 +342,80 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
             "'Runs after launch'. Null for passed and finding."
         ),
     )
+    values = ExperimentHealthCheckValuesField(
+        help_text=(
+            "What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty "
+            "when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, "
+            "_percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a "
+            "suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key "
+            "that decides."
+        ),
+    )
+    rule = ExperimentHealthCheckRuleSerializer(
+        allow_null=True,
+        help_text=(
+            "How the check decides. The same for every experiment and every status. Null for a check without a "
+            "numeric rule."
+        ),
+    )
+
+
+class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
+    rollout_percentage = serializers.FloatField(
+        help_text="The share of the users matching the condition set's filters who get the flag, from 0 to 100.",
+    )
+    property_count = serializers.IntegerField(
+        help_text="The number of filters a user must match, such as properties and cohorts. 0 matches all users.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when "
+            "it assigns them by user."
+        ),
+    )
+
+
+class ExperimentHealthSetupSerializer(serializers.Serializer):
+    release_conditions = ExperimentHealthReleaseConditionSerializer(
+        many=True,
+        help_text=(
+            "The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a "
+            "request depends on the sets before it and on `early_exit`."
+        ),
+    )
+    early_exit = serializers.BooleanField(
+        help_text=(
+            "Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the "
+            "user out. Otherwise such a user goes on to the next set."
+        ),
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        help_text="The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The flag's own group type, which the exposure counts and the results use. A condition set can override "
+            "it. Null for users."
+        ),
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        help_text="The flag's `evaluation_runtime`. Null on the flag reads as all.",
+    )
+    evaluation_contexts = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The names of the flag's evaluation contexts. When PostHog evaluates the flag, an SDK that sends evaluation "
+            "contexts gets it only when it sends one of these, and an SDK that sends none gets it. Empty when the flag "
+            "has none."
+        ),
+    )
+    ensure_experience_continuity = serializers.BooleanField(
+        help_text="The flag's 'Persist flag across authentication steps' setting.",
+    )
 
 
 class ExperimentHealthSerializer(serializers.Serializer):
@@ -297,6 +431,14 @@ class ExperimentHealthSerializer(serializers.Serializer):
         help_text=(
             "The result of each health check, in the order the checks run. The checks that read the exposure "
             "counts are not here: the exposure query returns them as `health_checks`."
+        ),
+    )
+    setup = ExperimentHealthSetupSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The settings of the experiment's flag that decide which variant a user gets. Null when the experiment "
+            "has no flag."
         ),
     )
 
@@ -3350,7 +3492,9 @@ class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
             "'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were."
         ),
     )
-    launched_at = serializers.DateTimeField(help_text="When the experiment launched.")
+    start_date = serializers.DateTimeField(
+        help_text="The experiment's start date. The flag history counts changes from it, as the results count exposures from it."
+    )
     team_timezone = serializers.CharField(help_text="The project's time zone, which the findings use for times.")
     changes = ExperimentHealthInputsFlagChangeSerializer(
         many=True,

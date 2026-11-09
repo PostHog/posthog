@@ -592,6 +592,10 @@ def send_email_ai_subscription_credit_limited(
     message.send(send_async=False)
 
 
+def _slack_charts_in_main_message(subscription: Subscription) -> bool:
+    return bool(subscription.delivery_config.get("post_all_insights_in_main_message", False))
+
+
 def _build_ai_slack_message(
     subscription: Subscription,
     markdown: str,
@@ -617,6 +621,7 @@ def _build_ai_slack_message(
         {"type": "header", "text": {"type": "plain_text", "text": heading[:150]}},
         *_slack_report_blocks(first_section, env),
     ]
+    chart_blocks: list[dict] = []
     for chart in (charts or []) if subscription.includes_delivery_part("include_images") else []:
         caption = chart.get("title") or "Chart"
         image_block: dict = {
@@ -626,8 +631,11 @@ def _build_ai_slack_message(
         }
         if chart.get("title"):
             image_block["title"] = {"type": "plain_text", "text": caption[:SLACK_IMAGE_TITLE_LIMIT]}
-        blocks.append(image_block)
-    if len(sections) > 1:
+        chart_blocks.append(image_block)
+    charts_in_thread = bool(chart_blocks) and not _slack_charts_in_main_message(subscription)
+    if not charts_in_thread:
+        blocks.extend(chart_blocks)
+    if len(sections) > 1 or charts_in_thread:
         blocks.append(
             {"type": "section", "text": {"type": "mrkdwn", "text": "_See thread for the rest of the report._"}}
         )
@@ -685,6 +693,11 @@ def _build_ai_slack_message(
             {"blocks": overflow[start : start + SLACK_MESSAGE_BLOCK_LIMIT]}
             for start in range(0, len(overflow), SLACK_MESSAGE_BLOCK_LIMIT)
         )
+    if charts_in_thread:
+        thread_messages.extend(
+            {"blocks": chart_blocks[start : start + SLACK_MESSAGE_BLOCK_LIMIT]}
+            for start in range(0, len(chart_blocks), SLACK_MESSAGE_BLOCK_LIMIT)
+        )
     for section in sections[1:]:
         section_blocks = _slack_report_blocks(section, env)
         thread_messages.extend(
@@ -716,7 +729,12 @@ async def send_slack_ai_subscription_report(
     try:
         return await deliver_slack_message_data(integration, subscription, build(effective_charts))
     except SlackApiError as exc:
-        if not effective_charts or exc.response.get("error") != "invalid_blocks":
+        # Threaded charts are not in the main message, so dropping them cannot fix a rejected main message.
+        if (
+            not effective_charts
+            or not _slack_charts_in_main_message(subscription)
+            or exc.response.get("error") != "invalid_blocks"
+        ):
             raise
         logger.warning(
             "ai_report.slack_charts_rejected_resending_without_them",

@@ -12,7 +12,6 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
-import { traceViewPreferenceLogic } from './redesign/trace/traceViewPreferenceLogic'
 
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
 const scenes: any = { AIObservabilityTrace: blankScene }
@@ -79,23 +78,6 @@ describe('aiObservabilityTraceLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(router.values.searchParams.filters).toEqual(filters)
-    })
-
-    it('carries the step selected on the timeline to the new view', async () => {
-        const preferenceLogic = traceViewPreferenceLogic()
-        preferenceLogic.mount()
-        const traceUrl = combineUrl(urls.aiObservabilityTrace('trace-1', { event: 'stale-step' }), {
-            back_to: 'traces',
-        })
-        router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
-        await expectLogic(logic).toFinishAllListeners()
-
-        logic.actions.setEventId('timeline-step')
-        preferenceLogic.actions.switchView('new')
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(router.values.searchParams).toMatchObject({ event: 'timeline-step', back_to: 'traces' })
-        expect(logic.values.eventId).toBe('timeline-step')
     })
 
     it('handles trace ID with event and timestamp parameters', async () => {

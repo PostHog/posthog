@@ -1,24 +1,33 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
+from posthog.models import Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.repo_selection.agent import (
     RepoSelectionRejectedError,
     RepoSelectionUsageLimitError,
     _build_repo_selection_prompt,
     _routing_rules_block,
     _salvage_repo_selection,
+    filter_repository_candidates_for_sources,
     select_repository,
 )
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
-from products.tasks.backend.models import Task
 
 _AGENT = "products.tasks.backend.logic.repo_selection.agent"
+SLACK_PROFILE = get_task_profile("slack.repo_selection")
+SIGNALS_PROFILE = get_task_profile("signals.repo_selection")
 
 
 def test_corrections_section_included_only_when_given() -> None:
@@ -114,7 +123,7 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -206,7 +215,7 @@ def test_select_repository_salvages_an_unreadable_end_turn() -> None:
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -259,7 +268,7 @@ def test_select_repository_asks_again_after_a_progress_note(
                 1,
                 1,
                 "which repo?",
-                origin_product=Task.OriginProduct.SLACK,
+                profile=SLACK_PROFILE,
                 priority=Priority.NORMAL,
                 github=github,
                 candidate_repos=["acme/a", "acme/b"],
@@ -298,7 +307,7 @@ def test_select_repository_reports_a_usage_limit_refusal() -> None:
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -359,7 +368,7 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -381,27 +390,36 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
 
 
 @pytest.mark.parametrize(
-    "source_metadata,target_private,expected",
+    "source_metadata,target_private,expected,additional_source,require_private",
     [
-        ({"private": True}, False, None),
-        ({"private": True}, None, None),
-        ({"private": True}, True, "acme/b"),
-        ({"private": False}, False, "acme/b"),
-        ({"private": False}, True, "acme/b"),
-        ({}, False, None),
-        (None, False, None),
-        ({"private": "false"}, False, None),
-        (None, True, "acme/b"),
+        ({"private": True}, False, None, None, False),
+        ({"private": True}, None, None, None, False),
+        ({"private": True}, True, "acme/b", None, False),
+        ({"private": False}, False, "acme/b", None, False),
+        ({"private": False}, True, "acme/b", None, False),
+        ({}, False, None, None, False),
+        (None, False, None, None, False),
+        ({"private": "false"}, False, None, None, False),
+        (None, True, "acme/b", None, False),
+        ({"private": False}, False, None, True, False),
+        ({"private": False}, True, "acme/b", True, False),
+        ({"private": False}, False, None, None, True),
     ],
 )
 def test_source_visibility_constrains_single_eligible_repository(
-    source_metadata: dict[str, bool | str] | None, target_private: bool | None, expected: str | None
+    source_metadata: dict[str, bool | str] | None,
+    target_private: bool | None,
+    expected: str | None,
+    additional_source: bool | None,
+    require_private: bool,
 ) -> None:
     github = MagicMock()
     cached_repositories = [{"full_name": "acme/b", "private": target_private}]
     if source_metadata is not None:
         cached_repositories.append({"full_name": "acme/a", **source_metadata})
     github.list_all_cached_repositories.return_value = cached_repositories
+    if additional_source is not None:
+        cached_repositories.append({"full_name": "acme/c", "private": additional_source})
     start = AsyncMock()
 
     with (
@@ -414,11 +432,13 @@ def test_source_visibility_constrains_single_eligible_repository(
             1,
             1,
             "Find the repository for this issue.",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=SIGNALS_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
             source_repository=" Acme/A ",
+            source_repositories={"acme/c"} if additional_source is not None else (),
+            require_private_destination=require_private,
         )
 
     assert selected.repository == expected
@@ -443,7 +463,7 @@ def test_nonpublic_source_can_keep_its_repository(source_private: bool | None) -
             1,
             1,
             "Find the repository for this issue.",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=SIGNALS_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -480,7 +500,7 @@ def test_source_visibility_constrains_agent_selection(selected_repository: str) 
                 1,
                 1,
                 "Find the repository for this issue.",
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                profile=SIGNALS_PROFILE,
                 priority=Priority.NORMAL,
                 github=github,
                 candidate_repos=["acme/b", "acme/c", "acme/d"],
@@ -498,3 +518,26 @@ def test_source_visibility_constrains_agent_selection(selected_repository: str) 
     assert "2. `acme/d` (private)" in prompt
     assert "`acme/c`" not in prompt
     session.end.assert_awaited_once()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("refreshed_private", [False, True, None])
+def test_saved_selection_requires_current_private_visibility(team, refreshed_private: bool | None) -> None:
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="visibility-refresh",
+        config={"installation_id": "visibility-refresh"},
+        repository_cache=[{"id": 1, "name": "target", "full_name": "example/target", "private": True}],
+        repository_cache_updated_at=timezone.now() - timedelta(days=2),
+    )
+    with patch.object(
+        GitHubIntegration,
+        "list_all_repositories",
+        return_value=[{"id": 1, "name": "target", "full_name": "example/target", "private": refreshed_private}],
+        side_effect=RuntimeError("GitHub unavailable") if refreshed_private is None else None,
+    ):
+        allowed = filter_repository_candidates_for_sources(
+            team.id, ["example/target"], (), require_private_destination=True
+        )
+    assert allowed == (["example/target"] if refreshed_private is True else [])

@@ -28,12 +28,10 @@ from products.workflows.backend.services.email_sending_tier import (
 from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.utils.email_sending_tiers import get_email_sending_tier_limits
 
-TIER_HOURLY_CAPS = [200, 600, 2000, 6000, 20000, 60000, 200000]
 TIER_DAILY_CAPS = [1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 TIER_BATCH_CAPS = [1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 
 TIER_SETTINGS = {
-    "WORKFLOWS_EMAIL_TIER_HOURLY_CAPS": TIER_HOURLY_CAPS,
     "WORKFLOWS_EMAIL_TIER_DAILY_CAPS": TIER_DAILY_CAPS,
     "WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS": TIER_BATCH_CAPS,
     "WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER": [3],
@@ -79,10 +77,10 @@ def clean_days(count: int, sent_per_day: int, *, days_ago: int = 0) -> dict[str,
 
 @override_settings(**TIER_SETTINGS)
 class TestEmailSendingTierDecision(SimpleTestCase):
-    @parameterized.expand([(tier, caps) for tier, caps in enumerate(zip(TIER_HOURLY_CAPS, TIER_DAILY_CAPS))])
-    def test_tier_maps_to_its_caps(self, tier: int, caps: tuple[int, int]) -> None:
+    @parameterized.expand([(tier, cap) for tier, cap in enumerate(TIER_DAILY_CAPS)])
+    def test_tier_maps_to_its_caps(self, tier: int, cap: int) -> None:
         limits = get_email_sending_tier_limits(tier)
-        assert (limits.per_hour, limits.per_day) == caps
+        assert limits.per_day == cap
 
     @parameterized.expand([(tier,) for tier in range(len(TIER_DAILY_CAPS) - 1)])
     def test_promotes_one_tier_when_every_criterion_is_met(self, tier: int) -> None:

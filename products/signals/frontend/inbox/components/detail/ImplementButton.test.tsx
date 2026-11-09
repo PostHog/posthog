@@ -71,17 +71,42 @@ describe('ImplementButton', () => {
         return user
     }
 
-    it('offers implementation choices before starting a PostHog agent', async () => {
+    it('starts a PostHog agent from the main button without opening the options', async () => {
         const user = userEvent.setup()
         render(<ImplementButton report={makeReport()} />)
 
         await user.click(screen.getByTestId('inbox-report-create-pr'))
 
+        expect(screen.queryByTestId('inbox-report-create-pr-submit')).not.toBeInTheDocument()
+        expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            has_feedback: false,
+            opened_from_link: false,
+        })
+    })
+
+    it('opens the implementation choices when a link asks for them', async () => {
+        const user = userEvent.setup()
+        const onChoicesOpenedFromLink = jest.fn()
+        render(
+            <ImplementButton
+                report={makeReport()}
+                openChoicesFromLink
+                onChoicesOpenedFromLink={onChoicesOpenedFromLink}
+            />
+        )
+
+        await waitFor(() => expect(screen.getByText('Implement with PostHog')).toBeInTheDocument())
+        expect(onChoicesOpenedFromLink).toHaveBeenCalled()
         expect(createPrFromReport).not.toHaveBeenCalled()
+
         await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
 
         expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
-        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: false })
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            has_feedback: false,
+            opened_from_link: true,
+        })
     })
 
     it.each([TaskRunStatus.QUEUED, TaskRunStatus.IN_PROGRESS])(
@@ -141,7 +166,7 @@ describe('ImplementButton', () => {
         render(<ImplementButton report={report} />)
         const access = reportGithubAccessLogic({ report })
         await waitFor(() => expect(access.values[status === 503 ? 'failed' : 'repairNeeded']).toBe(true))
-        await user.click(screen.getByTestId('inbox-report-create-pr'))
+        await user.click(screen.getByTestId('inbox-report-create-pr-steer'))
         await user.click(screen.getByTestId('inbox-report-copy-implementation-prompt'))
         expect(copyToClipboard).toHaveBeenCalledWith(
             expect.stringContaining('report ID: report-1'),
@@ -179,7 +204,10 @@ describe('ImplementButton', () => {
             expect.objectContaining({ id: 'report-1' }),
             'Keep the existing API'
         )
-        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: true })
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            has_feedback: true,
+            opened_from_link: false,
+        })
     })
 
     it('copies a prompt that claims the report and attaches the finished pull request', async () => {
