@@ -194,6 +194,8 @@ services:
             # Each granian worker loads all of Django, and bin/docker-server starts 4 by default.
             # That is more memory than a small host has. Raise it in .env on a larger host.
             GRANIAN_WORKERS: ${GRANIAN_WORKERS:-2}
+            # The workers share one copy of Django with the granian parent instead of loading their own.
+            POSTHOG_GRANIAN_PRELOAD: ${POSTHOG_GRANIAN_PRELOAD:-true}
             SITE_URL: https://$DOMAIN
             LIVESTREAM_HOST: 'https://${DOMAIN}/livestream'
             SECRET_KEY: $POSTHOG_SECRET
