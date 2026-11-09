@@ -471,6 +471,11 @@ FROM {settings.CLICKHOUSE_DATABASE}.{ERROR_TRACKING_ISSUE_TAGS_KAFKA_TABLE}
 """
 
 
+INSERT_ERROR_TRACKING_ISSUE_TAG = """
+INSERT INTO error_tracking_issue_tags (team_id, issue_id, key, value, is_deleted, version, _timestamp, _offset, _partition) SELECT %(team_id)s, %(issue_id)s, %(key)s, %(value)s, %(is_deleted)s, %(version)s, now(), 0, 0
+"""
+
+
 # IMPORTANT: The following table definitions are obsolete and were replaced by the general-purpose
 # document_embeddings tables in migration 0155. However, they MUST remain here for historical
 # migration compatibility - migration 0153 references these functions to create the tables,
