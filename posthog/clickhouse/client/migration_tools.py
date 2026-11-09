@@ -115,9 +115,9 @@ def run_sql_with_exceptions(
     def run_migration():
         cluster = get_migrations_cluster()
 
-        query: Query | _QueryIfTableExists = Query(sql)
-        if only_if_table_exists is not None:
-            query = _QueryIfTableExists(query, only_if_table_exists)
+        query: Query | _QueryIfTableExists = (
+            Query(sql) if only_if_table_exists is None else _QueryIfTableExists(Query(sql), only_if_table_exists)
+        )
 
         if sharded and is_alter_on_replicated_table:
             is_local_or_test = collapses_to_all_nodes()
