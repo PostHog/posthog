@@ -7,6 +7,7 @@ from parameterized import parameterized
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     SEARCH_CONSOLE_PERFORMANCE_URL,
     CampaignStats,
+    KeywordTracking,
     OrganicQueryStats,
     RankingPage,
     RecommendationInputs,
@@ -479,3 +480,41 @@ class TestMarketingRecommendations(SimpleTestCase):
             "trackly logs": "Competitor term: decide whether conquesting is worth it.",
             "app analytics": "Review the bid and landing page, or add it as a negative",
         }
+
+    @parameterized.expand(
+        [
+            ("keyword_missing", {}, {}, True),
+            (
+                "set_in_the_account_suffix",
+                {"account_final_url_suffix": "utm_source=google&utm_term={keyword}"},
+                {},
+                False,
+            ),
+            ("passed_under_another_name", {"account_final_url_suffix": "kw={keyword}"}, {}, True),
+            ("set_in_the_account_template", {"account_tracking_url_template": "{lpurl}?utm_term={keyword}"}, {}, False),
+            (
+                "campaign_template_replaces_the_accounts",
+                {"account_tracking_url_template": "{lpurl}?utm_term={keyword}"},
+                {"tracking_url_template": "{lpurl}?utm_source=google"},
+                True,
+            ),
+            ("set_on_every_search_campaign", {}, {"tracking_url_template": "{lpurl}?utm_term={keyword}"}, False),
+            ("most_sessions_carry_it", {"sessions_with_keyword": 40}, {}, False),
+            ("too_few_sessions", {"sessions": 20, "sessions_with_keyword": 0}, {}, False),
+            ("no_search_campaign", {}, {"channel_type": "PERFORMANCE_MAX"}, False),
+            ("search_campaign_paused", {}, {"primary_status": "PAUSED"}, False),
+        ]
+    )
+    def test_keyword_tracking_needs_search_ads_sessions_without_utm_term(
+        self, _name: str, tracking: dict[str, object], campaign: dict[str, object], expected: bool
+    ) -> None:
+        values: dict = {"account_name": "Acme Ads", "sessions": 400, "sessions_with_keyword": 4, **tracking}
+        inputs = replace(_inputs((_campaign(**campaign),)), keyword_tracking=KeywordTracking(**values))
+
+        rows = [rec for rec in recommend(inputs) if rec.rule == "keyword_tracking"]
+
+        assert [(rec.level, rec.subject, rec.reason[:4]) for rec in rows] == (
+            [("account", "Acme Ads", "99% ")] if expected else []
+        )
+        if expected:
+            assert [step.copyValue for step in rows[0].steps or [] if step.copyValue] == ["utm_term={keyword}"]

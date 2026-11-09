@@ -103,6 +103,8 @@ export namespace Schemas {
          * @nullable
          */
       target_best_position: number | null;
+      /** The web searches the engine ran while answering, in the order it ran them. Empty when it ran none or the check failed. */
+      search_queries: string[];
       /** When the check ran. */
       checked_at: string;
     }
@@ -457,6 +459,28 @@ export namespace Schemas {
       active_prompts: number;
     }
 
+    export interface AEOPromptSetSearchPrompt {
+      /** The prompt id (a UUID). */
+      id: string;
+      /** The prompt's current text. */
+      text: string;
+    }
+
+    export interface AEOPromptSetSearch {
+      /** Up to 5 prompts whose answers ran this search, the ones that ran it most first. */
+      top_prompts: AEOPromptSetSearchPrompt[];
+      /** The web search an engine ran while answering, lowercased with whitespace collapsed. */
+      query: string;
+      /** Distinct prompts whose answers ran this search in the window. */
+      prompts: number;
+      /** Answered checks in the window that ran this search. */
+      answers: number;
+      /** Of those answers, how many cited a URL on the project's target domains. */
+      cited: number;
+      /** Answer engines that ran this search, ordered by engine. */
+      engines: string[];
+    }
+
     export interface AEOPromptSetOverview {
       /** Checks across the prompt set in the last 'days' days. */
       current: AEOPromptSetCounts;
@@ -468,6 +492,8 @@ export namespace Schemas {
       topics: AEOPromptSetTopicCounts[];
       /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
       top_domains: AEOPromptSetDomain[];
+      /** The 20 web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project. */
+      top_searches: AEOPromptSetSearch[];
       /** Length of each window in days. */
       days: number;
       /** First day of the current window, in the project's timezone. */
@@ -480,6 +506,91 @@ export namespace Schemas {
       target_domains: string[];
       /** Lower-cased brand names, derived from the target domains. An answer that contains one of them as a word counts as a mention. */
       brand_names: string[];
+    }
+
+    export interface AEORankedBrand {
+      /** Registrable domain of the brand, for example 'example.com'. */
+      domain: string;
+      /** The word an answer must contain to count as naming the brand. For the project's own brand, a comma-separated list where any name counts. */
+      name: string;
+      /** Whether this is the project's own brand. The others are competitors. */
+      is_target: boolean;
+      /** Answered checks in the current window that named the brand or cited its domain: the numerator of 'visibility'. */
+      answers_mentioning: number;
+      /**
+         * Share (0-1) of answered checks in the current window that named the brand or cited its domain. Null without answers.
+         * @nullable
+         */
+      visibility: number | null;
+      /**
+         * The same share for the window before. Null without answers.
+         * @nullable
+         */
+      previous_visibility: number | null;
+      /**
+         * For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored.
+         * @nullable
+         */
+      positive_share: number | null;
+    }
+
+    export interface AEORankedBrandDay {
+      /** Day, in the project's timezone. */
+      date: string;
+      /** The brand's registrable domain, matching a row in 'brands'. */
+      domain: string;
+      /** Answered checks that day. */
+      answers: number;
+      /**
+         * Share (0-1) of that day's answers that named the brand or cited its domain.
+         * @nullable
+         */
+      visibility: number | null;
+    }
+
+    export interface AEORankedDomain {
+      /** Registrable domain of the cited URLs, for example 'example.com'. */
+      domain: string;
+      /** Answered checks in the window that cited a URL on this domain. */
+      answers: number;
+      /** Share (0-1) of answered checks in the window that cited the domain. */
+      share_of_answers: number;
+      /** Distinct URLs on this domain cited in the window. */
+      urls: number;
+      /** Whether the domain is the project's own site. */
+      is_target: boolean;
+      /** Whether the domain is one of the competitors in 'brands'. */
+      is_competitor: boolean;
+    }
+
+    export interface AEORankedPage {
+      /** The cited URL, as the engine returned it. */
+      url: string;
+      /** Answered checks in the window that cited this URL. */
+      answers: number;
+      /** Share (0-1) of answered checks in the window that cited the URL. */
+      share_of_answers: number;
+      /** Whether the URL is on the project's own site. */
+      is_target: boolean;
+    }
+
+    export interface AEOPromptSetRankings {
+      /** The project's brand and up to 10 competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks. A competitor counts as named when its domain's name appears as a word, so a common-word name can over-count. */
+      brands: AEORankedBrand[];
+      /** Visibility per brand and day in the current window, ordered by day then domain. */
+      daily: AEORankedBrandDay[];
+      /** The 20 registrable domains the engines cited most in the window, most cited first. */
+      top_domains: AEORankedDomain[];
+      /** The 20 pages the engines cited most in the window, most cited first. */
+      top_pages: AEORankedPage[];
+      /** Length of each window in days. */
+      days: number;
+      /** First day of the current window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the current window (today), in the project's timezone. */
+      window_to: string;
+      /** Answered checks in the current window: the denominator of every share. */
+      answers: number;
     }
 
     export interface AEOPromptStats {
@@ -2724,6 +2835,8 @@ export namespace Schemas {
       readonly account_name: string;
       /** User who created the note, if known. */
       readonly created_by: UserBasic | null;
+      /** Tag names on the note. */
+      readonly tags: readonly string[];
     }
 
     export interface AccountNotebook {
@@ -2746,6 +2859,11 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
+      /**
+         * Tag names on the notebook. On update this replaces the existing set; omit to leave tags untouched.
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     /**
@@ -13809,6 +13927,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly llm_detector_available: boolean | null;
+      /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
+      readonly pagerduty_available: boolean;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -13913,6 +14033,51 @@ export namespace Schemas {
       slack_channel_name?: string;
     }
 
+    /**
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info
+     */
+    export type PagerDutySeverityEnum = typeof PagerDutySeverityEnum[keyof typeof PagerDutySeverityEnum];
+
+
+    export const PagerDutySeverityEnum = {
+      Critical: 'critical',
+      Error: 'error',
+      Warning: 'warning',
+      Info: 'info',
+    } as const;
+
+    /**
+     * * `us` - us
+     * * `eu` - eu
+     */
+    export type PagerDutyRegionEnum = typeof PagerDutyRegionEnum[keyof typeof PagerDutyRegionEnum];
+
+
+    export const PagerDutyRegionEnum = {
+      Us: 'us',
+      Eu: 'eu',
+    } as const;
+
+    export interface AlertCreatePagerDutyDestination {
+      /** The 32-character integration key of a PagerDuty Events API v2 integration. */
+      pagerduty_routing_key: string;
+      /** Severity of the incidents the alert opens.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** Region of the PagerDuty account.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+    }
+
     export interface AlertDeleteDestination {
       /**
          * Destination IDs to delete, as returned when the destination was created.
@@ -13925,6 +14090,11 @@ export namespace Schemas {
     export interface AlertDestinationResponse {
       /** IDs of the created destination. Pass them to destinations/delete to remove it. */
       hog_function_ids: string[];
+    }
+
+    export interface AlertPagerDutyAvailability {
+      /** Whether a new alert with these settings can open PagerDuty incidents. */
+      available: boolean;
     }
 
     /**
@@ -55952,6 +56122,7 @@ export namespace Schemas {
 
 
     export const MarketingAnalyticsRecommendationLevel = {
+      Account: 'account',
       Campaign: 'campaign',
       SearchTerm: 'search_term',
     } as const;
@@ -55970,6 +56141,7 @@ export namespace Schemas {
       KeywordGap: 'keyword_gap',
       SpendWithoutConversions: 'spend_without_conversions',
       StrikingDistance: 'striking_distance',
+      KeywordTracking: 'keyword_tracking',
     } as const;
 
     export interface MarketingAnalyticsRecommendationStep {
@@ -55998,7 +56170,7 @@ export namespace Schemas {
       rule: MarketingAnalyticsRecommendationRule;
       /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
       steps?: MarketingAnalyticsRecommendationStep[] | null;
-      /** The campaign name or the search term the recommendation is about. */
+      /** The ad account, campaign or search term the recommendation is about. */
       subject: string;
     }
 
@@ -63699,34 +63871,6 @@ export namespace Schemas {
          */
       readonly updated_at: string | null;
     }
-
-    /**
-     * * `critical` - critical
-     * * `error` - error
-     * * `warning` - warning
-     * * `info` - info
-     */
-    export type PagerDutySeverityEnum = typeof PagerDutySeverityEnum[keyof typeof PagerDutySeverityEnum];
-
-
-    export const PagerDutySeverityEnum = {
-      Critical: 'critical',
-      Error: 'error',
-      Warning: 'warning',
-      Info: 'info',
-    } as const;
-
-    /**
-     * * `us` - us
-     * * `eu` - eu
-     */
-    export type PagerDutyRegionEnum = typeof PagerDutyRegionEnum[keyof typeof PagerDutyRegionEnum];
-
-
-    export const PagerDutyRegionEnum = {
-      Us: 'us',
-      Eu: 'eu',
-    } as const;
 
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
@@ -76812,7 +76956,7 @@ export namespace Schemas {
       previous?: string | null;
       results: SignalReportList[];
       /**
-         * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when your stored personal ranking ordered the page. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+         * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when a stored personal ranking ordered the page: the teammate's with scope=teammate, else yours. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
          * @nullable
          */
       ranker?: string | null;
@@ -81696,6 +81840,18 @@ export namespace Schemas {
     }
 
     /**
+     * Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,
+     * since a note's title comes from its first line.
+     */
+    export interface PatchedAccountNotebookUpdate {
+      /**
+         * Replaces the notebook's tags. Omit to leave them untouched.
+         * @items.maxLength 255
+         */
+      tags?: string[];
+    }
+
+    /**
      * A team-defined account relationship type (CSM, Onboarding manager, ...).
      */
     export interface PatchedAccountRelationshipDefinition {
@@ -81787,6 +81943,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly llm_detector_available?: boolean | null;
+      /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
+      readonly pagerduty_available?: boolean;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -110043,6 +110201,44 @@ export namespace Schemas {
       readonly previous_secret_valid_until: string | null;
     }
 
+    /**
+     * * `unavailable` - unavailable
+     * * `rendering` - rendering
+     * * `ready` - ready
+     */
+    export type SnapshotStatusEnum = typeof SnapshotStatusEnum[keyof typeof SnapshotStatusEnum];
+
+
+    export const SnapshotStatusEnum = {
+      Unavailable: 'unavailable',
+      Rendering: 'rendering',
+      Ready: 'ready',
+    } as const;
+
+    export interface SiteSnapshot {
+      /** `ready` when the snapshot image can be loaded, `rendering` while it is being created, `unavailable` when no recent session recording matches the survey or the user cannot view recordings.
+       *
+       * * `unavailable` - unavailable
+       * * `rendering` - rendering
+       * * `ready` - ready */
+      status: SnapshotStatusEnum;
+      /**
+         * ID of the exported image. Load it from the exports content endpoint once the status is `ready`.
+         * @nullable
+         */
+      exported_asset_id: number | null;
+      /**
+         * URL of the page the snapshot shows. Null when the status is `unavailable`.
+         * @nullable
+         */
+      page_url: string | null;
+      /**
+         * Width in CSS pixels of the browser window the snapshot was recorded in, to draw it at its real scale.
+         * @nullable
+         */
+      viewport_width: number | null;
+    }
+
     export interface SlackAppChannelJoinResult {
       /** Slack channel ID. */
       channel_id: string;
@@ -124022,9 +124218,17 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort order. Defaults to '-last_modified_at'.
+     */
+    ordering?: string;
+    /**
      * Full-text search across note title and content, plus substring match on account name.
      */
     search?: string;
+    /**
+     * JSON-encoded array of tag names, e.g. `["renewal","risk"]`. Only return notes that carry any of the listed tags.
+     */
+    tags?: string;
     };
 
     export type AccountRelationshipDefinitionsListParams = {
@@ -124111,6 +124315,10 @@ export namespace Schemas {
 
     export type AccountsNotebooksListParams = {
     /**
+     * Only return notebooks created by these user IDs (repeat the param per user).
+     */
+    created_by?: number[];
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -124119,13 +124327,17 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort by creation date or author. Defaults to '-created_at'.
+     * Sort by creation date, last modification, author or title. Defaults to '-created_at'.
      */
     ordering?: string;
     /**
      * Full-text search across notebook title and content.
      */
     search?: string;
+    /**
+     * JSON-encoded array of tag names, e.g. `["renewal","risk"]`. Returns notebooks that carry any of the listed tags.
+     */
+    tags?: string;
     };
 
     export type AccountsRelationshipsListParams = {
@@ -125086,6 +125298,15 @@ export namespace Schemas {
     days?: number;
     };
 
+    export type AeoPromptsRankingsParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    };
+
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
     /**
      * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
@@ -125564,6 +125785,37 @@ export namespace Schemas {
      */
     checks_offset?: number;
     };
+
+    export type AlertsPagerdutyAvailabilityRetrieveParams = {
+    /**
+     * How often the new alert is checked.
+     *
+     * * `real_time` - real_time
+     * * `every_15_minutes` - every_15_minutes
+     * * `hourly` - hourly
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly
+     * @minLength 1
+     */
+    calculation_interval: AlertsPagerdutyAvailabilityRetrieveCalculationInterval;
+    /**
+     * Whether the new alert runs the investigation agent.
+     */
+    investigation_agent_enabled?: boolean;
+    };
+
+    export type AlertsPagerdutyAvailabilityRetrieveCalculationInterval = typeof AlertsPagerdutyAvailabilityRetrieveCalculationInterval[keyof typeof AlertsPagerdutyAvailabilityRetrieveCalculationInterval];
+
+
+    export const AlertsPagerdutyAvailabilityRetrieveCalculationInterval = {
+      RealTime: 'real_time',
+      Every15Minutes: 'every_15_minutes',
+      Hourly: 'hourly',
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+    } as const;
 
     export type AnnotationsListParams = {
     /**
@@ -136409,7 +136661,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of your stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. It only reads the stored ranking and never starts a build. With no stored personal ranking, it is the recommended order.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order.
      */
     sort?: string;
     /**
@@ -137473,6 +137725,25 @@ export namespace Schemas {
      */
     until?: string;
     };
+
+    export type SurveysSiteSnapshotRetrieveParams = {
+    /**
+     * Which viewport to show. Desktop picks a page viewed in a window at least 1024px wide, mobile one at most 767px wide.
+     *
+     * * `desktop` - Desktop
+     * * `mobile` - Mobile
+     * @minLength 1
+     */
+    device: SurveysSiteSnapshotRetrieveDevice;
+    };
+
+    export type SurveysSiteSnapshotRetrieveDevice = typeof SurveysSiteSnapshotRetrieveDevice[keyof typeof SurveysSiteSnapshotRetrieveDevice];
+
+
+    export const SurveysSiteSnapshotRetrieveDevice = {
+      Desktop: 'desktop',
+      Mobile: 'mobile',
+    } as const;
 
     export type SurveysStatsRetrieveParams = {
     /**

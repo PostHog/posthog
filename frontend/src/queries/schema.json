@@ -37692,7 +37692,7 @@
                     "type": "array"
                 },
                 "subject": {
-                    "description": "The campaign name or the search term the recommendation is about.",
+                    "description": "The ad account, campaign or search term the recommendation is about.",
                     "type": "string"
                 }
             },
@@ -37747,7 +37747,7 @@
             "type": "string"
         },
         "MarketingAnalyticsRecommendationLevel": {
-            "enum": ["campaign", "search_term"],
+            "enum": ["account", "campaign", "search_term"],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationRule": {
@@ -37761,7 +37761,8 @@
                 "content_gap",
                 "keyword_gap",
                 "spend_without_conversions",
-                "striking_distance"
+                "striking_distance",
+                "keyword_tracking"
             ],
             "type": "string"
         },
