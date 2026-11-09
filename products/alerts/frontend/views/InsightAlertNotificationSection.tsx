@@ -19,6 +19,7 @@ export interface InsightAlertNotificationSectionProps {
     alertId: AlertType['id'] | undefined
     insightShortId: InsightShortId
     inlineNotificationsEnabled: boolean
+    pagerDutyAvailable: boolean
     showSectionTitle?: boolean
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }
@@ -28,6 +29,7 @@ export function InsightAlertNotificationSection({
     alertId,
     insightShortId,
     inlineNotificationsEnabled,
+    pagerDutyAvailable,
     showSectionTitle = true,
     onSetAlertFormValue,
 }: InsightAlertNotificationSectionProps): JSX.Element {
@@ -38,7 +40,7 @@ export function InsightAlertNotificationSection({
 
     let destinations: JSX.Element
     if (inlineNotificationsEnabled) {
-        destinations = <InlineAlertNotifications alertId={alertId} />
+        destinations = <InlineAlertNotifications alertId={alertId} pagerDutyAvailable={pagerDutyAvailable} />
     } else if (alertId) {
         destinations = (
             <div className="flex flex-col">

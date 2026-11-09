@@ -14,6 +14,8 @@ import {
     AlertNotificationUrlInput,
     AlertPagerDutyRegion,
     AlertPagerDutySeverity,
+    PAGERDUTY_ROUTING_KEY_PATTERN,
+    pagerDutyRoutingKeyError,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import {
     logsAlertsDestinationsCreate,
@@ -31,7 +33,6 @@ import {
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
     LogsAlertDestinationGroup,
     LogsAlertNotificationType,
-    PAGERDUTY_ROUTING_KEY_PATTERN,
     PendingLogsAlertNotification,
 } from './logsAlertUtils'
 
@@ -380,12 +381,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
                 pagerDutyRoutingKey: string
             ): string | undefined => {
                 if (selectedType === LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
-                    if (!pagerDutyRoutingKey.trim()) {
-                        return 'Enter the PagerDuty integration key'
-                    }
-                    return PAGERDUTY_ROUTING_KEY_PATTERN.test(pagerDutyRoutingKey.trim())
-                        ? undefined
-                        : 'The integration key is 32 letters and digits'
+                    return pagerDutyRoutingKeyError(pagerDutyRoutingKey)
                 }
                 if (selectedType !== LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
                     return webhookUrl ? undefined : 'Enter a webhook URL'
