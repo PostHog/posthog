@@ -683,9 +683,8 @@ function frequencyCapHold(
     return { until, deadlineAt: deadline.toISO()!, firstHold: !startedDeadline }
 }
 
-// The render time limit fails the step before anything is sent, and the step otherwise continues past
-// the error as if it succeeded. A busy worker can trip the limit on a normal template, so the step
-// re-runs once after a short delay. A second failure throws, and the executor handles it as before.
+// The render time limit fails the step before anything is sent, and on_error 'continue' would then skip the
+// email without a trace. A briefly overloaded worker can trip it on a normal template, so the step gets one retry.
 function retryOrFailLiquidRender(
     invocation: CyclotronJobInvocationHogFlow,
     result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,

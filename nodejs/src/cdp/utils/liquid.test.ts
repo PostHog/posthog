@@ -337,8 +337,7 @@ describe('LiquidRenderer', () => {
         })
 
         it('reads thread CPU time periodically rather than at every template node', () => {
-            // A frozen clock means no sample interval passes during the render, so only the reads at the start
-            // and end of the render remain. The loop below gives LiquidJS 10,000 nodes to check.
+            // With a frozen clock no sample interval passes, so only the reads around the render remain.
             const now = performance.now()
             const clockSpy = jest.spyOn(performance, 'now').mockReturnValue(now)
             const cpuSpy = jest.spyOn(process, 'threadCpuUsage')

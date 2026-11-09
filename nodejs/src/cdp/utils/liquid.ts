@@ -14,7 +14,6 @@ const LIQUID_PARSE_LIMIT_CHARS = 5_000_000
 const LIQUID_MEMORY_LIMIT_UNITS = 1_000_000
 // Time and output are budgeted per invocation, not per template, because one invocation renders
 // every string leaf of every liquid input and those leaves would otherwise each get a full budget.
-// Time is CPU time on this thread, so a worker that is busy or throttled does not fail a normal template.
 const LIQUID_RENDER_LIMIT_MS = 500
 const LIQUID_OUTPUT_LIMIT_CHARS = 10_000_000
 
@@ -32,15 +31,12 @@ const threadCpuMs = (): number => {
     return (user + system) / 1000
 }
 
-// Only the time limit, which a busy worker can trip on a template that renders well under normal load.
 export const isLiquidRenderTimeLimitError = (error: unknown): boolean =>
     error instanceof Error && error.message.includes(LIQUID_RENDER_LIMIT_MESSAGE)
 
-// LiquidJS checks its render limit between template nodes and passes the wall-clock time to each check. This
-// replaces it on the render context with the same check against thread CPU time, and keeps the LiquidJS error
-// message. Reading thread CPU time is a syscall, so a check reads it only when this much wall-clock time has
-// passed since the last read. Thread CPU time cannot advance faster than wall-clock time, so a render can run
-// at most this long past the limit before a check sees it.
+// The render limit counts thread CPU time, so a stalled or throttled worker does not fail a normal template.
+// Reading it is a syscall, so a check reads it once per interval of wall-clock time. CPU time cannot advance
+// faster than wall-clock time, so a render runs at most one interval past the limit.
 const LIQUID_RENDER_CPU_SAMPLE_INTERVAL_MS = 5
 
 const cpuTimeRenderLimit = (limitMs: number): Context['renderLimit'] => {
