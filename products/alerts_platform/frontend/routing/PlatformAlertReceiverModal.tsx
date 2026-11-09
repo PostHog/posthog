@@ -101,6 +101,8 @@ export function PlatformAlertReceiverModal(): JSX.Element {
                         help={keepsUrl ? 'Leave blank to keep the current URL.' : undefined}
                     >
                         <LemonInput
+                            // The URL's path carries the provider's secret, so copied text is not captured.
+                            className="ph-no-capture"
                             placeholder={keepsUrl ? editingReceiver?.webhook_url : 'https://example.com/webhook'}
                             data-attr="platform-alert-receiver-webhook-url"
                         />
