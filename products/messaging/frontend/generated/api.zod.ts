@@ -151,7 +151,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .regex(messagingSendEmailCreateBodyAttachmentsItemSha256RegExp)
                     .describe(
-                        'SHA-256 of a file uploaded through `POST \/api\/environments\/{project_id}\/messaging\/attachments\/uploads\/`, as 64 lowercase hex characters.'
+                        'SHA-256 of a file uploaded through `POST \/api\/projects\/{project_id}\/messaging\/attachments\/uploads\/`, as 64 lowercase hex characters.'
                     ),
                 filename: zod
                     .string()
@@ -178,7 +178,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingSendEmailCreateBodyAttachmentsMax)
         .nullish()
         .describe(
-            "Files attached to the email your code rendered: up to 10, each uploaded first through `POST \/api\/environments\/{project_id}\/messaging\/attachments\/uploads\/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
+            "Files attached to the email your code rendered: up to 10, each uploaded first through `POST \/api\/projects\/{project_id}\/messaging\/attachments\/uploads\/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
         ),
     capture_engagement: zod
         .boolean()
