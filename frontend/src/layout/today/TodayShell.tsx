@@ -194,9 +194,10 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                             style={{ width: sidebarWidth }}
                         >
                             {pane}
-                            <div className="mt-auto flex-none border-t border-[var(--border)] px-2 py-2">
-                                <NavSwitchButtons surface="today_sidebar" />
-                            </div>
+                            <NavSwitchButtons
+                                surface="today_sidebar"
+                                className="mt-auto flex-none border-t border-[var(--border)] px-2 py-2"
+                            />
                         </aside>
                     </>
                 ) : (
@@ -209,9 +210,10 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                             style={{ width: sidebarWidth }}
                         >
                             {pane}
-                            <div className="mt-auto flex-none border-t border-[var(--border)] px-2 py-2">
-                                <NavSwitchButtons surface="today_sidebar" />
-                            </div>
+                            <NavSwitchButtons
+                                surface="today_sidebar"
+                                className="mt-auto flex-none border-t border-[var(--border)] px-2 py-2"
+                            />
                             {/* The frame already draws the seam, so the handle's own line shows only on hover. */}
                             <Resizer {...resizerLogicProps} visible={false} className="z-2" offset={0} />
                         </aside>

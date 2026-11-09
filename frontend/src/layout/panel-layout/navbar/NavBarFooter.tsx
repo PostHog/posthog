@@ -42,11 +42,7 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                 <PostHogTeamCohortBanner isCollapsed={isLayoutNavCollapsed} />
             </div>
 
-            {!isLayoutNavCollapsed && (
-                <div className="w-full px-1 pb-1">
-                    <NavSwitchButtons surface="navbar" />
-                </div>
-            )}
+            {!isLayoutNavCollapsed && <NavSwitchButtons surface="navbar" className="w-full px-1 pb-1" />}
 
             <NavPanelAdvertisement />
 

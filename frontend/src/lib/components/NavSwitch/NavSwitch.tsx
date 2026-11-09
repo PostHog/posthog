@@ -7,6 +7,7 @@ import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 
 export type NavSwitchSurface = 'today_sidebar' | 'navbar' | 'org_menu' | 'account_menu'
 
@@ -52,13 +53,19 @@ export function useNavSwitch(): NavSwitch {
 }
 
 /** The switch swaps the chrome in place through the enrollment update, so no reload is needed. */
-export function NavSwitchButtons({ surface }: { surface: NavSwitchSurface }): JSX.Element | null {
+export function NavSwitchButtons({
+    surface,
+    className,
+}: {
+    surface: NavSwitchSurface
+    className?: string
+}): JSX.Element | null {
     const { available, newNavOn, switchNav, giveFeedback } = useNavSwitch()
     if (!available) {
         return null
     }
     return (
-        <div className="flex flex-col gap-1">
+        <div className={cn('flex flex-col gap-1', className)}>
             <LemonButton
                 type="secondary"
                 size="small"
