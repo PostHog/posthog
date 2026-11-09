@@ -1008,6 +1008,7 @@ The check only covers Django tables in the main database.
 Node Jest CI fails when Node SQL reads a table of an app that `products/db_routing.yaml` sends to a product database, or a table with an app prefix that no migration creates.
 ClickHouse tables are out of scope.
 The sqlx databases (persons, cyclotron, behavioral cohorts) are checked in shadow mode: the hook logs their state but does not hold the rollout yet.
+A sqlx version does not count when every table its migration names is one that Node does not read, so a drop of a table Node no longer uses does not hold anything.
 The hook pushes its Django and sqlx results to the Prometheus Pushgateway as `node_schema_check_` metrics, so alerts can fire on a missing migration that the logs alone would hide.
 Column and table drops are the opposite case and stay code-first: remove every reader, deploy, then drop.
 The check cannot help there, because Django applies the drop while the old Node pods still read the column.

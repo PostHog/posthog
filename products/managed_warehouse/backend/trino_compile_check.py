@@ -8,7 +8,7 @@ finds missing tables, type errors and functions the deployed Trino lacks. Nothin
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import nullcontext
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -76,10 +76,13 @@ def check_trino_compile(
     saved_query_ids: Sequence[str] | None = None,
     explain: bool = False,
     limit: int | None = None,
-    explain_timeout_seconds: int = 30,
-) -> TrinoCompileCheckReport:
-    """Compile each non-deleted saved query of ``team`` for Trino, and with ``explain`` let Trino plan it."""
-    saved_queries = _load_saved_queries(team.pk, saved_query_ids, limit)
+    skip_ids: Iterable[str] = (),
+) -> Iterator[TrinoCompileCheckRow]:
+    """Compile each non-deleted saved query of ``team`` for Trino, and with ``explain`` let Trino plan it.
+
+    Yields one row per saved query as soon as it is checked, so a caller can keep partial results.
+    """
+    saved_queries = _load_saved_queries(team.pk, saved_query_ids, limit, skip_ids)
     connection_context = (
         connect_managed_warehouse_trino(
             str(team.organization_id), principal=f"posthog:trino-compile-check:team:{team.pk}"
@@ -88,14 +91,12 @@ def check_trino_compile(
         else nullcontext()
     )
     with connection_context as connection:
-        if connection is not None:
-            _limit_explain_time(connection, explain_timeout_seconds)
-        rows = tuple(_check(team, saved_query, connection) for saved_query in saved_queries)
-    return TrinoCompileCheckReport(rows=rows)
+        for saved_query in saved_queries:
+            yield _check(team, saved_query, connection)
 
 
 def _load_saved_queries(
-    team_id: int, saved_query_ids: Sequence[str] | None, limit: int | None
+    team_id: int, saved_query_ids: Sequence[str] | None, limit: int | None, skip_ids: Iterable[str]
 ) -> list[DataWarehouseSavedQuery]:
     from products.data_modeling.backend.facade.models import (  # noqa: PLC0415 -- the facade loads lazily
         DataWarehouseSavedQuery,
@@ -104,19 +105,8 @@ def _load_saved_queries(
     queryset = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).order_by("name")
     if saved_query_ids is not None:
         queryset = queryset.filter(id__in=saved_query_ids)
+    queryset = queryset.exclude(id__in=list(skip_ids))
     return list(queryset[:limit] if limit is not None else queryset)
-
-
-def _limit_explain_time(connection: Connection, timeout_seconds: int) -> None:
-    # The planning limit misses queue time and analysis, so the run-time limit bounds the whole EXPLAIN.
-    # Trino then fails the query with EXCEEDED_TIME_LIMIT. The client keeps the session properties.
-    for setting in ("query_max_planning_time", "query_max_run_time"):
-        cursor = connection.cursor()
-        try:
-            cursor.execute(f"SET SESSION {setting} = '{int(timeout_seconds)}s'")
-            cursor.fetchall()
-        finally:
-            cursor.close()
 
 
 def _check(team: Team, saved_query: DataWarehouseSavedQuery, connection: Connection | None) -> TrinoCompileCheckRow:

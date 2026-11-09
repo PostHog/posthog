@@ -10,7 +10,7 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import THROWAWAY_HOST_MESSAGE, apply_provisioning_defaults
+from posthog.api.oauth.cimd import THROWAWAY_HOST_MESSAGE, CIMDFetchError, apply_provisioning_defaults
 from posthog.api.oauth.client_assertion import (
     CLIENT_ASSERTION_TYPE_JWT_BEARER,
     PRIVATE_KEY_REQUIRED_MESSAGE,
@@ -355,6 +355,19 @@ class TestClientRegistration(ProvisioningTestBase):
         assert checks["metadata_document"]["ok"] is True
         assert checks["provisioning_enabled"]["ok"] is True
         assert checks["jwks"]["ok"] is False
+
+    def test_stored_off_domain_jwks_is_reported_without_fetching_it(self):
+        self._make_partner(jwks_uri="https://keys.partner-cdn.net/jwks.json")
+
+        with patch("posthog.api.oauth.client_assertion._fetch_jwks_document") as fetch_jwks:
+            res = self._register({"client_id": CIMD_URL}, metadata_error=CIMDFetchError("Document unreachable"))
+
+        assert res.status_code == 200, res.json()
+        checks = {check["name"]: check for check in res.json()["checks"]}
+        assert checks["metadata_document"]["ok"] is False
+        assert checks["jwks"]["ok"] is False
+        assert "same domain as your client_id (example.com" in checks["jwks"]["detail"]
+        fetch_jwks.assert_not_called()
 
     @parameterized.expand(
         [

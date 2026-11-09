@@ -66,6 +66,7 @@ def _object_grant_registry() -> dict[type[Model], str]:
 
     def all_subclasses(cls: type) -> set[type]:
         subs: set[type] = set()
+        sub: type
         for sub in cls.__subclasses__():
             subs.add(sub)
             subs |= all_subclasses(sub)
@@ -109,6 +110,7 @@ def _object_grant_scopes() -> frozenset[str]:
 
     def all_subclasses(cls: type) -> set[type]:
         subs: set[type] = set()
+        sub: type
         for sub in cls.__subclasses__():
             subs.add(sub)
             subs |= all_subclasses(sub)
