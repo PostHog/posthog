@@ -8926,6 +8926,22 @@
             "readOnlyHint": true
         }
     },
+    "integrations-email-create": {
+        "description": "Add an email sender for a domain the project owns, the first step before any workflow can send email. Pass config with email (the from address), name (the from name shown in the inbox), provider 'ses', and optionally mail_from_subdomain (defaults to a bounce-handling subdomain nobody sees) and reply_to. A domain that already has a sender keeps the mail_from_subdomain SES uses for it, if any, over the one you pass; the response carries the value that applies. The domain is not verified yet: follow with integrations-email-status-retrieve for the DNS records to publish, then integrations-email-verify-create once they resolve. Use the domain people signed up at rather than a new one, so the mail comes from somewhere they recognise. Ask the user before adding a sender; it is a sending identity for a domain they control, and an address that cannot receive replies breaks any email that asks for one. An address that already has a sender is rejected, so this cannot overwrite or unverify one: find that sender with integrations-list (kind email) and continue setup with its id.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Add an email sender",
+        "title": "Add an email sender",
+        "required_scopes": ["integration:write"],
+        "api_operations": ["POST /api/projects/{project_id}/integrations/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-email-domain-agent-setup"
+    },
     "integrations-email-status-retrieve": {
         "description": "Get the setup progress of an email sender's domain by integration ID. Returns the overall status, the three setup steps, and every DNS record to publish with its current status (pending, found, verified). Poll it after adding DNS records until status is verified, waiting at least 10 seconds between calls. Pass refresh=true right after changing DNS to skip the 10 second cache. It does not change DNS or SES, and it does not mark the sender verified: once status is verified, call integrations-email-verify-create.",
         "category": "Integrations",
@@ -15943,6 +15959,70 @@
             "readOnlyHint": true
         },
         "feature_flag": "tasks"
+    },
+    "ui-customization-describe": {
+        "description": "Get the layout JSON Schema and default layout for a supported UI customization context, such as analytics_sidebar for the Analytics sidebar, before designing alternatives. Read the schema descriptions for additional server validation rules, including limits across sections. This does not read or change the person's saved layout. Use ui-customization-get to read their layout before replacing it with ui-customization-set. Saving always validates the full layout again.",
+        "category": "UI customization",
+        "feature": "ui_customization",
+        "summary": "Describe UI customization",
+        "title": "Describe UI customization",
+        "required_scopes": ["user:read"],
+        "api_operations": ["GET /api/projects/{project_id}/ui_customization/{context}/schema/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "ui-customization"
+    },
+    "ui-customization-get": {
+        "description": "Get the person's layout for a supported UI customization context. For analytics_sidebar, this is the Analytics pane in the new navigation. It is the person's own layout, or the default when customized is false. Call it before you change the fragment, then send the whole changed layout to ui-customization-set.",
+        "category": "UI customization",
+        "feature": "ui_customization",
+        "summary": "Get UI customization",
+        "title": "Get UI customization",
+        "required_scopes": ["user:read"],
+        "api_operations": ["GET /api/projects/{project_id}/ui_customization/{context}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "ui-customization"
+    },
+    "ui-customization-reset": {
+        "description": "Remove the person's own layout for the selected context, such as analytics_sidebar for the Analytics sidebar, so it shows the default again. Returns the default layout.",
+        "category": "UI customization",
+        "feature": "ui_customization",
+        "summary": "Reset UI customization",
+        "title": "Reset UI customization",
+        "required_scopes": ["user:write"],
+        "api_operations": ["DELETE /api/projects/{project_id}/ui_customization/{context}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "ui-customization"
+    },
+    "ui-customization-set": {
+        "description": "Replace the person's layout for the selected UI customization context. It changes only the person who calls it, in this project. For analytics_sidebar: Build the layout from sections of items: links and buttons that open a PostHog page or an insight, dashboard or notebook of this project, metrics that show the latest value of a trends insight, and lists that PostHog fills (pinned, recents, by_posthog). Get the IDs of insights, dashboards and notebooks from their tools first; never invent them. Saving rejects an insight, dashboard or notebook that does not exist, and a metric whose insight is not a trends insight. Use at most 30 items total across all sections, including at most 4 live metrics. Each built-in list counts as one item. Keep the default sections the person did not ask to remove, and keep the IDs of the sections you keep. A 400 error names each value that does not fit, so fix those values and send it again.",
+        "category": "UI customization",
+        "feature": "ui_customization",
+        "summary": "Set UI customization",
+        "title": "Set UI customization",
+        "required_scopes": ["user:write"],
+        "api_operations": ["PUT /api/projects/{project_id}/ui_customization/{context}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "ui-customization"
     },
     "update-feature-flag": {
         "description": "Update a feature flag by numeric ID (partial update: only the fields you include are changed). Use this for edits that have no dedicated tool, such as property filters, adding and removing release conditions, variant definitions, payloads, tags and the description.\n\nPrefer a dedicated tool whenever the request matches one. `feature-flag-enable`, `feature-flag-disable`, `feature-flag-archive` and `feature-flag-unarchive` each change one state field and send no `filters`. A targeting change someone else made between your read and your write is therefore not overwritten. Send `active` or `archived` here only when the same request also changes targeting or another field, so the whole edit lands in one write.\n\n`feature-flag-set-release-condition-rollout` changes one release condition's percentage and `feature-flag-roll-out-to-everyone` serves the flag to its whole audience. Both send no `filters` and both refuse the write when the flag changed after the version you read, so a concurrent edit cannot be lost. On a flag without `filters.version` 2, this tool does not check `version`, so it writes even when the flag changed after your read. It replaces the whole `filters` object with your copy of it. Use it for a rollout change only when those two tools cannot express it, such as changing the split between variants while leaving the audience alone.\n\nA flag whose `filters.version` is 2 requires `version` for any change, so read the flag first and send its current `version`; never guess it. A stale `version` returns 409: read the flag again and decide against its current state. Don't send `filters` for such a flag: its rules change through `feature-flag-rules-update`.\n\nRollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters` replaces the whole object, so read the flag first and merge your change. Each release condition you read has a `condition_id`. Send it unchanged on every condition you keep, edit, or move, and leave it off a new condition. A `condition_id` belongs to the flag you read it from, so leave it off a condition copied from a different flag. Once any condition has a `condition_id`, a condition without one is treated as new. This tool uses the ID to restore each condition's property types and targeting, so a reorder, deletion, or edit keeps every condition on the persons or group type it targeted. If a `condition_id` matches no condition on the flag, the flag may have changed after your read, and the update is refused. Read the flag again and rebuild the update. When the flag targets groups, keep `type: \"group\"`, `group_type_index`, and `filters.aggregation_group_type_index` in what you send; if you omit them this tool restores them from the existing flag so group targeting is not silently converted to person targeting. When the flag's conditions don't all target the same thing (some target persons and others a group type, or they target different group types), set `aggregation_group_type_index` on every new condition. Use null for persons. If you send no `condition_id` values, set `aggregation_group_type_index` on every condition whenever you add, remove, reorder, or change the properties of conditions. Otherwise this tool can't tell which target each condition keeps, and it refuses the update. Use `feature-flag-get-definition-by-key` when you have the string key: it returns the numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you already have the ID. To apply a change at a future time instead, use `scheduled-changes-create`.",

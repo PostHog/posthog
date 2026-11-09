@@ -1,10 +1,10 @@
-import './TodayShell.scss'
+import './sidebar.scss'
 
 import { cn } from '@posthog/quill'
 
-import { TodayPaneOption } from './TodayPaneOption'
+import { SidebarOption } from './SidebarOption'
 
-interface TodayPaneRowProps {
+interface SidebarRowProps {
     value: string
     label: string
     meta?: string
@@ -19,7 +19,7 @@ interface TodayPaneRowProps {
     dataAttr?: string
 }
 
-export function TodayPaneRow({
+export function SidebarRow({
     value,
     label,
     meta,
@@ -30,10 +30,10 @@ export function TodayPaneRow({
     action,
     actionVisible = false,
     dataAttr,
-}: TodayPaneRowProps): JSX.Element {
+}: SidebarRowProps): JSX.Element {
     return (
         <div className="group/row relative flex min-w-0 items-center">
-            <TodayPaneOption
+            <SidebarOption
                 value={value}
                 to={to}
                 active={active}
@@ -63,7 +63,7 @@ export function TodayPaneRow({
                         {meta}
                     </span>
                 )}
-            </TodayPaneOption>
+            </SidebarOption>
             {action && (
                 <span
                     className={cn(

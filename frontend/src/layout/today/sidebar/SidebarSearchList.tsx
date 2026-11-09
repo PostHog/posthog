@@ -1,12 +1,12 @@
-import './TodayShell.scss'
+import './sidebar.scss'
 
 import { type ReactNode, useRef } from 'react'
 
 import { Autocomplete, AutocompleteClear, AutocompleteInput, AutocompleteList, cn } from '@posthog/quill'
 
-import { highlightOption, toggleSectionWithArrow } from './todayPaneTreeKeys'
+import { highlightOption, toggleSectionWithArrow } from './sidebarTreeKeys'
 
-export interface TodayPaneSearchListProps {
+export interface SidebarSearchListProps {
     query: string
     onQueryChange: (query: string) => void
     /** The field's accessible name. Its placeholder adds an ellipsis, for example "Search tools…". */
@@ -25,7 +25,7 @@ export interface TodayPaneSearchListProps {
  * the arrow keys move between rows and Enter opens the highlighted row. With the field empty, Right and Left open and
  * close a highlighted section heading, and Left on a row closes its section, like a tree.
  */
-export function TodayPaneSearchList({
+export function SidebarSearchList({
     query,
     onQueryChange,
     searchLabel,
@@ -35,7 +35,7 @@ export function TodayPaneSearchList({
     children,
     className,
     listClassName,
-}: TodayPaneSearchListProps): JSX.Element {
+}: SidebarSearchListProps): JSX.Element {
     const listRef = useRef<HTMLDivElement>(null)
     return (
         <Autocomplete<string>
@@ -90,7 +90,7 @@ export function TodayPaneSearchList({
                 <AutocompleteList
                     ref={listRef}
                     className={cn(
-                        'TodayPaneSearchList mt-2 min-h-0 !max-h-none flex-1 overflow-y-auto !p-0 pb-6',
+                        'SidebarSearchList mt-2 min-h-0 !max-h-none flex-1 overflow-y-auto !p-0 pb-6',
                         header && 'mt-1',
                         listClassName
                     )}
