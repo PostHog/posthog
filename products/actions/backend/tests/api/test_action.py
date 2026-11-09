@@ -19,6 +19,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import Tag, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.event import MAX_SELECTOR_LENGTH
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.actions.backend.models.action import Action
@@ -213,6 +214,22 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(Action.objects.count(), count)
 
+    def test_cant_create_action_with_overlong_selector(self, *args):
+        count = Action.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {
+                "name": "long selector",
+                "steps": [{"event": "$autocapture", "selector": "a" * (MAX_SELECTOR_LENGTH + 1)}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "max_length")
+        self.assertEqual(response.json()["attr"], "steps")
+        self.assertIn(f"The maximum is {MAX_SELECTOR_LENGTH}", response.json()["detail"])
+        self.assertEqual(Action.objects.count(), count)
+
     def test_cant_create_action_with_whitespace_only_name(self, *args):
         count = Action.objects.count()
 
@@ -335,7 +352,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # test queries
-        with self.assertNumQueries(FuzzyInt(9, 11)):
+        with self.assertNumQueries(FuzzyInt(6, 8)):
             # Django session,  user,  team,  org membership, instance setting,  org,
             # count, action
             self.client.get(f"/api/projects/{self.team.id}/actions/")
@@ -509,7 +526,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         # No actions yet, so no tags prefetch query
-        with self.assertNumQueries(8), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(5), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -519,7 +536,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # With actions, there's an extra tags prefetch query
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -528,7 +545,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     @parameterized.expand(
@@ -1120,6 +1137,18 @@ class TestActionStepRegexValidation(SimpleTestCase):
         else:
             with self.assertRaisesMessage(ValidationError, "Invalid regular expression"):
                 ActionSerializer().validate_steps(steps)
+
+
+class TestActionStepSelectorLength(SimpleTestCase):
+    @parameterized.expand([("at_limit", MAX_SELECTOR_LENGTH, True), ("over_limit", MAX_SELECTOR_LENGTH + 1, False)])
+    def test_validates_selector_length(self, _name: str, length: int, expect_valid: bool) -> None:
+        steps = [{"event": "$autocapture", "selector": "a" * length}]
+        if expect_valid:
+            self.assertEqual(ActionSerializer().validate_steps(steps), steps)
+        else:
+            with self.assertRaises(ValidationError) as context:
+                ActionSerializer().validate_steps(steps)
+            self.assertEqual(context.exception.get_codes(), ["max_length"])
 
 
 class TestSelectorWarning(SimpleTestCase):

@@ -25,6 +25,7 @@ from products.slack_app.backend.temporal.activities import (
     discover_posthog_code_repository_via_agent_activity,
     edit_slack_app_onboarding_message_activity,
     enforce_posthog_code_billing_quota_activity,
+    find_slack_app_work_focus_activity,
     forward_posthog_code_followup_activity,
     handle_posthog_code_slack_mention_command_activity,
     mark_slack_app_message_processing_activity,
@@ -45,6 +46,10 @@ from products.slack_app.backend.temporal.activities import (
     resolve_posthog_code_slack_command_user_activity,
     run_posthog_slack_inbox_onboarding_activity,
 )
+from products.slack_app.backend.temporal.activities.report_implementation import (
+    finish_slack_report_implementation_activity,
+    prepare_slack_report_implementation_activity,
+)
 from products.slack_app.backend.temporal.types import (
     SLACK_APP_PROCESSING_REACTION,
     SLACK_APP_QUEUED_REACTION,
@@ -64,6 +69,8 @@ from products.slack_app.backend.temporal.types import (
 )
 
 SLACK_APP_ACTIVITIES = [
+    prepare_slack_report_implementation_activity,
+    finish_slack_report_implementation_activity,
     process_slack_app_fork_thread_activity,
     classify_untagged_followup_activity,
     request_untagged_followup_confirmation_activity,
@@ -91,6 +98,7 @@ SLACK_APP_ACTIVITIES = [
     mark_slack_app_message_processing_activity,
     mark_slack_app_message_queued_activity,
     edit_slack_app_onboarding_message_activity,
+    find_slack_app_work_focus_activity,
     plan_slack_app_onboarding_activity,
     post_slack_app_onboarding_message_activity,
     remind_slack_app_onboarding_activity,
@@ -148,6 +156,7 @@ __all__ = [
     "resolve_posthog_code_slack_command_user_activity",
     "classify_slack_app_model_router_activity",
     "edit_slack_app_onboarding_message_activity",
+    "find_slack_app_work_focus_activity",
     "plan_slack_app_onboarding_activity",
     "post_slack_app_onboarding_message_activity",
     "remind_slack_app_onboarding_activity",
