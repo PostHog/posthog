@@ -1,7 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { router } from 'kea-router'
 
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -135,18 +133,13 @@ export default meta
 
 type Story = StoryObj<{}>
 
+// `pageUrl`, not a delayed push, so the scene chunk has loaded before the runner checks for loaders.
 export const PersonNotFound: Story = {
-    render: () => {
-        useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('not-found')))
-
-        return <App />
-    },
+    render: () => <App />,
+    parameters: { pageUrl: urls.personByUUID('not-found') },
 }
 
 export const Person: Story = {
-    render: () => {
-        useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e')))
-
-        return <App />
-    },
+    render: () => <App />,
+    parameters: { pageUrl: urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e') },
 }

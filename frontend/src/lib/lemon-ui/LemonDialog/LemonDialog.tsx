@@ -29,6 +29,10 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
         content?: ((isLoading: boolean) => ReactNode) | ReactNode
         /** Override props on the auto-generated submit button (e.g. status, children) */
         primaryButtonProps?: Partial<Pick<LemonButtonProps, 'children' | 'status' | 'type' | 'icon'>>
+        /** Like primaryButtonProps, but computed from the current form values */
+        getPrimaryButtonProps?: (
+            values: Record<string, any>
+        ) => Partial<Pick<LemonButtonProps, 'children' | 'status' | 'type' | 'icon'>>
     }
 
 export type LemonDialogProps = Pick<
@@ -199,6 +203,7 @@ export const LemonFormDialog = ({
     errors,
     content,
     primaryButtonProps,
+    getPrimaryButtonProps,
     dialogKey,
     showErrorsOnTouch,
     ...props
@@ -218,6 +223,7 @@ export const LemonFormDialog = ({
         type: 'primary',
         children: 'Submit',
         ...primaryButtonProps,
+        ...getPrimaryButtonProps?.(form),
         htmlType: 'submit',
         // eslint-disable-next-line @typescript-eslint/no-misused-promises
         onClick: props.shouldAwaitSubmit ? async () => await onSubmit(form) : () => void onSubmit(form),
