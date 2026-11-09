@@ -1,5 +1,5 @@
 import dataclasses
-from datetime import date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Optional
 
 from requests import Response
@@ -89,6 +89,21 @@ def _format_cutoff(value: Any) -> str:
     return str(value)
 
 
+def _format_datetime_cutoff(value: Any) -> str:
+    """Format the incremental watermark for filters that take ``YYYY-MM-DDTHH:MM:SS``.
+
+    The docs don't say which timezone the filter is read in, so the cutoff starts one day before
+    the watermark. That covers any UTC offset, and merge dedupes the overlap.
+    """
+    if isinstance(value, datetime):
+        moment = value.astimezone(UTC) if value.tzinfo else value
+    elif isinstance(value, date):
+        moment = datetime.combine(value, time.min)
+    else:
+        return str(value)
+    return (moment - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
 def _incremental_config(
     endpoint: str,
     should_use_incremental_field: bool,
@@ -96,8 +111,8 @@ def _incremental_config(
 ) -> IncrementalConfig | None:
     """Server-side date filter (e.g. ``date.gte``), only when we hold a cursor value.
 
-    Mirrors the old behaviour: no filter on a first (full) sync, and the persisted watermark floored
-    to a day the way SurveySparrow's date filters expect.
+    No filter on a first (full) sync. The persisted watermark is formatted the way the endpoint's
+    filter expects: floored to a day, or a full timestamp.
     """
     config = SURVEYSPARROW_ENDPOINTS[endpoint]
     if not should_use_incremental_field or db_incremental_field_last_value is None or not config.cutoff_param:
@@ -105,7 +120,7 @@ def _incremental_config(
     return {
         "start_param": config.cutoff_param,
         "cursor_path": config.default_incremental_field or "completed_time",
-        "convert": _format_cutoff,
+        "convert": _format_datetime_cutoff if config.cutoff_includes_time else _format_cutoff,
     }
 
 
@@ -129,18 +144,18 @@ def _client_config(access_token: str, base_url: str) -> ClientConfig:
     }
 
 
-def _simple_resource(config: SurveySparrowEndpointConfig) -> EndpointResource:
-    return {
-        "name": config.name,
-        "endpoint": {
-            "path": config.path,
-            "params": {"limit": config.page_size, **config.extra_params},
-            "data_selector": "data",
-            # The old code raised a retryable error when a 200 body wasn't ``{"data": [...]}``;
-            # keep that defensive treatment of an unexpected shape as transient.
-            "data_selector_malformed_retryable": True,
-        },
+def _simple_resource(config: SurveySparrowEndpointConfig, incremental: IncrementalConfig | None) -> EndpointResource:
+    endpoint: Endpoint = {
+        "path": config.path,
+        "params": {"limit": config.page_size, **config.extra_params},
+        "data_selector": "data",
+        # The old code raised a retryable error when a 200 body wasn't ``{"data": [...]}``;
+        # keep that defensive treatment of an unexpected shape as transient.
+        "data_selector_malformed_retryable": True,
     }
+    if incremental is not None:
+        endpoint["incremental"] = incremental
+    return {"name": config.name, "endpoint": endpoint}
 
 
 def _parent_surveys_resource() -> EndpointResource:
@@ -197,13 +212,14 @@ def surveysparrow_source(
     config = SURVEYSPARROW_ENDPOINTS[endpoint]
     client_config = _client_config(access_token, base_url)
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    incremental = _incremental_config(endpoint, should_use_incremental_field, db_incremental_field_last_value)
 
     resource: Resource
     if not config.is_fanout:
         rest_config: RESTAPIConfig = {
             "client": client_config,
             "resource_defaults": {},
-            "resources": [_simple_resource(config)],
+            "resources": [_simple_resource(config, incremental)],
         }
 
         def save_simple(state: Optional[dict[str, Any]]) -> None:
@@ -221,7 +237,6 @@ def surveysparrow_source(
             initial_paginator_state=(resume.paginator_state if resume is not None else None),
         )
     else:
-        incremental = _incremental_config(endpoint, should_use_incremental_field, db_incremental_field_last_value)
         fanout_config: RESTAPIConfig = {
             "client": client_config,
             "resource_defaults": {},
@@ -246,7 +261,7 @@ def surveysparrow_source(
         name=endpoint,
         items=lambda: resource,
         primary_keys=config.primary_keys,
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

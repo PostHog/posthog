@@ -1,5 +1,6 @@
 import re
 import uuid
+import dataclasses
 from typing import Any, cast
 
 from django.conf import settings
@@ -15,7 +16,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
-from rest_framework import filters, parsers, request, response, serializers, status, viewsets
+from rest_framework import exceptions, filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
 
@@ -38,6 +39,7 @@ from posthog.models import Team
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
 
+from products.access_control.backend.facade.api import InvalidObjectAccessControlError, object_has_access_rules
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -52,12 +54,16 @@ from products.warehouse_sources.backend.facade.api import (
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
+    copy_access_rules_to_history_table,
     denied_table_ids,
     hosted_upload_s3_path,
     pending_source_ids_for_tables,
+    registered_history_table_for,
 )
 from products.warehouse_sources.backend.facade.contracts import (
     FileUploadSourceError,
+    HistoryAccessRulesNotAllowedError,
+    NoHistoryTableError,
     UnreadableUploadError,
     UploadedFileRef,
 )
@@ -545,6 +551,26 @@ class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelS
         ]
 
 
+class HistoryTableRefSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the history table.")
+    name = serializers.CharField(help_text="Name the history table is queried by in HogQL.")
+    user_can_manage_access = serializers.BooleanField(
+        help_text="Whether you can change who can access the history table."
+    )
+
+
+class TableHistoryTableSerializer(serializers.Serializer):
+    main_table_has_copyable_rules = serializers.BooleanField(
+        help_text="Whether this table has access rules of its own that you can manage, so there are rules to copy "
+        "to its history table.",
+    )
+    history_table = HistoryTableRefSerializer(
+        allow_null=True,
+        help_text="The table's history table, which keeps every past version of its rows. `null` when the table "
+        "has none or you can't view it.",
+    )
+
+
 class FileUploadResponseSerializer(serializers.Serializer):
     upload_id = serializers.UUIDField(
         help_text="Id of the stored upload. Pass it to create_from_upload to build the table."
@@ -776,6 +802,63 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         log_table_activity(table, "updated", before=before)
 
         return response.Response(status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=None,
+        responses={200: TableHistoryTableSerializer},
+        summary="Get the table's history table",
+        description=(
+            "The history table of a table that keeps the past versions of its rows. The history table is a "
+            "table of its own, so access rules set on this table don't apply to it."
+        ),
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["warehouse_table:read"])
+    def history_table(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+        history_table = registered_history_table_for(
+            team_id=self.team_id, table_id=table.id, user_access_control=self.user_access_control
+        )
+        payload = {
+            "history_table": dataclasses.asdict(history_table) if history_table is not None else None,
+            "main_table_has_copyable_rules": self.user_access_control.check_can_modify_access_levels_for_object(table)
+            and object_has_access_rules(team_id=self.team_id, resource="warehouse_table", resource_id=str(table.id)),
+        }
+        return response.Response(TableHistoryTableSerializer(payload).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: TableHistoryTableSerializer},
+        summary="Copy the table's access rules to its history table",
+        description=(
+            "Replace the access rules of the table's history table with the table's own rules. Requires the "
+            "right to manage access to both tables."
+        ),
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["access_control:write"])
+    def copy_access_rules_to_history_table(
+        self, request: request.Request, *args: Any, **kwargs: Any
+    ) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+        try:
+            history_table = copy_access_rules_to_history_table(
+                team_id=self.team_id,
+                table_id=table.id,
+                user_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except NoHistoryTableError as e:
+            raise exceptions.NotFound(str(e))
+        except HistoryAccessRulesNotAllowedError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except InvalidObjectAccessControlError as e:
+            raise serializers.ValidationError(str(e))
+        payload = {
+            "history_table": dataclasses.asdict(history_table),
+            "main_table_has_copyable_rules": object_has_access_rules(
+                team_id=self.team_id, resource="warehouse_table", resource_id=str(table.id)
+            ),
+        }
+        return response.Response(TableHistoryTableSerializer(payload).data)
 
     @extend_schema(
         request=None,
