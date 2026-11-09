@@ -5,12 +5,9 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 from posthog.schema_enums import MarketingAnalyticsRecommendationRule
 
-# Built from the query schema enum so a new rule needs no second list. The qualname names the OpenAPI enum.
-RecommendationRule = models.TextChoices(
-    "RecommendationRule",
-    [(rule.name, rule.value) for rule in MarketingAnalyticsRecommendationRule],
-    module=__name__,
-    qualname="RecommendationRule",
+# Built from the query schema enum so a new rule needs no second list. The name also names the OpenAPI enum.
+RecommendationRule = models.TextChoices(  # type: ignore[call-overload]  # the stubs lack the functional API
+    "RecommendationRule", [(rule.name, rule.value) for rule in MarketingAnalyticsRecommendationRule]
 )
 
 
