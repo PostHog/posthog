@@ -115,12 +115,9 @@ A membership check that fails or takes longer than 3 seconds skips the send and 
 The blocked event fires at most once an hour per team, reason, and send kind (workflow or test); `cdp_sandbox_email_blocked_total` counts every blocked send by reason.
 A send that passes every check goes out through the fixed SES tenant, configuration set, and From address, whatever the step's custom sender and Reply-To say.
 Sandbox sends skip the team's tier budget, click and open tracking, and unsubscribe headers, because they reach only members of the sending organization.
-The worker parses and normalizes the HTML, then appends a footer that names the sender and the organization ID.
-It overrides root clipping and visibility styles, drops any root style declaration it cannot parse cleanly, and keeps the template's typography, so malformed markup may render differently from an own-domain send.
-A template whose HTML cannot keep the footer fails the send.
-The send also fails when the HTML and preview text exceed 75 KB, checked before and again after the footer is added, so every inbox shows the footer instead of clipping it.
-It fails as well when elements nest more than 256 deep, the template parses into more than 25,000 elements, a tag carries more than 64 attributes, or an Outlook conditional comment holds a condition over 100 characters or a nested directive.
-The visible footer is best effort across email clients and template CSS; the signed tracking header still attributes the message.
+The worker adds a footer that names the sender and the organization ID, before the last closing body tag of the HTML and at the end of the text part.
+The footer is best effort, because template CSS can hide it.
+Every sandbox send also carries an `X-PostHog-Organization-Id` header, which a template cannot hide.
 Right before delivery, every sandbox send, test sends included, claims a daily allowance per project (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`) and per recipient address across the organization (`WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP`).
 Both charge one token per copy: each To, CC and BCC entry counts, so an address listed twice takes two tokens.
 The allowances are token buckets that refill their capacity over 24 hours, not calendar-day counters.
