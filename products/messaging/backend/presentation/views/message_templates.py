@@ -6,9 +6,14 @@ from email.utils import parseaddr
 from types import SimpleNamespace
 from typing import Any, cast
 
-from django.core.exceptions import ValidationError as DjangoValidationError
+from django.conf import settings
+from django.core.exceptions import (
+    RequestDataTooBig,
+    ValidationError as DjangoValidationError,
+)
 from django.core.validators import validate_email
 from django.db import transaction
+from django.utils.datastructures import MultiValueDict
 
 import structlog
 import posthoganalytics
@@ -668,6 +673,18 @@ class TransactionalEmailUnavailable(exceptions.APIException):
     default_code = "delivery_unavailable"
 
 
+class RequestBodyTooLarge(exceptions.APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "content_too_large"
+    default_type = "invalid_request"
+
+    def __init__(self) -> None:
+        limit = f"{settings.DATA_UPLOAD_MAX_MEMORY_SIZE // (1024 * 1024)} MB"
+        super().__init__(f"The request body is over {limit}, so PostHog didn't send the email.")
+        self.why = f"PostHog reads at most {limit} of request body, so it refused the email without reading it."
+        self.fix = f"Keep the request under {limit}. To send a large file, link to it from the email body."
+
+
 class UnconfirmedEmailSend(TransactionalEmailUnavailable):
     default_detail = (
         "The email pipeline did not confirm the send, so the email may still go out. To retry, send it again "
@@ -779,6 +796,7 @@ class TransactionalEmailSendMixin:
     transactional_email_route: str
     _validation_started_at: float | None = None
     _send_reported: bool = False
+    _body_unread: bool = False
 
     def _is_transactional_email_send(self) -> bool:
         return getattr(self, "action", None) in self.transactional_email_send_actions
@@ -814,15 +832,33 @@ class TransactionalEmailSendMixin:
         self._validation_started_at = time.monotonic()
 
     def handle_exception(self, exc: Exception) -> Response:
+        if self._is_transactional_email_send() and isinstance(exc, RequestDataTooBig):
+            exc = self._refuse_body_over_the_cap()
         response = cast(Any, super()).handle_exception(exc)
+        if isinstance(exc, RequestBodyTooLarge):
+            response.data = {**response.data, "why": exc.why, "fix": exc.fix}
         # A body the serializer refuses never reaches the action, so its refusal is reported here.
         if (
             self._is_transactional_email_send()
             and not self._send_reported
-            and isinstance(exc, exceptions.ValidationError)
+            and isinstance(exc, exceptions.ValidationError | RequestBodyTooLarge)
         ):
             self._report_refused_request(response)
         return response
+
+    def _refuse_body_over_the_cap(self) -> exceptions.APIException:
+        # Django raises RequestDataTooBig again on every read of the body. The team lookup reads the body for a
+        # token, so the body is set to empty, as DRF does after a parse error.
+        self.request._full_data = self.request._data = {}
+        self.request._files = MultiValueDict()
+        self._body_unread = True
+        # The refusal can come before the permission checks end, so they run again before the refusal reports
+        # the team.
+        try:
+            cast(Any, super()).check_permissions(self.request)
+        except exceptions.APIException as denied:
+            return denied
+        return RequestBodyTooLarge()
 
     def _report_refused_request(self, response: Response) -> None:
         self._report_transactional_email_send(
@@ -837,6 +873,8 @@ class TransactionalEmailSendMixin:
         return self.transactional_email_route == "send_email"
 
     def _body_properties(self, request: Any) -> dict[str, Any]:
+        if self._body_unread:
+            return {"attachment_count": None, "attachment_bytes": None}
         # Only the single send route takes content your code rendered, so only its body names a key and carries files.
         if not self._takes_code_sends():
             return {"attachment_count": 0, "attachment_bytes": 0}

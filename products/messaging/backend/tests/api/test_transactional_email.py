@@ -8,6 +8,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
@@ -1031,6 +1032,61 @@ class TestTransactionalEmail(APIBaseTest):
             )
             for properties in reported
         ] == [("send_email" if route == "code" else "template", "template_key" if route == "code" else None, *expected)]
+
+    @parameterized.expand([("code_send", "code"), ("template_send", "template")])
+    def test_refuses_a_body_over_the_request_cap_and_reports_its_size_as_unknown(
+        self, mock_post, _flag, capture, _name, route
+    ):
+        self._cdp_accepts(mock_post)
+        over_the_cap = "x" * (settings.DATA_UPLOAD_MAX_MEMORY_SIZE + 1)
+
+        if route == "code":
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url,
+                self._code_send(attachments=[{"filename": "a.pdf", "content": over_the_cap}]),
+                format="json",
+            )
+        else:
+            response = self.client.post(self.url, {**self.body, "message_data": {"blob": over_the_cap}}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert (body["type"], body["code"]) == ("invalid_request", "content_too_large")
+        assert body["why"] and body["fix"]
+        mock_post.assert_not_called()
+        reported = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "transactional email api send"
+        ]
+        assert [
+            (
+                properties["team_id"],
+                properties["route"],
+                properties["outcome"],
+                properties["error_code"],
+                properties["attachment_count"],
+                properties["attachment_bytes"],
+            )
+            for properties in reported
+        ] == [
+            (self.team.id, "send_email" if route == "code" else "template", "rejected", "content_too_large", None, None)
+        ]
+
+    def test_a_body_over_the_request_cap_from_a_key_of_another_project_is_denied(self, mock_post, _flag, capture):
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        over_the_cap = "x" * (settings.DATA_UPLOAD_MAX_MEMORY_SIZE + 1)
+
+        response = self._psak_client(["hog_flow:write"], team=other_team).post(
+            self.send_email_url,
+            self._code_send(attachments=[{"filename": "a.pdf", "content": over_the_cap}]),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "transactional email api send"
+        ] == []
 
     @parameterized.expand(
         [
