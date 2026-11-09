@@ -5,6 +5,7 @@ import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 import { CopyObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
+import { DateTime } from 'luxon'
 import { createHash, randomBytes } from 'node:crypto'
 import { Counter, register } from 'prom-client'
 import supertest from 'supertest'
@@ -15,6 +16,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
+import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -2853,7 +2855,12 @@ describe('CDP API', () => {
             const link = '<a href="https://example.com/">x</a>'
             const linksThatFitUntilTracked = link.repeat(Math.floor((roomForBodies * 0.7) / link.length))
             const newKey = () => `key-${new UUIDT().toString()}`
-            type SendOptions = { acceptedSend?: object; flowId?: string; variables?: Record<string, string> }
+            type SendOptions = {
+                acceptedSend?: object
+                flowId?: string
+                variables?: Record<string, string>
+                distinctId?: string
+            }
             const sendWithFiles = (
                 key: string,
                 attachments: object[],
@@ -2861,10 +2868,12 @@ describe('CDP API', () => {
                     acceptedSend = codeSend as object,
                     flowId = hogFlow.id,
                     variables = body.variables as Record<string, string>,
+                    distinctId = body.distinct_id,
                 }: SendOptions = {}
             ) =>
                 sendAccepted(flowId, {
                     ...body,
+                    distinct_id: distinctId,
                     variables,
                     idempotency_key: key,
                     send: { ...acceptedSend, attachments },
@@ -3180,6 +3189,18 @@ describe('CDP API', () => {
                         return { options, fix: () => lookup.mockRestore() }
                     },
                 ],
+                [
+                    'the person lookup fails',
+                    () => {
+                        const lookup = personLookups().mockRejectedValue(
+                            new Error('Connection terminated unexpectedly')
+                        )
+                        return Promise.resolve({
+                            options: { distinctId: `person-${new UUIDT().toString()}` },
+                            fix: () => lookup.mockRestore(),
+                        })
+                    },
+                ],
             ])(
                 'answers 503 when %s without waiting on held work, warns, starts nothing after the answer, and its key sends once that is fixed',
                 async (_name, arrange) => {
@@ -3240,6 +3261,31 @@ describe('CDP API', () => {
                 )
                 return storedTemplateSend(flow, chunk)
             }
+            const personLookups = () =>
+                jest.spyOn(cdpDeps.personRepository, 'fetchPersonsByDistinctIds') as jest.SpyInstance
+            const aPersonFor = (distinctId: string): InternalPersonWithDistinctId => ({
+                id: '1',
+                uuid: new UUIDT().toString(),
+                team_id: team.id,
+                distinct_id: distinctId,
+                properties: {},
+                properties_last_updated_at: {},
+                properties_last_operation: null,
+                is_user_id: null,
+                is_identified: true,
+                created_at: DateTime.now(),
+                version: 1,
+                last_seen_at: null,
+            })
+            const storedTemplateThatGrowsWithThePerson = async (): Promise<SendOptions> => {
+                const distinctId = `person-${new UUIDT().toString()}`
+                personLookups().mockResolvedValue([aPersonFor(distinctId)])
+                const options = await storedTemplateRendering(
+                    { html: '<p>Your report</p>{% if person.id %}{{ variables.chunk }}{% endif %}' },
+                    bodyThatOverflows
+                )
+                return { ...options, distinctId }
+            }
             const chunkRenderedTwice = { html: '<p>{{ variables.chunk }}</p><p>{{ variables.chunk }}</p>' }
             const chunkAsPreheader = { html: '<p>Your report</p>', preheader: '{{ variables.chunk }}' }
             const renderThatOutlastsTheLiquidLimit =
@@ -3281,6 +3327,10 @@ describe('CDP API', () => {
                 [
                     'a stored template whose preheader goes into the html',
                     () => storedTemplateRendering(chunkAsPreheader, bodyThatOverflows),
+                ],
+                [
+                    'a stored template whose body grows with the person it sends to',
+                    storedTemplateThatGrowsWithThePerson,
                 ],
             ])(
                 'refuses a send with files and %s too large to fit beside them, and its key sends smaller files',

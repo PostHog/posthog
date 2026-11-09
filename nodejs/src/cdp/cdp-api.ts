@@ -50,6 +50,7 @@ import { EmailStep, filesWorkflowShape } from './services/hogflows/files-workflo
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
 import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
@@ -74,6 +75,7 @@ import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
+import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import {
     ATTACHMENT_VERIFICATION_DEADLINE_MS,
@@ -103,6 +105,7 @@ import { HOG_FUNCTION_TEMPLATES } from './templates'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
+    CyclotronPerson,
     HogFunctionInvocationGlobals,
     HogFunctionType,
     MinimalLogEntry,
@@ -265,6 +268,7 @@ export class CdpApi {
     private recipientTokensService: RecipientTokensService
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
+    private personsManager: PersonsManagerService
     private batchResolverProducer: CyclotronV2JobProducer | null
     // Scoped auth for the reschedule_parked and cancel routes (exempted from the shared
     // internal-secret middleware): Django mints per-call JWTs pinned to a team + workflow,
@@ -307,6 +311,7 @@ export class CdpApi {
         this.hogWatcherMirror = services.hogWatcherMirror
         this.invocationResultsService = services.invocationResultsService
         this.emailStatusService = services.emailStatusService
+        this.personsManager = services.personsManager
 
         // API-only services. The hog-transformer's monitoring service reuses the same
         // resolved outputs registry as the core CDP services — no separate construction.
@@ -1559,8 +1564,9 @@ export class CdpApi {
         invocation: CyclotronJobInvocationHogFlow,
         emailStep: EmailStep
     ): Promise<MessageBodySizing> {
+        const person = await this.recipientPerson(hogFlow, invocation)
         try {
-            return { bodyBytes: await this.emailStepBodyBytes(hogFlow, invocation, emailStep) }
+            return { bodyBytes: await this.emailStepBodyBytes(hogFlow, invocation, emailStep, person) }
         } catch (error) {
             if (isHogLimitError(error)) {
                 return { refused: emailRenderLimitExceeded(emailStep) }
@@ -1577,10 +1583,19 @@ export class CdpApi {
         }
     }
 
+    private async recipientPerson(
+        hogFlow: HogFlow,
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<CyclotronPerson | undefined> {
+        const lookup = hogFlowPersonLookup(hogFlow, invocation.state)
+        return lookup ? await loadHogFlowPerson(this.personsManager, hogFlow, lookup) : undefined
+    }
+
     private async emailStepBodyBytes(
         hogFlow: HogFlow,
         invocation: CyclotronJobInvocationHogFlow,
-        step: EmailStep
+        step: EmailStep,
+        person: CyclotronPerson | undefined
     ): Promise<number[]> {
         const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, step.config, step.name)
         const atEmailStep = {
@@ -1589,7 +1604,7 @@ export class CdpApi {
         }
         const rendered = await this.hogFlowFunctionsService.buildHogFunctionInvocation(atEmailStep, hogFunction, {
             event: invocation.state.event,
-            person: invocation.person,
+            person,
             groups: invocation.groups,
             variables: invocation.state.variables,
         })
