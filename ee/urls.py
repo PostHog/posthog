@@ -66,7 +66,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
     from posthog.admin.console.urls import urlpatterns as console_urlpatterns
 
     admin_urlpatterns = [
@@ -95,12 +94,12 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/tophog/",
-            admin.site.admin_view(tophog_dashboard_view),
+            MovedToConsole.page_redirect("TopHog", "/admin/console/tools/tophog/"),
             name="tophog-dashboard",
         ),
         path(
             "admin/tophog/restrictions/",
-            admin.site.admin_view(tophog_restrictions_view),
+            MovedToConsole.page_redirect("TopHog restrictions", "/admin/console/tools/tophog/"),
             name="tophog-restrictions",
         ),
         path(
