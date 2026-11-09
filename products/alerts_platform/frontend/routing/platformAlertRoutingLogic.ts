@@ -348,28 +348,6 @@ export const platformAlertRoutingLogic = kea<platformAlertRoutingLogicType>([
             { openRouteModal: (_, { route }) => route, closeRouteModal: () => null },
         ],
     }),
-    selectors({
-        // Mirrors the API, which lets only organization admins change routing.
-        editDisabledReason: [
-            (s) => [s.isAdminOrOwner],
-            (isAdminOrOwner: boolean | null): string | null =>
-                isAdminOrOwner ? null : 'Only organization admins can change alert routing',
-        ],
-        slackIntegration: [
-            (s) => [s.slackIntegrations, s.receiverForm],
-            (
-                slackIntegrations: IntegrationType[] | undefined,
-                receiverForm: ReceiverForm
-            ): IntegrationType | undefined =>
-                slackIntegrations?.find((integration) => integration.id === receiverForm.slackWorkspaceId) ??
-                slackIntegrations?.[0],
-        ],
-        receiversById: [
-            (s) => [s.receivers],
-            (receivers: AlertReceiverApi[] | null): Record<string, AlertReceiverApi> =>
-                Object.fromEntries((receivers ?? []).map((receiver) => [receiver.id, receiver])),
-        ],
-    }),
     forms(({ values, actions }) => ({
         receiverForm: {
             defaults: EMPTY_RECEIVER_FORM,
@@ -427,6 +405,29 @@ export const platformAlertRoutingLogic = kea<platformAlertRoutingLogicType>([
             },
         },
     })),
+    // After forms, because slackIntegration reads the receiver form.
+    selectors({
+        // Mirrors the API, which lets only organization admins change routing.
+        editDisabledReason: [
+            (s) => [s.isAdminOrOwner],
+            (isAdminOrOwner: boolean | null): string | null =>
+                isAdminOrOwner ? null : 'Only organization admins can change alert routing',
+        ],
+        slackIntegration: [
+            (s) => [s.slackIntegrations, s.receiverForm],
+            (
+                slackIntegrations: IntegrationType[] | undefined,
+                receiverForm: ReceiverForm
+            ): IntegrationType | undefined =>
+                slackIntegrations?.find((integration) => integration.id === receiverForm.slackWorkspaceId) ??
+                slackIntegrations?.[0],
+        ],
+        receiversById: [
+            (s) => [s.receivers],
+            (receivers: AlertReceiverApi[] | null): Record<string, AlertReceiverApi> =>
+                Object.fromEntries((receivers ?? []).map((receiver) => [receiver.id, receiver])),
+        ],
+    }),
     listeners(({ actions, values }) => ({
         openReceiverModal: ({ receiver }) => {
             actions.resetReceiverForm(receiver ? receiverFormFor(receiver) : EMPTY_RECEIVER_FORM)
