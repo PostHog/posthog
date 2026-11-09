@@ -25,6 +25,7 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
+import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
@@ -32,12 +33,8 @@ export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAA
 const LINK_REGEX =
     /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
 
-// Anchors carrying either opt-out marker are left unwrapped (no click-tracking redirect).
-const LINK_TRACKING_OPT_OUT_REGEX = /\bclicktracking\s*=\s*["']?off["']?|\bdata-ph-no-track\b/i
-
 // Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
 const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
-const SES_NO_TRACK_ATTR_REGEX = /\bses:no-track\b/i
 
 /**
  * How anchors in the email body are prepared for click attribution.
@@ -163,19 +160,33 @@ export const resolveEmailTrackingDistinctId = (
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
 // percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
 // through `target=` as a literal `&amp;` and breaks the destination page's query string.
-const HTML_ENTITY_REGEX = /&(?:(amp|lt|gt|quot|apos)|#(\d+)|#x([0-9a-fA-F]+));/g
+const HTML_ENTITY_REGEX = /&(?:(amp|lt|gt|quot|apos|AMP|LT|GT|QUOT)|#(\d+)|#[xX]([0-9a-fA-F]+));/g
 const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 
 export const decodeHtmlEntitiesInHref = (value: string): string => {
     return value.replace(HTML_ENTITY_REGEX, (_match, named, dec, hex) => {
         if (named) {
-            return NAMED_ENTITIES[named]
+            return NAMED_ENTITIES[named.toLowerCase()]
         }
         const code = dec ? parseInt(dec, 10) : parseInt(hex, 16)
         // `String.fromCodePoint` throws RangeError above 0x10FFFF — `Number.isFinite` alone
         // wouldn't catch e.g. `&#x200000;` since `parseInt` happily returns a finite value.
-        return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : _match
+        if (code < 0 || code > 0x10ffff) {
+            return _match
+        }
+        // HTML decodes a surrogate to U+FFFD. A lone one makes `encodeURIComponent` throw and fails the send.
+        return code >= 0xd800 && code <= 0xdfff ? '\uFFFD' : String.fromCodePoint(code)
     })
+}
+
+// A browser drops tabs and newlines anywhere in a URL, and control characters before it, then reads the scheme.
+const isJavascriptHref = (href: string): boolean => {
+    const url = href.replace(/[\t\n\r]/g, '')
+    let start = 0
+    while (start < url.length && (url.charCodeAt(start) <= 0x20 || /\s/.test(url[start]))) {
+        start++
+    }
+    return url.slice(start, start + 'javascript:'.length).toLowerCase() === 'javascript:'
 }
 
 export const addTrackingToEmail = (
@@ -210,16 +221,15 @@ export const addTrackingToEmail = (
         const href = decodeHtmlEntitiesInHref(d || s || u || '')
         // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
         // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
-        if (/^\s*javascript:/i.test(href)) {
+        if (isJavascriptHref(href)) {
             return m
         }
         // Per-link opt-out. Leaves the href on its own domain so mobile universal links /
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
-        // `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
         const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        const optedOut = sensitive || LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)
+        const optedOut = sensitive || hasClickTrackingOptOut(openingTag)
 
         if (mode === 'ses') {
             // SES rewrites every http(s) anchor once click tracking is on, and it honors only its
@@ -227,7 +237,7 @@ export const addTrackingToEmail = (
             // keeps a universal link or app deeplink off awstrack.me; leaving the href alone (the
             // `redirect` mode's opt-out) does nothing here.
             if (optedOut) {
-                return SES_NO_TRACK_ATTR_REGEX.test(openingTag)
+                return hasSesNoTrack(openingTag)
                     ? m
                     : addAttributeToOpeningTag(openingTag, 'ses:no-track') + m.slice(openingTag.length)
             }

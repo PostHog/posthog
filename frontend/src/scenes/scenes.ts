@@ -172,10 +172,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Terminal]: { projectBased: true, name: 'Terminal', layout: 'app-full-scene-height' },
 
     [Scene.Error404]: { name: 'Not found', projectBased: true },
-    [Scene.ErrorAccessDenied]: { name: 'Access denied' },
+    [Scene.ErrorAccessDenied]: { name: 'Access denied', hideProjectNotice: true },
     [Scene.ErrorNetwork]: { name: 'Network error' },
-    [Scene.ErrorProjectAccessDenied]: { name: 'Project access denied' },
-    [Scene.ErrorProjectUnavailable]: { name: 'Project unavailable' },
+    [Scene.ErrorProjectAccessDenied]: { name: 'Project access denied', hideProjectNotice: true },
+    [Scene.ErrorProjectUnavailable]: { name: 'Project unavailable', hideProjectNotice: true },
     // Any scene can fail to mount, including a logged-out one (login, signup, invite, password reset),
     // so this generic error scene must render for both logged-out and logged-in visitors.
     [Scene.ErrorSceneLoad]: { name: 'Page could not load', allowUnauthenticated: true },

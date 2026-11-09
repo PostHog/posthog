@@ -720,7 +720,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         # Get the 5 most recent runs
         jobs = (
-            DataModelingJob.objects.filter(saved_query=saved_query)
+            DataModelingJob.objects.filter(
+                saved_query=saved_query,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+            )
             .order_by("-last_run_at")[:5]
             .values("status", "last_run_at")
         )
