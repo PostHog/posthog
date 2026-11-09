@@ -109,7 +109,6 @@ _LAZY = {
     "clear_node_suspension": "logic.node_suspension",
     "clear_suspension_markers": "logic.suspension_clearing",
     "find_suspension_markers": "logic.suspension_clearing",
-    "suspension_engine_choices": "logic.suspension_clearing",
     "get_dag_tier_report": "logic.tier_run_report",
     "is_node_suspended": "logic.node_suspension",
     "mark_node_suspended": "logic.node_suspension",

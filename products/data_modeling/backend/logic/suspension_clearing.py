@@ -18,13 +18,8 @@ from products.data_modeling.backend.logic.node_suspension_selection import (
     Selection,
     matching_suspension_markers,
 )
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJobEngine
 
 MAX_SUSPENSION_PREVIEW = 500
-
-
-def suspension_engine_choices() -> list[tuple[str, str]]:
-    return [(engine.value, str(engine.label)) for engine in DataModelingJobEngine]
 
 
 def _recorded_before(marker: Marker, cutoff: dt.datetime | None) -> bool:

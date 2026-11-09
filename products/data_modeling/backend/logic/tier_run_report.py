@@ -173,6 +173,7 @@ def _tier_summary(tier: TierRun) -> TierSummary:
 
 
 def get_dag_tier_report(dag_id: UUID) -> DagTierReport | None:
+    # nosemgrep: idor-lookup-without-team -- staff-only console lookup by id behind admin_view
     dag = DAG.objects.select_related("team").filter(pk=dag_id).first()
     if dag is None:
         return None

@@ -17,7 +17,6 @@ from products.data_modeling.backend.facade.api import (
     clear_suspension_markers,
     find_suspension_markers,
     get_dag_tier_report,
-    suspension_engine_choices,
 )
 from products.data_modeling.backend.facade.contracts import (
     DagTierReport,
@@ -25,6 +24,7 @@ from products.data_modeling.backend.facade.contracts import (
     SuspensionSelectionTooBroadError,
     TierSummary,
 )
+from products.data_modeling.backend.facade.models import DataModelingJobEngine
 
 DATA_MODELING = Owner(name="Data modeling", crest="data-modeling")
 
@@ -42,7 +42,7 @@ NODE_STATUS_TONES = {
 
 class ClearNodeSuspensionsForm(forms.Form):
     engine = forms.ChoiceField(
-        choices=lambda: [("", "All engines"), *suspension_engine_choices()], required=False, initial="clickhouse"
+        choices=[("", "All engines"), *DataModelingJobEngine.choices], required=False, initial="clickhouse"
     )
     reason_contains = forms.CharField(
         label="Error text contains",
