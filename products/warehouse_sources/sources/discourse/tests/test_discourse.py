@@ -333,7 +333,9 @@ class TestErrorHandling:
         assert isinstance(result.raised, requests.HTTPError)
         assert len(result.requests) == 1
         raised = str(result.raised)
-        messages = [m for key, m in source.get_non_retryable_errors().items() if error_message_matches(raised, [key])]
+        messages = [
+            m for key, m in source.get_non_retryable_errors().items() if m and error_message_matches(raised, [key])
+        ]
         assert messages and "instance URL" in messages[0]
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
