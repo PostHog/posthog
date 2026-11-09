@@ -236,6 +236,22 @@
         },
         "feature_entitlement": "role_based_access"
     },
+    "account-notes-list": {
+        "description": "Notes (internal notebooks) across every Customer Analytics account the caller can read, newest modified first. Each row carries `short_id`, `title`, `account_id`, `account_name`, `created_by` and `tags`. Filter with `tags` (JSON-encoded array, any match), `account_id`, `created_by`, `assigned_to` and `search`; sort with `ordering` (`last_modified_at`, `created_at`, `title`, `account_name`, `-` prefix for descending). Use `accounts-notebooks-retrieve` with the row's `account_id` and `short_id` to read a note's content.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account notes across accounts",
+        "title": "List account notes across accounts",
+        "required_scopes": ["account:read"],
+        "api_operations": ["GET /api/projects/{project_id}/account_notes/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "account-relationship-definitions-create": {
         "description": "Create a Customer Analytics account relationship definition — a team-defined relationship type between a PostHog user and an account, such as CSM or Onboarding manager. Provide `name` (required, unique within the team), optional `description` explaining what the relationship means, and `is_single_holder` (default true) controlling whether only one user can hold the relationship per account at a time. Definitions are team-scoped and shared across all accounts; assign a user to a specific account with `accounts-relationships-create`.",
         "category": "Customer analytics",
@@ -413,7 +429,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-notebooks-create": {
-        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; the server converts it into the same markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
+        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; the server converts it into the same markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list. Pass `tags` (array of tag names, shared with account tags) to tag the note at creation time.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account notebook",
@@ -445,7 +461,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-notebooks-list": {
-        "description": "List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result includes the notebook `short_id`, `title`, `content`, and authorship metadata.",
+        "description": "List notebooks attached to a Customer Analytics account, newest first by default. Each result includes the notebook `short_id`, `title`, `content`, `tags` and authorship metadata. Pass `tags` (JSON-encoded array, e.g. `[\"renewal\",\"risk\"]`) to keep notebooks carrying any of those tags, `created_by` (user IDs) to keep notebooks by those authors, `search` for full text, and `ordering` (`title`, `created_at`, `last_modified_at`, `created_by`, each with a `-` prefix for descending) to sort.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List account notebooks",
@@ -457,6 +473,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-partial-update": {
+        "description": "Replace an account notebook's `tags` by its `short_id`. `tags` replaces the whole tag set, so read the notebook first and send the full list to add one. The title and content are not edited here: a note's title comes from its first line, so use `notebooks-partial-update` to change the content.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update account notebook tags",
+        "title": "Update account notebook tags",
+        "required_scopes": ["account:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/accounts/{account_id}/notebooks/{short_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "customer-analytics-csp"
     },
@@ -1241,7 +1273,7 @@
         "feature_flag": "anomalies-search"
     },
     "anomaly-search": {
-        "description": "Find which series of the project's saved product analytics insights (trends) were anomalous in a date range, from the scheduled anomaly scoring of those insights. For anomalies in the Metrics product, use characterize-metric-anomaly instead. Each row is one series with `anomaly_rate` (flagged buckets divided by scored buckets in the range). Read it against `baseline_rate`, the same rate over the 30 days before the range: a series that is usually quiet and now flags matters more than one that always flags. Read it together with `coverage` (the share of the range that was scored) and `scored_through` (the newest scored bucket, so later buckets were not checked yet). Scores compare only within one series, so never rank series by score. Scoring is sampled, so a range can be partly scored, and results cover only the insights checked in the range: `insights_scored_in_range` of `watched_insights`. To check a result, `flagged_points` gives the value at each flagged bucket, anomaly-insight-get with the row's `insight_id` gives the full scored history of every series of that insight, and the insight's own query (for example query-trends on the insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or the project turned scoring off in its self-driving settings; `message` says which. Use `group_by: insight` for one row per insight. A 404 means anomaly search is not available for this project.",
+        "description": "Find which series of the project's saved product analytics insights (trends) were anomalous in a date range, from the scheduled anomaly scoring of those insights. For anomalies in the Metrics product, use characterize-metric-anomaly instead. Each row is one series with `anomaly_rate` (flagged buckets divided by scored buckets in the range). Read it against `baseline_rate`, the same rate over the 30 days before the range: a series that is usually quiet and now flags matters more than one that always flags. Read it together with `coverage` (the share of the range that was scored) and `scored_through` (the newest scored bucket, so later buckets were not checked yet). Scores compare only within one series, so never rank series by score. Scoring is sampled, so a range can be partly scored, and results cover only the insights checked in the range: `insights_scored_in_range` of `watched_insights`. To check a result, `flagged_points` gives the value at each flagged bucket, anomaly-insight-get with the row's `insight_id` gives the full scored history of every series of that insight, and the insight's own query (for example query-trends on the insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or the project turned scoring off in its self-driving settings; `message` says which. `scoring_enabled: true` does not mean the scores are ready: rely on them only when `scored_history_ready` is true, that is when `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range) is 14 or more. Use `group_by: insight` for one row per insight. A 404 means anomaly search is not available for this project.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search anomalous insight series",
@@ -5847,6 +5879,65 @@
         },
         "feature_flag": "customer-analytics-csp"
     },
+    "events-retention-deletion-count": {
+        "description": "Count this project's events that the next monthly cleanup would delete if the project kept events for `retention_months` months. Call it before events-retention-update-prepare and tell the user the count, so they know how many events a shorter period deletes. The cleanup deletes whole calendar months, so the count covers the events from before the start of the month that holds the date `retention_months` months before the next cleanup.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Count the events a project's retention period would delete",
+        "title": "Count the events a project's retention period would delete",
+        "required_scopes": ["project:read", "query:read"],
+        "api_operations": ["GET /api/projects/{project_id}/events_retention/deletion_count/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "events-retention-get": {
+        "description": "Get how long this project keeps events and when its events are next deleted. Call it before events-retention-update-prepare, and to answer when or why old events are missing.\n\nThe project keeps events for `project_retention_months` when that is set. When it is null, the project uses the organization's period, `organization_retention_months`, and when that is null too, the default period, `default_retention_months`. The default is 24 months on current plans, and `default_is_grandfathered` is true when an older plan keeps its whole plan period as the default. `plan_retention_months` is the longest period the plan allows.\n\n`retention_months` and `retained_from` say how far back queries return events right now. Both are null while queries still return events older than the period, but a period set for the project or organization still deletes events. `next_deletion_on` is the date of the next cleanup that deletes this project's events, and `next_deletion_before` is the date it deletes events before. Both are null while no deletion is scheduled.\n\n`retention_months_choices` lists the periods events-retention-update-prepare accepts, and the period also has to be between `min_retention_months` and `max_retention_months`. If the current period isn't one of the choices, PostHog support set it.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get the events retention period for a project",
+        "title": "Get the events retention period for a project",
+        "required_scopes": ["project:read"],
+        "api_operations": ["GET /api/projects/{project_id}/events_retention/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "events-retention-update-execute": {
+        "description": "Step 2 of 2 for set events retention period. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Set how long this project keeps events. A period set for the project overrides the organization's period. Pass one of `retention_months_choices` from events-retention-get that is between `min_retention_months` and `max_retention_months`, or null to remove the project's period. Any other value is rejected. Organization admins only. Requires human typed confirmation.\n\nEvents in this project that are older than the new period will be deleted, and deleted events can't be restored. A longer period doesn't bring back events that were already deleted. Deletion isn't instant. A period set for the project or the organization is applied by a cleanup that runs once a month, on `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month past the period.\n\nNull makes the project use the organization's period, which the monthly cleanup applies. When the organization has no period either, the project uses the default period. Don't give the user a date or a count for deleting events past the default period.\n\nBefore you prepare the change, call events-retention-get and tell the user the current and new period. If the new period is shorter and isn't the default period, call events-retention-deletion-count and tell the user how many events are deleted and when. If the current period isn't one of `retention_months_choices`, PostHog support set it. Tell the user that they need to contact support to get that period back after they change it.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Set the events retention period for a project (execute)",
+        "title": "Set the events retention period for a project (execute)",
+        "required_scopes": ["project:write"],
+        "api_operations": ["POST /api/projects/{project_id}/events_retention/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "events-retention-update-prepare": {
+        "description": "Step 1 of 2 for set events retention period. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Set how long this project keeps events. A period set for the project overrides the organization's period. Pass one of `retention_months_choices` from events-retention-get that is between `min_retention_months` and `max_retention_months`, or null to remove the project's period. Any other value is rejected. Organization admins only. Requires human typed confirmation.\n\nEvents in this project that are older than the new period will be deleted, and deleted events can't be restored. A longer period doesn't bring back events that were already deleted. Deletion isn't instant. A period set for the project or the organization is applied by a cleanup that runs once a month, on `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month past the period.\n\nNull makes the project use the organization's period, which the monthly cleanup applies. When the organization has no period either, the project uses the default period. Don't give the user a date or a count for deleting events past the default period.\n\nBefore you prepare the change, call events-retention-get and tell the user the current and new period. If the new period is shorter and isn't the default period, call events-retention-deletion-count and tell the user how many events are deleted and when. If the current period isn't one of `retention_months_choices`, PostHog support set it. Tell the user that they need to contact support to get that period back after they change it.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Set the events retention period for a project (prepare)",
+        "title": "Set the events retention period for a project (prepare)",
+        "required_scopes": ["project:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "execute-sql": {
         "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the querying-posthog-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Discover the available tables, views, columns, and their types before querying. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nUse system tables with the system. prefix for PostHog-created data. For example, count SQL insight variables with:\n```sql\nSELECT count() AS total FROM system.insight_variables\n```\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nDATA WAREHOUSE CONNECTIONS: some sources are queried live through a connection instead of being synced, so their tables are absent from the default catalog and a plain query returns \"Unknown table\". Find them with `SELECT id, source_type, prefix FROM system.data_warehouse_sources WHERE is_live_queryable = 1` (or the external-data-sources-connections-list tool), then set `connectionId` on this tool to that id. With a connectionId set, the query reads that source live and may only reference its tables — it cannot join them to PostHog tables. Discover those tables the same way as any others:\n```sql\nSELECT table_name FROM system.information_schema.tables\nSELECT column_name, data_type FROM system.information_schema.columns WHERE table_name = 'orders'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.\nPROPERTY ACCESS: dot notation (`properties.$browser`) only works for keys that are valid identifiers — they must start with a letter, underscore, or `$` and contain only letters, digits, underscores, and `$` (`^[A-Za-z_$][A-Za-z0-9_$]*$`). Keys that break this rule (hyphens, dots, spaces, or a leading digit) cannot use dot notation; for example `properties.$survey_response_0196e96d-7705-7d32` is parsed as a subtraction and fails. Use bracket notation with a quoted string for those keys: `properties['$survey_response_0196e96d-7705-7d32']`. This applies to all JSON columns (e.g. `person.properties[...]`).",
         "category": "SQL",
@@ -8452,7 +8543,7 @@
         }
     },
     "inbox-reports-list": {
-        "description": "List inbox reports in the current project. A report groups related findings into one issue or trend. Each parameter's description says how it filters.\nWithout `view`, the list holds reports from the whole project, not only the user's. When the user says \"my inbox\", \"my top 10\", or \"what should I look at\", pass `view=for_you` with `sort=personal` and `limit=10`. Do not pass `ordering` with it, because `ordering` replaces `sort`. The response's `ranker` is `personal` when the user's stored personal ranking ordered the page, and each row the ranking placed carries `personal_tier` and `personal_reason`. Any other `ranker` means no stored ranking applied and the page is in the recommended order. For later pages, pass the first page's `ranking_id` with `offset`, because the `next` link does not carry it. This read never builds a ranking; for a newer, focused, or refreshed list, use inbox-reports-for-me. For reports older than a cutoff, pass `created_before` instead of reading every page. For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`.\nWithout `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with inbox-report-artefacts-list before you act on it.\nEach row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.",
+        "description": "List inbox reports in the current project. A report groups related findings into one issue or trend. Each parameter's description says how it filters.\nWithout `view`, the list holds reports from the whole project, not only the user's. When the user says \"my inbox\", \"my top 10\", or \"what should I look at\", pass `view=for_you` with `sort=personal` and `limit=10`. Do not pass `ordering` with it, because `ordering` replaces `sort`. The response's `ranker` is `personal` when the user's stored personal ranking ordered the page, and each row the ranking placed carries `personal_tier` and `personal_reason`. Any other `ranker` means no stored ranking applied and the page is in the recommended order. For later pages, pass the first page's `ranking_id` with `offset`, because the `next` link does not carry it. This read never builds a ranking; for a newer, focused, or refreshed list, use inbox-reports-for-me. For reports older than a cutoff, pass `created_before` instead of reading every page. For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`.\nWithout `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with inbox-report-artefacts-list before you act on it.\nEach row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.\n`source_products` and `scout_name` come from a separate read with a short time limit. When the response has `source_metadata_available: false`, that read did not finish, and an empty `source_products` or a null `scout_name` does not mean the report has none. Say so instead of reporting them as values.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List inbox reports",
@@ -12257,6 +12348,65 @@
         },
         "feature_entitlement": "2fa_enforcement"
     },
+    "organization-events-retention-deletion-count": {
+        "description": "Count the events that the next monthly cleanup would delete if the organization kept events for `retention_months` months, summed over the projects without their own period. Projects with their own period are left out, because the organization's period doesn't apply to them. Call it before organization-events-retention-update-prepare and tell the user the count. The cleanup deletes whole calendar months, so the count covers the events from before the start of the month that holds the date `retention_months` months before the next cleanup.\n\nThe count only includes events that queries can still return, and it can be up to a day old.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Count the events an organization's retention period would delete",
+        "title": "Count the events an organization's retention period would delete",
+        "required_scopes": ["organization:read", "query:read"],
+        "api_operations": ["GET /api/organizations/{organization_id}/events_retention_setting/deletion_count/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organization-events-retention-get": {
+        "description": "Get how long projects in this organization keep events. Call it before organization-events-retention-update-prepare. To see one project's period, how far back its queries go, and its next deletion, use events-retention-get.\n\n`organization_retention_months` is the period every project without its own period uses. When it is null, those projects use the default period, `default_retention_months`. The default is 24 months on current plans, and `default_is_grandfathered` is true when an older plan keeps its whole plan period as the default. `plan_retention_months` is the longest period the plan allows. `next_monthly_cleanup_on` is the date of the next monthly cleanup.\n\n`retention_months_choices` lists the periods organization-events-retention-update-prepare accepts, and the period also has to be between `min_retention_months` and `max_retention_months`. If the current period isn't one of the choices, PostHog support set it.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get the events retention period for an organization",
+        "title": "Get the events retention period for an organization",
+        "required_scopes": ["organization:read"],
+        "api_operations": ["GET /api/organizations/{organization_id}/events_retention_setting/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organization-events-retention-update-execute": {
+        "description": "Step 2 of 2 for set organization events retention period. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Set how long every project without its own period keeps events. Projects with their own period keep it. Pass one of `retention_months_choices` from organization-events-retention-get that is between `min_retention_months` and `max_retention_months`, or null to remove the organization's period. Any other value is rejected. Organization admins only. Requires human typed confirmation.\n\nEvents in projects without their own period that are older than the new period will be deleted, and deleted events can't be restored. A longer period doesn't bring back events that were already deleted. Deletion isn't instant. The organization's period is applied by a cleanup that runs once a month, on `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month past the period.\n\nNull makes projects without their own period use the default period. Don't give the user a date or a count for deleting events past the default period.\n\nBefore you prepare the change, call organization-events-retention-get and tell the user the current and new period. If the new period is shorter and isn't the default period, call organization-events-retention-deletion-count and tell the user how many events are deleted and when. If the current period isn't one of `retention_months_choices`, PostHog support set it. Tell the user that they need to contact support to get that period back after they change it.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Set the events retention period for an organization (execute)",
+        "title": "Set the events retention period for an organization (execute)",
+        "required_scopes": ["organization:write"],
+        "api_operations": ["POST /api/organizations/{organization_id}/events_retention_setting/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "organization-events-retention-update-prepare": {
+        "description": "Step 1 of 2 for set organization events retention period. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Set how long every project without its own period keeps events. Projects with their own period keep it. Pass one of `retention_months_choices` from organization-events-retention-get that is between `min_retention_months` and `max_retention_months`, or null to remove the organization's period. Any other value is rejected. Organization admins only. Requires human typed confirmation.\n\nEvents in projects without their own period that are older than the new period will be deleted, and deleted events can't be restored. A longer period doesn't bring back events that were already deleted. Deletion isn't instant. The organization's period is applied by a cleanup that runs once a month, on `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month past the period.\n\nNull makes projects without their own period use the default period. Don't give the user a date or a count for deleting events past the default period.\n\nBefore you prepare the change, call organization-events-retention-get and tell the user the current and new period. If the new period is shorter and isn't the default period, call organization-events-retention-deletion-count and tell the user how many events are deleted and when. If the current period isn't one of `retention_months_choices`, PostHog support set it. Tell the user that they need to contact support to get that period back after they change it.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Set the events retention period for an organization (prepare)",
+        "title": "Set the events retention period for an organization (prepare)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "organization-get": {
         "description": "Get details of an organization by ID including name, membership level, member count, teams, projects, and the plan features available to it. Each entry in `available_product_features` has a `key` and a `limit`. For example, `organizations_projects` gives the maximum number of non-demo projects. Teams include `project_id` and `is_demo` so multiple environments of one project count once and demo projects can be excluded. These lists include only projects visible to the caller. If no ID is provided, returns the active organization.",
         "category": "Platform Features",
@@ -15421,7 +15571,7 @@
         "feature_flag": "workflows-supabase-auth-emails"
     },
     "survey-create": {
-        "description": "Creates a new survey in the project. For the draft, targeting, preview, and launch workflow, load the creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow. Survey content is public: anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or other private detail in a survey. For substantial visual changes, preview the final draft once before launch if browser access is already available. Skip browser checks for small edits.",
+        "description": "Creates a new survey in the project. For the draft, targeting, preview, and launch workflow, load the creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow. For in-app surveys, start with a single choice or rating question and put any open-text question after it, because surveys that open with open text get far fewer responses. For a popover, recommend showing it after the event it asks about, and ask before adding a trigger or audience the user did not request. Survey content is public: anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or other private detail in a survey. For substantial visual changes, preview the final draft once before launch if browser access is already available. Skip browser checks for small edits.",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "Creates a new survey in the project.",
