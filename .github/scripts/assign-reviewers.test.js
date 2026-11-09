@@ -177,9 +177,10 @@ test('computeOwnerFootprints: skips resolutions with generated/vendored status',
     assertMatchObject(footprints[1], { owner: '@PostHog/team-devex', fileCount: 1, lines: 3 })
 })
 
-test('computeOwnerFootprints: a test file pulls in no reviewer unless its path is sensitive', () => {
+test('computeOwnerFootprints: a test file counts only toward an owner its source brought in', () => {
     const resolution = {
         'posthog/api/survey.py': resolved(['team-surveys'], 'products/surveys/product.yaml'),
+        'products/surveys/backend/test/test_survey_api.py': resolved(['team-surveys'], 'products/surveys/product.yaml'),
         'posthog/api/test/test_survey.py': resolved(['team-growth'], 'posthog/api/owners.yaml'),
         'frontend/src/scenes/toolbar-launch/toolbarLogic.test.ts': resolved(
             ['team-growth'],
@@ -193,8 +194,8 @@ test('computeOwnerFootprints: a test file pulls in no reviewer unless its path i
     const sensitiveOwners = computeSensitiveOwners(resolution, files)
 
     assert.deepEqual(
-        footprints.map((footprint) => footprint.owner),
-        ['@PostHog/team-surveys']
+        footprints.map(({ owner, fileCount, lines }) => ({ owner, fileCount, lines })),
+        [{ owner: '@PostHog/team-surveys', fileCount: 2, lines: 80 }]
     )
     assert.deepEqual(
         sensitiveOwners.map((entry) => entry.owner),

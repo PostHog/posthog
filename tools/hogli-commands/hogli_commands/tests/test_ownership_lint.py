@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from click.testing import CliRunner
-from hogli_commands import ownership_lint
+from hogli_commands import ownership_lint, size_lint
 from hogli_commands.preflight_checks import Scope
 
 OWNERS_YAML = """\
@@ -34,6 +34,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git: Callable[..., str
     git(tmp_path, "add", "-A")
     git(tmp_path, "commit", "-q", "-m", "init")
     monkeypatch.setattr(ownership_lint, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(size_lint, "REPO_ROOT", tmp_path)
     return tmp_path
 
 
@@ -97,16 +98,20 @@ class TestCheckTestOwners:
 
 class TestLintTestOwners:
     @pytest.mark.parametrize(
-        ("path", "exit_code"),
+        ("path", "moved_from", "exit_code"),
         [
-            pytest.param("nobody/test_new.py", 1, id="new_test_in_a_baseline_directory_fails"),
-            pytest.param("team/test_new.py", 0, id="new_test_with_a_team_owner_passes"),
+            pytest.param("nobody/test_new.py", None, 1, id="new_test_in_a_baseline_directory_fails"),
+            pytest.param("team/test_new.py", None, 0, id="new_test_with_a_team_owner_passes"),
+            pytest.param("nobody/test_renamed.py", "nobody/test_c.py", 0, id="moved_unowned_test_passes"),
         ],
     )
     def test_checks_each_test_file_the_branch_adds(
-        self, repo: Path, git: Callable[..., str], path: str, exit_code: int
+        self, repo: Path, git: Callable[..., str], path: str, moved_from: str | None, exit_code: int
     ) -> None:
-        (repo / path).write_text("def test_y():\n    pass\n")
+        if moved_from:
+            git(repo, "mv", moved_from, path)
+        else:
+            (repo / path).write_text("def test_y():\n    pass\n")
         git(repo, "add", "-A")
         git(repo, "commit", "-q", "-m", "add a test")
 

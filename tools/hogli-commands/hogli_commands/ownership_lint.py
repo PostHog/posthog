@@ -19,6 +19,7 @@ from owners_yaml.schema import DEFAULT_ALIAS_FILES, OWNERS_FILENAME
 
 from hogli_commands.change_detection import matches_globs
 from hogli_commands.preflight_checks import Outcome, Scope
+from hogli_commands.size_lint import _merge_base
 
 BASELINE = Path("posthog/test/repo_invariants/unowned_test_directories_baseline.txt")
 PRUNE = "PYTHONPATH=.:tools/hogli-commands python posthog/test/repo_invariants/test_unowned_test_directories.py"
@@ -61,11 +62,14 @@ def _baseline(resolver: OwnersResolver) -> set[str]:
     return set((resolver.source.read(str(BASELINE)) or "").split())
 
 
-def baseline_drift(committed_only: bool = False) -> BaselineDrift:
-    resolver, files = _tree(committed_only)
+def _drift(resolver: OwnersResolver, files: Iterable[str]) -> BaselineDrift:
     current = unowned_test_directories(resolver, files)
     baseline = _baseline(resolver)
     return BaselineDrift(added=sorted(current - baseline), removed=sorted(baseline - current))
+
+
+def baseline_drift(committed_only: bool = False) -> BaselineDrift:
+    return _drift(*_tree(committed_only))
 
 
 def prune_baseline() -> None:
@@ -85,15 +89,22 @@ def drift_problems(drift: BaselineDrift) -> list[str]:
     ]
 
 
-def unowned_new_tests(merge_base: str, committed_only: bool = False) -> list[str]:
-    """Test files that are absent at `merge_base` and that no team owns.
+def _added_paths(merge_base: str, committed_only: bool) -> set[str]:
+    """Paths that `merge_base` lacks. Rename detection keeps a moved file out of the set."""
+    if committed_only:
+        return _git_paths("diff", "--name-only", "--diff-filter=A", "--find-renames", merge_base, "HEAD")
+    return _git_paths("diff", "--name-only", "--diff-filter=A", "--find-renames", merge_base) | _git_paths(
+        "ls-files", "--others", "--exclude-standard"
+    )
 
-    The baseline lists directories, so this is what stops a new unowned test in a listed directory.
-    A moved test counts as new.
-    """
-    resolver, files = _tree(committed_only)
-    new = set(files) - GitRefSource(REPO_ROOT, ref=merge_base).files
-    return sorted(path for path in new if runner_for_path(path) and owning_team(resolver.resolve(path)) == UNOWNED_TEAM)
+
+def _unowned_new_tests(resolver: OwnersResolver, merge_base: str, committed_only: bool) -> list[str]:
+    """The baseline lists directories, so this is what stops a new unowned test in a listed directory."""
+    return sorted(
+        path
+        for path in _added_paths(merge_base, committed_only)
+        if runner_for_path(path) and owning_team(resolver.resolve(path)) == UNOWNED_TEAM
+    )
 
 
 def new_test_problems(paths: Iterable[str]) -> list[str]:
@@ -104,9 +115,10 @@ def check_test_owners(scope: Scope) -> Outcome:
     # `*/test_*.py` also matches `test_utils/foo.py`.
     if not any(runner_for_path(path) or matches_globs(path, OWNERSHIP_FILE_GLOBS) for path in scope.files):
         return "pass", "no test or ownership file changed"
+    resolver, files = _tree(scope.committed_only)
     problems = [
-        *new_test_problems(unowned_new_tests(scope.merge_base, scope.committed_only)),
-        *drift_problems(baseline_drift(scope.committed_only)),
+        *new_test_problems(_unowned_new_tests(resolver, scope.merge_base, scope.committed_only)),
+        *drift_problems(_drift(resolver, files)),
     ]
     if not problems:
         return "pass", "every new test has a team owner"
@@ -117,15 +129,14 @@ def check_test_owners(scope: Scope) -> Outcome:
 
 
 @click.command(name="lint:test-owners", help="Fail when the branch adds a test file that no team owns.")
-@click.option("--against", default="origin/master", show_default=True, help="Diff base ref.")
+@click.option("--against", default=None, help="Diff base ref. Default: origin/master, then master.")
 @click.option("--committed", is_flag=True, help="Check commits only, not the working tree.")
-def cmd_lint_test_owners(against: str, committed: bool) -> None:
-    merge_base = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "merge-base", against, "HEAD"], capture_output=True, text=True
-    ).stdout.strip()
-    if not merge_base:
-        raise click.ClickException(f"no merge base with {against}")
-    problems = new_test_problems(unowned_new_tests(merge_base, committed))
+def cmd_lint_test_owners(against: str | None, committed: bool) -> None:
+    merge_base = _merge_base(against)
+    if merge_base is None:
+        raise click.ClickException(f"no merge base with {against or 'origin/master or master'}")
+    resolver, _ = _tree(committed)
+    problems = new_test_problems(_unowned_new_tests(resolver, merge_base, committed))
     for problem in problems:
         click.echo(problem)
     if problems:

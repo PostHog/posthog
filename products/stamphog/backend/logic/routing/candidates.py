@@ -167,6 +167,9 @@ class _CandidateCollector:
         if source and file.path not in sources:
             sources[file.path] = source
 
+    def has(self, owner: str) -> bool:
+        return owner in self._files
+
     def candidates(self) -> list[OwnerCandidate]:
         return [
             OwnerCandidate(
@@ -181,17 +184,16 @@ class _CandidateCollector:
 
 
 def _collect_owned(collector: _CandidateCollector, file: ChangedFile, resolution: Resolution | None) -> None:
-    # A team owns a test so that the test's failures and flakes reach it, not so that it reviews every
-    # change to the test. Sensitive and newly added paths still pin their owners.
-    if (
-        resolution is None
-        or is_excluded(file.path)
-        or _is_generated_or_vendored(file.path, resolution)
-        or runner_for_path(file.path)
-    ):
+    if resolution is None or is_excluded(file.path) or _is_generated_or_vendored(file.path, resolution):
         return
+    # A team owns a test so that the test's failures and flakes reach it, not so that it reviews every
+    # change to the test. A test file therefore adds to the part of an owner that a non-test file
+    # already made a candidate, and makes no owner a candidate by itself. The owners of a sensitive
+    # path and of an `additions` declaration are still pinned.
+    is_test = runner_for_path(file.path) is not None
     for owner in resolution.owners or []:
-        collector.add(owner, file, source=resolution.source)
+        if not is_test or collector.has(owner):
+            collector.add(owner, file, source=resolution.source)
 
 
 def _collect_additions(collector: _CandidateCollector, file: ChangedFile, resolution: Resolution | None) -> None:
@@ -227,9 +229,11 @@ def find_candidates(files: Sequence[ChangedFile], resolutions: Mapping[str, Reso
     `resolutions` maps each path from `paths_to_resolve` to its resolution against the base tree.
     """
     collector = _CandidateCollector()
+    # Non-test files first, so that `_collect_owned` knows every owner a test file can join.
+    for file in sorted(files, key=lambda file: runner_for_path(file.path) is not None):
+        _collect_owned(collector, file, resolutions.get(file.path))
     for file in files:
         resolution = resolutions.get(file.path)
-        _collect_owned(collector, file, resolution)
         _collect_additions(collector, file, resolution)
         _collect_sensitive(collector, file, resolutions)
     return tuple(sorted(collector.candidates(), key=lambda candidate: -candidate.lines))

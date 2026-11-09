@@ -54,8 +54,8 @@ Put it next to the code it tests, inside `products/<name>/` when one product own
 Check with `hogli owners:who <path>`.
 If no team owns it, name the team responsible for the behavior it checks in the nearest `owners.yaml`, not the team of a helper it imports.
 A rule that matches only the tests, such as `'/toolbar-launch/*.test.*'`, gives the team the tests without the source.
-Owning a test does not make a team a reviewer of changes to it.
-CI fails a pull request that adds a test file no team owns, and `hogli ci:preflight` warns about it before you push.
+A change to a test does not request its owner as a reviewer, unless the change also touches that owner's code, the test is on a `sensitive` path, or an `additions` declaration covers it.
+CI flags a pull request that adds a test file no team owns, and `hogli ci:preflight` warns about it before you push.
 
 ## Don't write it — the five no's
 

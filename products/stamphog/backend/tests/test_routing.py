@@ -124,17 +124,25 @@ class TestFindCandidates:
 
     @parameterized.expand(
         [
-            ("pytest", "posthog/api/test/test_team.py", False, set()),
-            ("jest", "frontend/src/scenes/toolbar-launch/toolbarLogic.test.ts", False, set()),
-            ("sensitive_test", "posthog/test/repo_invariants/test_guard.py", True, {"team-tests"}),
+            ("pytest", ("posthog/api/test/test_team.py",), False, {}),
+            ("jest", ("frontend/src/scenes/toolbar-launch/toolbarLogic.test.ts",), False, {}),
+            ("sensitive_test", ("posthog/test/repo_invariants/test_guard.py",), True, {"team-tests": 1}),
+            (
+                "test_listed_before_its_source",
+                ("posthog/api/test/test_team.py", "posthog/api/team.py"),
+                False,
+                {"team-tests": 2},
+            ),
         ]
     )
-    def test_a_test_file_makes_its_owner_a_candidate_only_when_sensitive(
-        self, _name: str, path: str, sensitive: bool, expected: set[str]
+    def test_a_test_file_makes_its_owner_a_candidate_only_with_its_source_or_when_sensitive(
+        self, _name: str, paths: tuple[str, ...], sensitive: bool, expected: dict[str, int]
     ) -> None:
-        resolutions = {path: _resolution(path, ["team-tests"], sensitive=sensitive)}
+        resolutions = {path: _resolution(path, ["team-tests"], sensitive=sensitive) for path in paths}
 
-        assert {candidate.owner for candidate in find_candidates([_file(path)], resolutions)} == expected
+        candidates = find_candidates([_file(path) for path in paths], resolutions)
+
+        assert {candidate.owner: len(candidate.files) for candidate in candidates} == expected
 
     @parameterized.expand([("added", True), ("renamed", True), ("copied", True), ("modified", False)])
     def test_addition_pins_owners_of_additions(self, status: str, expect_pin: bool) -> None:
