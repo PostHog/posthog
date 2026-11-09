@@ -132,7 +132,7 @@ def update_materialization_ready_for_saved_query(team_id: int, saved_query, is_r
 
     # Scope by endpoint__team_id: EndpointVersion.team is a nullable denormalized field.
     version = (
-        EndpointVersion.objects.select_related("endpoint", "endpoint__team")
+        EndpointVersion.objects.select_related("endpoint", "endpoint__team", "team__organization")
         .filter(saved_query=saved_query, endpoint__team_id=team_id)
         .first()
     )

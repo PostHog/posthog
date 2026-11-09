@@ -615,7 +615,7 @@ class TestBillingManager(BaseTest):
             ("partial_response", False, None, {}, False),
             ("missing_billing_plan_keeps_package", True, "paid", {}, False),
             ("unknown_billing_plan_keeps_package", True, "paid", {"billing_plan": None}, False),
-            ("first_package_sync", True, None, {"billing_plan": "paid"}, True),
+            ("first_package_sync", True, None, {"billing_plan": "paid"}, False),
             ("free_first_package_sync", False, None, {"has_active_subscription": False, "billing_plan": "free"}, False),
             ("still_no_package", True, "none", {"billing_plan": "paid"}, False),
             ("package_dropped", True, "paid", {"billing_plan": "paid"}, True),

@@ -3,9 +3,9 @@ from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 
-import structlog
 from celery import shared_task
 
+from posthog.exceptions_capture import capture_exception
 from posthog.scoping_audit import skip_team_scope_audit
 
 RECONCILE_RETRY_OPTIONS = {
@@ -21,7 +21,10 @@ PENDING_RECONCILE_GIVE_UP_AFTER = timedelta(days=7)
 # schedule created just before it. A second pass this long after the change reads a listing that has caught up.
 SCHEDULE_LISTING_SETTLE_TIME = timedelta(minutes=5)
 
-logger = structlog.get_logger(__name__)
+
+class OrganizationReconcileGaveUpError(Exception):
+    def __init__(self) -> None:
+        super().__init__("Gave up moving an organization's schedules onto its plan floor")
 
 
 @shared_task(ignore_result=True, **RECONCILE_RETRY_OPTIONS)
@@ -54,7 +57,7 @@ def retry_pending_organization_reconciles() -> None:
     now = timezone.now()
     expired = PendingOrganizationReconcile.objects.filter(plan_changed_at__lt=now - PENDING_RECONCILE_GIVE_UP_AFTER)
     for organization_id in expired.values_list("organization_id", flat=True):
-        logger.error("Gave up reconciling an organization's schedules", organization_id=str(organization_id))
+        capture_exception(OrganizationReconcileGaveUpError(), {"organization_id": str(organization_id)})
     expired.delete()
 
     retry_before = now - PENDING_RECONCILE_RETRY_AFTER

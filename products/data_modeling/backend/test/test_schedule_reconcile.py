@@ -824,7 +824,10 @@ class TestMaybeReconcileDag(BaseTest):
         organization_id = str(self.organization.id)
         now = timezone.now()
 
-        with mock.patch(f"{RECONCILE_TASKS}.reconcile_organization_schedules.delay") as dispatch:
+        with (
+            mock.patch(f"{RECONCILE_TASKS}.reconcile_organization_schedules.delay") as dispatch,
+            mock.patch(f"{RECONCILE_TASKS}.capture_exception") as report,
+        ):
             with time_machine.travel(now - timedelta(days=8), tick=False):
                 schedule_organization_schedule_reconcile(organization_id)
             if plan_changes_again:
@@ -833,6 +836,7 @@ class TestMaybeReconcileDag(BaseTest):
             retry_pending_organization_reconciles()
 
         self.assertEqual(dispatch.called, expect_retry)
+        self.assertEqual(report.called, not expect_retry)
         self.assertEqual(
             PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists(), expect_retry
         )

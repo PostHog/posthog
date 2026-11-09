@@ -916,9 +916,9 @@ class BillingManager:
             and organization.usage is not None
             and organization.usage.get(BILLING_PACKAGE_USAGE_KEY) != package
         ):
+            package_changed = BILLING_PACKAGE_USAGE_KEY in organization.usage
             organization.usage[BILLING_PACKAGE_USAGE_KEY] = package
             org_modified = True
-            package_changed = True
 
         # The stamp goes out only with a save that a change already needs. A save for the stamp
         # alone writes this in-memory copy back over counters and quota markers that the quota
