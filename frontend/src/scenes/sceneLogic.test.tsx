@@ -15,6 +15,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -23,6 +24,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import * as exporterViewLogic from '~/exporter/exporterViewLogic'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import * as taxonomyLoader from '~/taxonomy/loadCoreFilterDefinitions'
 import { initKeaTests } from '~/test/init'
@@ -417,6 +419,14 @@ describe('sceneLogic', () => {
         router.actions.push('/replay/vision')
         await expectLogic(logic).delay(1)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replayVision())
+    })
+
+    it('sends a self-hosted install from a cloud-only scene to the Move to PostHog Cloud page', async () => {
+        await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+        preflightLogic.actions.loadPreflightSuccess({ ...preflightJson, is_debug: false } as any)
+        router.actions.push(urls.replayVision())
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.moveToPostHogCloud())
     })
 
     // ?review=<report id> is a permanent public contract baked into GitHub PR comments, and saved

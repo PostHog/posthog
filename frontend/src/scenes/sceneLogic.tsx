@@ -990,6 +990,12 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(urls.projectRoot())
                 return
             }
+            // `isHobby` reads true until preflight loads, so without the preflight check a cloud user who
+            // deep-links into a cloud-only scene could be sent away.
+            if (sceneConfig.cloudOnly && preflight && preflightLogic.values.isHobby) {
+                router.actions.replace(urls.moveToPostHogCloud())
+                return
+            }
 
             if (user) {
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
