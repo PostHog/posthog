@@ -13939,6 +13939,72 @@ export namespace Schemas {
       hog_function_ids: string[];
     }
 
+    /**
+     * * `passed` - passed
+     * * `blocked` - blocked
+     * * `not_allowed` - not_allowed
+     */
+    export type AlertPatternPreviewOutcomeEnum = typeof AlertPatternPreviewOutcomeEnum[keyof typeof AlertPatternPreviewOutcomeEnum];
+
+
+    export const AlertPatternPreviewOutcomeEnum = {
+      Passed: 'passed',
+      Blocked: 'blocked',
+      NotAllowed: 'not_allowed',
+    } as const;
+
+    export interface AlertPatternPreviewAlert {
+      /** The alert's id. */
+      id: string;
+      /** The alert's name. Empty when the alert has no name. */
+      name: string;
+      /**
+         * The insight's name, or its derived name when it has none.
+         * @nullable
+         */
+      insight_name: string | null;
+      /** Short id of the insight the alert watches. */
+      insight_short_id: string;
+      /** `passed` when the patterns let the alert through, `blocked` when it matches a block pattern, and `not_allowed` when allow patterns are set and it matches none of them.
+       *
+       * * `passed` - passed
+       * * `blocked` - blocked
+       * * `not_allowed` - not_allowed */
+      outcome: AlertPatternPreviewOutcomeEnum;
+    }
+
+    export interface AlertPatternPreviewRequest {
+      /**
+         * Allow patterns to try, as they would be saved in `config.alert_allow_patterns`.
+         * @maxItems 100
+         * @items.maxLength 1000
+         */
+      alert_allow_patterns?: string[];
+      /**
+         * Block patterns to try, as they would be saved in `config.alert_block_patterns`.
+         * @maxItems 100
+         * @items.maxLength 1000
+         */
+      alert_block_patterns?: string[];
+    }
+
+    export interface AlertPatternPreviewResponse {
+      /**
+         * Why the allow patterns could not be saved, or null when they are valid.
+         * @nullable
+         */
+      alert_allow_patterns_error: string | null;
+      /**
+         * Why the block patterns could not be saved, or null when they are valid.
+         * @nullable
+         */
+      alert_block_patterns_error: string | null;
+      /** The project's enabled alerts on insights you can view, newest first, each with what the patterns do to it. Empty while either pattern list has an error. */
+      alerts: AlertPatternPreviewAlert[];
+      /** True when the project has more enabled alerts than `alerts` lists. */
+      has_more: boolean;
+    }
+
     export interface AlertSimulate {
       /**
          * Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.
@@ -14095,6 +14161,187 @@ export namespace Schemas {
       alert_check_id?: string | null;
       investigation_id?: string | null;
       evaluation_key?: string | null;
+    }
+
+    export interface AnalyticsDashboardTarget {
+      kind: 'dashboard';
+      /**
+         * The dashboard's numeric ID.
+         * @minimum 1
+         */
+      id: number;
+    }
+
+    export type AnalyticsPage = typeof AnalyticsPage[keyof typeof AnalyticsPage];
+
+
+    export const AnalyticsPage = {
+      AnalyticsAll: 'analytics_all',
+      AnalyticsMine: 'analytics_mine',
+      Collections: 'collections',
+      Alerts: 'alerts',
+      Subscriptions: 'subscriptions',
+      ProductAnalytics: 'product_analytics',
+      WebAnalytics: 'web_analytics',
+      SqlEditor: 'sql_editor',
+      NewInsight: 'new_insight',
+    } as const;
+
+    /**
+     * A PostHog page. It has its own label and icon.
+     */
+    export interface AnalyticsPageTarget {
+      kind: 'page';
+      page: AnalyticsPage;
+    }
+
+    export interface AnalyticsInsightTarget {
+      kind: 'insight';
+      /**
+         * The insight's short ID, as in /insights/<short_id>.
+         * @pattern ^[A-Za-z0-9]{1,12}$
+         */
+      short_id: string;
+    }
+
+    export interface AnalyticsNotebookTarget {
+      kind: 'notebook';
+      /**
+         * The notebook's short ID, as in /notebooks/<short_id>.
+         * @pattern ^[A-Za-z0-9]{1,12}$
+         */
+      short_id: string;
+    }
+
+    export type FragmentIcon = typeof FragmentIcon[keyof typeof FragmentIcon];
+
+
+    export const FragmentIcon = {
+      List: 'list',
+      Person: 'person',
+      People: 'people',
+      Box: 'box',
+      Bell: 'bell',
+      Notification: 'notification',
+      Posthog: 'posthog',
+      Chart: 'chart',
+      Dashboard: 'dashboard',
+      Notebook: 'notebook',
+      Sql: 'sql',
+      Star: 'star',
+      Rocket: 'rocket',
+      Target: 'target',
+      Trending: 'trending',
+      Globe: 'globe',
+      Sparkle: 'sparkle',
+      Bolt: 'bolt',
+      Flag: 'flag',
+      Warning: 'warning',
+    } as const;
+
+    export type FragmentButtonVariant = typeof FragmentButtonVariant[keyof typeof FragmentButtonVariant];
+
+
+    export const FragmentButtonVariant = {
+      Default: 'default',
+      Primary: 'primary',
+      Outline: 'outline',
+    } as const;
+
+    /**
+     * A button that opens an Analytics page or a project object.
+     */
+    export interface AnalyticsFragmentButton {
+      type: 'button';
+      /** What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project. */
+      to: AnalyticsPageTarget | AnalyticsInsightTarget | AnalyticsDashboardTarget | AnalyticsNotebookTarget;
+      /**
+         * @minLength 1
+         * @maxLength 60
+         * @pattern ^[^\x00]*$
+         */
+      label: string;
+      icon?: FragmentIcon | null;
+      variant?: FragmentButtonVariant;
+    }
+
+    /**
+     * A link to an Analytics page or a project object. Object links require a label. A page link shows the page's own label and icon unless you set them.
+     */
+    export interface AnalyticsFragmentLink {
+      type: 'link';
+      /** What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project. */
+      to: AnalyticsPageTarget | AnalyticsInsightTarget | AnalyticsDashboardTarget | AnalyticsNotebookTarget;
+      label?: string | null;
+      icon?: FragmentIcon | null;
+    }
+
+    /**
+     * The latest value of a trends insight, with a sparkline of its first series. Opens the insight.
+     */
+    export interface AnalyticsFragmentMetric {
+      type: 'metric';
+      /**
+         * Short ID of a trends insight, one whose query source kind is TrendsQuery. Link to other insights.
+         * @pattern ^[A-Za-z0-9]{1,12}$
+         */
+      insight: string;
+      /**
+         * Short name of the number, such as Signups.
+         * @minLength 1
+         * @maxLength 60
+         * @pattern ^[^\x00]*$
+         */
+      label: string;
+    }
+
+    export type AnalyticsListSource = typeof AnalyticsListSource[keyof typeof AnalyticsListSource];
+
+
+    export const AnalyticsListSource = {
+      Pinned: 'pinned',
+      Recents: 'recents',
+      ByPosthog: 'by_posthog',
+    } as const;
+
+    /**
+     * A list of pinned, recent, or built-in Analytics items.
+     */
+    export interface AnalyticsFragmentList {
+      type: 'list';
+      source: AnalyticsListSource;
+    }
+
+    export interface AnalyticsFragmentSection {
+      /**
+         * Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID, so keep the ID of an existing section when you move or rename it.
+         * @minLength 1
+         * @maxLength 32
+         * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+         */
+      id: string;
+      /** Heading of the section. A section with a heading can be closed. A section without one shows its items in its place in the layout, with no heading. */
+      title?: string | null;
+      /** Icon before the heading. */
+      icon?: FragmentIcon | null;
+      /**
+         * @minItems 1
+         * @maxItems 12
+         */
+      items: (AnalyticsFragmentLink | AnalyticsFragmentButton | AnalyticsFragmentMetric | AnalyticsFragmentList)[];
+    }
+
+    /**
+     * The Analytics context's fragment. A section with no items to show is hidden.
+     */
+    export interface AnalyticsFragmentLayout {
+      version?: 1;
+      /**
+         * Use at most 30 items across all sections, including at most 4 metrics. Each built-in list counts as one item. Section IDs must be unique. Each list source can appear only once in the layout.
+         * @minItems 1
+         * @maxItems 10
+         */
+      sections: AnalyticsFragmentSection[];
     }
 
     /**
@@ -30816,6 +31063,44 @@ export namespace Schemas {
       email: string;
       /** The sender's display name. */
       name?: string;
+    }
+
+    export interface Customization {
+      /** The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. */
+      layout: AnalyticsFragmentLayout;
+      /** True when the person saved their own layout. False for the default layout. */
+      customized: boolean;
+    }
+
+    /**
+     * * `analytics_sidebar` - Analytics sidebar
+     */
+    export type CustomizationContextEnum = typeof CustomizationContextEnum[keyof typeof CustomizationContextEnum];
+
+
+    export const CustomizationContextEnum = {
+      AnalyticsSidebar: 'analytics_sidebar',
+    } as const;
+
+    /**
+     * JSON Schema for the layout, generated from the save validator. Read descriptions for additional rules enforced by the server.
+     */
+    export type CustomizationDescriptionLayoutSchema = { [key: string]: unknown };
+
+    export interface CustomizationDescription {
+      /** The UI customization context.
+       *
+       * * `analytics_sidebar` - Analytics sidebar */
+      context: CustomizationContextEnum;
+      /** JSON Schema for the layout, generated from the save validator. Read descriptions for additional rules enforced by the server. */
+      layout_schema: CustomizationDescriptionLayoutSchema;
+      /** The context's default layout, usable as a starting point. */
+      default_layout: AnalyticsFragmentLayout;
+    }
+
+    export interface CustomizationRequest {
+      /** The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole fragment, so send every section to keep. */
+      layout: AnalyticsFragmentLayout;
     }
 
     export type DashboardFilters = { [key: string]: unknown };
@@ -77817,6 +78102,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack
+     */
+    export type TaskClientEnum = typeof TaskClientEnum[keyof typeof TaskClientEnum];
+
+
+    export const TaskClientEnum = {
+      PosthogDesktop: 'posthog_desktop',
+      PosthogMobile: 'posthog_mobile',
+      PosthogWeb: 'posthog_web',
+      Slack: 'slack',
+    } as const;
+
+    /**
      * @nullable
      */
     export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
@@ -77882,6 +78183,18 @@ export namespace Schemas {
        * * `posthog_mobile` - PostHog Mobile
        * * `posthog_web` - PostHog Web */
       client_provenance?: TaskClientProvenanceEnum | null;
+      /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web
+       * * `slack` - Slack */
+      last_client?: TaskClientEnum | null;
+      /**
+         * When the latest person turn from `last_client` arrived.
+         * @nullable
+         */
+      last_client_at?: string | null;
     }
 
     /**
@@ -77952,6 +78265,18 @@ export namespace Schemas {
        * * `posthog_mobile` - PostHog Mobile
        * * `posthog_web` - PostHog Web */
       client_provenance?: TaskClientProvenanceEnum | null;
+      /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web
+       * * `slack` - Slack */
+      last_client?: TaskClientEnum | null;
+      /**
+         * When the latest person turn from `last_client` arrived.
+         * @nullable
+         */
+      last_client_at?: string | null;
       /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
       readonly description_preview: string;
     }
@@ -100136,7 +100461,7 @@ export namespace Schemas {
      */
     export interface RememberRequest {
       /**
-         * Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key and keep the timestamp in `content`.
+         * Short stable ID for what you're tracking, e.g. `noise:<fingerprint>`; max 300 chars, the note goes in `content`. Unique per team; re-using a key overwrites the entry. Never embed a date, timestamp, or run id (that mints a new row every run). For run state, use one fixed key and keep the timestamp in `content`.
          * @maxLength 300
          */
       key: string;
@@ -112445,6 +112770,18 @@ export namespace Schemas {
        * * `posthog_mobile` - PostHog Mobile
        * * `posthog_web` - PostHog Web */
       client_provenance?: TaskClientProvenanceEnum | null;
+      /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web
+       * * `slack` - Slack */
+      last_client?: TaskClientEnum | null;
+      /**
+         * When the latest person turn from `last_client` arrived.
+         * @nullable
+         */
+      last_client_at?: string | null;
       /** Error returned when the task was created but its first run could not start. */
       run_error?: string;
     }
@@ -113641,6 +113978,18 @@ export namespace Schemas {
        * * `posthog_mobile` - PostHog Mobile
        * * `posthog_web` - PostHog Web */
       client_provenance?: TaskClientProvenanceEnum | null;
+      /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web
+       * * `slack` - Slack */
+      last_client?: TaskClientEnum | null;
+      /**
+         * When the latest person turn from `last_client` arrived.
+         * @nullable
+         */
+      last_client_at?: string | null;
       /** Error returned when the run could not start. */
       run_error?: string;
       /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */

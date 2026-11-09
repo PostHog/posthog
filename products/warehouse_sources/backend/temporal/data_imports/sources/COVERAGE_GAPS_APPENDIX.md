@@ -11217,10 +11217,10 @@ Today (4): `cohort_metrics`, `conversion_metrics`, `custom_dimensions`, `daily_r
 
 Diffed against: <https://support.singular.net/api/v2/help_center/en-us/articles/360045245692.json>
 
-- [ ] `Filters (GET /api/v2.0/reporting/filters)` — resolve OS and source codes into display names for daily campaign reports (high)
-- [ ] `Create Async SKAdNetwork Report (POST /api/v2.0/create_async_skadnetwork_report)` — analyze iOS attribution with network cost, impressions, and cost per install (high)
-- [ ] `Ad Monetization Reporting (GET /api/v2.0/admonetization/reporting)` — measure advertising revenue, fill rates, and impressions from monetization networks (medium)
-- [ ] `Create Async SKAdNetwork Raw Report (POST /api/v2.0/create_async_skadnetwork_raw_report)` — analyze individual SKAdNetwork postbacks and conversion values without aggregation (medium)
+- [x] `Filters (GET /api/v2.0/reporting/filters)` — resolve OS and source codes into display names for daily campaign reports (high)
+- [x] `Create Async SKAdNetwork Report (POST /api/v2.0/create_async_skadnetwork_report)` — analyze iOS attribution with network cost, impressions, and cost per install (high)
+- [x] `Ad Monetization Reporting (GET /api/v2.0/admonetization/reporting)` — measure advertising revenue, fill rates, and impressions from monetization networks (medium)
+- [x] `Create Async SKAdNetwork Raw Report (POST /api/v2.0/create_async_skadnetwork_raw_report)` — analyze individual SKAdNetwork postbacks and conversion values without aggregation (medium)
 
 Note: Fetched official article bodies through the Help Center API because the browser reference returned a challenge. Also parsed SKAdNetwork article 360056377792 and Ad Monetization article 360045674511 through the same API. Daily reports already support configurable metrics and cohorts; SKAdNetwork reports need separate generation and download flows. Excluded report polling and availability checks; the listed POST operations generate analytical reports rather than write business records.
 
@@ -11461,10 +11461,10 @@ Today (4): `issues`, `metrics`, `projects`, `quality_gates`
 
 Diffed against: <https://sonarcloud.io/api/webservices/list>
 
-- [ ] `measures/component_tree` — the actual metric values per project/directory/file - today only the metric definitions (api/metrics) are synced, so no numbers land in the warehouse (high)
-- [ ] `measures/search_history` — historical metric values over time; required for any coverage/debt trend chart (high)
-- [ ] `rules/search` — lookup table resolving the rule keys carried on every issue we already sync (severity, type, language, remediation effort) (high)
-- [ ] `issues/changelog` — issue state/assignee/severity transition history - lets you measure time-to-fix and false-positive rates (high)
+- [x] `measures/component_tree` — the actual metric values per project/directory/file - today only the metric definitions (api/metrics) are synced, so no numbers land in the warehouse (high) → `measures` (full refresh, fan-out over `projects`)
+- [x] `measures/search_history` — historical metric values over time; required for any coverage/debt trend chart (high) → `measures_history` (full refresh, fan-out over `projects`)
+- [x] `rules/search` — lookup table resolving the rule keys carried on every issue we already sync (severity, type, language, remediation effort) (high) → `rules` (full refresh)
+- [x] `issues/changelog` — issue state/assignee/severity transition history - lets you measure time-to-fix and false-positive rates (high) → `issue_changelog` (full refresh, fan-out over `issues`, off by default)
 - [ ] `hotspots/search` — security hotspots are a separate finding class from issues and are entirely absent (high)
 - [ ] `project_analyses/search` — per-analysis records with version and event markers; the join key for measures history and release-over-release comparison (medium)
 - [ ] `project_branches/list` — branch-level quality gate status and analysis dates (medium)
@@ -11516,10 +11516,10 @@ Today (3): `organizations`, `repositories`, `users`
 
 Diffed against: <https://sourcegraph.com/.api/graphql>
 
-- [ ] `Repository.defaultBranch.target.commit.ancestors (commit history)` — commit-level history per repo - the foundational fact table for any code-activity analysis; nothing commit-shaped is synced today (high)
-- [ ] `Repository.contributors` — per-repo contributor counts and last-commit dates; joins users to repositories we already sync (high)
-- [ ] `telemetry.exportedEvents` — Sourcegraph's own usage event stream (Event Logging v2) - the headline adoption/usage metric (high)
-- [ ] `codeHosts (and externalServices)` — lookup resolving which code host connection each synced repository came from (high)
+- [x] `Repository.defaultBranch.target.commit.ancestors (commit history)` — commit-level history per repo - the foundational fact table for any code-activity analysis; nothing commit-shaped is synced today (high)
+- [x] `Repository.contributors` — per-repo contributor counts and last-commit dates; joins users to repositories we already sync (high)
+- [x] `telemetry.exportedEvents` — Sourcegraph's own usage event stream (Event Logging v2) - the headline adoption/usage metric (high)
+- [x] `codeHosts (and externalServices)` — lookup resolving which code host connection each synced repository came from (high)
 - [ ] `Repository.gitRefs / branches / tags` — branch and tag inventory per repo; needed for release and branch-age reporting (medium)
 - [ ] `preciseIndexes` — precise code-intel index records with state and failure reasons; measures code-intel coverage across repos (medium)
 - [ ] `insightViews (and insightsDashboards)` — Code Insights definitions and their time series - the product's analytical output (medium)
@@ -11575,13 +11575,13 @@ Note: The whole Metrics API (roughly 30 GET resources: deliverability with a doz
 
 ## SpeedCurve — gaps
 
-Today (6): `budgets`, `deploys`, `notes`, `sites`, `tests`, `urls`
+Today (7): `budgets`, `deploys`, `notes`, `rum_export`, `sites`, `tests`, `urls`
 
 Diffed against: <https://support.speedcurve.com/llms.txt>
 
-- [ ] `Export RUM Data (GET /v1/lux/export)` — analyze actual visitor performance, Core Web Vitals, devices, and interactions beyond synthetic test results (high)
-- [ ] `Get query status and result (GET /v2/accounts/{account_id}/queries/{query_id}/)` — import aggregated RUM metrics for dashboard comparisons and performance trends (medium)
-- [ ] `Get all snapshots (GET /v2/accounts/{account_id}/snapshots)` — compare groups of tests from deployments and manual runs (medium)
+- [x] `Export RUM Data (GET /v1/lux/export)` — analyze actual visitor performance, Core Web Vitals, devices, and interactions beyond synthetic test results (high). Added as `rum_export` (one row per beacon from the daily caret-delimited files, incremental on `epoch`).
+- [ ] `Get query status and result (GET /v2/accounts/{account_id}/queries/{query_id}/)` — import aggregated RUM metrics for dashboard comparisons and performance trends (medium); skipped: API v2 is still beta and this source pins v1, and a result exists only for a query the caller first submits with `POST` for one chart
+- [ ] `Get all snapshots (GET /v2/accounts/{account_id}/snapshots)` — compare groups of tests from deployments and manual runs (medium); skipped: API v2 is still beta and this source pins v1, and the documented example response has the shape of the deployments list, so the snapshot row shape is not known
 
 Note: Used the official index and parsed OpenAPI blocks on its linked V1 and V2 reference pages. Existing test lists already include detailed synthetic metrics, so the single-test endpoint adds no distinct table. RUM exports need explicit enablement, signed download retrieval, and parsing of files separated by caret characters. Aggregate RUM queries require a prior query submission and chart identifier; snapshots require V2 support, currently absent from the source.
 
@@ -11608,11 +11608,11 @@ Today (12): `alert_muting_rules`, `charts`, `dashboard_groups`, `dashboards`, `d
 
 Diffed against: <https://dev.splunk.com/observability/reference/>
 
-- [ ] `slo (GET /slo/{id}, POST /slo/search)` — SLO definitions and status are the headline reliability metric; nothing SLO-related is synced today (high)
+- [x] `slo (GET /slo/{id}, POST /slo/search)` — SLO definitions and status are the headline reliability metric; nothing SLO-related is synced today (high)
 - [ ] `tests (Synthetics GET /tests)` — the whole Synthetics product is unexposed; tests is its root object (high)
-- [ ] `tests/{id}/runs and runs/{id} (Synthetics runs)` — actual synthetic check results over time - the analytical fact table for uptime/latency (high)
-- [ ] `locations (Synthetics GET /locations)` — lookup table resolving the location IDs stamped on every synthetic run (high)
-- [ ] `event / event/find (GET /event, GET /event/find)` — org-wide custom and alert event stream; today only detector_events is synced (high)
+- [x] `tests/{id}/runs and runs/{id} (Synthetics runs)` — actual synthetic check results over time - the analytical fact table for uptime/latency (high)
+- [x] `locations (Synthetics GET /locations)` — lookup table resolving the location IDs stamped on every synthetic run (high)
+- [x] `event / event/find (GET /event, GET /event/find)` — org-wide custom and alert event stream; today only detector_events is synced (high)
 - [ ] `tag (GET /tag, GET /tag/{name})` — metric tag lookup that resolves the breakdown labels on metrics and MTS (medium)
 - [ ] `role (GET /role, GET /role/{roleId})` — role definitions and assignments complement organization_members for access analysis (medium)
 - [ ] `audit events (GET /v2/audit/events)` — who changed which detector/dashboard and when (medium)
@@ -11709,15 +11709,15 @@ Note: Square's OpenAPI 3.0 spec has 255 paths; PostHog exposes 5 tables and none
 
 ## Squarespace — gaps
 
-Today (7): `fulfillment_options`, `inventory`, `orders`, `products`, `profiles`, `store_pages`, `transactions`
+Today (10): `contact_address_book`, `contacts`, `discounts`, `fulfillment_options`, `inventory`, `orders`, `products`, `profiles`, `store_pages`, `transactions`
 
 Diffed against: <https://developers.squarespace.com/commerce-apis/overview>
 
-- [ ] `GET /v1/contacts (Contacts API)` — the marketing contact record, distinct from commerce profiles; holds newsletter/marketing state we have no source for (high)
-- [ ] `GET /v1/commerce/discounts (Discounts API)` — lookup resolving the promo codes and discount rules applied on the orders we already sync (medium)
-- [ ] `Contacts address book entries (GET under /v1/contacts/{contactId})` — shipping addresses per contact, useful for geographic breakdowns (low)
+- [x] `GET /v1/contacts (Contacts API)` — the marketing contact record, distinct from commerce profiles; holds newsletter/marketing state we have no source for (high). Added as `contacts`.
+- [x] `GET /v1/commerce/discounts (Discounts API)` — lookup resolving the promo codes and discount rules applied on the orders we already sync (medium). Added as `discounts`.
+- [x] `Contacts address book entries (GET under /v1/contacts/{contactId})` — shipping addresses per contact, useful for geographic breakdowns (low). Added as `contact_address_book` (fan-out over `contacts`, `GET /v1/contacts/{contactId}/address-book`).
 - [x] `GET /v1/fulfillments/fulfillment-options (Discounts API)` — lookup of a site's shipping option IDs and carrier services, the targets of free shipping discounts (low)
-- [ ] `POST /v1/analytics/transaction-summaries` — per-contact lifetime order/donation/refund totals, though it requires supplying contactIds so it only works as a follow-on to a contacts sync (low)
+- ~~`POST /v1/analytics/transaction-summaries` — per-contact lifetime order/donation/refund totals, though it requires supplying contactIds so it only works as a follow-on to a contacts sync (low)~~ — skipped: it returns the same `TransactionsSummary` object that the `profiles` table already syncs for each contact (a profile id is the contact id)
 
 Note: Squarespace's public Commerce API is small: Contacts, Analytics, Discounts, Products, Websites (store pages), Inventory, Orders, Transactions, Profiles, WebhookSubscriptions. PostHog covers 6 of the 8 data-bearing ones. Order fulfillments and inventory adjustments exist but are POST-only writes, not readable collections.
 
@@ -11727,11 +11727,11 @@ Today (6): `Answers`, `Articles`, `Collections`, `Questions`, `Tags`, `Users`
 
 Diffed against: <https://api.stackoverflowteams.com/v3/swagger.json>
 
-- [ ] `GET /teams/{team}/questions/{questionId}/comments` — comment volume is a core engagement signal and is entirely missing (high)
-- [ ] `GET /teams/{team}/questions/{questionId}/answers/{answerId}/comments` — same engagement signal on answers, which we already sync (high)
-- [ ] `GET /teams/{team}/communities` — lookup resolving the community a question/user belongs to; needed to slice knowledge activity by group (medium)
+- [x] `GET /teams/{team}/questions/{questionId}/comments` — comment volume is a core engagement signal and is entirely missing (high)
+- [x] `GET /teams/{team}/questions/{questionId}/answers/{answerId}/comments` — same engagement signal on answers, which we already sync (high)
+- [x] `GET /teams/{team}/communities` — lookup resolving the community a question/user belongs to; needed to slice knowledge activity by group (medium)
 - [ ] `GET /teams/{team}/user-groups` — user group membership, the join table for per-team adoption reporting (medium)
-- [ ] `GET /teams/{team}/tags/{tagId}/subject-matter-experts` — lookup mapping the tags we already sync to their designated experts (medium)
+- [x] `GET /teams/{team}/tags/{tagId}/subject-matter-experts` — lookup mapping the tags we already sync to their designated experts (medium)
 - [ ] `GET /teams/{team}/articles/{articleId}/comments` — engagement on articles, which we already sync (medium)
 - [ ] `GET /teams/{team}/tags/{tagId}/tag-watchers and GET /teams/{team}/users/{userId}/watched-tags` — who follows which topic, an interest/expertise mapping (low)
 - [ ] `GET /teams/{team}/questions/{questionId}/linked and /related` — question-to-question graph for duplicate and topic-cluster analysis (low)
