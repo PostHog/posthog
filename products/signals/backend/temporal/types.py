@@ -207,6 +207,7 @@ class SignalReportSummaryWorkflowInputs:
     requested_after_run_count: int | None = None
     signal_id: str | None = None
     operator_rerun: bool = False
+    github_recovery: bool = False
 
 
 @dataclass

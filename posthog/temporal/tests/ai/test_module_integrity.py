@@ -184,6 +184,7 @@ class TestSignalsProductModuleIntegrity:
             "safety_filter_activity",
             "select_repository_activity",
             "github_optional_pilot_activity",
+            "check_report_github_readiness_activity",
             "soft_delete_report_signals_activity",
             "verify_match_specificity_activity",
             "wait_for_signal_in_clickhouse_activity",

@@ -179,3 +179,13 @@ Lower `INBOX_RANKING_SCORING_BATCH_SIZE` or pause the schedule.
 **Local development.**
 With `DEBUG` on, every queue collapses to `development-task-queue`.
 The local worker runs the sweep with all other workflows.
+
+## GitHub access and suspended work
+
+Research and implementation have separate access gates. `self-driving-ubp OR self-driving-github-optional` allows completed projects to research using project data when GitHub is unavailable. That path grants no implementation permission and selects no billing enrollment. Check the live flag definitions in each rollout region before enabling access; changing flags and customer enrollment are separate rollout operations.
+
+The summary workflow uses the `signals-project-research-access` Temporal patch and optional payload fields so histories recorded before this gate remain replayable. Connection blockers leave new work as a candidate with `research_blocked_reason` and its original `research_blocked_at`. After project connection or reconnection commits, `recover_github_access` dispatches bounded Celery batches for the connected project and child environments that inherit its access. Verified repository-access, unsuspend, and accepted-permission webhooks do the same for projects linked to that installation, refreshing installation tokens first. Personal connections alone do not trigger project work. `resume_github_blocked_reports` restarts eligible summaries on the existing video-export queue. Recording an initial blocker also queues one recovery check to cover a reconnect that arrived before the blocker was saved. Recovery checks do not enqueue themselves when access is still missing. Only candidate work marked within the last seven days is considered. No periodic GitHub recovery sweep, pending-input recovery, flag-change fan-out, or historical backfill runs.
+
+Temporary access failures, Celery delivery, and research restarts receive at most five retries with exponential backoff.
+
+For diagnosis, inspect the report’s research blocker fields. Temporary failures indicate retry/checking, not a reconnect requirement. Use the config endpoint’s `refresh_github=true` query to refresh access with the existing cache cooldown. Reconnecting never enables automatic implementation. Use the existing report-completion telemetry alongside structured blocked and fallback observations. Completion events measure research attempts.
