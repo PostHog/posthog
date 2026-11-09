@@ -90,7 +90,6 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     CODE_SEND_EXTRA_FIELDS,
     AddressListField,
     AttachmentListField,
-    AttachmentSize,
     attachment_size,
     field_not_accepted_refusal,
     template_send_refusal,
@@ -778,8 +777,6 @@ class TransactionalEmailSendMixin:
     # The actions of the viewset that send an email. Only these record stage durations.
     transactional_email_send_actions: tuple[str, ...] = ()
     transactional_email_route: str
-    # Only the single send route takes content your code rendered, so only its body names a key and carries files.
-    takes_code_sends: bool = False
     _validation_started_at: float | None = None
     _send_reported: bool = False
 
@@ -828,19 +825,29 @@ class TransactionalEmailSendMixin:
         return response
 
     def _report_refused_request(self, response: Response) -> None:
-        body = self.request.data
-        names_a_key = self.takes_code_sends and isinstance(body, Mapping) and bool(body.get("template_key"))
         self._report_transactional_email_send(
             self.request,
             {
-                **({"addressed_by": "template_key"} if names_a_key else {}),
                 "outcome": "rejected",
                 "error_code": response.data.get("code") if isinstance(response.data, dict) else None,
             },
         )
 
-    def _attachment_size(self, request: Any) -> AttachmentSize:
-        return attachment_size(request.data) if self.takes_code_sends else AttachmentSize(count=0, bytes=0)
+    def _takes_code_sends(self) -> bool:
+        return self.transactional_email_route == "send_email"
+
+    def _body_properties(self, request: Any) -> dict[str, Any]:
+        # Only the single send route takes content your code rendered, so only its body names a key and carries files.
+        if not self._takes_code_sends():
+            return {"attachment_count": 0, "attachment_bytes": 0}
+        body = request.validated_data if hasattr(request, "validated_data") else request.data
+        size = attachment_size(body)
+        names_a_key = isinstance(body, Mapping) and bool(body.get("template_key"))
+        return {
+            **({"addressed_by": "template_key"} if names_a_key else {}),
+            "attachment_count": size.count,
+            "attachment_bytes": size.bytes,
+        }
 
     def _end_request_validation(self) -> None:
         if self._validation_started_at is not None and self._is_transactional_email_send():
@@ -927,7 +934,7 @@ class TransactionalEmailSendMixin:
             raise exceptions.PermissionDenied("You need editor access to workflows to send under a new key.")
 
     def _report_first_code_send_after_commit(self, request: Any, addressed_by: str) -> None:
-        if not self.takes_code_sends or not isinstance(request.user, ProjectSecretAPIKeyUser):
+        if not self._takes_code_sends() or not isinstance(request.user, ProjectSecretAPIKeyUser):
             return
         key = request.user.project_secret_api_key
         if key.created_by_id is None:
@@ -961,7 +968,6 @@ class TransactionalEmailSendMixin:
         self._send_reported = True
         # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
         try:
-            size = self._attachment_size(request)
             posthoganalytics.capture(
                 distinct_id=request.user.distinct_id,
                 event="transactional email api send",
@@ -973,8 +979,7 @@ class TransactionalEmailSendMixin:
                     "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_SEND_SCOPE),
                     "route": self.transactional_email_route,
                     "has_idempotency_key": request.headers.get("Idempotency-Key") is not None,
-                    "attachment_count": size.count,
-                    "attachment_bytes": size.bytes,
+                    **self._body_properties(request),
                     **properties,
                 },
                 groups=groups(self.organization, self.team),
@@ -1292,7 +1297,6 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     psak_allowed_actions = ["email"]
     transactional_email_send_actions = ("email",)
     transactional_email_route = "send_email"
-    takes_code_sends = True
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
     records_have_object_access_rules = False
 

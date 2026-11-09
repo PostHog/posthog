@@ -1,6 +1,7 @@
 import base64
 from typing import Any
 
+from django.http import QueryDict
 from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
@@ -208,6 +209,11 @@ class TestAttachmentSize(SimpleTestCase):
             ("a_file_that_is_not_an_object", {"attachments": ["invoice.pdf"]}, AttachmentSize(count=1, bytes=None)),
             ("attachments_that_are_not_a_list", {"attachments": "invoice.pdf"}, AttachmentSize(count=None, bytes=None)),
             ("a_body_that_is_not_an_object", ["invoice.pdf"], AttachmentSize(count=None, bytes=None)),
+            (
+                "a_form_body",
+                QueryDict("attachments[0]filename=a.pdf&attachments[0]content=aGk%3D"),
+                AttachmentSize(count=None, bytes=None),
+            ),
         ]
     )
     def test_counts_the_decoded_bytes_only_when_every_file_is_base64(

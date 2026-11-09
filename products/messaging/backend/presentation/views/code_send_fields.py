@@ -6,6 +6,7 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.settings import api_settings
+from rest_framework.utils import html
 
 from posthog.dataclasses import frozen
 
@@ -154,7 +155,8 @@ BASE64_ALPHABET = re.compile(r"[A-Za-z0-9+/]*={0,2}")
 
 
 def attachment_size(body: Any) -> AttachmentSize:
-    if not isinstance(body, Mapping):
+    # A form body spreads each file over keys such as `attachments[0]content`, so its files can't be counted from it.
+    if not isinstance(body, Mapping) or html.is_html_input(body):
         return AttachmentSize(count=None, bytes=None)
     attachments = body.get("attachments")
     if attachments is None:

@@ -1026,6 +1026,33 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("accepted_without_files", {}, 202, (0, 0)),
+            (
+                "refused_with_files",
+                {"attachments[0]filename": "notes.txt", "attachments[0]content": "aGk="},
+                400,
+                (None, None),
+            ),
+        ]
+    )
+    def test_reports_the_attachments_of_a_send_in_a_form_body(
+        self, mock_post, _flag, capture, _name, fields, expected_status, expected
+    ):
+        mock_post.configure_mock(**CDP_ACCEPTS)
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, {**self._code_send(), **fields}, format="multipart"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert [
+            (call.kwargs["properties"]["attachment_count"], call.kwargs["properties"]["attachment_bytes"])
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "transactional email api send"
+        ] == [expected]
+
+    @parameterized.expand(
+        [
             ("below_the_key_limit", transactional_email.TRANSACTIONAL_EMAIL_KEY_LIMIT),
             ("winner_takes_the_last_key", 1),
         ]
