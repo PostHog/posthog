@@ -1660,7 +1660,7 @@ class Database(BaseModel):
                     should_sync=db_schema.should_sync,
                     incremental=db_schema.is_incremental or db_schema.is_webhook,
                     status=db_schema.status,
-                    last_synced_at=str(db_schema.last_synced_at),
+                    last_synced_at=str(db_schema.last_synced_at) if db_schema.last_synced_at else None,
                 )
 
             # Get source from prefetched data
