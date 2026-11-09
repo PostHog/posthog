@@ -6708,7 +6708,7 @@ export interface ExperimentExposureQueryResponse {
     health_findings?: ExperimentExposureHealthFinding[]
     /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
     health_checks?: ExperimentExposureHealthCheck[]
-    /** Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library. */
+    /** Exposed persons or groups by the SDK library (`$lib`) of their first exposure. A missing library reads as `$$_posthog_breakdown_null_$$`. Only the five libraries with the most persons or groups keep their own key, cut to 64 characters; the rest share `$$_posthog_breakdown_other_$$`. Absent when the exposures come from the precomputed table or from an activation event, which carry no library. */
     exposed_by_library?: Record<string, integer>
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]

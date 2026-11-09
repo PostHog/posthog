@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { IconInfo, IconWarning } from '@posthog/icons'
 
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
-import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
+import { BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
 
 import { type Noun, groupsModel } from '~/models/groupsModel'
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
@@ -24,9 +24,8 @@ const RUNTIME_LABELS: Record<EvaluationRuntimeEnumApi, string> = {
 
 const LIBRARY_LABELS: Record<string, string> = {
     [BREAKDOWN_NULL_STRING_LABEL]: 'No SDK',
+    [BREAKDOWN_OTHER_STRING_LABEL]: 'Other',
 }
-
-const MAX_NAMED_LIBRARIES = 4
 
 const MAX_LISTED_CONDITIONS = 3
 
@@ -60,19 +59,16 @@ function releaseConditionsText(
 }
 
 function librarySharesText(exposedByLibrary: Record<string, number>): string | null {
-    const sorted = Object.entries(exposedByLibrary).sort(([, a], [, b]) => b - a)
+    // The server keeps the most common libraries and counts the rest under the other key, which reads last.
+    const sorted = Object.entries(exposedByLibrary).sort(
+        ([a, countA], [b, countB]) =>
+            Number(a === BREAKDOWN_OTHER_STRING_LABEL) - Number(b === BREAKDOWN_OTHER_STRING_LABEL) || countB - countA
+    )
     const total = sorted.reduce((sum, [, count]) => sum + count, 0)
     if (total === 0) {
         return null
     }
-    const shown =
-        sorted.length > MAX_NAMED_LIBRARIES + 1
-            ? [
-                  ...sorted.slice(0, MAX_NAMED_LIBRARIES),
-                  ['Other', sorted.slice(MAX_NAMED_LIBRARIES).reduce((sum, [, count]) => sum + count, 0)] as const,
-              ]
-            : sorted
-    return shown
+    return sorted
         .map(([library, count]) => {
             const share = Math.round((count / total) * 100)
             return `${LIBRARY_LABELS[library] ?? library} ${share === 0 ? '<1' : share}%`

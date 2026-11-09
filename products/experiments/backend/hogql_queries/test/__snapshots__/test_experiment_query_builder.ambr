@@ -22,15 +22,13 @@
   WITH first_exposures AS
     (SELECT person_id AS entity_id,
             if(greater(uniqExact(properties.$feature_flag_response), 1), '$multiple', any(properties.$feature_flag_response)) AS variant,
-            toDate(toString(min(timestamp))) AS day,
-            argMin(coalesce(toString(events.properties.$lib), '$$_posthog_breakdown_null_$$'), timestamp) AS library
+            toDate(toString(min(timestamp))) AS day
      FROM events
      WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
-         count(first_exposures.entity_id) AS exposed_count,
-         sumMap([first_exposures.library], [1]) AS exposed_by_library
+         count(first_exposures.entity_id) AS exposed_count
   FROM first_exposures
   WHERE notEmpty(variant)
   GROUP BY first_exposures.day,
