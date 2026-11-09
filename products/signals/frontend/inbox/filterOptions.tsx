@@ -165,10 +165,10 @@ export const INBOX_PERSONAL_SORT_OPTION: InboxSortOption = {
 }
 
 /** The `personal_tier` values the personal ranking writes, keyed by value. */
-export const INBOX_PERSONAL_TIERS: Record<string, { label: string; tagType: LemonTagType }> = {
-    top: { label: 'Top', tagType: 'highlight' },
-    worth_a_look: { label: 'Worth a look', tagType: 'default' },
-    later: { label: 'Later', tagType: 'muted' },
+export const INBOX_PERSONAL_TIERS: Record<string, { label: string }> = {
+    top: { label: 'Top' },
+    worth_a_look: { label: 'Worth a look' },
+    later: { label: 'Later' },
 }
 
 /** The sorts the server orders with a ranker, whose rows carry `inbox_merge_key`. */
