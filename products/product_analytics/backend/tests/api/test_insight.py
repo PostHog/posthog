@@ -1940,7 +1940,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert Insight.objects.get(pk=insight_id).query_metadata["events"] == ["event_a"]
+        query_metadata = Insight.objects.get(pk=insight_id).query_metadata
+        assert query_metadata is not None
+        assert query_metadata["events"] == ["event_a"]
 
     def test_patch_after_a_concurrent_delete_returns_404_without_adding_a_tile(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "insight name"})
