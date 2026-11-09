@@ -497,7 +497,7 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         description:
             'Project integrations with third-party services such as Slack, plus connections to other PostHog projects.',
         group: 'Setup & data management',
-        actions: ['read'],
+        actions: ['read', 'write'],
     },
     legal_document: {
         name: 'Legal document',
