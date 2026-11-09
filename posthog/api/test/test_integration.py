@@ -7688,6 +7688,23 @@ class TestIntegrationDeletionHogFunctionGuard:
         assert "Test batch export" in content
         assert Integration.objects.filter(id=self.integration.id).exists()
 
+    def test_destroy_blocked_when_a_warehouse_destination_writes_through_the_integration(self, client: HttpClient):
+        destination = ExternalDataDestination.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            type=ExternalDataDestination.Type.POSTGRES,
+            name="private_destination_name",
+            integration_id=self.integration.id,
+        )
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        content = response.content.decode()
+        assert "data warehouse destinations: 1" in content
+        assert "private_destination_name" not in content
+        destination.refresh_from_db()
+        assert destination.integration_id == self.integration.id
+
 
 class TestIntegrationRequestAccessAPI(APIBaseTest):
     def setUp(self):
@@ -8457,26 +8474,6 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
             assert "private_source_prefix" not in detail
             assert str(source.source_type) not in detail
             assert str(source.id) not in detail
-
-    def test_destroy_keeps_a_row_that_a_warehouse_destination_writes_through(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        row = self._credentials_row("postgresql", "credentials")
-        destination = ExternalDataDestination.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            type=ExternalDataDestination.Type.POSTGRES,
-            name="private_destination_name",
-            integration_id=row.id,
-        )
-
-        response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
-
-        assert response.status_code == 400
-        detail = json.dumps(response.json())
-        assert "data warehouse destinations: 1" in detail
-        assert "private_destination_name" not in detail
-        destination.refresh_from_db()
-        assert destination.integration_id == row.id
 
     @parameterized.expand([("before_the_usage_check", "usages"), ("during_the_teardown", "delete")])
     def test_destroy_of_a_row_that_a_concurrent_request_deleted(self, _name: str, gone_at: str) -> None:
