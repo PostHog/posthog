@@ -19,6 +19,7 @@ from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
 from products.knowledge_writer.backend.logic.pull_requests import (
+    COMPARE_FILE_LIMIT,
     LINK_BACK_START,
     open_or_join_pull_request,
     section_label,
@@ -48,6 +49,8 @@ LIST_PULL_REQUESTS = f"{GITHUB}.api_request"
 CAPTURE_ALERT = "products.knowledge_writer.backend.logic.caps.capture_exception"
 DOCS_HEAD = {"repository": "PostHog/posthog.com", "branch": "docs/retention"}
 SECTION_PAGE = "https://posthog.com/docs/session-replay/retention"
+DOCS_PAGE_PATH = "contents/docs/session-replay/retention.mdx"
+WORKFLOW_PATH = ".github/workflows/deploy.yml"
 REPOSITORY_SOURCED_PAGE = "https://posthog.com/docs/logs/logql-api"
 START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 WRITER_APP_LOGIN = "posthog-app[bot]"
@@ -81,6 +84,8 @@ def writer_env(team, user):
                 "KNOWLEDGE_WRITER_DOCS_REPOSITORY": "PostHog/posthog.com",
             },
         ),
+        patch(f"{GITHUB}.get_default_branch", return_value="master"),
+        patch(LIST_PULL_REQUESTS, side_effect=_changed_on_branch(DOCS_PAGE_PATH)),
     ):
         yield
 
@@ -105,6 +110,8 @@ def _open_on_github(
     ]
 
     def respond(method: str, path: str, **kwargs: object) -> MagicMock:
+        if "/compare/" in path:
+            return _changed_on_branch(DOCS_PAGE_PATH)(method, path)
         if "/contents/docs/published/docs/" in path:
             if lookup_error is not None:
                 raise lookup_error
@@ -113,6 +120,11 @@ def _open_on_github(
         return MagicMock(status_code=200, json=MagicMock(return_value=listed))
 
     return respond
+
+
+def _changed_on_branch(*filenames: str) -> Callable[..., MagicMock]:
+    compared = {"files": [{"filename": filename} for filename in filenames]}
+    return lambda method, path, **kwargs: MagicMock(status_code=200, json=MagicMock(return_value=compared))
 
 
 def _verdict(pull_request_number: int = 123, suggested_page_urls: tuple[str, ...] = ()):
@@ -144,10 +156,19 @@ def _issued_branch(task_id) -> str:
     return issued
 
 
-def _finish_run(task_id, django_capture_on_commit_callbacks, *, pushed_branch: str | None = None) -> None:
+def _finish_run(
+    task_id,
+    django_capture_on_commit_callbacks,
+    *,
+    pushed_branch: str | None = None,
+    changed_files: tuple[str, ...] = (DOCS_PAGE_PATH,),
+) -> None:
     run = TaskRun.objects.get(task_id=task_id)
     head = {"repository": DOCS_HEAD["repository"], "branch": pushed_branch or _issued_branch(task_id)}
-    with django_capture_on_commit_callbacks(execute=True):
+    with (
+        patch(LIST_PULL_REQUESTS, side_effect=_changed_on_branch(*changed_files)),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
         run.status = TaskRun.Status.COMPLETED
         run.output = {"head_branches": [head]}
         run.save(update_fields=["status", "output"])
@@ -266,6 +287,14 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
         tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
         == "head_branch_not_issued"
     )
+    for changed_files, refusal in (
+        ((DOCS_PAGE_PATH, WORKFLOW_PATH), "changed_paths_outside_docs"),
+        ((DOCS_PAGE_PATH,) * COMPARE_FILE_LIMIT, "too_many_changed_files"),
+    ):
+        with patch(CREATE_PULL_REQUEST) as create_for_refused_files:
+            _finish_run(started.task_id, django_capture_on_commit_callbacks, changed_files=changed_files)
+        create_for_refused_files.assert_not_called()
+        assert tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY) == refusal
     with patch(CREATE_PULL_REQUEST, side_effect=ConnectionError("GitHub unreachable")):
         _finish_run(started.task_id, django_capture_on_commit_callbacks)
     with (
@@ -300,6 +329,13 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     assert joined.pull_request_url == opened["pr_url"]
     assert TaskRun.objects.get(task_id=joined.task_id).branch == DOCS_HEAD["branch"]
 
+    with patch(f"{GITHUB}.comment_on_pull_request") as comment_for_refused_files:
+        _finish_run(joined.task_id, django_capture_on_commit_callbacks, changed_files=(WORKFLOW_PATH,))
+    comment_for_refused_files.assert_not_called()
+    assert (
+        tasks_facade.read_task_state_entry(joined.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
+        == "changed_paths_outside_docs"
+    )
     with (
         patch(f"{GITHUB}.get_pull_request", return_value={"success": True, "state": "open", "body": first_body}),
         patch(f"{GITHUB}.comment_on_pull_request", return_value={"success": True}) as comment,

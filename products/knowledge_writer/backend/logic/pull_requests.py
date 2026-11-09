@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from urllib.parse import quote
 from uuid import UUID
 
 import structlog
@@ -41,6 +42,7 @@ SECTION_MARKER_PATTERN = re.compile(r"<!-- knowledge-writer-section: ([a-z0-9-]+
 SECTION_LABEL_PREFIX = "knowledge-writer/"
 PULL_REQUESTS_PER_PAGE = 100
 MAX_PULL_REQUEST_PAGES = 20
+COMPARE_FILE_LIMIT = 300
 
 
 def reported_docs_branches(output: object, docs_repository: str) -> list[str]:
@@ -233,6 +235,10 @@ def publish_claimed_pull_request(
         logger.warning("knowledge_writer_no_docs_github_integration", team_id=team_id, task_run_id=str(task_run_id))
         record_pull_request_failure(task_id, team_id, "no_github_integration")
         return None
+    refusal = publication_refusal(github, writer, head_branch)
+    if refusal is not None:
+        refuse_publication(task_id, team_id, task_run_id, refusal)
+        return None
     joined = tasks_facade.read_task_state_entry(task_id, team_id, JOIN_STATE_KEY)
     joined_pull_request = pull_request_json.validate_python(joined) if isinstance(joined, dict) else None
     pull_request = (
@@ -256,6 +262,37 @@ def publish_claimed_pull_request(
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))
     return pull_request.url
+
+
+def changed_paths(github: GitHubIntegration, docs_repository: str, head_branch: str) -> list[str] | None:
+    default_branch = github.get_default_branch(docs_repository)
+    # GitHub lists a comparison's changed files on the first page only, capped at COMPARE_FILE_LIMIT.
+    response = github.api_request(
+        "GET",
+        f"/repos/{docs_repository}/compare/{quote(default_branch, safe='/')}...{quote(head_branch, safe='/')}",
+        endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+        params={"per_page": 1, "page": 1},
+    )
+    if response.status_code != 200:
+        raise WriterPullRequestFailed(f"knowledge writer could not compare its docs branch: {response.status_code}")
+    changed_files = response.json().get("files") or []
+    if len(changed_files) >= COMPARE_FILE_LIMIT:
+        return None
+    return [
+        path
+        for changed_file in changed_files
+        for path in (changed_file.get("filename"), changed_file.get("previous_filename"))
+        if isinstance(path, str)
+    ]
+
+
+def publication_refusal(github: GitHubIntegration, writer: WriterSettings, head_branch: str) -> str | None:
+    paths = changed_paths(github, writer.docs_repository, head_branch)
+    if paths is None:
+        return "too_many_changed_files"
+    if any(not path.startswith(writer.docs_paths) for path in paths):
+        return "changed_paths_outside_docs"
+    return None
 
 
 def refuse_publication(task_id: UUID, team_id: int, task_run_id: UUID, reason: str) -> None:
