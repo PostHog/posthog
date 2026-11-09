@@ -26,6 +26,8 @@ from products.knowledge_writer.backend.logic.pull_requests import (
     settle_publication,
 )
 from products.knowledge_writer.backend.logic.records import (
+    HEAD_BRANCH_STATE_KEY,
+    JOIN_STATE_KEY,
     PUBLICATION_CLAIM_STATE_KEY,
     PUBLICATION_LEASE,
     PULL_REQUEST_FAILURE_STATE_KEY,
@@ -136,11 +138,18 @@ def _run_publish_workflow_inline(task_run_id, *, team_id: int) -> None:
     settle_publication(task_run_id, team_id=team_id, has_failed=False)
 
 
-def _finish_run(task_id, django_capture_on_commit_callbacks) -> None:
+def _issued_branch(task_id) -> str:
+    issued = Task.objects.get(id=task_id).state[HEAD_BRANCH_STATE_KEY]
+    assert isinstance(issued, str)
+    return issued
+
+
+def _finish_run(task_id, django_capture_on_commit_callbacks, *, pushed_branch: str | None = None) -> None:
     run = TaskRun.objects.get(task_id=task_id)
+    head = {"repository": DOCS_HEAD["repository"], "branch": pushed_branch or _issued_branch(task_id)}
     with django_capture_on_commit_callbacks(execute=True):
         run.status = TaskRun.Status.COMPLETED
-        run.output = {"head_branches": [DOCS_HEAD]}
+        run.output = {"head_branches": [head]}
         run.save(update_fields=["status", "output"])
 
 
@@ -250,6 +259,13 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
         busy = intake.submit(second_verdict, team_id=team.id)
     assert busy.status == "section_busy"
     start_workflow.assert_not_called()
+    with patch(CREATE_PULL_REQUEST) as create_for_another_branch:
+        _finish_run(started.task_id, django_capture_on_commit_callbacks, pushed_branch="docs/another-branch")
+    create_for_another_branch.assert_not_called()
+    assert (
+        tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
+        == "head_branch_not_issued"
+    )
     with patch(CREATE_PULL_REQUEST, side_effect=ConnectionError("GitHub unreachable")):
         _finish_run(started.task_id, django_capture_on_commit_callbacks)
     with (
@@ -262,7 +278,8 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
 
     create_pull_request.assert_called_once()
     assert create_pull_request.call_args.args == ("posthog.com",)
-    assert create_pull_request.call_args.kwargs["head_branch"] == DOCS_HEAD["branch"]
+    assert create_pull_request.call_args.kwargs["head_branch"] == _issued_branch(started.task_id)
+    assert _issued_branch(started.task_id).startswith("knowledge-writer/")
     assert create_pull_request.call_args.kwargs["draft"] is True
     assert LINK_BACK_START in create_pull_request.call_args.kwargs["body"]
     assert COMMAND.pull_request_url in create_pull_request.call_args.kwargs["body"]
@@ -494,6 +511,7 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
     renewed_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(
         dataclasses.replace(COMMAND, head_sha="fff999", note="Only touch the API reference.")
     )
+    later_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(dataclasses.replace(COMMAND, head_sha="eee111"))
 
     with (
         patch(FLAG_CHECK, return_value=True),
@@ -502,6 +520,7 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
     ):
         started = intake.submit(verdict, team_id=team.id)
         assert started.task_id is not None
+        first_branch = _issued_branch(started.task_id)
         TaskRun.objects.filter(task_id=started.task_id).update(status=TaskRun.Status.FAILED)
         rerun = intake.submit(renewed_verdict, team_id=team.id)
         repeated = intake.submit(renewed_verdict, team_id=team.id)
@@ -509,6 +528,7 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
     assert (rerun.status, rerun.task_id) == ("started", started.task_id)
     assert repeated.status == "duplicate"
     assert start_workflow.call_count == 2
+    assert _issued_branch(started.task_id) == first_branch
     new_run = TaskRun.objects.filter(task_id=started.task_id).order_by("-created_at").first()
     assert new_run is not None
     assert new_run.state["pending_dispatch"]["create_pr"] is False
@@ -525,6 +545,19 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
     )
     dispatch_options = start_workflow.call_args.kwargs["options"]
     assert (dispatch_options.create_pr, dispatch_options.posthog_mcp_scopes) == (False, [])
+
+    TaskRun.objects.filter(task_id=started.task_id).update(status=TaskRun.Status.FAILED)
+    joined_elsewhere = {"number": 9, "url": "https://github.com/PostHog/posthog.com/pull/9"}
+    tasks_facade.update_task_state_entry(
+        started.task_id, team.id, JOIN_STATE_KEY, lambda _current: (joined_elsewhere, None)
+    )
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        intake.submit(later_verdict, team_id=team.id)
+    assert _issued_branch(started.task_id) != first_branch
 
 
 @pytest.mark.django_db

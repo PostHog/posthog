@@ -28,12 +28,13 @@ from ...logic.launch import start_writer
 from ...logic.pull_requests import (
     LINK_BACK_START,
     docs_github,
-    docs_head_branch,
     open_writer_pull_requests,
+    reported_docs_branches,
     section_marker,
     source_repository_github,
 )
 from ...logic.records import (
+    HEAD_BRANCH_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     WriterPullRequest,
@@ -167,12 +168,8 @@ def push_scratch_branch(github: GitHubIntegration, repository: str, branch: str,
 def run_scratch_requests(
     github: GitHubIntegration, writer: WriterSettings, team: Team, section: str, smoke_id: str, branches: list[str]
 ) -> SmokeRequests:
-    for number in (1, 2):
-        branch = f"knowledge-writer-smoke-{smoke_id}-{number}"
-        branches.append(branch)
-        push_scratch_branch(github, writer.docs_repository, branch, section)
-    opened, first_joined = run_writer_request(writer, team, section, branches[0])
-    joined, second_joined = run_writer_request(writer, team, section, branches[1])
+    opened, first_joined = run_writer_request(github, writer, team, section, f"{smoke_id}-1", branches)
+    joined, second_joined = run_writer_request(github, writer, team, section, f"{smoke_id}-2", branches)
     return opened, first_joined, joined, second_joined
 
 
@@ -277,19 +274,31 @@ def wait_for_pull_request(task_id: UUID, team_id: int, docs_repository: str, dea
 def ended_run_problem(run: TaskRunDTO, docs_repository: str) -> str | None:
     if run.status in ("failed", "cancelled"):
         return f"ended {run.status}: {run.error_message}"
-    if run.status == "completed" and docs_head_branch(run.output, docs_repository) is None:
+    if run.status == "completed" and not reported_docs_branches(run.output, docs_repository):
         return "completed without pushing a docs branch"
     return None
 
 
-def run_writer_request(writer: WriterSettings, team: Team, section: str, branch: str) -> tuple[WriterPullRequest, bool]:
+def run_writer_request(
+    github: GitHubIntegration,
+    writer: WriterSettings,
+    team: Team,
+    section: str,
+    smoke_suffix: str,
+    branches: list[str],
+) -> tuple[WriterPullRequest, bool]:
     request = smoke_request(
-        REGISTRY[DocsRequestSource.COMMAND_TAG].assess(unreachable_source(writer.user_id)), section, branch
+        REGISTRY[DocsRequestSource.COMMAND_TAG].assess(unreachable_source(writer.user_id)), section, smoke_suffix
     )
     routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
     joining = pull_request_to_join(list_writer_pull_requests(writer), routing.section)
     task_id = start_writer(request, routing, team=team, writer=writer, joining=joining, start_workflow=False)
-    pushed_branch = joining.head_branch if joining is not None else branch
+    head_branch = tasks_facade.read_task_state_entry(task_id, team.id, HEAD_BRANCH_STATE_KEY)
+    if not isinstance(head_branch, str):
+        raise CommandError(f"Task {task_id} was issued no docs branch")
+    if joining is None:
+        branches.append(head_branch)
+        push_scratch_branch(github, writer.docs_repository, head_branch, section)
     for run_id in tasks_facade.list_task_run_ids(task_id, team.id):
         tasks_facade.update_task_run(
             run_id,
@@ -297,12 +306,12 @@ def run_writer_request(writer: WriterSettings, team: Team, section: str, branch:
             team.id,
             validated_data={
                 "status": "completed",
-                "output": {"head_branches": [{"repository": writer.docs_repository, "branch": pushed_branch}]},
+                "output": {"head_branches": [{"repository": writer.docs_repository, "branch": head_branch}]},
             },
         )
     stored = tasks_facade.read_task_state_entry(task_id, team.id, PULL_REQUEST_STATE_KEY)
     if not isinstance(stored, dict):
-        raise CommandError(f"The finished run on {branch} recorded no pull request")
+        raise CommandError(f"The finished run on {head_branch} recorded no pull request")
     return pull_request_json.validate_python(stored), joining is not None
 
 

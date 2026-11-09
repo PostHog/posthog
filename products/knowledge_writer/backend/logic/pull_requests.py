@@ -17,6 +17,7 @@ from ..facade.contracts import DocsRequest
 from ..settings import WriterSettings, writer_settings
 from .launch import replace_entry_with
 from .records import (
+    HEAD_BRANCH_STATE_KEY,
     JOIN_STATE_KEY,
     PUBLICATION_CLAIM_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
@@ -42,11 +43,12 @@ PULL_REQUESTS_PER_PAGE = 100
 MAX_PULL_REQUEST_PAGES = 20
 
 
-def docs_head_branch(output: object, docs_repository: str) -> str | None:
-    for head in tasks_facade.read_head_branches(output):
-        if head["repository"] == docs_repository.lower():
-            return head["branch"]
-    return None
+def reported_docs_branches(output: object, docs_repository: str) -> list[str]:
+    return [
+        head["branch"]
+        for head in tasks_facade.read_head_branches(output)
+        if head["repository"] == docs_repository.lower()
+    ]
 
 
 def link_back_block(source_urls: list[str]) -> str:
@@ -174,8 +176,8 @@ def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
     run = tasks_facade.get_task_run(task_run_id, team_id)
     if run is None or run.task_origin_product != tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER:
         return None
-    head_branch = docs_head_branch(run.output, writer.docs_repository)
-    if head_branch is None:
+    reported_branches = reported_docs_branches(run.output, writer.docs_repository)
+    if not reported_branches:
         return None
     published = tasks_facade.read_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY)
     if isinstance(published, dict):
@@ -183,7 +185,7 @@ def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
     if not claim_publication(run.task_id, team_id, task_run_id):
         return None
     try:
-        return publish_claimed_pull_request(run.task_id, team_id, task_run_id, writer, head_branch)
+        return publish_claimed_pull_request(run.task_id, team_id, task_run_id, writer, reported_branches)
     except Exception:
         record_pull_request_failure(run.task_id, team_id, "github_request_failed")
         raise
@@ -218,8 +220,12 @@ def release_publication_claim(task_id: UUID, team_id: int, task_run_id: UUID) ->
 
 
 def publish_claimed_pull_request(
-    task_id: UUID, team_id: int, task_run_id: UUID, writer: WriterSettings, head_branch: str
+    task_id: UUID, team_id: int, task_run_id: UUID, writer: WriterSettings, reported_branches: list[str]
 ) -> str | None:
+    head_branch = tasks_facade.read_task_state_entry(task_id, team_id, HEAD_BRANCH_STATE_KEY)
+    if not isinstance(head_branch, str) or reported_branches != [head_branch]:
+        refuse_publication(task_id, team_id, task_run_id, "head_branch_not_issued")
+        return None
     request = request_json.validate_python(tasks_facade.read_task_state_entry(task_id, team_id, REQUEST_STATE_KEY))
     docs_owner, docs_name = writer.docs_repository.split("/", 1)
     github = docs_github(team_id, docs_owner, priority=Priority.CRITICAL)
@@ -229,13 +235,6 @@ def publish_claimed_pull_request(
         return None
     joined = tasks_facade.read_task_state_entry(task_id, team_id, JOIN_STATE_KEY)
     joined_pull_request = pull_request_json.validate_python(joined) if isinstance(joined, dict) else None
-    if joined_pull_request is not None and joined_pull_request.head_branch != head_branch:
-        capture_exception(
-            WriterPullRequestFailed("knowledge writer pushed to a branch other than the joined pull request's"),
-            {"team_id": team_id, "task_run_id": str(task_run_id)},
-        )
-        record_pull_request_failure(task_id, team_id, "joined_branch_mismatch")
-        return None
     pull_request = (
         add_source_to_pull_request(github, docs_name, joined_pull_request, request)
         if joined_pull_request is not None
@@ -257,6 +256,14 @@ def publish_claimed_pull_request(
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))
     return pull_request.url
+
+
+def refuse_publication(task_id: UUID, team_id: int, task_run_id: UUID, reason: str) -> None:
+    capture_exception(
+        WriterPullRequestFailed("knowledge writer refused to publish a docs branch"),
+        {"team_id": team_id, "task_run_id": str(task_run_id), "reason": reason},
+    )
+    record_pull_request_failure(task_id, team_id, reason)
 
 
 def record_pull_request_failure(task_id: UUID, team_id: int, reason: str) -> None:
