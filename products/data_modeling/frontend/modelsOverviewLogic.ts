@@ -1,25 +1,47 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { DataModelingNode } from '~/types'
 
-import { DataQualityOverviewCheckApi } from 'products/data_quality/frontend/generated/api.schemas'
 import {
-    OverviewChecksStatus,
+    DataQualityOverviewCheckApi,
+    DataQualitySubjectHealthApi,
+} from 'products/data_quality/frontend/generated/api.schemas'
+import {
     dataQualityOverviewLogic,
+    subjectKeyOf,
 } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
+import { warehouseSavedQueriesRunCreate } from 'products/data_warehouse/frontend/generated/api'
 
+import { nodeEndpointModel } from './endpointModelName'
 import { BehindScheduleModel, MATERIALIZING_TYPES } from './freshness'
-import type { RefreshSummary } from './healthyMessage'
+import type { ChecksHealth, RefreshSummary } from './healthyMessage'
 import { lineageDataLogic } from './lineage/lineageDataLogic'
 import { AttentionModel, modelsSceneLogic } from './modelsSceneLogic'
-import type { IssueKind } from './overviewIssueCopy'
+import {
+    IssueKind,
+    IssueStatus,
+    REFRESH_FAILED_MESSAGE,
+    REFRESH_STARTED_MESSAGE,
+    SubjectSince,
+    failingChecksStatus,
+    materializationStatus,
+    nextStepLabel,
+    subjectDetail,
+    subjectImpact,
+    subjectName,
+    subjectSince,
+} from './overviewIssueCopy'
+import { subjectHref } from './subjectHref'
 
 const FAILING_CHECK_STATUSES = new Set(['failed', 'errored'])
+const UNHEALTHY_SUBJECT_STATES = new Set(['failing', 'erroring', 'warn'])
 const ALL = 'all'
+const RUNNING = 'Running'
 const REFRESH_POLL_INTERVAL_MS = 5000
-const REFRESH_POLL_MAX_ATTEMPTS = 12
+const REFRESH_REQUEST_TIMEOUT_MS = 60_000
 
 export type AttentionFilter = typeof ALL | IssueKind
 
@@ -34,6 +56,22 @@ export interface AttentionSubject {
     failingChecks: DataQualityOverviewCheckApi[]
 }
 
+export type AttentionNextStep =
+    | { kind: 'refresh'; savedQueryId: string; refreshing: boolean }
+    | { kind: 'link'; label: string; href: string }
+
+export interface AttentionRow {
+    key: string
+    name: string
+    href: string | null
+    statuses: IssueStatus[]
+    issueKinds: IssueKind[]
+    detail: string | null
+    impact: string | null
+    since: SubjectSince | null
+    nextStep: AttentionNextStep | null
+}
+
 function problemNode(problem: MaterializationProblem): DataModelingNode {
     return problem.kind === 'behind' ? problem.behind.node : problem.attention.node
 }
@@ -44,6 +82,14 @@ function nodeSubjectKey(node: DataModelingNode): string {
 
 function checkSubjectKey(check: DataQualityOverviewCheckApi, node: DataModelingNode | null): string {
     return node ? nodeSubjectKey(node) : `${check.subject_type}-${check.subject_uuid ?? check.subject_name}`
+}
+
+function checkRollupKey(check: DataQualityOverviewCheckApi): string {
+    return subjectKeyOf(check.subject_type, check.subject_uuid)
+}
+
+function isFailingSubject(health: DataQualitySubjectHealthApi): boolean {
+    return health.checks_failing > 0 || UNHEALTHY_SUBJECT_STATES.has(health.health)
 }
 
 function groupAttentionSubjects(
@@ -77,27 +123,103 @@ export function subjectIssueKinds(subject: AttentionSubject): IssueKind[] {
     ]
 }
 
-function countByIssueKind(subjects: AttentionSubject[]): Record<AttentionFilter, number> {
+function failingCheckCount(
+    checks: DataQualityOverviewCheckApi[],
+    healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>
+): number {
+    const rollupKeys = new Set(checks.map(checkRollupKey))
+    const rollupCount = [...rollupKeys].reduce(
+        (total, key) => total + (healthBySubjectKey[key]?.checks_failing ?? 0),
+        0
+    )
+    return Math.max(checks.length, rollupCount)
+}
+
+function subjectStatuses(
+    subject: AttentionSubject,
+    healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>
+): IssueStatus[] {
+    const { materialization, failingChecks } = subject
+    return [
+        ...(materialization ? [materializationStatus(materialization)] : []),
+        ...(failingChecks.length > 0
+            ? [failingChecksStatus(failingChecks, failingCheckCount(failingChecks, healthBySubjectKey))]
+            : []),
+    ]
+}
+
+function refreshableSavedQueryId(subject: AttentionSubject): string | null {
+    const { node, materialization } = subject
+    const kind = materialization?.kind
+    if (!node?.saved_query_id || nodeEndpointModel(node) || (kind !== 'failed' && kind !== 'behind')) {
+        return null
+    }
+    return node.saved_query_id
+}
+
+function subjectNextStep(subject: AttentionSubject, refreshRequests: Record<string, number>): AttentionNextStep | null {
+    const savedQueryId = refreshableSavedQueryId(subject)
+    if (savedQueryId) {
+        const refreshing = subject.node?.last_run_status === RUNNING || savedQueryId in refreshRequests
+        return { kind: 'refresh', savedQueryId, refreshing }
+    }
+    const href = subjectHref(subject)
+    return href ? { kind: 'link', label: nextStepLabel(subject), href } : null
+}
+
+function buildAttentionRow(
+    subject: AttentionSubject,
+    healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>,
+    refreshRequests: Record<string, number>
+): AttentionRow {
+    return {
+        key: subject.key,
+        name: subjectName(subject),
+        href: subjectHref(subject),
+        statuses: subjectStatuses(subject, healthBySubjectKey),
+        issueKinds: subjectIssueKinds(subject),
+        detail: subjectDetail(subject),
+        impact: subjectImpact(subject),
+        since: subjectSince(subject),
+        nextStep: subjectNextStep(subject, refreshRequests),
+    }
+}
+
+function countByIssueKind(rows: AttentionRow[], unlistedFailingSubjectCount: number): Record<AttentionFilter, number> {
     const counts: Record<AttentionFilter, number> = {
-        all: subjects.length,
+        all: rows.length + unlistedFailingSubjectCount,
         suspended: 0,
         failed: 0,
         behind: 0,
-        checks: 0,
+        checks: unlistedFailingSubjectCount,
     }
-    for (const kind of subjects.flatMap(subjectIssueKinds)) {
+    for (const kind of rows.flatMap((row) => row.issueKinds)) {
         counts[kind] += 1
     }
     return counts
 }
 
+function rollupChecksHealth(subjectHealth: DataQualitySubjectHealthApi[]): ChecksHealth {
+    if (subjectHealth.every((health) => health.checks_total === 0)) {
+        return 'none'
+    }
+    if (subjectHealth.some(isFailingSubject)) {
+        return 'failing'
+    }
+    return subjectHealth.every((health) => health.health === 'healthy' || health.checks_total === 0)
+        ? 'all-passed'
+        : 'some-not-passed'
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface modelsOverviewLogicValues {
     checks: DataQualityOverviewCheckApi[] // dataQualityOverviewLogic
-    checksStatus: OverviewChecksStatus // dataQualityOverviewLogic
-    checksTruncated: boolean // dataQualityOverviewLogic
+    healthBySubjectKey: {
+        [k: string]: DataQualitySubjectHealthApi
+    } // dataQualityOverviewLogic
     overviewError: string | null // dataQualityOverviewLogic
     snapshotLoaded: boolean // dataQualityOverviewLogic
+    subjectHealth: DataQualitySubjectHealthApi[] // dataQualityOverviewLogic
     attentionModels: AttentionModel[] // modelsSceneLogic
     behindSchedule: BehindScheduleModel[] // modelsSceneLogic
     catalogRestructureEnabled: boolean // modelsSceneLogic
@@ -108,36 +230,26 @@ export interface modelsOverviewLogicValues {
     activeAttentionFilter: AttentionFilter
     attentionCounts: Record<AttentionFilter, number>
     attentionFilter: AttentionFilter
+    attentionRows: AttentionRow[]
     attentionSubjects: AttentionSubject[]
     checksFirstLoading: boolean
+    checksHealth: ChecksHealth
     checksKnown: boolean
     failingChecks: DataQualityOverviewCheckApi[]
-    filteredAttentionSubjects: AttentionSubject[]
+    filteredAttentionRows: AttentionRow[]
     materializationProblems: MaterializationProblem[]
     modelsFirstLoading: boolean
     modelsKnown: boolean
     nothingToReport: boolean
+    refreshRequests: Record<string, number>
     refreshSummary: RefreshSummary
     showFirstView: boolean
-    startedRefreshSavedQueryIds: string[]
+    unlistedFailingSubjectCount: number
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface modelsOverviewLogicActions {
     loadOverview: () => any // dataQualityOverviewLogic
-    runDataWarehouseSavedQuery: (
-        viewId: string,
-        fullRefresh?: boolean | undefined
-    ) => {
-        fullRefresh: boolean | undefined
-        viewId: string
-    } // dataWarehouseViewsLogic
-    runDataWarehouseSavedQueryFailure: (viewId: string) => {
-        viewId: string
-    } // dataWarehouseViewsLogic
-    runDataWarehouseSavedQuerySuccess: (viewId: string) => {
-        viewId: string
-    } // dataWarehouseViewsLogic
     loadNodesSuccess: (
         nodes: DataModelingNode[],
         payload?: any
@@ -147,11 +259,18 @@ export interface modelsOverviewLogicActions {
     } // lineageDataLogic
     loadDataWarehouseSavedQueries: () => any // modelsSceneLogic
     loadNodes: () => any // modelsSceneLogic
+    clearRefreshRequests: (savedQueryIds: string[]) => {
+        savedQueryIds: string[]
+    }
+    refreshRequestFailed: (savedQueryId: string) => {
+        savedQueryId: string
+    }
+    requestRefresh: (savedQueryId: string) => {
+        requestedAt: number
+        savedQueryId: string
+    }
     setAttentionFilter: (filter: AttentionFilter) => {
         filter: AttentionFilter
-    }
-    settleRefresh: (savedQueryId: string) => {
-        savedQueryId: string
     }
 }
 
@@ -162,6 +281,7 @@ export interface modelsOverviewLogicMeta {
         modelsFirstLoading: (modelsResolved: boolean, modelsFailed: boolean) => boolean
         checksKnown: (snapshotLoaded: boolean, overviewError: string | null) => boolean
         checksFirstLoading: (snapshotLoaded: boolean, overviewError: string | null) => boolean
+        checksHealth: (subjectHealth: DataQualitySubjectHealthApi[]) => ChecksHealth
         materializationProblems: (
             attentionModels: AttentionModel[],
             behindSchedule: BehindScheduleModel[]
@@ -172,18 +292,34 @@ export interface modelsOverviewLogicMeta {
             failingChecks: DataQualityOverviewCheckApi[],
             nodes: DataModelingNode[]
         ) => AttentionSubject[]
-        nothingToReport: (modelsKnown: boolean, checksKnown: boolean, attentionSubjects: AttentionSubject[]) => boolean
+        attentionRows: (
+            attentionSubjects: AttentionSubject[],
+            healthBySubjectKey: {
+                [k: string]: DataQualitySubjectHealthApi
+            },
+            refreshRequests: Record<string, number>
+        ) => AttentionRow[]
+        unlistedFailingSubjectCount: (
+            subjectHealth: DataQualitySubjectHealthApi[],
+            failingChecks: DataQualityOverviewCheckApi[]
+        ) => number
+        nothingToReport: (
+            modelsKnown: boolean,
+            checksKnown: boolean,
+            attentionRows: AttentionRow[],
+            unlistedFailingSubjectCount: number
+        ) => boolean
         showFirstView: (nothingToReport: boolean, noModelsYet: boolean) => boolean
         refreshSummary: (nodes: DataModelingNode[]) => RefreshSummary
-        attentionCounts: (attentionSubjects: AttentionSubject[]) => Record<AttentionFilter, number>
+        attentionCounts: (
+            attentionRows: AttentionRow[],
+            unlistedFailingSubjectCount: number
+        ) => Record<AttentionFilter, number>
         activeAttentionFilter: (
             attentionFilter: AttentionFilter,
             attentionCounts: Record<AttentionFilter, number>
         ) => AttentionFilter
-        filteredAttentionSubjects: (
-            attentionSubjects: AttentionSubject[],
-            activeAttentionFilter: AttentionFilter
-        ) => AttentionSubject[]
+        filteredAttentionRows: (attentionRows: AttentionRow[], activeAttentionFilter: AttentionFilter) => AttentionRow[]
     }
 }
 
@@ -209,22 +345,22 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
                 'catalogRestructureEnabled',
             ],
             dataQualityOverviewLogic,
-            ['checks', 'checksTruncated', 'checksStatus', 'snapshotLoaded', 'overviewError'],
+            ['checks', 'subjectHealth', 'healthBySubjectKey', 'snapshotLoaded', 'overviewError'],
         ],
         actions: [
             modelsSceneLogic,
             ['loadNodes', 'loadDataWarehouseSavedQueries'],
             dataQualityOverviewLogic,
             ['loadOverview'],
-            dataWarehouseViewsLogic,
-            ['runDataWarehouseSavedQuery', 'runDataWarehouseSavedQuerySuccess', 'runDataWarehouseSavedQueryFailure'],
             lineageDataLogic,
             ['loadNodesSuccess'],
         ],
     })),
     actions({
         setAttentionFilter: (filter: AttentionFilter) => ({ filter }),
-        settleRefresh: (savedQueryId: string) => ({ savedQueryId }),
+        requestRefresh: (savedQueryId: string) => ({ savedQueryId, requestedAt: Date.now() }),
+        refreshRequestFailed: (savedQueryId: string) => ({ savedQueryId }),
+        clearRefreshRequests: (savedQueryIds: string[]) => ({ savedQueryIds }),
     }),
     reducers({
         attentionFilter: [
@@ -233,12 +369,17 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
                 setAttentionFilter: (_, { filter }) => filter,
             },
         ],
-        startedRefreshSavedQueryIds: [
-            [] as string[],
+        refreshRequests: [
+            {} as Record<string, number>,
             {
-                runDataWarehouseSavedQuery: (state, { viewId }) => [...state, viewId],
-                runDataWarehouseSavedQueryFailure: (state, { viewId }) => state.filter((id) => id !== viewId),
-                settleRefresh: (state, { savedQueryId }) => state.filter((id) => id !== savedQueryId),
+                requestRefresh: (state, { savedQueryId, requestedAt }) =>
+                    savedQueryId in state ? state : { ...state, [savedQueryId]: requestedAt },
+                refreshRequestFailed: (state, { savedQueryId }) => {
+                    const { [savedQueryId]: _failed, ...rest } = state
+                    return rest
+                },
+                clearRefreshRequests: (state, { savedQueryIds }) =>
+                    Object.fromEntries(Object.entries(state).filter(([id]) => !savedQueryIds.includes(id))),
             },
         ],
     }),
@@ -258,6 +399,10 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
         checksFirstLoading: [
             (s) => [s.snapshotLoaded, s.overviewError],
             (snapshotLoaded: boolean, overviewError: string | null): boolean => !snapshotLoaded && !overviewError,
+        ],
+        checksHealth: [
+            (s) => [s.subjectHealth],
+            (subjectHealth: DataQualitySubjectHealthApi[]): ChecksHealth => rollupChecksHealth(subjectHealth),
         ],
         materializationProblems: [
             (s) => [s.attentionModels, s.behindSchedule],
@@ -284,10 +429,34 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
                 nodes: DataModelingNode[]
             ): AttentionSubject[] => groupAttentionSubjects(materializationProblems, failingChecks, nodes),
         ],
+        attentionRows: [
+            (s) => [s.attentionSubjects, s.healthBySubjectKey, s.refreshRequests],
+            (
+                attentionSubjects: AttentionSubject[],
+                healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>,
+                refreshRequests: Record<string, number>
+            ): AttentionRow[] =>
+                attentionSubjects.map((subject) => buildAttentionRow(subject, healthBySubjectKey, refreshRequests)),
+        ],
+        unlistedFailingSubjectCount: [
+            (s) => [s.subjectHealth, s.failingChecks],
+            (subjectHealth: DataQualitySubjectHealthApi[], failingChecks: DataQualityOverviewCheckApi[]): number => {
+                const listedKeys = new Set(failingChecks.map(checkRollupKey))
+                return subjectHealth.filter(
+                    (health) =>
+                        isFailingSubject(health) &&
+                        !listedKeys.has(subjectKeyOf(health.subject_type, health.subject_uuid))
+                ).length
+            },
+        ],
         nothingToReport: [
-            (s) => [s.modelsKnown, s.checksKnown, s.attentionSubjects],
-            (modelsKnown: boolean, checksKnown: boolean, attentionSubjects: AttentionSubject[]): boolean =>
-                modelsKnown && checksKnown && attentionSubjects.length === 0,
+            (s) => [s.modelsKnown, s.checksKnown, s.attentionRows, s.unlistedFailingSubjectCount],
+            (
+                modelsKnown: boolean,
+                checksKnown: boolean,
+                attentionRows: AttentionRow[],
+                unlistedFailingSubjectCount: number
+            ): boolean => modelsKnown && checksKnown && attentionRows.length === 0 && unlistedFailingSubjectCount === 0,
         ],
         showFirstView: [
             (s) => [s.nothingToReport, s.noModelsYet],
@@ -302,48 +471,59 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
             },
         ],
         attentionCounts: [
-            (s) => [s.attentionSubjects],
-            (attentionSubjects: AttentionSubject[]): Record<AttentionFilter, number> =>
-                countByIssueKind(attentionSubjects),
+            (s) => [s.attentionRows, s.unlistedFailingSubjectCount],
+            (attentionRows: AttentionRow[], unlistedFailingSubjectCount: number): Record<AttentionFilter, number> =>
+                countByIssueKind(attentionRows, unlistedFailingSubjectCount),
         ],
         activeAttentionFilter: [
             (s) => [s.attentionFilter, s.attentionCounts],
             (attentionFilter: AttentionFilter, attentionCounts: Record<AttentionFilter, number>): AttentionFilter =>
                 attentionCounts[attentionFilter] > 0 ? attentionFilter : ALL,
         ],
-        filteredAttentionSubjects: [
-            (s) => [s.attentionSubjects, s.activeAttentionFilter],
-            (attentionSubjects: AttentionSubject[], activeAttentionFilter: AttentionFilter): AttentionSubject[] =>
+        filteredAttentionRows: [
+            (s) => [s.attentionRows, s.activeAttentionFilter],
+            (attentionRows: AttentionRow[], activeAttentionFilter: AttentionFilter): AttentionRow[] =>
                 activeAttentionFilter === ALL
-                    ? attentionSubjects
-                    : attentionSubjects.filter((subject) => subjectIssueKinds(subject).includes(activeAttentionFilter)),
+                    ? attentionRows
+                    : attentionRows.filter((row) => row.issueKinds.includes(activeAttentionFilter)),
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
-        runDataWarehouseSavedQuerySuccess: () => {
+    listeners(({ actions, values, cache, selectors }) => ({
+        requestRefresh: async ({ savedQueryId }, _breakpoint, _action, previousState) => {
+            if (savedQueryId in selectors.refreshRequests(previousState)) {
+                return
+            }
+            try {
+                await warehouseSavedQueriesRunCreate(String(getCurrentTeamId()), savedQueryId, {})
+            } catch {
+                actions.refreshRequestFailed(savedQueryId)
+                lemonToast.error(REFRESH_FAILED_MESSAGE)
+                return
+            }
+            lemonToast.success(REFRESH_STARTED_MESSAGE)
             actions.loadNodes()
+            actions.loadDataWarehouseSavedQueries()
         },
         loadNodesSuccess: ({ nodes }) => {
-            const seenRunning: Set<string> = (cache.refreshSeenRunning ??= new Set())
-            const attempts: Record<string, number> = (cache.refreshPollAttempts ??= {})
-            const pending = values.startedRefreshSavedQueryIds.filter((savedQueryId) => {
-                const running = nodes.some(
-                    (node) => node.saved_query_id === savedQueryId && node.last_run_status === 'Running'
+            const runningSavedQueryIds = new Set(
+                nodes.flatMap((node) =>
+                    node.last_run_status === RUNNING && node.saved_query_id ? [node.saved_query_id] : []
                 )
-                if (running) {
-                    seenRunning.add(savedQueryId)
-                }
-                attempts[savedQueryId] = (attempts[savedQueryId] ?? 0) + 1
-                const finished = !running && seenRunning.has(savedQueryId)
-                if (finished || attempts[savedQueryId] >= REFRESH_POLL_MAX_ATTEMPTS) {
-                    seenRunning.delete(savedQueryId)
-                    delete attempts[savedQueryId]
-                    actions.settleRefresh(savedQueryId)
-                    return false
-                }
-                return true
-            })
-            if (pending.length === 0) {
+            )
+            const now = Date.now()
+            const settled = Object.entries(values.refreshRequests)
+                .filter(
+                    ([savedQueryId, requestedAt]) =>
+                        runningSavedQueryIds.has(savedQueryId) || now - requestedAt > REFRESH_REQUEST_TIMEOUT_MS
+                )
+                .map(([savedQueryId]) => savedQueryId)
+            if (settled.length > 0) {
+                actions.clearRefreshRequests(settled)
+            }
+            const keepPolling =
+                Object.keys(values.refreshRequests).length > 0 ||
+                values.attentionRows.some((row) => row.nextStep?.kind === 'refresh' && row.nextStep.refreshing)
+            if (!keepPolling) {
                 cache.disposables.dispose('refreshPoll')
                 return
             }

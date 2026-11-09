@@ -30,14 +30,20 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE,
     TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
+    Any_Source_Errors,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
     _is_app_db_failure,
+    _non_retryable_error_message,
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    XMIN_AS_INCREMENTAL_FIELD_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
+    PostgresSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.types import ExternalDataJobStatus, ExternalDataSourceType
@@ -111,6 +117,56 @@ class TestIsAppDbFailure(SimpleTestCase):
         # str(ApplicationError) is what the workflow stores as internal_error, so build the input
         # the same way rather than hand-writing the prefix this depends on.
         assert _is_app_db_failure(str(ApplicationError(message, type=exc_type))) is expected
+
+
+class TestNonRetryableErrorMessage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Each class-name or broad key below has a None value and sits before the entry that
+            # carries the message, so a first-match pick showed the customer the raw driver text.
+            (
+                "postgres_table_permission",
+                PostgresSource,
+                "InsufficientPrivilege",
+                "permission denied for table orders",
+                "GRANT SELECT",
+            ),
+            (
+                "postgres_schema_permission",
+                PostgresSource,
+                "InsufficientPrivilege",
+                "permission denied for schema analytics",
+                "USAGE",
+            ),
+            (
+                "redshift_relation_permission",
+                RedshiftSource,
+                "InsufficientPrivilege",
+                "permission denied for relation orders",
+                "Redshift reported",
+            ),
+            (
+                "postgres_xmin_as_incremental_field",
+                PostgresSource,
+                "ValueError",
+                XMIN_AS_INCREMENTAL_FIELD_ERROR,
+                "choose a different incremental field",
+            ),
+        ]
+    )
+    def test_a_none_entry_does_not_hide_a_later_message(
+        self, _name: str, source_cls: type, exc_type: str, message: str, expected_fragment: str
+    ) -> None:
+        errors = {**Any_Source_Errors, **source_cls().get_non_retryable_errors()}
+        result = _non_retryable_error_message(errors, str(ApplicationError(message, type=exc_type)))
+        assert result is not None
+        assert expected_fragment in result
+        assert "orders" not in result and "analytics" not in result
+
+    def test_an_error_only_none_entries_match_keeps_no_message(self) -> None:
+        errors = {**Any_Source_Errors, **PostgresSource().get_non_retryable_errors()}
+        internal_error = str(ApplicationError("table orders is gone", type="NoSuchTableError"))
+        assert _non_retryable_error_message(errors, internal_error) is None
 
 
 class TestTriggerScheduleBufferOneActivity(BaseTest):
@@ -288,8 +344,18 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
 
 # transaction=True commits the fixture rows: the activity resolves the schema through
 # database_sync_to_async_pool, whose pool-thread connection can't see a test transaction.
+@parameterized.expand(
+    [
+        ("plain text", "could not create the sync job", "could not create the sync job"),
+        # Raw driver/vendor text can carry a NUL byte, which Postgres text columns reject
+        # outright and would otherwise crash this save with a DataError.
+        ("nul byte stripped", "could not create\x00 the sync job", "could not create the sync job"),
+    ]
+)
 @pytest.mark.django_db(transaction=True)
-def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
+def test_failed_finalization_with_no_job_resets_stale_running_schema(
+    _name: str, latest_error: str, expected_latest_error: str
+) -> None:
     # When an early activity fails before the job row is committed, no later finalization can
     # repaint the schema, so the Running status painted at trigger time would stick forever.
     org = Organization.objects.create(name="org")
@@ -307,7 +373,7 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
         source_id=str(source.id),
         status=ExternalDataJob.Status.FAILED,
         internal_error=None,
-        latest_error="could not create the sync job",
+        latest_error=latest_error,
         workflow_run_id="run-id-with-no-job",
     )
 
@@ -326,7 +392,7 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
     mock_capture_exception.assert_not_called()
     schema.refresh_from_db()
     assert schema.status == ExternalDataSchema.Status.FAILED
-    assert schema.latest_error == "could not create the sync job"
+    assert schema.latest_error == expected_latest_error
 
 
 # transaction=True for the same reason as the test above: the activity resolves the source through

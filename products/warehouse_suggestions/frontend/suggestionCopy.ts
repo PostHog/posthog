@@ -465,11 +465,15 @@ export function spokenDuration(seconds: number, maxUnits: number): string {
     return parts.length > 0 ? parts.join(' and ') : 'under a minute'
 }
 
+export function unusedViewsNote(unusedViews: number): string {
+    return unusedViews > 0 ? `. ${countOf(unusedViews, 'unused view', 'unused views')} to mark deprecated` : ''
+}
+
 export function countOf(count: number, singular: string, plural: string): string {
     return `${count} ${count === 1 ? singular : plural}`
 }
 
-export const SUGGESTED_MODEL_SECTIONS: Record<string, { title: string; description: string }> = {
+export const SUGGESTED_MODEL_SECTIONS: Record<string, { title: string; description: string; showsSaving?: boolean }> = {
     materialize: {
         title: 'Materialize',
         description: 'Store these views so reads and other refreshes can reuse their results.',
@@ -477,5 +481,10 @@ export const SUGGESTED_MODEL_SECTIONS: Record<string, { title: string; descripti
     unmaterialize: {
         title: 'Stop materializing',
         description: 'These views cost more to refresh than to run on each read.',
+    },
+    deprecate: {
+        title: 'Mark deprecated',
+        description: 'No one has read these views recently.',
+        showsSaving: false,
     },
 }

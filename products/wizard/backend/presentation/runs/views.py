@@ -87,6 +87,11 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 type=datetime,
                 description="Only return runs created after this timestamp.",
             ),
+            OpenApiParameter(
+                name="created_by_id",
+                type=int,
+                description="Only return runs created by this user.",
+            ),
         ],
         description="List Wizard runs for this project, ordered from newest to oldest.",
     )
@@ -105,7 +110,15 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if raw_created_after is not None
             else None
         )
-        filters = ListWizardRunsInput(team_id=self.team_id, statuses=statuses, created_after=created_after)
+        raw_created_by_id = request.query_params.get("created_by_id")
+        created_by_id = (
+            cast(int, serializers.IntegerField().run_validation(raw_created_by_id))
+            if raw_created_by_id is not None
+            else None
+        )
+        filters = ListWizardRunsInput(
+            team_id=self.team_id, statuses=statuses, created_after=created_after, created_by_id=created_by_id
+        )
         return facade_page_response(
             self, lambda page: wizard_facade.list_runs(filters, page), serializer_class=WizardRunSerializer
         )
@@ -171,8 +184,9 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if _wizard_sync_killswitch_enabled(str(getattr(request.user, "distinct_id", self.team_id))):
             return HttpResponse(status=204)
         run = self._get_run()
+        # The event stream is async, which WSGI can't consume; 204 stops EventSource reconnecting.
         if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
-            raise RuntimeError("wizard_runs.stream requires ASGI.")
+            return HttpResponse(status=204)
         return sse_streaming_response(wizard_run_event_stream(self.team_id, run.id), endpoint="wizard_run")
 
     @extend_schema(

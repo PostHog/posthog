@@ -5,6 +5,7 @@ import { CADENCE_LABELS } from 'scenes/data-warehouse/saved_queries/SyncFrequenc
 import { checkDisplayName } from 'products/data_quality/frontend/checksConstants'
 import { DataQualityOverviewCheckApi } from 'products/data_quality/frontend/generated/api.schemas'
 
+import { nodeEndpointModel } from './endpointModelName'
 import type { AttentionSubject, MaterializationProblem } from './modelsOverviewLogic'
 import type { AttentionModel } from './modelsSceneLogic'
 import { servingSuspension } from './suspension'
@@ -20,21 +21,31 @@ export interface IssueStatus {
     tooltip: string
 }
 
+export const ISSUE_KIND_ORDER: IssueKind[] = ['suspended', 'failed', 'behind', 'checks']
+
 export const ISSUE_LABELS: Record<IssueKind, string> = {
     suspended: 'Suspended',
     failed: 'Refresh failed',
-    behind: 'Stale',
+    behind: 'Behind schedule',
     checks: 'Checks failing',
 }
 
+export const ATTENTION_DESCRIPTION =
+    'These views and tables failed to refresh, are behind schedule, or have failing checks. Anything that reads them may show old or wrong data.'
+
+export const REFRESH_LABEL = 'Refresh'
+export const REFRESHING_LABEL = 'Refreshing…'
+export const REFRESH_STARTED_MESSAGE = 'Refresh started'
+export const REFRESH_FAILED_MESSAGE = "Couldn't start the refresh. Try again in a moment."
+
 /** Not run statuses: these say whether anything will retry on its own, which is why suspension sorts first. */
 const PROBLEM_TOOLTIPS: Record<AttentionModel['problem'], string> = {
-    Suspended: 'Scheduled runs have stopped after repeated failures. This model stays behind until you resume it.',
-    Failed: 'The last scheduled run failed. The next run will try again.',
+    Suspended: 'Scheduled refreshes have stopped after repeated failures. This model stays behind until you resume it.',
+    Failed: 'The last scheduled refresh failed. The next one will try again.',
 }
 
 function cadenceOf(problem: Extract<MaterializationProblem, { kind: 'behind' }>): string {
-    return CADENCE_LABELS[problem.behind.node.sync_interval!]
+    return CADENCE_LABELS[problem.behind.syncInterval]
 }
 
 export function materializationStatus(problem: MaterializationProblem): IssueStatus {
@@ -43,7 +54,7 @@ export function materializationStatus(problem: MaterializationProblem): IssueSta
             kind: 'behind',
             label: ISSUE_LABELS.behind,
             tone: 'warning',
-            tooltip: `Nothing failed, but this model has gone more than twice its ${cadenceOf(problem)} refresh interval without a run. Its schedule may have stopped.`,
+            tooltip: `This model should refresh every ${cadenceOf(problem)}, but its last successful refresh was more than twice that long ago. Its schedule may have stopped.`,
         }
     }
     return {
@@ -54,16 +65,20 @@ export function materializationStatus(problem: MaterializationProblem): IssueSta
     }
 }
 
-export function failingChecksStatus(checks: DataQualityOverviewCheckApi[]): IssueStatus {
+export function failingChecksStatus(checks: DataQualityOverviewCheckApi[], failingCount: number): IssueStatus {
     return {
         kind: 'checks',
-        label: `${pluralize(checks.length, 'check')} failing`,
+        label: `${pluralize(failingCount, 'check')} failing`,
         tone: 'danger',
         tooltip: checks.map(checkDisplayName).join(', '),
     }
 }
 
 export function subjectName(subject: AttentionSubject): string {
+    const endpointModel = subject.node ? nodeEndpointModel(subject.node) : null
+    if (endpointModel) {
+        return `${endpointModel.endpointName} v${endpointModel.version}`
+    }
     return subject.node?.name ?? subject.failingChecks[0]?.subject_name ?? ''
 }
 
@@ -98,40 +113,29 @@ function earliestFailingSince(checks: DataQualityOverviewCheckApi[]): string | n
     return times.sort()[0] ?? null
 }
 
-function startedAt(subject: AttentionSubject): string | null | undefined {
-    const { materialization, failingChecks } = subject
-    if (materialization?.kind === 'suspended') {
-        return servingSuspension(materialization.attention.node.suspended)?.at
-    }
-    if (materialization?.kind === 'failed') {
-        return materialization.attention.node.last_run_at
-    }
-    return earliestFailingSince(failingChecks)
-}
-
-export type SubjectSince = { kind: 'time'; time: string } | { kind: 'overdue'; label: string }
+export type SubjectSince = { kind: 'time'; label: string | null; time: string } | { kind: 'behind'; label: string }
 
 export function subjectSince(subject: AttentionSubject): SubjectSince | null {
-    const { materialization } = subject
+    const { materialization, failingChecks } = subject
     if (materialization?.kind === 'behind') {
-        return {
-            kind: 'overdue',
-            label: `${humanFriendlyDuration(materialization.behind.overdueSeconds, { maxUnits: 1 })} overdue`,
-        }
+        const overdue = humanFriendlyDuration(materialization.behind.overdueSeconds, { maxUnits: 1 })
+        return { kind: 'behind', label: `${overdue} behind schedule` }
     }
-    const time = startedAt(subject)
-    return time ? { kind: 'time', time } : null
+    if (materialization?.kind === 'failed') {
+        const lastTried = materialization.attention.node.last_run_at
+        return lastTried ? { kind: 'time', label: 'Last tried', time: lastTried } : null
+    }
+    const time =
+        materialization?.kind === 'suspended'
+            ? servingSuspension(materialization.attention.node.suspended)?.at
+            : earliestFailingSince(failingChecks)
+    return time ? { kind: 'time', label: null, time } : null
 }
 
 const NEXT_STEP_LABELS: Record<MaterializationProblem['kind'], string> = {
-    suspended: 'Fix and resume',
+    suspended: 'Open view',
     failed: 'View error',
     behind: 'Check schedule',
-}
-
-export const REFRESH_LABELS: Record<Exclude<MaterializationProblem['kind'], 'suspended'>, string> = {
-    failed: 'Retry',
-    behind: 'Run now',
 }
 
 export function nextStepLabel(subject: AttentionSubject): string {

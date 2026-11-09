@@ -5,14 +5,11 @@ The model, stack trace limit and cap are placeholders until the offline quality 
 
 from posthog.token_bucket import Budget
 
-from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL
-
 ISSUE_SUMMARY_FLAG = "error-tracking-issue-summaries"
 # The issue-created workflow generates the first summary only when this flag and the read flag are both on.
 ISSUE_SUMMARY_ON_WRITE_FLAG = "error-tracking-issue-summaries-on-write"
 
 ISSUE_SUMMARY_MODEL = "posthog/zai-org/glm-5.2"
-ISSUE_SUMMARY_CATEGORY_MODEL = SEVERITY_INFERENCE_MODEL
 ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS = 2000
 ISSUE_SUMMARY_MAX_OUTPUT_TOKENS = 800
 ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS = 30.0

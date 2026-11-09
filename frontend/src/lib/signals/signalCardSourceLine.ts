@@ -24,6 +24,7 @@ const SOURCE_LINE_BY_PRODUCT = new Map<string, string>([
     ['session_replay', 'Session replay · Problem segment'],
     ['replay_vision', 'Replay vision · Scanner finding'],
     ['health_checks', 'Health checks · Instrumentation issue'],
+    ['user_authored', 'Team member'],
 ])
 
 // Keyed `${source_product}/${source_type}`.

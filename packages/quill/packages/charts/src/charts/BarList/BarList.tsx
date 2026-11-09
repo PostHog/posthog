@@ -98,30 +98,19 @@ function BarListInner<Meta = unknown>({
         [rows]
     )
 
-    const stackedConfig = useMemo<StackedBarListConfig>(
-        () => ({
-            labelPosition,
-            rowHeight: config?.rowHeight,
-            barHeight: config?.barHeight,
-            barCornerRadius: config?.barCornerRadius,
-            valueDomain: { min: 0, max: domainMax > 0 ? domainMax : 1 },
-            tooltip: {
-                enabled: config?.tooltip?.enabled,
-                valueFormatter,
-                labelFormatter: (key) => rows.find((row) => row.series.key === key)?.series.label ?? key,
-            },
-        }),
-        [
-            labelPosition,
-            config?.rowHeight,
-            config?.barHeight,
-            config?.barCornerRadius,
-            config?.tooltip?.enabled,
-            domainMax,
+    const valueDomain = useMemo(() => ({ min: 0, max: domainMax > 0 ? domainMax : 1 }), [domainMax])
+    const stackedConfig: StackedBarListConfig = {
+        labelPosition,
+        rowHeight: config?.rowHeight,
+        barHeight: config?.barHeight,
+        barCornerRadius: config?.barCornerRadius,
+        valueDomain,
+        tooltip: {
+            enabled: config?.tooltip?.enabled,
             valueFormatter,
-            rows,
-        ]
-    )
+            labelFormatter: (key) => rows.find((row) => row.series.key === key)?.series.label ?? key,
+        },
+    }
 
     if (rows.length === 0) {
         return null

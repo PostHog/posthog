@@ -23,6 +23,7 @@ from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -30,6 +31,9 @@ if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
+
+SYSTEM_TABLE_ORIGIN = "posthog"
+MANAGED_VIEW_ORIGIN = "managed_view"
 
 
 def materializes(saved_query: "DataWarehouseSavedQuery") -> bool:
@@ -41,14 +45,17 @@ def materializes(saved_query: "DataWarehouseSavedQuery") -> bool:
     types the node VIEW, which `get_dag_structure` calls ephemeral and a run skips, so the table can
     never come back and the query stops updating for good, without an error.
 
-    Managed views are excluded because their flag is not a statement of intent: the Revenue
-    Analytics viewsets set `is_materialized` at provisioning, before anything runs, so reading it
-    would enroll a large population of views that have never materialized a row.
+    Revenue Analytics sets its flag before the first build. Requiring an existing table keeps
+    those legacy views out of scheduling until they have actually materialized.
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET:
-        return saved_query.table_id is not None
+        # TODO: drop this branch once the Revenue Analytics provider declares `materialized` per view
+        # instead of hardcoding True. Every managed view can then be judged on `is_materialized`.
+        viewset = saved_query.managed_viewset
+        if viewset is None or viewset.kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
+            return saved_query.table_id is not None
     # The column is nullable, and NULL predates its default: it means the same as False here, which
     # is also how `_materializes_q` reads it.
     return bool(saved_query.is_materialized)
@@ -86,7 +93,7 @@ def resolve_dependency_to_node(
 
     Resolution order:
     1. PostHog system table (events, persons, etc.)
-    2. SavedQuery view or matview
+    2. SavedQuery view or matview, or a TABLE node for a product's in-memory view
     3. DataWarehouse table (postgres, stripe, etc.)
 
     Raises UnknownParentError if the dependency cannot be resolved.
@@ -104,9 +111,11 @@ def resolve_dependency_to_node(
         # batch widens that window. A view renamed or deleted since then is an unresolvable name,
         # which `on_unresolved` gets to rule on, not a failure that costs every other dependency.
         saved_query = DataWarehouseSavedQuery.objects.filter(team=team, name=dependency_name, deleted=False).first()
-        if saved_query is None:
+        if saved_query is not None:
+            return _saved_query_node(team, dag, dependency_name, saved_query)
+        if not _is_in_memory_view(table):
             raise UnknownParentError(dependency_name, "")
-        return _saved_query_node(team, dag, dependency_name, saved_query)
+        return _source_table_node(team, dag, dependency_name, MANAGED_VIEW_ORIGIN)
 
     # table in s3
     if isinstance(table, HogQLDataWarehouseTable):
@@ -146,14 +155,22 @@ def resolve_dependency_to_node(
             node.save(update_fields=["properties", "updated_at"])
         return node
     # system table
+    return _source_table_node(team, dag, dependency_name, SYSTEM_TABLE_ORIGIN)
+
+
+def _is_in_memory_view(table: HogQLSavedQuery) -> bool:
+    return type(table) is not HogQLSavedQuery
+
+
+def _source_table_node(team: "Team", dag: DAG, name: str, origin: str) -> Node:
     node, _ = Node.objects.get_or_create(
         team=team,
         dag=dag,
-        name=dependency_name,
+        name=name,
         type=NodeType.TABLE,
-        defaults={"properties": {"origin": "posthog"}},
+        defaults={"properties": {"origin": origin}},
     )
-    properties = {**(node.properties if isinstance(node.properties, dict) else {}), "origin": "posthog"}
+    properties = {**(node.properties if isinstance(node.properties, dict) else {}), "origin": origin}
     properties.pop("warehouse_table_id", None)
     if node.properties != properties:
         node.properties = properties
@@ -604,8 +621,13 @@ def _materializes_q() -> Q:
     """`materializes` as a filter, for the callers that cannot ask row by row."""
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
-    managed = Q(saved_query__origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET)
-    return (~managed & Q(saved_query__is_materialized=True)) | (managed & Q(saved_query__table_id__isnull=False))
+    legacy_managed = Q(saved_query__origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET) & (
+        Q(saved_query__managed_viewset__isnull=True)
+        | Q(saved_query__managed_viewset__kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
+    )
+    return (~legacy_managed & Q(saved_query__is_materialized=True)) | (
+        legacy_managed & Q(saved_query__table_id__isnull=False)
+    )
 
 
 def _promote_view_nodes(nodes: QuerySet[Node]) -> int:

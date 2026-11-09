@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { Button } from '@posthog/quill'
 
@@ -7,17 +7,11 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { nodeEndpointModel } from './endpointModelName'
-import { AttentionSubject, modelsOverviewLogic } from './modelsOverviewLogic'
-import { REFRESH_LABELS, nextStepLabel } from './overviewIssueCopy'
-import { subjectHref } from './subjectHref'
+import { AttentionNextStep, modelsOverviewLogic } from './modelsOverviewLogic'
+import { REFRESHING_LABEL, REFRESH_LABEL } from './overviewIssueCopy'
 
-const STARTED_LABEL = 'Refresh started'
-
-function RefreshButton({ savedQueryId, label }: { savedQueryId: string; label: string }): JSX.Element {
-    const { startedRefreshSavedQueryIds } = useValues(modelsOverviewLogic)
-    const { runDataWarehouseSavedQuery } = useActions(modelsOverviewLogic)
-    const started = startedRefreshSavedQueryIds.includes(savedQueryId)
+function RefreshButton({ savedQueryId, refreshing }: { savedQueryId: string; refreshing: boolean }): JSX.Element {
+    const { requestRefresh } = useActions(modelsOverviewLogic)
 
     return (
         <AccessControlAction
@@ -27,30 +21,31 @@ function RefreshButton({ savedQueryId, label }: { savedQueryId: string; label: s
             <Button
                 variant="outline"
                 size="sm"
-                disabled={started || undefined}
-                onClick={() => runDataWarehouseSavedQuery(savedQueryId)}
+                disabled={refreshing || undefined}
+                onClick={() => requestRefresh(savedQueryId)}
                 data-attr="models-overview-refresh"
             >
-                {started ? STARTED_LABEL : label}
+                {refreshing ? REFRESHING_LABEL : REFRESH_LABEL}
             </Button>
         </AccessControlAction>
     )
 }
 
-export function ModelsOverviewNextStep({ subject }: { subject: AttentionSubject }): JSX.Element | null {
-    const { node, materialization } = subject
-    const kind = materialization?.kind
-    if (node?.saved_query_id && !nodeEndpointModel(node) && (kind === 'failed' || kind === 'behind')) {
-        return <RefreshButton savedQueryId={node.saved_query_id} label={REFRESH_LABELS[kind]} />
-    }
-
-    const href = subjectHref(subject)
-    if (!href) {
+export function ModelsOverviewNextStep({ nextStep }: { nextStep: AttentionNextStep | null }): JSX.Element | null {
+    if (!nextStep) {
         return null
     }
+    if (nextStep.kind === 'refresh') {
+        return <RefreshButton savedQueryId={nextStep.savedQueryId} refreshing={nextStep.refreshing} />
+    }
     return (
-        <Button variant="outline" size="sm" render={<LinkPrimitive to={href} />} data-attr="models-overview-next-step">
-            {nextStepLabel(subject)}
+        <Button
+            variant="outline"
+            size="sm"
+            render={<LinkPrimitive to={nextStep.href} />}
+            data-attr="models-overview-next-step"
+        >
+            {nextStep.label}
         </Button>
     )
 }

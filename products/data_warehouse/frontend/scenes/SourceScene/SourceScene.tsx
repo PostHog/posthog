@@ -53,6 +53,7 @@ import { SchemasTab } from './tabs/SchemasTab'
 import { sourceSettingsLogic } from './tabs/sourceSettingsLogic'
 import { SyncsTab } from './tabs/SyncsTab'
 import { WebhookTab } from './tabs/WebhookTab'
+import { WebhookNotRegisteredBanner } from './WebhookNotRegisteredBanner'
 
 const SOURCE_SCENE_TABS = [
     'schemas',
@@ -384,6 +385,14 @@ function ManagedSourceTabs({
                 />
             )}
             {showDestinationsTab && <FailingDestinationsBanner sourceId={sourceId} />}
+            {source?.webhook_not_registered && showWebhookTab && (
+                <WebhookNotRegisteredBanner
+                    sourceName={source.source_type}
+                    tableNames={source.schemas.filter((s) => s.webhook_not_registered).map((s) => s.label ?? s.name)}
+                    onSetUpWebhook={() => setCurrentTab('webhook')}
+                    onChangeSyncMethod={() => setCurrentTab('schemas')}
+                />
+            )}
             <LemonTabs
                 activeKey={currentTab}
                 tabs={tabs}

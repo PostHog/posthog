@@ -14,6 +14,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
+import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import {
     FIX_CI_REQUEST,
@@ -189,6 +191,37 @@ describe('DiscussReportButton', () => {
             expect.objectContaining({ id: 'report-1' }),
             'https://app/report-1',
             'Who is affected?'
+        )
+    })
+
+    it('submits the edited check suggestion with the metric replacement intent', async () => {
+        const user = userEvent.setup()
+        const report = makeReport([SUGGESTION])
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+        })
+        await expectLogic(inboxTaskKickoffLogic, () =>
+            inboxTaskKickoffLogic.actions.openReportCheckMetricSuggestion(report, {
+                id: 'checkout-check',
+                title: 'Checkout errors stay low',
+            } as SignalReportCheckApi)
+        ).toFinishAllListeners()
+        const initialDraft = inboxTaskKickoffLogic.values.reportDiscussionDraft
+        render(<ReportDiscussionComposer report={report} reportUrl="https://app/report-1" />)
+
+        expect(screen.getByTestId('max-chat-input')).toHaveValue(initialDraft)
+        expect(screen.queryByText(SUGGESTION)).not.toBeInTheDocument()
+        fireEvent.change(screen.getByTestId('max-chat-input'), {
+            target: { value: `${initialDraft}Measure the failed checkout rate over seven days.` },
+        })
+        await user.click(screen.getByTestId('inbox-report-ask-ai-submit'))
+
+        expect(discussReport).toHaveBeenCalledWith(
+            report,
+            'https://app/report-1',
+            `${initialDraft}Measure the failed checkout rate over seven days.`,
+            undefined,
+            'check_metrics'
         )
     })
 

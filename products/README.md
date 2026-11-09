@@ -22,6 +22,7 @@ products/
     backend/                # Django app
       __init__.py
       apps.py
+      checks.py             # optional: Django system checks, imported from apps.py ready()
       models.py
       logic.py              # business logic
       routes.py             # API routes: register_routes(routers) + api_urlpatterns/webhook_urlpatterns, auto-discovered
@@ -49,7 +50,7 @@ products/
       logics/
       generated/            # OpenAPI-generated TypeScript types
     mcp/                    # MCP tool definitions (tools.yaml) and UI apps — most products
-    skills/                 # agent skills for the product — many products
+    skills/                 # published agent skills for the product — many products
     services/               # optional: a service this product deploys
     packages/               # optional: a library/CLI this product owns
 ```
@@ -92,6 +93,15 @@ Use `bin/hogli product:bootstrap <name>` to scaffold a new product with this str
 
 This avoids circular imports and keeps migrations/app labels stable.
 
+- Put the product's Django system checks in `backend/checks.py`.
+  A system check catches a wrong setting at startup instead of in user traffic.
+  `hogli product:lint` enforces three rules:
+  - `apps.py` `ready()` imports `backend/checks.py`. Django never runs a check whose module nobody imported.
+  - No other product module registers a check.
+  - Every check ID starts with `posthog.<product>.`, for example `posthog.canvas.E001`.
+
+  Register each check with `register_check` from `posthog/checks.py`, which documents the ID scheme. `product:bootstrap` does not create the file.
+
 ## Frontend conventions
 
 - Each `frontend/` directory contains the frontend app for the product.
@@ -112,7 +122,7 @@ Keep shared code minimal to avoid tight coupling.
 Beyond `backend/` + `frontend/` + `manifest.tsx` + `package.json`, most products also carry:
 
 - `mcp/` — MCP tool definitions (`tools.yaml`) and UI apps (the majority of products expose these)
-- `skills/` — agent skills for the product (many products)
+- `skills/` — published agent skills for the product (many products). A skill that needs a repository checkout goes in `.agents/skills/` (see `/writing-skills`)
 
 And anything else attributable to a single product — nest it here rather than in a top-level dir:
 

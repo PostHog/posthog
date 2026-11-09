@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
 
 import { IconClock, IconPauseFilled, IconWarning, IconXCircle } from '@posthog/icons'
 import {
@@ -21,26 +20,13 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { nodeEndpointModel } from './endpointModelName'
 import { ModelsOverviewAttentionFilter } from './ModelsOverviewAttentionFilter'
-import { ModelsOverviewEmptyState } from './ModelsOverviewEmptyState'
-import { AttentionSubject, modelsOverviewLogic } from './modelsOverviewLogic'
+import { AttentionRow, modelsOverviewLogic } from './modelsOverviewLogic'
 import { ModelsOverviewNextStep } from './ModelsOverviewNextStep'
-import {
-    IssueKind,
-    IssueStatus,
-    IssueTone,
-    failingChecksStatus,
-    materializationStatus,
-    subjectDetail,
-    subjectImpact,
-    subjectName,
-    subjectSince,
-} from './overviewIssueCopy'
-import { subjectHref } from './subjectHref'
-import { useHoldTallestHeight } from './useHoldTallestHeight'
+import { ATTENTION_DESCRIPTION, IssueKind, IssueTone } from './overviewIssueCopy'
 
 const WIDE_ONLY = 'hidden @min-[40rem]/main-content:inline'
 const WIDE_ONLY_BLOCK = 'hidden @min-[40rem]/main-content:block'
@@ -51,8 +37,8 @@ const SECTION_ID = 'models-overview-attention-section'
 const HEADING_ID = `${SECTION_ID}-heading`
 const DESCRIPTION_ID = `${SECTION_ID}-description`
 
-interface SubjectCellContext {
-    row: { original: AttentionSubject }
+interface RowCellContext {
+    row: { original: AttentionRow }
 }
 
 const BADGE_VARIANTS: Record<IssueTone, 'destructive' | 'warning'> = {
@@ -67,22 +53,10 @@ const ISSUE_ICONS: Record<IssueKind, typeof IconClock> = {
     checks: IconWarning,
 }
 
-function subjectLabel(subject: AttentionSubject): string {
-    const endpointModel = subject.node ? nodeEndpointModel(subject.node) : null
-    return endpointModel ? `${endpointModel.endpointName} v${endpointModel.version}` : subjectName(subject)
-}
-
-function subjectStatuses(subject: AttentionSubject): IssueStatus[] {
-    return [
-        ...(subject.materialization ? [materializationStatus(subject.materialization)] : []),
-        ...(subject.failingChecks.length > 0 ? [failingChecksStatus(subject.failingChecks)] : []),
-    ]
-}
-
-function ProblemBadges({ subject }: { subject: AttentionSubject }): JSX.Element {
+function ProblemBadges({ row }: { row: AttentionRow }): JSX.Element {
     return (
         <div className="flex flex-wrap gap-1">
-            {subjectStatuses(subject).map(({ kind, label, tone, tooltip }) => {
+            {row.statuses.map(({ kind, label, tone, tooltip }) => {
                 const Icon = ISSUE_ICONS[kind]
                 return (
                     <Tooltip key={kind}>
@@ -100,78 +74,81 @@ function ProblemBadges({ subject }: { subject: AttentionSubject }): JSX.Element 
     )
 }
 
-function NameLink({ subject }: { subject: AttentionSubject }): JSX.Element {
-    const href = subjectHref(subject)
-    const label = subjectLabel(subject)
-    if (!href) {
-        return <Text size="xs">{label}</Text>
+function NameLink({ row }: { row: AttentionRow }): JSX.Element {
+    if (!row.href) {
+        return <Text size="xs">{row.name}</Text>
     }
     return (
         <Button
             variant="link"
             size="inline"
             className="self-start font-medium text-foreground"
-            render={<LinkPrimitive to={href} />}
+            render={<LinkPrimitive to={row.href} />}
         >
-            {label}
+            {row.name}
         </Button>
     )
 }
 
-function DetailText({ subject }: { subject: AttentionSubject }): JSX.Element {
-    const detail = subjectDetail(subject)
-    const impact = subjectImpact(subject)
+function DetailText({ row }: { row: AttentionRow }): JSX.Element {
     return (
         <div className="flex min-w-0 flex-col">
-            {detail && (
-                <Text size="xs" variant="muted" className="line-clamp-1" title={detail}>
-                    {detail}
+            {row.detail && (
+                <Text size="xs" variant="muted" className="line-clamp-1" title={row.detail}>
+                    {row.detail}
                 </Text>
             )}
-            {impact && (
+            {row.impact && (
                 <Text size="xs" variant="muted" className="line-clamp-1">
-                    {impact}
+                    {row.impact}
                 </Text>
             )}
         </div>
     )
 }
 
-function SinceText({ subject }: { subject: AttentionSubject }): JSX.Element | null {
-    const since = subjectSince(subject)
+function SinceText({ row }: { row: AttentionRow }): JSX.Element | null {
+    const { since } = row
     if (!since) {
         return null
     }
     return (
         <Text size="xs" variant="muted" className="whitespace-nowrap">
-            {since.kind === 'time' ? <TZLabel time={since.time} /> : since.label}
+            {since.kind === 'behind' ? (
+                since.label
+            ) : (
+                <>
+                    {since.label && `${since.label} `}
+                    <TZLabel time={since.time} />
+                </>
+            )}
         </Text>
     )
 }
 
-function NarrowLines({ subject }: { subject: AttentionSubject }): JSX.Element {
+function NarrowLines({ row }: { row: AttentionRow }): JSX.Element {
     return (
         <div className={`${NARROW_ONLY} flex flex-col gap-1`}>
-            <ProblemBadges subject={subject} />
-            <DetailText subject={subject} />
-            <SinceText subject={subject} />
+            <ProblemBadges row={row} />
+            <DetailText row={row} />
+            <SinceText row={row} />
             <div className="pt-1">
-                <ModelsOverviewNextStep subject={subject} />
+                <ModelsOverviewNextStep nextStep={row.nextStep} />
             </div>
         </div>
     )
 }
 
-const COLUMNS: DataTableProps<AttentionSubject, unknown>['columns'] = [
+const COLUMNS: DataTableProps<AttentionRow, unknown>['columns'] = [
     {
         id: 'name',
         header: 'Name',
         enableSorting: false,
         meta: { expand: true },
-        cell: ({ row }: SubjectCellContext) => (
+        cell: ({ row }: RowCellContext) => (
             <div className="flex min-w-0 flex-col gap-1">
-                <NameLink subject={row.original} />
-                <NarrowLines subject={row.original} />
+                <NameLink row={row.original} />
+                <NarrowLines row={row.original} />
             </div>
         ),
     },
@@ -179,9 +156,9 @@ const COLUMNS: DataTableProps<AttentionSubject, unknown>['columns'] = [
         id: 'problems',
         header: () => <span className={WIDE_ONLY}>Problems</span>,
         enableSorting: false,
-        cell: ({ row }: SubjectCellContext) => (
+        cell: ({ row }: RowCellContext) => (
             <span className={`${WIDE_ONLY_BLOCK} w-max`}>
-                <ProblemBadges subject={row.original} />
+                <ProblemBadges row={row.original} />
             </span>
         ),
     },
@@ -189,9 +166,9 @@ const COLUMNS: DataTableProps<AttentionSubject, unknown>['columns'] = [
         id: 'detail',
         header: () => <span className={WIDE_ONLY}>Detail</span>,
         enableSorting: false,
-        cell: ({ row }: SubjectCellContext) => (
+        cell: ({ row }: RowCellContext) => (
             <span className={`${WIDE_ONLY_BLOCK} min-w-48 max-w-96`}>
-                <DetailText subject={row.original} />
+                <DetailText row={row.original} />
             </span>
         ),
     },
@@ -199,9 +176,9 @@ const COLUMNS: DataTableProps<AttentionSubject, unknown>['columns'] = [
         id: 'since',
         header: () => <span className={WIDE_ONLY}>Since</span>,
         enableSorting: false,
-        cell: ({ row }: SubjectCellContext) => (
+        cell: ({ row }: RowCellContext) => (
             <span className={WIDE_ONLY}>
-                <SinceText subject={row.original} />
+                <SinceText row={row.original} />
             </span>
         ),
     },
@@ -210,9 +187,9 @@ const COLUMNS: DataTableProps<AttentionSubject, unknown>['columns'] = [
         header: '',
         enableSorting: false,
         meta: { align: 'right' },
-        cell: ({ row }: SubjectCellContext) => (
+        cell: ({ row }: RowCellContext) => (
             <span className={WIDE_ONLY}>
-                <ModelsOverviewNextStep subject={row.original} />
+                <ModelsOverviewNextStep nextStep={row.original.nextStep} />
             </span>
         ),
     },
@@ -241,48 +218,30 @@ function ErrorCallout({
     )
 }
 
-function SubjectTable({ subjects }: { subjects: AttentionSubject[] }): JSX.Element {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const contentRef = useRef<HTMLDivElement>(null)
-    useHoldTallestHeight(containerRef, contentRef, subjects.length > PAGE_SIZE)
-
+function UnlistedFailingNote({ count }: { count: number }): JSX.Element {
     return (
-        <div ref={containerRef} data-attr="models-overview-attention">
-            <div ref={contentRef}>
-                <DataTable columns={COLUMNS} data={subjects} pageSize={PAGE_SIZE} size="sm" fullWidth />
-            </div>
-        </div>
+        <Text size="xs" variant="muted" render={<p className="m-0" />} data-attr="models-overview-unlisted-checks">
+            {`${pluralize(count, 'more view or table', 'more views and tables')} ${count === 1 ? 'has' : 'have'} failing checks. `}
+            <LinkPrimitive to={urls.models('data-quality')}>View all checks</LinkPrimitive>
+        </Text>
     )
 }
 
 export function ModelsOverviewIssues(): JSX.Element {
     const {
-        attentionSubjects,
-        filteredAttentionSubjects,
-        nothingToReport,
+        attentionRows,
+        attentionCounts,
+        filteredAttentionRows,
+        unlistedFailingSubjectCount,
         modelsFailed,
         overviewError,
-        checksStatus,
-        checksTruncated,
         modelsFirstLoading,
         checksFirstLoading,
-        refreshSummary,
         catalogRestructureEnabled,
     } = useValues(modelsOverviewLogic)
     const { loadNodes, loadDataWarehouseSavedQueries, loadOverview } = useActions(modelsOverviewLogic)
 
-    if (nothingToReport) {
-        return (
-            <ModelsOverviewEmptyState
-                variant="healthy"
-                checksStatus={checksStatus}
-                checksTruncated={checksTruncated}
-                refreshSummary={refreshSummary}
-            />
-        )
-    }
-
-    const loading = (modelsFirstLoading || checksFirstLoading) && attentionSubjects.length === 0
+    const loading = (modelsFirstLoading || checksFirstLoading) && attentionRows.length === 0
 
     return (
         <section
@@ -295,9 +254,9 @@ export function ModelsOverviewIssues(): JSX.Element {
                 <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
                     <Heading size="base" render={<h3 id={HEADING_ID} className="m-0" />}>
                         <span>Views and tables that need attention</span>
-                        {attentionSubjects.length > 0 && (
+                        {attentionCounts.all > 0 && (
                             <span translate="no" className="ml-2 font-normal text-muted-foreground">
-                                {attentionSubjects.length}
+                                {attentionCounts.all}
                             </span>
                         )}
                     </Heading>
@@ -321,8 +280,7 @@ export function ModelsOverviewIssues(): JSX.Element {
                     )}
                 </div>
                 <Text size="xs" variant="muted" render={<p id={DESCRIPTION_ID} className="m-0" />}>
-                    These failed to refresh or have failing checks, so anything that reads them may show stale or wrong
-                    data.
+                    {ATTENTION_DESCRIPTION}
                 </Text>
             </div>
             <ModelsOverviewAttentionFilter />
@@ -345,7 +303,18 @@ export function ModelsOverviewIssues(): JSX.Element {
             )}
             {loading &&
                 Array.from({ length: SKELETON_ROWS }, (_, index) => <Skeleton key={index} className="h-8 w-full" />)}
-            {filteredAttentionSubjects.length > 0 && <SubjectTable subjects={filteredAttentionSubjects} />}
+            {filteredAttentionRows.length > 0 && (
+                <div data-attr="models-overview-attention">
+                    <DataTable
+                        columns={COLUMNS}
+                        data={filteredAttentionRows}
+                        pageSize={PAGE_SIZE}
+                        size="sm"
+                        fullWidth
+                    />
+                </div>
+            )}
+            {unlistedFailingSubjectCount > 0 && <UnlistedFailingNote count={unlistedFailingSubjectCount} />}
         </section>
     )
 }
