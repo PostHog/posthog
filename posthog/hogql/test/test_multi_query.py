@@ -127,6 +127,14 @@ class TestMultiQueryPlanner(SimpleTestCase):
                 "SELECT timestamp AS t, count() AS calls FROM events GROUP BY t ORDER BY calls LIMIT 2",
             ),
             (
+                "positional_group",
+                "SELECT distinct_id AS who, count() AS calls FROM events GROUP BY 1 ORDER BY calls LIMIT 2",
+            ),
+            (
+                "qualified_alias_group",
+                "SELECT source.event AS ev, count() AS calls FROM (SELECT distinct_id AS event FROM events) AS source GROUP BY source.event ORDER BY calls LIMIT 2",
+            ),
+            (
                 "aliased_property_group",
                 "SELECT event, count() AS calls FROM (SELECT properties.tool AS event FROM events) GROUP BY event ORDER BY calls LIMIT 2",
             ),
@@ -153,6 +161,10 @@ class TestMultiQueryPlanner(SimpleTestCase):
     @parameterized.expand(
         [
             ("day_bucket", "SELECT toDate(timestamp) AS day, count() AS calls FROM events GROUP BY day"),
+            (
+                "qualified_passthrough",
+                "SELECT source.event AS ev, count() AS calls FROM (SELECT event FROM events) AS source GROUP BY source.event",
+            ),
             (
                 "derived_from_event",
                 "SELECT label, count() AS calls FROM (SELECT if(event = 'a', NULL, event) AS label FROM events) GROUP BY label",

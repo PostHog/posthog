@@ -89,6 +89,22 @@ class SameAggregationTopNRule:
         {"toDate", "toStartOfDay", "toStartOfWeek", "toStartOfMonth", "toStartOfQuarter", "toStartOfYear"}
     )
 
+    @staticmethod
+    def _column(field: ast.Field) -> str | None:
+        # A column, optionally qualified by one table or subquery alias. Property reads are never bounded.
+        names = [part for part in field.chain if isinstance(part, str)]
+        if not 1 <= len(names) <= 2 or len(names) != len(field.chain) or "properties" in names:
+            return None
+        return names[-1]
+
+    @classmethod
+    def _is_timestamp(cls, expr: ast.Expr, aliases: dict[str, ast.Expr], expanding: frozenset[str]) -> bool:
+        if not isinstance(expr, ast.Field) or (column := cls._column(expr)) is None:
+            return False
+        if column in aliases and column not in expanding:
+            return cls._is_timestamp(aliases[column], aliases, expanding | {column})
+        return column == "timestamp"
+
     @classmethod
     def _bounded(cls, expr: ast.Expr, aliases: dict[str, ast.Expr], expanding: frozenset[str]) -> bool:
         if isinstance(expr, ast.Constant):
@@ -96,16 +112,20 @@ class SameAggregationTopNRule:
         if isinstance(expr, ast.Alias):
             return cls._bounded(expr.expr, aliases, expanding)
         if isinstance(expr, ast.Field):
-            names = [part for part in expr.chain if isinstance(part, str)]
-            if len(names) == 1 and names[0] in aliases and names[0] not in expanding:
-                return cls._bounded(aliases[names[0]], aliases, expanding | {names[0]})
-            return bool(names) and names[-1] == "event" and "properties" not in names
+            column = cls._column(expr)
+            if column is None:
+                return False
+            if column in aliases and column not in expanding:
+                return cls._bounded(aliases[column], aliases, expanding | {column})
+            return column == "event"
         if isinstance(expr, ast.Call):
-            if expr.name in cls.bucket_functions and expr.args:
-                first = expr.args[0]
-                names = [part for part in first.chain if isinstance(part, str)] if isinstance(first, ast.Field) else []
-                if names and names[-1] == "timestamp" and "properties" not in names:
-                    return all(isinstance(arg, ast.Constant) for arg in expr.args[1:])
+            if (
+                expr.name in cls.bucket_functions
+                and expr.args
+                and cls._is_timestamp(expr.args[0], aliases, expanding)
+                and all(isinstance(arg, ast.Constant) for arg in expr.args[1:])
+            ):
+                return True
             return all(cls._bounded(arg, aliases, expanding) for arg in expr.args)
         if isinstance(expr, ast.CompareOperation):
             return cls._bounded(expr.left, aliases, expanding) and cls._bounded(expr.right, aliases, expanding)
@@ -126,7 +146,11 @@ class SameAggregationTopNRule:
                     aliases.setdefault(selected.alias, selected.expr)
             table = source.select_from.table if source.select_from else None
             source = table if isinstance(table, ast.SelectQuery) else None
-        return not all(cls._bounded(expr, aliases, frozenset()) for expr in node.group_by or [])
+        # A bare integer in GROUP BY is a positional reference to a selected column, not a constant key.
+        return not all(
+            not isinstance(expr, ast.Constant) and cls._bounded(expr, aliases, frozenset())
+            for expr in node.group_by or []
+        )
 
     @classmethod
     def _candidate(cls, query: SharingQuery) -> _TopNQuery | str:
