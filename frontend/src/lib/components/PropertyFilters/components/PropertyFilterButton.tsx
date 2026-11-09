@@ -8,6 +8,7 @@ import { IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { fullNameOrEmail, midEllipsis } from 'lib/utils/strings'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -24,6 +25,7 @@ import {
     propertyFilterTypeToPropertyDefinitionType,
 } from '../utils'
 import { GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
+import { type PropertyFilterTriggerProps, QuillPropertyFilterButton } from './QuillPropertyFilterButton'
 
 export interface PropertyFilterButtonProps {
     onClick?: () => void
@@ -32,13 +34,16 @@ export interface PropertyFilterButtonProps {
     item: AnyPropertyFilter
     disabledReason?: string
     compact?: boolean
+    /** Props from a quill popover trigger, applied to the pill's main button */
+    triggerProps?: PropertyFilterTriggerProps
 }
 
 export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilterButtonProps>(
     function PropertyFilterButton(
-        { onClick, onClose, children, item, disabledReason, compact = false },
+        { onClick, onClose, children, item, disabledReason, compact = false, triggerProps },
         ref
     ): JSX.Element {
+        const quillSurface = useQuillSurface()
         const { cohortsById } = useValues(cohortsModel)
         const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -102,6 +107,33 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         // A HogQL filter's label is only its trailing comment, so the title carries the whole expression for
         // anyone who cannot open the filter, such as a viewer of a workflow.
         const fullLabel = !children && isHogQLPropertyFilter(item) ? item.key : label
+        const groupCard = showGroupCard ? (
+            <GroupKeyFilterTooltip
+                groupTypeIndex={groupTypeIndex as GroupTypeIndex}
+                groupKey={groupKeys[0]}
+                fallbackLabel={label}
+            />
+        ) : null
+        const displayLabel = wraps ? label : midEllipsis(label, 32)
+
+        if (quillSurface) {
+            return (
+                <QuillPropertyFilterButton
+                    ref={ref}
+                    icon={<PropertyFilterIcon type={item.type} />}
+                    displayLabel={displayLabel}
+                    wraps={wraps}
+                    tooltip={
+                        groupCard ??
+                        (displayLabel !== fullLabel ? <span className="ph-no-capture">{fullLabel}</span> : undefined)
+                    }
+                    onClick={onClick}
+                    onClose={onClose}
+                    disabledReason={disabledReason}
+                    triggerProps={triggerProps}
+                />
+            )
+        }
 
         const closable = onClose !== undefined
         const clickable = onClick !== undefined
@@ -139,7 +171,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             >
                 <PropertyFilterIcon type={item.type} />
                 <span className="PropertyFilterButton-content" title={showGroupCard ? undefined : fullLabel}>
-                    {wraps ? label : midEllipsis(label, 32)}
+                    {displayLabel}
                 </span>
                 {closable &&
                     !disabledReason && (
@@ -165,16 +197,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
 
         if (showGroupCard) {
             return (
-                <Tooltip
-                    interactive
-                    title={
-                        <GroupKeyFilterTooltip
-                            groupTypeIndex={groupTypeIndex as GroupTypeIndex}
-                            groupKey={groupKeys[0]}
-                            fallbackLabel={label}
-                        />
-                    }
-                >
+                <Tooltip interactive title={groupCard}>
                     {button}
                 </Tooltip>
             )

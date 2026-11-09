@@ -3,7 +3,7 @@ import './WebAnalyticsPreview.scss'
 import { sparkPaths } from 'lib/components/ProductEmptyState/previewSparkline'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 const ALL_TRAFFIC = sparkPaths([1480, 1720, 2310, 1890, 2040, 1650, 2180])
 const NEWSLETTER_TRAFFIC = sparkPaths([40, 30, 820, 260, 120, 70, 50])
@@ -33,7 +33,7 @@ const PAGES = [
  * timers or state, per the preview rules in the `building-product-empty-states` skill.
  */
 export function WebAnalyticsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('WebPreview', isStatic && 'WebPreview--static')}>

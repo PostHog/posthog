@@ -15,10 +15,15 @@ from products.warehouse_sources.sources.sdk.testing import (
 )
 from products.warehouse_sources.sources.smaily._config import SmailySourceConfig
 from products.warehouse_sources.sources.smaily.settings import (
+    AB_TEST_STATISTICS,
+    ACTION_LOG_ENDPOINTS,
     CAMPAIGN_STATISTICS,
     ENDPOINTS,
+    MESSAGE_ACTIONS,
+    SEGMENT_RULES,
     SEGMENT_SUBSCRIBERS,
     SMAILY_ENDPOINTS,
+    SUBSCRIBER_ACTIONS,
 )
 from products.warehouse_sources.sources.smaily.smaily import (
     SmailyResumeConfig,
@@ -194,6 +199,128 @@ class TestCampaignStatistics:
         assert result.rows == [{"id": 1}, {"id": 2, "delivered_count": 20}]
 
 
+class TestSegmentRules:
+    def test_fetches_rules_per_segment_and_skips_unusable_payloads(self) -> None:
+        rules = {
+            "1": {"id": 1, "name": "Women", "filter_type": "ALL", "filter_data": [["gender", ["Equal", "f"]]]},
+            "2": [],
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            segment_id = request.param("id")
+            if segment_id is None:
+                return _json([{"id": 2}, {"id": 1}])
+            return _json(rules[segment_id])
+
+        result = _run(SEGMENT_RULES, respond)
+
+        assert result.rows == [rules["1"]]
+        assert result.queries == [{}, {"id": ("1",)}, {"id": ("2",)}]
+        assert [s.pending_parent_ids for s in result.saved_states] == [["2"], []]
+
+
+class TestAbTestStatistics:
+    @parameterized.expand(
+        [
+            (
+                "list_of_sections",
+                [{"name": "A", "delivered_count": 10}, {"name": "B", "delivered_count": 12}],
+                [
+                    {"name": "A", "delivered_count": 10, "ab_test_id": 7, "section_index": 0},
+                    {"name": "B", "delivered_count": 12, "ab_test_id": 7, "section_index": 1},
+                ],
+            ),
+            (
+                "single_object",
+                {"name": "A", "delivered_count": 10},
+                [{"name": "A", "delivered_count": 10, "ab_test_id": 7, "section_index": 0}],
+            ),
+            ("never_sent", [], []),
+            ("malformed", ["oops"], []),
+        ]
+    )
+    def test_rows_carry_test_id_and_section_position(self, _name: str, stats: Any, expected: list[dict]) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.param("id") is not None:
+                return _json(stats)
+            return _json([{"id": 7}])
+
+        result = _run(AB_TEST_STATISTICS, respond)
+
+        assert result.rows == expected
+        # Summary statistics only: `detailed=1` would add a per-recipient list to every row.
+        assert result.queries[-1] == {"id": ("7",)}
+
+
+class TestActionLogs:
+    @staticmethod
+    def _responder(actions: list[dict[str, Any]], page_size: int) -> Any:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            since = int(request.param("since_seq_id") or 0)
+            return _json([action for action in actions if action["seq_id"] > since][:page_size])
+
+        return respond
+
+    @parameterized.expand([(endpoint,) for endpoint in ACTION_LOG_ENDPOINTS])
+    def test_pages_by_last_seq_id_without_offset(self, endpoint: str) -> None:
+        page_size = SMAILY_ENDPOINTS[endpoint].page_size
+        assert page_size is not None
+        actions = [{"seq_id": seq_id, "action": "send"} for seq_id in range(1, page_size + 2)]
+
+        result = _run(endpoint, self._responder(actions, page_size))
+
+        assert [row["seq_id"] for row in result.rows] == list(range(1, page_size + 2))
+        # The API rejects `offset` with `since_seq_id`, and requires `limit` with it.
+        assert result.queries == [
+            {"since_seq_id": ("0",), "limit": (str(page_size),)},
+            {"since_seq_id": (str(page_size),), "limit": (str(page_size),)},
+        ]
+        # The short final page is checkpointed too, so a resume after it fetches no rows again.
+        assert [s.since_seq_id for s in result.saved_states] == [page_size, page_size + 1]
+
+    @parameterized.expand(
+        [
+            ("full_refresh", {}, None, "0"),
+            ("incremental", {"incremental_field": "seq_id", "db_incremental_field_last_value": 41}, None, "41"),
+            (
+                "incremental_string_watermark",
+                {"incremental_field": "seq_id", "db_incremental_field_last_value": "41"},
+                None,
+                "41",
+            ),
+            (
+                "full_refresh_ignores_watermark",
+                {"should_use_incremental_field": False, "db_incremental_field_last_value": 41},
+                None,
+                "0",
+            ),
+            (
+                "resume_wins_over_watermark",
+                {"incremental_field": "seq_id", "db_incremental_field_last_value": 41},
+                SmailyResumeConfig(since_seq_id=90),
+                "90",
+            ),
+        ]
+    )
+    def test_first_request_starts_after_the_right_seq_id(
+        self, _name: str, inputs: dict[str, Any], resume_state: SmailyResumeConfig | None, expected: str
+    ) -> None:
+        result = _run(MESSAGE_ACTIONS, [_json([])], resume_state=resume_state, **inputs)
+
+        assert result.params("since_seq_id") == [expected]
+
+    def test_cursor_that_does_not_advance_fails_instead_of_looping(self) -> None:
+        result = _run(
+            SUBSCRIBER_ACTIONS,
+            always(_json([{"seq_id": 5}])),
+            incremental_field="seq_id",
+            db_incremental_field_last_value=5,
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert len(result.requests) == 1
+
+
 class TestCheckAccess:
     def test_invalid_subdomain_fails_without_a_request(self) -> None:
         valid, message = validate_credentials("evil.com/path?x=", "user", "pass")
@@ -208,6 +335,8 @@ class TestSmailySourceResponse:
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == SMAILY_ENDPOINTS[endpoint].primary_keys
+        # `asc` is a promise the pipeline resumes on; only the `since_seq_id` walks keep that order.
+        assert response.sort_mode == ("asc" if endpoint in ACTION_LOG_ENDPOINTS else None)
 
     def test_segment_subscribers_key_includes_parent_segment(self) -> None:
         # `email` alone is only unique within one segment; dropping the parent id from the key

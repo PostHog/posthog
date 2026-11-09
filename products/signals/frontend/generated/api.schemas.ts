@@ -716,6 +716,10 @@ export interface AnomalySearchResponseApi {
     watched_insights: number
     /** Insights with at least one scored bucket in the range. Results cover only these insights. */
     insights_scored_in_range: number
+    /** Distinct UTC days with a scored daily bucket of any insight series in the last 28 days. It does not follow the requested range, and it counts scores written before scoring was turned off. */
+    scored_days: number
+    /** True when `scored_days` is 14 or more. Until then the project has too little scored history to rely on its scores, even when `scoring_enabled` is true. */
+    scored_history_ready: boolean
     /** The applied start of the range, in the project timezone. */
     date_from: string
     /** The applied end of the range, in the project timezone. */
@@ -2548,7 +2552,7 @@ export interface PaginatedSignalReportListListApi {
     previous?: string | null
     results: SignalReportListApi[]
     /**
-     * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when your stored personal ranking ordered the page. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+     * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when a stored personal ranking ordered the page: the teammate's with scope=teammate, else yours. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
      * @nullable
      */
     ranker?: string | null
@@ -2564,6 +2568,8 @@ export interface PaginatedSignalReportListListApi {
      * @nullable
      */
     ranking_pill?: boolean | null
+    /** Whether the rows carry their source metadata. False when the request passed include_source_metadata=false, or when the ClickHouse read failed or took too long. Then each row has an empty source_products and a null scout_name that do not mean the report has none. Load them with source_metadata. */
+    source_metadata_available?: boolean
 }
 
 /**
@@ -2836,6 +2842,47 @@ export interface EmitReportRequestApi {
     idempotency_key?: string | null
 }
 
+/**
+ * * `repair` - repair
+ * * `hint` - hint
+ */
+export type ReportQualityHintSeverityEnumApi =
+    (typeof ReportQualityHintSeverityEnumApi)[keyof typeof ReportQualityHintSeverityEnumApi]
+
+export const ReportQualityHintSeverityEnumApi = {
+    Repair: 'repair',
+    Hint: 'hint',
+} as const
+
+/**
+ * * `title` - title
+ * * `summary` - summary
+ */
+export type ReportQualityHintFieldEnumApi =
+    (typeof ReportQualityHintFieldEnumApi)[keyof typeof ReportQualityHintFieldEnumApi]
+
+export const ReportQualityHintFieldEnumApi = {
+    Title: 'title',
+    Summary: 'summary',
+} as const
+
+export interface ReportQualityHintApi {
+    /** Stable id of the quality check, e.g. `literal_newline_escapes`. */
+    check_id: string
+    /** `repair`: the text was fixed before it was stored. `hint`: the text was stored as sent.
+     *
+     * * `repair` - repair
+     * * `hint` - hint */
+    severity: ReportQualityHintSeverityEnumApi
+    /** The field the check matched.
+     *
+     * * `title` - title
+     * * `summary` - summary */
+    field: ReportQualityHintFieldEnumApi
+    /** What the check found and what to do next time. */
+    message: string
+}
+
 export interface EmitReportResponseApi {
     /**
      * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
@@ -2866,6 +2913,8 @@ export interface EmitReportResponseApi {
     remediation: string | null
     /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
     idempotent_replay: boolean
+    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+    quality_hints: ReportQualityHintApi[]
 }
 
 /**
@@ -7335,6 +7384,7 @@ export const SignalScoutConfigStatusEnumApi = {
  * * `no_output` - No output
  * * `ignored` - Ignored
  * * `repeated_failures` - Repeated failures
+ * * `trial_scout_limit` - Free trial scout limit
  * * `retired` - Retired
  * * `background_removed` - Background removed
  */
@@ -7345,6 +7395,7 @@ export const SignalScoutConfigPauseReasonEnumApi = {
     NoOutput: 'no_output',
     Ignored: 'ignored',
     RepeatedFailures: 'repeated_failures',
+    TrialScoutLimit: 'trial_scout_limit',
     Retired: 'retired',
     BackgroundRemoved: 'background_removed',
 } as const
@@ -7429,6 +7480,7 @@ export interface SignalScoutConfigApi {
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
+     * * `trial_scout_limit` - Free trial scout limit
      * * `retired` - Retired
      * * `background_removed` - Background removed */
     readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
@@ -10300,6 +10352,8 @@ export interface EditReportResponseApi {
     decision_fields_set: string[]
     /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
     warnings: EditReportWarningApi[]
+    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+    quality_hints: ReportQualityHintApi[]
     /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
     corroboration_collapsed: boolean
 }
@@ -11076,6 +11130,94 @@ export interface SpendOverviewApi {
     scout_spend: SpendAmountApi
 }
 
+/**
+ * * `not_claimed` - Not claimed
+ * * `active` - Active
+ * * `exhausted` - Exhausted
+ */
+export type TrialGrantStatusEnumApi = (typeof TrialGrantStatusEnumApi)[keyof typeof TrialGrantStatusEnumApi]
+
+export const TrialGrantStatusEnumApi = {
+    NotClaimed: 'not_claimed',
+    Active: 'active',
+    Exhausted: 'exhausted',
+} as const
+
+/**
+ * * `continue_paid` - Continue under existing paid authorization
+ * * `add_payment_method` - Add a payment method
+ * * `increase_limit` - Increase the Self-driving spending limit
+ * * `enable_self_driving` - Enable paid Self-driving
+ * * `unavailable` - Billing status unavailable
+ */
+export type TrialContinuationEnumApi = (typeof TrialContinuationEnumApi)[keyof typeof TrialContinuationEnumApi]
+
+export const TrialContinuationEnumApi = {
+    ContinuePaid: 'continue_paid',
+    AddPaymentMethod: 'add_payment_method',
+    IncreaseLimit: 'increase_limit',
+    EnableSelfDriving: 'enable_self_driving',
+    Unavailable: 'unavailable',
+} as const
+
+export interface SelfDrivingTrialStatusApi {
+    /** Whether the one-time trial rollout is enabled for this organization. */
+    enabled: boolean
+    /** Whether the current rollout check succeeded. */
+    flag_confirmed: boolean
+    /** Effective trial policy version. */
+    policy_version: number
+    /** Whether the legacy reports-only trial still prevents implementation for this project. */
+    legacy_pr_restricted: boolean
+    /** Whether the current Self-driving plan has no recurring free allowance. */
+    billing_ready: boolean
+    /** Whether this project can explicitly claim its lifetime grant. */
+    eligible: boolean
+    /** Whether the current user has project-management permission to activate. */
+    can_activate: boolean
+    /** Unclaimed lifetime project grants in the organization. */
+    organization_grants_remaining: number
+    /**
+     * Lifetime project grant, shared with its environments.
+     * @nullable
+     */
+    grant_id: string | null
+    /** The project's lifetime trial state.
+     *
+     * * `not_claimed` - Not claimed
+     * * `active` - Active
+     * * `exhausted` - Exhausted */
+    grant_status: TrialGrantStatusEnumApi
+    /** Why the trial completed: cost_limit or report_limit. */
+    exhaustion_reason: string
+    /** Qualifying reports delivered since the claim, including hidden or deleted reports. */
+    reports_delivered: number
+    /** Admitted reports that have not yet qualified as delivered. */
+    reports_in_progress: number
+    /** Report limit for admitting new work; accepted pipelines may finish beyond it. */
+    report_limit: number
+    /** One-time allowance in millionths of a US dollar. */
+    allowance_microusd: number
+    /** Settled and known running costs, capped at the trial allowance. */
+    used_microusd: number
+    /** Whether the shared trial and billing limits block new work. */
+    new_work_paused: boolean
+    /** Enabled scouts across this project's environments. */
+    enabled_scouts: number
+    /** Maximum enabled scouts during the trial. */
+    scout_limit: number
+    /** On activation, all but the three oldest enabled scouts pause. */
+    scouts_to_pause: number
+    /** What happens to new work after the trial.
+     *
+     * * `continue_paid` - Continue under existing paid authorization
+     * * `add_payment_method` - Add a payment method
+     * * `increase_limit` - Increase the Self-driving spending limit
+     * * `enable_self_driving` - Enable paid Self-driving
+     * * `unavailable` - Billing status unavailable */
+    paid_continuation: TrialContinuationEnumApi
+}
+
 export interface MonthlySourceUsageApi {
     /**
      * Recorded finalized usage in credits, including exempt usage. Decimal string preserving fractional credits.
@@ -11583,7 +11725,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of your stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. It only reads the stored ranking and never starts a build. With no stored personal ranking, it is the recommended order.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order.
      */
     sort?: string
     /**

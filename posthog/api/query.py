@@ -225,6 +225,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "MetricsHistogramQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
+    "MCPDashboardQuery": ["query:read", "mcp_analytics:read"],
     "MCPHarnessBreakdownQuery": ["query:read", "mcp_analytics:read"],
     "MCPMissingCapabilitiesQuery": ["query:read", "mcp_analytics:read"],
     "MCPModelBreakdownQuery": ["query:read", "mcp_analytics:read"],
