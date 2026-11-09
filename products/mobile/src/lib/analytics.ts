@@ -1,4 +1,9 @@
 export type AnalyticsEvent =
+    | '$ai_metric'
+    | '$ai_feedback'
+    | 'mobile_chat_message_copy_pressed'
+    | 'mobile_chat_message_copied'
+    | 'mobile_chat_message_copy_failed'
     | 'mobile_signed_in'
     | 'mobile_sign_in_started'
     | 'mobile_sign_in_failed'
