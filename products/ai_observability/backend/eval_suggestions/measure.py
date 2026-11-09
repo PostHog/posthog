@@ -49,6 +49,7 @@ ROLE_LABEL = re.compile(r"^(assistant|ai|model):\s*", re.IGNORECASE)
 TOOL_CALL_TYPES = frozenset({"tool_use", "function_call", "tool_call", "tool-call"})
 # Screening reads at most 3000 characters, so each part of a turn gets a third.
 TURN_TEXT_CHARS = 1000
+MAX_REASONING_CHARS = 2000
 
 _DISCOVER_SQL = """
 SELECT
@@ -244,7 +245,8 @@ def _has_tool_call(value: Any) -> bool:
     function = value.get("function")
     if isinstance(function, dict) and function.get("name") is not None:
         return True
-    if value.get("type") in TOOL_CALL_TYPES and (value.get("toolName") or value.get("name")) is not None:
+    kind = value.get("type")
+    if isinstance(kind, str) and kind in TOOL_CALL_TYPES and (value.get("toolName") or value.get("name")) is not None:
         return True
     return any(_has_tool_call(child) for child in value.values())
 
@@ -457,7 +459,8 @@ def run_check(bytecode: list[Any], traces: Sequence[SampledTrace]) -> list[Outco
             Outcome(
                 trace_id=sampled.trace.id,
                 failed=None if verdict is None else verdict is False,
-                reasoning=str(result.get("reasoning") or result.get("error") or ""),
+                # Kept for every sampled trace, while evidence shows a few lines.
+                reasoning=str(result.get("reasoning") or result.get("error") or "")[:MAX_REASONING_CHARS],
             )
         )
     return outcomes

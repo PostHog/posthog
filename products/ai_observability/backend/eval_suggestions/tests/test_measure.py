@@ -256,6 +256,7 @@ def test_run_check_maps_each_verdict(_name: str, source: str, failed: bool | Non
         ("null_tool_calls", [{"role": "assistant", "content": "Done.", "tool_calls": None}], False),
         ("function_call", [{"role": "assistant", "tool_calls": [{"function": {"name": "search"}}]}], True),
         ("otel_part", [{"role": "assistant", "parts": [{"type": "tool_call", "name": "search"}]}], True),
+        ("schema_type_list", [{"role": "assistant", "content": "{}", "schema": {"type": ["string", "null"]}}], False),
     ]
 )
 def test_only_a_populated_tool_call_makes_a_generation_a_step(_name: str, output: list, expected: bool) -> None:
