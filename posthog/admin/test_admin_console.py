@@ -28,6 +28,7 @@ from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, P
 from posthog.csp_middleware import CSPMiddleware
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.utils import activity_visibility_manager
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
@@ -988,6 +989,7 @@ class TestAdminConsoleViews(BaseTest):
         assert log.detail["name"] == expected_detail
         assert log.detail["type"] == f"previous_ttl:{current_ttl}"
         assert log.detail["context"] == {"reason": "Stuck"}
+        assert activity_visibility_manager.is_restricted(log, restrict_for_staff=True)
 
     @parameterized.expand(
         [
