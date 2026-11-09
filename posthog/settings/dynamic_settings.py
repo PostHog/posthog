@@ -78,7 +78,7 @@ CONSTANCE_CONFIG = {
     ),
     "TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES": (
         "",
-        "Comma-separated benchmark-approved TrendsQueryBuilder.ranked_breakdown_query_signature values. "
+        "Comma-separated benchmark-approved TrendsQueryBuilder.ranked_breakdown_query_signature values, up to 60. "
         "An empty list keeps the original breakdown plan. The trends-breakdown-rank-before-arrays "
         "team flag must also be enabled. Changes reach workers within the instance-setting cache TTL.",
         str,

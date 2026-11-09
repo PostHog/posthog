@@ -186,7 +186,7 @@ See [ClickHouse manual](https://posthog.com/handbook/engineering/clickhouse/) fo
 
 Ranking breakdowns before building date arrays can reduce memory and latency when many breakdown values are combined into "Other". The window functions can also add overhead, so correctness eligibility alone does not justify enabling this plan.
 
-The `trends-breakdown-rank-before-arrays` team flag and the `TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES` dynamic setting must both allow a query. The setting contains comma-separated signatures and defaults to empty, keeping the original plan. Its changes reach workers within the instance-setting cache TTL (currently 60 seconds).
+The `trends-breakdown-rank-before-arrays` team flag and the `TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES` dynamic setting must both allow a query. The setting contains comma-separated 16-character signatures and defaults to empty, keeping the original plan. It holds up to 60 signatures, and the instance-settings API rejects a longer value. Its changes reach workers within the instance-setting cache TTL (currently 60 seconds).
 
 After paired benchmarks show equivalent results and improved duration and memory, obtain `ranked_breakdown_query_signature` from a `TrendsQueryBuilder` constructed with the same effective series, team, date range, modifiers, and limit context as the runner. Add that signature through the instance-settings API. Keep query definitions and approved signatures in operational configuration rather than source code.
 

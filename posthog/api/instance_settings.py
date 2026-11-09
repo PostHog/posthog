@@ -12,6 +12,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.instance_setting import (
+    InstanceSetting,
     get_instance_setting as get_instance_setting_raw,
     set_instance_setting as set_instance_setting_raw,
 )
@@ -28,6 +29,7 @@ from posthog.utils import str_to_bool
 logger = structlog.get_logger(__name__)
 
 REDACTED = "<redacted>"
+RAW_VALUE_MAX_LENGTH = cast(int, InstanceSetting._meta.get_field("raw_value").max_length)
 UNSET = "<unset>"
 
 
@@ -131,6 +133,15 @@ class InstanceSettingsSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     "Enter project IDs separated by commas, or leave it empty to switch no project."
                 )
+        if self.instance is not None and self.instance.key == "TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES":
+            if not isinstance(value, str) or not re.fullmatch(r"\s*([0-9a-f]{16}\s*(,\s*[0-9a-f]{16}\s*)*)?", value):
+                raise serializers.ValidationError(
+                    "Enter 16-character query signatures separated by commas, or leave it empty to approve none."
+                )
+        if len(json.dumps(value)) > RAW_VALUE_MAX_LENGTH:
+            raise serializers.ValidationError(
+                f"This value is too long. Stored values can be at most {RAW_VALUE_MAX_LENGTH} characters."
+            )
         return value
 
     def update(self, instance: InstanceSettingHelper, validated_data: dict[str, Any]) -> InstanceSettingHelper:

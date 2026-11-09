@@ -1114,7 +1114,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 else {},
             },
         }
-        return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        # The allowlist is one 1,024-character instance setting, so 16 hex characters keep room for about 60 signatures.
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
 
     def _ranked_breakdown_configuration_allowed(self) -> bool:
         allowed = get_instance_setting("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES")
