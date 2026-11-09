@@ -393,6 +393,12 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         # cursor is reading from gets an RST mid-sync (a load balancer or the server ending an idle
         # connection) rather than timing out. Same recovery path as the timeout case above.
         #
+        # pymongo also wraps a clean EOF the same way: network_layer.py raises OSError("connection
+        # closed") when a read gets zero bytes instead of a reset, which _raise_connection_failure
+        # turns into AutoReconnect("<host>: connection closed (configured timeouts: ...)"). This is
+        # the graceful-close counterpart of the RST case above (an idle-connection reaper, a load
+        # balancer, or Atlas maintenance ending the socket) and recovers the same way on retry.
+        #
         # OperationFailure code 50 (MaxTimeMSExpired / pymongo's ExecutionTimeout) fires when a
         # getMore is killed by a cluster-enforced execution-time cap we never configure ourselves
         # (mongo.py's _EXECUTION_TIMEOUT_ERROR_CODE) — notably Atlas free/shared/flex tiers. mongo.py
@@ -408,6 +414,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             "Topology Description:",
             "timed out (configured timeouts:",
             "Connection reset by peer",
+            "connection closed (configured timeouts:",
             "operation exceeded time limit",
         }
 

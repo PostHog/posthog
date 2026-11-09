@@ -4,6 +4,8 @@ from typing import Any
 
 import pytest
 
+from parameterized import parameterized
+
 from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -41,6 +43,10 @@ def _driver() -> SourceDriver:
 
 def _tip(i: int, created_at: str = "2024-01-01T00:00:00.000Z") -> dict[str, Any]:
     return {"_id": f"tip{i}", "createdAt": created_at, "donation": {"amount": i}}
+
+
+def _song(i: int) -> dict[str, Any]:
+    return {"_id": f"song{i}", "song": {"videoId": f"v{i}"}, "createdAt": "2024-01-01T00:00:00.000Z"}
 
 
 def _activity(i: int, created_at: str) -> dict[str, Any]:
@@ -106,9 +112,48 @@ class TestActivities:
         assert before[1] < before[0]
 
 
-class TestSinglePageEndpoints:
-    def test_bot_commands_returns_bare_array(self) -> None:
-        result = _driver().run("bot_commands", _script(_response([{"_id": "c1", "command": "test"}])), api_version="v2")
+class TestOffsetEndpoints:
+    def test_song_request_history_walks_pages_to_total(self) -> None:
+        result = _driver().run(
+            "song_request_history",
+            _script(
+                _response({"limit": 100, "offset": 0, "total": 101, "history": [_song(i) for i in range(100)]}),
+                _response({"limit": 100, "offset": 100, "total": 101, "history": [_song(100)]}),
+            ),
+            api_version="v2",
+        )
 
-        assert result.paths == ["/kappa/v2/channels/me", f"/kappa/v2/bot/commands/{CHANNEL_ID}"]
+        history_requests = [request for request in result.requests if "/history" in request.path]
+        assert {request.path for request in history_requests} == {f"/kappa/v2/songrequest/{CHANNEL_ID}/history"}
+        assert [(request.param("limit"), request.param("offset")) for request in history_requests] == [
+            ("100", "0"),
+            ("100", "100"),
+        ]
+        assert len(result.rows) == 101
+
+    @parameterized.expand(
+        [
+            ("null_users", {"_total": 0, "users": None}, []),
+            ("rows", {"_total": 1, "users": [{"username": "viewer", "minutes": 42}]}, ["viewer"]),
+        ]
+    )
+    def test_watchtime_leaderboard_rows(self, _name: str, body: dict[str, Any], expected: list[str]) -> None:
+        result = _driver().run("watchtime_leaderboard", _script(_response(body)), api_version="v2")
+
+        assert result.raised is None
+        assert result.paths[-1] == f"/kappa/v2/points/{CHANNEL_ID}/watchtime"
+        assert [row["username"] for row in result.rows] == expected
+
+
+class TestSinglePageEndpoints:
+    @parameterized.expand(
+        [
+            ("bot_commands_bare_array", "bot_commands", f"/bot/commands/{CHANNEL_ID}", [{"_id": "c1"}]),
+            ("session_single_object", "session", f"/sessions/{CHANNEL_ID}", {"_id": "c1", "data": {}}),
+        ]
+    )
+    def test_single_response_becomes_rows(self, _name: str, endpoint: str, path: str, body: Any) -> None:
+        result = _driver().run(endpoint, _script(_response(body)), api_version="v2")
+
+        assert result.paths == ["/kappa/v2/channels/me", f"/kappa/v2{path}"]
         assert [row["_id"] for row in result.rows] == ["c1"]
