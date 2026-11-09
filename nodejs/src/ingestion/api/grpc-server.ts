@@ -63,7 +63,18 @@ const grpcAdmissionExpired = new Counter({
 
 const grpcStuckBatches = new Counter({
     name: 'ingestion_api_grpc_stuck_batches_total',
-    help: 'Times a sub-batch stayed in flight past the stuck-batch deadline and failed the server',
+    help: 'Times a sub-batch stayed in flight past the stuck-batch deadline and started the stuck-batch shutdown',
+})
+
+const grpcStuckDrains = new Counter({
+    name: 'ingestion_api_grpc_stuck_drains_total',
+    help: 'Stuck-batch shutdowns by how the drain of the other sub-batches ended',
+    labelNames: ['outcome'],
+})
+
+const grpcOldestInFlightAge = new Gauge({
+    name: 'ingestion_api_grpc_oldest_in_flight_batch_age_seconds',
+    help: 'Age of the oldest fed sub-batch that has not settled; the stuck-batch shutdown starts past its deadline',
 })
 
 const grpcConnectionsRejected = new Counter({
@@ -147,7 +158,10 @@ export interface WorkerIngestServerOptions {
      * makes consumers replay work the pipeline already processed.
      */
     drainTimeoutMs?: number
+    /** `0` disables the stuck-batch shutdown. */
     stuckBatchTimeoutMs?: number
+    /** How long the stuck-batch shutdown waits for the other sub-batches to settle and ack. */
+    stuckDrainTimeoutMs?: number
 }
 
 /** Thrown from `FifoSlots.acquire` when the waiting stream is cancelled. */
@@ -221,6 +235,21 @@ interface WorkerIngestServerDeps {
      * HTTP path's crash-and-rebuild contract.
      */
     onFatal: (error: Error) => void
+    /** A sub-batch passed the stuck-batch deadline: the owner must fail readiness, so consumers stop routing here. */
+    onStuck?: (error: Error) => void
+    /** The other sub-batches drained, or the drain timed out: the owner must exit. */
+    onStuckDrained?: (error: Error) => void
+}
+
+/** A sub-batch the pipeline accepted, held until it settles. */
+interface FedBatch {
+    accounting: AcceptedBatch
+    streamId: number
+    consumerId: string
+    streamEpoch: string
+    assignmentEpoch: string
+    /** `partition:minOffset-maxOffset`, comma-separated. */
+    offsets: string
 }
 
 /** Unbounded FIFO handed from the pump to each stream's response generator. */
@@ -308,6 +337,20 @@ export function grpcMessageToSerialized(message: KafkaMessage): SerializedKafkaM
     }
 }
 
+function offsetRanges(messages: SerializedKafkaMessage[]): string {
+    const ranges = new Map<number, [number, number]>()
+    for (const { partition, offset } of messages) {
+        const range = ranges.get(partition)
+        if (!range) {
+            ranges.set(partition, [offset, offset])
+        } else {
+            range[0] = Math.min(range[0], offset)
+            range[1] = Math.max(range[1], offset)
+        }
+    }
+    return [...ranges].map(([partition, [min, max]]) => `${partition}:${min}-${max}`).join(',')
+}
+
 function readyFrame(): IngestStreamResponse {
     return create(IngestStreamResponseSchema, {
         msg: { case: 'ready', value: create(StreamReadySchema, {}) },
@@ -385,7 +428,11 @@ export class WorkerIngestServer {
     private readonly readMaxBytes: number
     private readonly drainTimeoutMs: number
     private readonly stuckBatchTimeoutMs: number
+    private readonly stuckDrainTimeoutMs: number
     private stuckBatchTimer: NodeJS.Timeout | null = null
+    /** Keys of the sub-batches that started the stuck-batch shutdown; set once. */
+    private stuckKeys: Set<string> | null = null
+    private stuckDrainDone = false
     private sessionCount = 0
     private readonly slots: FifoSlots
     /**
@@ -393,7 +440,7 @@ export class WorkerIngestServer {
      * processor autoscaler reads. Kept off StreamState so a batch whose stream
      * died mid-processing is still released when it settles.
      */
-    private readonly acceptedBatches = new Map<string, AcceptedBatch>()
+    private readonly acceptedBatches = new Map<string, FedBatch>()
 
     constructor(
         private options: WorkerIngestServerOptions,
@@ -409,15 +456,15 @@ export class WorkerIngestServer {
         this.readMaxBytes = options.readMaxBytes ?? 32 * 1024 * 1024
         this.drainTimeoutMs = options.drainTimeoutMs ?? 15_000
         this.stuckBatchTimeoutMs = options.stuckBatchTimeoutMs ?? 0
+        this.stuckDrainTimeoutMs = options.stuckDrainTimeoutMs ?? 60_000
         this.slots = new FifoSlots(options.maxConcurrentBatches)
     }
 
     async start(): Promise<void> {
         this.pumpTask = this.runPump()
-        if (this.stuckBatchTimeoutMs > 0) {
-            this.stuckBatchTimer = setInterval(() => this.failIfStuck(), Math.min(this.stuckBatchTimeoutMs / 4, 10_000))
-            this.stuckBatchTimer.unref()
-        }
+        const checkEveryMs = this.stuckBatchTimeoutMs > 0 ? Math.min(this.stuckBatchTimeoutMs / 4, 10_000) : 10_000
+        this.stuckBatchTimer = setInterval(() => this.checkStuck(), checkEveryMs)
+        this.stuckBatchTimer.unref()
         this.server = http2.createServer(
             {
                 // Cap per-session streams (advertised via SETTINGS, enforced by
@@ -482,8 +529,8 @@ export class WorkerIngestServer {
         }
         this.draining = true
         this.drainAbort.abort()
-        // A poisoned pipeline never settles, so skip straight to teardown.
-        const deadline = this.fatalError ? 0 : Date.now() + this.drainTimeoutMs
+        // A poisoned pipeline never settles, and a stuck-batch shutdown has already drained.
+        const deadline = this.fatalError || this.stuckDrainDone ? 0 : Date.now() + this.drainTimeoutMs
         while (this.totalInFlight() > 0 && Date.now() < deadline) {
             await sleep(10)
         }
@@ -539,7 +586,8 @@ export class WorkerIngestServer {
      */
     private async runPump(): Promise<void> {
         while (!this.stopped) {
-            if (this.totalInFlight() === 0) {
+            // Not the streams' in-flight count: a batch whose stream died must still be collected.
+            if (this.acceptedBatches.size === 0) {
                 await new Promise<void>((resolve) => {
                     this.wakePump = resolve
                 })
@@ -622,11 +670,11 @@ export class WorkerIngestServer {
         }
         this.acceptedBatches.delete(key)
         if (outcome === 'ok') {
-            batchProcessed(accepted.acceptedAt, completed.accepted)
+            batchProcessed(accepted.accounting.acceptedAt, completed.accepted)
         } else {
             batchFailed()
         }
-        batchReleased(accepted)
+        batchReleased(accepted.accounting)
     }
 
     private ackCompleted(completed: CompletedSubBatch): void {
@@ -671,24 +719,119 @@ export class WorkerIngestServer {
         this.maybeFinish(stream)
     }
 
-    private failIfStuck(): void {
-        if (this.fatalError) {
-            return
-        }
-        let oldestAcceptedAt = Infinity
+    private checkStuck(): void {
+        const now = Date.now()
+        let oldestAcceptedAt = now
         for (const batch of this.acceptedBatches.values()) {
-            oldestAcceptedAt = Math.min(oldestAcceptedAt, batch.acceptedAt)
+            oldestAcceptedAt = Math.min(oldestAcceptedAt, batch.accounting.acceptedAt)
         }
-        const inFlightMs = Date.now() - oldestAcceptedAt
-        if (inFlightMs <= this.stuckBatchTimeoutMs) {
+        grpcOldestInFlightAge.set((now - oldestAcceptedAt) / 1000)
+        if (this.stuckBatchTimeoutMs <= 0 || this.fatalError || this.draining) {
             return
         }
-        grpcStuckBatches.inc()
-        this.fatal(
-            new Error(
-                `sub-batch in flight for ${inFlightMs}ms, past the ${this.stuckBatchTimeoutMs}ms stuck-batch deadline`
-            )
+        const stuck = [...this.acceptedBatches].filter(
+            ([, batch]) => now - batch.accounting.acceptedAt > this.stuckBatchTimeoutMs
         )
+        if (stuck.length > 0) {
+            this.startStuckShutdown(stuck, now)
+        }
+    }
+
+    /**
+     * Stuck-batch shutdown. A stuck sub-batch holds its slot forever, so the
+     * worker leaves the pool, lets the other sub-batches settle and ack, and
+     * then hands the exit to the owner. Failing every stream at once instead
+     * would make consumers replay healthy work.
+     */
+    private startStuckShutdown(stuck: [string, FedBatch][], now: number): void {
+        grpcStuckBatches.inc()
+        this.stuckKeys = new Set(stuck.map(([key]) => key))
+        const error = new Error(
+            `${stuck.length} sub-batch(es) in flight past the ${this.stuckBatchTimeoutMs}ms stuck-batch deadline`
+        )
+        for (const [key, batch] of stuck) {
+            logger.error('🧊', 'WorkerIngest sub-batch stuck', {
+                key,
+                inFlightMs: now - batch.accounting.acceptedAt,
+                consumerId: batch.consumerId,
+                streamEpoch: batch.streamEpoch,
+                assignmentEpoch: batch.assignmentEpoch,
+                events: batch.accounting.events,
+                offsets: batch.offsets,
+                streamOpen: this.streams.has(batch.streamId),
+            })
+        }
+
+        this.deps.onStuck?.(error)
+        this.draining = true
+        this.drainAbort.abort()
+        const stuckStreams = new Set(stuck.map(([, batch]) => batch.streamId))
+        for (const stream of this.streams.values()) {
+            if (stuckStreams.has(stream.id)) {
+                // The consumer resolves acks in seq order, so no ack behind a stuck sub-batch would resolve.
+                stream.acks.fail(new ConnectError('sub-batch stuck, worker shutting down', Code.Unavailable))
+            } else {
+                stream.readerDone = true
+                this.maybeFinish(stream)
+            }
+        }
+        logger.error('🧊', 'WorkerIngest stuck-batch shutdown: draining', {
+            error: error.message,
+            stuckBatches: stuck.length,
+            otherBatches: this.acceptedBatches.size - stuck.length,
+            openStreams: this.streams.size,
+            drainTimeoutMs: this.stuckDrainTimeoutMs,
+        })
+        void this.runStuckDrain(error)
+    }
+
+    private async runStuckDrain(error: Error): Promise<void> {
+        const deadline = Date.now() + this.stuckDrainTimeoutMs
+        while (!this.stuckDrained() && Date.now() < deadline && !this.fatalError) {
+            await sleep(10)
+        }
+        // GOAWAY: each session closes once its streams have flushed their last acks.
+        const sessionsClosed = [...this.sessions].map(
+            (session) => new Promise<void>((resolve) => (session.closed ? resolve() : session.once('close', resolve)))
+        )
+        for (const session of this.sessions) {
+            session.close()
+        }
+        let timer: NodeJS.Timeout | undefined
+        const flushed = await Promise.race([
+            Promise.all(sessionsClosed).then(() => true),
+            new Promise<boolean>((resolve) => {
+                timer = setTimeout(() => resolve(false), Math.max(0, deadline - Date.now()))
+            }),
+        ])
+        clearTimeout(timer)
+        if (this.fatalError) {
+            // The fatal path already failed the streams and told the owner.
+            return
+        }
+        this.stuckDrainDone = true
+        const outcome = flushed && this.stuckDrained() ? 'drained' : 'timeout'
+        grpcStuckDrains.inc({ outcome })
+        logger.error('🧊', `WorkerIngest stuck-batch shutdown: ${outcome}, exiting`, {
+            error: error.message,
+            otherBatchesLeft: [...this.acceptedBatches.keys()].filter((key) => !this.stuckKeys?.has(key)).length,
+            openStreams: this.streams.size,
+            openSessions: this.sessions.size,
+        })
+        this.deps.onStuckDrained?.(error)
+    }
+
+    /** Every sub-batch but the stuck ones settled, and every stream sent its last ack. */
+    private stuckDrained(): boolean {
+        if (this.streams.size > 0) {
+            return false
+        }
+        for (const key of this.acceptedBatches.keys()) {
+            if (!this.stuckKeys?.has(key)) {
+                return false
+            }
+        }
+        return true
     }
 
     /**
@@ -861,7 +1004,14 @@ export class WorkerIngestServer {
                         const result = await this.feedGuarded(stream, seq, serialized, budget)
                         if (result.ok) {
                             feedAccepted = true
-                            this.acceptedBatches.set(this.acceptedKey(stream.id, seq), batchAccepted(serialized.length))
+                            this.acceptedBatches.set(this.acceptedKey(stream.id, seq), {
+                                accounting: batchAccepted(serialized.length),
+                                streamId: stream.id,
+                                consumerId: stream.hello.consumerId,
+                                streamEpoch: String(stream.hello.streamEpoch),
+                                assignmentEpoch: String(subBatch.assignmentEpoch),
+                                offsets: offsetRanges(serialized),
+                            })
                             break
                         }
                         if (result.kind === 'at_capacity') {

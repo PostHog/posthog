@@ -98,6 +98,8 @@ import {
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 import { GrpcBatchContext, GrpcStreamIngestDriver } from './grpc-stream-ingest-driver'
 
+const STUCK_SHUTDOWN_CLEANUP_MS = 30_000
+
 export type IngestionApiServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
     IngestionOutputsConfig &
@@ -176,6 +178,9 @@ export class IngestionApiServer implements NodeServer {
     // Kafka consumer's contract of crashing and rebuilding rather than serving
     // a wedged pipeline forever.
     private fatalError?: Error
+    // Set when a sub-batch is stuck: readiness fails so consumers stop routing
+    // here, while liveness passes so the drain is not cut short by a restart.
+    private stuckError?: Error
 
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
         this.config = {
@@ -500,6 +505,7 @@ export class IngestionApiServer implements NodeServer {
                 readMaxBytes: this.config.INGESTION_API_GRPC_READ_MAX_BYTES,
                 drainTimeoutMs: this.config.INGESTION_API_GRPC_DRAIN_TIMEOUT_MS,
                 stuckBatchTimeoutMs: this.config.INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS,
+                stuckDrainTimeoutMs: this.config.INGESTION_API_GRPC_STUCK_DRAIN_TIMEOUT_MS,
             },
             {
                 driver: new GrpcStreamIngestDriver(grpcPipeline, this.promiseScheduler),
@@ -511,6 +517,21 @@ export class IngestionApiServer implements NodeServer {
                         this.fatalError = error
                         void this.stop(error)
                     }
+                },
+                onStuck: (error) => {
+                    this.stuckError = error
+                },
+                onStuckDrained: (error) => {
+                    if (this.fatalError) {
+                        return
+                    }
+                    this.fatalError = error
+                    // Cleanup can wait on the dependency the stuck batch waits on.
+                    setTimeout(() => {
+                        logger.error('🧊', 'Stuck-batch shutdown cleanup timed out, exiting')
+                        process.exit(1)
+                    }, STUCK_SHUTDOWN_CLEANUP_MS)
+                    void this.stop(error)
                 },
             }
         )
@@ -531,6 +552,7 @@ export class IngestionApiServer implements NodeServer {
                 }
             },
             healthcheck: () => this.isHealthy(),
+            readinessCheck: () => this.isReady(),
         }
         this.lifecycle.services.push(service)
     }
@@ -539,6 +561,15 @@ export class IngestionApiServer implements NodeServer {
         // TODO: add output producer health checks
         if (this.fatalError) {
             return new HealthCheckResultError('Ingestion pipeline crashed', { error: this.fatalError.message })
+        }
+        return new HealthCheckResultOk()
+    }
+
+    private isReady(): HealthCheckResult {
+        if (this.stuckError) {
+            return new HealthCheckResultError('Sub-batch stuck, draining before exit', {
+                error: this.stuckError.message,
+            })
         }
         return new HealthCheckResultOk()
     }
