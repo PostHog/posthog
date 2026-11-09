@@ -228,7 +228,11 @@ mod tests {
             ("SELECT 'é😀', 0 AS trUE FROM events", "0 AS trUE"),
         ] {
             let err = parse::parse_select(query).unwrap_err();
-            let span: String = query.chars().skip(err.start).take(err.end - err.start).collect();
+            let span: String = query
+                .chars()
+                .skip(err.start)
+                .take(err.end - err.start)
+                .collect();
             assert_eq!(span, expected_span, "{query}");
         }
     }
