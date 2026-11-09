@@ -2703,7 +2703,7 @@ class TestPendingChecks(APIBaseTest):
 
     def test_checks_left_open_by_an_exit_pause_until_monitoring_resumes(self) -> None:
         _seed_check_lane(self.team)
-        agent = {"kind": SignalReportCheck.Kind.AGENT, "config": {"instructions": "Check whether errors recur."}}
+        agent: dict = {"kind": SignalReportCheck.Kind.AGENT, "config": {"instructions": "Check whether errors recur."}}
         with (
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
             patch(_CONNECT),
