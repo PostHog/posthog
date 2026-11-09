@@ -1212,6 +1212,15 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
             format="json",
         )
         assert narrowed.status_code == status.HTTP_200_OK, narrowed.json()
+        stale = self.client.post(
+            f"{base}/{canvas_id}/publish/",
+            {
+                "project": self._project(capabilities=WIDE_CAPABILITIES),
+                "expected_current_version_id": kept.json()["current_version_id"],
+            },
+            format="json",
+        )
+        assert stale.status_code == status.HTTP_409_CONFLICT, stale.json()
 
         widened = creator_client.post(
             f"{base}/{canvas_id}/publish/",

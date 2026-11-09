@@ -19,7 +19,7 @@ from products.canvas.backend.layout import (
     validate_layout,
 )
 from products.canvas.backend.logic import canvases as canvas_logic
-from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasState
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasSourceVersion, CanvasState
 from products.canvas.backend.source import has_errors, validate_source_project
 from products.canvas.backend.tests.test_canvas_api import WIDE_CAPABILITIES, CanvasAPIBaseTest
 from products.canvas.backend.tests.test_component_store import COMPONENT_META
@@ -415,23 +415,24 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
 
     @parameterized.expand(
         [
-            ("component_creator_pins", "publish", True, status.HTTP_200_OK),
-            ("other_member_pins", "publish", False, status.HTTP_403_FORBIDDEN),
+            ("component_creator_pins_an_older_version", "publish", True, status.HTTP_200_OK),
+            ("other_member_pins_an_older_version", "publish", False, status.HTTP_403_FORBIDDEN),
+            ("other_member_pins_the_live_version", "publish_live", False, status.HTTP_200_OK),
             ("component_creator_reverts_to_a_layout_with_the_pin", "revert", True, status.HTTP_200_OK),
             ("other_member_reverts_to_a_layout_with_the_pin", "revert", False, status.HTTP_403_FORBIDDEN),
             ("other_member_moves_another_tile_beside_the_pin", "patch", False, status.HTTP_200_OK),
             ("other_member_names_the_version_without_its_component", "unattached", False, status.HTTP_200_OK),
         ]
     )
-    def test_pinning_an_older_wider_component_version_needs_the_component_creator(
+    def test_pinning_an_older_component_version_needs_the_component_creator(
         self, _name: str, action: str, as_creator: bool, expected_status: int
     ) -> None:
         component_id = self._create_component()
         wide = self._project(component=COMPONENT_META, capabilities=WIDE_CAPABILITIES)
-        wide_version = self._publish(component_id, wide).json()["current_version_id"]
-        assert self._publish(component_id, self._project(component=COMPONENT_META)).status_code == 200
+        old_version = self._publish(component_id, wide).json()["current_version_id"]
+        live_version = self._publish(component_id, self._project(component=COMPONENT_META)).json()["current_version_id"]
         grid_id = self._create_grid()
-        pinned = placement(status="generating", component=component_id, version=wide_version)
+        pinned = placement(status="generating", component=component_id, version=old_version)
         other = placement(id="p2", x=2)
         head_id: str | None = None
         if action in ("revert", "patch"):
@@ -446,8 +447,11 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
 
         if action == "publish":
             response = self._publish_layout(grid_id, layout(placements=[pinned]))
+        elif action == "publish_live":
+            live = placement(status="generating", component=component_id, version=live_version)
+            response = self._publish_layout(grid_id, layout(placements=[live]))
         elif action == "unattached":
-            response = self._publish_layout(grid_id, layout(placements=[placement(version=wide_version)]))
+            response = self._publish_layout(grid_id, layout(placements=[placement(version=old_version)]))
         elif action == "revert":
             response = self.client.post(
                 f"/api/projects/{self.team.id}/canvases/{grid_id}/revert/",
@@ -460,11 +464,24 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
             )
 
         assert response.status_code == expected_status, response.json()
+        body = response.json()
+        assert "capability_widening" not in body
         if expected_status == status.HTTP_403_FORBIDDEN:
-            assert response.json()["code"] == "capability_widening_requires_creator"
-            assert response.json()["capability_widening"]["insights_added"] == ["abc123"]
-        else:
-            assert "capability_widening" not in response.json()
+            assert body["code"] == "pinned_version_requires_creator"
+            assert body["components"] == [component_id]
+
+    def test_publish_without_pins_does_not_read_the_current_layout(self) -> None:
+        grid_id = self._create_grid()
+        head_id = self._publish_layout(grid_id, layout(placements=[placement()])).json()["current_version_id"]
+        with team_scope(self.team.id):
+            key = CanvasSourceVersion.objects.for_team(self.team.id).get(pk=head_id).source_object_key
+        self.storage.objects.pop(key)
+
+        response = self._publish_layout(
+            grid_id, layout(placements=[placement(id="p2", x=2)]), expected_current_version_id=head_id
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
     def test_live_placement_pinned_to_a_version_without_a_ready_build_rejected(self):
         grid_id = self._create_grid()

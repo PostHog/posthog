@@ -1156,6 +1156,18 @@ class CanvasCapabilityWideningDeniedSerializer(serializers.Serializer):
     )
 
 
+class CanvasPinnedVersionDeniedSerializer(serializers.Serializer):
+    """403 body for a layout that pins a component version other than that component's live version
+    when the caller did not create that component."""
+
+    detail = serializers.CharField(help_text="Human-readable description of the refusal.")
+    code = serializers.CharField(help_text='Always "pinned_version_requires_creator".')
+    components = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="IDs of the components whose placements must use the live version or `latest` instead.",
+    )
+
+
 class CanvasActionDefinitionSerializer(serializers.Serializer):
     """One registered action verb, as the host renders it before invoking."""
 

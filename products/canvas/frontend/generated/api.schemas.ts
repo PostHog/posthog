@@ -1397,6 +1397,19 @@ export interface CanvasLayoutPublishResponseApi {
 }
 
 /**
+ * 403 body for a layout that pins a component version other than that component's live version
+ * when the caller did not create that component.
+ */
+export interface CanvasPinnedVersionDeniedApi {
+    /** Human-readable description of the refusal. */
+    detail: string
+    /** Always "pinned_version_requires_creator". */
+    code: string
+    /** IDs of the components whose placements must use the live version or `latest` instead. */
+    components: string[]
+}
+
+/**
  * Payload for publishing a complete layout document.
  */
 export interface CanvasLayoutPublishApi {

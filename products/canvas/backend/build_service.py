@@ -48,7 +48,11 @@ from posthog.storage import object_storage
 from products.canvas.backend import error_reports
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
-from products.canvas.backend.facade.contracts import CanvasBuildCapacityExceeded, CanvasVersionConflict
+from products.canvas.backend.facade.contracts import (
+    CanvasBuildCapacityExceeded,
+    CanvasPinnedVersionDenied,
+    CanvasVersionConflict,
+)
 from products.canvas.backend.layout import PinnedComponentVersion, default_layout, pinned_component_versions
 from products.canvas.backend.logic.capability_policy import assert_may_set_capabilities
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
@@ -697,16 +701,19 @@ def publish_source_project(
 ) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild, bool]:
     """Upload and publish a validated project as the canvas's new head version."""
     # Lock-free fail-fast so a refused widening uploads nothing. The commit
-    # re-checks against the head it claims under the lock.
+    # re-checks against the head it claims under the lock. A stale base skips
+    # this check, so that the caller gets the 409 and reloads instead of a 403
+    # measured against a head it has not read.
     with team_scope(canvas.team_id):
         head_id = (
             Canvas.objects.for_team(canvas.team_id)
             .values_list("current_source_version_id", flat=True)
             .get(pk=canvas.pk)
         )
-        assert_may_set_capabilities(
-            canvas, created_by, _version_capabilities(canvas.team_id, head_id), project.get("capabilities") or {}
-        )
+        if not has_expected_version or str(head_id or "") == str(expected_version_id or ""):
+            assert_may_set_capabilities(
+                canvas, created_by, _version_capabilities(canvas.team_id, head_id), project.get("capabilities") or {}
+            )
     prepared = prepare_source_project_publish(
         canvas,
         project=project,
@@ -758,19 +765,22 @@ def publish_grid_layout(
             expected = str(expected_version_id) if expected_version_id else None
             if current_id != expected:
                 raise CanvasVersionConflict(current_id)
-    # The pin check reads the head layout from storage, so it runs before the
-    # head lock and runs again under the lock only when the head moved meanwhile.
+    # Pins the caller may not add are allowed only when the head layout already
+    # holds them. Reading that layout needs storage, so it happens only when
+    # such pins exist, before the head lock, and again under the lock only when
+    # the head moved meanwhile.
     with team_scope(canvas.team_id):
-        checked_head_id = (
-            expected_version_id
-            if has_expected_version
-            else Canvas.objects.for_team(canvas.team_id)
-            .values_list("current_source_version_id", flat=True)
-            .get(pk=canvas.pk)
-        )
-        _assert_pinned_components_not_wider(
-            canvas.team_id, created_by, layout, _grid_layout_at(canvas, checked_head_id)
-        )
+        refused_pins = _pins_needing_component_creator(canvas.team_id, created_by, layout)
+        checked_head_id = None
+        if refused_pins:
+            checked_head_id = (
+                expected_version_id
+                if has_expected_version
+                else Canvas.objects.for_team(canvas.team_id)
+                .values_list("current_source_version_id", flat=True)
+                .get(pk=canvas.pk)
+            )
+            _assert_pins_already_placed(refused_pins, _grid_layout_at(canvas, checked_head_id))
     source_upload = upload_source_project(canvas.team_id, canvas.id, layout)
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(
@@ -779,10 +789,8 @@ def publish_grid_layout(
             expected_version_id=expected_version_id,
             check_capacity=False,
         )
-        if str(canvas.current_source_version_id or "") != str(checked_head_id or ""):
-            _assert_pinned_components_not_wider(
-                canvas.team_id, created_by, layout, _grid_layout_at(canvas, canvas.current_source_version_id)
-            )
+        if refused_pins and str(canvas.current_source_version_id or "") != str(checked_head_id or ""):
+            _assert_pins_already_placed(refused_pins, _grid_layout_at(canvas, canvas.current_source_version_id))
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
             canvas=canvas,
@@ -806,32 +814,44 @@ def publish_grid_layout(
     return canvas, version
 
 
-def _assert_pinned_components_not_wider(
-    team_id: int, user: User | None, layout: dict[str, Any], previous_layout: dict[str, Any]
-) -> None:
-    """Refuse a layout that newly pins a component version declaring more than that component's head.
+def _pins_needing_component_creator(
+    team_id: int, user: User | None, layout: dict[str, Any]
+) -> set[PinnedComponentVersion]:
+    """The layout's pins that name a version other than the component's live version, on
+    components `user` did not create.
 
-    A placement that follows the latest version only ever runs what the component's creator
-    published. A pinned placement can name an older version, so it must not bring back
-    capabilities the component has since dropped unless the user created that component.
-    A pin that `previous_layout` already holds was accepted when it was added, so it is not
-    checked again.
+    A placement on the live version runs only what the component already runs, so anyone may
+    add it. Any other version can declare capabilities the component has since dropped, so
+    only the component's creator may pin it. A pin whose component this team does not have
+    also counts, so an unknown id never passes.
     """
-    new_pins = pinned_component_versions(layout) - pinned_component_versions(previous_layout)
-    if not new_pins:
-        return
-    versions = (
-        CanvasSourceVersion.objects.for_team(team_id)
-        .filter(id__in={pin.version_id for pin in new_pins}, draft=False)
-        .select_related("canvas", "canvas__current_source_version")
-    )
-    for version in versions:
-        if PinnedComponentVersion(component_id=str(version.canvas_id), version_id=str(version.id)) not in new_pins:
-            continue
-        head = version.canvas.current_source_version
-        assert_may_set_capabilities(
-            version.canvas, user, head.capabilities if head else None, _resolved_capabilities(version)
-        )
+    pins = pinned_component_versions(layout)
+    if not pins:
+        return set()
+    components = {
+        str(component_id): (str(head_id) if head_id else None, creator_id)
+        for component_id, head_id, creator_id in Canvas.objects.for_team(team_id)
+        .filter(id__in={pin.component_id for pin in pins})
+        .values_list("id", "current_source_version_id", "created_by_id")
+    }
+    refused = set()
+    for pin in pins:
+        head_id, creator_id = components.get(pin.component_id, (None, None))
+        is_live = head_id is not None and head_id == pin.version_id
+        is_creator = user is not None and creator_id is not None and creator_id == user.id
+        if not is_live and not is_creator:
+            refused.add(pin)
+    return refused
+
+
+def _assert_pins_already_placed(pins: set[PinnedComponentVersion], previous_layout: dict[str, Any]) -> None:
+    """Raise CanvasPinnedVersionDenied for the pins that `previous_layout` does not hold.
+
+    A pin the grid already holds was allowed when someone added it, so keeping it is allowed.
+    """
+    added = pins - pinned_component_versions(previous_layout)
+    if added:
+        raise CanvasPinnedVersionDenied(sorted({pin.component_id for pin in added}))
 
 
 def _grid_layout_at(canvas: Canvas, version_id: str | UUID | None) -> dict[str, Any]:
@@ -907,19 +927,17 @@ def revert_to_version(
     cap is reached. Raises ObjectStorageError when a grid canvas's layouts cannot be read.
     """
     # A published version never changes, so it and its stored source are read
-    # before the head lock. The claim below guarantees the head it replaces is
-    # expected_current_version_id, which the grid pin check compares against.
+    # before the head lock.
     with team_scope(canvas.team_id):
         version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(
             pk=version_id, canvas_id=canvas.id, draft=False
         )
         if canvas.kind == Canvas.KIND_GRID:
-            _assert_pinned_components_not_wider(
-                canvas.team_id,
-                user,
-                read_source_project(version),
-                _grid_layout_at(canvas, expected_current_version_id),
-            )
+            # Unlike a publish, a revert gets no allowance for pins the current
+            # layout holds: every pin it restores must be live or the caller's own.
+            refused_pins = _pins_needing_component_creator(canvas.team_id, user, read_source_project(version))
+            if refused_pins:
+                raise CanvasPinnedVersionDenied(sorted({pin.component_id for pin in refused_pins}))
             target_capabilities: dict | None = {}
         else:
             target_capabilities = _resolved_capabilities(version)

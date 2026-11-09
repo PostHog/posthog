@@ -375,6 +375,15 @@ class CanvasCapabilityWideningDenied(Exception):
         self.widening = widening
 
 
+class CanvasPinnedVersionDenied(Exception):
+    """The layout pins a component version that is not that component's live version, and the
+    caller did not create that component."""
+
+    def __init__(self, component_ids: list[str]) -> None:
+        super().__init__("Only a component's creator can pin a version other than its live version.")
+        self.component_ids = component_ids
+
+
 class CanvasRequestRejected(Exception):
     """A canvas rule refused the request. The view returns `detail` with `status_code`."""
 

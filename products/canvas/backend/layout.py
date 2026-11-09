@@ -307,9 +307,15 @@ class PinnedComponentVersion:
 
 
 def pinned_component_versions(layout: dict[str, Any]) -> set[PinnedComponentVersion]:
-    """The component versions the layout's placements pin to a specific version."""
+    """The component versions the layout's placements pin to a specific version.
+
+    Both ids are canonical UUID strings, so they compare equal to `str()` of a model id
+    however the layout spelled them.
+    """
     return {
-        PinnedComponentVersion(component_id=str(placement["component"]), version_id=str(placement["version"]))
+        PinnedComponentVersion(
+            component_id=str(UUID(placement["component"])), version_id=str(UUID(placement["version"]))
+        )
         for placement in layout.get("placements", [])
         if isinstance(placement, dict) and _is_uuid(placement.get("component")) and _is_uuid(placement.get("version"))
     }

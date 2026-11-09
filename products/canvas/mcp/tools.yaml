@@ -241,10 +241,10 @@ tools:
             again. To fill a drawn box: update_placement with changes {status: "live", component: <component canvas id>,
             config: {...}}. The component must be published (canvas-list kind=component shows component_meta and
             published_build_id) and the config must match its configSchema. After substantial visual changes, check the
-            final live canvas once if browser access is already available. Skip browser checks for small edits. Pinning
-            a component version that declares more capabilities than that component's live version is refused with 403
-            `capability_widening_requires_creator` unless the caller created that component; pin "latest" or an
-            unwidened version instead.
+            final live canvas once if browser access is already available. Skip browser checks for small edits. Only a
+            component's creator can pin a version other than that component's live version: a new pin like that is
+            refused with 403 `pinned_version_requires_creator`, whose `components` lists the components. Place those
+            components on "latest" or their live version instead.
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to patch.
@@ -266,10 +266,10 @@ tools:
             immediately — no build. `expected_current_version_id` is REQUIRED (from canvas-layout-get; null only before
             the first layout publish) — a stale base is rejected with 409 version_conflict; re-read the layout, rebuild
             the document on the new head, and publish again. After substantial visual changes, check the final live
-            canvas once if browser access is already available. Skip browser checks for small edits. Pinning a component
-            version that declares more capabilities than that component's live version is refused with 403
-            `capability_widening_requires_creator` unless the caller created that component; pin "latest" or an
-            unwidened version instead.
+            canvas once if browser access is already available. Skip browser checks for small edits. Only a component's
+            creator can pin a version other than that component's live version: a new pin like that is refused with 403
+            `pinned_version_requires_creator`, whose `components` lists the components. Place those components on
+            "latest" or their live version instead.
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to publish.
