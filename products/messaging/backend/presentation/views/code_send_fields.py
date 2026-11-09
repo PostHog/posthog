@@ -188,12 +188,12 @@ _SHA256_REASON = Reason(
     fix="Send the SHA-256 of the file's bytes as 64 lowercase hex characters, as you sent it to the upload.",
 )
 _INLINE_CONTENT_REASON = Reason(
-    why="Files no longer travel inside the send. You upload each one first, and the send names it by its SHA-256.",
+    why="PostHog attaches only uploaded files, and the send names each one by its SHA-256.",
     fix=f"Upload the file through `{UPLOAD_ROUTE}`, then send it as `{{sha256, filename}}` without `content`.",
 )
 TOO_MANY_FILES_REASON = Reason(
     why=f"An email carries at most {MAX_ATTACHMENTS} files.",
-    fix=f"Send at most {MAX_ATTACHMENTS} files in one email, or link to the others from the email body.",
+    fix=f"Name at most {MAX_ATTACHMENTS} files, and link to any others from the email body.",
 )
 MESSAGE_TOO_LARGE_REASON = Reason(
     why="PostHog's email provider takes emails up to 40 MB, and Base64 encoding makes each file about a third larger.",

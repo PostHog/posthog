@@ -488,6 +488,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("invalid_request", 400, 400, "invalid_request"),
             ("a 400 without a known code", 400, 400, "invalid_request"),
             ("Request entity too large", 413, 400, "content_too_large"),
+            ("message_too_large", 413, 400, "content_too_large"),
         ]
     )
     def test_reports_a_send_the_pipeline_refuses(

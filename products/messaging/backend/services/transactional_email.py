@@ -636,7 +636,9 @@ def _queue(
 
     answer = _answer(response)
     refusal_code = _refusal_code(answer)
-    if attachment_refusal := _attachment_refusal(refusal_code, answer):
+    if (payload.get("send") or {}).get("attachments") and (
+        attachment_refusal := _attachment_refusal(refusal_code, answer)
+    ):
         raise attachment_refusal
     if response.status_code == 413:
         raise ContentTooLarge(
