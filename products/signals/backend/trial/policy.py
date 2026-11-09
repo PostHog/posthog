@@ -45,7 +45,7 @@ def pricing_flag_distinct_id(organization_id: UUID) -> str:
     # The flag targets a static person cohort of grandfathered orgs. The earliest member stands in
     # for the org, so that work without a request user gets the same answer as a request.
     distinct_id = (
-        OrganizationMembership.objects.filter(organization_id=organization_id)
+        OrganizationMembership.objects.filter(organization_id=organization_id, user__is_active=True)
         .order_by("joined_at", "id")
         .values_list("user__distinct_id", flat=True)
         .first()

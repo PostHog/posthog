@@ -522,6 +522,12 @@ class TestTrialAPI(APIBaseTest):
 
     def test_flag_off_hides_offer_and_prevents_activation_for_claimed_projects(self) -> None:
         User.objects.create_and_join(self.organization, "later-member@example.com", None)
+        deactivated = User.objects.create_and_join(self.organization, "deactivated-member@example.com", None)
+        deactivated.is_active = False
+        deactivated.save()
+        OrganizationMembership.objects.filter(user=deactivated).update(
+            joined_at=OrganizationMembership.objects.get(user=self.user).joined_at - timedelta(days=1)
+        )
         with patch(
             "products.signals.backend.trial.billing.TrialBilling.status",
             return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
