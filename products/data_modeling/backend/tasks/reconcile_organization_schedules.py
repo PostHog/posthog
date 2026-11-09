@@ -3,10 +3,13 @@ from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 
+import structlog
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
 from posthog.scoping_audit import skip_team_scope_audit
+
+logger = structlog.get_logger(__name__)
 
 RECONCILE_RETRY_OPTIONS = {
     "autoretry_for": (Exception,),
@@ -62,7 +65,14 @@ def retry_pending_organization_reconciles() -> None:
 
     retry_before = now - PENDING_RECONCILE_RETRY_AFTER
     pending = PendingOrganizationReconcile.objects.filter(requested_at__lt=retry_before)
-    for organization_id in pending.values_list("organization_id", flat=True):
+    stuck = list(pending.values_list("organization_id", "plan_changed_at"))
+    if stuck:
+        logger.warning(
+            "pending_organization_reconciles_retried",
+            organizations=len(stuck),
+            oldest_plan_change_hours=round((now - min(changed_at for _id, changed_at in stuck)).total_seconds() / 3600),
+        )
+    for organization_id, _changed_at in stuck:
         reconcile_organization_schedules.delay(str(organization_id))
         # Moved forward so the next sweep doesn't start a second chain of retries beside this one.
         PendingOrganizationReconcile.objects.filter(
