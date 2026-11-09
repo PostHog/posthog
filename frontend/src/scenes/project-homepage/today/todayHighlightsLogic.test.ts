@@ -102,6 +102,20 @@ describe('todayHighlightsLogic', () => {
         ])
     })
 
+    it('keeps numbers hidden in this browser when the server does not save them', async () => {
+        jest.spyOn(todayApi, 'todayPulsePinsHiddenUpdate').mockRejectedValue(new Error('down'))
+        const key = `${MOCK_TEAM_ID}:insight:a`
+        window.localStorage.setItem(
+            'scenes.project-homepage.today.todayHighlightsLogic.hiddenPulseMetrics',
+            JSON.stringify({ [key]: true })
+        )
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.hiddenPulseMetrics).toEqual({ [key]: true })
+    })
+
     it('keeps numbers in their places when a later result reorders or drops them, and starts fresh on a new visit', async () => {
         const [a, b, c, d, e] = ['a', 'b', 'c', 'd', 'e'].map((key) => makePulseMetric({ key: `insight:${key}` }))
         highlightResponses = [[200, makeHighlights({ pulse: [a, b, c, d] })]]

@@ -81,11 +81,9 @@ def get_highlights(
 ) -> contracts.Highlights:
     now = timezone.now()
     day = now.astimezone(team.timezone_info).date()
-    pins = [
-        PinnedNumber(key=pin.key, dashboard_id=pin.dashboard_id)
-        for pin in pulse_pins.get_pins(team=team, user_id=user.id, scopes=scopes)
-    ]
-    hidden = pulse_pins.get_hidden(team=team, user_id=user.id)
+    choices = pulse_pins.get_choices(team=team, user_id=user.id, scopes=scopes)
+    pins = [PinnedNumber(key=pin.key, dashboard_id=pin.dashboard_id) for pin in choices.pins]
+    hidden = choices.hidden
     key = _key(team, user, scopes)
     pins_key = _pins_key(pins, hidden)
     rows = (
