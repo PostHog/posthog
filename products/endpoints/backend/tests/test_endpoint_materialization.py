@@ -570,6 +570,21 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         for field, value in concurrent_change.items():
             self.assertEqual(getattr(endpoint, field), value)
 
+    def test_query_edit_survives_a_failed_throttle_cache_clear(self):
+        endpoint, _url, edit_query = self._endpoint_with_a_cadence_below_the_floor("cache_clear_failure")
+
+        with (
+            mock.patch(
+                "products.endpoints.backend.logic.crud.clear_endpoint_materialization_cache",
+                side_effect=ConnectionError("redis down"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = edit_query("count()")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(endpoint.get_version().version, 2)
+
     def test_query_edit_refuses_to_carry_a_cadence_while_the_plan_floor_is_unreadable(self):
         endpoint, _url, edit_query = self._endpoint_with_a_cadence_below_the_floor("unreadable_floor_edit")
 
