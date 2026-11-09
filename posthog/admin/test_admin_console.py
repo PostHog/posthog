@@ -1052,6 +1052,21 @@ class TestAdminConsoleUserDeletion(BaseTest):
         assert response.status_code == expected_status
         assert User.objects.filter(pk=self.target.pk).exists()
 
+    @parameterized.expand([("own_account", "self"), ("impersonated_account", "impersonated")])
+    def test_the_confirm_refuses_an_account_the_staff_member_acts_as(self, _name: str, account: str) -> None:
+        target = self.user if account == "self" else self.target
+        url = f"/admin/console/users/{target.pk}/deletion/delete/"
+        with patch("posthog.admin.console.user_panels.is_acting_as", return_value=False):
+            preview = self.client.post(url, {"reason": "Duplicate account"})
+        assert preview.status_code == 200
+
+        impersonated = self.target if account == "impersonated" else None
+        with patch("posthog.admin.console.user_panels.get_impersonated_user", return_value=impersonated):
+            response = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert response.status_code == 409
+        assert User.objects.filter(pk=target.pk).exists()
+
     @parameterized.expand([("self", True), ("impersonated_user", True), ("someone_else", False)])
     def test_staff_cannot_delete_the_account_they_act_as(self, account: str, expected: bool) -> None:
         request = RequestFactory().post(self.url)
