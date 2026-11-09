@@ -79,7 +79,10 @@ class TestExperimentsConsole(BaseTest):
         assert "/admin/console/tools/experiments/migrate/" not in content
         assert "/admin/console/tools/experiments/fix-properties/" in content
 
-        Experiment.objects.create(team=self.team, name="Removed test", created_by=self.user, deleted=True)
+        removed_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="removed-flag")
+        Experiment.objects.create(
+            team=self.team, name="Removed test", created_by=self.user, feature_flag=removed_flag, deleted=True
+        )
         team_list = self.client.get(f"/admin/console/tools/experiments/?team={self.team.pk}").content.decode()
         assert "Removed test" not in team_list
 
