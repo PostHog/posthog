@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useId } from 'react'
+import { useId, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { Button, Input, Label, RadioGroup, RadioGroupItem, Separator, Text } from '@posthog/quill'
@@ -35,6 +35,7 @@ export function QuillBreakdownTagMenu(): JSX.Element {
         setPathCleaningEnabled,
     } = useActions(breakdownTagLogic)
     const { isMultipleBreakdownsEnabled } = useValues(taxonomicBreakdownFilterLogic)
+    const [binCountDraft, setBinCountDraft] = useState<string | null>(null)
 
     return (
         <>
@@ -90,14 +91,16 @@ export function QuillBreakdownTagMenu(): JSX.Element {
                             size="sm"
                             className="w-16"
                             aria-label="Number of bins"
-                            value={histogramBinCount ?? ''}
+                            value={binCountDraft ?? histogramBinCount ?? ''}
                             onFocus={() => !histogramBinsUsed && setHistogramBinsUsed(true)}
                             onChange={(event) => {
+                                setBinCountDraft(event.target.value)
                                 const count = event.target.valueAsNumber
                                 if (!Number.isNaN(count)) {
                                     setHistogramBinCount(count)
                                 }
                             }}
+                            onBlur={() => setBinCountDraft(null)}
                         />
                         <Text size="xs" render={<span />}>
                             bins

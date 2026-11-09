@@ -5,7 +5,7 @@ import { Popover as QuillPopover, PopoverContent, PopoverTrigger } from '@postho
 import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { Popover, isInsideOpenPopover } from 'lib/lemon-ui/Popover/Popover'
 import { hogql } from 'lib/utils/hogql'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -166,7 +166,22 @@ export const TaxonomicBreakdownPopover = ({
 
     if (quillSurface) {
         return (
-            <QuillPopover open={open} onOpenChange={setOpen}>
+            <QuillPopover
+                open={open}
+                onOpenChange={(next, details) => {
+                    const landedOn =
+                        details.reason === 'focus-out'
+                            ? (details.event as FocusEvent).relatedTarget
+                            : details.reason === 'outside-press'
+                              ? details.event.target
+                              : null
+                    if (!next && isInsideOpenPopover(landedOn)) {
+                        details.cancel()
+                        return
+                    }
+                    setOpen(next)
+                }}
+            >
                 <PopoverTrigger render={children} />
                 <PopoverContent align="start" className="min-h-50 w-auto p-0">
                     <div data-not-quill>{taxonomicFilter}</div>

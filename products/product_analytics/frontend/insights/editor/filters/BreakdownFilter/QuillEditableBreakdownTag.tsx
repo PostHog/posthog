@@ -46,7 +46,7 @@ export function QuillEditableBreakdownTag({
                 breakdownType={breakdownType}
                 taxonomicType={taxonomicBreakdownType}
             >
-                <Button variant="outline" className="min-w-0" title={String(propertyName)}>
+                <Button variant="outline" className="min-w-0 shrink" title={String(propertyName)}>
                     <span className="min-w-0 truncate">
                         <BreakdownTagLabel
                             propertyName={propertyName}
