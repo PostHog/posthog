@@ -892,6 +892,8 @@ class TestWorktreeBoxes:
             ("removed", {"claude"}, True),
             ("removed", {"phw"}, False),
             ("moved", None, False),
+            ("folder-deleted", None, True),
+            ("folder-deleted-locked", None, False),
             ("admin-dir-reused", None, True),
             ("other-repo", None, False),
         ],
@@ -899,7 +901,9 @@ class TestWorktreeBoxes:
             "removed",
             "removed-source-selected",
             "source-not-selected",
-            "moved-or-unmounted",
+            "moved",
+            "folder-deleted-admin-dir-left-behind",
+            "locked-worktree-on-an-unmounted-drive",
             "admin-dir-reused-by-another-worktree",
             "other-repo",
         ],
@@ -913,9 +917,18 @@ class TestWorktreeBoxes:
         (common / "worktrees").mkdir(parents=True)
         (other_common / "worktrees").mkdir(parents=True)
         admin = (other_common if case == "other-repo" else common) / "worktrees" / "feature"
-        if case in ("moved", "admin-dir-reused"):
+        keeps_admin_dir = case in ("moved", "folder-deleted", "folder-deleted-locked")
+        if keeps_admin_dir or case == "admin-dir-reused":
             admin.mkdir()
-        worktree_id = devbox_config.ensure_worktree_id(admin) if case == "moved" else "id-of-the-removed-worktree"
+        if keeps_admin_dir:
+            checkout = tmp_path / ("moved" if case == "moved" else "deleted") / "feature"
+            if case == "moved":
+                checkout.mkdir(parents=True)
+                (checkout / ".git").write_text(f"gitdir: {admin}\n")
+            (admin / "gitdir").write_text(f"{checkout / '.git'}\n")
+        if case == "folder-deleted-locked":
+            (admin / "locked").write_text("")
+        worktree_id = devbox_config.ensure_worktree_id(admin) if keeps_admin_dir else "id-of-the-removed-worktree"
         record = _box("devbox-test-user-feature", git_dir=admin, worktree_id=worktree_id)
         registry = {str(repo / ".claude" / "worktrees" / "feature"): record}
 
@@ -950,8 +963,8 @@ class TestWorktreeBoxes:
         monkeypatch.setattr(
             worktrees,
             "_clean_worktree_boxes",
-            lambda boxes, action, keep_stopped_records=False: cleaned.append(
-                ([b.workspace for b in boxes], action, keep_stopped_records)
+            lambda boxes, action, require_removed=False: cleaned.append(
+                ([b.workspace for b in boxes], action, require_removed)
             ),
         )
 
@@ -959,7 +972,53 @@ class TestWorktreeBoxes:
             repo, "stop", None if path_arg is None else tmp_path / path_arg, dry_run=False
         )
 
-        assert cleaned == [(expected_workspaces, "stop", False)]
+        assert cleaned == [(expected_workspaces, "stop", True)]
+
+    @pytest.mark.parametrize(
+        ("prune_already_running", "expected_prune_attempts", "box_still_tracked"),
+        [(False, [False], False), (True, [], True)],
+        ids=["prune-started-during-clean-is-skipped", "clean-gives-up-on-a-prune-that-outlasts-the-wait"],
+    )
+    def test_clean_and_a_prune_never_act_on_the_same_boxes(
+        self,
+        tmp_path,
+        monkeypatch,
+        registry_path,
+        prune_already_running: bool,
+        expected_prune_attempts: list[bool],
+        box_still_tracked: bool,
+    ) -> None:
+        worktree = tmp_path / "wt"
+        record = _box("devbox-test-user-wt", worktree_id="id-wt")
+        devbox_config.record_worktree_box(worktree, record)
+        registry_before = devbox_config.load_worktree_boxes()
+        monkeypatch.setattr(worktrees, "_PRUNE_LOCK_TIMEOUT_SECONDS", 0)
+        prune_attempts: list[bool] = []
+
+        def execute(stale, mode, repo_root, before_remove):
+            with devbox_config.worktree_prune_lock() as holds_lock:
+                prune_attempts.append(holds_lock)
+            return worktrees._ReapResult(reclaimed_bytes=0, removed=1, failed=0)
+
+        monkeypatch.setattr(worktrees, "_execute", execute)
+
+        def clean() -> None:
+            worktrees._remove_worktrees_and_their_boxes(
+                [_make_worktree(worktree)],
+                "full",
+                tmp_path,
+                [WorktreeBox(worktree_path=worktree, record=record, current_path=worktree)],
+                box_action=None,
+            )
+
+        if prune_already_running:
+            with devbox_config.worktree_prune_lock():
+                clean()
+        else:
+            clean()
+
+        assert prune_attempts == expected_prune_attempts
+        assert devbox_config.load_worktree_boxes() == (registry_before if box_still_tracked else {})
 
     @pytest.mark.parametrize(
         ("same_worktree", "background", "keep_record", "expected_calls"),
@@ -1179,6 +1238,37 @@ class TestWorktreeBoxes:
         _clean_worktree_boxes([WorktreeBox(worktree_path=tmp_path / "a", record=_box("devbox-test-user-a"))], "delete")
 
         assert deleted == []
+
+    @pytest.mark.parametrize(
+        ("require_removed", "expected_deleted"),
+        [(True, []), (False, ["devbox-test-user-a"])],
+        ids=["prune-leaves-the-adopted-box-alone", "the-new-record-survives-the-cleanup"],
+    )
+    def test_worktree_recreated_during_the_listing_keeps_its_record(
+        self, tmp_path, monkeypatch, registry_path, require_removed, expected_deleted
+    ) -> None:
+        stale = _box("devbox-test-user-a", workspace_id="id-a", worktree_id="id-of-the-removed-worktree")
+        adopted = _box("devbox-test-user-a", workspace_id="id-a", worktree_id="id-of-the-new-worktree")
+        devbox_config.record_worktree_box(tmp_path / "a", stale)
+
+        def list_while_a_worktree_reclaims_the_path() -> list[dict[str, str]]:
+            (tmp_path / "a").mkdir()
+            devbox_config.record_worktree_box(tmp_path / "a", adopted)
+            return [{"name": "devbox-test-user-a", "id": "id-a", "status": "running"}]
+
+        deleted: list[str] = []
+        monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(worktrees, "fetch_user_workspaces", list_while_a_worktree_reclaims_the_path)
+        monkeypatch.setattr(worktrees, "delete_workspace", deleted.append)
+        monkeypatch.setattr(worktrees.herdr, "forget_machine", lambda name: None)
+        monkeypatch.setattr(worktrees.mutagen, "sync_terminate", lambda selector: None)
+
+        _clean_worktree_boxes(
+            [WorktreeBox(worktree_path=tmp_path / "a", record=stale)], "delete", require_removed=require_removed
+        )
+
+        assert deleted == expected_deleted
+        assert devbox_config.load_worktree_boxes() == {str(tmp_path / "a"): adopted}
 
 
 class TestReclaimedBytes:

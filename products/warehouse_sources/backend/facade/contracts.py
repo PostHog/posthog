@@ -63,7 +63,8 @@ class UnusableCredentialsReferenceError(ValueError):
 class SharedCredentialsEdit(StrEnum):
     """What a write of a source's inputs does when other sources or products also use its credentials row."""
 
-    # Keep the shared row as it is. Internal writes use this, so they never change credentials of other users.
+    # The default of internal writes. The row is the only storage of the credentials, so a change to a shared row
+    # raises `SharedCredentialsError` as with REFUSE. A skipped write would lose the change.
     SKIP = "skip"
     # Raise `SharedCredentialsError`, so the API can ask the person for a confirmation.
     REFUSE = "refuse"
@@ -73,6 +74,10 @@ class SharedCredentialsEdit(StrEnum):
 
 class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
+
+
+class HistoryTableDropRefusedError(Exception):
+    """A history table can't be dropped now. The message says why and can be shown to the user."""
 
 
 class UnreadableSourceInputsError(ValueError):
@@ -88,13 +93,14 @@ CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY = "connection_fields_stripped_typed_in"
 STRIPPED_STORE_KEYS: frozenset[str] = frozenset(
     {CONNECTION_FIELDS_STRIPPED_KEY, CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY}
 )
+DEAD_CREDENTIALS_CLEARED_KEY = "dead_credentials_cleared_at"
 
 SOURCE_CREDENTIALS_MISSING_ERROR = "The credentials of this source are missing or cannot be read"
 
 
 class SourceCredentialsMissingError(UnreadableSourceInputsError):
-    """The connection fields of a stripped source are not in its credentials row. `job_inputs` holds no copy,
-    so nothing can replace them: the user must enter the credentials again."""
+    """The credentials row or the reference column that a source needs is missing or unreadable. `job_inputs` is
+    never a copy of the credentials, so the user must enter the credentials again or reconnect the account."""
 
     def __init__(self) -> None:
         super().__init__(

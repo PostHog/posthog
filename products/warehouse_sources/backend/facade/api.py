@@ -93,12 +93,14 @@ __all__ = [
     "list_revenue_source_settings",
     "get_schema",
     "list_schemas_for_source",
+    "github_repositories_syncing",
     "list_imported_schema_snapshots",
     "source_locations_for_tables",
     "get_table",
     "get_queryable_table",
     "resolve_object_by_name",
     "direct_access_table_ids",
+    "team_has_had_direct_query_source",
     "discard_backing_table",
     "record_table_row_count",
     "allowed_table_ids",
@@ -399,6 +401,40 @@ def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.Ext
     return [_to_schema(s) for s in qs]
 
 
+def github_repositories_syncing(team_id: int, endpoint: str) -> frozenset[str]:
+    """The repositories, lowercased `owner/repo`, whose `endpoint` a live GitHub source of this team syncs."""
+    # Imported here to keep the source registry and the credential stores off the `django.setup()` path.
+    from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore  # noqa: PLC0415
+    from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import (  # noqa: PLC0415
+        normalize_repository,
+        schema_repo_endpoint,
+    )
+
+    schemas = (
+        _ExternalDataSchema.objects.filter(
+            team_id=team_id, should_sync=True, source__source_type=ExternalDataSourceType.GITHUB
+        )
+        .exclude(deleted=True)
+        .exclude(source__deleted=True)
+        .select_related("source")
+    )
+    repositories: set[str] = set()
+    for schema in schemas:
+        repository, schema_endpoint = schema_repo_endpoint(schema.schema_metadata, schema.name, None)
+        if schema_endpoint != endpoint:
+            continue
+        # Only a bare single-repository row keeps its repository in encrypted inputs, so decrypt just those.
+        if repository is None:
+            try:
+                legacy = str(SourceInputsStore.load(schema.source).get("repository") or "")
+            except contracts.UnreadableSourceInputsError:
+                continue
+            repository = normalize_repository(legacy).lower() or None
+        if repository:
+            repositories.add(repository)
+    return frozenset(repositories)
+
+
 def list_imported_schema_snapshots(team_id: int) -> list[contracts.ImportedSchemaSnapshot]:
     rows = _ExternalDataSchema.objects.filter(
         team_id=team_id,
@@ -511,6 +547,19 @@ def direct_access_table_ids(team_id: int) -> set[UUID]:
         .values_list("id", flat=True)
     )
     return set(rows)
+
+
+def team_has_had_direct_query_source(team_id: int) -> bool:
+    """Whether any source in this team, deleted ones included, was set up for queries over a direct connection.
+
+    A view saved on a source keeps its connection id after the source is deleted, so deleted rows count too.
+    It can return True for a source that `is_direct_capable` refuses, such as one whose type maps to no engine.
+    """
+    return (
+        _ExternalDataSource.objects.filter(team_id=team_id)
+        .filter(Q(access_method=_ExternalDataSource.AccessMethod.DIRECT) | Q(direct_query_enabled=True))
+        .exists()
+    )
 
 
 def allowed_table_ids(

@@ -6,7 +6,11 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import AnyBatchExportModel, BatchExportEventsCustomModel
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+)
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
     AzureBlobInsertInputs,
     azure_blob_default_fields,
@@ -25,6 +29,22 @@ from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+
+# Codecs run on the bytes the file writer produces, whatever the model, so every model runs once per
+# file format and every remaining codec runs once with the events model.
+MODEL_FILE_FORMAT_COMPRESSIONS: list[tuple[str, str | None]] = [("Parquet", "zstd"), ("JSONLines", None)]
+FILE_FORMAT_COMPRESSION_MODEL_CASES = [
+    *(
+        (file_format, compression, model)
+        for model in TEST_AZURE_BLOB_MODELS
+        for file_format, compression in MODEL_FILE_FORMAT_COMPRESSIONS
+    ),
+    *(
+        (file_format, compression, BatchExportEventsModel())
+        for file_format, compression in SUPPORTED_FILE_FORMAT_COMPRESSIONS
+        if (file_format, compression) not in MODEL_FILE_FORMAT_COMPRESSIONS
+    ),
+]
 
 
 async def run_activity(
@@ -58,8 +78,11 @@ async def run_activity(
     )
 
 
-@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=True)
-@pytest.mark.parametrize("model", TEST_AZURE_BLOB_MODELS)
+@pytest.mark.parametrize(
+    ("file_format", "compression", "model"),
+    FILE_FORMAT_COMPRESSION_MODEL_CASES,
+    indirect=["file_format", "compression"],
+)
 async def test_activity_exports_model_to_azure_blob(
     activity_environment: ActivityEnvironment,
     ateam,

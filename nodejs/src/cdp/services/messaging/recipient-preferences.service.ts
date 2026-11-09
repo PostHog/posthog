@@ -160,24 +160,18 @@ export class RecipientPreferencesService {
             ...invocation.state.globals.inputs?.email,
             ...acceptedSendEmailFields(invocation.state.send),
         }
-        try {
-            const result = await removeSuppressedRecipients(
-                {
-                    to: { email: typeof emailInputs?.to?.email === 'string' ? emailInputs.to.email : undefined },
-                    cc: typeof emailInputs?.cc === 'string' ? emailInputs.cc : undefined,
-                    bcc: typeof emailInputs?.bcc === 'string' ? emailInputs.bcc : undefined,
-                },
-                (email) =>
-                    this.emailSuppressionService.isSuppressed(invocation.teamId, email, {
-                        transactional: action.config.message_category_type === 'transactional',
-                    })
-            )
-            return result.skip
-        } catch (error) {
-            // Fail open — never block a send on a suppression-lookup error.
-            logger.error(`Failed to check suppression list for team ${invocation.teamId}:`, error)
-            return false
-        }
+        const result = await removeSuppressedRecipients(
+            {
+                to: { email: typeof emailInputs?.to?.email === 'string' ? emailInputs.to.email : undefined },
+                cc: typeof emailInputs?.cc === 'string' ? emailInputs.cc : undefined,
+                bcc: typeof emailInputs?.bcc === 'string' ? emailInputs.bcc : undefined,
+            },
+            (email) =>
+                this.emailSuppressionService.isKnownSuppressed(invocation.teamId, email, {
+                    transactional: action.config.message_category_type === 'transactional',
+                })
+        )
+        return result.skip
     }
 
     // A generic function step saved through the API can run the push template, and it then sends like a push step.
