@@ -38,7 +38,11 @@ function RateCell({ row, rate }: { row: TransactionalEmailStatsRowApi; rate: Rat
     )
 }
 
+const PAGE_SIZE = 20
+
 export interface TransactionalEmailStatsTableProps {
+    // Keeps the page and sort order in the URL separate for each table on the tab.
+    id: string
     rows: TransactionalEmailStatsRowApi[] | null
     loading: boolean
     groupTitle: string
@@ -49,6 +53,7 @@ export interface TransactionalEmailStatsTableProps {
 }
 
 export function TransactionalEmailStatsTable({
+    id,
     rows,
     loading,
     groupTitle,
@@ -58,6 +63,7 @@ export function TransactionalEmailStatsTable({
 }: TransactionalEmailStatsTableProps): JSX.Element {
     return (
         <LemonTable<TransactionalEmailStatsRowApi>
+            id={id}
             dataSource={rows ?? []}
             loading={loading}
             rowKey="key"
@@ -97,6 +103,7 @@ export function TransactionalEmailStatsTable({
                 },
             ]}
             defaultSorting={{ columnKey: 'sent', order: -1 }}
+            pagination={{ pageSize: PAGE_SIZE, hideOnSinglePage: true }}
             emptyState={emptyState}
         />
     )

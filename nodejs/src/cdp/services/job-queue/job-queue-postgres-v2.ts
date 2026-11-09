@@ -1,5 +1,5 @@
 import { chunk } from 'lodash'
-import { Gauge, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -16,6 +16,12 @@ import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observ
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
     help: 'Number of postgres-v2 jobs currently held in memory awaiting ack/fail/reschedule',
+})
+
+const resultWriteFailuresCounter = new Counter({
+    name: 'cdp_cyclotron_v2_result_write_failures_total',
+    help: 'Batches whose acks, reschedules or new jobs failed to write; dequeued jobs wait for the janitor stall reset',
+    labelNames: ['queue'],
 })
 
 const jobLatenessHistogram = new Histogram({
@@ -121,7 +127,14 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 maxBatchSize: this.consumerBatchSize,
             })
 
-            await consumeBatch(invocations)
+            const { backgroundTask } = await consumeBatch(invocations)
+            void backgroundTask.catch((error) => {
+                resultWriteFailuresCounter.labels({ queue }).inc()
+                logger.warn('CyclotronV2 failed to write batch results', {
+                    queue,
+                    error: String(error),
+                })
+            })
 
             pendingJobsGauge.set(this.pendingJobs.size)
         })

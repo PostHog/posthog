@@ -40,7 +40,9 @@ from products.slack_app.backend.temporal.activities.slack_app_onboarding import 
     edit_slack_app_onboarding_message_activity,
     plan_slack_app_onboarding_activity,
     post_slack_app_onboarding_message_activity,
+    remind_slack_app_onboarding_activity,
 )
+from products.slack_app.backend.temporal.activities.slack_app_work_focus import find_slack_app_work_focus_activity
 from products.slack_app.backend.temporal.activities.task_creation import (
     create_posthog_code_task_for_repo_activity,
     derive_mention_workflow_id,
@@ -97,8 +99,10 @@ __all__ = [
     "classify_slack_app_model_router_activity",
     "run_posthog_slack_inbox_onboarding",
     "edit_slack_app_onboarding_message_activity",
+    "find_slack_app_work_focus_activity",
     "plan_slack_app_onboarding_activity",
     "post_slack_app_onboarding_message_activity",
+    "remind_slack_app_onboarding_activity",
     "run_posthog_slack_inbox_onboarding_activity",
     "post_slack_unfurl_charts_activity",
     "prepare_slack_unfurl_charts_activity",

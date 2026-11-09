@@ -1049,8 +1049,13 @@ def _resolve_installation_repository_names(
     return sorted(resolved)
 
 
-def _scoped_token_cache_key(github_integration: GitHubIntegrationBase, names: Sequence[str]) -> str:
-    return f"task-sandbox-github-token:{github_integration.github_installation_id}:{','.join(names)}"
+def _scoped_token_cache_key(
+    github_integration: GitHubIntegrationBase, names: Sequence[str], permissions: dict[str, str] | None = None
+) -> str:
+    key = f"task-sandbox-github-token:{github_integration.github_installation_id}:{','.join(names)}"
+    if permissions:
+        key += ":" + ",".join(f"{name}={level}" for name, level in sorted(permissions.items()))
+    return key
 
 
 def _readonly_token_cache_key(github_integration: GitHubIntegrationBase, names: Sequence[str]) -> str:
@@ -1075,8 +1080,16 @@ def _store_github_token(cache_key: str, token: str) -> None:
 
 def forget_cached_github_tokens(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> None:
     names = _installation_repository_names(github_integration, _private_repositories(repositories))
+    scoped_names = _installation_repository_names(github_integration, repositories)
     get_tasks_cache().delete_many(
-        [_scoped_token_cache_key(github_integration, names), _readonly_token_cache_key(github_integration, names)]
+        [
+            _scoped_token_cache_key(github_integration, names),
+            _readonly_token_cache_key(github_integration, names),
+            *(
+                _scoped_token_cache_key(github_integration, scoped_names, permissions)
+                for permissions in SCOPED_SANDBOX_GITHUB_PERMISSIONS.values()
+            ),
+        ]
     )
 
 
@@ -1096,17 +1109,21 @@ def resolve_installation_github_integration(team_id: int, github_integration_id:
     return GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
 
-def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> str | None:
+def _mint_repository_scoped_token(
+    github_integration: GitHubIntegrationBase,
+    repositories: Sequence[str],
+    permissions: dict[str, str] | None = None,
+) -> str | None:
     names = _installation_repository_names(github_integration, repositories)
     if not names:
         return None
-    cache_key = _scoped_token_cache_key(github_integration, names)
+    cache_key = _scoped_token_cache_key(github_integration, names, permissions)
     cache = get_tasks_cache()
     cached = cache.get(cache_key)
     if isinstance(cached, str):
         return cached or None
     try:
-        token = github_integration.mint_scoped_installation_token(None, repositories=names)
+        token = github_integration.mint_scoped_installation_token(permissions, repositories=names)
     except GitHubIntegrationError as error:
         if error.status_code != 422:
             raise
@@ -1114,20 +1131,24 @@ def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, rep
         if not resolved_names:
             cache.set(cache_key, "", timeout=PUBLIC_GITHUB_REPOSITORY_CACHE_TTL_SECONDS)
             return None
-        token = github_integration.mint_scoped_installation_token(None, repositories=resolved_names)
+        token = github_integration.mint_scoped_installation_token(permissions, repositories=resolved_names)
     cache.set(cache_key, token, timeout=SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS)
     return token
 
 
-def get_github_token(github_integration_id: int, repositories: Sequence[str] = ()) -> Optional[str]:
+def _available_github_integration(github_integration_id: int) -> GitHubIntegration:
     integration = Integration.objects.get(id=github_integration_id)
     github_integration = GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
-
     if github_integration.installation_unavailable():
         raise CredentialUnavailableError(
             "GitHub App installation for this integration is uninstalled or suspended",
             {"github_integration_id": github_integration_id},
         )
+    return github_integration
+
+
+def get_github_token(github_integration_id: int, repositories: Sequence[str] = ()) -> Optional[str]:
+    github_integration = _available_github_integration(github_integration_id)
     private_repositories = _private_repositories(repositories)
     if private_repositories:
         return _mint_repository_scoped_token(github_integration, private_repositories)
@@ -1213,6 +1234,27 @@ def get_readonly_github_token(team_id: int, repositories: Sequence[str] = ()) ->
     except Exception:
         logger.warning("Failed to mint read-only GitHub token for team %d", team_id, exc_info=True)
         return None
+
+
+PUSH_SANDBOX_GITHUB_PERMISSIONS: dict[str, str] = {
+    "contents": "write",
+    "metadata": "read",
+    "pull_requests": "read",
+}
+
+
+SCOPED_SANDBOX_GITHUB_PERMISSIONS: dict[str, dict[str, str]] = {
+    "read": READONLY_SANDBOX_GITHUB_PERMISSIONS,
+    "push": PUSH_SANDBOX_GITHUB_PERMISSIONS,
+}
+
+
+def get_scoped_github_token(
+    github_integration_id: int, repositories: Sequence[str], permissions: dict[str, str]
+) -> Optional[str]:
+    return _mint_repository_scoped_token(
+        _available_github_integration(github_integration_id), repositories, permissions
+    )
 
 
 def get_user_github_token(github_user_integration_id: str, repositories: Sequence[str] = ()) -> Optional[str]:
@@ -1478,6 +1520,12 @@ def _resolve_sandbox_github_token(
             if not loop_owner_eligible_for_credentials(owner_id, task.team):
                 logger.warning("loop_github_token_owner_ineligible", extra={"run_id": run_id, "task_id": str(task.id)})
                 return None
+
+    scoped_permissions = SCOPED_SANDBOX_GITHUB_PERMISSIONS.get((state or {}).get("github_token_scope", ""))
+    if scoped_permissions is not None:
+        if github_integration_id is None:
+            return None
+        return get_scoped_github_token(github_integration_id, repositories, scoped_permissions)
 
     if pr_authorship_mode == PrAuthorshipMode.USER:
         if task is not None and slack_interaction and created_by is None:

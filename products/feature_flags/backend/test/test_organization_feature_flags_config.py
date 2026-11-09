@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
@@ -44,19 +44,29 @@ class TestOrganizationFeatureFlagsConfig(BaseTest):
 class TestFlagEvaluationsTableGate(BaseTest):
     @parameterized.expand(
         [
-            ("events", FlagEvaluationsMode.EVENTS, False, False),
-            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, True),
-            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True),
-            ("no_config_row", None, False, False),
-            (
-                "read_flag_evaluations_while_reads_are_forced_to_events",
+            param("self_hosted_events", FlagEvaluationsMode.EVENTS, expected=False),
+            param("self_hosted_read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, expected=True),
+            param("self_hosted_flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, expected=True),
+            param("self_hosted_no_config_row", None, expected=False),
+            param(
+                "self_hosted_read_flag_evaluations_while_reads_are_forced_to_events",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                True,
-                True,
+                expected=True,
+                reads_forced_to_events=True,
             ),
+            param("cloud_events", FlagEvaluationsMode.EVENTS, expected=True, cloud=True),
+            param("cloud_no_config_row", None, expected=True, cloud=True),
         ]
     )
-    def test_table_is_enabled_by_the_organization_mode(self, _name, mode, reads_forced_to_events, expected):
+    def test_table_is_enabled_on_cloud_or_by_the_organization_mode(
+        self,
+        _name: str,
+        mode: FlagEvaluationsMode | None,
+        *,
+        expected: bool,
+        cloud: bool = False,
+        reads_forced_to_events: bool = False,
+    ) -> None:
         config = OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization)
         if mode is None:
             config.delete()
@@ -65,6 +75,7 @@ class TestFlagEvaluationsTableGate(BaseTest):
 
         with (
             self.settings(DEBUG=False, E2E_TESTING=False),
+            self.is_cloud(cloud),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
         ):
             self.assertEqual(is_flag_evaluations_table_enabled(self.team), expected)
