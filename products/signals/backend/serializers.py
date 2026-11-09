@@ -772,6 +772,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "autostart_enabled",
             "default_autostart_priority",
             "default_slack_notification_channel",
+            "default_slack_notification_min_priority",
             "default_slack_notification_integration",
             "autostart_base_branches",
             "scout_instructions",
@@ -813,6 +814,13 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                     "Default Slack channel for this team's signal inbox notifications, in the same "
                     "`channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). "
                     "Null means no team-level default; per-user channels still apply."
+                )
+            },
+            "default_slack_notification_min_priority": {
+                "help_text": (
+                    "Minimum report priority for the project's team Slack channel. P0 is highest. "
+                    "Null includes all reports, including reports without a priority. "
+                    "A set threshold excludes reports without a priority. Personal notification settings are separate."
                 )
             },
         }

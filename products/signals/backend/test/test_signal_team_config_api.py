@@ -183,6 +183,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
         assert data["default_slack_notification_channel"] is None
+        assert data["default_slack_notification_min_priority"] is None
         for field in STEERING_FIELDS.values():
             assert getattr(self.config, field) is None
             assert data[field] == ""
@@ -412,6 +413,15 @@ class TestSignalTeamConfigAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("threshold", "default_autostart_priority", "P1", "project PR threshold", "changed", "P4", "P1"),
+            (
+                "slack_threshold",
+                "default_slack_notification_min_priority",
+                "P2",
+                "team Slack minimum priority",
+                "created",
+                None,
+                "P2",
+            ),
             ("pr_generation", "autostart_enabled", False, "PR generation", "created", None, False),
             (
                 "slack_channel",
