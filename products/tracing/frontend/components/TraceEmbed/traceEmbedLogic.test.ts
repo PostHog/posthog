@@ -33,7 +33,7 @@ function span(spanId: string): Span {
 describe('traceEmbedLogic', () => {
     const props = {
         viewId: 'exception-e1',
-        trace: { traceId: 'abc123', spanId: 'B1' },
+        trace: { traceId: 'abc123', spanId: 'b1' },
         surface: 'exception_card' as const,
     }
     let getTraceSpy: jest.SpyInstance

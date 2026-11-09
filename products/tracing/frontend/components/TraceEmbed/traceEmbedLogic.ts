@@ -151,7 +151,9 @@ export const traceEmbedLogic = kea<traceEmbedLogicType>([
     })),
     afterMount(({ actions, props, cache }) => {
         cache.mountedAtMs = Date.now()
-        actions.showTrace(props.trace.spanId ?? null, null)
+        // The trace API returns span ids in uppercase and events carry them in lowercase, and the view
+        // matches the linked span exactly.
+        actions.showTrace(props.trace.spanId?.toUpperCase() ?? null, null)
         actions.loadTraceSpans()
     }),
     beforeUnmount(({ props, cache }) => {
