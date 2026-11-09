@@ -11230,10 +11230,10 @@ Today (8): `addresses`, `customers`, `order_line_items`, `orders`, `product_vari
 
 Diffed against: <https://code.skio.com>
 
-- [ ] `Policies (GraphQL query Policies)` — resolve billingPolicyId and deliveryPolicyId to subscription intervals and cycle limits (high)
-- [ ] `SellingPlan (GraphQL SubscriptionLines { OriginalSellingPlan })` — resolve sellingPlanId on subscription lines to plan names, intervals, and pricing rules (high)
-- [ ] `AuditLogs (GraphQL Subscriptions { AuditLogs })` — track subscription changes and measure pauses, skips, and other lifecycle actions (high)
-- [ ] `CancelFlowV2Sessions and CancelFlowV3Sessions (GraphQL Subscriptions { CancelFlowV2Sessions CancelFlowV3Sessions })` — analyze cancellation reasons, retention offers, and outcomes beyond current subscription status (high)
+- [x] `Policies (GraphQL query Policies)` — resolve billingPolicyId and deliveryPolicyId to subscription intervals and cycle limits (high) → `policies` (incremental)
+- [x] `SellingPlan (GraphQL SubscriptionLines { OriginalSellingPlan })` — resolve sellingPlanId on subscription lines to plan names, intervals, and pricing rules (high) → `selling_plans` (incremental, read through `Policies { SellingPlansByBillingPolicy }` so each plan appears once)
+- [x] `AuditLogs (GraphQL Subscriptions { AuditLogs })` — track subscription changes and measure pauses, skips, and other lifecycle actions (high) → `audit_logs` (incremental, fan-out over `Subscriptions`)
+- [x] `CancelFlowV2Sessions and CancelFlowV3Sessions (GraphQL Subscriptions { CancelFlowV2Sessions CancelFlowV3Sessions })` — analyze cancellation reasons, retention offers, and outcomes beyond current subscription status (high) → `cancel_flow_v2_sessions`, `cancel_flow_v3_sessions` (incremental, fan-out over `Subscriptions`)
 - [ ] `Discounts (GraphQL Subscriptions { Discounts })` — compare discounts with subscription revenue and retention (medium)
 - [ ] `PricingPolicies (GraphQL query PricingPolicies)` — analyze fixed prices and percentage discounts that change after specified billing cycles (medium)
 - [ ] `RewardCreditHistories (GraphQL StorefrontUsers { RewardCreditHistories })` — track customer credit grants and redemptions for loyalty analysis (medium)
@@ -11405,13 +11405,13 @@ Today (4): `issues`, `organizations`, `projects`, `targets`
 Diffed against: <https://api.snyk.io/rest/openapi/2026-03-25>
 
 - [x] `GET /orgs/{org_id}/memberships` — user-to-org membership with role - the lookup that resolves who owns the projects and issues we sync (high)
-- [ ] `GET /groups and GET /groups/{group_id}/orgs` — group is the parent of every org; without it multi-org rollups have no hierarchy to aggregate on (high)
+- [x] `GET /groups and GET /groups/{group_id}/orgs` — group is the parent of every org; without it multi-org rollups have no hierarchy to aggregate on (high). Added as `group_organizations` (fan-out over the groups of the synced orgs). `GET /groups` skipped: it is beta only, and the source calls GA versions.
 - [x] `GET /groups/{group_id}/memberships and /org_memberships` — group-level membership and role assignment across all orgs (medium)
 - [x] `GET /orgs/{org_id}/collections and /collections/{collection_id}/relationships/projects` — collection membership - the standard breakdown dimension for grouping projects in reporting (medium)
 - [ ] `GET /orgs/{org_id}/policies and GET /orgs/{org_id}/policies/{policy_id}/events` — ignore/severity policies plus their event log explain why issues we sync are suppressed or re-rated (medium)
-- [ ] `GET /orgs/{org_id}/container_images (and /relationships/image_target_refs)` — container image inventory joining images to the targets already synced (medium)
-- [ ] `GET /orgs/{org_id}/audit_logs/search (and group-level equivalent)` — state/transition history for org and project changes (medium)
-- [ ] `GET /orgs/{org_id}/inventory/assets (plus /relationships/projects and /relationships/targets)` — the AppRisk asset inventory and its mapping onto projects/targets we already sync (medium)
+- [x] `GET /orgs/{org_id}/container_images (and /relationships/image_target_refs)` — container image inventory joining images to the targets already synced (medium). Added as `container_images` and `container_image_target_refs` (fan-out over `container_images`).
+- [x] `GET /orgs/{org_id}/audit_logs/search (and group-level equivalent)` — state/transition history for org and project changes (medium). Added as `org_audit_logs` and `group_audit_logs`, incremental on `created` (Snyk keeps 90 days).
+- [ ] `GET /orgs/{org_id}/inventory/assets (plus /relationships/projects and /relationships/targets)` — the AppRisk asset inventory and its mapping onto projects/targets we already sync (medium); skipped: every inventory/assets path is beta only (2024-10-15~beta), and the source calls GA versions
 - [ ] `GET /orgs/{org_id}/tests/{test_id}/findings` — individual findings per test run, finer grained than the issue rollup (low)
 - [ ] `GET /orgs/{org_id}/cloud/resources, /cloud/environments, /cloud/scans` — cloud posture resources and scan history for IaC customers (low)
 - [ ] `GET /tenants/{tenant_id}/roles` — role lookup that resolves the role ids on membership records (low)
@@ -11482,10 +11482,10 @@ Today (5): `issues`, `metrics`, `projects`, `rules`, `users`
 
 Diffed against: <https://next.sonarqube.com/sonarqube/api/webservices/list>
 
-- [ ] `measures/component_tree` — actual metric values per component - today only metric definitions are synced, so no measurements reach the warehouse (high)
-- [ ] `measures/search_history` — metric history over time; needed for coverage, duplication and tech-debt trends (high)
-- [ ] `qualitygates/list + qualitygates/project_status` — quality gate status per project is the headline pass/fail metric and is missing entirely (the SonarCloud source already has it) (high)
-- [ ] `hotspots/search` — security hotspots are a distinct finding class not covered by issues (high)
+- [x] `measures/component_tree` — actual metric values per component - today only metric definitions are synced, so no measurements reach the warehouse (high)
+- [x] `measures/search_history` — metric history over time; needed for coverage, duplication and tech-debt trends (high)
+- [x] `qualitygates/list + qualitygates/project_status` — quality gate status per project is the headline pass/fail metric and is missing entirely (the SonarCloud source already has it) (high)
+- [x] `hotspots/search` — security hotspots are a distinct finding class not covered by issues (high)
 - [ ] `issues/changelog` — issue transition history for time-to-remediate and reopen analysis (high)
 - [ ] `project_analyses/search` — analysis records with version/event markers; join key for measures history and release comparison (medium)
 - [ ] `project_branches/list` — branch-level gate status and last analysis date (medium)
@@ -11671,15 +11671,15 @@ Today (9): `escalation_policies`, `incidents`, `postmortems`, `runbooks`, `sched
 
 Diffed against: <https://developers.incidents.cloud.solarwinds.com/llms.txt>
 
-- [ ] `incidents/{incidentID}/events (Get Incident Events)` — the incident timeline - acknowledge/reassign/resolve state transitions behind MTTA and MTTR (high)
+- [ ] `incidents/{incidentID}/events (Get Incident Events)` — the incident timeline - acknowledge/reassign/resolve state transitions behind MTTA and MTTR (high); skipped: the call returns the raw alert events grouped into an incident, not the state timeline (the `incidents` export already carries `logs`, `tta` and `ttr`), its event schema has no unique id, and it returns at most 10 rows per page per incident
 - [x] `squads` — lookup plus membership table resolving squad ids on incidents, services and escalation policies (high)
 - [x] `schedules/{scheduleID}/rotations and .../rotations/{id}/participants` — on-call rotations and who is in them; schedules are synced but are meaningless without rotations (high)
-- [ ] `analytics (org-level and team-level)` — the vendor's headline MTTA/MTTR/incident-volume metrics (high)
-- [ ] `incidents/tags` — incident tag values, the primary breakdown dimension for incident reporting (medium)
+- [ ] `analytics (org-level and team-level)` — the vendor's headline MTTA/MTTR/incident-volume metrics (high); skipped: `/v3/analyticsv2/organization` and `/v3/analyticsv2/team` return one `{mtta, mttr}` aggregate for a requested date range, not records, and both values derive from the synced `incidents` table
+- [ ] `incidents/tags` — incident tag values, the primary breakdown dimension for incident reporting (medium); skipped: the API documents only `PUT` and `PATCH` on `/v3/incidents/{IncidentId}/tags`, so there is no list call, and the `incidents` export already carries each incident's `tags`
 - [ ] `incidents/{incidentID}/notes` — responder commentary attached to incidents (medium)
 - [ ] `incidents/additional-responders` — who else was pulled into an incident beyond the primary assignee (medium)
 - [ ] `schedules/{scheduleID}/overrides` — on-call override history, needed for accurate coverage analysis (medium)
-- [ ] `audit-logs` — configuration change history across the org (medium)
+- [x] `audit-logs` — configuration change history across the org (medium). Added as `audit_logs` (incremental on `timestamp`).
 - [ ] `services/dependencies` — service dependency graph for blast-radius analysis on the services we already sync (medium)
 - [ ] `status-pages/issues` — customer-facing issue records with their own lifecycle (low)
 - [ ] `status-pages/maintenances` — planned maintenance windows to exclude from incident stats (low)
