@@ -246,7 +246,9 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
                             transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(stored)
                         }
                     } catch {
-                        actions.loadCodeEmails()
+                        if (isLatestEdit()) {
+                            transactionalEmailsLogic.findMounted()?.actions.codeEmailChanged(row.codeEmail)
+                        }
                     }
                 }
             } finally {
