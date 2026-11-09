@@ -10,6 +10,7 @@ from django.core.cache import cache
 from parameterized import parameterized
 
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.tag import Tag
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 
@@ -25,6 +26,7 @@ from products.conversations.backend.events import (
     capture_ticket_created,
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
+    capture_ticket_tag_added,
 )
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import OrganizationIdSource
@@ -134,6 +136,26 @@ class TestConversationEvents(BaseTest):
         assert properties["assignee_type"] == "role"
         assert properties["assignee_id"] == str(role.id)
         assert properties["assignee_role_name"] == "Data Warehouse"
+
+    @parameterized.expand([("without_organization", None), ("with_organization", "org-123")])
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_ticket_tag_added(self, _name, organization_id, mock_capture):
+        self.ticket.organization_id = organization_id
+        tag = Tag(name="sf-lead")
+
+        capture_ticket_tag_added(self.ticket, tag, actor=self.user, actor_type="user")
+
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["token"] == self.team.api_token
+        assert call_kwargs["event_name"] == "$conversation_ticket_tag_added"
+        assert call_kwargs["distinct_id"] == self.user.distinct_id
+        properties = call_kwargs["properties"]
+        assert properties["tag"] == "sf-lead"
+        assert properties["tag_id"] == str(tag.id)
+        assert properties["customer_distinct_id"] == self.ticket.distinct_id
+        assert properties.get("organization_id") == organization_id
+        assert "$groups" not in properties
 
     @parameterized.expand(
         [
@@ -250,6 +272,7 @@ class TestConversationEvents(BaseTest):
             ("capture_ticket_status_changed", capture_ticket_status_changed, ["new", "pending"]),
             ("capture_ticket_priority_changed", capture_ticket_priority_changed, [None, "high"]),
             ("capture_ticket_assigned", capture_ticket_assigned, ["user", "123"]),
+            ("capture_ticket_tag_added", capture_ticket_tag_added, [Tag(name="sf-lead")]),
         ]
     )
     @patch("products.conversations.backend.events.capture_internal")
@@ -368,6 +391,12 @@ class TestConversationEvents(BaseTest):
                 [None, "high"],
             ),
             ("capture_ticket_assigned", capture_ticket_assigned, "$conversation_ticket_assigned", ["user", "123"]),
+            (
+                "capture_ticket_tag_added",
+                capture_ticket_tag_added,
+                "$conversation_ticket_tag_added",
+                [Tag(name="sf-lead")],
+            ),
             ("capture_message_sent", capture_message_sent, "$conversation_message_sent", ["msg-id", "content"]),
             (
                 "capture_message_received",
