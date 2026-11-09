@@ -47,6 +47,7 @@ import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, addWorkflowRunTagToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
+import { declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import {
     PreferencesTokenSource,
@@ -167,39 +168,68 @@ export class SESThrottleError extends Error {
 
 const EMAIL_ATTACHMENTS_MISSING = 'attachments_missing'
 const EMAIL_ATTACHMENT_UNAVAILABLE = 'attachment_unavailable'
+const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
-// Loading the files and the SES call share one deadline. It stays under the consumer's stop deadline, so a pod that
-// shuts down mid-send can still write the send's result.
 const DEFAULT_ATTACHMENT_SEND_DEADLINE_MS = 20_000
 
 class EmailSendDeadlineError extends Error {
     constructor(cause: unknown) {
-        super('The SES call did not finish before the send deadline', { cause })
+        super('The SES request could not be sent before the send deadline', { cause })
         this.name = 'EmailSendDeadlineError'
     }
+}
+
+class MessageTooLargeError extends Error {
+    constructor() {
+        super('The attachment files of this email are larger than one email can carry')
+        this.name = 'MessageTooLargeError'
+    }
+}
+
+const FIRST_STEP_AFTER_SIGNING = 'deserialize'
+
+function trackRequestSent(command: SendEmailCommand): () => boolean {
+    let sent = false
+    command.middlewareStack.add(
+        (next) => (args) => {
+            sent = true
+            return next(args)
+        },
+        { step: FIRST_STEP_AFTER_SIGNING, name: 'markSesRequestSent' }
+    )
+    return () => sent
 }
 
 const isAttachmentLoadFailure = (error: unknown): boolean =>
     error instanceof AttachmentStoreUnavailableError || error instanceof EmailSendDeadlineError
 
 const attachmentLoadRetries = (invocation: CyclotronJobInvocationHogFunction): number =>
-    invocation.queueMetadata?.attachmentLoadTries ?? 0
+    invocation.queueMetadata?.attachmentLoadRetries ?? 0
 
 function pickAttachmentLoadRetryDelayMs(retries: number): number {
     return Math.min(1_000 * retries + Math.floor(Math.random() * 1_000), 60_000)
 }
 
-function describeAttachmentFailure(error: unknown): { reason: EmailStatusReason; message: string } | null {
+function describeAttachmentFailure(
+    error: unknown,
+    tries: number
+): { reason: EmailStatusReason; message: string } | null {
     if (error instanceof AttachmentMissingError) {
         return {
             reason: EMAIL_ATTACHMENTS_MISSING,
             message: `${EMAIL_ATTACHMENTS_MISSING}: the attachment files of this email are no longer stored, so it was not sent without them.`,
         }
     }
+    if (error instanceof MessageTooLargeError) {
+        return {
+            reason: EMAIL_MESSAGE_TOO_LARGE,
+            message: `${EMAIL_MESSAGE_TOO_LARGE}: the attachment files of this email are larger than one email can carry, so it was not sent.`,
+        }
+    }
     if (isAttachmentLoadFailure(error)) {
         return {
             reason: EMAIL_ATTACHMENT_UNAVAILABLE,
-            message: `${EMAIL_ATTACHMENT_UNAVAILABLE}: the attachment files of this email could not be loaded in ${MAX_ATTACHMENT_LOAD_RETRIES + 1} tries, so it was not sent.`,
+            message: `${EMAIL_ATTACHMENT_UNAVAILABLE}: the attachment files of this email could not be loaded in ${tries} ${tries === 1 ? 'try' : 'tries'}, so it was not sent.`,
         }
     }
     return null
@@ -785,7 +815,7 @@ export class EmailService {
                 1 +
                 extractEmailsFromAddressList(deliverableParams.cc).length +
                 extractEmailsFromAddressList(deliverableParams.bcc).length
-            const teamBudget = await this.claimTeamSendingBudgetOnce(invocation, isTest, capRecipients)
+            const teamBudget = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             teamBudgetCharged = teamBudget.charged
             const capDelay = teamBudget.delay
             if (capDelay) {
@@ -901,6 +931,7 @@ export class EmailService {
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else if (
                 isAttachmentLoadFailure(error) &&
+                !isTest &&
                 attachmentLoadRetries(invocation) < MAX_ATTACHMENT_LOAD_RETRIES
             ) {
                 const retries = attachmentLoadRetries(invocation) + 1
@@ -910,7 +941,7 @@ export class EmailService {
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = {
                     ...invocation.queueMetadata,
-                    attachmentLoadTries: retries,
+                    attachmentLoadRetries: retries,
                     ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
                 }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
@@ -932,7 +963,7 @@ export class EmailService {
                     `Could not check the suppression list, so this email is waiting. Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
                 )
             } else {
-                const attachmentFailure = describeAttachmentFailure(error)
+                const attachmentFailure = describeAttachmentFailure(error, attachmentLoadRetries(invocation) + 1)
                 if (attachmentFailure) {
                     failureReason = attachmentFailure.reason
                 }
@@ -1056,10 +1087,11 @@ export class EmailService {
      * Claims one send (as `recipients` tokens, one per delivered copy) against the team's
      * trust-tier daily bucket.
      *
-     * Returns the delay to reschedule with when the cap is reached, or null when the send may go
-     * out. The cap bounds how much damage a team can do to the shared SES account's reputation
-     * in a day. It does not spread that volume out: a full bucket lets the team send its whole
-     * daily cap as one burst, and only volume past that waits for the refill.
+     * Returns whether the budget is charged, and the delay to reschedule with when the cap is
+     * reached. A send that an earlier try already charged is not charged again. The cap bounds
+     * how much damage a team can do to the shared SES account's reputation in a day. It does not
+     * spread that volume out: a full bucket lets the team send its whole daily cap as one burst,
+     * and only volume past that waits for the refill.
      *
      * Failure stances differ on purpose. A failed tier lookup lets the send through, because a
      * config blip must never throttle a legitimate customer. A failed bucket claim delays the
@@ -1074,22 +1106,14 @@ export class EmailService {
      * paces the whole account, so what is left is suspension and the daily tier job, which
      * demotes a team on its complaint and bounce rates after the fact.
      */
-    private async claimTeamSendingBudgetOnce(
-        invocation: CyclotronJobInvocationHogFunction,
-        isTest: boolean,
-        recipients: number
-    ): Promise<TeamSendingBudget> {
-        if (invocation.queueMetadata?.teamBudgetClaimed === true) {
-            return { charged: true, delay: null }
-        }
-        return await this.claimTeamSendingBudget(invocation, isTest, recipients)
-    }
-
     private async claimTeamSendingBudget(
         invocation: CyclotronJobInvocationHogFunction,
         isTest: boolean,
         recipients: number = 1
     ): Promise<TeamSendingBudget> {
+        if (invocation.queueMetadata?.teamBudgetClaimed === true) {
+            return { charged: true, delay: null }
+        }
         const mode: TeamEmailCapMode = this.sesConfig.teamEmailCapMode ?? 'off'
         if (mode === 'off' || isTest || !this.teamEmailRateLimiter) {
             return { charged: false, delay: null }
@@ -1309,6 +1333,9 @@ export class EmailService {
         files: EmailAttachmentMetadata[],
         deadline: AbortSignal
     ): Promise<LoadedAttachment[]> {
+        if (exceedsLargestSend(declaredFileBytes(files))) {
+            throw new MessageTooLargeError()
+        }
         if (!this.attachmentStore) {
             throw new AttachmentStoreUnavailableError(new Error('No attachment store is configured on this pod'))
         }
@@ -1511,9 +1538,10 @@ export class EmailService {
                 .observe(Math.max(0, Date.now() - queueWait.startedAt.toMillis()))
         }
 
+        const command = new SendEmailCommand(sendEmailParams)
+        const requestSent = trackRequestSent(command)
         const sendStartedAt = performance.now()
         try {
-            const command = new SendEmailCommand(sendEmailParams)
             const response = deadline
                 ? await settleBefore(deadline, this.sesV2Client.send(command, { abortSignal: deadline }))
                 : await this.sesV2Client.send(command)
@@ -1527,7 +1555,12 @@ export class EmailService {
             sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
             if (deadline?.aborted) {
-                throw new EmailSendDeadlineError(error)
+                if (!requestSent()) {
+                    throw new EmailSendDeadlineError(error)
+                }
+                throw new Error(
+                    'Failed to send email via SES: SES did not answer before the send deadline. It may have sent the email, so it is not sent again.'
+                )
             }
             if (isSesThrottleError(error)) {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })

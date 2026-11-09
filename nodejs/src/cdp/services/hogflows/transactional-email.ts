@@ -64,7 +64,6 @@ export const AcceptedSendSchema = z
 
 export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
 
-// The email worker reads each file's metadata from here and loads the bytes from the attachment store.
 export type QueuedSend = Omit<AcceptedSend, 'attachments'> & { attachments?: readonly EmailAttachmentMetadata[] }
 
 export const acceptedSendEmailFields = (
@@ -96,7 +95,6 @@ export const TransactionalEmailRequestSchema = z.object({
 
 export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }
 export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }
-// A send token cannot ask for upload URLs, and an upload token cannot send.
 export const ATTACHMENT_UPLOAD_TOKEN_CLAIMS = { kind: 'attachment_upload' }
 
 export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })

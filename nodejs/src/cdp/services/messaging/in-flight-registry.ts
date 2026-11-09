@@ -6,11 +6,10 @@ import { Counter, Gauge } from 'prom-client'
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocation } from '~/cdp/types'
 
+import { MESSAGE_MAX_BYTES } from './message-estimate'
+
 const MIB = 1024 * 1024
-const EMAIL_MESSAGE_MAX_BYTES = 40_000_000
-const LARGEST_SEND_FILE_BYTES = (EMAIL_MESSAGE_MAX_BYTES * 3) / 4
-// The raw bytes sit outside the V8 heap. The Base64 copy and the JSON body the SES client builds sit on it. Email text
-// outside Latin-1 makes V8 store that body at two bytes per character, Base64 included, which the reservation covers.
+export const LARGEST_SEND_FILE_BYTES = (MESSAGE_MAX_BYTES * 3) / 4
 const RESERVED_BYTES_PER_FILE_BYTE = 7
 const HEAP_BYTES_PER_FILE_BYTE = 3
 const BYTES_PER_SEND = 2 * MIB
@@ -53,7 +52,6 @@ export const estimateSend = (fileBytes: number): { reservedBytes: number; heapBy
     heapBytes: fileBytes * HEAP_BYTES_PER_FILE_BYTE + BYTES_PER_SEND,
 })
 
-// Node reports no container limit as 0 or as a value past the machine's memory, depending on the version.
 const podMemoryBytes = ({ constrainedBytes, totalBytes }: MachineMemory): number =>
     constrainedBytes > 0 && constrainedBytes < totalBytes ? constrainedBytes : totalBytes
 
@@ -84,8 +82,13 @@ export function fileBytesOf(invocation: CyclotronJobInvocation): number | null {
     const sent = (invocation.state as { send?: { attachments?: readonly EmailAttachmentMetadata[] } } | null)?.send
     const queued = invocation.queueParameters?.type === 'email' ? invocation.queueParameters.attachments : undefined
     const files = sent?.attachments ?? queued
-    return files?.length ? files.reduce((total, file) => total + file.sizeBytes, 0) : null
+    return files?.length ? declaredFileBytes(files) : null
 }
+
+export const declaredFileBytes = (files: readonly EmailAttachmentMetadata[]): number =>
+    files.reduce((total, file) => total + file.sizeBytes, 0)
+
+export const exceedsLargestSend = (fileBytes: number): boolean => fileBytes > LARGEST_SEND_FILE_BYTES
 
 export function deferralDelayMs(earlierDeferrals: number, random: () => number = Math.random): number {
     const ceiling = Math.min(LONGEST_DEFERRAL_MS, FIRST_DEFERRAL_MS * 2 ** earlierDeferrals)
@@ -94,8 +97,6 @@ export function deferralDelayMs(earlierDeferrals: number, random: () => number =
 
 const sendCalls = new AsyncLocalStorage<Set<Promise<unknown>>>()
 
-// A send's call holds its bytes until it settles, even after the send stopped waiting for it on a deadline or on a
-// sibling call's failure.
 export function holdUntilSettled(call: Promise<unknown>): void {
     const calls = sendCalls.getStore()
     if (!calls) {
@@ -138,7 +139,6 @@ export class InFlightRegistry {
         private readonly heapUsedBytes: () => number = () => process.memoryUsage().heapUsed
     ) {}
 
-    // Admission is synchronous, so the sends of one batch cannot all pass the check before any of them reserves.
     public tryStart<T>(
         fileBytes: number,
         send: () => Promise<T>
@@ -150,8 +150,6 @@ export class InFlightRegistry {
         }
         const estimate = estimateSend(fileBytes)
         this.hold(estimate, 1)
-        // The send settles at its result write. Its reservation stays until its calls settle, which has no deadline, so
-        // nothing that waits for the send waits for them.
         const started = sendCalls.run(new Set(), async () => {
             try {
                 return await send()

@@ -73,7 +73,7 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
-import { AttachmentUploads } from './services/messaging/attachment-uploads'
+import { AttachmentUploads, countUploadRequest } from './services/messaging/attachment-uploads'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
@@ -1385,7 +1385,6 @@ export class CdpApi {
 
                 const idempotencyKeys = this.transactionalEmailIdempotencyKeys
                 const fingerprint = transactionalEmailFingerprint(hogFlow.id, parsed.data, send)
-                // Nothing was queued, so the caller's retry with the same key must be able to send.
                 const releaseKey = async () => {
                     if (idempotencyKey) {
                         stages.start('idempotency')
@@ -1503,9 +1502,6 @@ export class CdpApi {
             }
         }
 
-    // The bodies the email worker will send: the send's own content, or else its email step rendered the way the
-    // worker renders it, from the same run. A step that fails to render here fails in the worker too, so it counts
-    // as empty rather than refusing a send that would fail anyway.
     private async messageBodies(
         hogFlow: HogFlow,
         invocation: CyclotronJobInvocationHogFlow,
@@ -1542,6 +1538,7 @@ export class CdpApi {
 
     private postAttachmentUploads = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         if (!this.transactionalEmailJwt.enabled) {
+            countUploadRequest('not_configured')
             return res.status(503).json({
                 error: 'Transactional email auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
             })
@@ -1555,6 +1552,7 @@ export class CdpApi {
                 ATTACHMENT_UPLOAD_TOKEN_CLAIMS
             )
         ) {
+            countUploadRequest('unauthorized')
             return
         }
         const { status, body } = await this.attachmentUploads.prepare(parseInt(req.params.team_id), req.body)

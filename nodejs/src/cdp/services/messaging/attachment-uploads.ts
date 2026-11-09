@@ -10,9 +10,7 @@ import { AttachmentRef, AttachmentStore, AttachmentStoreUnavailableError, Upload
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 
 export const ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX = 'cdp-email-attachments-upload-bytes'
-// A day's counter outlives its UTC day, so a request just after midnight still reads the right one.
 const QUOTA_KEY_TTL_SECONDS = 2 * 24 * 60 * 60
-// One script, so two requests at once cannot both pass the check, and a refused request adds nothing.
 const CHARGE_SCRIPT = `
 local total = tonumber(redis.call('GET', KEYS[1]) or '0') + tonumber(ARGV[1])
 if total > tonumber(ARGV[2]) then
@@ -22,7 +20,6 @@ redis.call('SET', KEYS[1], total, 'EX', ARGV[3])
 return 1
 `
 
-// Unknown keys are dropped rather than refused, so Django can add a field before every cdp-api pod reads it.
 const UploadsRequestSchema = z.object({
     files: z
         .array(z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/), size: z.number().int().positive() }))
@@ -47,25 +44,26 @@ const uploadRequestsTotal = new Counter({
     labelNames: ['outcome'],
 })
 
+export function countUploadRequest(outcome: string): void {
+    uploadRequestsTotal.inc({ outcome })
+}
+
 const DELIVERY_UNAVAILABLE = { status: 503, body: { error: 'delivery_unavailable' } } as const satisfies SendRefusal
 
-// The upload route and the send route share one allowlist, so a team either uses files on both or on neither.
 export class AttachmentUploads {
     public readonly isAllowed: (teamId: number) => boolean
 
     constructor(
         private readonly store: AttachmentStore | null,
-        // The idempotency Valkey of transactional email. Its pool bounds every wait, so an outage answers 503.
         private readonly counter: RedisV2 | null,
-        private readonly settings: AttachmentUploadsSettings,
-        private readonly now: () => Date = () => new Date()
+        private readonly settings: AttachmentUploadsSettings
     ) {
         this.isAllowed = buildIntegerMatcher(settings.teams, true)
     }
 
     public async prepare(teamId: number, body: unknown): Promise<UploadsAnswer> {
         const answer = await this.answer(teamId, body)
-        uploadRequestsTotal.inc({ outcome: String(answer.body.error ?? 'answered') })
+        countUploadRequest(String(answer.body.error ?? 'answered'))
         return answer
     }
 
@@ -78,7 +76,6 @@ export class AttachmentUploads {
             return { status: 400, body: { error: 'invalid_request', detail: parsed.error.message } }
         }
         const files = parsed.data.files
-        // Each upload URL is signed for its size, so one hash with two sizes would get a URL the cap never counted.
         const sizeOf = new Map(files.map((file) => [file.sha256, file.size]))
         if (files.some((file) => sizeOf.get(file.sha256) !== file.size)) {
             return { status: 400, body: { error: 'invalid_request', detail: 'One sha256 is listed with two sizes' } }
@@ -131,8 +128,6 @@ export class AttachmentUploads {
         return { status: 200, body: { files: slots.map(toAnswer) } }
     }
 
-    // Verifies a send's files under the team and estimates its message. The bodies are only read once every file is
-    // verified, because rendering them can cost more than the checks that refuse first.
     public async acceptSend(
         teamId: number,
         refs: AttachmentRef[],
@@ -143,7 +138,7 @@ export class AttachmentUploads {
         }
         let verified: Awaited<ReturnType<AttachmentStore['acceptForSend']>>
         try {
-            const needsUntil = new Date(this.now().getTime() + SEND_NEEDS_FILES_FOR_MS)
+            const needsUntil = new Date(Date.now() + SEND_NEEDS_FILES_FOR_MS)
             verified = await this.store.acceptForSend(teamId, refs, needsUntil)
         } catch (error) {
             if (error instanceof AttachmentStoreUnavailableError) {
@@ -174,7 +169,7 @@ export class AttachmentUploads {
     }
 
     private async chargeDailyUploadBytes(counter: RedisV2, teamId: number, bytes: number): Promise<boolean> {
-        const key = `${ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX}:${teamId}:${this.now().toISOString().slice(0, 10)}`
+        const key = `${ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX}:${teamId}:${new Date().toISOString().slice(0, 10)}`
         const charged = await counter.useClient({ name: 'email-attachments-upload-quota' }, (client) =>
             client.eval(CHARGE_SCRIPT, 1, key, bytes, this.settings.maxBytesPerTeamDay, QUOTA_KEY_TTL_SECONDS)
         )

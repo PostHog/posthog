@@ -1,6 +1,7 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -13,8 +14,15 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2'
+import { v2JobToInvocation } from '../services/job-queue/job-queue-postgres-v2'
 import { settleBefore } from '../services/messaging/attachment-store'
-import { InFlightLimits, InFlightRegistry, estimateSend } from '../services/messaging/in-flight-registry'
+import {
+    InFlightLimits,
+    InFlightRegistry,
+    LARGEST_SEND_FILE_BYTES,
+    estimateSend,
+} from '../services/messaging/in-flight-registry'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { CdpCyclotronWorkerEmail } from './cdp-cyclotron-worker-email.consumer'
@@ -174,24 +182,33 @@ describe('CdpCyclotronWorkerEmail', () => {
             expect(written(queue)).toEqual([plain.id, slow.id])
         })
 
-        it('defers the sends it has no room for, with one more deferral and a longer delay', async () => {
+        it('defers the sends it has no room for, with one more deferral, a longer delay and the first due time', async () => {
             const { worker, queue } = workerWith({ ...roomFor(5), maxInFlight: 1 })
-            const [admitted, deferred] = [
-                withFiles({ queueMetadata: { attachmentDeferrals: 1 } }),
-                withFiles({ queueMetadata: { attachmentDeferrals: 2 } }),
+            const firstDueAt = Date.now() - 60_000
+            const [admitted, deferred, deferredFirst] = [
+                withFiles({ queueMetadata: { attachmentDeferrals: 1, attachmentDueAt: firstDueAt } }),
+                withFiles({ queueMetadata: { attachmentDeferrals: 2, attachmentDueAt: firstDueAt } }),
+                withFiles({ queueScheduledAt: DateTime.fromMillis(firstDueAt) }),
             ]
             const ran = jest
                 .spyOn(worker, 'processInvocations')
                 .mockImplementation((invocations) => Promise.resolve(resultsOf(invocations)))
             const before = Date.now()
 
-            const { backgroundTask } = await worker.processBatch([admitted, deferred])
+            const { backgroundTask } = await worker.processBatch([admitted, deferred, deferredFirst])
             await backgroundTask
 
             expect(ran.mock.calls.map(([invocations]) => invocations)).toEqual([[{ ...admitted, queueMetadata: {} }]])
             expect(queue.deferInvocations).toHaveBeenCalledWith([
                 {
-                    invocation: { ...deferred, queueMetadata: { attachmentDeferrals: 3 } },
+                    invocation: { ...deferred, queueMetadata: { attachmentDeferrals: 3, attachmentDueAt: firstDueAt } },
+                    scheduledAt: expect.any(Date),
+                },
+                {
+                    invocation: {
+                        ...deferredFirst,
+                        queueMetadata: { attachmentDeferrals: 1, attachmentDueAt: firstDueAt },
+                    },
                     scheduledAt: expect.any(Date),
                 },
             ])
@@ -225,32 +242,63 @@ describe('CdpCyclotronWorkerEmail', () => {
         })
 
         it.each([
-            ['a send with files fails while the plain sends still run', 'send'],
-            ['the plain sends fail while a send with files still runs', 'plain'],
-        ])('reports the failure only once both settled when %s', async (_, failing) => {
-            const { worker, queue } = workerWith(roomFor(1))
-            const [plain, send] = [job(), withFiles()]
-            let release!: () => void
-            const released = new Promise<void>((resolve) => (release = resolve))
-            jest.spyOn(worker, 'processInvocations').mockImplementation(async (invocations) => {
-                const failsNow = (invocations[0].id === send.id) === (failing === 'send')
-                if (failsNow) {
-                    throw new Error(`${failing} failed`)
-                }
-                await released
-                return resultsOf(invocations)
-            })
+            [
+                'a send with files fails while the plain sends still run',
+                { send: 'fails', plain: 'ok' },
+                'send failed',
+                0,
+            ],
+            [
+                'the plain sends fail while a send with files still runs',
+                { send: 'ok', plain: 'fails' },
+                'plain failed',
+                0,
+            ],
+            [
+                'both fail, counting the send that failed beside the batch',
+                { send: 'fails later', plain: 'fails' },
+                'plain failed',
+                1,
+            ],
+        ] as const)(
+            'reports the failure only once both settled when %s',
+            async (_, outcomes, reported, countedBeside) => {
+                const { worker, queue } = workerWith(roomFor(1))
+                const [plain, send] = [job(), withFiles()]
+                const kindOf = (invocation: CyclotronJobInvocation) => (invocation.id === send.id ? 'send' : 'plain')
+                const writeFailures = async () =>
+                    (
+                        await register.getSingleMetric('cdp_cyclotron_v2_result_write_failures_total')?.get()
+                    )?.values.find((sample) => sample.labels.queue === 'email')?.value ?? 0
+                const failuresBefore = await writeFailures()
+                let release!: () => void
+                const released = new Promise<void>((resolve) => (release = resolve))
+                jest.spyOn(worker, 'processInvocations').mockImplementation(async (invocations) => {
+                    const kind = kindOf(invocations[0])
+                    if (outcomes[kind] === 'fails') {
+                        throw new Error(`${kind} failed`)
+                    }
+                    await released
+                    if (outcomes[kind] === 'fails later') {
+                        throw new Error(`${kind} failed`)
+                    }
+                    return resultsOf(invocations)
+                })
 
-            const batch = worker.processBatch([plain, send]).then(({ backgroundTask }) => backgroundTask)
-            let settled = false
-            void batch.catch(() => undefined).finally(() => (settled = true))
-            await new Promise(setImmediate)
-            expect(settled).toBe(false)
-            release()
+                const batch = worker.processBatch([plain, send]).then(({ backgroundTask }) => backgroundTask)
+                let settled = false
+                void batch.catch(() => undefined).finally(() => (settled = true))
+                await new Promise(setImmediate)
+                expect(settled).toBe(false)
+                release()
 
-            await expect(batch).rejects.toThrow(`${failing} failed`)
-            expect(written(queue)).toEqual([failing === 'send' ? plain.id : send.id])
-        })
+                await expect(batch).rejects.toThrow(reported)
+                expect(written(queue)).toEqual(
+                    [plain, send].filter((invocation) => outcomes[kindOf(invocation)] === 'ok').map(({ id }) => id)
+                )
+                expect((await writeFailures()) - failuresBefore).toBe(countedBeside)
+            }
+        )
 
         it('writes the result of a send whose abandoned call never settles, and keeps its reservation', async () => {
             jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] })
@@ -323,6 +371,58 @@ describe('CdpCyclotronWorkerEmail', () => {
                     invocation: expect.objectContaining({ id: canceled.id }),
                 }),
             ])
+            expect(queue.deferInvocations).not.toHaveBeenCalled()
+        })
+
+        // Stored by the email queue before this worker admitted sends with files.
+        const PREVIOUS_VERSION_JOB_STATE =
+            '{"state":{"event":{"uuid":"uuid","event":"$pageview","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$lib_version":"1.2.3"},"timestamp":"2026-11-09T14:31:48.377Z"},"actionStepCount":0,"send":{"tracking":{"captureEngagement":false}}}}'
+
+        it.each([
+            [
+                'a send larger than one email can carry, where it fails,',
+                () =>
+                    withFiles({
+                        state: {
+                            ...createHogFlowInvocationContext(),
+                            send: {
+                                attachments: [
+                                    {
+                                        filename: 'archive.zip',
+                                        sha256: 'b'.repeat(64),
+                                        sizeBytes: LARGEST_SEND_FILE_BYTES + 1,
+                                    },
+                                ],
+                            },
+                        } as any,
+                    }),
+            ],
+            [
+                'a job that the previous version stored',
+                () =>
+                    v2JobToInvocation({
+                        id: new UUIDT().toString(),
+                        teamId: 1,
+                        functionId: new UUIDT().toString(),
+                        queueName: 'email',
+                        priority: 0,
+                        scheduled: DateTime.now(),
+                        created: DateTime.now(),
+                        state: Buffer.from(PREVIOUS_VERSION_JOB_STATE),
+                    } as unknown as CyclotronV2DequeuedJob),
+            ],
+        ])('runs %s in its batch on a worker that refuses files, instead of deferring it', async (_, invocation) => {
+            const { worker, queue } = workerWith(null)
+            const job = invocation()
+            const ran = jest
+                .spyOn(worker, 'processInvocations')
+                .mockImplementation((invocations) => Promise.resolve(resultsOf(invocations)))
+
+            await (
+                await worker.processBatch([job])
+            ).backgroundTask
+
+            expect(ran).toHaveBeenCalledWith([job])
             expect(queue.deferInvocations).not.toHaveBeenCalled()
         })
 

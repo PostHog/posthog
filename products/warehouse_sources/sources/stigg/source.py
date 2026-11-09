@@ -58,7 +58,7 @@ class StiggSource(ResumableSource[StiggSourceConfig, StiggResumeConfig]):
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Stigg server API key to pull your pricing, packaging, and monetization data into the PostHog Data warehouse.
 
-You can find your server API key under **Settings → Integrations → API keys** in [Stigg](https://app.stigg.io). The key grants read access to your customers, subscriptions, products, plans, addons, features, and coupons.
+You can find your server API key under **Settings → Integrations → API keys** in [Stigg](https://app.stigg.io). The key grants read access to your customers, subscriptions, products, plans, addons, features, coupons, entitlements, charges, and credit grants.
 """,
             iconPath="/static/services/stigg.png",
             docsUrl="https://posthog.com/docs/cdp/sources/stigg",

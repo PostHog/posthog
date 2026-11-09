@@ -1,20 +1,21 @@
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
+import { reportResultWriteFailure } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import {
     InFlightRegistry,
     callsSettledWithin,
     deferralDelayMs,
+    exceedsLargestSend,
     fileBytesOf,
     inFlightLimitsFor,
 } from '../services/messaging/in-flight-registry'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
+import { settleAllThenThrowFirst } from '../utils/settle-all'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
 
-// A send's result is written within this long of its deadline, so a stopping pod still writes it before the consumer's
-// stop deadline. Calls still running after it keep the send's reservation, not its result.
 const CALLS_SETTLE_BEFORE_WRITE_MS = 3_000
 
 export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
@@ -40,8 +41,6 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         return results
     }
 
-    // A send with files leaves its batch once admitted, so its downloads never hold the next dequeue. The returned
-    // background task covers it, so the job queue's stop waits for it as for any result write.
     public override async processBatch(
         invocations: CyclotronJobInvocation[]
     ): Promise<{ backgroundTask: Promise<any>; invocationResults: CyclotronJobInvocationResult[] }> {
@@ -50,7 +49,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         const deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[] = []
         for (const invocation of invocations) {
             const fileBytes = fileBytesOf(invocation)
-            if (fileBytes === null || invocation.cancelRequestedAt) {
+            if (fileBytes === null || exceedsLargestSend(fileBytes) || invocation.cancelRequestedAt) {
                 plain.push(invocation)
                 continue
             }
@@ -61,20 +60,27 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
                 deferrals.push(deferral(invocation))
             }
         }
-        const deferring = deferrals.length ? this.deferWithHeartbeat(deferrals) : Promise.resolve()
-        // Settled results never reject, so a send that fails while the plain batch runs leaves no unhandled rejection.
-        const besideTheBatch = Promise.allSettled([deferring, ...sends])
+        const besideTheBatch = [deferrals.length ? this.deferWithHeartbeat(deferrals) : Promise.resolve(), ...sends]
+        const besideTheBatchSettled = Promise.allSettled(besideTheBatch)
 
         let batch: Awaited<ReturnType<CdpCyclotronWorkerHogFlow['processBatch']>>
         try {
             batch = await super.processBatch(plain)
         } catch (error) {
-            await besideTheBatch
+            this.reportFailures(await besideTheBatchSettled)
             throw error
         }
         return {
-            backgroundTask: settleAll([batch.backgroundTask, besideTheBatch.then(rethrowFirstFailure)]),
+            backgroundTask: settleAllThenThrowFirst([batch.backgroundTask, ...besideTheBatch]),
             invocationResults: batch.invocationResults,
+        }
+    }
+
+    private reportFailures(settled: PromiseSettledResult<unknown>[]): void {
+        for (const outcome of settled) {
+            if (outcome.status === 'rejected') {
+                reportResultWriteFailure(this.queue, outcome.reason)
+            }
         }
     }
 
@@ -90,15 +96,13 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     }
 
     private async runSendWithFiles(invocation: CyclotronJobInvocation): Promise<void> {
-        const admitted = withoutDeferralCount(invocation)
-        const stopHeartbeat = this.startPeriodicHeartbeat([admitted])
-        try {
-            const results = await this.processInvocations([admitted])
-            await callsSettledWithin(CALLS_SETTLE_BEFORE_WRITE_MS)
-            await this.runBackgroundTasks(results)
-        } finally {
-            stopHeartbeat()
-        }
+        const { backgroundTask } = await super.processBatch([withoutDeferralState(invocation)])
+        await backgroundTask
+    }
+
+    protected override async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
+        await callsSettledWithin(CALLS_SETTLE_BEFORE_WRITE_MS)
+        await super.queueInvocationResults(results)
     }
 }
 
@@ -120,33 +124,27 @@ function registryFor(config: PluginsServerConfig): InFlightRegistry {
 
 function deferral(invocation: CyclotronJobInvocation): { invocation: CyclotronJobInvocation; scheduledAt: Date } {
     const earlierDeferrals: number = invocation.queueMetadata?.attachmentDeferrals ?? 0
+    const now = Date.now()
     return {
         invocation: {
             ...invocation,
-            queueMetadata: { ...invocation.queueMetadata, attachmentDeferrals: earlierDeferrals + 1 },
+            queueMetadata: {
+                ...invocation.queueMetadata,
+                attachmentDeferrals: earlierDeferrals + 1,
+                attachmentDueAt:
+                    invocation.queueMetadata?.attachmentDueAt ?? invocation.queueScheduledAt?.toMillis() ?? now,
+            },
         },
-        scheduledAt: new Date(Date.now() + deferralDelayMs(earlierDeferrals)),
+        scheduledAt: new Date(now + deferralDelayMs(earlierDeferrals)),
     }
 }
 
-// The count only grows the delay between deferrals in a row, and marks a deferred dequeue for the lateness metric.
-function withoutDeferralCount(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
+function withoutDeferralState(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
     if (invocation.queueMetadata?.attachmentDeferrals === undefined) {
         return invocation
     }
-    const { attachmentDeferrals: _, ...queueMetadata } = invocation.queueMetadata
+    const { attachmentDeferrals: _, attachmentDueAt: __, ...queueMetadata } = invocation.queueMetadata
     return { ...invocation, queueMetadata }
-}
-
-function rethrowFirstFailure(settled: PromiseSettledResult<unknown>[]): void {
-    const failed = settled.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
-    if (failed) {
-        throw failed.reason
-    }
-}
-
-async function settleAll(work: Promise<unknown>[]): Promise<void> {
-    rethrowFirstFailure(await Promise.allSettled(work))
 }
 
 // The transactional email API queues its runs straight onto this queue, so this worker counts them as triggered.
