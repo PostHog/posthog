@@ -42,6 +42,8 @@ const REQUIRED_TEXT_SETTINGS = [
     'WORKFLOWS_SANDBOX_CAPS_VALKEY_HOST',
 ] as const
 
+const CAPS_VALKEY_TIMEOUT_MS = 2_000
+
 const REQUIRED_CAP_SETTINGS = ['WORKFLOWS_SANDBOX_DAILY_TEAM_CAP', 'WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP'] as const
 
 export function missingSandboxSenderSettings(config: SandboxRuntimeConfig): string[] {
@@ -70,11 +72,13 @@ export function createSandboxEmailRuntime(
                 port: config.WORKFLOWS_SANDBOX_CAPS_VALKEY_PORT,
                 password: config.WORKFLOWS_SANDBOX_CAPS_VALKEY_PASSWORD,
                 tls: config.WORKFLOWS_SANDBOX_CAPS_VALKEY_TLS ? {} : undefined,
+                commandTimeout: CAPS_VALKEY_TIMEOUT_MS,
             },
             name: 'sandbox-email-caps',
         },
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        acquireTimeoutMillis: CAPS_VALKEY_TIMEOUT_MS,
     })
     const service = createSandboxEmailService({
         enabled: true,

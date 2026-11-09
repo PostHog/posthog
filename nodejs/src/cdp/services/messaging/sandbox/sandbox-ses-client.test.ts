@@ -1,7 +1,7 @@
 import { SendEmailCommand } from '@aws-sdk/client-sesv2'
 
 import { SandboxMessage } from './sandbox-message'
-import { SandboxSesClient, createSandboxSesV2Client } from './sandbox-ses-client'
+import { SES_SEND_TIMEOUT_MS, SandboxSesClient, createSandboxSesV2Client } from './sandbox-ses-client'
 
 describe('SandboxSesClient', () => {
     const message: SandboxMessage = {
@@ -66,6 +66,27 @@ describe('SandboxSesClient', () => {
         const send = jest.fn().mockRejectedValue(error)
 
         await expect(new SandboxSesClient({ send }, settings).send(message, tags)).resolves.toEqual(expected)
+    })
+
+    it('gives up on a send SES never answers and retries it later', async () => {
+        jest.useFakeTimers()
+        try {
+            const send = jest.fn(
+                (_command: SendEmailCommand, options: { abortSignal: AbortSignal }) =>
+                    new Promise((_resolve, reject) =>
+                        options.abortSignal.addEventListener('abort', () =>
+                            reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+                        )
+                    )
+            )
+            const result = new SandboxSesClient({ send } as any, settings).send(message, tags)
+
+            await jest.advanceTimersByTimeAsync(SES_SEND_TIMEOUT_MS)
+
+            await expect(result).resolves.toEqual({ status: 'retry', reason: 'ses_transient' })
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('builds an SDK client that never retries a send by itself', async () => {

@@ -191,18 +191,26 @@ describe('SandboxEmailService', () => {
         expect(deps.claimCaps).not.toHaveBeenCalled()
     })
 
-    it('hands the run opt-outs, category, and frequency cap to the recipient check', async () => {
+    it('checks preferences under the address its unsubscribe link carries, and authorizes the trimmed address', async () => {
         const deps = fakeDeps()
         const frequencyCap = jest.fn()
         const optOuts = [{ identifier: 'member@example.com', categoryId: 'news' }]
 
         await new SandboxEmailService(deps).send(
-            request({ categoryId: 'news', categoryType: 'marketing', optOuts, frequencyCap, isTest: true })
+            request({
+                email: { to: { email: ' member@example.com ' }, subject: 'Hi', text: 'Hello' },
+                categoryId: 'news',
+                categoryType: 'marketing',
+                optOuts,
+                frequencyCap,
+                isTest: true,
+            })
         )
 
+        expect(deps.authorize).toHaveBeenCalledWith(expect.objectContaining({ recipient: 'member@example.com' }))
         expect(deps.checkRecipient).toHaveBeenCalledWith({
             teamId: 2,
-            address: 'member@example.com',
+            address: ' member@example.com ',
             categoryId: 'news',
             categoryType: 'marketing',
             optOuts,

@@ -7,6 +7,7 @@ import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
+import { setupExpressApp } from '~/common/api/router'
 import { parseJSON } from '~/common/utils/json-parse'
 import { FetchResponse } from '~/common/utils/request'
 
@@ -17,7 +18,7 @@ import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
 import { RecipientTokensService } from '../recipient-tokens.service'
 import { SANDBOX_TEST_SEND_PATH, sandboxEmailTestRouter } from './sandbox-email-test-route'
-import { SandboxEmailTester } from './sandbox-email-tester'
+import { SandboxEmailTester, SandboxEmailTesterDeps } from './sandbox-email-tester'
 import { SandboxSendOutcome } from './sandbox-email.service'
 
 describe('sandbox email test sends', () => {
@@ -30,7 +31,7 @@ describe('sandbox email test sends', () => {
     let server: Server
 
     const serveWorker = (service: { send: typeof send } | null): void => {
-        app = express()
+        app = setupExpressApp({ internalApiSecret: 'shared-internal-secret' })
         app.use(sandboxEmailTestRouter({ jwt: workerJwt, service, events: { capture } }))
         server = app.listen(0, () => {})
     }
@@ -80,7 +81,7 @@ describe('sandbox email test sends', () => {
         }
     })
 
-    const tester = (fetch = fetchThroughWorker): SandboxEmailTester =>
+    const tester = (fetch: SandboxEmailTesterDeps['fetch'] = fetchThroughWorker): SandboxEmailTester =>
         new SandboxEmailTester({
             hogInputsService: new HogInputsService(
                 {} as any,
@@ -128,6 +129,13 @@ describe('sandbox email test sends', () => {
             action_id: 'email',
             is_test: true,
         })
+    })
+
+    it('sends a test of a workflow that is not saved yet', async () => {
+        hogFlow.id = 'new'
+
+        await expect(tester().send(testRun())).resolves.toEqual({ status: 'accepted', message_id: 'ses-1' })
+        expect(send).toHaveBeenCalledWith(expect.objectContaining({ hogFlowId: 'new', isTest: true }))
     })
 
     it.each<[string, SandboxSendOutcome, object]>([
@@ -202,8 +210,21 @@ describe('sandbox email test sends', () => {
         expect(fetch).not.toHaveBeenCalled()
     })
 
-    it('reports a test the worker does not answer as pending, never as sent', async () => {
-        const fetch = jest.fn().mockRejectedValue(new Error('timeout'))
+    it.each<[string, () => Promise<FetchResponse>]>([
+        ['before its headers', () => Promise.reject(new Error('timeout'))],
+        [
+            'after its headers',
+            () =>
+                Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.reject(new Error('timeout')),
+                    text: () => Promise.reject(new Error('timeout')),
+                    dump: () => Promise.resolve(),
+                }),
+        ],
+    ])('reports a test the worker stops answering %s as pending, never as sent', async (_name, respond) => {
+        const fetch = jest.fn(respond)
 
         await expect(tester(fetch).send(testRun())).resolves.toEqual({
             status: 'pending',

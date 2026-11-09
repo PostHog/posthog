@@ -1,5 +1,7 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 
+import { logger } from '~/common/utils/logger'
+
 import { formatMailbox } from '../email.service'
 import { SandboxMessage } from './sandbox-message'
 
@@ -20,6 +22,7 @@ export type SandboxSesResult =
 export type SandboxSesSettings = { configurationSet: string; tenantName: string }
 
 const THROTTLE_ERROR_NAMES = new Set(['ThrottlingException', 'TooManyRequestsException'])
+export const SES_SEND_TIMEOUT_MS = 10_000
 
 export function createSandboxSesV2Client({ region, endpoint }: { region: string; endpoint: string }): SESv2Client {
     return new SESv2Client({ region, endpoint: endpoint || undefined, maxAttempts: 1 })
@@ -32,13 +35,26 @@ export class SandboxSesClient {
     ) {}
 
     async send(message: SandboxMessage, tags: SandboxSendTags): Promise<SandboxSesResult> {
+        const deadline = new AbortController()
+        const timer = setTimeout(() => deadline.abort(), SES_SEND_TIMEOUT_MS)
         try {
-            const response = await this.client.send(this.buildCommand(message, tags))
+            const response = await this.client.send(this.buildCommand(message, tags), {
+                abortSignal: deadline.signal,
+            })
             return response.MessageId
                 ? { status: 'accepted', messageId: response.MessageId }
                 : { status: 'retry', reason: 'ses_transient' }
         } catch (error) {
+            const metadata = (error as { $metadata?: { httpStatusCode?: number; requestId?: string } })?.$metadata
+            logger.warn('Sandbox SES send failed', {
+                error: error instanceof Error ? error.name : String(error),
+                httpStatusCode: metadata?.httpStatusCode,
+                requestId: metadata?.requestId,
+                teamId: tags.teamId,
+            })
             return classifySesError(error)
+        } finally {
+            clearTimeout(timer)
         }
     }
 

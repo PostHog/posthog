@@ -87,7 +87,13 @@ export class SandboxEmailTester implements SandboxEmailTestClient {
             await response.dump()
             return { status: 'failed', reason: 'sandbox_worker_unavailable' }
         }
-        const parsed = TestSendResponseSchema.safeParse(await response.json().catch(() => null))
+        let body: unknown
+        try {
+            body = await response.json()
+        } catch {
+            return { status: 'pending', reason: 'sandbox_worker_unreachable' }
+        }
+        const parsed = TestSendResponseSchema.safeParse(body)
         return parsed.success ? parsed.data : { status: 'failed', reason: 'sandbox_worker_unavailable' }
     }
 }

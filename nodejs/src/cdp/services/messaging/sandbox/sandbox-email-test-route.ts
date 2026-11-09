@@ -12,7 +12,7 @@ import { SandboxEmailService, SandboxSendOutcome } from './sandbox-email.service
 export const SANDBOX_TEST_SEND_PATH = '/api/projects/:team_id/sandbox_email/test_send'
 
 const TestSendRequestSchema = z.object({
-    hog_flow_id: z.string().uuid(),
+    hog_flow_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
     action_id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
     email: z.unknown(),
     message_category_id: z.string().optional(),
@@ -27,7 +27,7 @@ export type SandboxEmailTestRouteDeps = {
 
 export function sandboxEmailTestRouter(deps: SandboxEmailTestRouteDeps): express.Router {
     const router = express.Router()
-    router.post(SANDBOX_TEST_SEND_PATH, express.json({ limit: '2mb' }), (req, res) => {
+    router.post(SANDBOX_TEST_SEND_PATH, (req, res) => {
         handleTestSend(deps, req, res).catch((error) => {
             logger.error('Sandbox email test send failed', { error: String(error) })
             res.status(500).json({ error: 'Sandbox email test send failed' })

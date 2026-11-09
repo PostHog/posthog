@@ -99,7 +99,7 @@ export class SandboxEmailService {
         }
         const recipientCheck = await this.deps.checkRecipient({
             teamId: request.teamId,
-            address,
+            address: email.data.to.email,
             categoryId: request.categoryId,
             categoryType: request.categoryType,
             optOuts: request.optOuts ?? [],
