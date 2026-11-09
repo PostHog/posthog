@@ -118,13 +118,16 @@ class TestWorkflowEmailSandbox(APIBaseTest):
         assert _sandbox_rows(self.team.id) == [sandbox_row]
 
     def test_admin_records_who_blocked_the_organization(self) -> None:
-        request = RequestFactory().post("/admin/workflows/sandboxsenderorganizationblock/add/")
+        request = RequestFactory().get("/admin/workflows/sandboxsenderorganizationblock/add/")
         request.user = self.user
-        block = SandboxSenderOrganizationBlock(organization=self.organization, reason="abuse")
+        model_admin = SandboxSenderOrganizationBlockAdmin(SandboxSenderOrganizationBlock, AdminSite())
+        initial = model_admin.get_changeform_initial_data(request)
 
-        SandboxSenderOrganizationBlockAdmin(SandboxSenderOrganizationBlock, AdminSite()).save_model(
-            request, block, form=None, change=False
+        form = model_admin.get_form(request, obj=None)(
+            data={"organization": self.organization.pk, "reason": "abuse", "created_by": initial["created_by"]}
         )
+        assert form.is_valid(), form.errors
+        form.save()
 
         assert SandboxSenderOrganizationBlock.objects.get(organization=self.organization).created_by == self.user
 
