@@ -8,6 +8,7 @@ import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../type
 import { CyclotronV2DequeuedJob } from '../cyclotron-v2'
 import {
     CyclotronJobQueuePostgresV2,
+    RESULT_WRITE_DRAIN_TIMEOUT_MS,
     extractActionId,
     extractDistinctId,
     extractPersonId,
@@ -395,7 +396,89 @@ describe('CyclotronJobQueuePostgresV2', () => {
         })
     })
 
+    describe('stopConsumer', () => {
+        async function consumeOneBatch(backgroundTask: Promise<void>): Promise<{ queue: any; steps: string[] }> {
+            const { queue } = createQueue()
+            const steps: string[] = []
+            let consume: (jobs: CyclotronV2DequeuedJob[]) => Promise<void> = () => Promise.resolve()
+            jest.spyOn(queue as any, 'createWorker').mockReturnValue({
+                connect: (fn: typeof consume) => {
+                    consume = fn
+                    return Promise.resolve()
+                },
+                stopConsuming: () => {
+                    steps.push('stop dequeuing')
+                    return Promise.resolve()
+                },
+                disconnect: () => {
+                    steps.push('close pool')
+                    return Promise.resolve()
+                },
+            })
+            await queue.startAsConsumer('hog', () => Promise.resolve({ backgroundTask }))
+            await consume([
+                createDequeuedJob({
+                    scheduled: DateTime.now(),
+                    created: DateTime.now(),
+                }) as unknown as CyclotronV2DequeuedJob,
+            ])
+            return { queue, steps }
+        }
+
+        it('stops dequeuing, waits for the result writes, then closes the pool', async () => {
+            let finishWrite: () => void = () => {}
+            const { queue, steps } = await consumeOneBatch(
+                new Promise<void>((resolve) => {
+                    finishWrite = () => {
+                        steps.push('results written')
+                        resolve()
+                    }
+                })
+            )
+
+            const stopped = queue.stopConsumer()
+            await new Promise((resolve) => setImmediate(resolve))
+            finishWrite()
+            await stopped
+
+            expect(steps).toEqual(['stop dequeuing', 'results written', 'close pool'])
+        })
+
+        it('closes the pool at the drain limit when a result write never settles', async () => {
+            jest.useFakeTimers()
+            try {
+                const { queue, steps } = await consumeOneBatch(new Promise<void>(() => {}))
+
+                const stopped = queue.stopConsumer()
+                await jest.advanceTimersByTimeAsync(RESULT_WRITE_DRAIN_TIMEOUT_MS)
+                await stopped
+
+                expect(steps).toEqual(['stop dequeuing', 'close pool'])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+    })
+
     describe('heartbeatInvocations', () => {
+        it('heartbeats a job until its result write settles', async () => {
+            const { queue } = createQueue()
+            let finishWrite: () => void = () => {}
+            const job = createDequeuedJob({
+                ack: jest.fn(() => new Promise<void>((resolve) => (finishWrite = resolve))),
+            })
+            ;(queue as any).pendingJobs.set(job.id, job)
+            const invocation = { ...baseInvocation, id: job.id }
+
+            const written = queue.queueInvocationResults([createResult({ invocation, finished: true })])
+            await queue.heartbeatInvocations([invocation])
+            finishWrite()
+            await written
+            await queue.heartbeatInvocations([invocation])
+
+            expect(job.heartbeat).toHaveBeenCalledTimes(1)
+        })
+
         it('proxies to heartbeat, skips unknown ids, and distinguishes released races from real failures', async () => {
             const { queue } = createQueue()
             const warnSpy = jest.spyOn(require('~/common/utils/logger').logger, 'warn').mockImplementation(() => {})

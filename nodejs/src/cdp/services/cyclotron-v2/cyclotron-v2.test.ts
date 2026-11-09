@@ -18,6 +18,7 @@ import {
     CYCLOTRON_COUNTER_MAX,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
     CyclotronV2BatchLimit,
+    CyclotronV2CleanupResult,
     CyclotronV2DequeuedJob,
     CyclotronV2JobInit,
 } from './types'
@@ -1811,6 +1812,25 @@ describe('Cyclotron V2', () => {
             expect(row.person_id).toBe(original)
         })
 
+        it('heartbeat() keeps a job alive while its release write waits, and refuses once the write settles', async () => {
+            const { id, job } = await seedAndDequeue()
+            const blocker = await assertPool.connect()
+            try {
+                await blocker.query('BEGIN')
+                await blocker.query('SELECT 1 FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+                const acked = job.ack()
+                const beat = job.heartbeat()
+                await blocker.query('COMMIT')
+
+                await expect(beat).resolves.toBeUndefined()
+                await acked
+            } finally {
+                blocker.release()
+            }
+
+            await expect(job.heartbeat()).rejects.toThrow('already released')
+        })
+
         it('heartbeat() extends last_heartbeat', async () => {
             const { id, job } = await seedAndDequeue()
 
@@ -2336,6 +2356,23 @@ describe('Cyclotron V2', () => {
                 // Counter stays at 1 — no new claim happened.
                 expect(await readTeamCounter(teamId)).toBe(1n)
             })
+
+            it('defer() sends a job to the back of its team turn and keeps its poison count and state', async () => {
+                const teamId = 5
+                const state = Buffer.from('{"queueMetadata":{"attachmentLoadTries":3}}')
+                const [deferredId] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, state }])
+                const [job] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
+                await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [deferredId])
+                const [newerId] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
+                const scheduledAt = new Date(Date.now() + 5_000)
+
+                await job.defer({ scheduledAt })
+
+                const row = await queryJob(deferredId)
+                expect(row).toMatchObject({ status: 'available', lock_id: null, janitor_touch_count: 2, state })
+                expect(new Date(row.scheduled)).toEqual(scheduledAt)
+                expect((await readDequeueSeq(deferredId))!).toBeGreaterThan((await readDequeueSeq(newerId))!)
+            })
         })
     })
 
@@ -2682,6 +2719,32 @@ describe('Cyclotron V2', () => {
             expect(result.poisoned).toBe(1)
             expect(recordTerminalFailureDurably).not.toHaveBeenCalled()
             expect((await queryJob(jobId)).status).toBe('failed')
+        })
+
+        it('gives up on a job that keeps stalling between deferrals', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: 'email', functionId: uuidv7() })
+            const worker = createWorker('email')
+            const { service } = createMockResults(true)
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2, stallBackoffBaseMs: 0 }, service)
+            const stallAndSweep = async (): Promise<CyclotronV2CleanupResult> => {
+                const [job] = await dequeueOneBatch(worker)
+                await job.defer({ scheduledAt: new Date(Date.now() - 1_000) })
+                await dequeueOneBatch(worker)
+                await assertPool.query(
+                    `UPDATE cyclotron_jobs SET last_heartbeat = NOW() - INTERVAL '1 minute' WHERE id = $1`,
+                    [id]
+                )
+                return janitor.runOnce()
+            }
+
+            try {
+                expect((await stallAndSweep()).stalled).toBe(1)
+                expect((await stallAndSweep()).stalled).toBe(1)
+                expect((await stallAndSweep()).poisonedIds).toEqual([id])
+            } finally {
+                await janitor.stop()
+                await worker.disconnect()
+            }
         })
 
         it('gives up on poison pills before stalled jobs are reset', async () => {

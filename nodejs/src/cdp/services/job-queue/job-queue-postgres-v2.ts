@@ -31,6 +31,10 @@ const jobLatenessHistogram = new Histogram({
     buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900],
 })
 
+// A stopping consumer waits this long for its result writes before it closes the pool. It covers one send with
+// files, whose deadline is 20 seconds, and stays under the pod's default termination grace of 30 seconds.
+export const RESULT_WRITE_DRAIN_TIMEOUT_MS = 25_000
+
 /**
  * State blob stored in the single `state` BYTEA column.
  * Mirrors the Kafka serialization: everything in one JSON object.
@@ -45,6 +49,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
+    private resultWrites = new Set<Promise<unknown>>()
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
 
     constructor(
@@ -128,6 +133,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             })
 
             const { backgroundTask } = await consumeBatch(invocations)
+            this.trackResultWrite(backgroundTask)
             void backgroundTask.catch((error) => {
                 resultWriteFailuresCounter.labels({ queue }).inc()
                 logger.warn('CyclotronV2 failed to write batch results', {
@@ -141,8 +147,29 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     }
 
     public async stopConsumer(): Promise<void> {
+        await this.worker?.stopConsuming()
+        await this.drainResultWrites()
         await this.worker?.disconnect()
         this.worker = undefined
+    }
+
+    private trackResultWrite(write: Promise<unknown>): void {
+        this.resultWrites.add(write)
+        void write.finally(() => this.resultWrites.delete(write)).catch(() => {})
+    }
+
+    private async drainResultWrites(): Promise<void> {
+        let timer: NodeJS.Timeout | undefined
+        const limit = new Promise<'timeout'>((resolve) => {
+            timer = setTimeout(() => resolve('timeout'), RESULT_WRITE_DRAIN_TIMEOUT_MS)
+        })
+        const outcome = await Promise.race([Promise.allSettled(this.resultWrites), limit])
+        clearTimeout(timer)
+        if (outcome === 'timeout') {
+            logger.warn('CyclotronV2 closed with result writes still running; the janitor resets their jobs', {
+                writes: this.resultWrites.size,
+            })
+        }
     }
 
     public async stopProducer(): Promise<void> {
@@ -228,35 +255,41 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                     return
                 }
 
-                this.pendingJobs.delete(result.invocation.id)
-
-                if (result.error) {
-                    await job.fail()
-                } else if (result.canceled) {
-                    await job.cancel()
-                } else if (result.finished) {
-                    await job.ack()
-                } else {
-                    const stateBuffer = serializeState(result.invocation)
-                    await job.reschedule({
-                        state: stateBuffer,
-                        scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
-                        distinctId: extractDistinctId(result.invocation),
-                        personId: extractPersonId(result.invocation),
-                        actionId: extractActionId(result.invocation),
-                        queueName: result.invocation.queue,
-                        // Persisted only across email-queue transitions: entering carries the
-                        // class routeEmailToQueue assigned, leaving restores the origin
-                        // priority. Elsewhere the row keeps its insert-time priority, so the
-                        // in-memory retry bumps on other queues stay unpersisted as before.
-                        priority:
-                            result.invocation.queue === 'email' || job.queueName === 'email'
-                                ? result.invocation.queuePriority
-                                : undefined,
-                    })
+                try {
+                    await this.writeResult(job, result)
+                } finally {
+                    this.pendingJobs.delete(result.invocation.id)
                 }
             })
         )
+    }
+
+    private async writeResult(job: CyclotronV2DequeuedJob, result: CyclotronJobInvocationResult): Promise<void> {
+        if (result.error) {
+            await job.fail()
+        } else if (result.canceled) {
+            await job.cancel()
+        } else if (result.finished) {
+            await job.ack()
+        } else {
+            const stateBuffer = serializeState(result.invocation)
+            await job.reschedule({
+                state: stateBuffer,
+                scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
+                distinctId: extractDistinctId(result.invocation),
+                personId: extractPersonId(result.invocation),
+                actionId: extractActionId(result.invocation),
+                queueName: result.invocation.queue,
+                // Persisted only across email-queue transitions: entering carries the
+                // class routeEmailToQueue assigned, leaving restores the origin
+                // priority. Elsewhere the row keeps its insert-time priority, so the
+                // in-memory retry bumps on other queues stay unpersisted as before.
+                priority:
+                    result.invocation.queue === 'email' || job.queueName === 'email'
+                        ? result.invocation.queuePriority
+                        : undefined,
+            })
+        }
     }
 
     public async dequeueInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
@@ -264,8 +297,11 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             invocations.map(async (inv) => {
                 const job = this.pendingJobs.get(inv.id)
                 if (job) {
-                    this.pendingJobs.delete(inv.id)
-                    await job.fail()
+                    try {
+                        await job.fail()
+                    } finally {
+                        this.pendingJobs.delete(inv.id)
+                    }
                 }
             })
         )
@@ -276,8 +312,11 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             invocations.map(async (inv) => {
                 const job = this.pendingJobs.get(inv.id)
                 if (job) {
-                    this.pendingJobs.delete(inv.id)
-                    await job.ack()
+                    try {
+                        await job.ack()
+                    } finally {
+                        this.pendingJobs.delete(inv.id)
+                    }
                 }
             })
         )

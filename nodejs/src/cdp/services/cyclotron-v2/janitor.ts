@@ -439,6 +439,7 @@ export class CyclotronV2Janitor {
             ack: () => Promise.resolve(),
             fail: () => Promise.resolve(),
             reschedule: () => Promise.resolve(),
+            defer: () => Promise.resolve(),
             cancel: () => Promise.resolve(),
             heartbeat: () => Promise.resolve(),
             bulkCreateAndCheckIn: () => Promise.resolve({ newJobIds: [] }),
