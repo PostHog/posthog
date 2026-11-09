@@ -124,9 +124,9 @@ It does not compare newer patch metadata from a remote service.
 
 The app icon, adaptive icon and favicon use the PostHog Desktop mobile host's logomark assets.
 The iOS `app.icon` bundle uses the transparent color logomark from MobileHog and the
-monochrome logomark from PostHog Desktop for Clear and Tinted. Its Dark layer uses the
-[official white square logomark](https://brand.posthog.com/logo/posthog-logomark-square-white.png),
-resized to 1024 × 1024.
+monochrome logomark from PostHog Desktop for Clear and Tinted. Its Dark layer uses the white
+logomark from `@posthog/brand` on the official square canvas. With `rsvg-convert` installed,
+run `pnpm brand:generate icon` from `products/mobile` to refresh the production, Dev, and Preview Dark layers.
 `splash-icon.png` is the gradient logomark from [brand.posthog.com](https://brand.posthog.com/logo),
 rendered from `frontend/src/assets/posthog-icon.svg` with `rsvg-convert -w 1040`.
 The in-app logomark and landscape lockup (`src/ui/icons/PostHogLogomark.tsx`, `PostHogLogo.tsx`)
