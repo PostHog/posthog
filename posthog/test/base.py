@@ -119,10 +119,9 @@ from posthog.models.event.sql import (
 )
 from posthog.models.event.util import ZERO_DATE, _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.exchange_rate.sql import (
-    DROP_EXCHANGE_RATE_DICTIONARY_SQL,
-    DROP_EXCHANGE_RATE_TABLE_SQL,
     EXCHANGE_RATE_DATA_BACKFILL_SQL,
     EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_NAME,
     EXCHANGE_RATE_TABLE_SQL,
 )
 from posthog.models.flag_evaluations.sql import (
@@ -2173,7 +2172,6 @@ def reset_clickhouse_database() -> None:
             DROP_SESSION_MATERIALIZED_VIEW_SQL(),
             DROP_SESSION_VIEW_SQL(),
             DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-            DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
             DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
             *[drop_sql() for drop_sql in DROP_CLEANUP_SNAPSHOT_TABLE_SQL],
@@ -2182,7 +2180,6 @@ def reset_clickhouse_database() -> None:
     run_clickhouse_statement_in_parallel(
         [
             DROP_CHANNEL_DEFINITION_TABLE_SQL,
-            DROP_EXCHANGE_RATE_TABLE_SQL(),
             DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
             *clickhouse_events_table_drop_statements(),
             DROP_PERSON_TABLE_SQL,
@@ -2288,10 +2285,11 @@ def reset_clickhouse_database() -> None:
             KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
         ]
     )
+    exchange_rates_seeded = sync_execute(f"SELECT count() FROM {EXCHANGE_RATE_TABLE_NAME}")[0][0] > 0
     run_clickhouse_statement_in_parallel(
         [
             CHANNEL_DEFINITION_DATA_SQL(),
-            EXCHANGE_RATE_DATA_BACKFILL_SQL(),
+            *([] if exchange_rates_seeded else [EXCHANGE_RATE_DATA_BACKFILL_SQL()]),
             RAW_SESSIONS_TABLE_MV_SQL(),
             RAW_SESSIONS_TABLE_MV_SQL_V3(),
             RAW_SESSIONS_TABLE_MV_RECORDINGS_SQL_V3(),
