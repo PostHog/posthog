@@ -4,8 +4,9 @@ per send, so sends get the workflow's metrics, run history and versions."""
 import re
 import json
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from datetime import datetime
 from email.utils import parseaddr
 from typing import Any, Literal, Protocol
 from uuid import UUID
@@ -20,11 +21,15 @@ from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
+    prepare_transactional_email_attachment_uploads,
     send_accepted_transactional_email,
     send_transactional_email as run_transactional_workflow,
 )
 
 from products.messaging.backend.facade.contracts import (
+    AttachmentUploadRequest,
+    AttachmentUploadSlot,
+    AttachmentUploadTarget,
     CodeEmail,
     ContentTooLarge,
     DeliveryUnavailable,
@@ -36,7 +41,9 @@ from products.messaging.backend.facade.contracts import (
     InvalidRecipient,
     InvalidRequest,
     MarketingTemplate,
+    MessageTooLarge,
     NamedSenderNotVerified,
+    PresentAttachment,
     QueuedEmail,
     QuotaLimited,
     RecipientSuppressed,
@@ -51,6 +58,7 @@ from products.messaging.backend.facade.contracts import (
     TooManyKeys,
     TransactionalEmailError,
     TransactionalEmailPaused,
+    UploadQuotaExceeded,
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
@@ -681,3 +689,42 @@ def _refusal_code(response: requests.Response) -> str | None:
         return None
     code = body.get("error") if isinstance(body, dict) else None
     return code if isinstance(code, str) else None
+
+
+def prepare_attachment_uploads(team: Team, files: Sequence[AttachmentUploadRequest]) -> list[AttachmentUploadSlot]:
+    payload = {"files": [{"sha256": file.sha256, "size": file.size} for file in files]}
+    try:
+        response = prepare_transactional_email_attachment_uploads(team.id, payload)
+    except Exception as e:
+        logger.exception("transactional_email_attachment_uploads_failed", team_id=team.id)
+        raise DeliveryUnavailable() from e
+    if response.status_code == 200:
+        return [_upload_slot(slot) for slot in response.json()["files"]]
+    refusal_code = _refusal_code(response)
+    if refusal_code == "field_not_accepted":
+        raise FieldNotAccepted("attachments")
+    if refusal_code == "message_too_large":
+        sha256 = response.json().get("sha256")
+        raise MessageTooLarge(sha256 if isinstance(sha256, str) else None)
+    if refusal_code == "upload_quota_exceeded":
+        raise UploadQuotaExceeded("This project uploaded as many file bytes as it can today.")
+    if response.status_code != 503:
+        logger.error(
+            "transactional_email_attachment_uploads_rejected",
+            team_id=team.id,
+            status_code=response.status_code,
+            refusal_code=refusal_code,
+        )
+    raise DeliveryUnavailable()
+
+
+def _upload_slot(slot: dict[str, Any]) -> AttachmentUploadSlot:
+    if slot["status"] == "present":
+        return PresentAttachment(sha256=slot["sha256"], expires_at=datetime.fromisoformat(slot["expires_at"]))
+    return AttachmentUploadTarget(
+        sha256=slot["sha256"],
+        url=slot["url"],
+        method=slot["method"],
+        headers=slot["headers"],
+        url_expires_at=datetime.fromisoformat(slot["url_expires_at"]),
+    )
