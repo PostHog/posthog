@@ -525,6 +525,15 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
             "arrayExists((v, d) -> d, [10, 20], [0, 1])",
             'any_match(zip_with(ARRAY[10, 20], ARRAY[0, 1], ("v", "d") -> CAST("d" AS BOOLEAN))',
         ),
+        ("(id > 0) = 1", '(CAST(("users"."id" > 0) AS INTEGER) = 1)'),
+        ("1 = (id > 0)", '(1 = CAST(("users"."id" > 0) AS INTEGER))'),
+        (
+            "(id > 0 AND user_id = 'a') = 1",
+            '(CAST(((("users"."id" > 0)) AND (("users"."user_id" = %(hogql_val_0)s))) AS INTEGER) = 1)',
+        ),
+        ("(id > 0) != 0", '(CAST(("users"."id" > 0) AS INTEGER) != 0)'),
+        ("(id > 0) = (id < 5)", '(("users"."id" > 0) = ("users"."id" < 5))'),
+        ("id = 1", '("users"."id" = 1)'),
     ],
 )
 def test_prints_core_trino_expression_mappings(expression: str, expected: str) -> None:
@@ -554,10 +563,38 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
             "WITH a AS (SELECT [toDate('2024-01-01')] AS days) SELECT arrayJoin(days) + 1 FROM a",
             'date_add(\'day\', CAST(1 AS BIGINT), "__trino_array_function_0"."value_0")',
         ),
+        (
+            "SELECT sumIf(id, flagged.is_active = 1) FROM flagged",
+            'FILTER (WHERE (CAST("flagged"."is_active" AS INTEGER) = 1))',
+        ),
+        (
+            "SELECT sumIf(id, f.is_active != 0) FROM flagged AS f",
+            'FILTER (WHERE (CAST("f"."is_active" AS INTEGER) != 0))',
+        ),
+        ("SELECT sumIf(id, flagged.score = 1) FROM flagged", 'FILTER (WHERE ("flagged"."score" = 1))'),
     ],
 )
 def test_derived_column_types_reach_type_dependent_lowerings(query: str, expected: str) -> None:
-    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+    context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="flagged",
+            table=SavedQuery(
+                id="flagged",
+                name="flagged",
+                query="SELECT id, id > 0 AND user_id != '' AS is_active, id AS score FROM users",
+                # Saved view columns come from ClickHouse, which reports a boolean expression as UInt8.
+                fields={
+                    "id": IntegerDatabaseField(name="id"),
+                    "is_active": IntegerDatabaseField(name="is_active"),
+                    "score": IntegerDatabaseField(name="score"),
+                },
+            ),
+        )
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
 
     assert expected in sql
 

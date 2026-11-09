@@ -3366,6 +3366,15 @@ dependencies = [
 
 [[package]]
 name = "cpp_demangle"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2bb79cb74d735044c972aae58ed0aaa9a837e85b01106a54c39e42e97f62253"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
+name = "cpp_demangle"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0667304c32ea56cb4cd6d2d7c0cfe9a2f8041229db8c033af7f8d69492429def"
@@ -3683,6 +3692,7 @@ dependencies = [
  "sqlx",
  "subtle",
  "symbolic",
+ "symbolic-demangle 13.9.0",
  "testcontainers",
  "thiserror 2.0.18",
  "tiktoken-rs",
@@ -5484,10 +5494,6 @@ name = "gimli"
 version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
-dependencies = [
- "fallible-iterator 0.3.0",
- "stable_deref_trait",
-]
 
 [[package]]
 name = "gimli"
@@ -5495,6 +5501,7 @@ version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf7f043f89559805f8c7cacc432749b2fa0d0a0a9ee46ce47164ed5ba7f126c"
 dependencies = [
+ "fallible-iterator 0.3.0",
  "stable_deref_trait",
 ]
 
@@ -5531,13 +5538,13 @@ dependencies = [
 
 [[package]]
 name = "goblin"
-version = "0.8.2"
+version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b363a30c165f666402fe6a3024d3bec7ebc898f96a4a23bd1c99f8dbf3f4f47"
+checksum = "17582616a7718cca54cec18e534a76c7c4aec11a8b9a85695712f262fd15a4c8"
 dependencies = [
  "log",
  "plain",
- "scroll 0.12.0",
+ "scroll 0.13.0",
 ]
 
 [[package]]
@@ -5878,7 +5885,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.110"
+version = "1.3.113"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -6985,9 +6992,9 @@ checksum = "72167d68f5fce3b8655487b8038691a3c9984ee769590f93f2a631f4ad64e4f5"
 
 [[package]]
 name = "js-source-scopes"
-version = "0.7.1"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dc7e2be10b8f747da5e63326e57955705b16f422b017a60c9bf1a67182cea64"
+checksum = "34ab3d2856a5b0a928d8aa637fa40fa734ebdfb8c4ff7f2055c0f15ae0f3ddfa"
 dependencies = [
  "indexmap 2.13.0",
  "sourcemap",
@@ -7947,9 +7954,9 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "memmap2"
-version = "0.9.10"
+version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "714098028fe011992e1c3962653c96b2d578c4b4bce9036e15ff220319b1e0e3"
+checksum = "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157"
 dependencies = [
  "libc",
 ]
@@ -8151,16 +8158,6 @@ checksum = "bb85c154ba489f01b25c0d36ae69a87e4a1c73a72631fc6c0eb6dde34a73e44b"
 dependencies = [
  "num-traits",
  "pxfm",
-]
-
-[[package]]
-name = "msvc-demangler"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbeff6bd154a309b2ada5639b2661ca6ae4599b34e8487dc276d2cd637da2d76"
-dependencies = [
- "bitflags 2.11.0",
- "itoa",
 ]
 
 [[package]]
@@ -10678,7 +10675,7 @@ dependencies = [
  "serde_json",
  "smallvec",
  "spin 0.12.3",
- "symbolic-demangle 13.6.1",
+ "symbolic-demangle 13.9.0",
  "tempfile",
  "thiserror 2.0.18",
  "url",
@@ -11963,22 +11960,22 @@ checksum = "04c565b551bafbef4157586fa379538366e4385d42082f255bfd96e4fe8519da"
 
 [[package]]
 name = "scroll"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ab8598aa408498679922eff7fa985c25d58a90771bd6be794434c5277eab1a6"
+checksum = "c1257cd4248b4132760d6524d6dda4e053bc648c9070b960929bf50cfb1e7add"
 dependencies = [
  "scroll_derive",
 ]
 
 [[package]]
 name = "scroll_derive"
-version = "0.12.1"
+version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1783eabc414609e28a5ba76aee5ddd52199f7107a0b24c2e9746a1ecc34a683d"
+checksum = "e1a36a382ed65dbcc0ab47fd5e9a94112417ccd34560a392ef3b7b0f0ec39148"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -13183,13 +13180,12 @@ dependencies = [
 
 [[package]]
 name = "symbolic"
-version = "12.17.2"
+version = "13.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a7418e0528510cf3b289a1250775e8c8b6a333bcdd01689133f68a818da798f"
+checksum = "4a2e2e8c4075e8c8527ca9ac6de2c94b03ea81efbb5a2edb6e7ff77fc2ab01dd"
 dependencies = [
- "symbolic-common 12.17.2",
+ "symbolic-common 13.9.0",
  "symbolic-debuginfo",
- "symbolic-demangle 12.17.2",
  "symbolic-sourcemapcache",
  "symbolic-symcache",
 ]
@@ -13208,9 +13204,9 @@ dependencies = [
 
 [[package]]
 name = "symbolic-common"
-version = "13.6.1"
+version = "13.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba98c95b1ff25ce40400d286f5dec838097ee42ad1bbd64242cce24c2baace8c"
+checksum = "ddfa0014ff4e423a1bb8881453c7a29181eb14fe1dbc8e0197ebfa081903f3ed"
 dependencies = [
  "debugid",
  "memmap2",
@@ -13220,29 +13216,30 @@ dependencies = [
 
 [[package]]
 name = "symbolic-debuginfo"
-version = "12.17.2"
+version = "13.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b31bd9264d07f393b10145300f7db000627d9b464705650da1b68448e6a7e72a"
+checksum = "a8d43fa61c285421813524f466b5ad9a81fb97a03d1a8bf02931588a2aa47434"
 dependencies = [
  "debugid",
  "elementtree",
  "elsa",
  "fallible-iterator 0.3.0",
  "flate2",
- "gimli 0.32.3",
+ "gimli 0.33.0",
  "goblin",
+ "memchr",
  "nom",
  "nom-supreme",
  "once_cell",
  "parking_lot",
  "pdb-addr2line",
  "regex",
- "scroll 0.12.0",
+ "scroll 0.13.0",
  "serde",
  "serde_json",
  "smallvec",
  "srcsrv",
- "symbolic-common 12.17.2",
+ "symbolic-common 13.9.0",
  "symbolic-ppdb",
  "thiserror 2.0.18",
  "wasmparser 0.243.0",
@@ -13256,34 +13253,35 @@ version = "12.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79b237cfbe320601dd24b4ac817a5b68bb28f5508e33f08d42be0682cadc8ac9"
 dependencies = [
- "cc",
- "cpp_demangle",
- "msvc-demangler",
+ "cpp_demangle 0.5.1",
  "rustc-demangle",
  "symbolic-common 12.17.2",
 ]
 
 [[package]]
 name = "symbolic-demangle"
-version = "13.6.1"
+version = "13.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c547b0231d1794aec8e4795dbb04c1d395ff774954f18e37d46d5a70f0ce4b2"
+checksum = "2a213276280a1a737ff5fb89ae2a70ba51d1d4608e74736beb92f257f125f1aa"
 dependencies = [
+ "bitflags 2.11.0",
+ "cpp_demangle 0.4.5",
+ "itoa",
  "rustc-demangle",
- "symbolic-common 13.6.1",
+ "symbolic-common 13.9.0",
 ]
 
 [[package]]
 name = "symbolic-ppdb"
-version = "12.17.2"
+version = "13.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80c4a143efd6e989aedf589fe1981ffaffef852dc143a813e02aaf57a3d23846"
+checksum = "1949ab1ac6caf9e1fde03d5bd35570727b2839fb399737171784ecf7dc4baa0e"
 dependencies = [
  "flate2",
  "indexmap 2.13.0",
  "serde",
  "serde_json",
- "symbolic-common 12.17.2",
+ "symbolic-common 13.9.0",
  "thiserror 2.0.18",
  "uuid",
  "watto",
@@ -13291,14 +13289,14 @@ dependencies = [
 
 [[package]]
 name = "symbolic-sourcemapcache"
-version = "12.17.2"
+version = "13.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bb896c4034e5daa65e0945b1d162006eaf5c56423b8f29e862d049197b49e6a"
+checksum = "af39f28364620bc9e3df9779da0b0f5fe4fa7c8fd9fabdc116df0c6e8d4a1d05"
 dependencies = [
  "itertools 0.14.0",
  "js-source-scopes",
  "sourcemap",
- "symbolic-common 12.17.2",
+ "symbolic-common 13.9.0",
  "thiserror 2.0.18",
  "tracing",
  "watto",
@@ -13306,12 +13304,12 @@ dependencies = [
 
 [[package]]
 name = "symbolic-symcache"
-version = "12.17.2"
+version = "13.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b14fe4ebcdce2b318d7b4f04d12e6c73c1504a59ed4423d90607aa7baa9ea37"
+checksum = "fec954acc3500a1f7b6b51607e0972b73c7694b581e6369c5f17a3e29e929fb7"
 dependencies = [
  "indexmap 2.13.0",
- "symbolic-common 12.17.2",
+ "symbolic-common 13.9.0",
  "symbolic-debuginfo",
  "thiserror 2.0.18",
  "tracing",
@@ -15868,8 +15866,3 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
-
-[[patch.unused]]
-name = "js-source-scopes"
-version = "0.6.0"
-source = "git+https://github.com/getsentry/js-source-scopes?rev=abea51a0e74840a8d1ec96a61ff36b488994f68c#abea51a0e74840a8d1ec96a61ff36b488994f68c"

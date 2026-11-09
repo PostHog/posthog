@@ -68,6 +68,7 @@ from posthog.auth import (
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.event_usage import report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, User
@@ -367,6 +368,8 @@ from products.signals.backend.throttles import (
     UserReportCreateBurstThrottle,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
+from products.signals.backend.trial.policy import TrialPolicy
+from products.signals.backend.trial.service import TrialService
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
@@ -683,7 +686,13 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             serializer.validated_data.get("source_product"), serializer.validated_data.get("source_type")
         )
         try:
-            instance = serializer.save(team_id=team_id, created_by=self.request.user)
+            with TrialService(self.team).enroll_on_activation(
+                user=cast(User, self.request.user),
+                enabled=serializer.validated_data.get("enabled", True),
+                parent_access_allowed=self._can_reach_canonical_team(),
+                api_scopes=get_authenticator_scopes(self.request.successful_authenticator),
+            ):
+                instance = serializer.save(team_id=team_id, created_by=self.request.user)
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
@@ -741,7 +750,13 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise serializers.ValidationError({field: f"{field} cannot be changed after creation."})
 
         try:
-            instance = serializer.save()
+            with TrialService(self.team).enroll_on_activation(
+                user=cast(User, self.request.user),
+                enabled=serializer.validated_data.get("enabled", False),
+                parent_access_allowed=self._can_reach_canonical_team(),
+                api_scopes=get_authenticator_scopes(self.request.successful_authenticator),
+            ):
+                instance = serializer.save()
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
@@ -1513,6 +1528,15 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
                 "sort=personal. The same flag arm sets this and the ranker. Null for every other sort."
             ),
         }
+        paginated["properties"]["source_metadata_available"] = {
+            "type": "boolean",
+            "description": (
+                "Whether the rows carry their source metadata. False when the request passed "
+                "include_source_metadata=false, or when the ClickHouse read failed or took too long. "
+                "Then each row has an empty source_products and a null scout_name that do not mean "
+                "the report has none. Load them with source_metadata."
+            ),
+        }
         return paginated
 
 
@@ -1842,6 +1866,7 @@ class SignalReportViewSet(
     scope_object = "inbox"
     queryset = SignalReport.objects.all()
     pagination_class = SignalReportListPagination
+    _source_metadata_available: bool = True
 
     request_dependent_scope_actions = frozenset({"claim", "bulk_claim"})
 
@@ -3286,6 +3311,7 @@ class SignalReportViewSet(
     def list(self, request: ValidatedRequest, *args, **kwargs):
         count_only: bool = request.validated_query_data["count_only"]
         include_source_metadata: bool = request.validated_query_data["include_source_metadata"]
+        self._source_metadata_available = include_source_metadata
         excluded = request.validated_query_data["exclude"]
         if count_only:
             # A count orders nothing, so it must not record a flag exposure for the ranker.
@@ -3362,6 +3388,7 @@ class SignalReportViewSet(
         if page is not None:
             response = self.get_paginated_response(data)
             response.data["ranker"] = self._inbox_ranker
+            response.data["source_metadata_available"] = self._source_metadata_available
             response.data["ranking_pill"] = (
                 self._recommended_arm.ranking_pill if self._recommended_arm is not None else None
             )
@@ -3432,11 +3459,22 @@ class SignalReportViewSet(
         # opts out and loads it after the rows render, so the page does not wait on ClickHouse.
         signal_meta_map: dict[str, ReportSignalMeta] = {}
         if include_source_metadata and report_ids:
+            timed_out = False
             with tracer.start_as_current_span("signals.reports.list.fetch_source_products"):
                 try:
-                    signal_meta_map = fetch_source_products_for_reports(self.team, report_ids)
+                    signal_meta_map = fetch_source_products_for_reports(
+                        self.team,
+                        report_ids,
+                        max_execution_time=settings.SIGNALS_REPORT_LIST_SOURCE_METADATA_TIMEOUT_SECONDS,
+                    )
+                except ClickHouseQueryTimeOut:
+                    timed_out = True
+                    self._source_metadata_available = False
+                    logger.warning("signals.reports.list.source_products_timed_out", report_count=len(report_ids))
                 except Exception:
+                    self._source_metadata_available = False
                     logger.exception("signals.reports.list.source_products_failed", report_count=len(report_ids))
+            trace.get_current_span().set_attribute("signals.reports.list.source_metadata_timed_out", timed_out)
 
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_prs"):
             try:
@@ -4922,19 +4960,13 @@ class SignalReportViewSet(
         if not self._signals_pr_refunds_enabled():
             raise NotFound("PR refunds are not enabled for this organization.")
 
-        org_id = str(self.organization.id)
-        usage_based_pricing = posthoganalytics.feature_enabled(
-            "self-driving-ubp",
-            org_id,
-            groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
-        )
-        if usage_based_pricing is True:
-            raise exceptions.PermissionDenied("PR refunds are not available with usage-based pricing.")
-        if usage_based_pricing is not False:
+        pricing = TrialPolicy(self.team).flag_decision()
+        if not pricing.confirmed:
             return Response(
                 {"detail": "Unable to determine pricing. Please try again."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
+        if pricing.enabled:
+            raise exceptions.PermissionDenied("PR refunds are not available with usage-based pricing.")
 
         report = cast(SignalReport, self.get_object())
         data = request.validated_data
