@@ -34,6 +34,7 @@ class SourceKind(StrEnum):
     WAREHOUSE_SOURCE = "warehouse_source"
     WAREHOUSE_DESTINATION = "warehouse_destination"
     METRICS = "metrics"
+    TRACES = "traces"
 
 
 @frozen
