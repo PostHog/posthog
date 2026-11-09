@@ -175,7 +175,7 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="test-owners",
-        label="test ownership (new directory of unowned tests, or a stale baseline entry)",
+        label="test ownership (new test with no team owner, or a stale baseline entry)",
         triggers=[*TEST_FILE_GLOBS, *OWNERSHIP_FILE_GLOBS],
         verify=None,
         run=check_test_owners,

@@ -122,6 +122,20 @@ class TestFindCandidates:
         if "team-other" in candidates:
             assert not candidates["team-other"].is_pinned
 
+    @parameterized.expand(
+        [
+            ("pytest", "posthog/api/test/test_team.py", False, set()),
+            ("jest", "frontend/src/scenes/toolbar-launch/toolbarLogic.test.ts", False, set()),
+            ("sensitive_test", "posthog/test/repo_invariants/test_guard.py", True, {"team-tests"}),
+        ]
+    )
+    def test_a_test_file_makes_its_owner_a_candidate_only_when_sensitive(
+        self, _name: str, path: str, sensitive: bool, expected: set[str]
+    ) -> None:
+        resolutions = {path: _resolution(path, ["team-tests"], sensitive=sensitive)}
+
+        assert {candidate.owner for candidate in find_candidates([_file(path)], resolutions)} == expected
+
     @parameterized.expand([("added", True), ("renamed", True), ("copied", True), ("modified", False)])
     def test_addition_pins_owners_of_additions(self, status: str, expect_pin: bool) -> None:
         path = "products/new_thing/backend/api.py"

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date
 from pathlib import Path
 
 import pytest
 
+from click.testing import CliRunner
 from hogli_commands import ownership_lint
 from hogli_commands.preflight_checks import Scope
 
@@ -34,7 +34,6 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git: Callable[..., str
     git(tmp_path, "add", "-A")
     git(tmp_path, "commit", "-q", "-m", "init")
     monkeypatch.setattr(ownership_lint, "REPO_ROOT", tmp_path)
-    monkeypatch.setattr(ownership_lint, "BLOCKING_FROM", date.min)
     return tmp_path
 
 
@@ -46,30 +45,16 @@ def _check(*files: str, committed_only: bool = False) -> tuple[str, str]:
 
 class TestCheckTestOwners:
     @pytest.mark.parametrize(
-        ("baseline", "blocking_from", "status", "named"),
+        ("baseline", "status", "named"),
         [
-            pytest.param("nobody\nperson\n", date.min, "pass", None, id="baseline_matches"),
-            pytest.param("nobody\n", date.min, "fail", "person holds tests", id="person_only_owner_is_a_new_gap"),
-            pytest.param("nobody\n", date.max, "warning", "not blocking until", id="new_gap_warns_in_the_grace_period"),
-            pytest.param(
-                "nobody\nperson\nteam\n",
-                date.max,
-                "fail",
-                "team has no unowned tests left",
-                id="stale_entry_fails_in_the_grace_period",
-            ),
+            pytest.param("nobody\nperson\n", "pass", None, id="baseline_matches"),
+            pytest.param("nobody\n", "warning", "person holds tests", id="person_only_owner_is_a_new_gap"),
+            pytest.param("nobody\nperson\nteam\n", "warning", "team has no unowned tests left", id="stale_entry"),
         ],
     )
     def test_compares_unowned_test_directories_with_the_baseline(
-        self,
-        repo: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        baseline: str,
-        blocking_from: date,
-        status: str,
-        named: str | None,
+        self, repo: Path, baseline: str, status: str, named: str | None
     ) -> None:
-        monkeypatch.setattr(ownership_lint, "BLOCKING_FROM", blocking_from)
         (repo / ownership_lint.BASELINE).write_text(baseline)
 
         result_status, detail = _check(str(ownership_lint.BASELINE))
@@ -81,7 +66,7 @@ class TestCheckTestOwners:
         ("path", "committed_only", "status"),
         [
             pytest.param("helpers/test_fixtures/util.py", False, "pass", id="non_test_file_skips_the_scan"),
-            pytest.param("elsewhere/test_new.py", False, "fail", id="untracked_test_is_scanned_locally"),
+            pytest.param("elsewhere/test_new.py", False, "warning", id="untracked_test_is_scanned_locally"),
             pytest.param("elsewhere/test_new.py", True, "pass", id="untracked_test_is_not_in_the_push"),
         ],
     )
@@ -96,7 +81,7 @@ class TestCheckTestOwners:
         ("committed_only", "status"),
         [
             pytest.param(True, "pass", id="strict_reads_head"),
-            pytest.param(False, "fail", id="local_reads_the_working_tree"),
+            pytest.param(False, "warning", id="local_reads_the_working_tree"),
         ],
     )
     def test_an_uncommitted_owners_yaml_counts_only_locally(
@@ -108,3 +93,24 @@ class TestCheckTestOwners:
 
         assert result_status == status
         assert status == "pass" or "nobody has no unowned tests left" in detail
+
+
+class TestLintTestOwners:
+    @pytest.mark.parametrize(
+        ("path", "exit_code"),
+        [
+            pytest.param("nobody/test_new.py", 1, id="new_test_in_a_baseline_directory_fails"),
+            pytest.param("team/test_new.py", 0, id="new_test_with_a_team_owner_passes"),
+        ],
+    )
+    def test_checks_each_test_file_the_branch_adds(
+        self, repo: Path, git: Callable[..., str], path: str, exit_code: int
+    ) -> None:
+        (repo / path).write_text("def test_y():\n    pass\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "add a test")
+
+        result = CliRunner().invoke(ownership_lint.cmd_lint_test_owners, ["--against", "HEAD~1", "--committed"])
+
+        assert result.exit_code == exit_code
+        assert exit_code == 0 or f"{path} is a new test that no team owns" in result.output

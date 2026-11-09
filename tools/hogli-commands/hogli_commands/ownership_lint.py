@@ -1,6 +1,7 @@
-"""Compare the directories that hold unowned tests with the baseline.
+"""Find tests that no team owns: new test files, and directories missing from the baseline.
 
-Shared by test_unowned_test_directories.py (the CI gate) and the `test-owners` preflight check.
+Shared by the CI gates (test_unowned_test_directories.py and `hogli lint:test-owners`) and the
+`test-owners` preflight check.
 """
 
 from __future__ import annotations
@@ -8,11 +9,12 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 
+import click
 from hogli.manifest import REPO_ROOT
 from owners_yaml import GitRefSource, OwnersResolver, runner_for_path, unowned_test_directories
+from owners_yaml.census import UNOWNED_TEAM, owning_team
 from owners_yaml.schema import DEFAULT_ALIAS_FILES, OWNERS_FILENAME
 
 from hogli_commands.change_detection import matches_globs
@@ -20,7 +22,6 @@ from hogli_commands.preflight_checks import Outcome, Scope
 
 BASELINE = Path("posthog/test/repo_invariants/unowned_test_directories_baseline.txt")
 PRUNE = "PYTHONPATH=.:tools/hogli-commands python posthog/test/repo_invariants/test_unowned_test_directories.py"
-BLOCKING_FROM = date.fromisoformat("2026-11-11")
 
 # fnmatch: `*` spans `/`.
 TEST_FILE_GLOBS = (
@@ -84,16 +85,51 @@ def drift_problems(drift: BaselineDrift) -> list[str]:
     ]
 
 
+def unowned_new_tests(merge_base: str, committed_only: bool = False) -> list[str]:
+    """Test files that are absent at `merge_base` and that no team owns.
+
+    The baseline lists directories, so this is what stops a new unowned test in a listed directory.
+    A moved test counts as new.
+    """
+    resolver, files = _tree(committed_only)
+    new = set(files) - GitRefSource(REPO_ROOT, ref=merge_base).files
+    return sorted(path for path in new if runner_for_path(path) and owning_team(resolver.resolve(path)) == UNOWNED_TEAM)
+
+
+def new_test_problems(paths: Iterable[str]) -> list[str]:
+    return [f"{path} is a new test that no team owns: name the team in its nearest owners.yaml" for path in paths]
+
+
 def check_test_owners(scope: Scope) -> Outcome:
     # `*/test_*.py` also matches `test_utils/foo.py`.
     if not any(runner_for_path(path) or matches_globs(path, OWNERSHIP_FILE_GLOBS) for path in scope.files):
         return "pass", "no test or ownership file changed"
-    drift = baseline_drift(scope.committed_only)
-    problems = drift_problems(drift)
+    problems = [
+        *new_test_problems(unowned_new_tests(scope.merge_base, scope.committed_only)),
+        *drift_problems(baseline_drift(scope.committed_only)),
+    ]
     if not problems:
-        return "pass", "no new directory of unowned tests"
+        return "pass", "every new test has a team owner"
     detail = " · ".join(problems[:3]) + (f" · and {len(problems) - 3} more" if len(problems) > 3 else "")
-    # Mirrors enforce_baseline in posthog/test/repo_invariants/ratchet.py.
-    if drift.removed or date.today() >= BLOCKING_FROM:
-        return "fail", detail
-    return "warning", f"not blocking until {BLOCKING_FROM.isoformat()}: {detail}"
+    # The baseline scan covers the whole tree, so a gap that another branch left on master would block
+    # every push that touches a test. CI rejects these problems, and this check only warns before the push.
+    return "warning", detail
+
+
+@click.command(name="lint:test-owners", help="Fail when the branch adds a test file that no team owns.")
+@click.option("--against", default="origin/master", show_default=True, help="Diff base ref.")
+@click.option("--committed", is_flag=True, help="Check commits only, not the working tree.")
+def cmd_lint_test_owners(against: str, committed: bool) -> None:
+    merge_base = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "merge-base", against, "HEAD"], capture_output=True, text=True
+    ).stdout.strip()
+    if not merge_base:
+        raise click.ClickException(f"no merge base with {against}")
+    problems = new_test_problems(unowned_new_tests(merge_base, committed))
+    for problem in problems:
+        click.echo(problem)
+    if problems:
+        click.echo(
+            "A failing test with no team owner reaches nobody. `hogli owners:who <path>` shows which owners.yaml applies."
+        )
+        raise SystemExit(1)

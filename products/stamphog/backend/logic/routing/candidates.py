@@ -10,7 +10,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import field
 from pathlib import PurePosixPath
 
-from owners_yaml import Resolution, path_matches_pattern
+from owners_yaml import Resolution, path_matches_pattern, runner_for_path
 
 from posthog.dataclasses import frozen
 
@@ -181,7 +181,14 @@ class _CandidateCollector:
 
 
 def _collect_owned(collector: _CandidateCollector, file: ChangedFile, resolution: Resolution | None) -> None:
-    if resolution is None or is_excluded(file.path) or _is_generated_or_vendored(file.path, resolution):
+    # A team owns a test so that the test's failures and flakes reach it, not so that it reviews every
+    # change to the test. Sensitive and newly added paths still pin their owners.
+    if (
+        resolution is None
+        or is_excluded(file.path)
+        or _is_generated_or_vendored(file.path, resolution)
+        or runner_for_path(file.path)
+    ):
         return
     for owner in resolution.owners or []:
         collector.add(owner, file, source=resolution.source)

@@ -203,6 +203,15 @@ function isGeneratedOrVendored(filename, resolution) {
     )
 }
 
+// A team owns a test so that the test's failures and flakes reach it, not so that it reviews every
+// change to the test. Sensitive and newly added paths still request their owners.
+// Keep in step with runner_for_path in packages/owners-yaml/owners_yaml/census.py.
+const TEST_FILE = /(^|\/)test_[^/]*\.py$|_test\.py$|\.(test|spec)\.[jt]sx?$/
+
+function isTestFile(filename) {
+    return TEST_FILE.test(filename)
+}
+
 // Build a footprint per owner from the resolver's per-file result: which
 // owners.yaml/product.yaml sources pulled them in, which (non-excluded) files
 // they own in this diff, and the total lines changed across those files. Pure
@@ -214,7 +223,7 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
 
     for (const file of relevantFiles) {
         const resolution = resolutionByPath[file.filename]
-        if (isGeneratedOrVendored(file.filename, resolution)) {
+        if (isGeneratedOrVendored(file.filename, resolution) || isTestFile(file.filename)) {
             continue
         }
         const owners = (resolution && resolution.owners) || []
