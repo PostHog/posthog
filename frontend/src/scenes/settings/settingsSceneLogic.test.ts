@@ -247,6 +247,20 @@ describe('settingsSceneLogic', () => {
         expect(router.values.location.pathname).toContain('/settings/organization-teapot')
     })
 
+    it.each([
+        ['/settings/organization-billing', '/organization/billing'],
+        ['/settings/organization-legal-documents', '/organization/legal'],
+        ['/settings/organization-startup-program', '/organization/startups'],
+        ['/settings/environment-exports', '/exports'],
+        ['/settings/project-exports', '/exports'],
+    ])('sends %s on to the page of its own', async (settingsUrl, page) => {
+        router.actions.push(settingsUrl, {}, { [settingsUrl.split('/').pop() as string]: true })
+        await expectLogic(logic).delay(10)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(page)
+        expect(router.values.hashParams).toEqual({})
+    })
+
     it('does not bounce a level-only URL when already on a section at that level', async () => {
         router.actions.push('/settings/project-autocapture')
         await expectLogic(logic).toMatchValues({
@@ -280,5 +294,16 @@ describe('settingsSceneLogic on a cold page load', () => {
             selectedSectionId: 'organization-members',
         })
         expect(router.values.location.pathname).toContain('/settings/organization-members')
+    })
+
+    it('sends a section with a page of its own on to that page', async () => {
+        initKeaTests()
+        router.actions.push('/settings/organization-billing', {}, { 'organization-billing': true })
+
+        const logic = settingsSceneLogic()
+        logic.mount()
+        await expectLogic(logic).delay(10)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/organization/billing')
     })
 })
