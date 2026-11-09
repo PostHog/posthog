@@ -860,14 +860,14 @@ BATCH_EXPORT_WORKFLOW_TYPES = {
 }
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- one caller unpacks it straight into the log_source and log_source_id columns
 def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str, str]:
     """Resolves `log_source` and `log_source_id` from workflow parameters.
 
     This function is used to resolve parameters for ingesting logs into the
     `log_entries` table.
 
-    When a new product/feature is developed, a new branch should be added in this
-    function if logs are to be produced correctly to `log_entries`.
+    When a new product/feature needs its own `log_source`, add a branch in this function.
 
     The resolution is fairly hard-coded as every product/feature defines its own
     `log_source` and `log_source_id`. So, we concentrate the hard-coded resolution here

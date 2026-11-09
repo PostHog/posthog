@@ -312,7 +312,9 @@ By default, the logger you get from `structlog.get_logger` is configured to do b
 > Do note that producing logs requires extra configuration to fit the `log_entries` table schema:
 >
 > - A `team_id` must be set somewhere in the context.
-> - The function `resolve_log_source` in `posthog/temporal/common/logger.py` must be configured to resolve a `log_source` from your workflow's ID and type.
+> - The function `resolve_log_source` in `posthog/temporal/common/logger.py` resolves a `log_source` from your workflow's ID and type.
+>   A workflow type with no branch there gets the `temporal_workflow` source, with the workflow type as its `log_source_id`.
+>   Add a branch when your product needs its own source.
 >   That being said, we want logging to be there when you need it, but otherwise get out of the way. For this reason, writing logs to stdout will always work, regardless of whether the requirements for log production are met or not. Moreover, if the requirements for log production are not met, log production will not crash your workflows.
 
 > [!TIP]
