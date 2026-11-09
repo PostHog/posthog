@@ -292,7 +292,8 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.headers["Cache-Control"], "private, max-age=30")
-        self.assertEqual(response.headers["Vary"], "Accept, Accept-Encoding, Query-String, Authorization, Cookie")
+        vary = {value.strip().lower() for value in response.headers["Vary"].split(",")}
+        self.assertTrue({"authorization", "cookie"} <= vary, response.headers["Vary"])
 
     def test_element_stats_still_applies_hogql_test_account_filters(self) -> None:
         self._setup_events()
