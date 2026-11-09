@@ -45,6 +45,20 @@ class InsightPlatformAlertSourceConfig(BaseModel):
     condition: InsightPlatformAlertCondition = Field(
         ..., description="The bound the insight's value is checked against."
     )
+    config: dict[str, Any] | None = Field(
+        default=None,
+        description="Which part of the insight the alert reads, such as the series and whether the current "
+        "interval counts. It can't change through this API.",
+    )
+    skip_weekend: bool = Field(
+        default=False, description="Whether checks skip Saturdays and Sundays. It can't change through this API."
+    )
+    evaluation_delay_intervals: int = Field(
+        default=0,
+        ge=0,
+        description="How many of the most recent intervals a check leaves out, so late data can arrive. "
+        "It can't change through this API.",
+    )
 
 
 def validate_insight_edit(edit: PlatformAlertConfigurationEdit) -> None:

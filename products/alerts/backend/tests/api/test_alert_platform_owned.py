@@ -347,19 +347,22 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}),
+            ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}, {}),
             # The insight API checks a detector against its insight and its access rules, so only it may set one.
-            ("detector", {"detector": {"type": "zscore"}}),
+            ("detector", {"detector": {"type": "zscore"}}, {}),
+            ("series", {}, {"config": {"type": "TrendsAlertConfig", "series_index": 1}}),
+            ("skip_weekend", {}, {"skip_weekend": True}),
+            ("evaluation_delay", {}, {"evaluation_delay_intervals": 3}),
         ]
     )
     def test_a_platform_edit_the_insight_stack_cannot_check_is_refused_on_both_rows(
-        self, _name: str, condition_change: dict[str, Any]
+        self, _name: str, condition_change: dict[str, Any], settings_change: dict[str, Any]
     ) -> None:
         stored_config = self._copy().source_config
 
         def edit(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
             condition = {**stored.source_config["condition"], **condition_change}
-            return replace(stored, source_config={**stored.source_config, "condition": condition})
+            return replace(stored, source_config={**stored.source_config, **settings_change, "condition": condition})
 
         with pytest.raises(InvalidPlatformAlertEdit):
             self._edit_on_the_platform(edit)
