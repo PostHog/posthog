@@ -17,4 +17,6 @@ export interface JobQueue {
     queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void>
     dequeueInvocations(invocations: CyclotronJobInvocation[]): Promise<void>
     heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void>
+    // Hands dequeued jobs back for a later run without spending a retry, because this worker has no room for them now.
+    deferInvocations(deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]): Promise<void>
 }

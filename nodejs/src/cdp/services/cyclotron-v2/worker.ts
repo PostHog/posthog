@@ -569,20 +569,19 @@ export class CyclotronV2Worker {
                 })
             },
 
-            async defer({ scheduledAt }: { scheduledAt: Date }): Promise<void> {
+            async defer({ scheduledAt, state }: { scheduledAt: Date; state?: Buffer }): Promise<void> {
                 await release('defer', async () => {
-                    const params: any[] = [row.id, lockId, scheduledAt]
-                    if (row.queue_name === 'email') {
-                        params.push(await assignEmailDequeueSeq(pool, row.team_id))
-                    }
+                    const dequeueSeq =
+                        row.queue_name === 'email' ? await assignEmailDequeueSeq(pool, row.team_id) : null
                     await pool.query(
                         `UPDATE cyclotron_jobs
                          SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                              last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
-                             scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END
-                             ${params.length === 4 ? ', dequeue_seq = $4' : ''}
+                             scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END,
+                             dequeue_seq = COALESCE($4, dequeue_seq),
+                             state = COALESCE($5, state)
                          WHERE id = $1 AND lock_id = $2`,
-                        params
+                        [row.id, lockId, scheduledAt, dequeueSeq, state ?? null]
                     )
                 })
             },

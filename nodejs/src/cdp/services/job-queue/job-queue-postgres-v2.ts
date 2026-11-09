@@ -27,7 +27,7 @@ const resultWriteFailuresCounter = new Counter({
 const jobLatenessHistogram = new Histogram({
     name: 'cdp_cyclotron_job_lateness_seconds',
     help: 'Seconds between a postgres-v2 job becoming due and a worker dequeuing it',
-    labelNames: ['queue'],
+    labelNames: ['queue', 'wait'],
     buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900],
 })
 
@@ -133,12 +133,14 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         await this.worker.connect(async (jobs) => {
             const invocations: CyclotronJobInvocation[] = []
             const now = Date.now()
-            const jobLateness = jobLatenessHistogram.labels({ queue })
 
             for (const job of jobs) {
                 this.pendingJobs.set(job.id, job)
-                invocations.push(v2JobToInvocation(job))
-                jobLateness.observe(Math.max(0, now - job.scheduled.toMillis()) / 1000)
+                const invocation = v2JobToInvocation(job)
+                invocations.push(invocation)
+                jobLatenessHistogram
+                    .labels({ queue, wait: invocation.queueMetadata?.attachmentDeferrals ? 'deferred' : 'scheduled' })
+                    .observe(Math.max(0, now - job.scheduled.toMillis()) / 1000)
             }
 
             pendingJobsGauge.set(this.pendingJobs.size)
@@ -349,6 +351,23 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 if (job) {
                     try {
                         await this.trackWrite(job.ack())
+                    } finally {
+                        this.forgetPendingJob(job)
+                    }
+                }
+            })
+        )
+    }
+
+    public async deferInvocations(
+        deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]
+    ): Promise<void> {
+        await Promise.all(
+            deferrals.map(async ({ invocation, scheduledAt }) => {
+                const job = this.pendingJobs.get(invocation.id)
+                if (job) {
+                    try {
+                        await this.trackWrite(job.defer({ scheduledAt, state: serializeState(invocation) }))
                     } finally {
                         this.forgetPendingJob(job)
                     }

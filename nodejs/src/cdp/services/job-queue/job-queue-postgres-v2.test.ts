@@ -345,6 +345,66 @@ describe('CyclotronJobQueuePostgresV2', () => {
         })
     })
 
+    describe('deferInvocations', () => {
+        async function latenessSamples(wait: string): Promise<number> {
+            const metric = register.getSingleMetric('cdp_cyclotron_job_lateness_seconds')
+            const samples = metric ? (await metric.get()).values : []
+            return (
+                samples.find(
+                    (sample) =>
+                        sample.metricName === 'cdp_cyclotron_job_lateness_seconds_count' &&
+                        sample.labels.queue === 'email' &&
+                        sample.labels.wait === wait
+                )?.value ?? 0
+            )
+        }
+
+        it('hands a job back with its deferral count, and counts its next dequeue as deferred lateness', async () => {
+            const { queue } = createQueue()
+            let consume: (jobs: CyclotronV2DequeuedJob[]) => Promise<void> = () => Promise.resolve()
+            jest.spyOn(queue as any, 'createWorker').mockReturnValue({
+                connect: (fn: typeof consume) => {
+                    consume = fn
+                    return Promise.resolve()
+                },
+            })
+            await queue.startAsConsumer('email', () => Promise.resolve({ backgroundTask: Promise.resolve() }))
+            const job = createDequeuedJob({ queueName: 'email', defer: jest.fn().mockResolvedValue(undefined) })
+            ;(queue as any).pendingJobs.set(job.id, job)
+            const scheduledAt = new Date(Date.now() + 5_000)
+
+            await queue.deferInvocations([
+                {
+                    invocation: {
+                        ...baseInvocation,
+                        id: job.id,
+                        queue: 'email',
+                        queueMetadata: { attachmentDeferrals: 1 },
+                    },
+                    scheduledAt,
+                },
+            ])
+
+            expect(job.defer).toHaveBeenCalledWith({ scheduledAt, state: expect.any(Buffer) })
+            expect((queue as any).pendingJobs.has(job.id)).toBe(false)
+            const [[{ state }]] = job.defer.mock.calls
+            const before = {
+                deferred: await latenessSamples('deferred'),
+                scheduled: await latenessSamples('scheduled'),
+            }
+            const dequeued = (overrides: Record<string, any>) =>
+                createDequeuedJob({
+                    queueName: 'email',
+                    scheduled: DateTime.now(),
+                    created: DateTime.now(),
+                    ...overrides,
+                }) as unknown as CyclotronV2DequeuedJob
+            await consume([dequeued({ id: job.id, state }), dequeued({})])
+            expect(await latenessSamples('deferred')).toBe(before.deferred + 1)
+            expect(await latenessSamples('scheduled')).toBe(before.scheduled + 1)
+        })
+    })
+
     describe('releaseInvocations', () => {
         it('should call ack and remove from pending', async () => {
             const { queue } = createQueue()

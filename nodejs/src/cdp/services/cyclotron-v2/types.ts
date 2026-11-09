@@ -102,8 +102,8 @@ export interface CyclotronV2DequeuedJob {
     reschedule(options?: CyclotronV2RescheduleOptions): Promise<void>
     // Hands the job back unchanged for a later run, because this worker has no room for it now. Unlike reschedule()
     // it keeps janitor_touch_count, so a job that keeps killing workers is still poisoned, and an email job goes to
-    // the back of its team's turn.
-    defer(options: { scheduledAt: Date }): Promise<void>
+    // the back of its team's turn. A given state replaces the stored one.
+    defer(options: { scheduledAt: Date; state?: Buffer }): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
     // `cancelRequested: true` means the check-in was refused: a cancel flag landed on this

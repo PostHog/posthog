@@ -16,6 +16,8 @@ import { Counter } from 'prom-client'
 import { CdpConfig } from '~/cdp/config'
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 
+import { holdUntilSettled } from './in-flight-registry'
+
 const DAY_MS = 24 * 60 * 60 * 1000
 // The bucket's one lifecycle rule deletes an object this long after its creation. A self-copy resets the creation.
 export const ATTACHMENT_LIFETIME_MS = 37 * DAY_MS
@@ -269,7 +271,10 @@ const expiryOf = (head: HeadObjectCommandOutput): Date =>
 // would hold the call past its deadline. Signing takes no signal at all.
 export function settleBefore<T>(signal: AbortSignal, promise: Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-        const abort = (): void => reject(signal.reason)
+        const abort = (): void => {
+            holdUntilSettled(promise)
+            reject(signal.reason)
+        }
         promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
         if (signal.aborted) {
             abort()

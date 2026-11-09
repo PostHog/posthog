@@ -2357,7 +2357,10 @@ describe('Cyclotron V2', () => {
                 expect(await readTeamCounter(teamId)).toBe(1n)
             })
 
-            it('defer() sends a job to the back of its team turn and keeps its poison count and state', async () => {
+            it.each([
+                ['keeps its state when given none', undefined],
+                ['stores the state it is given', Buffer.from('{"queueMetadata":{"attachmentDeferrals":1}}')],
+            ])('defer() sends a job to the back of its team turn, keeps its poison count, and %s', async (_, given) => {
                 const teamId = 5
                 const state = Buffer.from('{"queueMetadata":{"attachmentLoadTries":3}}')
                 const [deferredId] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, state }])
@@ -2366,10 +2369,15 @@ describe('Cyclotron V2', () => {
                 const [newerId] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
                 const scheduledAt = new Date(Date.now() + 5_000)
 
-                await job.defer({ scheduledAt })
+                await job.defer({ scheduledAt, state: given })
 
                 const row = await queryJob(deferredId)
-                expect(row).toMatchObject({ status: 'available', lock_id: null, janitor_touch_count: 2, state })
+                expect(row).toMatchObject({
+                    status: 'available',
+                    lock_id: null,
+                    janitor_touch_count: 2,
+                    state: given ?? state,
+                })
                 expect(new Date(row.scheduled)).toEqual(scheduledAt)
                 expect((await readDequeueSeq(deferredId))!).toBeGreaterThan((await readDequeueSeq(newerId))!)
             })

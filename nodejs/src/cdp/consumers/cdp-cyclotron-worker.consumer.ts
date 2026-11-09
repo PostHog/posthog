@@ -229,7 +229,7 @@ export class CdpCyclotronWorker<
         return { backgroundTask, invocationResults }
     }
 
-    private startPeriodicHeartbeat(invocations: CyclotronJobInvocation[]): () => void {
+    protected startPeriodicHeartbeat(invocations: CyclotronJobInvocation[]): () => void {
         const intervalMs = this.config.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS
         if (intervalMs <= 0) {
             return () => {}
@@ -243,7 +243,7 @@ export class CdpCyclotronWorker<
     }
 
     @instrumented({ key: 'cdpConsumer.backgroundTask', timeoutMs: 30_000, sendException: false })
-    private async runBackgroundTasks(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
+    protected async runBackgroundTasks(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         await this.queueInvocationResults(invocationResults)
 
         // After this point we parallelize and any issues are logged rather than thrown
