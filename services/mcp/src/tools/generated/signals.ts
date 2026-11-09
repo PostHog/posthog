@@ -972,6 +972,44 @@ const inboxReportsRetrieve = (): ToolBase<
     },
 })
 
+const InboxReportsSearchSchema = () => {
+    const SignalsReportsSearchQueryParams = orvalSchemas.SignalsReportsSearchQueryParams()
+    return SignalsReportsSearchQueryParams
+}
+
+const inboxReportsSearch = (): ToolBase<
+    ReturnType<typeof InboxReportsSearchSchema>,
+    WithPostHogUrl<Schemas.SignalReportSearchResponse>
+> => ({
+    name: 'inbox-reports-search',
+    schema: InboxReportsSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsSearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalReportSearchResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/search/`,
+            query: {
+                created_after: params.created_after,
+                include_unlisted: params.include_unlisted,
+                limit: params.limit,
+                query: params.query,
+                search_mode: params.search_mode,
+                status: params.status,
+            },
+        })
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
+                ),
+            },
+            '/inbox'
+        )
+    },
+})
+
 const InboxReportsSetStateSchema = () => {
     const SignalsReportsStateCreateBody = orvalSchemas.SignalsReportsStateCreateBody()
     const SignalsReportsStateCreateParams = orvalSchemas.SignalsReportsStateCreateParams()
@@ -3824,6 +3862,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,
     'inbox-reports-retrieve': inboxReportsRetrieve,
+    'inbox-reports-search': inboxReportsSearch,
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-reports-update': inboxReportsUpdate,
     'inbox-reviewer-exclusions-create': inboxReviewerExclusionsCreate,
