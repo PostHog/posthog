@@ -41,6 +41,8 @@ const CODE_EMAILS = `/api/projects/${TEAM_ID}/transactional_code_emails/`
 
 describe('transactionalEmailsLogic', () => {
     let logic: ReturnType<typeof transactionalEmailsLogic.build>
+    const codeRow = (): TransactionalEmailRow =>
+        logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!
     let writes: { path: string; tags: string[] }[]
 
     beforeEach(async () => {
@@ -208,19 +210,56 @@ describe('transactionalEmailsLogic', () => {
         }
     })
 
-    it('reads back the stored tags of an email sent from code when its tag save fails', async () => {
-        useMocks({
-            patch: { [`${CODE_EMAILS}:id/`]: () => [500, { detail: 'Unavailable' }] },
-            get: { [`${CODE_EMAILS}:id/`]: () => [200, codeEmail('k', 'password-changed', ['auth'])] },
-        })
+    it.each([200, 500])(
+        'shows the stored tags of an email sent from code when its tag save fails and the read-back answers %s',
+        async (status) => {
+            useMocks({
+                patch: { [`${CODE_EMAILS}:id/`]: () => [500, { detail: 'Unavailable' }] },
+                get: { [`${CODE_EMAILS}:id/`]: () => [status, codeEmail('k', 'password-changed', ['auth'])] },
+            })
 
-        logic.actions.saveTransactionalTags(
-            logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!,
-            ['auth', 'security']
-        )
-        await expectLogic(logic).toFinishAllListeners()
+            logic.actions.saveTransactionalTags(codeRow(), ['auth', 'security'])
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!.tags).toEqual(['auth'])
-        expect(logic.values.savingTagsFor).toBeNull()
-    })
+            expect(codeRow().tags).toEqual(['auth'])
+            expect(logic.values.savingTagsFor).toBeNull()
+        }
+    )
+
+    it.each([200, 500])(
+        'keeps a newer tag edit when the read-back of a failed save answers %s after it',
+        async (status) => {
+            let patches = 0
+            let readBackStarted: () => void = () => {}
+            const readBack = new Promise<void>((resolve) => (readBackStarted = resolve))
+            let newerSaved: () => void = () => {}
+            const saved = new Promise<void>((resolve) => (newerSaved = resolve))
+            useMocks({
+                patch: {
+                    [`${CODE_EMAILS}:id/`]: async ({ request, params }) => {
+                        const { tags } = (await request.json()) as { tags: string[] }
+                        if (++patches === 1) {
+                            return [500, { detail: 'Unavailable' }]
+                        }
+                        newerSaved()
+                        return [200, codeEmail(String(params.id), 'password-changed', tags)]
+                    },
+                },
+                get: {
+                    [`${CODE_EMAILS}:id/`]: async () => {
+                        readBackStarted()
+                        await saved
+                        return [status, codeEmail('k', 'password-changed', ['auth'])]
+                    },
+                },
+            })
+
+            logic.actions.saveTransactionalTags(codeRow(), ['auth', 'security'])
+            await readBack
+            logic.actions.saveTransactionalTags(codeRow(), [...codeRow().tags, 'urgent'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(codeRow().tags).toEqual(['auth', 'security', 'urgent'])
+        }
+    )
 })
