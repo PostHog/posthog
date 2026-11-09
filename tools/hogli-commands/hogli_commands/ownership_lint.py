@@ -96,8 +96,8 @@ def _added_paths(merge_base: str, files: Iterable[str], committed_only: bool) ->
     )
     if committed_only:
         return added
-    # `files` already holds the untracked files, and listing them again would walk the tree twice.
-    return added | (set(files) - _git_paths("ls-files", "--cached"))
+    untracked = set(files) - _git_paths("ls-files", "--cached")
+    return added | untracked
 
 
 def new_test_problems(
@@ -123,8 +123,7 @@ def check_test_owners(scope: Scope) -> Outcome:
     if not problems:
         return "pass", "every new test has a team owner"
     detail = " · ".join(problems[:3]) + (f" · and {len(problems) - 3} more" if len(problems) > 3 else "")
-    # The baseline scan covers the whole tree, so a gap that another branch left on master would block
-    # every push that touches a test. CI rejects these problems, and this check only warns before the push.
+    # Warn only: the baseline scan covers the whole tree, so a gap left on master would block every push.
     return "warning", detail
 
 

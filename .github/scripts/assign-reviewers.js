@@ -203,9 +203,8 @@ function isGeneratedOrVendored(filename, resolution) {
     )
 }
 
-// A test file only joins an owner a non-test file already brought in. Keep in step with
-// `_collect_owned` in products/stamphog/backend/logic/routing/candidates.py, which says why, and
-// with runner_for_path in packages/owners-yaml/owners_yaml/census.py.
+// A test file only joins an owner a non-test file brought in: `_collect_owned` in stamphog's candidates.py says why.
+// Keep in step with runner_for_path in packages/owners-yaml/owners_yaml/census.py.
 const TEST_FILE = /(^|\/)test_[^/]*\.py$|_test\.py$|\.(test|spec)\.[jt]sx?$/
 
 function isTestFile(filename) {

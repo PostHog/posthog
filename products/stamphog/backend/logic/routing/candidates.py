@@ -184,12 +184,12 @@ class _CandidateCollector:
 
 
 def _collect_owned(collector: _CandidateCollector, file: ChangedFile, resolution: Resolution | None) -> None:
+    """A team owns a test so that the test's failures and flakes reach it, not so that it reviews every
+    change to the test. A test file therefore adds to the part of an owner that a non-test file already
+    made a candidate, and makes no owner a candidate by itself. The owners of a sensitive path and of an
+    `additions` declaration are still pinned."""
     if resolution is None or is_excluded(file.path) or _is_generated_or_vendored(file.path, resolution):
         return
-    # A team owns a test so that the test's failures and flakes reach it, not so that it reviews every
-    # change to the test. A test file therefore adds to the part of an owner that a non-test file
-    # already made a candidate, and makes no owner a candidate by itself. The owners of a sensitive
-    # path and of an `additions` declaration are still pinned.
     is_test = runner_for_path(file.path) is not None
     for owner in resolution.owners or []:
         if not is_test or collector.has(owner):
