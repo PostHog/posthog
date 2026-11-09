@@ -628,6 +628,40 @@ class TestSourceInputsStoreCredentials(BaseTest):
             assert load() == expected
             assert _read_count("oauth_reference", source_type) - before == 1
 
+    @parameterized.expand(
+        [
+            ("top_level_no_pointer", ExternalDataSourceType.HUBSPOT, {}, "no_row"),
+            ("hidden_slack_key_no_pointer", ExternalDataSourceType.SLACK, {}, "no_row"),
+            (
+                "nested_no_pointer",
+                ExternalDataSourceType.STRIPE,
+                {"auth_method": {"selection": "oauth"}, "stripe_account_id": "acct"},
+                "no_row",
+            ),
+            (
+                "top_level_pointer_in_inputs",
+                ExternalDataSourceType.HUBSPOT,
+                {"hubspot_integration_id": "7"},
+                "oauth_reference",
+            ),
+            (
+                "nested_pointer_in_inputs",
+                ExternalDataSourceType.STRIPE,
+                {"auth_method": {"selection": "oauth", "stripe_integration_id": "7"}, "stripe_account_id": "acct"},
+                "oauth_reference",
+            ),
+        ]
+    )
+    def test_read_of_an_unstripped_oauth_source_without_a_column_keeps_the_inputs(
+        self, _name: str, source_type: str, inputs: dict[str, Any], expected_result: str
+    ) -> None:
+        source = self._raw_source(inputs, source_type, column=None)
+
+        for load in self._loads(source):
+            before = _read_count(expected_result, source_type)
+            assert load() == inputs
+            assert _read_count(expected_result, source_type) - before == 1
+
     def test_a_database_error_on_read_raises(self) -> None:
         source = self._create()
         with (
@@ -944,7 +978,6 @@ class TestSourceInputsStoreStripped(BaseTest):
         [
             ("cleared", {}, None),
             ("uuid", {}, "0b7e8c3a-5f4d-4e2a-9c1b-2d3e4f5a6b7c"),
-            ("unstripped_pointer_without_a_column", {"hubspot_integration_id": "7"}, None),
         ]
     )
     def test_oauth_source_without_a_legacy_id_in_the_column_raises(

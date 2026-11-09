@@ -16,7 +16,6 @@ import {
     CardDescription,
     CardHeader,
     CardTitle,
-    Skeleton,
     Table,
     TableBody,
     TableCell,
@@ -45,9 +44,11 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
+import { ChartSkeleton } from './dashboard/ChartSkeleton'
 import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
+import { SkeletonLine } from './dashboard/SkeletonLine'
 import {
     type DailyChartData,
     IntentCoverage,
@@ -122,6 +123,8 @@ const neighborColumns: ResultColumn[] = [
     { header: 'In same conversation', align: 'right', render: (r) => formatNumber(Number(r[1] ?? 0)) },
 ]
 
+const SKELETON_ROW_WIDTHS = ['70%', '50%', '85%', '40%']
+
 // Card-wrapped quill table matching the dashboard table cards.
 function ResultTable({
     title,
@@ -166,16 +169,19 @@ function ResultTable({
                     </TableRow>
                 </TableHeader>
                 {loading && rows.length === 0 ? (
-                    <TableBody>
-                        <TableRow>
-                            <TableCell colSpan={columns.length}>
-                                <div className="space-y-2 py-1">
-                                    {Array.from({ length: 4 }).map((_, i) => (
-                                        <Skeleton key={i} className="h-3.5 w-full" />
-                                    ))}
-                                </div>
-                            </TableCell>
-                        </TableRow>
+                    <TableBody aria-busy>
+                        {SKELETON_ROW_WIDTHS.map((width, i) => (
+                            <TableRow key={i}>
+                                {columns.map((col, j) => (
+                                    <TableCell key={j} align={col.align} expand={col.expand} className={col.className}>
+                                        <SkeletonLine
+                                            className={col.align === 'right' ? 'ml-auto w-10' : undefined}
+                                            style={col.align === 'right' ? undefined : { width }}
+                                        />
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                        ))}
                     </TableBody>
                 ) : rows.length === 0 ? (
                     <TableEmpty className="py-6 text-secondary">{emptyMessage}</TableEmpty>
@@ -486,7 +492,7 @@ function TrendChart({
             <div className="mb-1 px-2 pt-1 text-xs font-medium uppercase text-secondary">{title}</div>
             <div className="flex min-h-0 flex-1 flex-col">
                 {loading && labels.length === 0 ? (
-                    <Skeleton className="flex-1" />
+                    <ChartSkeleton kind="line" />
                 ) : labels.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center text-[12px] text-secondary">
                         No data for the selected date range.
