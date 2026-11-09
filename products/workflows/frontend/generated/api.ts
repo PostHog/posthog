@@ -1206,12 +1206,13 @@ export const getHogFlowsRunCreateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Fire a schedule-triggered workflow immediately, outside its regular schedule.
+ * Run a workflow with a `schedule` or `manual` trigger now, once.
  *
- * Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
- * dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
- * guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
- * the scheduler itself applies in `internal_process_due_schedules`.
+ * A schedule-triggered workflow runs outside its regular schedule. A manually triggered
+ * workflow runs for the calling user, as the trigger button in the editor does. Other
+ * triggers have their own entry points (`batch_jobs`, the public webhook URL) with
+ * trigger-specific guardrails this endpoint doesn't replicate. Requires the workflow to be
+ * active, same gate the scheduler itself applies in `internal_process_due_schedules`.
  *
  * Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
  * after a timed-out request): a repeat with the same key returns the first call's result
