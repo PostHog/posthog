@@ -131,6 +131,14 @@ export const manifest: ProductManifest = {
         broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
     },
     fileSystemTypes: {
+        workflows: {
+            name: 'Workflow',
+            iconType: 'workflows',
+            iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+            href: (ref: string) => urls.workflow(ref, 'workflow'),
+            listHref: () => urls.workflows(),
+            filterKey: 'workflows',
+        },
         message_template: {
             flag: FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES,
             name: 'Email template',

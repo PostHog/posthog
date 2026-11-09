@@ -451,7 +451,8 @@ class TestFileSystemAPI(APIBaseTest):
             self.assertEqual(response.json()["code"], "directory_not_empty")
         self.assertTrue(FileSystem.objects.filter(pk=unrelated.pk).exists())
 
-    def test_delete_ref_less_registered_row_refused_on_web_surface(self):
+    @parameterized.expand([("null_ref", None), ("empty_ref", "")])
+    def test_delete_ref_less_registered_row_refused_on_web_surface(self, _name: str, ref: str | None):
         """
         On the default (web) surface every registered-type row points at a real object via `ref`.
         A ref-less registered row is a data-integrity error, so deletion is refused, not silently applied.
@@ -460,6 +461,7 @@ class TestFileSystemAPI(APIBaseTest):
             team=self.team,
             path="DeleteMe/RefLessDashboard",
             type="dashboard",
+            ref=ref,
             created_by=self.user,
         )
 
@@ -468,6 +470,27 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(delete_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(delete_response.json()["detail"], "Cannot delete type 'dashboard' without a reference.")
         self.assertTrue(FileSystem.objects.filter(pk=file_obj.pk).exists())
+
+    @parameterized.expand([("signed", "+{pk}"), ("leading_zeros", "00{pk}")])
+    def test_deleting_the_canonical_dashboard_file_keeps_the_dashboard_for_another_spelling(
+        self, _name: str, spelling: str
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Spelled twice", created_by=self.user)
+        canonical = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(dashboard.pk))
+        alias = FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Spelled twice copy",
+            depth=2,
+            type="dashboard",
+            ref=spelling.format(pk=dashboard.pk),
+            shortcut=False,
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{canonical.pk}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertFalse(Dashboard.objects_including_soft_deleted.get(pk=dashboard.pk).deleted)
+        self.assertTrue(FileSystem.objects.filter(pk=alias.pk).exists())
 
     def test_unfiled_endpoint_no_content(self):
         """
