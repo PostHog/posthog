@@ -76,6 +76,7 @@ from products.stamphog.backend.logic.decision_fingerprint import (
     REUSED_FROM_RUN_OUTPUT_KEY,
     WITHHELD_RUN_OUTPUT_KEY,
     decision_fingerprint,
+    engine_package_digest,
 )
 from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
@@ -1744,6 +1745,7 @@ def _decision_fingerprint(run: ReviewRun, context: dict[str, Any]) -> str:
         context,
         head_sha=run.head_sha,
         ignored_labels={repo_config.trigger_label, *fork_labels(repo_config).values()},
+        engine_digest=engine_package_digest(),
     )
 
 
@@ -1827,8 +1829,14 @@ def reuse_withheld_verdict(input: StamphogReviewInput) -> dict:
     except Exception:
         activity.logger.warning(f"Run {run.id}: could not reuse the withheld verdict; reviewing", exc_info=True)
         outcome = "error"
-    _merge_run_output(run, {"withheld_verdict_outcome": outcome})
-    return {"reused": outcome == "reused"}
+    reused = outcome == "reused"
+    # An earlier attempt may have adopted the verdict before it failed. Only a reuse that this
+    # attempt confirmed may mark the silent run published in post_verdict.
+    updates: dict[str, Any] = {"withheld_verdict_outcome": outcome}
+    if not reused:
+        updates[REUSED_FROM_RUN_OUTPUT_KEY] = None
+    _merge_run_output(run, updates)
+    return {"reused": reused}
 
 
 @activity.defn

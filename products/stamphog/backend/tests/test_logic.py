@@ -1274,13 +1274,21 @@ class TestDecisionFingerprint(SimpleTestCase):
                 lambda c: c["pr_reactions"].append({"user": "greptile-apps[bot]", "content": "eyes"}),
                 False,
             ),
+            ("engine_deployed", lambda c: c.update(engine_digest="engine2"), False),
         ]
     )
     def test_only_decision_inputs_move_the_fingerprint(
         self, _name: str, change: Callable[[dict], None], expect_same: bool
     ) -> None:
+        def fingerprint(context: dict) -> str:
+            return decision_fingerprint(
+                context,
+                head_sha="head1",
+                ignored_labels={"stamphog", "needs-devex"},
+                engine_digest=context.get("engine_digest", "engine1"),
+            )
+
         context = _fingerprint_context()
-        before = decision_fingerprint(context, head_sha="head1", ignored_labels={"stamphog", "needs-devex"})
+        before = fingerprint(context)
         change(context)
-        after = decision_fingerprint(context, head_sha="head1", ignored_labels={"stamphog", "needs-devex"})
-        assert (before == after) is expect_same
+        assert (before == fingerprint(context)) is expect_same

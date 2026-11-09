@@ -2525,7 +2525,7 @@ def test_visible_request_publishes_a_withheld_verdict_only_while_its_inputs_hold
         assert silent_run.verdict_posted_at == visible_run.verdict_posted_at
         assert comment_reviews[0]["body"]["body"].startswith("**Not approved")
         return
-    assert "reused_from_run_id" not in visible_run.output
+    assert visible_run.output["reused_from_run_id"] is None
     assert visible_run.output["withheld_verdict_outcome"] in ("inputs_changed", "base_moved")
     assert silent_run.verdict_withheld
 
@@ -2568,14 +2568,16 @@ def test_a_withheld_approval_or_wait_is_never_reused(
     assert "withheld_run_id" not in queued.run.output
     if not approved:
         return
-    # The adopt step refuses a stored approval on its own too, whatever pointed the run at it.
+    # The adopt step refuses a stored approval on its own too, whatever pointed the run at it. An
+    # earlier attempt that adopted the verdict left reused_from_run_id behind, and the refusal clears it.
     ReviewRun.objects.for_team(team.id).filter(id=queued.run.id).update(
-        output={**queued.run.output, "withheld_run_id": str(silent_run.id)}
+        output={**queued.run.output, "withheld_run_id": str(silent_run.id), "reused_from_run_id": str(silent_run.id)}
     )
     result = _run_activity(reuse_withheld_verdict, StamphogReviewInput(str(queued.run.id), team.id))
     assert result == {"reused": False}
     queued.run.refresh_from_db()
     assert queued.run.output["withheld_verdict_outcome"] == "approval"
+    assert queued.run.output["reused_from_run_id"] is None
     assert stamphog_chain.recorder.github_writes == []
 
 

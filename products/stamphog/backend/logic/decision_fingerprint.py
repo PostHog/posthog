@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import json
 import hashlib
+import functools
 from collections.abc import Collection
 from typing import Any
 
+from products.stamphog.backend.logic.engine_pregate import engine_source_files, owners_package_files
 from products.stamphog.backend.temporal.constants import STAMPHOG_TRUSTED_REACTOR_BOTS
 
 DECISION_FINGERPRINT_OUTPUT_KEY = "decision_fingerprint"
@@ -37,6 +39,9 @@ MIGRATION_RISK_CHECK_NAME = "Migration risk"
 #   request itself and the routing fork labels are stamphog's own writes.
 # - The base and head repository objects keep only full_name, default_branch and fork. The rest are
 #   repository statistics (pushed_at, stargazers_count, ...) that move with every push to any branch.
+# Besides the context, the hash covers the engine itself (engine_package_digest): the repo's policy
+# files only override the shipped defaults, and the engine's code and prompts decide as much as the
+# inputs do. A deploy that changes any of them makes every stored verdict stale.
 _PR_EXCLUDED_KEYS = frozenset(
     {
         "updated_at",
@@ -80,7 +85,17 @@ def _canonical_pr(pr: dict, ignored_labels: Collection[str]) -> dict:
     return canonical
 
 
-def decision_fingerprint(context: dict[str, Any], *, head_sha: str, ignored_labels: Collection[str]) -> str:
+@functools.cache
+def engine_package_digest() -> str:
+    """A sha256 over the engine modules, its shipped default policy and the owners package. The files
+    only change with a deploy, so one read per process is enough."""
+    files = {**engine_source_files(), **{f"owners_yaml/{name}": text for name, text in owners_package_files().items()}}
+    return hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
+
+
+def decision_fingerprint(
+    context: dict[str, Any], *, head_sha: str, ignored_labels: Collection[str], engine_digest: str
+) -> str:
     """Hash the engine inputs in ``context``, which has the shape of a run's stored output.
 
     Only the keys the engine context is built from count. Run bookkeeping (timings, ids, the bot
@@ -90,6 +105,7 @@ def decision_fingerprint(context: dict[str, Any], *, head_sha: str, ignored_labe
     """
     pr = context.get("pr") or {}
     canonical = {
+        "engine": engine_digest,
         "head_sha": head_sha,
         "pr": _canonical_pr(pr, ignored_labels),
         "files": context.get("files") or [],
