@@ -216,8 +216,18 @@ fn derive_base_name(ref_str: &str) -> String {
 }
 
 fn is_plain_component(name: impl AsRef<Path>) -> bool {
-    let mut components = name.as_ref().components();
-    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
+    let name = name.as_ref();
+    let mut components = name.components();
+    // Windows trims trailing dots and spaces from each path part when it opens
+    // a file, so a part that ends in one can open a different name than the one
+    // checked here.
+    let trimmed_on_windows = matches!(
+        name.as_os_str().as_encoded_bytes().last(),
+        Some(b'.' | b' ')
+    );
+    matches!(components.next(), Some(Component::Normal(_)))
+        && components.next().is_none()
+        && !trimmed_on_windows
 }
 
 #[cfg(test)]
@@ -264,12 +274,14 @@ mod tests {
     }
 
     #[test]
-    fn derive_base_name_falls_back_when_the_ref_has_no_file_name() {
+    fn derive_base_name_falls_back_to_symbol_set() {
         assert_eq!(
             derive_base_name("https://example.com/static/app.js.map"),
             "app"
         );
         assert_eq!(derive_base_name("../../../"), "symbol_set");
         assert_eq!(derive_base_name("/"), "symbol_set");
+        assert_eq!(derive_base_name(".. "), "symbol_set");
+        assert_eq!(derive_base_name("app.."), "symbol_set");
     }
 }
