@@ -1534,27 +1534,64 @@ describe('EmailService', () => {
                 ])
             })
 
-            it('charges the team budget once but paces every try of a send whose files fail to load', async () => {
-                sesAccepts()
-                const claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null, reserved: false })
-                const claimAllOrNothing = jest.fn().mockResolvedValue({ granted: true, retryAfterMs: null })
-                service['workflowEmailRateLimiter'] = { claimOrReserve } as unknown as RateLimiterService
-                service['teamEmailRateLimiter'] = { claimAllOrNothing } as unknown as RateLimiterService
-                service['sesConfig'].teamEmailCapMode = 'enforce'
-                jest.spyOn(service['teamWorkflowsConfigService'], 'getEmailSendingTier').mockResolvedValue(0)
-                invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 120, period: 'minute' } }
-                jest.spyOn(attachmentStore, 'load').mockRejectedValueOnce(
-                    new AttachmentStoreUnavailableError(new Error('connect ECONNREFUSED'))
-                )
+            describe('sending limits across load retries', () => {
+                let claimOrReserve: jest.Mock
+                let claimAllOrNothing: jest.Mock
+                let getEmailSendingTier: jest.SpyInstance
 
-                const retried = await service.executeSendEmail(invocation)
-                const result = await service.executeSendEmail(retried.invocation)
+                beforeEach(() => {
+                    sesAccepts()
+                    claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null, reserved: false })
+                    claimAllOrNothing = jest.fn().mockResolvedValue({ granted: true, retryAfterMs: null })
+                    service['workflowEmailRateLimiter'] = { claimOrReserve } as unknown as RateLimiterService
+                    service['teamEmailRateLimiter'] = { claimAllOrNothing } as unknown as RateLimiterService
+                    service['sesConfig'].teamEmailCapMode = 'enforce'
+                    getEmailSendingTier = jest
+                        .spyOn(service['teamWorkflowsConfigService'], 'getEmailSendingTier')
+                        .mockResolvedValue(0)
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 120, period: 'minute' } }
+                    jest.spyOn(attachmentStore, 'load').mockRejectedValueOnce(
+                        new AttachmentStoreUnavailableError(new Error('connect ECONNREFUSED'))
+                    )
+                })
 
-                expect(retried.finished).toBe(false)
-                expect(result.finished).toBe(true)
-                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-                expect(claimOrReserve).toHaveBeenCalledTimes(2)
-                expect(claimAllOrNothing).toHaveBeenCalledTimes(1)
+                it.each([
+                    ['charges the team budget once when the first try charged it', () => {}, true],
+                    [
+                        'charges the team budget on the retry when the first try could not look up the tier',
+                        () => getEmailSendingTier.mockResolvedValueOnce(null),
+                        false,
+                    ],
+                ])('%s, and paces every try', async (_name, setup, markedPaid) => {
+                    setup()
+
+                    const retried = await service.executeSendEmail(invocation)
+                    const result = await service.executeSendEmail(retried.invocation)
+
+                    expect(retried.finished).toBe(false)
+                    expect(retried.invocation.queueMetadata?.teamBudgetClaimed === true).toBe(markedPaid)
+                    expect(result.finished).toBe(true)
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    expect(claimOrReserve).toHaveBeenCalledTimes(2)
+                    expect(claimAllOrNothing).toHaveBeenCalledTimes(1)
+                })
+
+                it('keeps a retry that pacing denies queued with its paid budget until pacing lets it send', async () => {
+                    const retried = await service.executeSendEmail(invocation)
+                    claimOrReserve.mockResolvedValueOnce({ granted: 0, retryAfterMs: 5000, reserved: true })
+                    const paced = await service.executeSendEmail(retried.invocation)
+                    const result = await service.executeSendEmail(paced.invocation)
+
+                    expect(paced.finished).toBe(false)
+                    expect(paced.invocation.queueParameters).toEqual(invocation.queueParameters)
+                    expect(paced.invocation.queueMetadata).toMatchObject({
+                        attachmentLoadTries: 1,
+                        teamBudgetClaimed: true,
+                    })
+                    expect(result.finished).toBe(true)
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    expect(claimAllOrNothing).toHaveBeenCalledTimes(1)
+                })
             })
 
             it.each([

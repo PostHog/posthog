@@ -466,6 +466,11 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
+type TeamSendingBudget = {
+    charged: boolean
+    delay: { retryDelayMs: number; label: string | null } | null
+}
+
 export class EmailService {
     sesV2Client: SESv2Client | null
 
@@ -547,6 +552,7 @@ export class EmailService {
         let sendingDomain = ''
         let failureReason: EmailStatusReason = 'provider_error'
         let messageId: string | undefined
+        let teamBudgetCharged = false
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -773,13 +779,9 @@ export class EmailService {
                 1 +
                 extractEmailsFromAddressList(deliverableParams.cc).length +
                 extractEmailsFromAddressList(deliverableParams.bcc).length
-            // A send that retries because its files did not load already paid the team's daily budget on its first
-            // try. The per-workflow pacing above still applies to every try, because it limits a rate: retries that
-            // waited out a storage outage must not all send at once when the store recovers.
-            const capDelay =
-                invocation.queueMetadata?.teamBudgetClaimed === true
-                    ? null
-                    : await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
+            const teamBudget = await this.claimTeamSendingBudgetOnce(invocation, isTest, capRecipients)
+            teamBudgetCharged = teamBudget.charged
+            const capDelay = teamBudget.delay
             if (capDelay) {
                 result.finished = false
                 // Re-attach the email payload before rescheduling, for the same reason as the
@@ -903,7 +905,7 @@ export class EmailService {
                 result.invocation.queueMetadata = {
                     ...invocation.queueMetadata,
                     attachmentLoadTries: retries,
-                    teamBudgetClaimed: true,
+                    ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
                 }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                 addLog(
@@ -1053,19 +1055,30 @@ export class EmailService {
      * paces the whole account, so what is left is suspension and the daily tier job, which
      * demotes a team on its complaint and bounce rates after the fact.
      */
+    private async claimTeamSendingBudgetOnce(
+        invocation: CyclotronJobInvocationHogFunction,
+        isTest: boolean,
+        recipients: number
+    ): Promise<TeamSendingBudget> {
+        if (invocation.queueMetadata?.teamBudgetClaimed === true) {
+            return { charged: true, delay: null }
+        }
+        return await this.claimTeamSendingBudget(invocation, isTest, recipients)
+    }
+
     private async claimTeamSendingBudget(
         invocation: CyclotronJobInvocationHogFunction,
         isTest: boolean,
         recipients: number = 1
-    ): Promise<{ retryDelayMs: number; label: string | null } | null> {
+    ): Promise<TeamSendingBudget> {
         const mode: TeamEmailCapMode = this.sesConfig.teamEmailCapMode ?? 'off'
         if (mode === 'off' || isTest || !this.teamEmailRateLimiter) {
-            return null
+            return { charged: false, delay: null }
         }
 
         const teamTier = await this.teamWorkflowsConfigService.getEmailSendingTier(invocation.teamId)
         if (teamTier === null) {
-            return null
+            return { charged: false, delay: null }
         }
 
         const dailyCaps = this.sesConfig.teamEmailTierDailyCaps?.length
@@ -1084,7 +1097,7 @@ export class EmailService {
         if (mode === 'enforce' && !isTransactional) {
             const claim = await this.teamEmailRateLimiter.claimAllOrNothing({ ...bucket, requested }, CAP_RETRY_MAX_MS)
             if (claim.granted) {
-                return null
+                return { charged: true, delay: null }
             }
             const capReached = claim.retryAfterMs !== null
             teamEmailCapDelayedTotal.inc({
@@ -1094,10 +1107,7 @@ export class EmailService {
             })
             const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, bucket.refillPerSecond, claim.reserved)
             emailReservedParkMs.labels('team-email').observe(retryDelayMs)
-            return {
-                retryDelayMs,
-                label: capReached ? bucket.label : null,
-            }
+            return { charged: false, delay: { retryDelayMs, label: capReached ? bucket.label : null } }
         }
 
         // Shadow mode, and transactional sends in any mode: the send goes out regardless, so
@@ -1119,7 +1129,7 @@ export class EmailService {
                 }
             )
         }
-        return null
+        return { charged: true, delay: null }
     }
 
     // Per-send tracking decision, combining two independent controls:
