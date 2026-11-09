@@ -527,6 +527,14 @@ ACTIVATION_EVENTS = ExposureEvents(
     activation="checkout",
 )
 PLAIN_TITLE = "Users are not split across variants as configured"
+WHILE_EXPOSED = (
+    "The variant split changed after launch while users were exposed, and some of them got their variants from another "
+    "split, which can cause this."
+)
+NOT_CHECKED_CAUSE = (
+    "The variant split changed after launch, and users exposed before the change got their variants from another "
+    "split, which can cause this."
+)
 
 
 class TestSrmAfterSplitChange(TestCase):
@@ -631,6 +639,21 @@ class TestSrmAfterSplitChange(TestCase):
                 "history_not_checked",
                 _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
                 _totals(MATCHES_THE_NEW_SPLIT),
+                (
+                    "split_changed",
+                    "The users first exposed after the day of the change match the current split (p = 1).",
+                ),
+            ),
+            (
+                "not_checked_change_before_the_first_day_of_exposures",
+                _context(
+                    EVEN,
+                    UNEVEN,
+                    not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
+                    start_date=FIRST_CHANGE_AT - timedelta(days=2),
+                    first_change_at=FIRST_CHANGE_AT - timedelta(days=1),
+                ),
+                _totals(MATCHES_THE_NEW_SPLIT),
                 (None, PLAIN_TITLE),
             ),
             (
@@ -665,6 +688,13 @@ class TestSrmAfterSplitChange(TestCase):
             (
                 "split_change_with_a_failed_retest",
                 _context(EVEN, UNEVEN, exposed_units=5),
+                {"control": 250, "test": 250},
+                0.00001,
+                (True, True, FIRST_CHANGE_AT.date()),
+            ),
+            (
+                "split_change_not_checked_with_a_failed_retest",
+                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
                 {"control": 250, "test": 250},
                 0.00001,
                 (True, True, FIRST_CHANGE_AT.date()),
@@ -756,12 +786,37 @@ class TestSrmAfterSplitChange(TestCase):
                 ' Follow the steps in "The variant split changed after launch" to fix the results.',
             ),
             ("ended_after_the_change", ENDED, FIRST_CHANGE_AT + timedelta(days=3), ""),
+            (
+                "not_checked",
+                RUNNING,
+                None,
+                f" Move the start date to {FIRST_CHANGE}, or reset the experiment. A reset returns it to draft, and "
+                "once you launch it again, the results count only users exposed from then on.",
+                FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
+                NOT_CHECKED_CAUSE,
+            ),
+            (
+                "not_checked_ended_after_the_change",
+                ENDED,
+                FIRST_CHANGE_AT + timedelta(days=3),
+                f" Move the start date to {FIRST_CHANGE}.",
+                FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
+                NOT_CHECKED_CAUSE,
+            ),
         ]
     )
     def test_names_the_cause_the_evidence_and_the_next_step(
-        self, _name: str, status: Status, ended_at: datetime | None, next_step: str
+        self,
+        _name: str,
+        status: Status,
+        ended_at: datetime | None,
+        next_step: str,
+        not_checked: FlagHistoryNotCheckedReason | None = None,
+        cause: str = WHILE_EXPOSED,
     ) -> None:
-        ctx = replace(_context(EVEN, UNEVEN, status=status, exposed_units=5), ended_at=ended_at)
+        ctx = replace(
+            _context(EVEN, UNEVEN, status=status, exposed_units=5, not_checked=not_checked), ended_at=ended_at
+        )
 
         outcome = srm(replace(ctx, exposures=_totals(MATCHES_THE_NEW_SPLIT)))
 
@@ -770,9 +825,7 @@ class TestSrmAfterSplitChange(TestCase):
         self.assertEqual(
             outcome.detail,
             "The distribution of users across variants doesn't match your current rollout percentages (p < 0.001). "
-            "The variant split changed after launch while users were exposed, and some of them got their variants "
-            "from another split, which can cause this. The users first exposed after the day of the change match the "
-            f"current split (p = 1).{next_step}",
+            f"{cause} The users first exposed after the day of the change match the current split (p = 1).{next_step}",
         )
 
     def test_leaves_out_a_split_that_changed_after_the_end(self) -> None:

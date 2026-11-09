@@ -203,6 +203,8 @@ def wallet_team_id() -> int:
     mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
     record = find_project_secret_api_key(mint_key) if mint_key else None
     if record is None:
+        observe_compute_settlement("deployment_error")
+        logger.error("compute_settlement.wallet_unresolved")
         raise ComputeSettlementDeploymentError("SANDBOX_AI_GATEWAY_MINT_KEY does not resolve to a wallet team")
     return record.team_id
 

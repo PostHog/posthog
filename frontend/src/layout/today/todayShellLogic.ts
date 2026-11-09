@@ -145,7 +145,8 @@ function productsPaneListsPath(path: string): boolean {
 }
 
 /**
- * The pane to show after a page change. A page both panes list keeps the Products pane when it is open. A person,
+ * The pane to show after a page change. A page the Products pane lists keeps that pane when it is open, so a product
+ * that Analytics or People also lists, like Support, does not switch the rail. A person,
  * group or cohort opened while Analytics shows keeps Analytics, so a drill-in from an insight does not switch the
  * rail. `shownPane` is the pane on screen before the change, which is the route's pane when nothing was picked.
  */
@@ -156,7 +157,11 @@ function paneAfterNavigation(
 ): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
     const routePane = railPaneForPath(pathname)
-    if (openPane === 'products' && routePane === 'analytics' && productsPaneListsPath(path)) {
+    if (
+        openPane === 'products' &&
+        (routePane === 'analytics' || (routePane === 'people' && isPeopleListPath(path))) &&
+        productsPaneListsPath(path)
+    ) {
         return openPane
     }
     if (shownPane === 'analytics' && routePane === 'people' && isPeopleDetailPath(path)) {

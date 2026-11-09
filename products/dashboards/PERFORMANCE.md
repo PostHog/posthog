@@ -91,6 +91,10 @@ Check third-party drag and resize code for global style changes. Recheck upstrea
 - Keep decorative DOM bounded. Repeated backgrounds need not create an element for every grid cell.
 - Count DOM nodes before and after mode changes. CSS containment cannot remove the cost of creating thousands of nodes.
 - Mount transient overlays, such as a move hint, outside the grid through a portal. The grid styles use `:has()` selectors, so a node inserted into the grid wrapper restyles every tile.
+- When a gesture toggles a class on the grid container, end each rule under that class on a narrow class, such as the placeholder.
+  A rule that reaches tile content, such as `.react-grid-item > *`, restyles the content of every tile when the class is added and again on release.
+  An inherited property set on the tiles, such as `pointer-events` or `cursor`, has the same cost.
+  Put rules for the moving tile on `.react-draggable-dragging`, which the grid sets on that tile only.
 
 Transforms can reduce layout work for position changes. Width and height changes can require layout through the tile's content.
 Containment does not remove React work, query work, timers, or canvas resources by itself.
@@ -203,9 +207,28 @@ Report the conditions, user-visible result, and remaining gaps.
 Focused regression tests can protect behavior; they do not establish frame rate.
 Do not convert one local result into a general performance guarantee.
 
+Before you rely on a metric, confirm that it detects a known cost.
+Add a fixed stall, such as a busy loop in a `mousemove` handler, and check that the metric reports each stall.
+Throttle the CPU and check that the metric changes by a similar factor.
+Repeat the same gesture several times and check that the spread is smaller than the change you want to detect.
+
+### Field telemetry
+
+Two events measure dashboard performance for real users.
+Both carry `grid_engine`, which names the grid implementation, so a flag rollout can compare implementations by that property.
+
+- `dashboard performance` covers one dashboard view, for a sample of views. It reports main-thread blocking per visible minute, the longest frame, JS heap at the start and end (Chromium only), tile count, mounted tiles, and DOM node count.
+- `dashboard tile repositioned` covers one tile move or resize. It reports frame gaps during the gesture (`frame_gap_p95_ms`, `frame_gap_max_ms`, `slow_frame_count` for gaps over 33 ms) and `release_to_paint_ms`, the time from release until the new layout paints.
+
+Compare frame gaps and release time, not `gesture_duration_ms`.
+A tile released mid-drag keeps moving until the next click, so the duration includes the time the user carries the tile.
+Split the results by `input`, because a click-to-move gesture and a held drag have different durations.
+Compare dashboards with a similar tile count, because large dashboards set the slow tail.
+
 ## Code references
 
 - [Dashboard grid and event handlers](./frontend/DashboardItems.tsx).
+- [View and gesture telemetry](./frontend/dashboardPerformance.ts).
 - [Interaction state and layout commits](../../frontend/src/scenes/dashboard/useDashboardLayoutInteraction.ts).
 - [Neighbor resize](./frontend/dashboardResizeCompactor.ts) and [compaction modes](./frontend/dashboardCustomization.ts).
 - [Insight card lifecycle](../../frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx).
