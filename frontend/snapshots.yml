@@ -220,6 +220,10 @@ snapshots:
         hash: v1.k794b7964.04d2ff46eedb4abbbf53e6ff3d57d3c988dd28cdd586ddd668e35e44a0721f7d.8RuH8reglzDiytwl80lQfmBTttaH_PLi-W-6qHpm9bQ
     charts-flamegraph--cpu-profile--light:
         hash: v1.k794b7964.e0cb78f562af6c8335d49a678fba4f711fc9307f1bd4c10a261809e1f3d05fbc.74CfuoOGMVNroT6ULlRe3Elcj4ugMrOtM8v2RhDGLCw
+    charts-flamegraph--custom-colors--dark:
+        hash: v1.k794b7964.6e20de34907d64667bb5d4f6565edd5bf41f5dd2e7fc007abfdebec5700b577a.Xh5BzdOhmyiFfKAfTxoJ9bh3huzyJpiG11IbedJZd6I
+    charts-flamegraph--custom-colors--light:
+        hash: v1.k794b7964.d7d6efd6c70d7bf3fca8ed62865490e77ccb8f2c2ab72dbb9ac0e22a2a798148.irhPiYtIZkkbElV7wCbPuIXUOEPlecglveKopuimRLM
     charts-flamegraph--edge-cases--dark:
         hash: v1.k794b7964.4c0d2e40826f347ed50d38313ce654db31b4accb45b44b370e306c18e697c103.AT8IYSD2sVjd8EyQgp2dHCdu5XFe5B5AC-m7rcemzkI
     charts-flamegraph--edge-cases--light:
