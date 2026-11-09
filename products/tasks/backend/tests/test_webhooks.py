@@ -6,8 +6,9 @@ from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.db import OperationalError
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -1958,8 +1959,16 @@ class TestFindTaskRun(TestCase):
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
             state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
         )
-        result = find_task_run(team_ids=[self.team.id], pr_url="https://github.com/posthog/posthog/pull/123")
+        with CaptureQueriesContext(connection) as queries:
+            result = find_task_run(team_ids=[self.team.id], pr_url="https://github.com/posthog/posthog/pull/123")
+
         self.assertEqual(result, task_run)
+        self.assertEqual(len(queries), 2)
+        self.assertNotIn("JOIN", queries[0]["sql"])
+        self.assertIn("verified_pr_urls", queries[0]["sql"])
+        self.assertIn('INNER JOIN "posthog_task"', queries[1]["sql"])
+        self.assertIn('"posthog_task_run"."id" IN', queries[1]["sql"])
+        self.assertNotIn("verified_pr_urls", queries[1]["sql"])
 
     def test_pr_url_prefers_active_run_over_terminal(self):
         # A resumed wizard run inherits its predecessor's head branch, so two runs can

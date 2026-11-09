@@ -29,6 +29,7 @@ from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.aeo.backend import suggestions
+from products.aeo.backend.catalog import sync_brands_from_run
 from products.aeo.backend.facade.contracts import AEO_CITATION_TRACKING_FLAG, PromptSuggestionRequest
 from products.aeo.backend.runner import run_citation_checks
 
@@ -114,7 +115,10 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
     renewer = threading.Thread(target=_renew_lease, args=(lease, stop_renewing, lease_lost, team_id), daemon=True)
     renewer.start()
     try:
-        run_citation_checks(team, stop=lease_lost)
+        summary, _ = run_citation_checks(team, stop=lease_lost)
+        if summary.run_id:
+            result = sync_brands_from_run(team.id, summary.run_id)
+            logger.info("aeo_brand_sync_done", team_id=team_id, domains=result.domains, created=result.created)
     except Exception:
         # The runner already absorbs per-prompt failures, so anything reaching here is
         # unexpected. Re-raise so Celery marks the task failed and alerting sees it.
