@@ -22,7 +22,7 @@ export function ChatFeedbackSheet({ onClose, onSubmit }: ChatFeedbackSheetProps)
     const keyboard = useReanimatedKeyboardAnimation()
     const scrollGesture = useMemo(() => Gesture.Native(), [])
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, 0) }))
-    const contentStyle = useAnimatedStyle(() => ({ maxHeight: Math.max(height * 0.7 + keyboard.height.value, 140) }))
+    const contentStyle = useAnimatedStyle(() => ({ maxHeight: Math.max((height + keyboard.height.value) * 0.8, 140) }))
     const close = (): void => {
         Keyboard.dismiss()
         onClose()
