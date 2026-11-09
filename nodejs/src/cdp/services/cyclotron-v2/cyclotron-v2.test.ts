@@ -3071,7 +3071,7 @@ describe('Cyclotron V2', () => {
                         selfDisposition: { kind: 'ack' },
                     }),
                 loseReply: loseCommitReply,
-                outcome: 'self row matched 0 rows',
+                outcome: 'bulkCreateAndCheckIn(precheck) self row matched 0 rows',
                 jobsAfter: 2,
             },
         ])(
