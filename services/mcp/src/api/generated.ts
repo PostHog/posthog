@@ -43436,13 +43436,39 @@ export namespace Schemas {
       readonly default_period_deletes: boolean;
     }
 
+    /**
+     * * `1` - 1 month
+     * * `3` - 3 months
+     * * `12` - 1 year
+     * * `24` - 2 years
+     * * `36` - 3 years
+     * * `60` - 5 years
+     * * `84` - 7 years
+     */
+    export type EventsRetentionMonthsEnum = typeof EventsRetentionMonthsEnum[keyof typeof EventsRetentionMonthsEnum];
+
+
+    export const EventsRetentionMonthsEnum = {
+      Number1: 1,
+      Number3: 3,
+      Number12: 12,
+      Number24: 24,
+      Number36: 36,
+      Number60: 60,
+      Number84: 84,
+    } as const;
+
     export interface EventsRetentionUpdate {
-      /**
-         * The period in months, one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.
-         * @minimum 1
-         * @nullable
-         */
-      retention_months: number | null;
+      /** The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.
+       *
+       * * `1` - 1 month
+       * * `3` - 3 months
+       * * `12` - 1 year
+       * * `24` - 2 years
+       * * `36` - 3 years
+       * * `60` - 5 years
+       * * `84` - 7 years */
+      retention_months: EventsRetentionMonthsEnum | null;
     }
 
     export interface ExcerptChoice {
@@ -53217,6 +53243,18 @@ export namespace Schemas {
       state: string | null;
       type: string | null;
       created_at: string | null;
+    }
+
+    export interface HiddenPulseNumber {
+      /** Key of the hidden number: a key metric setting such as signup_event, or insight:<short_id>. */
+      key: string;
+      /** Current name of the number. */
+      name: string;
+    }
+
+    export interface HiddenPulseNumbers {
+      /** Numbers the person hid from the key numbers, oldest first. Numbers the person can no longer see are left out. */
+      hidden: HiddenPulseNumber[];
     }
 
     export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
@@ -96835,6 +96873,8 @@ export namespace Schemas {
     export interface PulsePins {
       /** Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most 20 entries. */
       pins: PulsePin[];
+      /** Numbers the person hid from the key numbers, oldest first. Suggestions skip them. Change them with the hidden numbers endpoint. */
+      readonly hidden: readonly HiddenPulseNumber[];
     }
 
     /**
@@ -108311,6 +108351,15 @@ export namespace Schemas {
     export interface SetAllServersEnabled {
       /** True enables every MCP server for the team; false disables them all. Applies to every registered server and becomes the default for untouched and future catalog servers. */
       enabled: boolean;
+    }
+
+    export interface SetHiddenPulseNumbers {
+      /**
+         * Keys of every number to hide, oldest first. Replaces the hidden numbers. At most 50 keys.
+         * @maxItems 50
+         * @items.maxLength 200
+         */
+      keys: string[];
     }
 
     /**
