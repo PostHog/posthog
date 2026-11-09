@@ -54,11 +54,10 @@ from posthog.dags.person_tombstone_queue import publish_queue_gauges, resolve_pe
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
+from posthog.models.person.divergence.cleanup_queue import PG_CLEANUP_QUEUE_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
 
 logger = dagster.get_dagster_logger(__name__)
-
-PG_CLEANUP_QUEUE_TABLE = "person_pg_cleanup_queue"
 
 # How many queued persons travel per ClickHouse read and per Postgres upsert transaction. Bounds
 # the op's memory to one page however large the snapshot is.

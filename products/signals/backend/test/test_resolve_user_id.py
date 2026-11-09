@@ -1,5 +1,7 @@
 import pytest
 
+from django.apps import apps
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.integration import Integration
@@ -7,7 +9,18 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.signals.backend.temporal.agentic import resolve_acting_user_id_for_team, resolve_user_id_for_team
+from products.signals.backend.task_profiles import (
+    GITHUB_ONLY_DOMAINS,
+    REPO_SELECTION,
+    RESEARCH,
+    SCOUT_FULL_NETWORK,
+    SCOUT_TRIAL_JUDGE,
+)
+from products.signals.backend.temporal.agentic import (
+    get_or_create_signals_sandbox_env,
+    resolve_acting_user_id_for_team,
+    resolve_user_id_for_team,
+)
 
 
 @pytest.fixture
@@ -197,3 +210,23 @@ def test_acting_user_skips_member_without_project_access(organization, team, wit
         _create_github_integration(team, created_by=denied_member)
 
     assert resolve_acting_user_id_for_team(team.id) == admin.id
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "profile,expected_level,expected_domains",
+    [
+        pytest.param(RESEARCH, "trusted", [], id="trusted"),
+        pytest.param(REPO_SELECTION, "custom", GITHUB_ONLY_DOMAINS, id="github_only"),
+        pytest.param(SCOUT_TRIAL_JUDGE, "custom", [], id="custom_without_domains"),
+        pytest.param(SCOUT_FULL_NETWORK, "full", [], id="full"),
+    ],
+)
+def test_sandbox_env_takes_its_network_policy_from_the_profile(team, profile, expected_level, expected_domains):
+    SandboxEnvironment = apps.get_model("tasks", "SandboxEnvironment")
+
+    env_id = get_or_create_signals_sandbox_env(team.id, "SIGNALS_PROFILE_TEST", profile)
+
+    env = SandboxEnvironment.objects.get(id=env_id)
+    assert env.internal is True
+    assert (env.network_access_level, env.allowed_domains) == (expected_level, expected_domains)

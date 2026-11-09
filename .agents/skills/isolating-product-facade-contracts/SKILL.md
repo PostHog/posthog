@@ -271,7 +271,9 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
 - Keep facades thin; put business rules behind the facade, in `logic/` by default. Other internal packages (`services/`, `reviewer/`, …) are fine as long as they stay behind the facade.
 - Transaction boundaries belong in the facade (or logic), not in views.
 - A view that serves a contract checks object RBAC through an `ObjectAccessRef`: return one from `safely_get_object()`, or pass one to `self.check_object_permissions(request, ref)`. Never check by hand or in the facade. See `products/architecture.md` § Who owns RBAC?
+- A view without a `queryset` declares its URL kwarg types with `path_parameters = {"pk": UUID}`, and does not parse path ids by hand. See `products/architecture.md` § Path ids.
 - Never return ORM models across product boundaries.
+- A list view pages through the facade: the facade takes a `PageRequest` and returns a `Page`, and the view uses `FacadeLimitOffsetPagination` or `FacadeCursorPagination`. Never set paginator state by hand. See `products/architecture.md` § How do lists page?
 - `hogli product:lint` reads the facade signatures, in the kinds `facade-returns`,
   `facade-accepts(<parameter>)` and `facade-logic`. The matching lines of
   `products/model_crossing_uses_baseline.txt` record what the facades do today and only shrink, so a

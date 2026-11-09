@@ -8,6 +8,7 @@ import { captureException } from '~/common/utils/posthog'
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
+import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CleanupResult,
@@ -81,6 +82,12 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
+const queueOldestDueAgeGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_queue_oldest_due_age_ms',
+    help: 'Milliseconds since the oldest available job per queue became due (its scheduled time). 0 when the queue has no due jobs.',
+    labelNames: ['queue'],
+})
+
 interface PoisonRow {
     id: string
     team_id: number
@@ -123,7 +130,7 @@ export class CyclotronV2Janitor {
         // refuses to drop a job it can't record a recovery row for.
         private invocationResults?: HogInvocationResultsService
     ) {
-        this.pool = new Pool({
+        this.pool = createCyclotronPool('janitor', {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 5,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
@@ -525,8 +532,9 @@ export class CyclotronV2Janitor {
     }
 
     async measureQueueDepths(): Promise<Map<string, number>> {
-        const result = await this.pool.query<{ queue_name: string; count: string }>(
-            `SELECT queue_name, COUNT(*) as count
+        const result = await this.pool.query<{ queue_name: string; count: string; oldest_due_age_ms: number }>(
+            `SELECT queue_name, COUNT(*) as count,
+                    EXTRACT(EPOCH FROM NOW() - MIN(scheduled))::float8 * 1000 as oldest_due_age_ms
              FROM cyclotron_jobs
              WHERE status = 'available' AND scheduled <= NOW()
              GROUP BY queue_name`
@@ -538,6 +546,7 @@ export class CyclotronV2Janitor {
             depths.set(row.queue_name, count)
             this.seenQueues.add(row.queue_name)
             queueDepthGauge.labels({ queue: row.queue_name }).set(count)
+            queueOldestDueAgeGauge.labels({ queue: row.queue_name }).set(row.oldest_due_age_ms)
         }
 
         // GROUP BY returns no row for a queue that is empty. Without the write below,
@@ -548,6 +557,7 @@ export class CyclotronV2Janitor {
         for (const queue of this.seenQueues) {
             if (!depths.has(queue)) {
                 queueDepthGauge.labels({ queue }).set(0)
+                queueOldestDueAgeGauge.labels({ queue }).set(0)
             }
         }
 

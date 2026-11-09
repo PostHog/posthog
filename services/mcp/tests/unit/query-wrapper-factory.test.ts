@@ -637,6 +637,18 @@ describe('createQueryWrapper warnings', () => {
         const result = (await tool.handler(contextWithRunQuery({ results: [] }), { kind: 'HogQLQuery' })) as any
 
         expect(result).not.toHaveProperty('warnings')
+        expect(result).not.toHaveProperty('disclaimer')
+    })
+
+    it('forwards the disclaimer the backend attaches to the results', async () => {
+        const disclaimer = 'These are suggestions. Review each one before you act on it.'
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'MarketingAnalyticsRecommendationsQuery' })()
+
+        const result = (await tool.handler(contextWithRunQuery({ results: [], disclaimer }), {
+            kind: 'MarketingAnalyticsRecommendationsQuery',
+        })) as any
+
+        expect(result.disclaimer).toBe(disclaimer)
     })
 })
 

@@ -12,6 +12,7 @@ import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport, SignalReportStatus } from '../types'
 import { canCreateImplementationPr, canUnassignMe, hasOpenImplementationPr } from '../utils/reportActions'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
+import { reportGithubAccessLogic } from './reportGithubAccessLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
 
 /**
@@ -491,6 +492,11 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             createPrForCurrent: () => {
                 const report = values.currentReport
                 if (!report || !values.canCreatePr || values.isCreatingPr || values.createPrDisabledReason) {
+                    return
+                }
+                const access = reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' })
+                if (access?.values.repairNeeded) {
+                    access.actions.setConnectionOpen(true)
                     return
                 }
                 // Triage is a fast keyboard flow with no note box, so it never steers the agent.

@@ -19,7 +19,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
+from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly, sanitize_survey_appearance
 from products.surveys.backend.models import MAX_ITERATION_COUNT, MAX_ITERATION_FREQUENCY_DAYS, Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
 
@@ -199,7 +199,7 @@ def _build_appearance(team: Team) -> dict[str, Any]:
     team_appearance = get_team_survey_config(team).get("appearance", {})
     if team_appearance:
         appearance.update(team_appearance)
-    return appearance
+    return sanitize_survey_appearance(appearance)
 
 
 URL_MATCH_ALIASES: dict[str, str] = {
@@ -268,6 +268,7 @@ def _build_schedule_fields(
     iteration_frequency_days: int | None,
     current_iteration_count: int | None = None,
     current_iteration_frequency_days: int | None = None,
+    current_repeat_until_stopped: bool | None = False,
 ) -> dict[str, Any]:
     # Iteration values alone configure repeats, the same as in the survey API serializer
     if schedule is None and (iteration_count is not None or iteration_frequency_days is not None):
@@ -275,17 +276,30 @@ def _build_schedule_fields(
     if schedule is None:
         return {}
     if schedule == Survey.Schedule.RECURRING:
-        iteration_count = iteration_count or current_iteration_count or DEFAULT_ITERATION_COUNT
         iteration_frequency_days = (
             iteration_frequency_days or current_iteration_frequency_days or DEFAULT_ITERATION_FREQUENCY_DAYS
         )
+        if iteration_count is None and current_repeat_until_stopped:
+            return {
+                "schedule": schedule,
+                "iteration_count": None,
+                "iteration_frequency_days": iteration_frequency_days,
+                "repeat_until_stopped": True,
+            }
+        iteration_count = iteration_count or current_iteration_count or DEFAULT_ITERATION_COUNT
         return {
             "schedule": schedule,
             "iteration_count": min(iteration_count, MAX_ITERATION_COUNT),
             "iteration_frequency_days": iteration_frequency_days,
+            "repeat_until_stopped": False,
         }
     # The iteration columns drive repeats on their own, so clear them for non-recurring schedules
-    return {"schedule": schedule, "iteration_count": None, "iteration_frequency_days": None}
+    return {
+        "schedule": schedule,
+        "iteration_count": None,
+        "iteration_frequency_days": None,
+        "repeat_until_stopped": False,
+    }
 
 
 def _always_schedule_warning(survey_type: str, schedule: str | None, conditions: dict[str, Any] | None) -> str:
@@ -761,6 +775,7 @@ class EditSurveyTool(MaxTool):
                 iteration_frequency_days,
                 current_iteration_count=survey.iteration_count,
                 current_iteration_frequency_days=survey.iteration_frequency_days,
+                current_repeat_until_stopped=survey.repeat_until_stopped,
             )
             new_iteration_count = schedule_fields.get("iteration_count")
             if survey.current_iteration and new_iteration_count and survey.current_iteration > new_iteration_count:

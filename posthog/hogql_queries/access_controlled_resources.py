@@ -13,6 +13,7 @@ from posthog.schema import (
     FunnelsDataWarehouseNode,
     HogQLQuery,
     LifecycleDataWarehouseNode,
+    MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     RetentionEntity,
 )
@@ -70,6 +71,8 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system._ticket_tagged_items": frozenset({"ticket"}),
     "system._ticket_assignments": frozenset({"ticket"}),
     "system._ticket_assignee_roles": frozenset({"ticket"}),
+    "system._event_definition_tagged_items": frozenset({"event_definition"}),
+    "system._property_definition_tagged_items": frozenset({"property_definition"}),
     # Task predicates need these public channel IDs even under object-only task grants.
     "system._task_public_channels": frozenset({"task"}),
     "system.customer_tasks": frozenset({"account"}),
@@ -351,6 +354,9 @@ def _references_data_warehouse(value) -> bool:
         return True
     if isinstance(value, MarketingAnalyticsSearchQuery):
         return bool(value.sources)
+    if isinstance(value, MarketingAnalyticsRecommendationsQuery):
+        # No sources means the runner reads every synced source in the project.
+        return value.sources is None or bool(value.sources)
     if isinstance(value, RetentionEntity) and value.type == EntityType.DATA_WAREHOUSE:
         return True
     if isinstance(value, BaseModel):

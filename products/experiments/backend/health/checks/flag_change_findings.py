@@ -39,7 +39,7 @@ from products.experiments.backend.health.skips import (
 )
 
 # pinned: the subcode of a flag history that was not checked against the exposures. The page sends it as
-# `finding_variant` on the health finding events.
+# `finding_subcode` on the health finding events.
 NOT_CHECKED = "not_checked"
 
 EvidenceValue = str | int | float | bool | None
@@ -120,7 +120,8 @@ def flag_history_not_readable(ctx: HealthContext) -> CheckOutcome:
                 else "Review the flag history."
             )
         ),
-        evidence={"reason": history.reason.value},
+        reason=history.reason.value,
+        evidence={},
         # The flag history is the page this caller can't open.
         actions=() if no_access else (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,),
         diagnostic_ref="E3",
@@ -139,10 +140,12 @@ def change_finding(
     sentences: Sequence[str],
     kind_evidence: Mapping[str, EvidenceValue],
     diagnostic_ref: str,
+    reason: str | None = None,
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
         code=code,
         subcode=subcode,
+        reason=reason,
         severity=severity,
         title=title,
         detail=" ".join(sentences),
@@ -166,9 +169,9 @@ def few_exposed_units(history: FlagHistory, kind: ExperimentHealthFlagChangeKind
 
 
 def exposed_when(history: FlagHistory, effect: ChangeEffect, count: int) -> str:
-    after_launch = duration((effect.last.changed_at - history.launched_at).total_seconds())
+    after_start = duration((effect.last.changed_at - history.start_date).total_seconds())
     change = "The change" if effect.change_count == 1 else "The last change"
-    return f"{change} came {after_launch} after launch, when {_units(count, history.counts_groups)} had been exposed."
+    return f"{change} came {after_start} after the start date, when {_units(count, history.counts_groups)} had been exposed."
 
 
 def leave_out(history: FlagHistory, effect: ChangeEffect, count: int) -> list[str]:
@@ -201,6 +204,7 @@ def not_checked_finding(
     return ExperimentHealthFinding(
         code=code,
         subcode=NOT_CHECKED,
+        reason=history.reason.value,
         severity=ExperimentHealthFindingSeverity.INFO,
         title=title,
         detail=" ".join(
@@ -211,10 +215,7 @@ def not_checked_finding(
                 not_checked_next_step(history.reason, change),
             ]
         ),
-        evidence={
-            "reason": history.reason.value,
-            **change_evidence(history, effect, kind_evidence=kind_evidence, exposed_before_change=None),
-        },
+        evidence=change_evidence(history, effect, kind_evidence=kind_evidence, exposed_before_change=None),
         actions=(ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,),
         diagnostic_ref=diagnostic_ref,
     )
@@ -233,13 +234,13 @@ def change_evidence(
         "last_changed_at": effect.last.changed_at.astimezone(UTC).isoformat(),
         **kind_evidence,
         "exposed_before_change": exposed_before_change,
-        "seconds_after_launch": int((effect.first.changed_at - history.launched_at).total_seconds()),
+        "seconds_after_start": int((effect.first.changed_at - history.start_date).total_seconds()),
     }
 
 
 def delay_after_launch(history: FlagHistory, effect: ChangeEffect) -> list[str]:
     return delay(
-        launched_at=history.launched_at,
+        start_date=history.start_date,
         first_changed_at=effect.first.changed_at,
         exposed_before_first=history.exposed_before_first,
         change_count=effect.change_count,

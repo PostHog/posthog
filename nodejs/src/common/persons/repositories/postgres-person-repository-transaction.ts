@@ -76,6 +76,10 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         return await this.repository.readMergeRows(teamId, targetId, sourceIds, this.transaction)
     }
 
+    async readPerson(teamId: Team['id'], distinctId: string): Promise<InternalPerson | undefined> {
+        return await this.repository.readPerson(teamId, distinctId, this.transaction)
+    }
+
     async updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
         Map<
             string,

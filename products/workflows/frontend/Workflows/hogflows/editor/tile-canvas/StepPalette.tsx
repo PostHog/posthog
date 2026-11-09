@@ -53,6 +53,8 @@ export function StepPalette({
     placeholder,
     trigger,
     onSelectStep,
+    onDragStep,
+    onDragEnd,
     onClose,
 }: {
     sections: PaletteSection[]
@@ -61,6 +63,8 @@ export function StepPalette({
     placeholder: string
     trigger?: RefObject<HTMLElement>
     onSelectStep: (step: CreateActionType) => void
+    onDragStep: (step: CreateActionType) => void
+    onDragEnd: () => void
     onClose: () => void
 }): JSX.Element {
     const [query, setQuery] = useState(initialQuery)
@@ -68,12 +72,21 @@ export function StepPalette({
     const rootRef = useRef<HTMLDivElement>(null)
     const listRef = useRef<HTMLDivElement>(null)
     const inputRef = useRef<HTMLInputElement>(null)
+    const dragFrameRef = useRef<number | null>(null)
     const listId = useId()
     const optionId = (index: number): string => `${listId}-option-${index}`
     const items = useMemo(() => filterPaletteItems(query, sections, commands), [query, sections, commands])
     useComboboxInput(inputRef, listId, items.length ? optionId(activeIndex) : undefined)
     useCloseOnPointerOutside(rootRef, trigger, onClose)
 
+    useEffect(
+        () => () => {
+            if (dragFrameRef.current !== null) {
+                cancelAnimationFrame(dragFrameRef.current)
+            }
+        },
+        []
+    )
     useEffect(() => setActiveIndex(0), [query])
     useEffect(() => {
         listRef.current?.querySelector(`[data-index="${activeIndex}"]`)?.scrollIntoView({ block: 'nearest' })
@@ -89,6 +102,23 @@ export function StepPalette({
         } else {
             item.command.run()
         }
+    }
+
+    // The browser draws the drag image after dragstart, so the palette may hide only a frame later.
+    const startDrag = (step: CreateActionType): void => {
+        dragFrameRef.current = requestAnimationFrame(() => {
+            dragFrameRef.current = null
+            onDragStep(step)
+        })
+    }
+
+    const endDrag = (): void => {
+        if (dragFrameRef.current !== null) {
+            cancelAnimationFrame(dragFrameRef.current)
+            dragFrameRef.current = null
+            return
+        }
+        onDragEnd()
     }
 
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -151,6 +181,8 @@ export function StepPalette({
                             active={index === activeIndex}
                             onHover={() => setActiveIndex(index)}
                             onChoose={() => choose(item)}
+                            onDragStep={startDrag}
+                            onDragEnd={endDrag}
                         />
                     </div>
                 ))}

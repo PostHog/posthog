@@ -502,7 +502,9 @@ def sync_execute(
 
     add_fallback_query_tags(tags)
 
-    if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
+    # A ch_user tag wins on the Max AI worker, because the worker also hosts work with its own
+    # ClickHouse user and concurrency budget, such as the alerts platform's AI insight checks.
+    if tags.product == Product.MAX_AI or (tags.service_name == "temporal-worker-max-ai" and not tags.ch_user):
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
@@ -627,7 +629,7 @@ def sync_execute(
         ).inc()
 
         if query_counter := getattr(thread_local_storage, "query_counter", None):
-            query_counter.total_query_time += execution_time
+            query_counter.record_query_time(execution_time)
 
         if app_settings.SHELL_PLUS_PRINT_SQL:
             print("Execution time: %.6fs" % (execution_time,))  # noqa T201

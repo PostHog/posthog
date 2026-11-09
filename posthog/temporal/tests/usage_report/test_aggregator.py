@@ -21,13 +21,17 @@ from posthog.tasks.usage_report import (
     InstanceMetadata,
     OrgReport,
     UsageReportCounters,
-    apply_usage_counter_metadata,
     iter_reports_with_usage_counter_metadata,
 )
 from posthog.temporal.tests.usage_report.test_aggregate_activity import _instance_metadata
 from posthog.temporal.usage_report.aggregator import (
+    add_pre_business_knowledge_usage_patch_defaults,
+    add_pre_local_evaluation_not_modified_patch_defaults,
     add_pre_logs_distinct_patterns_patch_defaults,
+    add_pre_mcp_event_count_patch_defaults,
+    add_pre_replay_vision_spend_projection_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
+    add_pre_signals_spend_patch_defaults,
     add_pre_transactional_emails_patch_defaults,
     build_manifest,
     iter_chunk_lines,
@@ -43,9 +47,11 @@ from posthog.temporal.usage_report.types import (
     WorkflowContext,
 )
 from posthog.usage_counters import (
+    UsageCounter,
     UsageCounterComparison,
     UsageCounterComparisonRows,
     UsageCounterMode,
+    UsageCounterPlan,
     UsageCounterReport,
     UsageCounterService,
 )
@@ -173,6 +179,11 @@ def test_load_all_data_defaults_compute_for_pre_patch_workflow_history() -> None
     [
         (add_pre_logs_distinct_patterns_patch_defaults, "teams_with_logs_distinct_patterns_in_period"),
         (add_pre_transactional_emails_patch_defaults, "teams_with_workflow_transactional_emails_sent_in_period"),
+        (add_pre_mcp_event_count_patch_defaults, "teams_with_mcp_event_count_in_period"),
+        (
+            add_pre_local_evaluation_not_modified_patch_defaults,
+            "teams_with_local_evaluation_not_modified_requests_count_in_period",
+        ),
     ],
 )
 def test_load_all_data_defaults_single_query_for_pre_patch_workflow_history(
@@ -187,6 +198,38 @@ def test_load_all_data_defaults_single_query_for_pre_patch_workflow_history(
     add_defaults(patched_data, [RunQueryToS3Result(query_name=query_name, s3_key="unused", duration_ms=1)])
 
     assert patched_data == {query_name: {1: 2}}
+
+
+def test_load_all_data_defaults_replay_vision_spend_projection_for_pre_patch_workflow_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    add_pre_replay_vision_spend_projection_patch_defaults(all_data, [])
+
+    assert all_data == {
+        "teams_with_replay_vision_scanner_projected_credits": {},
+        "teams_with_replay_vision_backfill_committed_credits": {},
+    }
+
+    patched_data: dict[str, dict[int, int]] = {}
+    results = [RunQueryToS3Result(query_name="replay_vision_spend_projection", s3_key="unused", duration_ms=1)]
+    add_pre_replay_vision_spend_projection_patch_defaults(patched_data, results)
+
+    assert patched_data == {}
+
+
+def test_load_all_data_defaults_business_knowledge_usage_for_pre_patch_workflow_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    add_pre_business_knowledge_usage_patch_defaults(all_data, [])
+
+    assert all_data == {
+        "teams_with_business_knowledge_chunks_in_period": {},
+        "teams_with_business_knowledge_queries_in_period": {},
+    }
+
+    patched_data: dict[str, dict[int, int]] = {"teams_with_business_knowledge_queries_in_period": {1: 3}}
+    results = [RunQueryToS3Result(query_name="business_knowledge_usage", s3_key="unused", duration_ms=1)]
+    add_pre_business_knowledge_usage_patch_defaults(patched_data, results)
+
+    assert patched_data == {"teams_with_business_knowledge_queries_in_period": {1: 3}}
 
 
 def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -> None:
@@ -206,7 +249,6 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
         with patch("posthoganalytics.get_feature_flag", return_value="both"):
             ctx.usage_counter_plan = UsageCounterService().resolve_plan(
                 DayRange(start=ctx.period_start, end=ctx.period_end),
-                caller="usage_reports_v2",
                 complete=ctx.report_completeness == "complete",
             )
     result = RunQueryToS3Result(query_name="usage_counters", s3_key="shadow.json", duration_ms=1)
@@ -236,7 +278,9 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
             assert counter_report.counts == {"teams_with_cdp_billable_invocations_in_period": [(1, 12)]}
     org = _empty_org_report("org-a", cdp_billable_invocations_in_period=12)
     org.teams["1"] = _empty_org_report("org-a", cdp_billable_invocations_in_period=12)
-    apply_usage_counter_metadata({"org-a": org}, counter_report, caller="usage_reports_v2", date=ctx.date_str)
+    assert list(
+        iter_reports_with_usage_counter_metadata([org], counter_report, caller="usage_reports_v2", date=ctx.date_str)
+    ) == [org]
     assert org.cdp_billable_invocations_in_period == 12
     if state == "legacy":
         assert org.usage_sources is None
@@ -249,8 +293,7 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
     )
 
 
-@pytest.mark.parametrize("streamed", [False, True])
-def test_counter_comparisons_follow_current_team_ownership(streamed: bool) -> None:
+def test_counter_comparisons_follow_current_team_ownership() -> None:
     previous_owner = _empty_org_report("org-a")
     previous_owner.teams["1"] = _empty_org_report("org-a")
     current_owner = _empty_org_report("org-b", cdp_billable_invocations_in_period=100)
@@ -266,19 +309,11 @@ def test_counter_comparisons_follow_current_team_ownership(streamed: bool) -> No
     )
 
     with patch("posthog.tasks.usage_report.ph_scoped_capture") as capture:
-        if streamed:
-            assert list(
-                iter_reports_with_usage_counter_metadata(
-                    iter((previous_owner, current_owner)), counter_report, caller="usage_reports_v2", date="2026-05-04"
-                )
-            ) == [previous_owner, current_owner]
-        else:
-            apply_usage_counter_metadata(
-                {"org-a": previous_owner, "org-b": current_owner},
-                counter_report,
-                caller="daily_report",
-                date="2026-05-04",
+        assert list(
+            iter_reports_with_usage_counter_metadata(
+                iter((previous_owner, current_owner)), counter_report, caller="usage_reports_v2", date="2026-05-04"
             )
+        ) == [previous_owner, current_owner]
 
     assert previous_owner.counter_comparisons == {"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 0}}
     assert current_owner.counter_comparisons == {"cdp_billable_invocations_in_period": {"legacy": 100, "realtime": 100}}
@@ -327,7 +362,10 @@ def test_missing_organization_diagnostics_split_without_losing_comparisons() -> 
         },
     )
     with patch("posthog.tasks.usage_report.ph_scoped_capture") as scoped:
-        apply_usage_counter_metadata({}, report, caller="daily_report", date="2026-05-04")
+        assert (
+            list(iter_reports_with_usage_counter_metadata([], report, caller="usage_reports_v2", date="2026-05-04"))
+            == []
+        )
     calls = scoped.return_value.__enter__.return_value.call_args_list
     assert len(calls) > 1
     recovered: dict[str, dict[str, UsageCounterComparison]] = {}
@@ -508,3 +546,15 @@ def test_failed_chunk_run_does_not_publish_manifest(failure: str, report_count: 
             check_cancelled=check_cancelled,
         )
     assert not any(key.endswith("manifest.json") for key in written)
+
+
+def test_signals_spend_default_does_not_hide_a_missing_planned_counter() -> None:
+    ctx = _ctx()
+    ctx.usage_counter_plan = UsageCounterPlan(
+        period=DayRange(start=ctx.period_start, end=ctx.period_end),
+        caller="usage_reports_v2",
+        modes={UsageCounter.SIGNALS_SPEND_CREDITS: UsageCounterMode.LEGACY},
+    )
+    all_data: dict[str, dict[int, int]] = {}
+    add_pre_signals_spend_patch_defaults(all_data, AggregateInputs(ctx=ctx, query_results=[]))
+    assert UsageCounter.SIGNALS_SPEND_CREDITS.value not in all_data

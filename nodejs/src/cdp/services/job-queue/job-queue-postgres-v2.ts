@@ -1,5 +1,5 @@
 import { chunk } from 'lodash'
-import { Gauge } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -16,6 +16,19 @@ import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observ
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
     help: 'Number of postgres-v2 jobs currently held in memory awaiting ack/fail/reschedule',
+})
+
+const resultWriteFailuresCounter = new Counter({
+    name: 'cdp_cyclotron_v2_result_write_failures_total',
+    help: 'Batches whose acks, reschedules or new jobs failed to write; dequeued jobs wait for the janitor stall reset',
+    labelNames: ['queue'],
+})
+
+const jobLatenessHistogram = new Histogram({
+    name: 'cdp_cyclotron_job_lateness_seconds',
+    help: 'Seconds between a postgres-v2 job becoming due and a worker dequeuing it',
+    labelNames: ['queue'],
+    buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900],
 })
 
 /**
@@ -96,10 +109,13 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
         await this.worker.connect(async (jobs) => {
             const invocations: CyclotronJobInvocation[] = []
+            const now = Date.now()
+            const jobLateness = jobLatenessHistogram.labels({ queue })
 
             for (const job of jobs) {
                 this.pendingJobs.set(job.id, job)
                 invocations.push(v2JobToInvocation(job))
+                jobLateness.observe(Math.max(0, now - job.scheduled.toMillis()) / 1000)
             }
 
             pendingJobsGauge.set(this.pendingJobs.size)
@@ -111,7 +127,14 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 maxBatchSize: this.consumerBatchSize,
             })
 
-            await consumeBatch(invocations)
+            const { backgroundTask } = await consumeBatch(invocations)
+            void backgroundTask.catch((error) => {
+                resultWriteFailuresCounter.labels({ queue }).inc()
+                logger.warn('CyclotronV2 failed to write batch results', {
+                    queue,
+                    error: String(error),
+                })
+            })
 
             pendingJobsGauge.set(this.pendingJobs.size)
         })
@@ -356,6 +379,8 @@ export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvo
         queue: job.queueName as CyclotronJobQueueKind,
         queuePriority: job.priority,
         queueScheduledAt: job.scheduled ?? undefined,
+        queueCreatedAt: job.created,
+        queueDueAt: job.scheduled ?? undefined,
         queueMetadata: parsed.queueMetadata ?? undefined,
         queueParameters: parsed.queueParameters ?? undefined,
         state: parsed.state,
