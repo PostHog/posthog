@@ -15,7 +15,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 
@@ -73,6 +73,7 @@ SELECT
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
+    AND {date_to_bound}
     AND $session_id = {session_id}
     AND {shared_filters}
 ORDER BY timestamp ASC, event_id ASC
@@ -1041,6 +1042,7 @@ def list_mcp_tool_calls(
     limit: int,
     offset: int,
     date_from: datetime | None = None,
+    date_to: datetime | None = None,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
@@ -1050,7 +1052,9 @@ def list_mcp_tool_calls(
     ``date_from`` is the timestamp lower bound that lets the events sort key prune the scan
     (``$session_id`` alone isn't in the sort key). The caller passes the session's start so the
     detail view stays correct for sessions older than the default ``SESSION_EVENTS_LOOKBACK``;
-    when omitted it falls back to that window for param-less API/token callers.
+    when omitted it falls back to that window for param-less API/token callers. ``date_to`` is the
+    matching upper bound; the caller passes the session's end so an older session's scan stops there
+    instead of reading every event up to now.
 
     ``limit`` / ``offset`` page through the session's calls; over-fetch one row to report
     ``has_next`` without a separate count query.
@@ -1067,6 +1071,11 @@ def list_mcp_tool_calls(
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
             "date_from": ast.Constant(value=date_from or (timezone.now() - intent_generation.SESSION_EVENTS_LOOKBACK)),
+            "date_to_bound": (
+                parse_expr("timestamp <= {date_to}", placeholders={"date_to": ast.Constant(value=date_to)})
+                if date_to
+                else ast.Constant(value=True)
+            ),
             "session_id": ast.Constant(value=session_id),
             "limit": ast.Constant(value=limit + 1),
             "offset": ast.Constant(value=offset),
