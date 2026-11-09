@@ -4,8 +4,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.hogql.cost.statistics import EventVolume, FixedStatisticsProvider
-from products.posthog_ai.backend.mcp_tools.explain_sql import ExplainSQLMCPTool, ExplainSQLMCPToolArgs
 
+from products.posthog_ai.backend.mcp_tools.explain_sql import ExplainSQLMCPTool, ExplainSQLMCPToolArgs
 
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
 

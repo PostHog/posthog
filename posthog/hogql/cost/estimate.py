@@ -569,17 +569,27 @@ def _table_scans(
             else:
                 scans.append(_OtherScan(name=name, table=source.table))
         else:
-            if id(source) in budget.walked:
-                inner = budget.walked[id(source)]
-                if inner is not None:
-                    budget.take(len(inner))
-            else:
-                inner = _table_scans(source, now, context, ctes, budget)
-                budget.walked[id(source)] = inner
+            inner = _subquery_scans(source, now, context, ctes, budget)
             if inner is None:
                 return None
             scans.extend(inner)
         join = join.next_join
+    return scans
+
+
+def _subquery_scans(
+    node: ast.SelectQuery | ast.SelectSetQuery,
+    now: datetime,
+    context: HogQLContext,
+    ctes: Mapping[str, CTE],
+    budget: _ScanBudget,
+) -> list[_EventsScan | _SessionsScan | _OtherScan] | None:
+    if id(node) not in budget.walked:
+        budget.walked[id(node)] = _table_scans(node, now, context, ctes, budget)
+        return budget.walked[id(node)]
+    scans = budget.walked[id(node)]
+    if scans is not None:
+        budget.take(len(scans))
     return scans
 
 
