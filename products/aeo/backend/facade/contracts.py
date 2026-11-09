@@ -72,6 +72,7 @@ class PromptEngineCheck:
     cited: bool
     check_failed: bool
     target_best_position: int | None
+    search_queries: tuple[str, ...]
     checked_at: dt.datetime
 
 

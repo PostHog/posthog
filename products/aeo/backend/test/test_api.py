@@ -353,8 +353,10 @@ class TestAEOPromptAPI(APIBaseTest):
         self.client.post(f"{self.url}bulk_import/", {"prompts": prompts}, format="json")
         ids = {row["prompt"]: row["id"] for row in self.client.get(self.url).json()["results"]}
         checked_id = ids["checked?"]
-        self._record_check(checked_id, "exa-answer", minutes_ago=60, cited=True)
-        self._record_check(checked_id, "exa-answer", minutes_ago=5, cited=False)
+        self._record_check(checked_id, "exa-answer", minutes_ago=60, cited=True, search_queries=["older search"])
+        self._record_check(
+            checked_id, "exa-answer", minutes_ago=5, cited=False, search_queries=["checked 2026", "checked review"]
+        )
         self._record_check(checked_id, "claude-web-search", minutes_ago=90, check_failed=True)
         self._record_check(checked_id, "claude-web-search", minutes_ago=30, cited=True, position=2)
 
@@ -370,6 +372,8 @@ class TestAEOPromptAPI(APIBaseTest):
                 latest["exa-answer"]["target_best_position"],
                 latest["claude-web-search"]["target_best_position"],
             ) == (None, 2)
+            assert latest["exa-answer"]["search_queries"] == ["checked 2026", "checked review"]
+            assert latest["claude-web-search"]["search_queries"] == []
         assert listed["never checked?"]["latest_checks"] == []
 
     def test_list_needs_improvement_keeps_answered_prompts_without_a_recent_citation(self) -> None:
