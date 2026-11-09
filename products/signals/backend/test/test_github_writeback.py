@@ -13,7 +13,7 @@ from products.signals.backend.artefact_schemas import SourceIssue
 from products.signals.backend.github_writeback import (
     CLAIM_LEASE,
     MAX_COMMENT_PAGES,
-    _ingested_issue_urls,
+    STATUS_LINES,
     post_report_link_to_github_issues,
 )
 from products.signals.backend.models import (
@@ -22,7 +22,7 @@ from products.signals.backend.models import (
     SignalReportGithubComment,
     SignalTeamConfig,
 )
-from products.signals.backend.test.test_signal_queries import _SignalEmbeddingsTestBase
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 WRITEBACK_MODULE_PATH = "products.signals.backend.github_writeback"
 
@@ -56,9 +56,11 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         )
         self.signal = _signal()
 
-    def _post(self, signals, *, issue=None):
+    def _post(self, signals, *, issue=None, connected=True):
         with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
             github = integration.first_for_team_repository.return_value
+            if not connected:
+                integration.first_for_team_repository.return_value = None
             github.api_request.return_value.json.return_value = (
                 issue if issue is not None else {"state": "open", "locked": False}
             )
@@ -67,7 +69,16 @@ class TestPostReportLinkToGithubIssues(BaseTest):
             posted = post_report_link_to_github_issues(self.team, str(self.report.id), signals)
         return posted, comment
 
-    def test_comments_a_link_to_the_report_on_the_issue(self):
+    @parameterized.expand(
+        [
+            ("ready", SignalReport.Status.READY),
+            ("pending input", SignalReport.Status.PENDING_INPUT),
+            ("failed", SignalReport.Status.FAILED),
+        ]
+    )
+    def test_comments_a_link_to_a_visible_report_on_the_issue(self, _name, status):
+        SignalReport.objects.filter(pk=self.report.pk).update(status=status)
+
         posted, comment = self._post([self.signal])
 
         assert posted == 1
@@ -75,6 +86,115 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         repository, number, body = comment.call_args.args
         assert (repository, number) == ("acme/widgets", 42)
         assert f"/project/{self.team.pk}/inbox/reports/{self.report.id}?link_source=github_comment" in body
+        assert STATUS_LINES[status] in body
+
+    @parameterized.expand(
+        [
+            ("in progress", SignalReport.Status.IN_PROGRESS),
+            ("resolved", SignalReport.Status.RESOLVED),
+            ("suppressed", SignalReport.Status.SUPPRESSED),
+        ]
+    )
+    def test_does_not_post_a_first_comment_for_a_report_the_inbox_does_not_list(self, _name, status):
+        SignalReport.objects.filter(pk=self.report.pk).update(status=status)
+
+        posted, comment = self._post([self.signal])
+
+        assert posted == 0
+        comment.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("needs input to ready", SignalReport.Status.READY, True),
+            ("needs input to resolved", SignalReport.Status.RESOLVED, True),
+            ("status without a line", SignalReport.Status.CANDIDATE, False),
+        ]
+    )
+    def test_a_status_change_edits_the_posted_comment_instead_of_posting_again(self, _name, later_status, edits):
+        SignalReport.objects.filter(pk=self.report.pk).update(status=SignalReport.Status.PENDING_INPUT)
+        _, first = self._post([self.signal])
+        first_body = first.call_args.args[2]
+        SignalReport.objects.filter(pk=self.report.pk).update(status=later_status)
+
+        with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
+            github = integration.first_for_team_repository.return_value
+            github.api_request.side_effect = [
+                MagicMock(json=lambda: [{"id": 7, "body": "unrelated"}, {"id": 9, "body": first_body}]),
+                MagicMock(),
+            ]
+            posted = post_report_link_to_github_issues(self.team, str(self.report.id), [self.signal])
+
+        assert posted == 0
+        github.comment_on_issue.assert_not_called()
+        patches = [call for call in github.api_request.call_args_list if call.args[0] == "PATCH"]
+        if not edits:
+            assert patches == []
+            return
+        assert [call.args[1] for call in patches] == ["/repos/acme/widgets/issues/comments/9"]
+        new_body = patches[0].kwargs["json_body"]["body"]
+        assert STATUS_LINES[later_status] in new_body
+        assert STATUS_LINES[SignalReport.Status.PENDING_INPUT] not in new_body
+        assert f"<!-- posthog:signal-report:{self.report.id} -->" in new_body
+
+    def test_does_not_edit_a_comment_that_already_shows_the_status(self):
+        _, first = self._post([self.signal])
+        body = first.call_args.args[2]
+
+        with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
+            github = integration.first_for_team_repository.return_value
+            github.api_request.return_value.json.return_value = [{"id": 9, "body": body}]
+            post_report_link_to_github_issues(self.team, str(self.report.id), [self.signal])
+
+        assert [call.args[0] for call in github.api_request.call_args_list] == ["GET"]
+
+    @parameterized.expand(
+        [
+            ("to a visible status", SignalReport.Status.PENDING_INPUT, SignalReport.Status.READY, False, True, 1),
+            (
+                "while the team has not opted in",
+                SignalReport.Status.PENDING_INPUT,
+                SignalReport.Status.READY,
+                False,
+                False,
+                0,
+            ),
+            (
+                "to a closed status with no comment",
+                SignalReport.Status.READY,
+                SignalReport.Status.SUPPRESSED,
+                False,
+                True,
+                0,
+            ),
+            (
+                "to a closed status after a comment",
+                SignalReport.Status.READY,
+                SignalReport.Status.SUPPRESSED,
+                True,
+                True,
+                1,
+            ),
+        ]
+    )
+    def test_a_status_transition_schedules_the_writeback(
+        self, _name, from_status, to_status, commented, opted_in, expected
+    ):
+        SignalReport.objects.filter(pk=self.report.pk).update(status=from_status)
+        SignalTeamConfig.objects.filter(team=self.team).update(github_issue_writeback_enabled=opted_in)
+        if commented:
+            SignalReportGithubComment.objects.for_team(self.team.pk).create(
+                team=self.team, report=self.report, repository="acme/widgets", number=42, commented_at=timezone.now()
+            )
+        self.report.refresh_from_db()
+
+        with (
+            patch("products.signals.backend.github_writeback_tasks.post_source_issue_links") as writeback,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.report.status = to_status
+            self.report.save(update_fields=["status", "updated_at"])
+
+        assert writeback.delay.call_count == expected
 
     def test_comment_carries_no_report_content(self):
         # The comment is public on the issue thread while the report is behind the project's access
@@ -146,28 +266,48 @@ class TestPostReportLinkToGithubIssues(BaseTest):
 
         assert integration.first_for_team_repository.call_args.kwargs["priority"] == Priority.BATCH
 
+    def _sync_issues(self, schema_name):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type="Github", status="Running", prefix="gh_", job_inputs={}
+        )
+        ExternalDataSchema.objects.create(team=self.team, source=source, name=schema_name, should_sync=True)
+
     @parameterized.expand(
         [
-            ("a source issue the source ingested", False, {"https://github.com/acme/widgets/issues/42"}, 1),
-            ("a source issue the source never ingested", False, set(), 0),
-            ("the same issue from a signal and a source issue", True, set(), 1),
+            ("a synced repository", "acme/widgets.issues", True, False, 1),
+            ("another synced repository the installation also reaches", "acme/other.issues", True, False, 0),
+            ("a synced repository no team integration covers", "acme/widgets.issues", False, False, 0),
+            ("the same issue from a signal and a source issue", "acme/other.issues", True, True, 1),
         ]
     )
-    def test_comments_on_a_source_issue_only_once_the_source_ingested_it(self, _name, with_signal, synced, expected):
-        # Anyone who files a report can name any issue URL, so the app comments only on issues the
-        # team's GitHub source actually picked up.
+    def test_comments_on_a_source_issue_in_a_synced_repository_before_its_signal_is_ingested(
+        self, _name, schema_name, connected, with_signal, expected
+    ):
+        self._sync_issues(schema_name)
+        self._name_source_issue()
+
+        posted, comment = self._post([self.signal] if with_signal else [], connected=connected)
+
+        assert posted == expected
+        assert [call.args[:2] for call in comment.call_args_list] == [("acme/widgets", 42)] * expected
+
+    def test_posts_no_second_comment_when_the_issue_signal_joins_later(self):
+        self._sync_issues("acme/widgets.issues")
+        self._name_source_issue()
+
+        first, _ = self._post([])
+        joined, comment = self._post([self.signal])
+
+        assert (first, joined) == (1, 0)
+        comment.assert_not_called()
+
+    def _name_source_issue(self):
         SignalReportArtefact.add_log(
             team_id=self.team.pk,
             report_id=str(self.report.id),
             content=SourceIssue.github("Acme/Widgets", 42),
             attribution=ArtefactAttribution.system(),
         )
-
-        with patch(f"{WRITEBACK_MODULE_PATH}._ingested_issue_urls", return_value=synced):
-            posted, comment = self._post([self.signal] if with_signal else [])
-
-        assert posted == expected
-        assert [call.args[:2] for call in comment.call_args_list] == [("acme/widgets", 42)] * expected
 
     def test_comments_once_when_two_signals_name_the_same_issue(self):
         posted, comment = self._post([self.signal, _signal()])
@@ -247,25 +387,3 @@ class TestPostReportLinkToGithubIssues(BaseTest):
 
         assert posted == 0
         assert SignalReportGithubComment.objects.for_team(self.team.pk).get().commented_at is None
-
-
-class TestIngestedIssueUrls(_SignalEmbeddingsTestBase):
-    def test_finds_only_issues_with_a_live_github_issue_signal(self) -> None:
-        for document_id, source_product, html_url, deleted in [
-            ("ingested", "github", "https://github.com/Acme/Widgets/issues/7", False),
-            ("deleted", "github", "https://github.com/acme/widgets/issues/8", True),
-            ("other-source", "linear", "https://github.com/acme/widgets/issues/9", False),
-        ]:
-            self._emit_version(
-                document_id=document_id,
-                report_id="r-1",
-                source_product=source_product,
-                source_type="issue",
-                inserted_at=self.base,
-                deleted=deleted,
-                extra={"html_url": html_url},
-            )
-
-        urls = {f"https://github.com/acme/widgets/issues/{number}" for number in (7, 8, 9, 10)}
-
-        assert _ingested_issue_urls(self.team, urls) == {"https://github.com/acme/widgets/issues/7"}
