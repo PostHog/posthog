@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { aiFirstHandoffLogic } from 'scenes/max/aiFirstCreate/aiFirstHandoffLogic'
 import { maxMocks } from 'scenes/max/testUtils'
 import { urls } from 'scenes/urls'
@@ -84,6 +86,11 @@ describe('AI workflow folder handoff', () => {
             },
         })
         initKeaTests()
+        // The folder handoff exists only behind these flags, and the tree shows workflow files only with them on.
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true,
+        })
         const unmountTree = projectTreeDataLogic.mount()
         projectTreeDataLogic.actions.loadFolderSuccess(
             'Unfiled/Workflows',

@@ -61,7 +61,7 @@ class FileSystemSyncMixin(Model):
             team = self.team  # type: ignore
             if fs_data.should_delete:
                 delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
-            else:
+            elif self.files_new_rows() or self._has_file_system_row(team, fs_data):
                 create_or_update_file(
                     team=team,
                     base_folder=fs_data.base_folder,
@@ -77,6 +77,19 @@ class FileSystemSyncMixin(Model):
         except Exception as e:
             # Don't raise exceptions in signals
             capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
+
+    def files_new_rows(self) -> bool:
+        """Whether a save may create this object's project file. A model that launches behind a flag
+        returns False while the flag is off, so its saves then only update or remove an existing row."""
+        return True
+
+    @staticmethod
+    def _has_file_system_row(team: "Team", fs_data: FileSystemRepresentation) -> bool:
+        from posthog.models.file_system.file_system import FileSystem
+
+        return FileSystem.objects.filter(
+            surface_q(fs_data.surface), team=team, type=fs_data.type, ref=fs_data.ref, shortcut=False
+        ).exists()
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet[Any]:

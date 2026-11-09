@@ -214,7 +214,7 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
             if not workflow_project_files_enabled(self.team, cast(User, self.request.user)):
                 queryset = queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
-            if self.user_access_control:
+            elif self.user_access_control:
                 queryset = filter_workflow_files_by_access_level(
                     queryset, self.user_access_control, self.team.project_id
                 )
