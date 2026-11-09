@@ -2906,8 +2906,12 @@ describe('CDP API', () => {
             const exit = { type: 'exit', config: {} } as const
             const step = (from: string, to: string) => ({ from, to, type: 'continue' as const })
 
-            it.each<[string, () => Promise<HogFlow>]>([
-                ['a delay', () => flowThrough({ delay }, [step('trigger', 'delay'), step('delay', 'email')])],
+            it.each<[string, () => Promise<HogFlow>, string]>([
+                [
+                    'a delay',
+                    () => flowThrough({ delay }, [step('trigger', 'delay'), step('delay', 'email')]),
+                    'workflow_can_wait',
+                ],
                 [
                     'a wait until a condition',
                     () =>
@@ -2920,6 +2924,7 @@ describe('CDP API', () => {
                             },
                             [step('trigger', 'wait'), step('wait', 'email')]
                         ),
+                    'workflow_can_wait',
                 ],
                 [
                     'a wait for a time window',
@@ -2933,6 +2938,7 @@ describe('CDP API', () => {
                             },
                             [step('trigger', 'window'), step('window', 'email')]
                         ),
+                    'workflow_can_wait',
                 ],
                 [
                     'a branch to a delay',
@@ -2949,6 +2955,7 @@ describe('CDP API', () => {
                                 step('delay', 'email'),
                             ]
                         ),
+                    'workflow_can_wait',
                 ],
                 [
                     'a delay between a first email and a second one',
@@ -2967,14 +2974,31 @@ describe('CDP API', () => {
                             },
                             [step('trigger', 'first'), step('first', 'delay'), step('delay', 'email')]
                         ),
+                    'workflow_can_wait',
                 ],
                 [
                     'an email step the frequency cap can hold',
                     () => flowThrough({}, [step('trigger', 'email')], 'marketing'),
+                    'workflow_can_wait',
+                ],
+                [
+                    'a step that stores its output in a variable',
+                    () =>
+                        flowThrough(
+                            {
+                                fetch: {
+                                    type: 'function',
+                                    config: { template_id: 'template-webhook', inputs: {} },
+                                    output_variable: { key: 'user' },
+                                },
+                            },
+                            [step('trigger', 'fetch'), step('fetch', 'email')]
+                        ),
+                    'workflow_sets_variables_before_email',
                 ],
             ])(
                 'refuses a send with files to a workflow with %s before its email goes out, before it reserves the key',
-                async (_name, arrange) => {
+                async (_name, arrange, code) => {
                     const flow = await arrange()
                     const stagesBefore = await stageCounts()
 
@@ -2982,7 +3006,7 @@ describe('CDP API', () => {
 
                     expect(res.status).toBe(400)
                     expect(res.body).toEqual({
-                        error: 'workflow_can_wait',
+                        error: code,
                         reason: expect.any(String),
                         fix: expect.any(String),
                     })

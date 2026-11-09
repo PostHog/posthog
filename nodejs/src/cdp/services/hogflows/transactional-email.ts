@@ -241,6 +241,7 @@ export type TransactionalEmailOutcome =
     | 'not_found'
     | 'not_sendable'
     | 'workflow_can_wait'
+    | 'workflow_sets_variables_before_email'
     | 'quota_limited'
     | 'sending_suspended'
     | 'sending_paused'

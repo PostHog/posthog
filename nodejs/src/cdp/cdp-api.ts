@@ -55,6 +55,11 @@ import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
+    EmailStep,
+    emailStepsReachableFromTrigger,
+    workflowRefusalForFiles,
+} from './services/hogflows/steps-before-email'
+import {
     ATTACHMENT_UPLOAD_TOKEN_CLAIMS,
     AcceptedSend,
     AcceptedSendRequestSchema,
@@ -69,11 +74,6 @@ import {
     transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
-import {
-    EmailStep,
-    emailStepsReachableFromTrigger,
-    stepThatCanWaitBeforeEmail,
-} from './services/hogflows/waits-before-email'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
@@ -1374,13 +1374,9 @@ export class CdpApi {
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
-                const stepThatCanWait = references.length > 0 ? stepThatCanWaitBeforeEmail(hogFlow) : null
-                if (stepThatCanWait) {
-                    return reply('workflow_can_wait', 400, {
-                        error: 'workflow_can_wait',
-                        reason: `The "${stepThatCanWait.name}" step can hold this send before its email goes out, so its files could expire first.`,
-                        fix: 'Send files through a workflow whose transactional email step follows the trigger directly, or send this email without files.',
-                    })
+                const workflowRefusal = references.length > 0 ? workflowRefusalForFiles(hogFlow) : null
+                if (workflowRefusal) {
+                    return reply(workflowRefusal.error, 400, workflowRefusal)
                 }
 
                 stages.start('build')
