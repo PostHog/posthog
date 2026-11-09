@@ -1328,11 +1328,6 @@ h3.MarkdownNotebook__text-block--heading {
     min-width: 100%;
 }
 
-.MarkdownNotebook__table-block--editable .MarkdownNotebook__table-grid {
-    padding-top: 1.5rem;
-    padding-right: 1.5rem;
-}
-
 .MarkdownNotebook__table-block table {
     width: 100%;
     min-width: 24rem;
@@ -1454,19 +1449,25 @@ h3.MarkdownNotebook__text-block--heading {
     margin-top: -0.625rem;
 }
 
+// Sits left of the add-column control at the right edge, because both controls can show at the same height.
+// EditableTableBlock.tsx sizes the hover band from these widths.
 .MarkdownNotebook__table-row-remove-zone {
     top: var(--table-control-top);
     left: var(--table-control-left);
     width: 1.5rem;
     height: var(--table-control-height);
+    transform: translateX(calc(-100% - 1.25rem));
 }
 
+// Sits at the end of the header cell, so a click on the centered header text never removes the column.
+// The padding keeps it clear of the add-column control on the column boundary.
 .MarkdownNotebook__table-column-remove-zone {
     top: var(--table-control-top);
     left: var(--table-control-left);
+    justify-content: flex-end;
     width: var(--table-control-width);
     height: 1.5rem;
-    transform: translateY(-100%);
+    padding-right: 1.25rem;
 }
 
 // Sits inside the top-left corner, because the scroll container clips anything outside the grid

@@ -83,6 +83,8 @@ export function tableControlStyle(variables: Record<string, string>): CSSPropert
 
 // Keep in sync with the 1.25rem add-zone size in MarkdownNotebook.scss
 const TABLE_INSERT_ZONE_SIZE_REM = 1.25
+// Keep in sync with the 1.5rem row remove zone width in MarkdownNotebook.scss
+const TABLE_REMOVE_ZONE_SIZE_REM = 1.5
 const DEFAULT_ROOT_FONT_SIZE_PX = 16
 
 export function getTableInsertZoneSize(element: Element): number {
@@ -450,9 +452,11 @@ export function EditableTableBlock({
         hoverPosition?.x,
         insertZoneSize / 2
     )
+    // The band covers the add-column and remove zones, so that the pointer can reach the remove control.
+    const rowRemoveBandWidth = insertZoneSize * (1 + TABLE_REMOVE_ZONE_SIZE_REM / TABLE_INSERT_ZONE_SIZE_REM)
     const activeRowRemove = nearestIndex(
         controlLayout?.rowRemoveRects.map(({ top, height }) => top + height / 2) ?? [],
-        hoverPosition && hoverPosition.x >= tableLeft + tableWidth - insertZoneSize / 2 ? hoverPosition.y : undefined
+        hoverPosition && hoverPosition.x >= tableLeft + tableWidth - rowRemoveBandWidth ? hoverPosition.y : undefined
     )
     const activeColumnRemove = nearestIndex(
         controlLayout?.columnRemoveRects.map(({ left, width }) => left + width / 2) ?? [],
