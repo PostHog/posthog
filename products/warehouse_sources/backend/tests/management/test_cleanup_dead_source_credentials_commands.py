@@ -3,6 +3,7 @@ from datetime import timedelta
 from io import StringIO
 from typing import Any
 
+import pytest
 from unittest.mock import patch
 
 from django.core.management import call_command
@@ -22,7 +23,6 @@ from products.warehouse_sources.backend.facade.contracts import (
     DEAD_CREDENTIALS_CLEARED_KEY,
 )
 from products.warehouse_sources.backend.logic.source_credentials_cleanup import cleanup_dead_credentials
-from products.warehouse_sources.backend.logic.source_credentials_rollout import reset_caches
 from products.warehouse_sources.backend.logic.source_credentials_sync import _process_batch
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -38,10 +38,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
-from products.warehouse_sources.backend.tests.management.test_source_credentials_commands import POSTGRES_INPUTS
+from products.warehouse_sources.backend.tests.management.test_source_credentials_commands import (
+    POSTGRES_CONNECTION,
+    POSTGRES_INPUTS,
+)
 from products.warehouse_sources.backend.tests.management.test_strip_source_credentials_commands import _StripTestCase
 from products.warehouse_sources.sources.hubspot.auth import HubspotRetryableError, hubspot_exchange_legacy_grant
 from products.warehouse_sources.sources.hubspot.source import HubspotSource
+
+# These tests check the stored credentials, so raw saves keep their inputs as they are.
+pytestmark = pytest.mark.raw_warehouse_source_credentials
+
 
 COMMAND = "cleanup_dead_warehouse_source_credentials"
 FAKE_TOKEN = "fake-cleanup-token-never-print-12345"
@@ -278,12 +285,12 @@ class TestCleanupDeadSourceCredentials(_StripTestCase):
         self._run(COMMAND, "--execute")
         source.refresh_from_db()
         marker = self._stored(source)[DEAD_CREDENTIALS_CLEARED_KEY]
+        self._link(source, self._row_for(source, POSTGRES_CONNECTION))
+        source.refresh_from_db()
 
         assert DEAD_CREDENTIALS_CLEARED_KEY not in SourceInputsStore.load(source)
         assert DEAD_CREDENTIALS_CLEARED_KEY not in SourceInputsStore.load_settings(source)
         assert DEAD_CREDENTIALS_CLEARED_KEY not in SourceInputsStore.load_many([source])[source.id]
-        self.enabled_flags.clear()
-        reset_caches()
         SourceInputsStore.save(source, {**SourceInputsStore.load(source), DEAD_CREDENTIALS_CLEARED_KEY: "forged"})
         assert self._stored(source)[DEAD_CREDENTIALS_CLEARED_KEY] == marker
         with self.assertRaises(ValueError):
@@ -315,10 +322,10 @@ class TestCleanupDeadSourceCredentials(_StripTestCase):
         source = self._source({"hubspot_integration_id": MISSING_ID}, source_type="Hubspot", column=MISSING_ID)
         self._run(COMMAND, "--execute")
         row = IntegrationManager.hubspot.oauth.create(self.team.pk, external_id="fake-account", config={})
-        fresh = ExternalDataSource.objects.get(pk=source.pk)
-        SourceInputsStore.save(fresh, {**SourceInputsStore.load(fresh), "hubspot_integration_id": row.id})
-        # The dual write was off, so the reconnect left the column empty.
-        ExternalDataSource.objects.filter(pk=source.pk).update(credentials_integration_id=None)
+        # The new pointer is in job_inputs, but the column is empty.
+        ExternalDataSource.objects.filter(pk=source.pk).update(
+            job_inputs={**self._stored(source), "hubspot_integration_id": row.id}, credentials_integration_id=None
+        )
         assert DEAD_CREDENTIALS_CLEARED_KEY in self._stored(source)
 
         counts: Counter[tuple[str, str]] = Counter()

@@ -11755,12 +11755,12 @@ Today (10): `component_groups`, `components`, `incident_templates`, `incidents`,
 
 Diffed against: <https://developer.statuspage.io/>
 
-- [ ] `pages/{page_id}/components/{component_id}/uptime` — per-component uptime percentage and outage duration over a range - Statuspage's headline reliability metric, not derivable from the component object (high)
-- [ ] `pages/{page_id}/component-groups/{id}/uptime` — same uptime metric rolled up to the group we already sync (high)
-- [ ] `pages/{page_id}/incidents/{incident_id}/postmortem` — postmortem body and publish state per incident, the write-up attached to incidents we already sync (medium)
+- [x] `pages/{page_id}/components/{component_id}/uptime` — per-component uptime percentage and outage duration over a range - Statuspage's headline reliability metric, not derivable from the component object (high)
+- [x] `pages/{page_id}/component-groups/{id}/uptime` — same uptime metric rolled up to the group we already sync (high)
+- [ ] `pages/{page_id}/incidents/{incident_id}/postmortem` — postmortem body and publish state per incident, the write-up attached to incidents we already sync (medium) — skipped: the incidents table already carries postmortem_body, postmortem_published_at, postmortem_body_last_updated_at and the notify flags; the endpoint adds only the draft body and preview key, for one request per incident
 - [ ] `organizations/{organization_id}/users` — org user roster; the only way to resolve the user IDs returned by the permissions endpoint (medium)
 - [ ] `organizations/{organization_id}/permissions/{user_id}` — which pages each org user can administer - a membership table joining users to pages (medium)
-- [ ] `pages/{page_id}/page_access_users/{page_access_user_id}/components` — membership table mapping restricted-audience users to the components they can see (medium)
+- [x] `pages/{page_id}/page_access_users/{page_access_user_id}/components` — membership table mapping restricted-audience users to the components they can see (medium)
 - [ ] `pages/{page_id}/page_access_groups/{page_access_group_id}/components` — membership table mapping access groups to components; page_access_groups is synced without its contents (medium)
 - [ ] `pages/{page_id}/incidents/{incident_id}/subscribers` — per-incident subscriber list, distinct from the page-level subscribers already synced (medium)
 - [ ] `pages/{page_id}/subscribers/unsubscribed` — churned subscribers, excluded from the main subscribers list (low)
