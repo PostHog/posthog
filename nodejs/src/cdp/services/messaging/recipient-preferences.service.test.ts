@@ -398,16 +398,6 @@ describe('RecipientPreferencesService', () => {
                     expect(result).toBe(expected)
                 })
 
-                it('still skips a suppressed send that shares a lookup batch with a null-character address', async () => {
-                    await insertSuppressionRow('suppressed-to@example.com')
-                    const sends = ['suppressed-to@example.com', 'jo\u0000@example.com'].map((to) => {
-                        const action = createEmailAction(to, '123e4567-e89b-12d3-a456-426614174000', 'marketing')
-                        return service.shouldSkipAction(createFunctionStepInvocation(action), action)
-                    })
-
-                    await expect(Promise.all(sends)).resolves.toEqual(['suppressed', null])
-                })
-
                 // Suppressed cc and bcc addresses are removed at send time, and a deliverable cc address
                 // replaces a suppressed `to`. The step is skipped only when no cc address is left.
                 it.each([

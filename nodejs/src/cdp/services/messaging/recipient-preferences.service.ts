@@ -10,13 +10,9 @@ import { PersonsManagerService } from '../managers/persons-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
-import {
-    EmailRecipients,
-    fieldsWithControlCharacters,
-    removeSuppressedRecipients,
-} from './helpers/suppressed-recipients'
+import { EmailRecipients, removeSuppressedRecipients } from './helpers/suppressed-recipients'
 
-const emailRecipients = (invocation: CyclotronJobInvocationHogFunction): EmailRecipients => {
+export const emailRecipients = (invocation: CyclotronJobInvocationHogFunction): EmailRecipients => {
     const emailInputs = {
         ...invocation.state.globals.inputs?.email,
         ...acceptedSendEmailFields(invocation.state.send),
@@ -142,11 +138,6 @@ export class RecipientPreferencesService {
     ): Promise<RecipientSkipReason | null> {
         const action = this.asMessageAction(hogFlowAction)
         if (!action) {
-            return null
-        }
-
-        // EmailService fails a send to an address with a control character before any lookup, so none runs here.
-        if (action.type === 'function_email' && fieldsWithControlCharacters(emailRecipients(invocation)).length > 0) {
             return null
         }
 

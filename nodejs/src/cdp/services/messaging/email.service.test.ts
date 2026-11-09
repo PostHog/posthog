@@ -1658,18 +1658,22 @@ describe('EmailService', () => {
             expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_failed'])
         })
 
-        it('sends to a cc list that a template splits across lines', async () => {
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1 },
-                cc: 'one@example.com,\n\ttwo@example.com\r\n',
-            })
+        it.each([
+            [
+                'a template splits across lines',
+                'one@example.com,\n\ttwo@example.com\r\n',
+                ['one@example.com', 'two@example.com'],
+            ],
+            ['a control character in a display name', '"Jo\u0001 S" <jo@example.com>', ['"Jo S" <jo@example.com>']],
+        ])('sends to a cc list that %s', async (_case, cc, sentCc) => {
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, cc })
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
             const result = await service.executeSendEmail(invocation)
 
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Destination.CcAddresses).toEqual(['one@example.com', 'two@example.com'])
+            expect(sentCommand.input.Destination.CcAddresses).toEqual(sentCc)
         })
 
         it.each([

@@ -24,8 +24,15 @@ const CONTROL_CHARACTERS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g
 const escapeControlCharacters = (value: string): string =>
     value.replace(CONTROL_CHARACTERS, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
 
+const addressesOnly = (list: string | undefined): string | undefined =>
+    list
+        ?.replace(/"(?:[^"\\]|\\.)*"(?!\s*@)|\([^)]*\)/g, '')
+        .split(',')
+        .map((entry) => entry.match(/<([^>]*)>/)?.[1] ?? entry)
+        .join(',')
+
 export const fieldsWithControlCharacters = ({ to, cc, bcc }: EmailRecipients): string[] =>
-    Object.entries({ To: to?.email, CC: cc, BCC: bcc }).flatMap(([field, value]) => {
+    Object.entries({ To: to?.email, CC: addressesOnly(cc), BCC: addressesOnly(bcc) }).flatMap(([field, value]) => {
         const escaped = typeof value === 'string' ? escapeControlCharacters(value) : value
         return escaped !== value ? [`${field} "${escaped}"`] : []
     })

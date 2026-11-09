@@ -405,6 +405,53 @@ describe('HogFunctionHandler', () => {
         })
     })
 
+    it.each([
+        [
+            'suppression',
+            () => (mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValue('suppressed'),
+        ],
+        [
+            'a predicted bounce',
+            () => (mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValue('Skipping send: invalid.'),
+        ],
+        [
+            'the frequency cap',
+            () =>
+                (mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValue({
+                    capped: true,
+                    nextSlotAt: Date.now() + 60 * 60 * 1000,
+                    holdHours: null,
+                }),
+        ],
+    ])('lets an email to an address with a control character past %s, so the send fails it', async (_check, skip) => {
+        const emailTemplate = await insertHogFunctionTemplate(hub.postgres, {
+            id: `template-test-hogflow-email-${team.id}`,
+            name: 'Test Email Template',
+            code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
+            inputs_schema: [{ key: 'email', type: 'native_email', required: true }],
+        })
+        const emailAction = {
+            ...action,
+            type: 'function_email',
+            config: {
+                template_id: emailTemplate.template_id,
+                inputs: { email: { value: { to: { email: 'jo\u000B@example.com' } } } },
+            },
+        } as Extract<HogFlowAction, { type: 'function_email' }>
+        skip()
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action: emailAction, result: invocationResult })
+
+        expect(mockFetch).toHaveBeenCalledTimes(1)
+        expect(invocationResult.metrics.map((m) => m.metric_name)).not.toContainEqual(
+            expect.stringMatching(/suppressed|bounce_prevented|frequency_capped/)
+        )
+    })
+
     it('should throw an error if template is not found', async () => {
         const action = findActionByType(invocation.hogFlow, 'function')!
         action.config.template_id = 'template_123'

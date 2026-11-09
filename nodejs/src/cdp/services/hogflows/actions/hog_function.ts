@@ -20,7 +20,12 @@ import {
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { EmailSkipReason, EmailStatusService } from '../../messaging/email-status.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
-import { FrequencyCapCheck, RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import { fieldsWithControlCharacters } from '../../messaging/helpers/suppressed-recipients'
+import {
+    FrequencyCapCheck,
+    RecipientPreferencesService,
+    emailRecipients,
+} from '../../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
@@ -468,15 +473,20 @@ export class HogFunctionHandler implements ActionHandler {
                 })
         )
 
-        const skipReason = await instrumentFn(
-            { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false },
-            () =>
-                this.recipientPreferencesService.shouldSkipAction(
-                    hogFunctionInvocation,
-                    action,
-                    invocation.state.messageOptOuts
-                )
-        )
+        // EmailService fails this send with a log line naming the field, so no check below may skip it or look it up.
+        const failsAtSend =
+            action.type === 'function_email' &&
+            fieldsWithControlCharacters(emailRecipients(hogFunctionInvocation)).length > 0
+
+        const skipReason = failsAtSend
+            ? null
+            : await instrumentFn({ key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false }, () =>
+                  this.recipientPreferencesService.shouldSkipAction(
+                      hogFunctionInvocation,
+                      action,
+                      invocation.state.messageOptOuts
+                  )
+              )
         if (skipReason) {
             // Suppression and opt-out both short-circuit the send, but a customer reading the run
             // log needs to know which one — the operator response is different (fix the recipient
@@ -522,10 +532,11 @@ export class HogFunctionHandler implements ActionHandler {
         // Predicted hard bounce (bad syntax / dead domain): skip before the send reaches
         // SES so it never counts against our bounce rate. Runs after the opt-out check so
         // an opted-out recipient never triggers a DNS lookup.
-        const emailSkipReason = await instrumentFn(
-            { key: 'hogFlow.action.hogFunction.emailValidation', sendException: false },
-            () => this.emailValidationService.getSkipReason(hogFunctionInvocation, action)
-        )
+        const emailSkipReason = failsAtSend
+            ? null
+            : await instrumentFn({ key: 'hogFlow.action.hogFunction.emailValidation', sendException: false }, () =>
+                  this.emailValidationService.getSkipReason(hogFunctionInvocation, action)
+              )
         if (emailSkipReason) {
             this.recordSkippedEmail(hogFunctionInvocation, action, 'recipient_unreachable', hogExecutorOptions)
             return {
@@ -556,7 +567,7 @@ export class HogFunctionHandler implements ActionHandler {
         // A held send that wakes after its hold ended is skipped before the check, so it never claims a slot late.
         const holdExpired = frequencyCapHoldExpired(invocation)
         const frequencyCap =
-            hogExecutorOptions?.isTest || holdExpired
+            hogExecutorOptions?.isTest || holdExpired || failsAtSend
                 ? ({ capped: false } as const)
                 : await this.recipientPreferencesService.checkFrequencyCap(hogFunctionInvocation, action)
         if (holdExpired || frequencyCap.capped) {

@@ -634,11 +634,11 @@ export class EmailService {
             }
 
             // Runs before every recipient lookup. Postgres text cannot hold a null character, and one in a batched lookup fails it for every email in the batch.
-            const fieldsWithControlCharacter = fieldsWithControlCharacters(params)
-            if (fieldsWithControlCharacter.length > 0) {
+            const fieldsToFix = fieldsWithControlCharacters(params)
+            if (fieldsToFix.length > 0) {
                 failureReason = 'recipient_unreachable'
                 throw new Error(
-                    `Email not sent: an email address can't contain a control character. Fix the template or person property that fills ${fieldsWithControlCharacter.join(' and ')}.`
+                    `Email not sent: an email address can't contain a control character. Fix the template or person property that fills ${fieldsToFix.join(' and ')}.`
                 )
             }
 
