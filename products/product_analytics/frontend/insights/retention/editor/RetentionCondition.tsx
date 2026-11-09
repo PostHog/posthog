@@ -6,8 +6,8 @@ import { IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { Checkbox, Field, FieldLabel } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getOrdinalSuffix } from 'lib/utils/strings'
@@ -140,7 +140,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
     const { showGroupsOptions } = useValues(groupsModel)
     const { retentionFilter, dateRange } = useValues(retentionLogic(insightProps))
     const { updateInsightFilter, updateDateRange } = useActions(retentionLogic(insightProps))
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = useQuillSurface()
     const { targetEntity, returningEntity, retentionType, totalIntervals, period, retentionCustomBrackets } =
         retentionFilter || {}
 
@@ -266,7 +266,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                     </Fragment>
                 ) : null}
             </div>
-            {todayRailNav ? (
+            {quillSurface ? (
                 <Field orientation="horizontal" className="gap-2">
                     <Checkbox
                         id="retention-custom-brackets"

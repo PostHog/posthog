@@ -45,6 +45,7 @@ export const INTERNAL_SOURCE_POLICIES: Readonly<Record<string, InternalSourcePol
     dwh_cdp_producer_job: { billed: false, teamRules: false, serviceName: 'posthog-internal-warehouse-cdp' },
     endpoints: { billed: false, teamRules: false, serviceName: 'posthog-internal-endpoints' },
     alert_destination: { billed: false, teamRules: false, serviceName: 'posthog-internal-alerts' },
+    session_replay: { billed: false, teamRules: false, serviceName: 'posthog-internal-session-replay' },
 }
 
 type NotInternalReason =
