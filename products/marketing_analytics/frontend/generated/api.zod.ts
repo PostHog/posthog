@@ -63,3 +63,43 @@ export const MarketingAnalyticsConversionRecommendationsStartCreateBody = /* @__
 export const MarketingAnalyticsConversionRecordingsListBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * Marketing analytics recommendations that the team dismissed. A dismissed recommendation stays hidden
+ * for everyone in the project until someone deletes the dismissal.
+ */
+export const marketingAnalyticsRecommendationDismissalsCreateBodySubjectMax = 400
+
+export const marketingAnalyticsRecommendationDismissalsCreateBodyCampaignDefault = ``
+export const marketingAnalyticsRecommendationDismissalsCreateBodyCampaignMax = 400
+
+export const MarketingAnalyticsRecommendationDismissalsCreateBody = /* @__PURE__ */ zod.object({
+    rule: zod
+        .enum([
+            'budget_constrained',
+            'brand_leak',
+            'scale_campaign',
+            'review_campaign',
+            'policy_limited',
+            'brand_overlap',
+            'content_gap',
+            'keyword_gap',
+            'spend_without_conversions',
+            'striking_distance',
+        ])
+        .describe(
+            '\* `budget_constrained` - Budget Constrained\n\* `brand_leak` - Brand Leak\n\* `scale_campaign` - Scale Campaign\n\* `review_campaign` - Review Campaign\n\* `policy_limited` - Policy Limited\n\* `brand_overlap` - Brand Overlap\n\* `content_gap` - Content Gap\n\* `keyword_gap` - Keyword Gap\n\* `spend_without_conversions` - Spend Without Conversions\n\* `striking_distance` - Striking Distance'
+        )
+        .describe(
+            'The rule that produced the dismissed recommendation.\n\n\* `budget_constrained` - Budget Constrained\n\* `brand_leak` - Brand Leak\n\* `scale_campaign` - Scale Campaign\n\* `review_campaign` - Review Campaign\n\* `policy_limited` - Policy Limited\n\* `brand_overlap` - Brand Overlap\n\* `content_gap` - Content Gap\n\* `keyword_gap` - Keyword Gap\n\* `spend_without_conversions` - Spend Without Conversions\n\* `striking_distance` - Striking Distance'
+        ),
+    subject: zod
+        .string()
+        .max(marketingAnalyticsRecommendationDismissalsCreateBodySubjectMax)
+        .describe('The campaign name or search term the dismissed recommendation is about.'),
+    campaign: zod
+        .string()
+        .max(marketingAnalyticsRecommendationDismissalsCreateBodyCampaignMax)
+        .default(marketingAnalyticsRecommendationDismissalsCreateBodyCampaignDefault)
+        .describe('The campaign a search term recommendation applies to. Empty for campaign recommendations.'),
+})

@@ -20,6 +20,7 @@ import {
     groupRecommendations,
     sectionRecommendations,
     sumImpact,
+    withoutDismissed,
 } from './recommendations'
 import { recommendationsLogic } from './recommendationsLogic'
 import { RecommendationsModal } from './RecommendationsModal'
@@ -63,6 +64,10 @@ export function RecommendationsSection(): JSX.Element {
         selectedRule,
         introSeen,
         connectedSourceTypes,
+        dismissedKeys,
+        showDismissed,
+        dismissals,
+        dismissalsLoading,
     } = useValues(recommendationsLogic)
     const {
         openRecommendations,
@@ -76,16 +81,22 @@ export function RecommendationsSection(): JSX.Element {
     const { loadData } = useActions(dataNodeLogic(dataNodeProps))
 
     const recommendationsResponse = response as MarketingAnalyticsRecommendationsQueryResponse | null
-    const results = recommendationsResponse?.results ?? []
-    const groups = groupRecommendations(results)
+    const allResults = recommendationsResponse?.results ?? []
+    const results = withoutDismissed(allResults, dismissedKeys)
+    const dismissedCount = allResults.length - results.length
+    const visibleGroups = groupRecommendations(results)
+    const groups = showDismissed && dismissedCount > 0 ? groupRecommendations(allResults) : visibleGroups
     const sections = sectionRecommendations(groups)
-    const firstRule = sections[0]?.groups[0]?.rule
+    // With every recommendation dismissed the modal still opens, so the dismissed ones stay reachable.
+    const firstRule = sections[0]?.groups[0]?.rule ?? allResults[0]?.rule
     // Reloading can drop the open rule, so the modal falls back to the first one instead of closing on its own.
     const selectedGroup =
         selectedRule === null
             ? undefined
             : (groups.find((group) => group.rule === selectedRule) ?? sections[0]?.groups[0])
     const sourcesLoading = !dataWarehouseSources
+    // Until dismissals load, a dismissed recommendation would flash back into the list.
+    const dismissalsPending = dismissalsLoading && dismissals === null
     const connectGoogleAds = (location: 'section_empty' | 'section_campaigns'): LemonButtonProps => ({
         children: 'Connect Google Ads',
         // pinned: entry_point on the source connect events, renaming it splits the attribution
@@ -101,10 +112,10 @@ export function RecommendationsSection(): JSX.Element {
         onClick: () => reportRecommendationsActionClicked('connect_google_ads', location),
     })
 
-    const showGroups = sources.length > 0 && !responseError && !!firstRule
+    const showGroups = sources.length > 0 && !responseError && !dismissalsPending && !!firstRule
     const shownState: RecommendationsShownState | null = showGroups
         ? 'recommendations'
-        : sourcesLoading || (responseLoading && sources.length > 0)
+        : sourcesLoading || dismissalsPending || (responseLoading && sources.length > 0)
           ? null
           : connectedSourceTypes.length === 0
             ? 'no_connected_source'
@@ -131,13 +142,14 @@ export function RecommendationsSection(): JSX.Element {
         reportRecommendationsShown({
             state: shownState,
             recommendation_count: shownResults.length,
-            rule_count: shownState === 'recommendations' ? groups.length : 0,
-            rules: shownState === 'recommendations' ? groups.map((group) => group.rule) : [],
+            rule_count: shownState === 'recommendations' ? visibleGroups.length : 0,
+            rules: shownState === 'recommendations' ? visibleGroups.map((group) => group.rule) : [],
             has_save_impact: directions.has('save'),
             has_gain_impact: directions.has('gain'),
             has_invest_impact: directions.has('invest'),
             source_types: [...new Set(sources.map((source) => source.sourceType))],
             data_gap_count: dataGaps.length,
+            dismissed_count: shownState === 'recommendations' ? dismissedCount : 0,
             intro_shown: shownState === 'recommendations' && !introSeen,
         })
         // One event per state the viewer sees, so reloads and new date ranges with the same state do not add views.
@@ -187,7 +199,13 @@ export function RecommendationsSection(): JSX.Element {
                             >
                                 Recommendations
                             </LemonButton>
-                            <ImpactSummary totals={sumImpact(results)} />
+                            {results.length > 0 ? (
+                                <ImpactSummary totals={sumImpact(results)} />
+                            ) : (
+                                <span className="text-secondary">
+                                    All recommendations for this period are dismissed.
+                                </span>
+                            )}
                             {dataGaps.length > 0 && (
                                 <RecommendationDataGapButton
                                     gaps={dataGaps}
@@ -238,10 +256,12 @@ export function RecommendationsSection(): JSX.Element {
                 onClose={closeRecommendations}
                 total={results.length}
                 totals={sumImpact(results)}
+                dismissedCount={dismissedCount}
                 sections={sections}
                 selectedGroup={selectedGroup}
                 onSelect={(group) =>
-                    group.rule !== selectedGroup?.rule && selectRule(group.rule, group.recommendations.length)
+                    group.rule !== selectedGroup?.rule &&
+                    selectRule(group.rule, withoutDismissed(group.recommendations, dismissedKeys).length)
                 }
                 dataNodeProps={dataNodeProps}
                 dataGaps={dataGaps}

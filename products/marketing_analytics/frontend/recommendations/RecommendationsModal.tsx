@@ -1,4 +1,4 @@
-import { BindLogic, useActions } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
@@ -23,6 +23,7 @@ import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-genera
 
 import { RecommendationDataGapButton } from './RecommendationDataGapButton'
 import { RecommendationDataGapDescription } from './RecommendationDataGapDescription'
+import { RecommendationDismissButton } from './RecommendationDismissButton'
 import {
     IMPACT_DIRECTION_DESCRIPTIONS,
     IMPACT_DIRECTION_LABELS,
@@ -33,6 +34,9 @@ import {
     RecommendationGroup,
     RecommendationSection,
     RecommendationTotal,
+    recommendationKey,
+    sumImpact,
+    withoutDismissed,
 } from './recommendations'
 import { recommendationsLogic } from './recommendationsLogic'
 import { RecommendationSteps } from './RecommendationSteps'
@@ -49,9 +53,8 @@ const SUBJECT_NOUNS: Record<MarketingAnalyticsRecommendation['level'], [string, 
     search_term: ['search term', 'search terms'],
 }
 
-function subjectCount(group: RecommendationGroup): string {
+function subjectCount(group: RecommendationGroup, count: number): string {
     const [singular, plural] = SUBJECT_NOUNS[group.level]
-    const count = group.recommendations.length
     return `${count} ${count === 1 ? singular : plural}`
 }
 
@@ -79,6 +82,7 @@ function rowKey(row: MarketingAnalyticsRecommendation, index: number): string {
 }
 
 function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[] }): JSX.Element {
+    const { dismissedKeys } = useValues(recommendationsLogic)
     const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
     const [expanded, setExpanded] = useState<Set<string>>(new Set())
     const toggle = (key: string, rule: MarketingAnalyticsRecommendation['rule']): void => {
@@ -98,6 +102,10 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
             size="small"
             dataSource={rows}
             rowKey={rowKey}
+            // Dims the content but not the last cell, so Restore still reads as a live button.
+            rowClassName={(row) =>
+                dismissedKeys.has(recommendationKey(row)) ? '[&>td:not(:last-child)]:opacity-50' : null
+            }
             expandable={{
                 expandedRowRender: (row) => <RecommendationSteps steps={row.steps ?? []} rule={row.rule} />,
                 rowExpandable: (row) => (row.steps?.length ? 1 : 0),
@@ -162,6 +170,12 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
                             </div>
                         ),
                 },
+                {
+                    key: 'dismiss',
+                    align: 'right',
+                    width: 0,
+                    render: (_, row) => <RecommendationDismissButton recommendation={row} />,
+                },
             ]}
         />
     )
@@ -172,6 +186,7 @@ export function RecommendationsModal({
     onClose,
     total,
     totals,
+    dismissedCount,
     sections,
     selectedGroup,
     onSelect,
@@ -183,6 +198,7 @@ export function RecommendationsModal({
     onClose: () => void
     total: number
     totals: RecommendationTotal[]
+    dismissedCount: number
     sections: RecommendationSection[]
     selectedGroup: RecommendationGroup | undefined
     onSelect: (group: RecommendationGroup) => void
@@ -190,7 +206,15 @@ export function RecommendationsModal({
     dataGaps: RecommendationDataGap[]
     disclaimer: string | undefined
 }): JSX.Element {
-    const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
+    const { showDismissed, dismissedKeys } = useValues(recommendationsLogic)
+    const selectedRows = withoutDismissed(selectedGroup?.recommendations ?? [], dismissedKeys)
+    const { reportRecommendationsActionClicked, setShowDismissed } = useActions(recommendationsLogic)
+    const toggleDismissed = (): void => {
+        if (!showDismissed) {
+            reportRecommendationsActionClicked('show_dismissed', 'modal')
+        }
+        setShowDismissed(!showDismissed)
+    }
     const navRef = useRef<HTMLElement>(null)
     const detailRef = useRef<HTMLElement>(null)
     const selectGroup = (group: RecommendationGroup): void => {
@@ -232,6 +256,16 @@ export function RecommendationsModal({
                 <span className="flex flex-wrap items-center gap-2">
                     <span>{`${total} for the selected sources and dates`}</span>
                     <ImpactTotals totals={totals} />
+                    {dismissedCount > 0 && (
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={toggleDismissed}
+                            data-attr="marketing-recommendations-toggle-dismissed"
+                        >
+                            {showDismissed ? 'Hide dismissed' : `Review ${dismissedCount} dismissed`}
+                        </LemonButton>
+                    )}
                 </span>
             }
         >
@@ -258,7 +292,7 @@ export function RecommendationsModal({
                                         onClick={() => selectGroup(group)}
                                         sideIcon={
                                             <LemonBadge.Number
-                                                count={group.recommendations.length}
+                                                count={withoutDismissed(group.recommendations, dismissedKeys).length}
                                                 maxDigits={2}
                                                 status={group.rule === selectedGroup?.rule ? 'primary' : 'muted'}
                                             />
@@ -278,14 +312,14 @@ export function RecommendationsModal({
                                     <h3 className="mb-0">
                                         {RECOMMENDATION_RULE_LABELS[selectedGroup.rule]}
                                         <span className="ml-2 text-sm font-normal text-secondary">
-                                            {subjectCount(selectedGroup)}
+                                            {subjectCount(selectedGroup, selectedRows.length)}
                                         </span>
                                     </h3>
                                     <p className="mb-0 text-secondary">
                                         {RECOMMENDATION_RULE_DESCRIPTIONS[selectedGroup.rule]}
                                     </p>
                                 </div>
-                                <ImpactTotals totals={selectedGroup.totals} />
+                                <ImpactTotals totals={sumImpact(selectedRows)} />
                             </div>
                             {dataGaps
                                 .filter((gap) => gap.rules.includes(selectedGroup.rule))
@@ -314,7 +348,11 @@ export function RecommendationsModal({
                             <RecommendationRows rows={selectedGroup.recommendations} />
                         </section>
                     ) : (
-                        <p className="mb-0 text-secondary">No recommendations for the selected sources and dates.</p>
+                        <p className="mb-0 text-secondary">
+                            {dismissedCount > 0
+                                ? 'Every recommendation for these sources and dates is dismissed. Review them to restore one.'
+                                : 'No recommendations for the selected sources and dates.'}
+                        </p>
                     )}
                 </div>
             </div>

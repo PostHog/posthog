@@ -116,6 +116,37 @@ export function sumImpact(recommendations: MarketingAnalyticsRecommendation[]): 
     )
 }
 
+export interface RecommendationDismissalFields {
+    rule: MarketingAnalyticsRecommendationRule
+    subject: string
+    campaign: string
+}
+
+// Matches the unique constraint on dismissals, where a missing campaign is stored as an empty string.
+export function dismissalFields(recommendation: {
+    rule: MarketingAnalyticsRecommendationRule
+    subject: string
+    campaign?: string | null
+}): RecommendationDismissalFields {
+    return { rule: recommendation.rule, subject: recommendation.subject, campaign: recommendation.campaign ?? '' }
+}
+
+export function recommendationKey(recommendation: {
+    rule: MarketingAnalyticsRecommendationRule
+    subject: string
+    campaign?: string | null
+}): string {
+    const { rule, subject, campaign } = dismissalFields(recommendation)
+    return JSON.stringify([rule, subject, campaign])
+}
+
+export function withoutDismissed(
+    recommendations: MarketingAnalyticsRecommendation[],
+    dismissedKeys: Set<string>
+): MarketingAnalyticsRecommendation[] {
+    return recommendations.filter((recommendation) => !dismissedKeys.has(recommendationKey(recommendation)))
+}
+
 export function groupRecommendations(recommendations: MarketingAnalyticsRecommendation[]): RecommendationGroup[] {
     const byRule = new Map<MarketingAnalyticsRecommendationRule, MarketingAnalyticsRecommendation[]>()
     for (const recommendation of recommendations) {

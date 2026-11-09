@@ -2726,6 +2726,122 @@ export interface UtmAuditResponseApi {
     all_utm_events: UtmEventApi[]
 }
 
+/**
+ * * `budget_constrained` - Budget Constrained
+ * * `brand_leak` - Brand Leak
+ * * `scale_campaign` - Scale Campaign
+ * * `review_campaign` - Review Campaign
+ * * `policy_limited` - Policy Limited
+ * * `brand_overlap` - Brand Overlap
+ * * `content_gap` - Content Gap
+ * * `keyword_gap` - Keyword Gap
+ * * `spend_without_conversions` - Spend Without Conversions
+ * * `striking_distance` - Striking Distance
+ */
+export type RecommendationRuleEnumApi = (typeof RecommendationRuleEnumApi)[keyof typeof RecommendationRuleEnumApi]
+
+export const RecommendationRuleEnumApi = {
+    BudgetConstrained: 'budget_constrained',
+    BrandLeak: 'brand_leak',
+    ScaleCampaign: 'scale_campaign',
+    ReviewCampaign: 'review_campaign',
+    PolicyLimited: 'policy_limited',
+    BrandOverlap: 'brand_overlap',
+    ContentGap: 'content_gap',
+    KeywordGap: 'keyword_gap',
+    SpendWithoutConversions: 'spend_without_conversions',
+    StrikingDistance: 'striking_distance',
+} as const
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface RecommendationDismissalApi {
+    /** The dismissal id. Delete it to show the recommendation again. */
+    readonly id: string
+    /** The rule that produced the dismissed recommendation.
+     *
+     * * `budget_constrained` - Budget Constrained
+     * * `brand_leak` - Brand Leak
+     * * `scale_campaign` - Scale Campaign
+     * * `review_campaign` - Review Campaign
+     * * `policy_limited` - Policy Limited
+     * * `brand_overlap` - Brand Overlap
+     * * `content_gap` - Content Gap
+     * * `keyword_gap` - Keyword Gap
+     * * `spend_without_conversions` - Spend Without Conversions
+     * * `striking_distance` - Striking Distance */
+    rule: RecommendationRuleEnumApi
+    /**
+     * The campaign name or search term the dismissed recommendation is about.
+     * @maxLength 400
+     */
+    subject: string
+    /**
+     * The campaign a search term recommendation applies to. Empty for campaign recommendations.
+     * @maxLength 400
+     */
+    campaign?: string
+    /** The user who dismissed the recommendation. */
+    readonly dismissed_by: UserBasicApi
+    /** When the recommendation was dismissed. */
+    readonly created_at: string
+}
+
 export type MarketingAnalyticsDataSourcesRetrieveParams = {
     /**
      * Optional. Restrict to one integration (e.g. 'GoogleAds').

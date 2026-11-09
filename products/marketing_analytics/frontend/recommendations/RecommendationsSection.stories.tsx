@@ -17,6 +17,7 @@ import IconGoogleSearchConsole from 'public/services/google-search-console.svg'
 
 import { userEvent } from 'storybook/test'
 
+import { dismissalFields } from './recommendations'
 import { RecommendationsSection } from './RecommendationsSection'
 
 function source(
@@ -212,9 +213,20 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     }),
 ]
 
+const DISMISSALS_URL = '/api/projects/:team_id/marketing_analytics_recommendation_dismissals/'
+
+function dismissal(row: MarketingAnalyticsRecommendation): Record<string, unknown> {
+    return {
+        id: `dismissal-${row.rule}-${row.subject}`,
+        ...dismissalFields(row),
+        created_at: '2025-02-14T12:00:00Z',
+    }
+}
+
 const MOCKS: Mocks = {
     delete: { '/api/projects/:team_id/query/:query_id/': [204] },
     get: {
+        [DISMISSALS_URL]: [],
         '/api/environments/:team_id/external_data_sources/wizard/': {
             GoogleAds: { name: 'GoogleAds', label: 'Google Ads', iconPath: IconGoogleAds, fields: [] },
             GoogleSearchConsole: {
@@ -355,5 +367,34 @@ export const MissingTablesInModal: Story = {
         await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
+    },
+}
+
+function withDismissed(rows: MarketingAnalyticsRecommendation[]): Mocks {
+    return { ...MOCKS, get: { ...MOCKS.get, [DISMISSALS_URL]: rows.map(dismissal) } }
+}
+
+export const DismissedInModal: Story = {
+    parameters: {
+        msw: { mocks: withDismissed(RESULTS.filter((row) => row.rule === 'spend_without_conversions')) },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Review 2 dismissed'))
+        await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
+    },
+}
+
+export const AllDismissed: Story = {
+    parameters: { msw: { mocks: withDismissed(RESULTS) } },
+}
+
+export const AllDismissedInModal: Story = {
+    parameters: { msw: { mocks: withDismissed(RESULTS) } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
     },
 }

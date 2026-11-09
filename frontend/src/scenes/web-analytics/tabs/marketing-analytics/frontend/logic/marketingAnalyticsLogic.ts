@@ -35,6 +35,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsRecommendationLevel,
     MarketingAnalyticsRecommendationRule,
     NativeMarketingSource,
     NodeKind,
@@ -135,12 +136,18 @@ export interface RecommendationsShownProperties {
     has_invest_impact: boolean
     source_types: string[]
     data_gap_count: number
+    dismissed_count: number
     intro_shown: boolean
 }
 
 export type RecommendationsEntryPoint = 'button' | 'intro'
 
-export type RecommendationsAction = 'connect_google_ads' | 'manage_source' | 'view_instructions' | 'open_step_link'
+export type RecommendationsAction =
+    | 'connect_google_ads'
+    | 'manage_source'
+    | 'view_instructions'
+    | 'open_step_link'
+    | 'show_dismissed'
 
 export type RecommendationsActionLocation =
     | 'section_empty'
@@ -149,6 +156,7 @@ export type RecommendationsActionLocation =
     | 'modal_data_gaps'
     | 'rule_banner'
     | 'instructions'
+    | 'modal'
 
 /** Where a tab key lands once Setup absorbs it. Applied by the scene, which is what
  * knows whether Setup is rendering — with its flag off `integration-health` is still a
@@ -530,6 +538,20 @@ export interface marketingAnalyticsLogicActions {
         configured: DashboardGoalsConfigured
         section: string
     }
+    reportRecommendationDismissed: (
+        rule: MarketingAnalyticsRecommendationRule,
+        level: MarketingAnalyticsRecommendationLevel
+    ) => {
+        level: MarketingAnalyticsRecommendationLevel
+        rule: MarketingAnalyticsRecommendationRule
+    }
+    reportRecommendationRestored: (
+        rule: MarketingAnalyticsRecommendationRule,
+        level: MarketingAnalyticsRecommendationLevel
+    ) => {
+        level: MarketingAnalyticsRecommendationLevel
+        rule: MarketingAnalyticsRecommendationRule
+    }
     reportRecommendationsActionClicked: (
         action: RecommendationsAction,
         location: RecommendationsActionLocation,
@@ -885,6 +907,20 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ruleRecommendationCount: number
         ) => ({ rule, ruleRecommendationCount }),
         reportRecommendationsClosed: (rule: MarketingAnalyticsRecommendationRule | null) => ({ rule }),
+        reportRecommendationDismissed: (
+            rule: MarketingAnalyticsRecommendationRule,
+            level: MarketingAnalyticsRecommendationLevel
+        ) => ({
+            rule,
+            level,
+        }),
+        reportRecommendationRestored: (
+            rule: MarketingAnalyticsRecommendationRule,
+            level: MarketingAnalyticsRecommendationLevel
+        ) => ({
+            rule,
+            level,
+        }),
         reportRecommendationsActionClicked: (
             action: RecommendationsAction,
             location: RecommendationsActionLocation,
@@ -1730,6 +1766,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
             reportRecommendationsClosed: ({ rule }) => {
                 posthog.capture('marketing analytics recommendations closed', { rule })
+            },
+            reportRecommendationDismissed: ({ rule, level }) => {
+                posthog.capture('marketing analytics recommendation dismissed', { rule, level })
+            },
+            reportRecommendationRestored: ({ rule, level }) => {
+                posthog.capture('marketing analytics recommendation restored', { rule, level })
             },
             reportRecommendationsActionClicked: ({ action, location, rule }) => {
                 posthog.capture('marketing analytics recommendations action clicked', { action, location, rule })
