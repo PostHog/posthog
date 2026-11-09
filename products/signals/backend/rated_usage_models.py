@@ -10,6 +10,8 @@ class SignalRatedUsage(TeamScopedRootMixin, UUIDModel):
     organization_id = models.UUIDField()
     day = models.DateField(db_index=True)
     cents = models.PositiveBigIntegerField()
+    # Keep both the allocation and pool declaration unchanged across retries and transfers.
+    grants = models.JSONField(default=list, db_default=[])
     reported_at = models.DateTimeField(null=True)
 
     class Meta:
