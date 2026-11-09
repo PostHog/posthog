@@ -151,12 +151,17 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         // Otherwise check for hog flows
         const hogFlow = await this.hogFlowManager.getHogFlow(webhookId)
+        if (hogFlow?.status === 'active' && hogFlow.trigger?.type === 'manual') {
+            // This route takes no credentials, so a manual run goes through Django, which checks the user's access.
+            throw new SourceWebhookError(
+                403,
+                'A manual trigger runs only for a signed-in user. Use the trigger button in PostHog or POST /api/projects/:project_id/hog_flows/:id/run/.'
+            )
+        }
         if (
             hogFlow &&
             hogFlow.status === 'active' &&
-            (hogFlow.trigger?.type === 'webhook' ||
-                hogFlow.trigger?.type === 'tracking_pixel' ||
-                hogFlow.trigger?.type === 'manual')
+            (hogFlow.trigger?.type === 'webhook' || hogFlow.trigger?.type === 'tracking_pixel')
         ) {
             const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, hogFlow.trigger)
 
