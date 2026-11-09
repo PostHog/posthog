@@ -600,6 +600,10 @@ describe('EmailService', () => {
                     const headerNames = input.Content?.Simple?.Headers?.map((header) => header.Name)
                     expect(headerNames).toContain('X-PostHog-Tracking-Code')
                     expect(headerNames).not.toContain('List-Unsubscribe')
+                    expect(input.Content?.Simple?.Headers).toContainEqual({
+                        Name: 'X-PostHog-Organization-Id',
+                        Value: team.organization_id,
+                    })
                     expect(result.logs.filter((log) => log.message.startsWith('Ignoring custom sender'))).toEqual([
                         expect.objectContaining({
                             level: 'info',

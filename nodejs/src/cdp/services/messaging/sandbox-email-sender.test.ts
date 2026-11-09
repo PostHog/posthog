@@ -43,15 +43,15 @@ describe('sandbox email content', () => {
         ],
         ['at the end of a fragment', '<p>Hi</p>', `<p>Hi</p><div>${footer}</div>`],
     ])('adds the HTML footer %s', async (_case, html, expected) => {
-        const result = await sender.buildSandboxMessage(params(html), 'Example organization via PostHog', 1)
+        const { params: result } = await sender.buildSandboxMessage(params(html), 'Example organization via PostHog', 1)
         expect(result.html).toBe(expected)
     })
     it('escapes the sender name in the HTML footer', async () => {
-        const result = await sender.buildSandboxMessage(params('<p>Hi</p>'), '<b>Tom</b> & "Jerry"', 1)
+        const { params: result } = await sender.buildSandboxMessage(params('<p>Hi</p>'), '<b>Tom</b> & "Jerry"', 1)
         expect(result.html).toContain('<div>This email was sent by &lt;b&gt;Tom&lt;/b&gt; &amp; &quot;Jerry&quot; with')
     })
     it('puts the preview text after the opening body tag', async () => {
-        const result = await sender.buildSandboxMessage(
+        const { params: result } = await sender.buildSandboxMessage(
             params('<body><p>Hi</p></body>', undefined, 'Tom &amp; Jerry'),
             'Example organization via PostHog',
             1
@@ -60,7 +60,7 @@ describe('sandbox email content', () => {
         expect(result.preheader).toBeUndefined()
     })
     it('sends from the fixed address, drops the reply-to and adds the footer to the text part', async () => {
-        const result = await sender.buildSandboxMessage(
+        const { params: result } = await sender.buildSandboxMessage(
             { ...params('', 'Hello'), replyTo: 'replies@example.org' },
             'Example organization via PostHog',
             1
@@ -88,7 +88,7 @@ describe('sandbox email content', () => {
             teamManager,
             blockedEventRedis
         )
-        const result = await paddedSender.buildSandboxMessage(
+        const { params: result } = await paddedSender.buildSandboxMessage(
             params('<p>Hello</p>'),
             'Example organization via PostHog',
             1

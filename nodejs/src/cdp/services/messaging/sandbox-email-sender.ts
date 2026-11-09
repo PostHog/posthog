@@ -1,3 +1,4 @@
+import { MessageHeader } from '@aws-sdk/client-sesv2'
 import { Counter } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
@@ -11,6 +12,11 @@ import { escapeHtml } from './helpers/escape-html'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 
 const BODY_CLOSE_TAG = /<\/body\s*>/gi
+
+export interface SandboxMessage {
+    params: CyclotronInvocationQueueParametersEmailType
+    headers: MessageHeader[]
+}
 
 export interface SandboxEmailSenderConfig {
     enabled: boolean
@@ -93,7 +99,7 @@ export class SandboxEmailSender {
         params: CyclotronInvocationQueueParametersEmailType,
         senderName: string,
         teamId: number
-    ): Promise<CyclotronInvocationQueueParametersEmailType> {
+    ): Promise<SandboxMessage> {
         if (!params.text && !params.html) {
             throw new Error(
                 'The sandbox email template must include HTML or text content. Update the template and try again.'
@@ -105,14 +111,17 @@ export class SandboxEmailSender {
         }
         const footer = `This email was sent by ${senderName} with the PostHog sandbox sender. Organization ID: ${team.organization_id}.`
         return {
-            ...params,
-            from: { ...params.from, name: senderName, email: this.config.fromAddress },
-            replyTo: undefined,
-            preheader: undefined,
-            ...(params.text ? { text: `${params.text}\n\n${footer}` } : {}),
-            ...(params.html
-                ? { html: appendHtmlFooter(maybeAddPreheaderToEmail(params.html, params.preheader), footer) }
-                : {}),
+            params: {
+                ...params,
+                from: { ...params.from, name: senderName, email: this.config.fromAddress },
+                replyTo: undefined,
+                preheader: undefined,
+                ...(params.text ? { text: `${params.text}\n\n${footer}` } : {}),
+                ...(params.html
+                    ? { html: appendHtmlFooter(maybeAddPreheaderToEmail(params.html, params.preheader), footer) }
+                    : {}),
+            },
+            headers: [{ Name: 'X-PostHog-Organization-Id', Value: team.organization_id }],
         }
     }
 
