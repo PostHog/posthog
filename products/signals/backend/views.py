@@ -71,7 +71,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.errors import ClickHouseQueryTimeOut
 from posthog.event_usage import report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.github_integration_base import GitHubIntegrationBase, PullRequestRef
@@ -1499,7 +1499,8 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "description": (
                 "The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, "
                 "action or fix for that outcome of the served ranking model. For sort=personal it is personal "
-                "when your stored personal ranking ordered the page. Null for every other sort. Each row's "
+                "when a stored personal ranking ordered the page: the teammate's with scope=teammate, else yours. "
+                "Null for every other sort. Each row's "
                 "inbox_merge_key belongs to this ranker."
             ),
         }
@@ -1730,9 +1731,11 @@ _REPORT_LIST_PARAMETERS = [
             "the open, action or fix outcome of the served ranking model, highest score first, with "
             "unscored and stale reports in priority order after the scored ones. The response's ranker "
             "field names the one used, and its ranking_pill field says whether to show score pills. "
-            "personal puts the reports of your stored personal ranking first, by rank, then the reports it "
-            "folded, then every other report in your recommended order. It only reads the stored ranking "
-            "and never starts a build. With no stored personal ranking, it is the recommended order."
+            "personal puts the reports of a stored personal ranking first, by rank, then the reports it "
+            "folded, then every other report in your recommended order. With scope=teammate it reads the "
+            "teammate's stored ranking, else yours. It only reads the stored ranking and never starts a "
+            "build. With no stored personal ranking, or a teammate outside the organization, it is the "
+            "recommended order."
         ),
     ),
     OpenApiParameter(
@@ -2926,7 +2929,26 @@ class SignalReportViewSet(
             or not user_flag_enabled(PERSONAL_INBOX_RANKING_FLAG, user, self.team)
         ):
             return None
-        return personal_list_order(self.team, user, request.query_params.get("ranking_id"))
+        owner = self._personal_ranking_owner(user)
+        if owner is None:
+            return None
+        return personal_list_order(self.team, owner, request.query_params.get("ranking_id"))
+
+    def _personal_ranking_owner(self, user: User) -> User | None:
+        """Whose stored ranking `sort=personal` reads: the teammate `scope=teammate` names, else the caller."""
+        params = self.request.query_params
+        if params.get("scope") != "teammate":
+            return user
+        try:
+            teammate_uuid = uuid.UUID((params.get("teammate_uuid") or "").strip())
+        except ValueError:
+            return None
+        membership = (
+            OrganizationMembership.objects.filter(organization_id=self.team.organization_id, user__uuid=teammate_uuid)
+            .select_related("user")
+            .first()
+        )
+        return membership.user if membership is not None else None
 
     @property
     def _base_inbox_ranker(self) -> InboxRanker | None:

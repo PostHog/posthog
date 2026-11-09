@@ -534,6 +534,91 @@ export namespace Schemas {
       brand_names: string[];
     }
 
+    export interface AEORankedBrand {
+      /** Registrable domain of the brand, for example 'example.com'. */
+      domain: string;
+      /** The word an answer must contain to count as naming the brand. For the project's own brand, a comma-separated list where any name counts. */
+      name: string;
+      /** Whether this is the project's own brand. The others are competitors. */
+      is_target: boolean;
+      /** Answered checks in the current window that named the brand or cited its domain: the numerator of 'visibility'. */
+      answers_mentioning: number;
+      /**
+         * Share (0-1) of answered checks in the current window that named the brand or cited its domain. Null without answers.
+         * @nullable
+         */
+      visibility: number | null;
+      /**
+         * The same share for the window before. Null without answers.
+         * @nullable
+         */
+      previous_visibility: number | null;
+      /**
+         * For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored.
+         * @nullable
+         */
+      positive_share: number | null;
+    }
+
+    export interface AEORankedBrandDay {
+      /** Day, in the project's timezone. */
+      date: string;
+      /** The brand's registrable domain, matching a row in 'brands'. */
+      domain: string;
+      /** Answered checks that day. */
+      answers: number;
+      /**
+         * Share (0-1) of that day's answers that named the brand or cited its domain.
+         * @nullable
+         */
+      visibility: number | null;
+    }
+
+    export interface AEORankedDomain {
+      /** Registrable domain of the cited URLs, for example 'example.com'. */
+      domain: string;
+      /** Answered checks in the window that cited a URL on this domain. */
+      answers: number;
+      /** Share (0-1) of answered checks in the window that cited the domain. */
+      share_of_answers: number;
+      /** Distinct URLs on this domain cited in the window. */
+      urls: number;
+      /** Whether the domain is the project's own site. */
+      is_target: boolean;
+      /** Whether the domain is one of the competitors in 'brands'. */
+      is_competitor: boolean;
+    }
+
+    export interface AEORankedPage {
+      /** The cited URL, as the engine returned it. */
+      url: string;
+      /** Answered checks in the window that cited this URL. */
+      answers: number;
+      /** Share (0-1) of answered checks in the window that cited the URL. */
+      share_of_answers: number;
+      /** Whether the URL is on the project's own site. */
+      is_target: boolean;
+    }
+
+    export interface AEOPromptSetRankings {
+      /** The project's brand and up to 10 competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks. A competitor counts as named when its domain's name appears as a word, so a common-word name can over-count. */
+      brands: AEORankedBrand[];
+      /** Visibility per brand and day in the current window, ordered by day then domain. */
+      daily: AEORankedBrandDay[];
+      /** The 20 registrable domains the engines cited most in the window, most cited first. */
+      top_domains: AEORankedDomain[];
+      /** The 20 pages the engines cited most in the window, most cited first. */
+      top_pages: AEORankedPage[];
+      /** Length of each window in days. */
+      days: number;
+      /** First day of the current window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the current window (today), in the project's timezone. */
+      window_to: string;
+      /** Answered checks in the current window: the denominator of every share. */
+      answers: number;
+    }
+
     export interface AEOPromptStats {
       /** Totals per answer engine over the prompt's whole history. */
       engines: AEOPromptEngineStats[];
@@ -56063,6 +56148,7 @@ export namespace Schemas {
 
 
     export const MarketingAnalyticsRecommendationLevel = {
+      Account: 'account',
       Campaign: 'campaign',
       SearchTerm: 'search_term',
     } as const;
@@ -56081,6 +56167,7 @@ export namespace Schemas {
       KeywordGap: 'keyword_gap',
       SpendWithoutConversions: 'spend_without_conversions',
       StrikingDistance: 'striking_distance',
+      KeywordTracking: 'keyword_tracking',
     } as const;
 
     export interface MarketingAnalyticsRecommendationStep {
@@ -56109,7 +56196,7 @@ export namespace Schemas {
       rule: MarketingAnalyticsRecommendationRule;
       /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
       steps?: MarketingAnalyticsRecommendationStep[] | null;
-      /** The campaign name or the search term the recommendation is about. */
+      /** The ad account, campaign or search term the recommendation is about. */
       subject: string;
     }
 
@@ -76895,7 +76982,7 @@ export namespace Schemas {
       previous?: string | null;
       results: SignalReportList[];
       /**
-         * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when your stored personal ranking ordered the page. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+         * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when a stored personal ranking ordered the page: the teammate's with scope=teammate, else yours. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
          * @nullable
          */
       ranker?: string | null;
@@ -110171,6 +110258,11 @@ export namespace Schemas {
          * @nullable
          */
       page_url: string | null;
+      /**
+         * Width in CSS pixels of the browser window the snapshot was recorded in, to draw it at its real scale.
+         * @nullable
+         */
+      viewport_width: number | null;
     }
 
     export interface SlackAppChannelJoinResult {
@@ -125232,6 +125324,15 @@ export namespace Schemas {
     days?: number;
     };
 
+    export type AeoPromptsRankingsParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    };
+
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
     /**
      * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
@@ -136586,7 +136687,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of your stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. It only reads the stored ranking and never starts a build. With no stored personal ranking, it is the recommended order.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order.
      */
     sort?: string;
     /**

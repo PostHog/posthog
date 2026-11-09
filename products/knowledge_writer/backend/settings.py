@@ -17,8 +17,12 @@ def source_repositories() -> tuple[str, ...]:
     return tuple(name.strip() for name in listed.split(",") if name.strip())
 
 
+def configured_writer_team_id() -> int | None:
+    return get_from_env("KNOWLEDGE_WRITER_TEAM_ID", optional=True, type_cast=int)
+
+
 def writer_settings() -> WriterSettings | None:
-    team_id = get_from_env("KNOWLEDGE_WRITER_TEAM_ID", optional=True, type_cast=int)
+    team_id = configured_writer_team_id()
     user_id = get_from_env("KNOWLEDGE_WRITER_USER_ID", optional=True, type_cast=int)
     docs_repository = get_from_env("KNOWLEDGE_WRITER_DOCS_REPOSITORY", optional=True)
     if team_id is None or user_id is None or not docs_repository:

@@ -23,7 +23,7 @@ from django.utils import timezone
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
-from products.aeo.backend import catalog, gaps, suggestions
+from products.aeo.backend import catalog, gaps, rankings, suggestions
 from products.aeo.backend.brand import brand_names, mention_filter
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
@@ -55,6 +55,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSetDomain,
     PromptSetEngineCounts,
     PromptSetOverview,
+    PromptSetRankings,
     PromptSetSearch,
     PromptSetSearchPrompt,
     PromptSetTopicCounts,
@@ -510,6 +511,14 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
             target_domains=target_domains,
         ),
         top_searches=_top_searches(team_id, since=window_start),
+    )
+
+
+def get_prompt_set_rankings(team_id: int, *, timezone_name: str, days: int) -> PromptSetRankings:
+    """How often answers named the project against the brands behind the domains the engines cite
+    most, over the last `days` days in the team's timezone, with the domains and pages cited most."""
+    return rankings.get_rankings(
+        team_id, target_domains=settings.AEO_TARGET_DOMAINS, timezone_name=timezone_name, days=days
     )
 
 

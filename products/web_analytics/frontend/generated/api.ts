@@ -15,6 +15,7 @@ import type {
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
     AEOPromptSetOverviewApi,
+    AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
     AEOPromptSuggestRequestApi,
     AEOPromptSuggestionJobApi,
@@ -27,6 +28,7 @@ import type {
     AeoPromptsChecksParams,
     AeoPromptsListParams,
     AeoPromptsOverviewParams,
+    AeoPromptsRankingsParams,
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
     ContentAutopilotOpportunityApi,
@@ -405,6 +407,37 @@ export const aeoPromptsOverview = async (
     options?: RequestInit
 ): Promise<AEOPromptSetOverviewApi> => {
     return apiMutator<AEOPromptSetOverviewApi>(getAeoPromptsOverviewUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsRankingsUrl = (projectId: string, params?: AeoPromptsRankingsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/rankings/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/rankings/`
+}
+
+/**
+ * Gets how often AI answers named the project against its competitors over the last 'days' days (default 30) in the project's timezone, with the same share for the window before, a daily series, and the domains and pages the engines cited most. Competitors are derived from the cited domains.
+ * @summary Get AEO brand rankings
+ */
+export const aeoPromptsRankings = async (
+    projectId: string,
+    params?: AeoPromptsRankingsParams,
+    options?: RequestInit
+): Promise<AEOPromptSetRankingsApi> => {
+    return apiMutator<AEOPromptSetRankingsApi>(getAeoPromptsRankingsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

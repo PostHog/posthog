@@ -28,6 +28,7 @@ from products.aeo.backend.facade.api import (
     get_brand,
     get_prompt,
     get_prompt_set_overview,
+    get_prompt_set_rankings,
     get_prompt_stats,
     get_prompt_suggestions,
     import_prompts,
@@ -44,6 +45,9 @@ from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
+    MAX_RANKED_COMPETITORS,
+    MAX_RANKED_DOMAINS,
+    MAX_RANKED_PAGES,
     PROMPT_TOPIC_MAX_LENGTH,
     PROMPT_VERSION_DESCRIPTION_MAX_LENGTH,
     Brand,
@@ -69,6 +73,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSetDomain,
     PromptSetEngineCounts,
     PromptSetOverview,
+    PromptSetRankings,
     PromptSetSearch,
     PromptSetSearchPrompt,
     PromptSetTopicCounts,
@@ -82,6 +87,10 @@ from products.aeo.backend.facade.contracts import (
     PromptUpdate,
     PromptUpdateError,
     PromptVersion,
+    RankedBrand,
+    RankedBrandDay,
+    RankedDomain,
+    RankedPage,
 )
 
 MAX_PROMPTS_PER_IMPORT = 2000
@@ -511,6 +520,94 @@ class AEOPromptSetOverviewSerializer(DataclassSerializer):
         }
 
 
+class AEORankedBrandSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = RankedBrand
+        ref_name = "AEORankedBrand"
+        extra_kwargs = {
+            "domain": {"help_text": "Registrable domain of the brand, for example 'example.com'."},
+            "name": {
+                "help_text": "The word an answer must contain to count as naming the brand. For the project's own brand, a comma-separated list where any name counts."
+            },
+            "is_target": {"help_text": "Whether this is the project's own brand. The others are competitors."},
+            "answers_mentioning": {
+                "help_text": "Answered checks in the current window that named the brand or cited its domain: the numerator of 'visibility'."
+            },
+            "visibility": {
+                "help_text": "Share (0-1) of answered checks in the current window that named the brand or cited its domain. Null without answers."
+            },
+            "previous_visibility": {"help_text": "The same share for the window before. Null without answers."},
+            "positive_share": {
+                "help_text": "For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored."
+            },
+        }
+
+
+class AEORankedBrandDaySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = RankedBrandDay
+        ref_name = "AEORankedBrandDay"
+        extra_kwargs = {
+            "date": {"help_text": "Day, in the project's timezone."},
+            "domain": {"help_text": "The brand's registrable domain, matching a row in 'brands'."},
+            "answers": {"help_text": "Answered checks that day."},
+            "visibility": {"help_text": "Share (0-1) of that day's answers that named the brand or cited its domain."},
+        }
+
+
+class AEORankedDomainSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = RankedDomain
+        ref_name = "AEORankedDomain"
+        extra_kwargs = {
+            "domain": {"help_text": "Registrable domain of the cited URLs, for example 'example.com'."},
+            "answers": {"help_text": "Answered checks in the window that cited a URL on this domain."},
+            "share_of_answers": {"help_text": "Share (0-1) of answered checks in the window that cited the domain."},
+            "urls": {"help_text": "Distinct URLs on this domain cited in the window."},
+            "is_target": {"help_text": "Whether the domain is the project's own site."},
+            "is_competitor": {"help_text": "Whether the domain is one of the competitors in 'brands'."},
+        }
+
+
+class AEORankedPageSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = RankedPage
+        ref_name = "AEORankedPage"
+        extra_kwargs = {
+            "url": {"help_text": "The cited URL, as the engine returned it."},
+            "answers": {"help_text": "Answered checks in the window that cited this URL."},
+            "share_of_answers": {"help_text": "Share (0-1) of answered checks in the window that cited the URL."},
+            "is_target": {"help_text": "Whether the URL is on the project's own site."},
+        }
+
+
+class AEOPromptSetRankingsSerializer(DataclassSerializer):
+    brands = AEORankedBrandSerializer(
+        many=True,
+        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks. A competitor counts as named when its domain's name appears as a word, so a common-word name can over-count.",
+    )
+    daily = AEORankedBrandDaySerializer(
+        many=True, help_text="Visibility per brand and day in the current window, ordered by day then domain."
+    )
+    top_domains = AEORankedDomainSerializer(
+        many=True,
+        help_text=f"The {MAX_RANKED_DOMAINS} registrable domains the engines cited most in the window, most cited first.",
+    )
+    top_pages = AEORankedPageSerializer(
+        many=True, help_text=f"The {MAX_RANKED_PAGES} pages the engines cited most in the window, most cited first."
+    )
+
+    class Meta:
+        dataclass = PromptSetRankings
+        ref_name = "AEOPromptSetRankings"
+        extra_kwargs = {
+            "days": {"help_text": "Length of each window in days."},
+            "window_from": {"help_text": "First day of the current window, in the project's timezone."},
+            "window_to": {"help_text": "Last day of the current window (today), in the project's timezone."},
+            "answers": {"help_text": "Answered checks in the current window: the denominator of every share."},
+        }
+
+
 class AEOPromptSetOverviewQuerySerializer(serializers.Serializer):
     days = serializers.IntegerField(
         required=False,
@@ -833,6 +930,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         "stats",
         "versions",
         "overview",
+        "rankings",
         "suggestion",
     ]
     # suggest saves nothing, but it spends model credits, so it needs write access.
@@ -996,6 +1094,25 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             self.team_id, timezone_name=self.team.timezone, days=request.validated_query_data["days"]
         )
         return Response(AEOPromptSetOverviewSerializer(overview).data)
+
+    @validated_request(
+        query_serializer=AEOPromptSetOverviewQuerySerializer,
+        operation_id="aeo_prompts_rankings",
+        summary="Get AEO brand rankings",
+        description=(
+            f"Gets how often AI answers named the project against its competitors over the last 'days' days (default "
+            f"{STATS_DAYS}) in the project's timezone, with the same share for the window before, a daily series, and "
+            "the domains and pages the engines cited most. Competitors are derived from the cited domains."
+        ),
+        responses={200: OpenApiResponse(response=AEOPromptSetRankingsSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def rankings(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        rankings = get_prompt_set_rankings(
+            self.team_id, timezone_name=self.team.timezone, days=request.validated_query_data["days"]
+        )
+        return Response(AEOPromptSetRankingsSerializer(rankings).data)
 
     @validated_request(
         operation_id="aeo_prompts_topics",
