@@ -779,6 +779,43 @@ describe('workflowsSavedViewsLogic', () => {
         expect(logic.values.isModified).toBe(false)
     })
 
+    it.each([
+        ['a search', { filters: [], text: 'renewal' }, { filters: savedView.state.filters, text: 'renewal' }, []],
+        [
+            'a filter',
+            { filters: [eventTrigger], text: '' },
+            { filters: [status('active'), eventTrigger], text: '' },
+            [eventTrigger],
+        ],
+    ])(
+        'keeps the view filters on a view-only link when %s is entered before the views load',
+        async (_, edit, expected, added) => {
+            let release: () => void = () => {}
+            const pending = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/workflow_views/': async () => {
+                        await pending
+                        return [200, paginated(storedViews)]
+                    },
+                },
+            })
+            router.actions.push(urls.workflows(), { view: VIEW_ID })
+            logic = workflowsSavedViewsLogic()
+            logic.mount()
+
+            workflowsListV2Logic.actions.setValue(edit)
+            release()
+            await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+
+            expect(logic.values.activeViewId).toEqual(VIEW_ID)
+            expect(workflowsListV2Logic.values.value).toEqual(expected)
+            expect(logic.values.addedFilters).toEqual(added)
+        }
+    )
+
     it('comes back to the view, its additions and its columns after leaving the list', async () => {
         router.actions.push(urls.workflows(), { view: VIEW_ID })
         logic = workflowsSavedViewsLogic()
@@ -1098,6 +1135,57 @@ describe('workflowsSavedViewsLogic', () => {
 
         expect(logic.values.views.some((view) => view.id === myWorkflows.id)).toBe(false)
         expect(logic.values.myWorkflowsDeleted).toBe(true)
+    })
+
+    it.each([
+        ['Undo clicked while a new view saves', 'save-as', 'restore'],
+        ['a new view submitted while My workflows restores', 'restore', 'save-as'],
+    ])('runs %s once the first change finishes', async (_, first, second) => {
+        let release: () => void = () => {}
+        const pending = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let restores = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/workflow_views/initialize/': () => [
+                    200,
+                    { ...myWorkflows, deleted: true, version: 2 },
+                ],
+                '/api/projects/:team_id/workflow_views/restore_default/': async () => {
+                    if (first === 'restore') {
+                        await pending
+                    }
+                    restores++
+                    return [200, myWorkflows]
+                },
+                '/api/projects/:team_id/workflow_views/': async ({ request }) => {
+                    const body = (await request.json()) as WorkflowViewCreateApi
+                    writes.push(body)
+                    if (first === 'save-as') {
+                        await pending
+                    }
+                    return [201, { ...savedView, ...body, id: '00000000-0000-4000-8000-000000000003' }]
+                },
+            },
+        })
+        router.actions.push(urls.workflows())
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        expect(logic.values.myWorkflowsDeleted).toBe(true)
+        const start = (mutation: string): Promise<void> =>
+            mutation === 'restore' ? logic.asyncActions.restoreMyWorkflows() : logic.asyncActions.saveViewAs('Mine')
+
+        const done = [start(first), start(second)]
+        release()
+        await Promise.all(done)
+
+        expect(restores).toEqual(1)
+        expect(writes).toHaveLength(1)
+        expect(logic.values.myWorkflowsDeleted).toBe(false)
+        expect(logic.values.views.map((view) => view.name)).toContain('Mine')
+        expect(logic.values.saving).toBe(false)
     })
 
     it('restores the deletable My workflows view from its original default state after reload', async () => {

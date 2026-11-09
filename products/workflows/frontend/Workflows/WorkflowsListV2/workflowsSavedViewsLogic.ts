@@ -588,23 +588,22 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             }
             return error
         }
-        const runMutation = async (
+        const executeMutation = async (
             action: SavedViewAction,
             run: (stillCurrent: () => boolean) => Promise<void>,
+            generation: number,
+            teamId: number | null,
             target?: WorkflowSavedView,
             onFailure?: (failure: unknown) => void
         ): Promise<void> => {
-            const needsWriteAccess = action !== 'reset'
-            if (!values.available || values.saving || (needsWriteAccess && values.writeDisabledReason)) {
+            // Check the generation first: after an unmount, `values` reads whichever list mounted next.
+            const stillCurrent = (): boolean =>
+                (cache.contextGeneration ?? 0) === generation && values.enabled && values.currentTeamId === teamId
+            if (!stillCurrent() || !values.available) {
                 return
             }
             actions.setPendingAction(action)
             cache.filterKeysAddedWhileSaving = new Set<string>()
-            const teamId = values.currentTeamId
-            const generation = cache.contextGeneration ?? 0
-            // Check the generation first: after an unmount, `values` reads whichever list mounted next.
-            const stillCurrent = (): boolean =>
-                (cache.contextGeneration ?? 0) === generation && values.enabled && values.currentTeamId === teamId
             try {
                 await run(stillCurrent)
             } catch (error) {
@@ -620,6 +619,51 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 }
             }
         }
+        /**
+         * Runs one mutation at a time. A different mutation waits for its turn instead of being dropped, so Undo
+         * clicked during a save still restores, and a dialog submitted during a restore still saves. A repeat of a
+         * mutation that is already running or waiting, such as a double click, adds nothing.
+         */
+        const runMutation = (
+            action: SavedViewAction,
+            key: string,
+            run: (stillCurrent: () => boolean) => Promise<void>,
+            target?: WorkflowSavedView,
+            onFailure?: (failure: unknown) => void
+        ): Promise<void> => {
+            const needsWriteAccess = action !== 'reset'
+            if (!values.available || (needsWriteAccess && values.writeDisabledReason)) {
+                return Promise.resolve()
+            }
+            const generation = cache.contextGeneration ?? 0
+            // A new list context starts a new queue, so it never waits for a request it will ignore.
+            if (cache.mutationQueueGeneration !== generation) {
+                cache.mutationQueueGeneration = generation
+                cache.mutationQueue = Promise.resolve()
+                cache.mutationKeys = new Set<string>()
+            }
+            const keys: Set<string> = cache.mutationKeys
+            const queueKey = `${action}:${key}`
+            if (keys.has(queueKey)) {
+                return Promise.resolve()
+            }
+            keys.add(queueKey)
+            const teamId = values.currentTeamId
+            const execute = async (): Promise<void> => {
+                try {
+                    await executeMutation(action, run, generation, teamId, target, onFailure)
+                } finally {
+                    keys.delete(queueKey)
+                }
+            }
+            // With nothing else running or waiting, start now, so the request carries the state of the click.
+            const queued = keys.size === 1 ? execute() : (cache.mutationQueue as Promise<void>).then(execute)
+            cache.mutationQueue = queued
+            return queued
+        }
+        // A queued write sends the version the view has when its turn comes, not the one it had when the user asked.
+        const latestVersion = (view: WorkflowSavedView): number =>
+            values.views.find((candidate) => candidate.id === view.id)?.version ?? view.version
         return {
             clearSavedViews: () => {
                 cache.contextGeneration = (cache.contextGeneration ?? 0) + 1
@@ -692,6 +736,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         values.value !== startValue || values.shownColumns !== startColumns
                     await runMutation(
                         'reset',
+                        currentViewId,
                         async (stillCurrent) => {
                             try {
                                 const latest = await api.workflowViewsRetrieve(
@@ -734,13 +779,37 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 }
             },
             syncViewFromUrl: () => {
-                if (!values.available || cache.writingUrl || cache.applyingView) {
-                    return
-                }
                 const raw = new URLSearchParams(router.values.location.search)
                 const id = raw.get('view') ?? 'all'
-                const view = values.views.find((candidate) => candidate.id === id)
                 const explicit = raw.has('q') || raw.has('text') || raw.has('columns') || raw.has('added')
+                if (!values.available) {
+                    // The list writes the search to the URL while the views load, which makes a view-only link look
+                    // like a link with its own filters. Remember the link and what the list showed, so the view
+                    // still opens with its filters once it loads.
+                    if (values.enabled && raw.has('view') && !explicit && cache.viewOnlyLink?.id !== id) {
+                        cache.viewOnlyLink = { id, baseline: values.value }
+                    }
+                    return
+                }
+                if (cache.writingUrl || cache.applyingView) {
+                    return
+                }
+                const view = values.views.find((candidate) => candidate.id === id)
+                const viewOnlyLink: { id: string; baseline: FacetSearchValue } | undefined = cache.viewOnlyLink
+                cache.viewOnlyLink = undefined
+                if (view && viewOnlyLink?.id === id) {
+                    // Edits made while the views loaded stay, as changes to the view.
+                    const edited = values.value
+                    const baselineKeys = new Set(viewOnlyLink.baseline.filters.map((filter) => facetFilterKey(filter)))
+                    actions.setAddedFilters(
+                        edited.filters.filter((filter) => !baselineKeys.has(facetFilterKey(filter)))
+                    )
+                    actions.applyView(view)
+                    if (edited.text !== viewOnlyLink.baseline.text) {
+                        actions.setValue({ ...values.value, text: edited.text })
+                    }
+                    return
+                }
                 if (view && !explicit) {
                     actions.setAddedFilters([])
                     actions.applyView(view)
@@ -791,6 +860,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             saveViewAs: async ({ name, onFailure }) =>
                 await runMutation(
                     'save-as',
+                    name.trim(),
                     async (stillCurrent) => {
                         const sourceViewId = values.activeViewId
                         const view = await api.workflowViewsCreate(String(values.currentTeamId), {
@@ -817,9 +887,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 }
                 await runMutation(
                     'update',
+                    current.id,
                     async (stillCurrent) => {
                         const view = await api.workflowViewsPartialUpdate(String(values.currentTeamId), current.id, {
-                            version: current.version,
+                            version: latestVersion(current),
                             state: workflowViewState(values.value, values.shownColumns),
                         })
                         if (!stillCurrent()) {
@@ -842,9 +913,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 }
                 await runMutation(
                     'rename',
+                    `${id}:${name.trim()}`,
                     async (stillCurrent) => {
                         const updated = await api.workflowViewsPartialUpdate(String(values.currentTeamId), id, {
-                            version: current.version,
+                            version: latestVersion(current),
                             name: name.trim(),
                         })
                         if (!stillCurrent()) {
@@ -863,9 +935,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 }
                 await runMutation(
                     'delete',
+                    id,
                     async (stillCurrent) => {
                         await api
-                            .workflowViewsDestroy(String(values.currentTeamId), id, { version: current.version })
+                            .workflowViewsDestroy(String(values.currentTeamId), id, { version: latestVersion(current) })
                             .catch(ignoreMissingView)
                         if (!stillCurrent()) {
                             return
@@ -887,7 +960,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 )
             },
             restoreMyWorkflows: async () =>
-                await runMutation('restore', async (stillCurrent) => {
+                await runMutation('restore', '', async (stillCurrent) => {
                     const view = await api.workflowViewsRestoreDefaultCreate(String(values.currentTeamId))
                     if (!stillCurrent()) {
                         return
