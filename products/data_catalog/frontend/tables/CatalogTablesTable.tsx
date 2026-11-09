@@ -108,6 +108,7 @@ function isPlainRowClick(event: MouseEvent<HTMLTableRowElement>): boolean {
 }
 
 function CatalogTablesTableRow({ row, selected }: { row: CatalogTableRow; selected: boolean }): JSX.Element {
+    const { certificationsLoadFailed } = useValues(catalogTablesLogic)
     const { openRow, toggleRowSelected } = useActions(catalogTablesLogic)
     const openUnlessInteractive = (event: MouseEvent<HTMLTableRowElement>): void => {
         if (isPlainRowClick(event)) {
@@ -139,7 +140,11 @@ function CatalogTablesTableRow({ row, selected }: { row: CatalogTableRow; select
                 <ChecksCell row={row} />
             </TableCell>
             <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                {row.certification ? <CatalogTableTrust row={row} /> : <MutedCellText>Not certified</MutedCellText>}
+                {row.certification ? (
+                    <CatalogTableTrust row={row} />
+                ) : (
+                    <MutedCellText>{certificationsLoadFailed ? 'Not loaded' : 'Not certified'}</MutedCellText>
+                )}
             </TableCell>
             <TableCell valign="top" className={WIDE_ONLY_CELL}>
                 <CatalogTableFreshness row={row} />

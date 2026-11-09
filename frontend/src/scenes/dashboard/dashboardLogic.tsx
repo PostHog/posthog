@@ -5656,6 +5656,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let tilesRefreshedCachedCount = 0
             let tilesErroredCount = 0
             let tilesAbortedCount = 0
+            const { currentTeamId, dashboardLoadData, dashboard } = values
 
             if (sortedTilesToRefresh.length > 0) {
                 // Mark tiles as queued before the breakpoint's await, so there's no render gap
@@ -5693,7 +5694,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Cache values used during and after the long-running fetch, since the logic
                 // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
                 // only cancels on newer invocations, not on unmount).
-                const { currentTeamId, externalFilters, urlFilters, dashboardLoadData, lastDashboardRefresh } = values
+                const { externalFilters, urlFilters, lastDashboardRefresh } = values
                 const effectiveRefreshFilters = combineDashboardFilters(settingsToRefresh.filters, externalFilters)
                 const savedMetricVariables = values.savedDashboardSettings.filters.metricVariables ?? []
                 const urlVariables = settingsToRefresh.variables
@@ -5738,25 +5739,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // and all tiles were refreshed
                 if (forceRefresh && tilesAbortedCount === 0 && tilesErroredCount === 0) {
                     actions.updateDashboardLastRefresh(dayjs())
-                }
-
-                if (isInitialLoad) {
-                    // capture time to see data
-                    const { dashboardQueryId, startTime, responseBytes } = dashboardLoadData
-                    eventUsageLogic.actions.reportTimeToSeeData({
-                        team_id: currentTeamId,
-                        type: 'dashboard_load',
-                        context: 'dashboard',
-                        action,
-                        status: 'success',
-                        primary_interaction_id: dashboardQueryId,
-                        time_to_see_data_ms: Math.floor(performance.now() - startTime),
-                        api_response_bytes: responseBytes,
-                        insights_fetched: sortedTilesToRefresh.length,
-                        insights_fetched_cached: tilesRefreshedCachedCount,
-                        ...tileGroupProps,
-                        ...getJSHeapMemory(),
-                    })
                 }
 
                 const refreshDurationMs = Math.floor(performance.now() - dashboardRefreshStartTime)
@@ -5804,6 +5786,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.previewDashboardChangesFailure()
             } else if (previewUnsavedFilters || initialUrlOverridesArePreviewed) {
                 actions.setPreviewedDashboardSettings(settingsToRefresh)
+            }
+
+            if (isInitialLoad && dashboard) {
+                // capture time to see data
+                const { dashboardQueryId, startTime, responseBytes } = dashboardLoadData
+                eventUsageLogic.actions.reportTimeToSeeData({
+                    team_id: currentTeamId,
+                    type: 'dashboard_load',
+                    context: 'dashboard',
+                    action,
+                    status: 'success',
+                    primary_interaction_id: dashboardQueryId,
+                    time_to_see_data_ms: Math.floor(performance.now() - startTime),
+                    api_response_bytes: responseBytes,
+                    insights_fetched: sortedTilesToRefresh.length,
+                    insights_fetched_cached: tilesRefreshedCachedCount,
+                    ...tileGroupProps,
+                    ...getJSHeapMemory(),
+                })
             }
 
             if (
