@@ -1,6 +1,7 @@
 from django.conf import settings
 
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
+from posthog.hogql.printer.events_json_document import event_document_sql, person_document_sql
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -14,13 +15,17 @@ from posthog.clickhouse.events_json import (
     EVENTS_JSON_DATA_TABLE_INDEXES,
     EVENTS_JSON_INDEXED_PROPERTY_NAMES,  # noqa: F401
     EVENTS_JSON_INSERT_SETTINGS,
+    EVENTS_JSON_RECENT_MV,
+    EVENTS_JSON_RECENT_TABLE,
     EVENTS_PROPERTIES_JSON_MAX_DYNAMIC_PATHS,
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
     PERSON_PROPERTIES_JSON_MAX_DYNAMIC_PATHS,
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+    SHARDED_EVENTS_JSON_RECENT_TABLE,
     TEMPORARY_PROPERTIES_JSON_TYPE,
     UNPARSEABLE_PROPERTIES_KEY,
+    WRITABLE_EVENTS_JSON_RECENT_TABLE,
     WRITABLE_EVENTS_JSON_TABLE,
 )
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
@@ -765,6 +770,106 @@ FROM {database}.{source_table}
         database=settings.CLICKHOUSE_DATABASE,
         target_table=WRITABLE_EVENTS_RECENT_TABLE(),
     )
+
+
+# Events JSON recent tables: events_recent's shape and retention, with the properties events_json exports
+
+
+def SHARDED_EVENTS_JSON_RECENT_TABLE_SQL():
+    return (
+        EVENTS_TABLE_BASE_SQL
+        + """PARTITION BY toStartOfDay(inserted_at)
+ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
+TTL toDate(inserted_at) + INTERVAL 9 DAY
+{storage_policy}
+SETTINGS ttl_only_drop_parts = 1
+"""
+    ).format(
+        table_name=SHARDED_EVENTS_JSON_RECENT_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=ReplacingMergeTree(
+            SHARDED_EVENTS_JSON_RECENT_TABLE, ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
+        ),
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_NOT_NULLABLE_COLUMN,
+        dynamically_materialized_columns="",
+        materialized_columns="",
+        indexes="",
+        storage_policy=STORAGE_POLICY(),
+    )
+
+
+def _events_json_recent_distributed_sql(table_name: str, cluster: str) -> str:
+    return EVENTS_TABLE_BASE_SQL.format(
+        table_name=table_name,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=Distributed(
+            data_table=SHARDED_EVENTS_JSON_RECENT_TABLE, sharding_key="sipHash64(distinct_id)", cluster=cluster
+        ),
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_NOT_NULLABLE_COLUMN,
+        dynamically_materialized_columns="",
+        materialized_columns="",
+        indexes="",
+    )
+
+
+def WRITABLE_EVENTS_JSON_RECENT_TABLE_SQL():
+    return _events_json_recent_distributed_sql(WRITABLE_EVENTS_JSON_RECENT_TABLE, settings.CLICKHOUSE_WRITABLE_CLUSTER)
+
+
+def EVENTS_JSON_RECENT_TABLE_SQL():
+    return _events_json_recent_distributed_sql(EVENTS_JSON_RECENT_TABLE, settings.CLICKHOUSE_PRIMARY_REPLICA_CLUSTER)
+
+
+def EVENTS_JSON_RECENT_MV_SQL(source_table: str = EVENTS_JSON_DATA_TABLE) -> str:
+    # The documents are built with the same SQL and settings as the native batch export source, so a row here
+    # holds the text an export of the same events_json row writes.
+    properties_document = event_document_sql(
+        "json_properties",
+        "properties_null_keys",
+        "temporary_properties",
+        "temporary_properties_null_keys",
+        "json_properties.`$feature_flags`",
+    )
+    person_properties_document = person_document_sql("json_person_properties", "person_properties_null_keys")
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {EVENTS_JSON_RECENT_MV}
+TO {settings.CLICKHOUSE_DATABASE}.{WRITABLE_EVENTS_JSON_RECENT_TABLE}
+AS SELECT
+uuid,
+event,
+{properties_document} AS properties,
+timestamp,
+team_id,
+distinct_id,
+elements_chain,
+created_at,
+person_id,
+person_created_at,
+{person_properties_document} AS person_properties,
+group0_properties,
+group1_properties,
+group2_properties,
+group3_properties,
+group4_properties,
+group0_created_at,
+group1_created_at,
+group2_created_at,
+group3_created_at,
+group4_created_at,
+person_mode,
+historical_migration,
+_timestamp,
+_offset,
+inserted_at
+FROM (
+SELECT
+*,
+properties AS json_properties,
+person_properties AS json_person_properties
+FROM {settings.CLICKHOUSE_DATABASE}.{source_table}
+)
+SETTINGS json_type_escape_dots_in_keys = 1, output_format_json_escape_forward_slashes = 0
+"""
 
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
