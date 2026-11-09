@@ -14,6 +14,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { TEST_EVENTS } from '../../__mocks__/events'
 import { results as batchGetResults } from '../../__mocks__/stack_frames/batch_get'
 import { ExceptionTag } from '../../hooks/use-error-tag-renderer'
+import { IssueRecordingTabVisionButton } from '../../scenes/ErrorTrackingIssueScene/IssueVisionScannerPopover'
 import { StyleVariables } from '../StyleVariables'
 import { ExceptionCard } from './ExceptionCard'
 import { ExceptionCardTab, exceptionCardLogic } from './exceptionCardLogic'
@@ -575,14 +576,14 @@ function OpenTab({
     tab,
     children,
     issueId = 'issue-id',
-    onSetUpVisionScanner,
+    renderRecordingActions,
 }: {
     tab: ExceptionCardTab
     children: JSX.Element
     issueId?: string
-    onSetUpVisionScanner?: () => void
+    renderRecordingActions?: () => JSX.Element | null
 }): JSX.Element {
-    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId, loading: false, onSetUpVisionScanner }))
+    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId, loading: false, renderRecordingActions }))
 
     useEffect(() => {
         setCurrentTab(tab)
@@ -593,31 +594,85 @@ function OpenTab({
 
 //////////////////// Recording tab
 
-const noop = (): void => {}
+// One issue per width: the popover's logic is keyed by issue, so a shared id would open every popover at once.
+const visionButtons = new Map<number, () => JSX.Element>()
+function renderVisionButtonFor(width: number): () => JSX.Element {
+    if (!visionButtons.has(width)) {
+        visionButtons.set(width, () => (
+            <IssueRecordingTabVisionButton issueId={`recording-${width}`} issueName="Test Issue" />
+        ))
+    }
+    return visionButtons.get(width)!
+}
 
-// Only the issue page passes the hand-off, so the button shows here and not in the notebook widget.
+// Only the issue page passes recording actions, so the notebook widget has no vision button.
 export function ExceptionCardRecordingWithVisionButton(): JSX.Element {
     const event = asErrorEventType(TEST_EVENTS['javascript_resolved'])
 
     return (
         <HeaderWidthMatrix widths={RECORDING_TAB_WIDTHS} height="h-36">
             {(width) => (
-                <OpenTab tab="recording" issueId={`recording-${width}`} onSetUpVisionScanner={noop}>
+                <OpenTab
+                    tab="recording"
+                    issueId={`recording-${width}`}
+                    renderRecordingActions={renderVisionButtonFor(width)}
+                >
                     <ExceptionCard
                         issueId={`recording-${width}`}
                         issueName="Test Issue"
                         loading={false}
                         event={event}
-                        onSetUpVisionScanner={noop}
+                        renderRecordingActions={renderVisionButtonFor(width)}
                     />
                 </OpenTab>
             )}
         </HeaderWidthMatrix>
     )
 }
-ExceptionCardRecordingWithVisionButton.parameters = {
-    ...sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved'])),
-    mockDate: '2026-04-04T23:42:36Z',
+ExceptionCardRecordingWithVisionButton.parameters = recordingTabParameters()
+
+function recordingTabParameters(): Record<string, unknown> {
+    const timeline = sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved']))
+    const timelineMocks = (timeline.msw as { mocks: Mocks }).mocks
+
+    return {
+        mockDate: '2026-04-04T23:42:36Z',
+        msw: {
+            mocks: {
+                ...timelineMocks,
+                get: {
+                    ...timelineMocks.get,
+                    'api/projects/:team_id/vision/quota/': {
+                        credit_limit: 10000,
+                        credits_used: 100,
+                        remaining: 9900,
+                        exhausted: false,
+                        projected_monthly_credits: 0,
+                        scanners_monthly_credits: 0,
+                        backfills_committed_credits: 0,
+                        free_monthly_credits: 2500,
+                        credits_settled: 100,
+                        credits_reserved: 0,
+                        period_start: '2026-04-01T00:00:00Z',
+                        period_end: '2026-05-01T00:00:00Z',
+                    },
+                },
+                post: {
+                    ...timelineMocks.post,
+                    'api/projects/:team_id/vision/scanners/estimate/': {
+                        matched_sessions_in_window: 38,
+                        window_days: 7,
+                        estimated_observations_per_month: 163,
+                        credits_per_observation: 2,
+                        estimated_credits_per_month: 326,
+                        other_enabled_scanners_monthly_credits: 0,
+                        active_backfill_credits: 0,
+                        free_only_monthly_credits_left: 2400,
+                    },
+                },
+            },
+        },
+    }
 }
 
 //////////////////// All Events
