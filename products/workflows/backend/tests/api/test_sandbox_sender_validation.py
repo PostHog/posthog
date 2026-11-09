@@ -266,25 +266,54 @@ class TestSandboxSenderValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unchanged_mapping_keeps_its_stored_sender", "mapping", ["sandbox"], 200),
-            ("duplicated_mapping_cannot_borrow_its_original_sender", "mapping", ["sandbox", "sandbox"], 400),
-            ("own_sender_copy_ahead_of_the_original_leaves_it_its_sender", "mapping", ["own", "sandbox"], 200),
-            ("new_mapping_cannot_borrow_the_top_level_sender", "top_level", ["sandbox"], 400),
+            ("unchanged_mapping_keeps_its_stored_sender", "mapping", "sandbox", ["stored"], None),
+            (
+                "duplicated_mapping_cannot_borrow_its_original_sender",
+                "mapping",
+                "sandbox",
+                ["stored", "stored"],
+                "workflow email steps and test sends",
+            ),
+            (
+                "own_sender_copy_ahead_of_the_original_leaves_it_its_sender",
+                "mapping",
+                "sandbox",
+                ["own", "stored"],
+                None,
+            ),
+            (
+                "new_mapping_cannot_borrow_the_top_level_sender",
+                "top_level",
+                "sandbox",
+                ["stored"],
+                "workflow email steps and test sends",
+            ),
+            ("templated_mapping_can_clear_its_reply_to", "mapping", "templated", ["reply_to_cleared"], None),
+            (
+                "duplicated_templated_mapping_cannot_borrow_its_original_sender",
+                "mapping",
+                "templated",
+                ["reply_to_cleared", "stored"],
+                "templated sender",
+            ),
         ]
     )
     def test_mapping_sender_is_compared_only_with_its_own_stored_mapping(
-        self, _name: str, stored_in: str, submitted: list[str], expected_status: int
+        self, _name: str, stored_in: str, stored_sender: str, submitted: list[str], expected_error: str | None
     ) -> None:
         own_sender = Integration.objects.create(
             team=self.team,
             kind="email",
             config={"provider": "ses", "domain": "example.com", "email": "sender@example.com", "verified": True},
         )
+        email = self._email()
+        if stored_sender == "templated":
+            email.update({"from": {"integrationId": "{inputs.sender}"}, "replyTo": "stored-reply@example.com"})
         backup = {**self._email(), "from": {"integrationId": own_sender.id}}
         mapping: dict[str, Any] = {
             "name": "Mapping",
             "inputs_schema": [*self.email_schema, {**self.email_schema[0], "key": "backup"}],
-            "inputs": {"email": {"value": self._email()}, "backup": {"value": backup}},
+            "inputs": {"email": {"value": email}, "backup": {"value": backup}},
         }
         function = HogFunction.objects.create(
             team=self.team,
@@ -292,33 +321,47 @@ class TestSandboxSenderValidation(APIBaseTest):
             type="destination",
             hog="return 1;",
             inputs_schema=self.email_schema if stored_in == "top_level" else [],
-            inputs={"email": {"value": self._email()}} if stored_in == "top_level" else {},
+            inputs={"email": {"value": email}} if stored_in == "top_level" else {},
             mappings=[mapping] if stored_in == "mapping" else None,
         )
         mappings = [deepcopy(mapping) for _ in submitted]
-        for sent, sender in zip(mappings, submitted):
-            if sender == "own":
+        for sent, change in zip(mappings, submitted):
+            if change == "own":
                 sent["inputs"]["email"]["value"]["from"] = {"integrationId": own_sender.id}
+            elif change == "reply_to_cleared":
+                sent["inputs"]["email"]["value"]["replyTo"] = ""
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{function.id}/", {"mappings": mappings}
         )
 
-        assert response.status_code == expected_status, response.json()
-        if expected_status == 400:
-            assert "workflow email steps and test sends" in response.json()["detail"].lower()
+        if expected_error is None:
+            assert response.status_code == 200, response.json()
+        else:
+            assert response.status_code == 400, response.json()
+            assert expected_error in response.json()["detail"].lower()
 
-    def test_destination_with_an_own_rotation_ignores_a_stale_sandbox_fallback(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "own_rotation_beside_a_stale_sandbox_fallback",
+                "native_email",
+                lambda own_id, sandbox_id: {"integrationId": sandbox_id, "integrationIds": [own_id]},
+            ),
+            ("literal_from_address_without_an_integration", "email", lambda _own_id, _sandbox_id: "sender@example.com"),
+        ]
+    )
+    def test_destination_that_cannot_reach_the_sandbox_sender_saves(
+        self, _name: str, input_type: str, sender: Any
+    ) -> None:
         own_sender = Integration.objects.create(
             team=self.team,
             kind="email",
             config={"provider": "ses", "domain": "example.com", "email": "sender@example.com", "verified": True},
         )
         function = self._function()
-        function["inputs"]["email"]["value"]["from"] = {
-            "integrationId": self.sender.id,
-            "integrationIds": [own_sender.id],
-        }
+        function["inputs_schema"] = [{**self.email_schema[0], "type": input_type}]
+        function["inputs"]["email"]["value"]["from"] = sender(own_sender.id, self.sender.id)
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", function)
 
