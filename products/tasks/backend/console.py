@@ -2,13 +2,15 @@ from typing import cast
 
 from django import forms
 from django.contrib import messages
+from django.db.models import Model
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
-from posthog.admin.console.panels import Owner
+from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import ConsoleTool, Notice, Page, ToolOperation
 from posthog.models.user import User
 
+from products.tasks.backend.facade.api import get_desktop_beta_terms_acceptance, revoke_desktop_beta_terms
 from products.tasks.backend.facade.run_logs import staff_task_run_log_link
 
 AGENT_INFRASTRUCTURE = Owner(name="Agent infrastructure", crest="agent-infrastructure")
@@ -61,5 +63,39 @@ class TaskRunLogsTool(ConsoleTool):
                 handler=download_logs,
                 form_class=TaskRunForm,
                 form_initial={"run": request.GET.get("run", "")},
+            )
+        ]
+
+
+def revoke_beta_terms(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    revoke_desktop_beta_terms(obj.pk, cast(User, request.user))
+    messages.success(request, "Revoked the PostHog Desktop beta terms. An organization admin can accept them again.")
+    return None
+
+
+@console.register_panel
+class PostHogDesktopPanel(Panel):
+    record = "organization"
+    key = "posthog-desktop"
+    title = "PostHog Desktop"
+    owner = AGENT_INFRASTRUCTURE
+
+    def facts(self, obj: Model) -> list[Fact]:
+        if get_desktop_beta_terms_acceptance(obj.pk).is_desktop_beta_terms_accepted:
+            return [Fact(label="Beta terms", value="Accepted", tone=Tone.SUCCESS)]
+        return [Fact(label="Beta terms", value="Not accepted")]
+
+    def operations(self, obj: Model) -> list[Operation]:
+        if not get_desktop_beta_terms_acceptance(obj.pk).is_desktop_beta_terms_accepted:
+            return []
+        return [
+            Operation(
+                key="revoke-beta-terms",
+                label="Revoke beta terms",
+                handler=revoke_beta_terms,
+                danger=True,
+                form_class=ReasonForm,
+                description="Removes the organization's acceptance of the PostHog Desktop beta terms.",
+                undo_hint="An organization admin can accept the terms again in organization settings.",
             )
         ]

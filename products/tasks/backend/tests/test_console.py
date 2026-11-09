@@ -8,6 +8,7 @@ from django.contrib.messages import get_messages
 
 from parameterized import parameterized
 
+from products.tasks.backend.facade.api import accept_desktop_beta_terms, get_desktop_beta_terms_acceptance
 from products.tasks.backend.models import Channel, Task, TaskRun
 
 _STORAGE = "products.tasks.backend.logic.services.staff_run_logs.object_storage"
@@ -91,3 +92,34 @@ class TestTaskRunLogsConsoleTool(BaseTest):
 
         assert response.redirect_chain == [(f"{_DOWNLOAD_URL}?run={self.task_run.id}", 302)]
         assert str(self.task_run.id) in response.content.decode()
+
+
+class TestPostHogDesktopConsolePanel(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+    def _revoke(self, data: dict[str, str]) -> Any:
+        return self.client.post(
+            f"/admin/console/organizations/{self.organization.pk}/posthog-desktop/revoke-beta-terms/", data
+        )
+
+    @parameterized.expand(
+        [
+            ("revokes_with_a_reason", True, {"reason": "Customer asked"}, 302, False),
+            ("needs_a_reason", True, {}, 400, True),
+            ("not_offered_without_acceptance", False, {"reason": "Customer asked"}, 404, False),
+        ]
+    )
+    def test_revoke_beta_terms(
+        self, _name: str, accepted: bool, data: dict[str, str], expected_status: int, accepted_after: bool
+    ) -> None:
+        if accepted:
+            accept_desktop_beta_terms(self.organization.pk, self.user.pk)
+
+        response = self._revoke(data)
+
+        assert response.status_code == expected_status
+        assert get_desktop_beta_terms_acceptance(self.organization.pk).is_desktop_beta_terms_accepted == accepted_after
