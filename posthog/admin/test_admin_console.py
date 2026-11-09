@@ -17,8 +17,7 @@ from django.utils.html import format_html
 from parameterized import parameterized
 
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
-from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, ReasonForm
-from posthog.admin.console.records import RECORD_TYPES
+from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
 from posthog.csp_middleware import CSPMiddleware
@@ -106,11 +105,12 @@ class TestAdminConsoleAssets(SimpleTestCase):
         )
 
     def test_every_owner_crest_ships(self) -> None:
-        owners = [panel.owner for record in RECORD_TYPES for panel in console.panels_for(record)] + [
-            tool.owner for tool in console.tools()
-        ]
         missing = sorted(
-            {owner.crest for owner in owners if not (CONSOLE_ASSETS / "crests" / f"{owner.crest}.svg").is_file()}
+            {
+                owner.crest
+                for owner in console.owners()
+                if not (CONSOLE_ASSETS / "crests" / f"{owner.crest}.svg").is_file()
+            }
         )
 
         assert not missing, (
@@ -150,6 +150,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                     form_class=ReasonForm,
                 ),
                 "undo_hint",
+            ),
+            (
+                "owner_gate_for_an_owner_without_a_staff_group",
+                lambda: Gate.owner().resolve(Owner(name="Dev experience", crest="dev-experience")),
+                "has no staff_group",
             ),
             ("fact_with_markup", lambda: Fact(label="Plan", value=format_html("<b>{}</b>", "Scale")), "plain text"),
             (
@@ -494,9 +499,11 @@ class TestAdminConsoleViews(BaseTest):
             Group.objects.get_or_create(name="Billing Team")[0].user_set.add(self.user)
 
         page = self.client.get("/admin/console/tools/usage-reports/").content.decode()
+        form = self.client.get("/admin/console/tools/usage-reports/send/")
         response = self.client.post("/admin/console/tools/usage-reports/send/", {"report_date": "2026-10-19"})
 
-        assert ("Needs the Billing Team group" in page) != in_group
+        assert ("Only members of the Billing Team group can run this" in page) != in_group
+        assert form.status_code == (200 if in_group else 403)
         assert response.status_code == expected_status
         assert call_command.called == in_group
 

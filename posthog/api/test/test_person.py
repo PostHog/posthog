@@ -2269,7 +2269,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # settings, cold-cache here but TTL-cached per worker in production. +1 for the organization's flag_evaluations mode
         # lookup in the HogQL database build. +1 for the MCP custom harness fetch in the HogQL database build, which later
         # requests read from Redis.
-        with self.assertNumQueries(20):
+        with self.assertNumQueries(18):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -2284,7 +2284,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # HogQL database build, which pays the saved-expressions fetch again. +2 because each of
         # the two HogQL database builds looks up the organization's flag_evaluations mode. +1 for the
         # revenue analytics config, which each request reads on its own Team instance.
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(19):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
@@ -2672,6 +2672,77 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         properties = response.json()["results"][result_key]["properties"]
         self.assertEqual(properties.get("email"), "visible@example.com")
         self.assertNotIn("ssn", properties)
+
+    @parameterized.expand(
+        [
+            ("restricted_user", None, False),
+            ("allowed_user", PropertyAccessLevel.READ, True),
+        ]
+    )
+    def test_properties_at_time_respects_property_access_control(
+        self, _name: str, member_access_level: Optional[PropertyAccessLevel], ssn_visible: bool
+    ) -> None:
+        if member_access_level is not None:
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=PropertyDefinition.objects.get(team=self.team, name="ssn"),
+                organization_member=self.organization_membership,
+                access_level=member_access_level.value,
+            )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["pit_user"],
+            properties={"email": "visible@example.com", "ssn": "123-45-6789"},
+            immediate=True,
+        )
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id="pit_user",
+            properties={"$set": {"email": "visible@example.com", "ssn": "123-45-6789"}},
+            timestamp="2024-06-01T10:00:00Z",
+        )
+        _create_event(
+            event="$set_once",
+            team=self.team,
+            distinct_id="pit_user",
+            properties={"$set_once": {"ssn": "999-99-9999", "plan": "free"}},
+            timestamp="2024-06-01T09:00:00Z",
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/properties_at_time/",
+            {"distinct_id": "pit_user", "timestamp": "2024-06-01T12:00:00Z", "include_set_once": "true"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        properties = response.json()["properties"]
+        self.assertEqual(properties.get("email"), "visible@example.com")
+        self.assertEqual(properties.get("plan"), "free")
+        if ssn_visible:
+            self.assertEqual(properties.get("ssn"), "123-45-6789")
+        else:
+            self.assertNotIn("ssn", properties)
+            self.assertNotIn("123-45-6789", response.content.decode())
+            self.assertNotIn("999-99-9999", response.content.decode())
+
+    @mock.patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    def test_properties_at_time_passes_requesting_user_to_hogql(self, mock_execute_hogql_query) -> None:
+        mock_execute_hogql_query.return_value = mock.Mock(results=[])
+        _create_person(team=self.team, distinct_ids=["pit_user"], properties={}, immediate=True)
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/properties_at_time/",
+            {"distinct_id": "pit_user", "timestamp": "2024-06-01T12:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        kwargs = mock_execute_hogql_query.call_args.kwargs
+        self.assertEqual(kwargs["user"], self.user)
+        self.assertEqual(kwargs["context"].user, self.user)
 
     def test_search_does_not_tag_a_restricted_property(self) -> None:
         email = PropertyDefinition.objects.create(

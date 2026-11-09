@@ -11,7 +11,7 @@ import { configureFakeExtensionBrowser } from './__mocks__/fakeExtensionBrowser'
 import { STORY_PAGE_URL, pageToolbarState } from './__mocks__/pageToolbarState'
 import { ExtensionPanel } from './ExtensionPanel'
 
-type StoryArgs = { mode: PageToolbarMode }
+type StoryArgs = { mode: PageToolbarMode; tabUrl?: string }
 
 const meta: Meta<StoryArgs> = {
     title: 'Scenes-Other/Toolbar extension',
@@ -26,16 +26,20 @@ const meta: Meta<StoryArgs> = {
                 '/api/users/@me/': MOCK_DEFAULT_USER,
                 '/api/user/toolbar_entitlements': { entitlements: { toolbar_heatmaps: true } },
                 '/api/organizations/:organization_id/projects/:id/': {
-                    app_urls: ['https://hedgebox.example.com'],
+                    app_urls: [
+                        'https://hedgebox.example.com',
+                        'https://docs.hedgebox.example.com',
+                        'https://*.hedgebox.dev',
+                    ],
                     data_attributes: ['data-attr'],
                 },
             },
         }),
     ],
-    render: ({ mode }) => {
+    render: ({ mode, tabUrl }) => {
         const uiHost = window.location.origin
         configureFakeExtensionBrowser({
-            tabUrl: STORY_PAGE_URL,
+            tabUrl: tabUrl ?? STORY_PAGE_URL,
             pageState: pageToolbarState(mode),
             storage: {
                 posthogUiHost: uiHost,
@@ -99,4 +103,15 @@ export const Experiments: Story = {
 export const More: Story = {
     args: { mode: 'more' },
     parameters: { testOptions: { waitForSelector: 'text=1.300.0' } },
+}
+
+export const UnauthorizedPage: Story = {
+    args: { mode: 'none', tabUrl: 'https://www.example.com/' },
+    parameters: {
+        testOptions: {
+            waitForSelector: 'text=Authorized URLs for',
+            // Rendered to catch errors, without a snapshot: the panel's other stories cover its layout.
+            snapshotBrowsers: [],
+        },
+    },
 }
