@@ -14,13 +14,32 @@ import { hogFlowsConvertToBroadcast } from 'products/workflows/frontend/generate
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { HogFlow } from './hogflows/types'
 
-function emailSenderIds(workflow: HogFlow): string[] {
+const LITERAL_SENDER_ID = /^\s*[0-9]{1,19}\s*$/
+
+function literalSenderId(id: unknown): string | null {
+    if (typeof id === 'number') {
+        return Number.isInteger(id) ? String(id) : null
+    }
+    return typeof id === 'string' && LITERAL_SENDER_ID.test(id) ? BigInt(id.trim()).toString() : null
+}
+
+/** The step's sender ids, or null when one is template text that the worker resolves to any sender at send time. */
+function emailSenderIds(workflow: HogFlow): string[] | null {
     const email = workflow.actions.find((action) => action.type === 'function_email')
     const from = (email?.config as { inputs?: { email?: { value?: { from?: unknown } } } } | undefined)?.inputs?.email
-        ?.value?.from as { integrationId?: unknown; integrationIds?: unknown } | undefined
-    const rotation = Array.isArray(from?.integrationIds) ? from.integrationIds : []
-    const ids = rotation.length > 0 ? rotation : [from?.integrationId]
-    return ids.filter((id) => id !== null && id !== undefined).map(String)
+        ?.value?.from
+    if (typeof from === 'string') {
+        return from.trim() ? null : []
+    }
+    const sender = from as { integrationId?: unknown; integrationIds?: unknown } | undefined
+    if (typeof sender?.integrationIds === 'string' && sender.integrationIds.trim()) {
+        return null
+    }
+    const rotation = Array.isArray(sender?.integrationIds) ? sender.integrationIds : []
+    const ids = (rotation.length > 0 ? rotation : [sender?.integrationId])
+        .filter((id) => id !== null && id !== undefined)
+        .map(literalSenderId)
+    return ids.every((id) => id !== null) ? (ids as string[]) : null
 }
 
 export function listedSandboxSenderIds(integrations: IntegrationType[]): number[] {
@@ -28,8 +47,12 @@ export function listedSandboxSenderIds(integrations: IntegrationType[]): number[
 }
 
 export function sendsFromSandboxSender(workflow: HogFlow, sandboxSenderIds: number[]): boolean {
+    if (sandboxSenderIds.length === 0) {
+        return false
+    }
     const ids = new Set(sandboxSenderIds.map(String))
-    return emailSenderIds(workflow).some((id) => ids.has(id))
+    const senderIds = emailSenderIds(workflow)
+    return senderIds === null || senderIds.some((id) => ids.has(id))
 }
 
 /** Whether a new workflow can be offered to be created as a broadcast when it is first saved. */
