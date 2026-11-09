@@ -14,7 +14,7 @@ from products.annotations.backend.api.annotation_context import (
     resolve_query_date_range,
 )
 from products.annotations.backend.models.annotation import Annotation
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.testing import create_dashboard
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -24,7 +24,7 @@ class TestAnnotationContext(APIBaseTest):
         content: str,
         date_marker: datetime,
         scope: str = Annotation.Scope.PROJECT,
-        dashboard: Dashboard | None = None,
+        dashboard_id: int | None = None,
         dashboard_item: Insight | None = None,
         team: Team | None = None,
         organization: Organization | None = None,
@@ -36,7 +36,7 @@ class TestAnnotationContext(APIBaseTest):
             content=content,
             date_marker=date_marker,
             scope=scope,
-            dashboard=dashboard,
+            dashboard_id=dashboard_id,
             dashboard_item=dashboard_item,
             deleted=deleted,
         )
@@ -59,14 +59,16 @@ class TestAnnotationContext(APIBaseTest):
 
     def test_excludes_other_dashboard_and_insight_scoped_annotations(self) -> None:
         in_window = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))
-        my_dashboard = Dashboard.objects.create(team=self.team, name="mine")
-        other_dashboard = Dashboard.objects.create(team=self.team, name="other")
+        my_dashboard_id = create_dashboard(team_id=self.team.id, name="mine")
+        other_dashboard_id = create_dashboard(team_id=self.team.id, name="other")
         my_insight = Insight.objects.create(team=self.team, name="mine")
         other_insight = Insight.objects.create(team=self.team, name="other")
 
-        self._make_annotation("on my dashboard", in_window, scope=Annotation.Scope.DASHBOARD, dashboard=my_dashboard)
         self._make_annotation(
-            "on other dashboard", in_window, scope=Annotation.Scope.DASHBOARD, dashboard=other_dashboard
+            "on my dashboard", in_window, scope=Annotation.Scope.DASHBOARD, dashboard_id=my_dashboard_id
+        )
+        self._make_annotation(
+            "on other dashboard", in_window, scope=Annotation.Scope.DASHBOARD, dashboard_id=other_dashboard_id
         )
         self._make_annotation("on my insight", in_window, scope=Annotation.Scope.INSIGHT, dashboard_item=my_insight)
         self._make_annotation(
@@ -77,7 +79,7 @@ class TestAnnotationContext(APIBaseTest):
             self.team,
             datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC")),
             datetime(2026, 1, 31, tzinfo=ZoneInfo("UTC")),
-            dashboard_id=my_dashboard.id,
+            dashboard_id=my_dashboard_id,
             insight_ids=[my_insight.id],
         )
 
