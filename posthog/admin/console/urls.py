@@ -129,6 +129,12 @@ urlpatterns = [
         MovedToConsole.page_redirect("AI observability dataset retention", "/admin/console/tools/ai-observability/"),
     ),
     path(
+        "admin/tasks/taskrun/<uuid:pk>/download-logs/",
+        MovedToConsole.page_redirect(
+            "Downloading task run logs", "/admin/console/tools/task-run-logs/download/?run={pk}"
+        ),
+    ),
+    path(
         "admin/posthog/organization/send-usage-report/",
         MovedToConsole.page_redirect("Sending usage reports", "/admin/console/tools/usage-reports/"),
     ),
