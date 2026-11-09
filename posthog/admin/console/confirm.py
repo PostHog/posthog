@@ -40,7 +40,10 @@ class ConfirmationToken:
             "target": target,
             "operation": operation_key,
             "query": request.META.get("QUERY_STRING", ""),
+            # Handlers build idempotency keys from the nonce, so the confirm must post the one the preview had.
+            "form_nonce": request.POST.get("form_nonce", ""),
         }
+        self.upload_keys: list[str] = []
 
     def sign(self, form: forms.Form) -> str:
         data = {name: self.request.POST.getlist(name) for name in form.fields if name in self.request.POST}
@@ -76,4 +79,9 @@ class ConfirmationToken:
             if upload is None:
                 return None
             files[name] = SimpleUploadedFile(upload["name"], upload["content"], upload["content_type"])
+            self.upload_keys.append(cache_key)
         return ConfirmedInput(data=data, files=files)
+
+    def discard_uploads(self) -> None:
+        """Drops the cached files once the operation ran, so a confirmed upload does not wait out its expiry."""
+        cache.delete_many(self.upload_keys)

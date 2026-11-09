@@ -395,6 +395,8 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
 
     audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
     response = _audited(audit, lambda: operation.handler(request, obj, form))
+    if response is None or response.status_code < 400:
+        step.confirmation.discard_uploads()
     if response is None:
         return redirect(record_url)
     if response.status_code >= 400:
@@ -527,6 +529,8 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
 
     audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
     result = _audited(audit, lambda: operation.handler(request, form))
+    if not isinstance(result, HttpResponse) or result.status_code < 400:
+        step.confirmation.discard_uploads()
     if result is None:
         return redirect(tool_url)
     if isinstance(result, Page):
