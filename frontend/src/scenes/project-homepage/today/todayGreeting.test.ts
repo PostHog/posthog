@@ -20,7 +20,7 @@ describe('greetingFor', () => {
         expect(expected).toContain(greetingFor(date, 'Ada'))
     })
 
-    it('keeps the same greeting for the whole day', () => {
+    it('keeps the same greeting within one time band of a day', () => {
         expect(greetingFor(new Date(2026, 10, 3, 18, 59), 'Ada')).toBe(greetingFor(new Date(2026, 10, 3, 9), 'Ada'))
     })
 })

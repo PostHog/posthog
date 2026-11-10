@@ -63,7 +63,10 @@ function greetingPool(day: number, hour: number): Greeting[] {
     return ANY_TIME
 }
 
-/** Picks a greeting for the local day and hour. The pick holds for the whole day, so it doesn't change on every tick. */
+/**
+ * The index comes from the local date, so the clock tick does not change the line within one time band.
+ * The line can change while the page is open when the hour crosses into another band, for example at noon.
+ */
 export function greetingFor(date: Date, name: string | null | undefined): string {
     const pool = greetingPool(date.getDay(), date.getHours())
     const dayIndex = Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / (24 * 60 * 60 * 1000))
