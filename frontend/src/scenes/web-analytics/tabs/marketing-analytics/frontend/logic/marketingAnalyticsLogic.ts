@@ -338,10 +338,10 @@ export interface marketingAnalyticsLogicValues {
     filter_test_accounts: boolean // marketingAnalyticsSettingsLogic
     setupEntryPoint: SetupEntryPoint | null // marketingAnalyticsSettingsLogic
     sources_map: Record<string, SourceMap> // marketingAnalyticsSettingsLogic
-    database: Required<DatabaseSchemaQueryResponse> | null // sourceManagementLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
     dataWarehouseSourcesLoading: boolean // sourceManagementLogic
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // sourceManagementLogic
+    database: Required<DatabaseSchemaQueryResponse> | null // sourceManagementLogic
     baseCurrency: CurrencyCode // teamLogic
     _drillDownLevel: MarketingAnalyticsDrillDownLevel
     _integrationFilter: IntegrationFilter
@@ -714,7 +714,7 @@ export interface marketingAnalyticsLogicMeta {
             databaseFieldsComplete: boolean
         ) => DatabaseSchemaDataWarehouseTable[] | null
         externalTables: (
-            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null,
+            marketingDataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null,
             sources_map: Record<string, SourceMap>,
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
         ) => ExternalTable[]
@@ -730,7 +730,7 @@ export interface marketingAnalyticsLogicMeta {
         ) => ExternalDataSource[]
         validNativeSources: (
             nativeSources: ExternalDataSource[],
-            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null
+            marketingDataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null
         ) => NativeSource[]
         unconfiguredNativeSources: (
             nativeSources: ExternalDataSource[],
