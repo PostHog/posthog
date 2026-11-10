@@ -1,7 +1,10 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { issueTagDefinitionsLogic } from '../IssueFilters/issueTagDefinitionsLogic'
 import { issueQueryOptionsLogic } from './issueQueryOptionsLogic'
 
 const LOGIC_KEY = 'test'
@@ -82,6 +85,49 @@ describe('issueQueryOptionsLogic', () => {
         router.actions.push('/error_tracking')
 
         expect(logic.values.severity).toBeNull()
+    })
+
+    // The query schema forbids unknown fields and answers, so a malformed tag filter fails the whole list with a 400.
+    // Each case starts from another filter, because a rejected or missing value must clear the filter already set.
+    it.each([
+        ['a valid filter', { key: 'cause_in_trace', value: 'no' }, { key: 'cause_in_trace', value: 'no' }],
+        [
+            'an extra field',
+            { key: 'cause_in_trace', value: 'no', label: 'Cause' },
+            { key: 'cause_in_trace', value: 'no' },
+        ],
+        ['a bare key', 'cause_in_trace', null],
+        ['no answer', { key: 'cause_in_trace' }, null],
+        ['an answer outside yes, no and unknown', { key: 'cause_in_trace', value: 'maybe' }, null],
+        ['an empty key', { key: '', value: 'yes' }, null],
+        ['no tag filter', undefined, null],
+    ])('applies a tag filter from the URL with %s', (_, issueTag, expected) => {
+        const logic = mountLogic()
+        router.actions.push('/error_tracking', { issueTag: { key: 'other_tag', value: 'yes' } })
+        router.actions.push('/error_tracking', { issueTag })
+        expect(logic.values.issueTag).toEqual(expected)
+    })
+
+    // The query ignores a tag that is not enabled, so a filter on one must not stay on screen as if it applied.
+    it.each([
+        ['clears a filter on a tag that is not enabled', 'other_tag', null],
+        ['keeps a filter on an enabled tag', 'cause_in_trace', { key: 'cause_in_trace', value: 'yes' }],
+    ])('%s once the tag definitions load', async (_, enabledKey, expected) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/error_tracking/issues/tag_definitions/': {
+                    results: [{ key: enabledKey, label: 'A tag', description: 'What the tag means.' }],
+                },
+            },
+        })
+        const logic = mountLogic()
+        logic.actions.setIssueTag({ key: 'cause_in_trace', value: 'yes' })
+
+        await expectLogic(issueTagDefinitionsLogic, () => {
+            issueTagDefinitionsLogic.mount()
+        }).toDispatchActions(['loadIssueTagDefinitionsSuccess'])
+
+        expect(logic.values.issueTag).toEqual(expected)
     })
 
     // A malformed assignee reaches the query, which the backend rejects with a 400. It renders as

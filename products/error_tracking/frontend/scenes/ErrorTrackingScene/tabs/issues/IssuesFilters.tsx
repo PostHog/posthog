@@ -1,3 +1,5 @@
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueFilters'
 import { ErrorTrackingQuickFilters } from 'products/error_tracking/frontend/components/IssueFilters/QuickFilters'
 import {
@@ -6,6 +8,8 @@ import {
 } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
 
 export function IssuesFilters(): JSX.Element {
+    const hasIssueTags = useFeatureFlag('ERROR_TRACKING_ISSUE_TAGS')
+
     return (
         <ErrorFilters.Root>
             <div className="flex flex-col gap-2">
@@ -15,6 +19,7 @@ export function IssuesFilters(): JSX.Element {
                         <ErrorFilters.DateRange />
                         <ErrorFilters.Status />
                         <ErrorFilters.Severity />
+                        {hasIssueTags && <ErrorFilters.IssueTag />}
                         <ErrorFilters.Assignee />
                         <ErrorFilters.InternalAccounts />
                     </div>
