@@ -64,7 +64,9 @@ jobs:
 
             - name: Move the pin
               if: steps.compare.outputs.bump == 'true'
-              run: pnpm --filter @posthog/ingestion add --save-exact "@posthog/hog-engine@${{ steps.compare.outputs.latest }}"
+              env:
+                  LATEST: ${{ steps.compare.outputs.latest }}
+              run: pnpm --filter @posthog/ingestion add --save-exact "@posthog/hog-engine@${LATEST}"
 
             - name: Reset the branch to this commit
               if: steps.compare.outputs.bump == 'true'

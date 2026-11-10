@@ -551,12 +551,20 @@ jobs:
               id: crates
               run: echo "packages=$(cargo metadata --no-deps --format-version 1 | jq -r '[.packages[] | select(.manifest_path | contains("/ingestion/rust/")) | "-p \(.name)"] | join(" ")')" >> "$GITHUB_OUTPUT"
             - name: Check format
-              run: cargo fmt ${{ steps.crates.outputs.packages }} -- --check
+              env:
+                  PACKAGES: ${{ steps.crates.outputs.packages }}
+              run: |
+                  read -ra packages <<< "$PACKAGES"
+                  cargo fmt "${packages[@]}" -- --check
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
             - uses: ./ingestion/ci/actions/setup-sccache
             - name: Run clippy
-              run: cargo clippy ${{ steps.crates.outputs.packages }} --all-targets --all-features -- -D warnings
+              env:
+                  PACKAGES: ${{ steps.crates.outputs.packages }}
+              run: |
+                  read -ra packages <<< "$PACKAGES"
+                  cargo clippy "${packages[@]}" --all-targets --all-features -- -D warnings
             - name: Install cargo-binstall
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
             - name: Install cargo-shear
