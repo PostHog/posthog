@@ -38091,6 +38091,12 @@ export namespace Schemas {
          */
       source_issues?: SourceIssueWrite[];
       /**
+         * GitHub pull request URLs (`https://github.com/<owner>/<repo>/pull/<number>`) that fix what this report describes, when you found a fix that a person or another agent already opened. A linked pull request is the report's implementation: the report resolves on its own when every linked pull request is closed or merged and at least one merged, and a merged pull request resolves it at once. Additive: a pull request the report already links is skipped. Linking does not claim the report and does not change the pull request itself (no labels, reviewers, or ready-for-review). Link only a pull request whose diff targets this report's cause. The edit refuses a pull request outside the report's repository, one GitHub cannot read, and one closed without merging. At most 5 per call.
+         * @maxItems 5
+         * @items.maxLength 2048
+         */
+      pull_requests?: string[];
+      /**
          * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
          * @maxItems 10
          * @nullable
@@ -38190,6 +38196,8 @@ export namespace Schemas {
       links_appended: number;
       /** How many source issues this edit added that the report did not name yet; 0 if none. */
       source_issues_appended: number;
+      /** How many pull requests this edit linked that the report did not link yet; 0 if none. */
+      pull_requests_linked: number;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
       /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -76075,7 +76083,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalRef {
       readonly id: string;
-      readonly integration: SessionRecordingExternalReferenceIntegration;
+      readonly integration: SessionRecordingExternalReferenceIntegration | null;
       integration_id: number;
       config: unknown;
       session_recording_id: string;
@@ -89965,7 +89973,7 @@ export namespace Schemas {
      */
     export interface PatchedSessionRecordingExternalRef {
       readonly id?: string;
-      readonly integration?: SessionRecordingExternalReferenceIntegration;
+      readonly integration?: SessionRecordingExternalReferenceIntegration | null;
       integration_id?: number;
       config?: unknown;
       session_recording_id?: string;
@@ -117013,6 +117021,28 @@ export namespace Schemas {
       git: TraceGit | null;
     }
 
+    export type TraceAttachmentMediaType = typeof TraceAttachmentMediaType[keyof typeof TraceAttachmentMediaType];
+
+
+    export const TraceAttachmentMediaType = {
+      Image: 'image',
+      Audio: 'audio',
+      Video: 'video',
+      File: 'file',
+    } as const;
+
+    export interface TraceAttachmentPart {
+      kind: 'attachment';
+      /** The kind of media, which decides how it is shown. */
+      mediaType: TraceAttachmentMediaType;
+      /** The file name, or the content item's type for an item that is not known media. Null otherwise. */
+      name: string | null;
+      /** The MIME type, such as `image/png`, or null when it is not known. */
+      mimeType: string | null;
+      /** A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted. */
+      url: string | null;
+    }
+
     export interface TraceAvailability {
       /** Requested trace IDs readable from AI events or the shared events table. */
       available_trace_ids: string[];
@@ -117139,14 +117169,6 @@ export namespace Schemas {
       detail: string;
     }
 
-    export interface TraceNodeMetadata {
-      provider: string | null;
-      temperature: number | null;
-      sessionId: string | null;
-      promptName: string | null;
-      promptVersion: number | null;
-    }
-
     export interface TraceNodeIOKeys {
       input: string | null;
       output: string | null;
@@ -117168,11 +117190,11 @@ export namespace Schemas {
       ioKeys: TraceNodeIOKeys;
     }
 
-    export interface TraceNodeDetail {
+    export interface TraceNodeRaw {
+      /** The node id: the event's uuid, or the trace id for the root node. */
       id: string;
       kind: TraceNodeKindEnum;
-      error: string | null;
-      metadata: TraceNodeMetadata;
+      /** The node's event as ingested, or null for a root node whose trace has no `$ai_trace` event. */
       event: TraceNodeEvent | null;
     }
 
@@ -117181,8 +117203,8 @@ export namespace Schemas {
       trace: Trace;
       /** True when the trace has more events than an export reads. The file then holds the earliest events only, and leaves out the later steps. */
       truncated: boolean;
-      /** Every node with its event properties as ingested, inputs and outputs included: the root first, then the tree in pre-order. */
-      nodes: TraceNodeDetail[];
+      /** Every node with its event as ingested: the root first, then the tree in pre-order. */
+      nodes: TraceNodeRaw[];
     }
 
     export interface TraceFeedbackScore {
@@ -117301,6 +117323,93 @@ export namespace Schemas {
       comment: string | null;
       /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
       scores: TraceHumanReviewScore[];
+    }
+
+    export interface TraceJsonSide {
+      kind: 'json';
+      /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
+      value: unknown;
+    }
+
+    export type TraceMessageRoleEnum = typeof TraceMessageRoleEnum[keyof typeof TraceMessageRoleEnum];
+
+
+    export const TraceMessageRoleEnum = {
+      System: 'system',
+      User: 'user',
+      Assistant: 'assistant',
+      Tool: 'tool',
+    } as const;
+
+    export interface TraceTextPart {
+      kind: 'text';
+      /** The text of the message, as captured. */
+      text: string;
+    }
+
+    export interface TraceThinkingPart {
+      kind: 'thinking';
+      /** The model's reasoning text. */
+      text: string;
+    }
+
+    export interface TraceToolCallPart {
+      kind: 'toolCall';
+      /** The name of the called tool, or an empty string when the event has none. */
+      name: string;
+      /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
+      args: unknown;
+      /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
+      result: unknown;
+    }
+
+    export interface TraceMessage {
+      /** An id that is unique within the node, made of the node id, the side and a position. */
+      id: string;
+      role: TraceMessageRoleEnum;
+      /** The message's text, reasoning, tool calls and attachments, in order. */
+      parts: (TraceTextPart | TraceThinkingPart | TraceToolCallPart | TraceAttachmentPart)[];
+      /** Whether the message is a tool message, or holds only reasoning and tool calls. */
+      isInternal: boolean;
+      /** The id of the node whose input or output holds this message, or null when it is not known. */
+      sourceNodeId: string | null;
+    }
+
+    export interface TraceMessagesSide {
+      kind: 'messages';
+      /** The conversation, normalized from the provider's format by the built-in parsers and the project's custom parsers. */
+      messages: TraceMessage[];
+    }
+
+    export interface TraceNodeContent {
+      /** The node's input, as messages or as JSON. */
+      input: TraceMessagesSide | TraceJsonSide;
+      /** The node's output, as messages or as JSON. */
+      output: TraceMessagesSide | TraceJsonSide;
+    }
+
+    export interface TraceNodeMetadata {
+      provider: string | null;
+      temperature: number | null;
+      sessionId: string | null;
+      promptName: string | null;
+      promptVersion: number | null;
+    }
+
+    export interface TraceNodeDetailEvent {
+      name: string;
+      uuid: string;
+      timestamp: string;
+    }
+
+    export interface TraceNodeDetail {
+      id: string;
+      kind: TraceNodeKindEnum;
+      error: string | null;
+      metadata: TraceNodeMetadata;
+      event: TraceNodeDetailEvent | null;
+      /** The node's input and output, ready to render. */
+      content: TraceNodeContent;
     }
 
     export interface TracePullRequest {
@@ -126523,6 +126632,13 @@ export namespace Schemas {
     };
 
     export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesNodesRawRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
