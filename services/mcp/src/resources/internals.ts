@@ -8,6 +8,7 @@ import type { ContextMillManifest, ContextMillResource } from './manifest-types'
 export const CONTEXT_MILL_URL =
     'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
+const CONTEXT_MILL_LABEL = 'The context-mill release'
 const OMNIBUS_ARCHIVE_PATTERN = /^omnibus-([a-z0-9]+(?:-[a-z0-9]+)*)\.zip$/
 // A fixed mtime keeps the repacked bytes, and so their sha, stable across refreshes of
 // an unchanged release; a wall-clock mtime would make every pod re-parse every refresh.
@@ -50,7 +51,7 @@ export async function fetchContextMillResources(localUrl?: string, archiveLoader
 
     const bytes =
         !localUrl && archiveLoader ? await archiveLoader(url) : await defaultArchiveLoader(url, Boolean(localUrl))
-    const unzipped = unzipUntrusted(bytes, 'The context-mill release')
+    const unzipped = unzipUntrusted(bytes, CONTEXT_MILL_LABEL)
 
     if (!localUrl) {
         cachedResources = unzipped
@@ -86,29 +87,51 @@ export function filterValidEntries(
 export function omnibusSkillFiles(archive: Unzipped): Unzipped {
     const files: Unzipped = {}
     const budget: ExtractionBudget = { files: 0, bytes: 0 }
+
     for (const [entryName, entryBytes] of Object.entries(archive)) {
         const match = OMNIBUS_ARCHIVE_PATTERN.exec(entryName)
         if (!match) {
             continue
         }
+
         const skillName = match[1]!
         const inner = unzipUntrusted(entryBytes, `Omnibus archive "${entryName}"`, undefined, budget)
         const skillFile = inner['SKILL.md']
         const rewrittenSkillFile = skillFile ? strFromU8(skillFile).replace(/^(name:[ \t]*)omnibus-/m, '$1') : undefined
+
         if (!rewrittenSkillFile || declaredSkillName(rewrittenSkillFile, entryName) !== skillName) {
             // The served name comes from the filename, so a release cannot publish under another skill's name.
             console.warn(`[context-mill] skipping "${entryName}": SKILL.md does not declare the name "${skillName}"`)
             continue
         }
+
         for (const [path, bytes] of Object.entries(inner)) {
             files[`${skillName}/${path}`] = path === 'SKILL.md' ? strToU8(rewrittenSkillFile) : bytes
         }
     }
+
     return files
+}
+
+// Inflates only manifest.json, so a resource or omnibus file past the extraction limits can't stop the
+// manifest from loading.
+export function contextMillEntries(release: Uint8Array): ContextMillResource[] {
+    const fileNames: Record<string, true> = {}
+    const manifest = unzipUntrusted(release, CONTEXT_MILL_LABEL, ({ name }) => {
+        fileNames[name] = true
+        return name === 'manifest.json'
+    })
+
+    return filterValidEntries(loadManifestFromArchive(manifest).resources, fileNames)
+}
+
+export function unzipOmnibusArchives(release: Uint8Array): Unzipped {
+    return unzipUntrusted(release, CONTEXT_MILL_LABEL, ({ name }) => OMNIBUS_ARCHIVE_PATTERN.test(name))
 }
 
 export function buildOmnibusSkillsArchive(archive: Unzipped): Uint8Array | null {
     const files = omnibusSkillFiles(archive)
+
     // Level 1 keeps the writer pod's event loop short; the blob is read once per pod per release.
     return Object.keys(files).length > 0 ? zipSync(files, { level: 1, mtime: OMNIBUS_ARCHIVE_MTIME }) : null
 }
@@ -123,9 +146,9 @@ function declaredSkillName(skillFile: string, source: string): string | undefine
 }
 
 // A bad omnibus zip must not cost the manifest, which the resource list depends on.
-function repackOmnibusSkills(archive: Unzipped): Uint8Array | null {
+function repackOmnibusSkills(release: Uint8Array): Uint8Array | null {
     try {
-        return buildOmnibusSkillsArchive(archive)
+        return buildOmnibusSkillsArchive(unzipOmnibusArchives(release))
     } catch (error) {
         console.error('[context-mill] omnibus skills could not be repacked; serving none:', error)
         return null
@@ -144,10 +167,9 @@ export async function fetchAndExtractEntries(
 ): Promise<ContextMillArchiveContents> {
     const url = localUrl || CONTEXT_MILL_URL
     const bytes = await defaultArchiveLoader(url, Boolean(localUrl))
-    const archive = unzipUntrusted(bytes, 'The context-mill release')
-    const manifest = loadManifestFromArchive(archive)
+
     return {
-        entries: filterValidEntries(manifest.resources, archive),
-        omnibusSkillsArchive: includeOmnibusSkills ? repackOmnibusSkills(archive) : null,
+        entries: contextMillEntries(bytes),
+        omnibusSkillsArchive: includeOmnibusSkills ? repackOmnibusSkills(bytes) : null,
     }
 }

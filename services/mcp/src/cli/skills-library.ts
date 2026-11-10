@@ -7,7 +7,7 @@ import * as path from 'node:path'
 import { z } from 'zod'
 
 import { hashBytes } from '@/hono/cache/SharedBlobCache'
-import { CONTEXT_MILL_URL, filterValidEntries, loadManifestFromArchive, omnibusSkillFiles } from '@/resources/internals'
+import { CONTEXT_MILL_URL, contextMillEntries, omnibusSkillFiles, unzipOmnibusArchives } from '@/resources/internals'
 import {
     LearnLookupError,
     MAX_SKILL_ARCHIVE_BYTES,
@@ -85,6 +85,7 @@ function memoizeWhileFresh<T extends { assets: readonly SkillAssetStatus[] }>(
         }
         const loading = load()
         kept = loading
+
         void loading.then((result) => {
             if (result.assets.some((asset) => asset.origin !== 'network')) {
                 kept = undefined
@@ -112,16 +113,11 @@ interface ContextMillRelease extends InstallableSkills {
 // The release counts as valid when its manifest loads. Every other file stays zipped until a call
 // reads it: a skill's zip to install it, or the omnibus skills for `learn`.
 function parseContextMill(bytes: Uint8Array): ContextMillRelease {
-    const label = 'The release'
-    const fileNames: Record<string, true> = {}
-    const manifest = unzipUntrusted(bytes, label, ({ name }) => {
-        fileNames[name] = true
-        return name === 'manifest.json'
-    })
     let omnibus: { catalog: SkillCatalog | undefined } | undefined
+
     return {
-        entries: filterValidEntries(loadManifestFromArchive(manifest).resources, fileNames),
-        readFile: (name) => unzipUntrusted(bytes, label, (file) => file.name === name)[name],
+        entries: contextMillEntries(bytes),
+        readFile: (name) => unzipUntrusted(bytes, 'The context-mill release', (file) => file.name === name)[name],
         omnibus: () => {
             omnibus ??= { catalog: omnibusCatalog(bytes) }
             return omnibus.catalog
@@ -132,9 +128,8 @@ function parseContextMill(bytes: Uint8Array): ContextMillRelease {
 // Omnibus skills that don't parse are left out, as the server leaves them out.
 function omnibusCatalog(release: Uint8Array): SkillCatalog | undefined {
     try {
-        const files = omnibusSkillFiles(
-            unzipUntrusted(release, 'The release', ({ name }) => name.startsWith('omnibus-'))
-        )
+        const files = omnibusSkillFiles(unzipOmnibusArchives(release))
+
         return Object.keys(files).length > 0 ? SkillCatalog.fromFiles(files) : undefined
     } catch {
         return undefined
@@ -178,9 +173,11 @@ class AssetCache {
     async write(record: CacheRecord, bytes?: Uint8Array): Promise<void> {
         try {
             await fs.mkdir(this.folder, { recursive: true })
+
             if (bytes) {
                 await writeAtomically(this.bytesFile, bytes)
             }
+
             await writeAtomically(this.recordFile, JSON.stringify(record))
         } catch {
             return
@@ -265,6 +262,7 @@ async function loadAsset<T>(
     const cache = settings.cacheDir === undefined ? undefined : new AssetCache(settings.cacheDir, name)
     const record = await cache?.record()
     const cached = record?.url === url ? record : undefined
+
     const readCached = async (): Promise<T | undefined> => {
         const bytes = cached && (await cache?.bytes(cached))
         try {
@@ -274,32 +272,39 @@ async function loadAsset<T>(
         }
     }
     const fetchedAt = new Date(settings.now()).toISOString()
+
     try {
         let fresh = await download(settings, url, cached?.etag)
         if (!fresh && cached) {
             const parsed = await readCached()
+
             if (parsed) {
                 await cache?.write({ ...cached, fetchedAt })
                 return { status: { name, url, origin: 'network', fetchedAt }, parsed }
             }
+
             // The cached copy is gone or no longer matches its record, so the 304 can't be served. Ask
             // again for the whole asset.
             fresh = await download(settings, url, undefined)
         }
+
         if (!fresh) {
             throw new DownloadError('HTTP 304')
         }
+
         let parsed: T
         try {
             parsed = parse(fresh.bytes)
         } catch (error) {
             throw new DownloadError(`The downloaded archive is not valid: ${message(error)}`)
         }
+
         await cache?.write({ url, etag: fresh.etag, sha256: hashBytes(fresh.bytes), fetchedAt }, fresh.bytes)
         return { status: { name, url, origin: 'network', fetchedAt }, parsed }
     } catch (error) {
         const failure = message(error)
         const parsed = await readCached()
+
         return parsed && cached
             ? { status: { name, url, origin: 'cache', fetchedAt: cached.fetchedAt, failure }, parsed }
             : { status: { name, url, origin: 'unavailable', failure } }
@@ -336,6 +341,7 @@ function learnInput(words: readonly string[]): string {
 
 function learnWords(skill: string | undefined, paths: readonly string[], request: LearnRequest): string[] {
     const words = skill === undefined ? [...paths] : [skill, ...paths]
+
     if (request.describe) {
         return ['-d', ...words]
     }
@@ -355,6 +361,7 @@ function learnError(error: unknown): SkillsError {
             : error instanceof LearnLookupError
               ? error.code
               : 'usage'
+
     return { code, message: message(error) }
 }
 
@@ -371,23 +378,28 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
         now: options.now ?? Date.now,
     }
     const learnCommand = options.learnCommand ?? 'learn'
+
     const loadContextMill = memoizeWhileFresh(async () => {
         const loaded = await loadAsset(settings, 'context-mill', parseContextMill)
         return { release: loaded.parsed, assets: [loaded.status] }
     })
+
     const loadCatalog = memoizeWhileFresh(async () => {
         const [product, contextMill] = await Promise.all([
             loadAsset(settings, 'product-skills', (bytes) => SkillCatalog.fromZip(bytes)),
             loadContextMill(),
         ])
+
         const omnibus = contextMill.release?.omnibus()
         const catalog = product.parsed && omnibus ? product.parsed.withOverlay(omnibus) : (product.parsed ?? omnibus)
+
         return {
             // A CLI has no exec tool, so the commands in the skills are rewritten once, when they load.
             catalog: catalog?.mapText((text) => rewriteLearnCommands(text, learnCommand)),
             assets: [product.status, ...contextMill.assets],
         }
     })
+
     const loadRelease = async (): Promise<
         SkillsResult<{ release: ContextMillRelease; assets: SkillAssetStatus[] }>
     > => {
@@ -402,21 +414,25 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
             const paths = request.paths.filter((word) => word.trim())
             const { search, describe, lines } = request
             const modes = Number(search !== undefined) + Number(describe === true) + Number(lines !== undefined)
+
             if (modes > 1) {
                 return {
                     ok: false,
                     error: { code: 'usage', message: 'Give only one of search, describe and lines.' },
                 }
             }
+
             if (skill === undefined && paths.length === 0 && modes === 0) {
                 // The overview lists fixed commands, so it answers without the network.
                 const commands = learnSkillCommands(learnCommand).filter((command) => !command.includes('project:'))
                 return { ok: true, value: { output: { kind: 'overview', commands }, reads: [], assets: [] } }
             }
+
             const { catalog, assets } = await loadCatalog()
             if (!catalog) {
                 return { ok: false, error: offline(assets) }
             }
+
             const reads: SkillRead[] = []
             const learn = new ExecLearnCatalog(
                 [],
@@ -425,12 +441,15 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
                     reads.push({ source, skill: name, path: file ?? 'SKILL.md', readKind }),
                 learnCommand
             )
+
             try {
                 const raw = await learn.execute(learnInput(learnWords(skill, paths, request)))
+
                 if (skill === 'skills' && paths.length === 0 && modes === 0) {
                     const { skills, count, truncated } = Listing.parse(JSON.parse(raw)).posthog
                     return { ok: true, value: { output: { kind: 'list', skills, count, truncated }, reads, assets } }
                 }
+
                 return { ok: true, value: { output: { kind: 'text', text: raw }, reads, assets } }
             } catch (error) {
                 return { ok: false, error: learnError(error) }
@@ -442,6 +461,7 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
             if (!loaded.ok) {
                 return loaded
             }
+
             return { ok: true, value: { skills: await listSkills(loaded.value.release), assets: loaded.value.assets } }
         },
 
@@ -450,7 +470,9 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
             if (!loaded.ok) {
                 return loaded
             }
+
             const names = loaded.value.release.omnibus()?.listNames() ?? []
+
             return {
                 ok: true,
                 value: {
@@ -467,7 +489,9 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
             if (!loaded.ok) {
                 return loaded
             }
+
             const { release, assets } = loaded.value
+
             try {
                 return { ok: true, value: { skill: await installSkill(id, { cwd, force, source: release }), assets } }
             } catch (error) {
@@ -481,6 +505,7 @@ function installError(id: string, error: unknown): SkillsError {
     if (!(error instanceof SkillInstallError)) {
         return { code: 'install_failed', message: message(error) }
     }
+
     switch (error.code) {
         case 'unknown_skill':
             // installSkill's own message names posthog-cli's list command, which is not this caller's.

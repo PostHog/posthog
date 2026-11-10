@@ -38,6 +38,7 @@ export class SkillInstallError extends Error {
 async function loadSkills(): Promise<InstallableSkills> {
     const archive = await fetchContextMillResources(process.env.POSTHOG_MCP_LOCAL_SKILLS_URL)
     const manifest = loadManifestFromArchive(archive)
+
     return { entries: filterValidEntries(manifest.resources, archive), readFile: (name) => archive[name] }
 }
 
@@ -77,12 +78,14 @@ export async function installSkill(
     const cwd = opts.cwd ?? process.cwd()
     const source = opts.source ?? (await loadSkills())
     const entry = source.entries.find((candidate) => candidate.id === skillId)
+
     if (!entry) {
         throw new SkillInstallError(
             'unknown_skill',
             `Unknown skill "${skillId}". Run "posthog-cli api skill list" to see available skills.`
         )
     }
+
     if (!entry.file) {
         throw new Error(`Skill "${skillId}" has no downloadable archive.`)
     }

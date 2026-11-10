@@ -307,6 +307,7 @@ function classifyLearnError(error: unknown): unknown {
     if (error instanceof LearnLookupError) {
         return new ExecCommandError(error.message, 'unknown_learn_topic')
     }
+
     if (!(error instanceof Error) || error.constructor !== Error) {
         return error
     }
