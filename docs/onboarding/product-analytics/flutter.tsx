@@ -104,7 +104,7 @@ export const getFlutterInstallSteps = (
                             />
                             <Markdown>
                                 {dedent`
-                                    iOS builds require Flutter 3.41 or later and Xcode 26 or later. Set the minimum deployment target to iOS 15.0 in Xcode (**Runner > General > Minimum Deployments**). PostHog installs through Swift Package Manager, which is on by default from Flutter 3.44. On Flutter 3.41 to 3.43, or if you turned it off, run \`flutter config --enable-swift-package-manager\`.
+                                    iOS and macOS builds require Flutter 3.41 or later and Xcode 26 or later. Set the minimum deployment target to iOS 15.0, or macOS 11.0 for a macOS app, in Xcode (**Runner > General > Minimum Deployments**). PostHog installs through Swift Package Manager, which is on by default from Flutter 3.44. On Flutter 3.41 to 3.43, or if you turned it off, run \`flutter config --enable-swift-package-manager\`.
                                 `}
                             </Markdown>
                         </Tab.Panel>
