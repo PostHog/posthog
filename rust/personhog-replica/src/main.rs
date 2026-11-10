@@ -123,16 +123,21 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 config.bulk_max_pg_connections
             );
 
-            Arc::new(PostgresStorage::new(
-                primary_pool,
-                replica_pool,
-                bulk_primary_pool,
-                bulk_replica_pool,
-                config.bulk_chunk_size,
-                config.bulk_max_concurrent_chunks,
-                config.tombstoned_delete_max_rows,
-                config.hash_key_override_statement_timeout_ms,
-            ))
+            Arc::new(
+                PostgresStorage::new(
+                    primary_pool,
+                    replica_pool,
+                    bulk_primary_pool,
+                    bulk_replica_pool,
+                    config.bulk_chunk_size,
+                    config.bulk_max_concurrent_chunks,
+                    config.tombstoned_delete_max_rows,
+                    config.hash_key_override_statement_timeout_ms,
+                )
+                .with_deleted_teams_retention(Duration::from_secs(
+                    config.deleted_teams_retention_days * 86_400,
+                )),
+            )
         }
         other => {
             panic!("Unknown storage backend: {other}. Supported: postgres");

@@ -135,6 +135,8 @@ pub struct VerifyCounts {
     pub missing: u64,
     pub newer_in_slatedb: u64,
     pub rejected: u64,
+    /// Deleted teams that still have keys in SlateDB.
+    pub deleted_teams_present: u64,
 }
 
 impl VerifyCounts {
@@ -158,10 +160,11 @@ impl VerifyCounts {
         self.missing += other.missing;
         self.newer_in_slatedb += other.newer_in_slatedb;
         self.rejected += other.rejected;
+        self.deleted_teams_present += other.deleted_teams_present;
     }
 
     pub fn divergent(&self) -> u64 {
-        self.differs + self.behind + self.missing + self.rejected
+        self.differs + self.behind + self.missing + self.rejected + self.deleted_teams_present
     }
 
     fn to_json(self) -> Vec<u8> {
@@ -173,6 +176,7 @@ impl VerifyCounts {
             "missing": self.missing,
             "newer_in_slatedb": self.newer_in_slatedb,
             "rejected": self.rejected,
+            "deleted_teams_present": self.deleted_teams_present,
         })
         .to_string()
         .into_bytes()
@@ -194,6 +198,7 @@ impl VerifyCounts {
             missing: field("missing")?,
             newer_in_slatedb: field("newer_in_slatedb")?,
             rejected: field("rejected")?,
+            deleted_teams_present: field("deleted_teams_present")?,
         })
     }
 }
@@ -347,6 +352,8 @@ async fn check(
 pub struct Verifier<'a> {
     pub pool: &'a PgPool,
     pub reader: &'a PropertyReader,
+    /// The live database, which lists a team deleted after the snapshot.
+    pub live_pool: Option<&'a PgPool>,
     pub verification: &'a Verification,
     /// The scanner's limits, so a document the scan trimmed compares in its trimmed form.
     pub limits: SizeLimits,
@@ -439,7 +446,36 @@ impl Verifier<'_> {
             tracing::info!(number, ?counts, "range verified");
             total.merge(counts);
         }
+        total.deleted_teams_present = self.check_deleted_teams(index, workers).await?;
         Ok(total)
+    }
+
+    async fn check_deleted_teams(
+        &self,
+        index: usize,
+        workers: usize,
+    ) -> Result<u64, BackfillError> {
+        let pool = self.live_pool.unwrap_or(self.pool);
+        let teams: Vec<i32> =
+            sqlx::query_scalar("SELECT team_id FROM personhog_deleted_teams ORDER BY team_id")
+                .fetch_all(pool)
+                .await?;
+        let mut present = 0;
+        for team_id in teams
+            .into_iter()
+            .map(i64::from)
+            .filter(|team_id| (*team_id as usize) % workers == index)
+        {
+            let outcome = if self.reader.team_has_keys(team_id).await? {
+                present += 1;
+                tracing::warn!(team_id, "a deleted team still has keys in slatedb");
+                "present"
+            } else {
+                "empty"
+            };
+            counter!("personhog_verify_deleted_teams_total", "outcome" => outcome).increment(1);
+        }
+        Ok(present)
     }
 }
 

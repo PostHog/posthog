@@ -956,3 +956,59 @@ async fn a_read_abandoned_during_an_outage_stops_retrying() {
     assert_eq!(tables.table_reads.load(Ordering::SeqCst), settled);
     reader.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn erasing_a_team_removes_its_keys_and_no_others() {
+    let dir = tempfile::tempdir().unwrap();
+    let writer = assigned_writer(&dir, 1).await;
+    let key = sole_partition();
+    let other_team = PropertyRecord {
+        team_id: 8,
+        ..record(1, 1, "{}")
+    };
+    writer
+        .put(
+            &key,
+            1,
+            &[record(1, 1, "{}"), record(2, 1, "{}"), other_team],
+        )
+        .await
+        .unwrap();
+    let reader = PropertyReader::new(&config(), store(&dir));
+    read_at_version(&reader, 2, 1).await.unwrap();
+    assert!(reader.team_has_keys(7).await.unwrap());
+
+    assert_eq!(writer.erase_team(7).await.unwrap(), 2);
+
+    assert_eq!(reader.get_fresh(7, 1).await.unwrap(), None);
+    assert_eq!(reader.get_fresh(7, 2).await.unwrap(), None);
+    assert!(reader.get_fresh(8, 1).await.unwrap().is_some());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while reader.team_has_keys(7).await.unwrap() {
+        assert!(
+            Instant::now() < deadline,
+            "the reader never saw the erasure"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(reader.team_has_keys(8).await.unwrap());
+    writer.close().await;
+    reader.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_team_larger_than_one_batch_is_erased_in_full() {
+    let dir = tempfile::tempdir().unwrap();
+    let writer = assigned_writer(&dir, 1).await;
+    let persons: Vec<PropertyRecord> = (1..=7).map(|id| record(id, 1, "{}")).collect();
+    writer.put(&sole_partition(), 1, &persons).await.unwrap();
+
+    assert_eq!(writer.erase_team_in_batches(7, 2).await.unwrap(), 7);
+
+    let reader = PropertyReader::new(&config(), store(&dir));
+    for id in 1..=7 {
+        assert_eq!(reader.get_fresh(7, id).await.unwrap(), None, "person {id}");
+    }
+    writer.close().await;
+    reader.close().await;
+}

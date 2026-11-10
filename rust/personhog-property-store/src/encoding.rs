@@ -35,6 +35,10 @@ pub fn encode_key(team_id: i64, person_id: i64) -> [u8; 16] {
     key
 }
 
+pub fn person_id_of(key: &[u8]) -> Option<i64> {
+    Some(i64::from_be_bytes(key.get(8..16)?.try_into().ok()?))
+}
+
 pub fn encode_value(value: &StoredProperties) -> Bytes {
     let mut buf = BytesMut::with_capacity(HEADER_LEN + value.properties.len());
     buf.put_u8(FORMAT_V1);

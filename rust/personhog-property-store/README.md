@@ -51,6 +51,7 @@ Writer side:
 | `personhog_property_store_ownership_total{event}` | counter | Partition shards `assigned`, `revoked`, `fenced` by another writer, or `reopened` after a fence while still assigned |
 | `personhog_property_store_shard_open_ms` | histogram | Opening one shard for writing |
 | `personhog_property_store_shard_open_failures_total{kind}` | counter | Shard opens that failed, `data` or `unavailable` |
+| `personhog_property_store_erased_keys_total` | counter | Keys deleted by erasing deleted teams |
 | `personhog_property_store_memtable_flushes_total{outcome}` | counter | Timed memtable flushes: `flushed`, `failed`, `timed_out` |
 | `personhog_property_store_full_compactions_total{stage, outcome}` | counter | Full compaction stages (`l0`, `runs`) `submitted`, `completed`, `failed`, or `submit_failed` |
 | `personhog_property_store_full_compaction_stage_seconds{stage, outcome}` | histogram | How long a stage ran, to about one maintenance tick |

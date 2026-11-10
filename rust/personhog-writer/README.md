@@ -138,6 +138,9 @@ When the writer is slow (PG latency, pool saturation), size-triggered flushes st
 | `personhog_backfill_produce_errors_total` | counter | `backfill scan`: records the backfill topic refused |
 | `personhog_verify_persons_total{outcome}` | counter | `backfill verify`: persons judged `match`, `differs`, `behind`, `missing`, `newer_in_slatedb` or `rejected` |
 | `personhog_verify_ranges_total{outcome}` | counter | `backfill verify`: ranges `finished` or found `already_done` |
+| `personhog_verify_deleted_teams_total{outcome}` | counter | `backfill verify`: deleted teams whose SlateDB range is `empty` or still `present` |
+| `personhog_writer_team_erasures_total{outcome}` | counter | Deleted-team erasures per tick: `ok`, `failed`, or `list_failed` when the table could not be read |
+| `personhog_writer_deleted_teams` | gauge | Teams listed in `personhog_deleted_teams` at the last tick |
 
 Consumer lag per partition is monitored externally via KMinion (`kminion_kafka_consumer_group_topic_lag`).
 
@@ -162,6 +165,10 @@ The `backfill` subcommands keep a run's plan and progress under `PROPERTY_BACKFI
 ## Reading one person
 
 `personhog-writer properties get --team <team> --person <person>` prints the record SlateDB holds for the person and the Postgres row, with the verifier's verdict for the pair. It needs `PROPERTY_STORE_*` and `DATABASE_URL`, opens a one-off reader on the store, and runs anywhere with read access to the bucket.
+
+## Project deletion
+
+`DeletePersonsBatchForTeam` on the replica hard-deletes a project's persons and lists the team in `personhog_deleted_teams`. Every minute the writer reads that table and deletes each listed team's keys from the shards it owns, in every mode that writes SlateDB, and the next full compaction removes the bytes. A team stays listed for the replica's retention window, so a record for it that arrives late, from a lagging changelog, a catch-up replay or the backfill topic, is erased on the next tick. `backfill verify` reports a listed team that still has keys.
 
 ## Configuration
 
