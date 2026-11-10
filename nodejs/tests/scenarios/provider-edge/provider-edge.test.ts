@@ -57,7 +57,7 @@ describe('provider edge', () => {
         return outcomes
     }
 
-    const call = async (method: string, path: string, body?: object): Promise<{ status: number; json: any }> => {
+    const call = async (method: string, path: string, body?: object | null): Promise<{ status: number; json: any }> => {
         const response = await internalFetch(`${edge.url}${path}`, {
             method,
             headers: { 'content-type': 'application/json' },
@@ -129,7 +129,7 @@ describe('provider edge', () => {
         ['no sender', { Destination: { ToAddresses: [ALICE] }, Content: subject }, 'FromEmailAddress'],
         ['a body that is not an object', null, 'request'],
     ])('records a send with %s as a 400 naming the field', async (_name, body, field) => {
-        const { status } = await call('POST', '/v2/email/outbound-emails', body as object)
+        const { status } = await call('POST', '/v2/email/outbound-emails', body)
 
         expect(status).toBe(400)
         expect((await truth()).records).toEqual([
