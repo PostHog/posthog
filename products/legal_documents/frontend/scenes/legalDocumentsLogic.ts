@@ -180,7 +180,7 @@ export interface legalDocumentsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isOnQualifyingAddonTrial: (billing: BillingType | null) => boolean
         hasBaaEntitlement: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean,
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean, // userLogic
             isOnQualifyingAddonTrial: boolean
         ) => boolean
         baaBlockReason: (
