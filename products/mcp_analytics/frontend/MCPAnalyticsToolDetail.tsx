@@ -16,7 +16,6 @@ import {
     CardDescription,
     CardHeader,
     CardTitle,
-    Skeleton,
     Table,
     TableBody,
     TableCell,
@@ -45,9 +44,11 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
+import { ChartSkeleton } from './dashboard/ChartSkeleton'
 import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
+import { SkeletonLine } from './dashboard/SkeletonLine'
 import {
     type DailyChartData,
     IntentCoverage,
@@ -122,6 +123,8 @@ const neighborColumns: ResultColumn[] = [
     { header: 'In same conversation', align: 'right', render: (r) => formatNumber(Number(r[1] ?? 0)) },
 ]
 
+const SKELETON_ROW_WIDTHS = ['70%', '50%', '85%', '40%']
+
 // Card-wrapped quill table matching the dashboard table cards.
 function ResultTable({
     title,
@@ -166,16 +169,19 @@ function ResultTable({
                     </TableRow>
                 </TableHeader>
                 {loading && rows.length === 0 ? (
-                    <TableBody>
-                        <TableRow>
-                            <TableCell colSpan={columns.length}>
-                                <div className="space-y-2 py-1">
-                                    {Array.from({ length: 4 }).map((_, i) => (
-                                        <Skeleton key={i} className="h-3.5 w-full" />
-                                    ))}
-                                </div>
-                            </TableCell>
-                        </TableRow>
+                    <TableBody aria-busy>
+                        {SKELETON_ROW_WIDTHS.map((width, i) => (
+                            <TableRow key={i}>
+                                {columns.map((col, j) => (
+                                    <TableCell key={j} align={col.align} expand={col.expand} className={col.className}>
+                                        <SkeletonLine
+                                            className={col.align === 'right' ? 'ml-auto w-10' : undefined}
+                                            style={col.align === 'right' ? undefined : { width }}
+                                        />
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                        ))}
                     </TableBody>
                 ) : rows.length === 0 ? (
                     <TableEmpty className="py-6 text-secondary">{emptyMessage}</TableEmpty>
@@ -486,7 +492,7 @@ function TrendChart({
             <div className="mb-1 px-2 pt-1 text-xs font-medium uppercase text-secondary">{title}</div>
             <div className="flex min-h-0 flex-1 flex-col">
                 {loading && labels.length === 0 ? (
-                    <Skeleton className="flex-1" />
+                    <ChartSkeleton kind="line" />
                 ) : labels.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center text-[12px] text-secondary">
                         No data for the selected date range.
@@ -631,6 +637,48 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                         dataAttr="mcp-tool-detail-latency-chart"
                     />
                 </div>
+                <ResultTable
+                    title="Failures"
+                    description="Errored calls grouped by what went wrong. Numbers and IDs in error messages are masked so the same problem lands in one row. Click a row to see its calls."
+                    rows={failureBuckets.map((b) => [
+                        b.sample_message,
+                        b.message,
+                        b.occurrences,
+                        b.last_seen,
+                        b.harnesses,
+                    ])}
+                    loading={failureBucketsLoading}
+                    emptyMessage={`No errored calls for this tool (${dateRangeLabel}).`}
+                    onRowClick={(i) => selectFailure(failureBuckets[i] ?? null)}
+                    columns={[
+                        {
+                            header: 'Error',
+                            expand: true,
+                            render: (r) =>
+                                r[0] ? (
+                                    <span className="font-mono text-xs break-all line-clamp-2">{String(r[0])}</span>
+                                ) : (
+                                    <span className="text-muted text-xs">No error message captured</span>
+                                ),
+                        },
+                        {
+                            header: 'Type',
+                            render: (r) => (
+                                <span className="font-mono text-xs whitespace-nowrap">{String(r[1] ?? '')}</span>
+                            ),
+                        },
+                        {
+                            header: 'Calls',
+                            align: 'right',
+                            render: (r) => <span className="tabular-nums">{formatNumber(Number(r[2] ?? 0))}</span>,
+                        },
+                        { header: 'Last seen', render: (r) => <TZLabel time={String(r[3])} /> },
+                        {
+                            header: 'Harnesses',
+                            render: (r) => <HarnessLogos labels={(r[4] as string[]) ?? []} />,
+                        },
+                    ]}
+                />
             </div>
 
             <LemonDivider />
@@ -770,36 +818,6 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                 </div>
             </div>
 
-            <LemonDivider />
-
-            <div className="flex flex-col gap-3 px-4 pb-4">
-                <ResultTable
-                    title="Failures"
-                    description="Errored calls of this tool grouped by error type and HTTP status. Sourced from the $mcp_is_error flag on $mcp_tool_call events, the same source as the error rate above. Click a row to see individual occurrences."
-                    rows={failureBuckets.map((b) => [b.message, b.occurrences, b.last_seen, b.harnesses])}
-                    loading={failureBucketsLoading}
-                    emptyMessage="No errored calls recorded for this tool in the selected date range."
-                    onRowClick={(i) => selectFailure(failureBuckets[i] ?? null)}
-                    columns={[
-                        {
-                            header: 'Error type',
-                            expand: true,
-                            render: (r) => <span className="font-mono text-xs">{String(r[0] ?? '')}</span>,
-                        },
-                        {
-                            header: 'Occurrences',
-                            align: 'right',
-                            render: (r) => formatNumber(Number(r[1] ?? 0)),
-                        },
-                        { header: 'Last seen', render: (r) => <TZLabel time={String(r[2])} /> },
-                        {
-                            header: 'Harnesses',
-                            render: (r) => <HarnessLogos labels={(r[3] as string[]) ?? []} />,
-                        },
-                    ]}
-                />
-            </div>
-
             <FailureOccurrencesModal />
         </SceneContent>
     )
@@ -809,7 +827,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
 // copyable, paste-ready context block for handing to a coding agent.
 function FailureOccurrencesModal(): JSX.Element {
     const { searchParams } = useValues(router)
-    const { toolName, selectedFailure, failureOccurrences, failureOccurrencesLoading } =
+    const { toolName, selectedFailure, failureOccurrences, failureOccurrencesLoading, dateRangeLabel } =
         useValues(mcpAnalyticsToolDetailLogic)
     const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic)
 
@@ -833,13 +851,27 @@ function FailureOccurrencesModal(): JSX.Element {
                     Failures: <span className="font-mono">{selectedFailure?.message}</span>
                 </span>
             }
-            description="Most recent errored calls in this bucket (up to 50, last 7 days). Copy an occurrence's context to hand it to a coding agent."
+            description={`The most recent calls with this error, up to 50 (${dateRangeLabel}). Copy a call's context to hand it to a coding agent.`}
+            footer={
+                selectedFailure ? (
+                    <CreateFixTaskButton
+                        size="small"
+                        context={{
+                            toolName,
+                            errorType: selectedFailure.error_type,
+                            errorStatus: selectedFailure.error_status || undefined,
+                            errorMessage: selectedFailure.sample_message || undefined,
+                            timestamp: selectedFailure.last_seen,
+                        }}
+                    />
+                ) : null
+            }
             width={880}
         >
             <ResultTable
                 rows={failureOccurrences.map((o) => [o.timestamp, o.harness, o.error_message, o])}
                 loading={failureOccurrencesLoading}
-                emptyMessage="No occurrences found in the last 7 days."
+                emptyMessage={`No calls with this error (${dateRangeLabel}).`}
                 columns={[
                     { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
                     { header: 'Harness', render: (r) => <span>{String(r[1] ?? '') || '—'}</span> },

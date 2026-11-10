@@ -5,12 +5,16 @@ from typing import Any, cast
 from urllib.parse import parse_qsl, urlencode, urlparse
 
 from django.core.cache import cache
+from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest
 from django.utils.crypto import get_random_string
 
 import requests
 import structlog
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import (
+    PermissionDenied as DRFPermissionDenied,
+    ValidationError,
+)
 from rest_framework.request import Request
 
 from posthog.api.github_callback import (
@@ -37,6 +41,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import Team
 from posthog.models.integration import (
     GitHubInstallationAccess,
@@ -829,6 +834,11 @@ def finish_team_setup(http_request) -> FinishResult:
             team_id=team_id,
             error="insufficient_permissions",
         )
+
+    try:
+        enforce_ip_restrictions(http_request, user, organization_id=str(team.organization_id))
+    except DRFPermissionDenied as error:
+        raise PermissionDenied(str(error.detail)) from error
 
     code = http_request.GET.get("code") or None
     request = authenticated_drf_request(http_request)

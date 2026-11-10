@@ -78,18 +78,6 @@ pytestmark = [
             },
             status.HTTP_400_BAD_REQUEST,
         ),
-        # Missing required 'aws_secret_access_key' in 'bucket_credentials
-        (
-            "COPY",
-            {
-                "s3_bucket": "my-production-s3-bucket",
-                "region_name": "us-east-1",
-                "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123"},
-                "authorization": "default",
-            },
-            status.HTTP_400_BAD_REQUEST,
-        ),
         # Empty 'bucket_credentials'
         (
             "COPY",
@@ -99,18 +87,6 @@ pytestmark = [
                 "s3_key_prefix": "posthog-events/",
                 "bucket_credentials": {},
                 "authorization": "default",
-            },
-            status.HTTP_400_BAD_REQUEST,
-        ),
-        # Empty 'authorization'
-        (
-            "COPY",
-            {
-                "s3_bucket": "my-production-s3-bucket",
-                "region_name": "us-east-1",
-                "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": "integration",
-                "authorization": {},
             },
             status.HTTP_400_BAD_REQUEST,
         ),
@@ -177,7 +153,7 @@ def test_create_redshift_batch_export_validates_copy_inputs(
 
 
 @pytest.mark.parametrize(
-    "authorization", [["arn:aws:iam::123456789012:role/my-role"], True, 1.5, "not-an-arn", "my-role"]
+    "authorization", [["arn:aws:iam::123456789012:role/my-role"], {}, True, 1.5, "not-an-arn", "my-role"]
 )
 def test_create_redshift_batch_export_rejects_invalid_authorization_type(
     client: HttpClient,

@@ -13,6 +13,7 @@ from django.db.models import QuerySet
 import posthoganalytics
 
 from posthog.event_usage import AnalyticsProps, groups
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
@@ -59,8 +60,7 @@ def _to_issue_assignee(assignment) -> contracts.ErrorTrackingIssueAssignee | Non
     return contracts.ErrorTrackingIssueAssignee(id=assignee_id, type=assignee_type)
 
 
-def _to_external_reference(reference) -> contracts.ErrorTrackingExternalReference:
-    integration = reference.integration
+def _to_external_reference(reference, integration: IntegrationRecord) -> contracts.ErrorTrackingExternalReference:
     return contracts.ErrorTrackingExternalReference(
         id=reference.id,
         integration=contracts.ErrorTrackingExternalReferenceIntegration(
@@ -68,10 +68,22 @@ def _to_external_reference(reference) -> contracts.ErrorTrackingExternalReferenc
             kind=integration.kind,
             display_name=integration.display_name,
         ),
-        external_url=external_references.build_external_issue_url(reference),
-        external_id=external_references.external_issue_id(reference),
+        external_url=external_references.build_external_issue_url(reference, integration),
+        external_id=external_references.external_issue_id(reference, integration),
         title=external_references.external_issue_title(reference),
     )
+
+
+def _to_external_references(team_id: int, references) -> list[contracts.ErrorTrackingExternalReference]:
+    references = list(references)
+    if not references:
+        return []
+    integrations = external_references.get_reference_integrations(team_id, references)
+    return [
+        _to_external_reference(reference, integrations[reference.integration_id])
+        for reference in references
+        if reference.integration_id in integrations
+    ]
 
 
 def _to_fingerprint(fingerprint) -> contracts.ErrorTrackingFingerprint:
@@ -103,7 +115,14 @@ def _to_issue_preview(issue) -> contracts.ErrorTrackingIssuePreview:
     )
 
 
-def _to_issue(issue, tags: list[contracts.ErrorTrackingIssueTag] | None = None) -> contracts.ErrorTrackingIssue:
+def _to_issue(
+    issue,
+    integrations: dict[int, IntegrationRecord] | None = None,
+    tags: list[contracts.ErrorTrackingIssueTag] | None = None,
+) -> contracts.ErrorTrackingIssue:
+    references = list(issue.external_issues.all())
+    if integrations is None:
+        integrations = external_references.get_reference_integrations(issue.team_id, references) if references else {}
     return contracts.ErrorTrackingIssue(
         id=issue.id,
         status=issue.status,
@@ -112,7 +131,11 @@ def _to_issue(issue, tags: list[contracts.ErrorTrackingIssueTag] | None = None) 
         description=issue.description,
         first_seen=getattr(issue, "first_seen", None),
         assignee=_to_issue_assignee(getattr(issue, "assignment", None)),
-        external_issues=[_to_external_reference(reference) for reference in issue.external_issues.all()],
+        external_issues=[
+            _to_external_reference(reference, integrations[reference.integration_id])
+            for reference in references
+            if reference.integration_id in integrations
+        ],
         cohort=_to_issue_cohort(issue),
         tags=tags,
     )
@@ -198,7 +221,10 @@ def list_issue_tag_definitions(team_id: int) -> list[contracts.ErrorTrackingIssu
 
 
 def list_issues_detailed(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingIssue]:
-    return select_page(logic.get_issue_detail_queryset(team_id).order_by("-id"), page).map(_to_issue)
+    issues_page = select_page(logic.get_issue_detail_queryset(team_id).order_by("-id"), page)
+    references = [reference for issue in issues_page.results for reference in issue.external_issues.all()]
+    integrations = external_references.get_reference_integrations(team_id, references) if references else {}
+    return issues_page.map(lambda issue: _to_issue(issue, integrations))
 
 
 def issue_exists(team_id: int) -> bool:
@@ -695,15 +721,14 @@ def get_issue_permalink(team_id: int, issue_id: UUID) -> str:
 
 
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
-    references = external_references.list_external_references(team_id=team_id)
-    return [_to_external_reference(reference) for reference in references]
+    return _to_external_references(team_id, external_references.list_external_references(team_id=team_id))
 
 
 def get_external_reference(reference_id: UUID, team_id: int) -> contracts.ErrorTrackingExternalReference | None:
     reference = external_references.get_external_reference(reference_id=reference_id, team_id=team_id)
     if reference is None:
         return None
-    return _to_external_reference(reference)
+    return next(iter(_to_external_references(team_id, [reference])), None)
 
 
 def create_external_reference(
@@ -724,6 +749,8 @@ def create_external_reference(
         external_context=external_context,
     )
 
+    integration = IntegrationManager.any.get(team_id, reference.integration_id)
+
     # Idempotent re-links return an existing reference; counting those would inflate the metric.
     if created:
         posthoganalytics.capture(
@@ -733,13 +760,13 @@ def create_external_reference(
             properties={
                 **(analytics_props or {}),
                 "issue_id": reference.issue_id,
-                "integration_kind": reference.integration.kind,
+                "integration_kind": integration.kind,
                 # Distinguish linking an existing issue from creating a brand-new one.
                 "linked_existing": external_context is not None,
             },
         )
 
-    return _to_external_reference(reference)
+    return _to_external_reference(reference, integration)
 
 
 def search_external_issues(

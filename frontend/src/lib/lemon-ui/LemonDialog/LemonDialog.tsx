@@ -29,6 +29,10 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
         content?: ((isLoading: boolean) => ReactNode) | ReactNode
         /** Override props on the auto-generated submit button (e.g. status, children) */
         primaryButtonProps?: Partial<Pick<LemonButtonProps, 'children' | 'status' | 'type' | 'icon'>>
+        /** Like primaryButtonProps, but computed from the current form values */
+        getPrimaryButtonProps?: (
+            values: Record<string, any>
+        ) => Partial<Pick<LemonButtonProps, 'children' | 'status' | 'type' | 'icon'>>
     }
 
 export type LemonDialogProps = Pick<
@@ -199,6 +203,7 @@ export const LemonFormDialog = ({
     errors,
     content,
     primaryButtonProps,
+    getPrimaryButtonProps,
     dialogKey,
     showErrorsOnTouch,
     ...props
@@ -218,6 +223,7 @@ export const LemonFormDialog = ({
         type: 'primary',
         children: 'Submit',
         ...primaryButtonProps,
+        ...getPrimaryButtonProps?.(form),
         htmlType: 'submit',
         // eslint-disable-next-line @typescript-eslint/no-misused-promises
         onClick: props.shouldAwaitSubmit ? async () => await onSubmit(form) : () => void onSubmit(form),
@@ -319,11 +325,13 @@ LemonDialog.open = (props: LemonDialogProps) => {
 LemonDialog.openForm = (props: LemonFormDialogProps) => {
     const { root, onDestroy } = createAndInsertRoot()
     // Each dialog gets a unique key so nested dialogs don't share the same
-    // lemonDialogLogic instance and corrupt each other's form state.
+    // lemonDialogLogic instance and corrupt each other's form state. A caller that passes its own
+    // key must keep it unique, and uses it to reach the form, for example to show a server error
+    // under a field.
     root.render(
         <LemonFormDialog
             {...props}
-            dialogKey={uuid()}
+            dialogKey={props.dialogKey ?? uuid()}
             onAfterClose={() => {
                 props.onAfterClose?.()
                 onDestroy()
