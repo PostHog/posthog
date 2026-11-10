@@ -275,12 +275,17 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
                 lemonToast.error(error)
             },
             linkSourceFile: ({ sourceUrl }) => {
-                // pinned: analytics event name
-                posthog.capture('code email source file linked', {
-                    changed: !!values.codeEmail?.source_url,
-                    host: parseSourceFile(sourceUrl).host,
-                })
+                cache.linkReplacesFile = !!values.codeEmail?.source_url
                 actions.updateCodeEmail({ source_url: sourceUrl })
+            },
+            updateCodeEmailSuccess: ({ fields }) => {
+                if (fields.source_url) {
+                    // pinned: analytics event name
+                    posthog.capture('code email source file linked', {
+                        changed: !!cache.linkReplacesFile,
+                        host: parseSourceFile(fields.source_url).host,
+                    })
+                }
             },
             copyAgentPrompt: async () => {
                 if (values.codeEmail && (await copyToClipboard(agentPrompt(values.codeEmail), 'prompt'))) {

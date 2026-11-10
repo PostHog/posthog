@@ -28,12 +28,14 @@ from .serializers import (
     ExcerptChoiceRequestSerializer,
     ExcerptChoiceSerializer,
     FigureMarksSerializer,
+    HiddenPulseNumbersSerializer,
     HighlightsQuerySerializer,
     HighlightsSerializer,
     KeyClausesQuerySerializer,
     PulsePinsSerializer,
     ReportKeyClausesSerializer,
     ReportPageSerializer,
+    SetHiddenPulseNumbersSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -87,10 +89,10 @@ def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
     scope_object_read_actions = ["excerpt_choice", "highlights", "pulse_pins"]
-    scope_object_write_actions = ["set_pulse_pins"]
+    scope_object_write_actions = ["set_pulse_pins", "set_hidden_pulse_numbers"]
 
     def get_throttles(self) -> list[BaseThrottle]:
-        if self.action == "set_pulse_pins":
+        if self.action in ("set_pulse_pins", "set_hidden_pulse_numbers"):
             return [throttle() for throttle in PULSE_PIN_THROTTLES]
         return super().get_throttles()
 
@@ -149,8 +151,34 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         user = cast(User, request.user)
         if not api.is_enabled_for(user, self.team):
             raise NotFound()
-        saved = api.set_pulse_pins(team=self.team, user=user, pins=request.validated_data.pins)
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        saved = api.set_pulse_pins(
+            team=self.team,
+            user=user,
+            pins=request.validated_data.pins,
+            scopes=None if scopes is None else frozenset(scopes),
+        )
         return Response(PulsePinsSerializer(saved).data)
+
+    @validated_request(
+        request_serializer=SetHiddenPulseNumbersSerializer,
+        responses={200: OpenApiResponse(response=HiddenPulseNumbersSerializer)},
+        summary="Set the numbers the person hid",
+        description="Replaces the numbers the person hid from the key numbers. Suggestions skip them, so the next highlights request computes other numbers in their places. Repeated keys are dropped and only the last 50 are kept. 404 when the person does not have the new navigation.",
+    )
+    @action(detail=False, methods=["put"], url_path="pulse_pins/hidden")
+    def set_hidden_pulse_numbers(self, request: Request, **kwargs) -> Response:
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
+            raise NotFound()
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        saved = api.set_hidden_pulse_numbers(
+            team=self.team,
+            user=user,
+            keys=request.validated_data["keys"],
+            scopes=None if scopes is None else frozenset(scopes),
+        )
+        return Response(HiddenPulseNumbersSerializer(saved).data)
 
     @validated_request(
         responses={200: OpenApiResponse(response=ReportPageSerializer)},

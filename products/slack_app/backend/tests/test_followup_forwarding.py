@@ -1089,6 +1089,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
                     team_id=self.team.id, report_id=str(report.id), task_id=str(competing_task.id)
                 )
         self._create_mapping()
+        type(self.task).objects.filter(id=self.task.id).update(last_client="posthog_desktop")
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
@@ -1119,6 +1120,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
         assert str(mapping.task_run_id) == new_run_id
         assert mapping.task_id == self.task.id
+        self.task.refresh_from_db()
+        assert self.task.last_client == "slack"
 
         new_run = self.TaskRun.objects.get(id=new_run_id)
         assert new_run.state.get("pending_user_message") == "do something"
@@ -1380,6 +1383,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         # on the thread; their message is queued under their own PostHog identity
         # and their name is prepended so the agent knows who actually spoke.
         self._create_mapping(mentioning_user="U_ALICE")
+        type(self.task).objects.filter(id=self.task.id).update(last_client="posthog_desktop")
         bob = User.objects.create(email="bob@test.com", first_name="Bob")
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
@@ -1399,6 +1403,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert signal_kwargs["person_message"] == "please retry the build"
         assert signal_kwargs["actor_user_id"] == bob.id
         assert signal_kwargs["message_id"] is not None
+        self.task.refresh_from_db()
+        assert self.task.last_client == "slack"
         # No "Only the person who started" denial; the message went through.
         post_calls = [
             call

@@ -296,15 +296,23 @@ def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, S
     return {config.user_id: config for config in configs}
 
 
-def _team_notification_target(team_id: int) -> tuple[IntegrationRecord, str] | None:
+def _team_notification_target(team_id: int, *, priority: str | None) -> tuple[IntegrationRecord, str] | None:
     """The team-default channel and the Slack workspace that owns it."""
     config = (
         SignalTeamConfig.objects.filter(team_id=team_id)
-        .only("default_slack_notification_channel", "default_slack_notification_integration_id")
+        .only(
+            "default_slack_notification_channel",
+            "default_slack_notification_integration_id",
+            "default_slack_notification_min_priority",
+        )
         .first()
     )
     channel = ((config.default_slack_notification_channel if config else None) or "").strip()
     if config is None or not channel:
+        return None
+    if config.default_slack_notification_min_priority and not _meets_min_priority(
+        priority, config.default_slack_notification_min_priority
+    ):
         return None
     # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
     slack_rows = IntegrationManager.slack.any
@@ -778,7 +786,7 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
         return 0
 
     priority = _latest_priority(report)
-    team_target = _team_notification_target(team_id)
+    team_target = _team_notification_target(team_id, priority=priority)
     team_integration, team_channel = team_target if team_target is not None else (None, None)
 
     routes = _build_reviewer_routes(

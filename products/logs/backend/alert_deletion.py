@@ -55,6 +55,14 @@ def delete_platform_owned(*, team_id: int, legacy_configuration_id: UUID) -> Non
     delete_alert(team_id=team_id, alert_id=alert.id, only_platform_owned=True)
 
 
+def remove_native_destinations(*, team_id: int, configuration_id: UUID) -> None:
+    """Removes the HogFunction destinations of a logs alert with no logs row, which match on the
+    configuration's own id."""
+    soft_delete_all_alert_destinations(
+        team_id=team_id, alert_id=str(configuration_id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+    )
+
+
 def _require_platform_owned(alert: LogsAlertConfiguration) -> None:
     if not alert.platform_owned:
         raise PlatformAlertNotEditable("This alert is managed by the logs product. Delete it there.")

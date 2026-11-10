@@ -19,6 +19,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.models.utils import strict_fetch
 from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission, is_service_auth
 from posthog.rate_limit import (
     CustomSourceAIBuilderBurstThrottle,
@@ -27,17 +28,14 @@ from posthog.rate_limit import (
 )
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.warehouse_sources.backend.facade.models import (
-    ExternalDataSchema,
-    ExternalDataSource,
-    latest_completed_job_prefetch,
-)
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
 from . import credential_store, helpers, oauth_accounts, source_setup
 from .change_data_capture import ExternalDataSourceCDCMixin
 from .connection_options import ExternalDataSourceConnectionOptionsMixin
 from .credential_store import ExternalDataSourceCredentialStoreMixin
 from .job_runs import ExternalDataSourceJobRunsMixin
+from .migration_apply import ExternalDataSourceMigrationApplyMixin
 from .oauth_accounts import ExternalDataSourceOAuthAccountsMixin
 from .schema_operations import ExternalDataSourceSchemaOperationsMixin
 from .source_setup import ExternalDataSourceSetupMixin
@@ -50,6 +48,7 @@ class ExternalDataSourceExistsSerializer(serializers.Serializer):
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSourceViewSet(
+    ExternalDataSourceMigrationApplyMixin,
     ExternalDataSourceSetupMixin,
     ExternalDataSourceSchemaOperationsMixin,
     ExternalDataSourceCredentialStoreMixin,
@@ -78,6 +77,7 @@ class ExternalDataSourceViewSet(
         "bulk_update_schemas",
         "database_schema",
         "setup",
+        "apply_migration_item",
         "store_credentials",
         "source_prefix",
         "revenue_analytics_config",
@@ -223,15 +223,15 @@ class ExternalDataSourceViewSet(
         if self.action != "list":
             schema_select.append("table__credential")
 
-        return (
+        queryset = (
             queryset
             # created_by (FK) and revenue_analytics_config (reverse 1:1) are read per source during
             # serialization. select_related folds them into the main query instead of firing one
             # extra SELECT per source — the reverse 1:1 was an unprefetched N+1 that dominated the
             # list load (up to one query, and a get_or_create write, per source).
             .select_related("created_by", "revenue_analytics_config")
+            .annotate(latest_completed_run_at=ExternalDataJob.latest_completed_job_subquery(self.team_id, "created_at"))
             .prefetch_related(
-                latest_completed_job_prefetch(self.team_id, "jobs", to_attr="ordered_jobs"),
                 # The one place schemas are read during serialization. `active_schemas` used to be a
                 # second prefetch over the same rows — it's now derived in Python from this one (see
                 # `_active_schemas`), so the schema table is scanned once.
@@ -245,3 +245,4 @@ class ExternalDataSourceViewSet(
             )
             .order_by(self.ordering)
         )
+        return strict_fetch(queryset) if self.action == "list" else queryset
