@@ -12,6 +12,25 @@ Temporal lifecycle workflow for every issue-created, issue-reopened, or
 issue-spiking notification. Issue-created is capped per team per hour (see
 [Issue-created rate limit](#issue-created-rate-limit-notifications-mode)).
 
+## Shared exception counters (processing mode)
+
+`modes/processing/ledger.rs` counts a team's batch of exceptions in one script call and returns the counts.
+Rules that limit or sample exceptions decide from that result, so they do not need Redis keys of their own.
+No pipeline stage calls the ledger yet.
+
+All keys carry the `{team_id}` hash tag.
+
+| Key | Type | Fields | Expiry |
+| --- | --- | --- | --- |
+| `et:c1:{team_id}:days` | hash | `n<day>`: exceptions counted that day; `x<day>`: exceptions a per-issue rule removed | 16 days after the last new day; fields older than 14 days are deleted |
+| `et:c1:{team_id}:l:<day>:<issue_id>` | hash | one field per client: its count for the issue that day | one hour after the UTC day ends |
+| `et:c1:{team_id}:s:<window>:<issue_id>` | hash | one field per client: its count for the issue in the 10-minute window | 11 minutes |
+
+`<day>` and `<window>` are the Unix time divided by 86,400 and by 600, on the processing clock.
+A client is the event's distinct ID, or its session ID when it has no distinct ID.
+A client field is the first 64 bits of the SHA-256 of the client ID, in hexadecimal.
+Each issue hash stops adding clients at the limit the caller passes, and reports later new clients as uncounted.
+
 ## Issue-created rate limit (notifications mode)
 
 Notifications mode caps issue-created workflow starts per team. One Redis token
