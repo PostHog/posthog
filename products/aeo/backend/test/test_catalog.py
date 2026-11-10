@@ -8,7 +8,7 @@ from parameterized import parameterized
 from posthog.models.team import Team
 
 from products.aeo.backend.catalog import recompute_own_citations, registrable_domain, sync_brands_from_run
-from products.aeo.backend.engines import own_domains_key
+from products.aeo.backend.engines import MAX_URLS_PER_CHECK, own_domains_key
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
 
@@ -149,6 +149,31 @@ class TestSyncBrandsFromRun(BaseTest):
             **stale,
             **sentiment,
         }
+
+    def test_recompute_keeps_a_match_cited_past_the_stored_citations(self) -> None:
+        AEOBrand.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Example",
+            domain="example.com",
+            kind=BrandKind.OWN,
+            status=BrandStatus.CONFIRMED,
+            source=BrandSource.MANUAL,
+        )
+        stored = [f"https://rival{index}.example.org/" for index in range(MAX_URLS_PER_CHECK)]
+        check = self._check(
+            str(uuid.uuid4()),
+            stored,
+            cited=True,
+            target_urls=["https://example.com/deep"],
+            target_best_position=MAX_URLS_PER_CHECK + 1,
+        )
+
+        changed = recompute_own_citations(self.team.id)
+
+        assert changed == 0
+        assert AEOCitationCheck.objects.for_team(self.team.id).filter(id=check.id).values(
+            "cited", "target_urls", "target_best_position"
+        ).get() == {"cited": True, "target_urls": ["https://example.com/deep"], "target_best_position": 41}
 
     @parameterized.expand(
         [

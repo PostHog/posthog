@@ -57,9 +57,9 @@ def test_a_run_that_outlived_its_lease_still_finishes_cleanly(team: Team, settin
     assert run.call_count == 1
 
 
-@pytest.mark.parametrize("reconcile_fails", [False, True])
-def test_a_recorded_run_reconciles_own_citations_without_failing_on_it(
-    team: Team, settings, reconcile_fails: bool
+@pytest.mark.parametrize("enqueue_fails", [False, True])
+def test_a_recorded_run_queues_an_own_citation_reconcile_without_failing_on_it(
+    team: Team, settings, enqueue_fails: bool
 ) -> None:
     settings.AEO_CITATION_TEAM_IDS = [str(team.id)]
 
@@ -67,14 +67,13 @@ def test_a_recorded_run_reconciles_own_citations_without_failing_on_it(
         patch.object(tasks, "feature_enabled_or_false", return_value=True),
         patch.object(tasks, "run_citation_checks", return_value=(Mock(run_id="run-1"), [])),
         patch.object(tasks, "sync_brands_from_run", return_value=Mock(domains=0, created=0)),
-        patch.object(
-            tasks, "recompute_own_citations", side_effect=RuntimeError("db gone") if reconcile_fails else None
-        ) as recompute,
+        patch.object(tasks, "recompute_aeo_own_citations_task") as reconcile,
     ):
+        if enqueue_fails:
+            reconcile.delay.side_effect = ConnectionError("broker unavailable")
         run_aeo_citation_checks_for_team_task(team.id)
 
-    recompute.assert_called_once_with(team.id)
-    assert get_client().lock(f"aeo_own_citations_recompute:{team.id}").acquire(blocking=False)
+    reconcile.delay.assert_called_once_with(team.id)
 
 
 def test_a_recompute_retries_while_another_one_holds_the_team(team: Team) -> None:

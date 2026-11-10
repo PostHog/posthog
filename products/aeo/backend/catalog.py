@@ -109,39 +109,51 @@ def _recompute_with(team_id: int, domains: list[str]) -> int:
         checks.filter(check_failed=False)
         .exclude(own_domains_key=key)
         .only("id", "cited_urls", "cited", "target_urls", "target_best_position", "own_domains_key")
+        .order_by("id")
     )
-    rescored: list[AEOCitationCheck] = []
-    kept: list[AEOCitationCheck] = []
     changed = 0
-    for check in stale.iterator(chunk_size=RECOMPUTE_BATCH_SIZE):
-        cited_urls = [url for url in check.cited_urls or [] if isinstance(url, str)]
-        target_urls = [url for url in cited_urls if is_target_url(url, domains)]
-        position = target_position(cited_urls, domains)
-        citations_moved = (check.cited, check.target_urls, check.target_best_position) != (
-            bool(target_urls),
-            target_urls,
-            position,
-        )
-        check.cited = bool(target_urls)
-        check.target_urls = target_urls
-        check.target_best_position = position
-        # A keyed check was scored for a different set of own brands, even when its citations match both.
-        # A check from before the key existed was scored for the domains it was cited against.
-        if check.own_domains_key is not None or citations_moved:
-            # The next sentiment run scores a cleared check again when it names the current brand and
-            # falls inside the run's backlog window.
-            check.brand_sentiment = None
-            check.brand_sentiment_score = None
-            rescored.append(check)
-        else:
-            kept.append(check)
-        check.own_domains_key = key
-        changed += citations_moved
-        if len(rescored) + len(kept) >= RECOMPUTE_BATCH_SIZE:
-            _write_recomputed(checks, rescored, kept)
-            rescored, kept = [], []
-    _write_recomputed(checks, rescored, kept)
+    last_id = None
+    # Keyset pages with a database limit: behind PgBouncer, iterator() would buffer the whole result.
+    while page := list((stale.filter(id__gt=last_id) if last_id else stale)[:RECOMPUTE_BATCH_SIZE]):
+        last_id = page[-1].id
+        rescored: list[AEOCitationCheck] = []
+        kept: list[AEOCitationCheck] = []
+        for check in page:
+            citations_moved = _recompute_check(check, domains)
+            # A keyed check was scored for a different set of own brands, even when its citations match both.
+            # A check from before the key existed was scored for the domains it was cited against.
+            if check.own_domains_key is not None or citations_moved:
+                # The next sentiment run scores a cleared check again when it names the current brand and
+                # falls inside the run's backlog window.
+                check.brand_sentiment = None
+                check.brand_sentiment_score = None
+                rescored.append(check)
+            else:
+                kept.append(check)
+            check.own_domains_key = key
+            changed += citations_moved
+        _write_recomputed(checks, rescored, kept)
     return changed
+
+
+def _recompute_check(check: AEOCitationCheck, domains: list[str]) -> bool:
+    """Set the citation fields of one check from its stored citations, and return whether they moved."""
+    cited_urls = [url for url in check.cited_urls or [] if isinstance(url, str)]
+    # The runner stores the first MAX_URLS_PER_CHECK citations, but takes the target URLs from the full
+    # list, so a target URL missing from `cited_urls` was cited further down and still counts.
+    beyond = [url for url in check.target_urls or [] if isinstance(url, str) and url not in cited_urls]
+    target_urls = [url for url in [*cited_urls, *beyond] if is_target_url(url, domains)]
+    position = target_position(cited_urls, domains)
+    if position is None and target_urls:
+        # Only a citation past the stored ones matches. Its exact position is known only when it was the
+        # best one before too.
+        stored = check.target_best_position
+        position = stored if stored is not None and stored > len(cited_urls) else None
+    moved = (check.cited, check.target_urls, check.target_best_position) != (bool(target_urls), target_urls, position)
+    check.cited = bool(target_urls)
+    check.target_urls = target_urls
+    check.target_best_position = position
+    return moved
 
 
 _CITATION_FIELDS = ["cited", "target_urls", "target_best_position", "own_domains_key"]

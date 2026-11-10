@@ -128,8 +128,12 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
             result = sync_brands_from_run(team.id, summary.run_id)
             logger.info("aeo_brand_sync_done", team_id=team_id, domains=result.domains, created=result.created)
             # Repairs checks recorded against own domains that changed during the run, and any
-            # recompute that a failed task or broker left undone.
-            _reconcile_own_citations(team_id)
+            # recompute that a failed task or broker left undone. Queued rather than run inline, so it
+            # keeps the recompute's time limit and lock.
+            try:
+                recompute_aeo_own_citations_task.delay(team_id)
+            except Exception:
+                logger.exception("aeo_own_citations_reconcile_enqueue_failed", team_id=team_id)
     except Exception:
         # The runner already absorbs per-prompt failures, so anything reaching here is
         # unexpected. Re-raise so Celery marks the task failed and alerting sees it.
@@ -198,6 +202,7 @@ class RecomputeAlreadyRunning(Exception):
     autoretry_for=(OperationalError, InterfaceError, RecomputeAlreadyRunning),
     retry_backoff=RECOMPUTE_RETRY_SECONDS,
     max_retries=5,
+    queue=CeleryQueue.LONG_RUNNING.value,
     soft_time_limit=RECOMPUTE_SOFT_TIME_LIMIT_SECONDS,
     time_limit=RECOMPUTE_TIME_LIMIT_SECONDS,
 )
@@ -205,26 +210,14 @@ class RecomputeAlreadyRunning(Exception):
 def recompute_aeo_own_citations_task(self: Task, team_id: int) -> None:
     # A recompute that is already running may have read the domains before this change, so wait for it
     # rather than skip. Its passes and this one only touch checks whose key is stale.
-    if not _reconcile_own_citations(team_id, raise_errors=True):
-        raise RecomputeAlreadyRunning()
-
-
-def _reconcile_own_citations(team_id: int, *, raise_errors: bool = False) -> bool:
-    """Returns False when another recompute holds the team's lock."""
     lock = get_client().lock(f"aeo_own_citations_recompute:{team_id}", timeout=RECOMPUTE_LOCK_SECONDS)
     if not lock.acquire(blocking=False):
-        return False
+        raise RecomputeAlreadyRunning()
     try:
         changed = recompute_own_citations(team_id)
         logger.info("aeo_own_citations_recomputed", team_id=team_id, changed=changed)
-    except Exception:
-        if raise_errors:
-            raise
-        # The checks are recorded already; the next reconcile picks up whatever this one left stale.
-        logger.exception("aeo_own_citations_recompute_failed", team_id=team_id)
     finally:
         try:
             lock.release()
         except LockError:
             logger.warning("aeo_own_citations_recompute_lock_expired", team_id=team_id)
-    return True
