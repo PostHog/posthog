@@ -38,7 +38,8 @@ def _created_at_incremental_fields() -> list[IncrementalField]:
 
 
 def _history_date_incremental_fields() -> list[IncrementalField]:
-    # /api/measures/search_history filters server-side with `from` on each analysis date.
+    # /api/measures/search_history and /api/project_analyses/search filter server-side with `from`
+    # on each analysis date.
     return [
         {
             "label": "date",
@@ -52,7 +53,7 @@ def _history_date_incremental_fields() -> list[IncrementalField]:
 @dataclass(frozen=True)
 class ProjectFanout:
     # How the per-project request and rows are built; `sonarqube.py` dispatches on it.
-    kind: Literal["quality_gate_status", "hotspots", "component_measures", "measures_history"]
+    kind: Literal["quality_gate_status", "hotspots", "component_measures", "measures_history", "project_rows"]
     # Query param names that carry the project key.
     project_params: tuple[str, ...] = ("component",)
     page_size: int = PAGE_SIZE
@@ -78,6 +79,8 @@ class SonarqubeEndpointConfig:
     paginated: bool = True
     # Fan-out endpoints run once per project (see `ProjectFanout`); None for top-level list endpoints.
     fanout: Optional[ProjectFanout] = None
+    # Runs once per issue of the issues endpoint, for endpoints that take a single issue key.
+    per_issue: bool = False
     should_sync_default: bool = True
 
 
@@ -167,6 +170,49 @@ SONARQUBE_ENDPOINTS: dict[str, SonarqubeEndpointConfig] = {
         incremental_fields=_history_date_incremental_fields(),
         partition_key="date",
         fanout=ProjectFanout(kind="measures_history", page_size=HISTORY_PAGE_SIZE),
+    ),
+    # Analyses of each project's main branch, with their version and event markers. `from` filters
+    # server-side on the analysis date. The key is the analysis UUID, unique across the instance.
+    "project_analyses": SonarqubeEndpointConfig(
+        name="project_analyses",
+        path="/api/project_analyses/search",
+        response_key="analyses",
+        supports_incremental=True,
+        incremental_fields=_history_date_incremental_fields(),
+        partition_key="date",
+        fanout=ProjectFanout(kind="project_rows", project_params=("project",)),
+    ),
+    # Branches of each project, with their quality gate status and last analysis date. Unpaged.
+    "project_branches": SonarqubeEndpointConfig(
+        name="project_branches",
+        path="/api/project_branches/list",
+        response_key="branches",
+        primary_keys=["project", "name"],
+        paginated=False,
+        fanout=ProjectFanout(kind="project_rows", project_params=("project",)),
+    ),
+    # Pull requests of each project, with their quality gate status. Unpaged. Only Developer Edition
+    # and above serve this endpoint; Community Build answers 404, which leaves the table empty.
+    "project_pull_requests": SonarqubeEndpointConfig(
+        name="project_pull_requests",
+        path="/api/project_pull_requests/list",
+        response_key="pullRequests",
+        primary_keys=["project", "key"],
+        paginated=False,
+        fanout=ProjectFanout(kind="project_rows", project_params=("project",)),
+    ),
+    # Change history of every issue, one row per change. The endpoint takes one issue per request
+    # and has no date filter, so a sync makes one request per issue; it is off by default. Changes
+    # come sorted by date and carry no id, so a change is keyed on its position in the issue's list.
+    "issue_changelog": SonarqubeEndpointConfig(
+        name="issue_changelog",
+        path="/api/issues/changelog",
+        response_key="changelog",
+        primary_keys=["issue", "changeIndex"],
+        partition_key="creationDate",
+        paginated=False,
+        per_issue=True,
+        should_sync_default=False,
     ),
     # Users. /api/users/search requires Administer System permission, so it's off by default —
     # a token without it can still sync everything else.

@@ -84,6 +84,24 @@ CLAUDE_5_CAPABILITIES: Final[ModelCost] = {
     "supports_computer_use": True,
 }
 
+FABLE_5_2_COST: Final[ModelCost] = {
+    **CLAUDE_5_CAPABILITIES,
+    "mode": "chat",
+    "max_input_tokens": 1_000_000,
+    "max_output_tokens": 128_000,
+    "input_cost_per_token": 8e-06,
+    "output_cost_per_token": 4e-05,
+    "cache_read_input_token_cost": 2e-07,
+    "cache_creation_input_token_cost": 1e-05,
+}
+
+FABLE_5_2_BEDROCK_REGIONAL_RATES: Final[ModelCost] = {
+    "input_cost_per_token": 8.8e-06,
+    "output_cost_per_token": 4.4e-05,
+    "cache_read_input_token_cost": 2.2e-07,
+    "cache_creation_input_token_cost": 1.1e-05,
+}
+
 MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
     BASETEN_METRIC_MODEL: cast("ModelCost", dict(BASETEN_GLM_COST)),
     BASETEN_DEEPSEEK_METRIC_MODEL: cast("ModelCost", dict(BASETEN_DEEPSEEK_COST)),
@@ -113,6 +131,13 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
         "output_cost_per_token": 5e-05,
         "cache_read_input_token_cost": 1e-06,
         "cache_creation_input_token_cost": 1.25e-05,
+    },
+    "claude-fable-5-2": {**FABLE_5_2_COST, "litellm_provider": "anthropic"},
+    "global.anthropic.claude-fable-5-2": {**FABLE_5_2_COST, "litellm_provider": "bedrock_converse"},
+    "us.anthropic.claude-fable-5-2": {
+        **FABLE_5_2_COST,
+        **FABLE_5_2_BEDROCK_REGIONAL_RATES,
+        "litellm_provider": "bedrock_converse",
     },
     "claude-opus-5-5": {
         **CLAUDE_5_CAPABILITIES,
