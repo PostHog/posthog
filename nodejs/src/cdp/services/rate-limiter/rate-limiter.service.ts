@@ -200,7 +200,7 @@ redis.call('expire', claimKey, claimTtlSeconds)
 return 1
 `
 
-const CLAIM_DEADLINE_MS = 2_000
+export const CLAIM_DEADLINE_MS = 2_000
 
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */

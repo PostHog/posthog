@@ -5,6 +5,7 @@ type Connection = { client: Socket; upstream: Socket; answering: boolean }
 export class StallingValkeyProxy {
     private server: Server | undefined
     private readonly connections = new Set<Connection>()
+    private newConnectionsAnswer = true
 
     constructor(private readonly target: { host: string; port: number }) {}
 
@@ -13,7 +14,7 @@ export class StallingValkeyProxy {
             const connection: Connection = {
                 client,
                 upstream: connect(this.target.port, this.target.host),
-                answering: true,
+                answering: this.newConnectionsAnswer,
             }
             this.connections.add(connection)
             client.on('error', () => undefined)
@@ -37,6 +38,15 @@ export class StallingValkeyProxy {
         this.connections.forEach((connection) => {
             connection.answering = false
         })
+    }
+
+    stopAnswering(): void {
+        this.newConnectionsAnswer = false
+        this.stopAnsweringOpenConnections()
+    }
+
+    answerNewConnections(): void {
+        this.newConnectionsAnswer = true
     }
 
     stop(): void {
