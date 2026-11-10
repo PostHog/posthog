@@ -1822,10 +1822,10 @@ describe('EmailService', () => {
             const outcomeOf = (result: Awaited<ReturnType<EmailService['executeSendEmail']>>) => ({
                 finished: result.finished,
                 error: result.error,
-                loadRetries: result.invocation.queueMetadata?.attachmentLoadRetries,
+                retryLater: (result.invocation.queueScheduledAt?.toMillis() ?? 0) > Date.now(),
             })
-            const sent = { finished: true, error: undefined, loadRetries: undefined }
-            const retriedLoad = { finished: false, error: undefined, loadRetries: 1 }
+            const sent = { finished: true, error: undefined, retryLater: false }
+            const retriedLoad = { finished: false, error: undefined, retryLater: true }
 
             it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
                 const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
