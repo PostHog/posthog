@@ -12,9 +12,11 @@ import { SavingsBannerMessage } from './SavingsBannerMessage'
 import { SuggestedModelsDialogs } from './SuggestedModelsDialogs'
 import { SuggestionsBanner } from './SuggestionsBanner'
 import { SuggestionsStatusNotice } from './SuggestionsStatusNotice'
+import { WaitingSuggestionsNotice } from './WaitingSuggestionsNotice'
 
 export function SuggestedModelsStripContent(): JSX.Element | null {
-    const { stripState, savingsSummary, unusedViewCount, status } = useValues(warehouseSuggestionsLogic)
+    const { stripState, savingsSummary, unusedViewCount, status, showWaitingNotice } =
+        useValues(warehouseSuggestionsLogic)
     const { reload } = useActions(warehouseSuggestionsLogic)
     const windowDays = status?.window_days ?? 0
 
@@ -30,6 +32,9 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
                 }
             />
         )
+    }
+    if (showWaitingNotice && stripState !== 'active' && stripState !== 'all_done') {
+        return <WaitingSuggestionsNotice />
     }
     if (stripState === 'warming_up') {
         const daysWithData = status?.days_with_data ?? 0
@@ -68,6 +73,7 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
                     message={<SavingsBannerMessage summary={savingsSummary} unusedViews={unusedViewCount} />}
                 />
             )}
+            {showWaitingNotice && <WaitingSuggestionsNotice />}
             <SuggestedModelsDialogs />
         </>
     )

@@ -488,3 +488,7 @@ export const SUGGESTED_MODEL_SECTIONS: Record<string, { title: string; descripti
         showsSaving: false,
     },
 }
+
+export function waitingSuggestionsText(waiting: number): string {
+    return `${countOf(waiting, 'more suggestion is', 'more suggestions are')} waiting.`
+}

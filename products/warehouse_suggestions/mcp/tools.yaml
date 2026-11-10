@@ -141,3 +141,9 @@ tools:
             Explain why the project has or lacks warehouse suggestions. Reports whether suggestions are turned on,
             whether the project reads its views often enough to get them, how many days of read history the daily job
             has so far, and when it last ran.
+    warehouse-suggestions-surface-more:
+        operation: warehouse_suggestions_surface_more_create
+        enabled: false
+        disabled_reason:
+            The button behind this endpoint relaxes the daily limit for a person browsing the page. Agents already
+            list every open suggestion, so they gain nothing from showing more.

@@ -2000,6 +2000,17 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboard?.persisted_filters).toEqual({ date_from: '-7d' })
         })
 
+        it('ends the zoom preview once the dashboard dates move off the zoomed range', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const zoom = { dateFrom: '2026-10-02', dateTo: '2026-10-03' }
+
+            logic.actions.zoomDateRange(zoom.dateFrom, zoom.dateTo, false)
+            expect(logic.values.zoomPreview).toEqual(zoom)
+
+            logic.actions.setDates('-7d', null)
+            expect(logic.values.zoomPreview).toBeNull()
+        })
+
         it('saves dashboard settings only when requested', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const successToast = jest.spyOn(lemonToast, 'success')

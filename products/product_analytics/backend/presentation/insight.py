@@ -974,8 +974,7 @@ class InsightSerializer(InsightBasicSerializer):
                 lock_insight_for_evaluation(team_id=instance.team_id, insight_id=instance.id)
                 delete_insight_subscriptions(project_id=instance.team.project_id, insight_ids=[instance.id])
                 hide_tiles_for_insights([instance.id])
-                for alert in instance.alertconfiguration_set.all():
-                    alert.delete()
+                delete_insight_alerts([instance.id])
             else:
                 dashboard_ids = validated_data.pop("dashboards", None)
                 if dashboard_ids is not None:
@@ -991,8 +990,7 @@ class InsightSerializer(InsightBasicSerializer):
         # mismatch (see validate_alert_config + disable_invalid_alert in the alerts temporal activity),
         # so the alert and its history are preserved and the user can reconfigure rather than lose it.
         if updated_insight.alertable_query_kind is None:
-            for alert in instance.alertconfiguration_set.all():
-                alert.delete()
+            delete_insight_alerts([instance.id])
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
@@ -1672,6 +1670,21 @@ class MCPInsightSerializer(InsightSerializer):
             )
         except PydanticValidationError as exc:
             raise serializers.ValidationError(f"This query can't be saved: {_pydantic_error_details(exc)}")
+
+
+def parse_property_names_param(raw: str) -> list[str]:
+    invalid = ValidationError({"properties": 'Pass a JSON list of property names, for example ["$browser"].'})
+    if not raw:
+        return []
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        raise invalid
+    if not isinstance(decoded, list):
+        raise invalid
+    # Old clients sent full property-filter dicts under this param. Only plain names filter, so those
+    # payloads stay a no-op.
+    return [item for item in decoded if isinstance(item, str) and item]
 
 
 # Insights can be looked up by either the numeric primary key or the 8-character `short_id`
@@ -2458,6 +2471,13 @@ class InsightViewSet(
                 events = json.loads(events_filter) if events_filter else []
                 for event in events:
                     queryset = queryset.filter(Q(query_metadata__events__contains=[event]))
+            elif key == "properties":
+                property_names = parse_property_names_param(request.GET["properties"])
+                if property_names:
+                    # Containment on the whole column, so the GIN index on query_metadata applies.
+                    queryset = queryset.filter(
+                        query_metadata__contains={"properties": [{"name": name} for name in property_names]}
+                    )
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":

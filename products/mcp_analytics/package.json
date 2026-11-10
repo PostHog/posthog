@@ -15,10 +15,10 @@
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:",
-        "react-intersection-observer": "9.5.3"
+        "react-intersection-observer": "9.16.0"
     },
     "devDependencies": {
-        "@testing-library/react": "^14.3.1",
+        "@testing-library/react": "^16.3.3",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {

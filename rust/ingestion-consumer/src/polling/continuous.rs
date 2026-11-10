@@ -324,14 +324,43 @@ mod tests {
         harness.receive(1, &[20]);
 
         harness.poller.on_revoked(&[p(0)]);
-        harness.receive(0, &[10]);
+        harness.receive(0, &[11]);
         harness.after_the_batch_timeout();
 
         assert_eq!(
             harness.submit(),
-            HashMap::from([(p(0), (10, 10)), (p(1), (20, 20))]),
+            HashMap::from([(p(0), (11, 11)), (p(1), (20, 20))]),
             "the redelivery after the revoke stays"
         );
+    }
+
+    #[test]
+    fn a_revoke_after_the_partitions_poll_was_submitted_admits_its_last_offset_again() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[10]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+
+        harness.revoke(0);
+        harness.receive(0, &[10]);
+        harness.after_the_batch_timeout();
+
+        assert_eq!(harness.submit(), HashMap::from([(p(0), (10, 10))]));
+    }
+
+    #[test]
+    fn a_message_delivered_twice_is_charged_and_committed_once() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0, 1, 1, 2]);
+        harness.after_the_batch_timeout();
+        assert_eq!(harness.submit(), HashMap::from([(p(0), (0, 2))]));
+        harness.receive(0, &[2, 3]);
+        harness.after_the_batch_timeout();
+        assert_eq!(harness.submit(), HashMap::from([(p(0), (3, 3))]));
+
+        harness.complete(0, &[0, 1, 2]);
+        harness.complete(0, &[3]);
+        assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(4))]));
     }
 
     #[test]
