@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { dashboardResult } from 'scenes/dashboard/dashboardLogic.testHelpers'
+import { dashboardResult, tileFromInsight } from 'scenes/dashboard/dashboardLogic.testHelpers'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { useMocks } from '~/mocks/jest'
@@ -370,21 +370,62 @@ describe('addSavedInsightsModalLogic', () => {
         })
     })
 
-    it('refreshes the mounted dashboard after adding an insight', async () => {
+    it.each([
+        {
+            name: 'refreshes the mounted dashboard, and leaves a tile added with no target group out of any group',
+            existingTiles: [],
+            addTarget: null,
+            closeDashboard: false,
+            expectedGroupWrites: [],
+        },
+        {
+            name: 'refreshes the mounted dashboard, and leaves a tile that was already on the dashboard in its own group',
+            existingTiles: [tileFromInsight(createInsight(2), 3)],
+            addTarget: 'target',
+            closeDashboard: false,
+            expectedGroupWrites: [],
+        },
+        {
+            name: 'refreshes the mounted dashboard, and keeps the group the add started from when the modal closes during the request',
+            existingTiles: [],
+            addTarget: 'target',
+            closeDashboard: false,
+            expectedGroupWrites: [[1, { tiles: [{ id: 3, group_key: 'target' }] }]],
+        },
+        {
+            name: 'keeps the group the add started from when the dashboard closes during the request',
+            existingTiles: [],
+            addTarget: 'target',
+            closeDashboard: true,
+            expectedGroupWrites: [[1, { tiles: [{ id: 3, group_key: 'target' }] }]],
+        },
+    ])('after adding an insight, $name', async ({ existingTiles, addTarget, closeDashboard, expectedGroupWrites }) => {
         initKeaTests()
-        const dashboard = dashboardLogic({ id: 1, dashboard: dashboardResult(1, []) })
+        const dashboard = dashboardLogic({ id: 1, dashboard: dashboardResult(1, existingTiles) })
         dashboard.mount()
         const loadDashboard = jest.spyOn(dashboard.actions, 'loadDashboard').mockImplementation()
-        jest.spyOn(insightsApi, 'addToDashboard').mockResolvedValue({ id: 3, dashboard_id: 1 })
+        const groupWrite = jest.spyOn(dashboardsApi, 'dashboardsPartialUpdate').mockResolvedValue({} as any)
+        dashboard.actions.setAddTargetTileGroupKey(addTarget)
+        jest.spyOn(insightsApi, 'addToDashboard').mockImplementation(async () => {
+            dashboard.actions.closeTileModal()
+            if (closeDashboard) {
+                dashboard.unmount()
+            }
+            return { id: 3, dashboard_id: 1 } as any
+        })
 
         const logic = addSavedInsightsModalLogic()
         logic.mount()
 
         await expectLogic(logic, () => logic.actions.addInsightToDashboard(createInsight(1), 1)).toFinishAllListeners()
 
-        expect(loadDashboard).toHaveBeenCalledWith({ action: DashboardLoadAction.Update })
-
+        expect(groupWrite.mock.calls.map(([, dashboardId, body]) => [dashboardId, body])).toEqual(expectedGroupWrites)
+        if (closeDashboard) {
+            expect(loadDashboard).not.toHaveBeenCalled()
+        } else {
+            expect(loadDashboard).toHaveBeenCalledWith({ action: DashboardLoadAction.Update })
+            dashboard.unmount()
+        }
         logic.unmount()
-        dashboard.unmount()
     })
 })

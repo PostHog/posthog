@@ -25,7 +25,8 @@ from posthog.models.person.deletion import (
 from posthog.models.person.util import create_person_distinct_id, get_distinct_id_rows, get_persons_by_uuids
 from posthog.personhog_client.proto import DistinctIdRow
 
-from . import datatypes, lookups, observe, repairs, restore_verbs, team_scan
+from . import datatypes, detach, lookups, observe, repairs, restore_verbs, team_scan
+from .flavors import PgMapping, classify_mapping
 
 # A key whose last recorded outcome is one of these needs nothing more, so a resumed run skips it.
 DONE_OUTCOMES = frozenset(
@@ -40,6 +41,9 @@ DONE_OUTCOMES = frozenset(
         "already_moved",
         "folded",
         "merged",
+        "detached",
+        "already_detached",
+        "raised_for_sweep",
     }
 )
 
@@ -433,7 +437,35 @@ def _bury_mapping(row: dict[str, Any], context: VerbContext) -> None:
     if ch is None or ch.visible_rows == 0 or ch.winner_deleted:
         context.action(row, "skipped_not_divergent")
         return
+    # A report written before the owner became pending would still name bury, but the sweep removes these rows
+    # with the owner, and a tombstone published mid-sweep could outlive the drain's hard delete.
+    pg_now = PgMapping(
+        person_id=int(current.person_id),
+        person_uuid=current.person_uuid if current.HasField("person_uuid") else None,
+        version=int(current.version),
+        is_deleted=current.is_deleted,
+        person_is_deleted=current.person_is_deleted if current.HasField("person_is_deleted") else None,
+    )
+    owner_ch = observe.owner_ch_states(team_id, {distinct_id: pg_now}, {distinct_id: ch}).get(distinct_id)
+    if classify_mapping(pg_now, ch, owner_ch=owner_ch).flavor == "awaiting_sweep":
+        context.action(row, "skipped_awaiting_sweep")
+        return
     target = max(int(current.version), ch.max_version + 1)
+    if owner_ch == "pending" and ch.winner_person_uuid == pg_now.person_uuid and not ch.winner_tied:
+        # The sweep removes these rows with the owner, so raising Postgres above ClickHouse is the whole repair: a
+        # returning distinct id then revives above ClickHouse, and no tombstone is published that a running sweep
+        # could leave behind.
+        if not context.apply:
+            context.action(row, "would_raise_for_sweep", target_version=target)
+            return
+        context.pacer.before_write()
+        repairs._raise_mapping_version_floor(team_id, distinct_id, target)
+        confirmed = _strong_row(team_id, distinct_id)
+        if confirmed is None or not confirmed.is_deleted or confirmed.person_id != current.person_id:
+            context.action(row, "skipped_revived")
+            return
+        context.action(row, "raised_for_sweep", version=int(confirmed.version))
+        return
     if not context.apply:
         context.action(row, "would_repair", target_version=target)
         return
@@ -460,4 +492,5 @@ VERBS: dict[str, VerbFn] = {
     "restore": restore_verbs.restore,
     "fold": restore_verbs.fold,
     "merge": restore_verbs.merge,
+    "detach": detach.detach,
 }

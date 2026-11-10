@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -8,6 +9,7 @@ from products.warehouse_sources.sources.safetyculture.settings import SAFETYCULT
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     Endpoint,
+    EndpointResource,
     JSONResponsePaginator,
     RESTAPIConfig,
     ResumableSourceManager,
@@ -134,6 +136,25 @@ class SafetyCultureStructuresPaginator(BasePaginator):
         request.json = body
 
 
+def _parse_watermark(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time(), tzinfo=UTC)
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _blank_missing_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def blank(row: dict[str, Any]) -> dict[str, Any]:
+        for name in fields:
+            if row.get(name) is None:
+                row[name] = ""
+        return row
+
+    return blank
+
+
 def safetyculture_source(
     api_token: str,
     endpoint: str,
@@ -150,7 +171,10 @@ def safetyculture_source(
     # incremental sync that actually has a watermark to filter from.
     params: dict[str, Any] = dict(config.params)
     if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value:
-        params["modified_after"] = _format_modified_after(db_incremental_field_last_value)
+        watermark = db_incremental_field_last_value
+        if config.incremental_rewind is not None:
+            watermark = _parse_watermark(watermark) - config.incremental_rewind
+        params[config.incremental_param] = _format_modified_after(watermark)
 
     endpoint_config: Endpoint
     if config.structure_types:
@@ -173,6 +197,10 @@ def safetyculture_source(
             "data_selector_malformed_retryable": True,
         }
 
+    resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
+    if config.blank_when_missing:
+        resource_config["data_map"] = _blank_missing_fields(config.blank_when_missing)
+
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": SAFETYCULTURE_BASE_URL,
@@ -188,12 +216,7 @@ def safetyculture_source(
             "allow_redirects": False,
         },
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": endpoint_config,
-            }
-        ],
+        "resources": [resource_config],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -243,7 +266,7 @@ def safetyculture_source(
         partition_keys=[config.partition_key] if config.partition_key else None,
         # Incremental feeds paginate by advancing `modified_after` in the server-issued `next_page`
         # path, so rows arrive oldest-modified-first — matching the pipeline's ascending watermark.
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
         column_hints=resource.column_hints,
     )
 

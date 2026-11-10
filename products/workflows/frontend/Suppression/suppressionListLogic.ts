@@ -1,13 +1,13 @@
 import { MakeLogicType, actions, afterMount, connect, isBreakpoint, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import { projectLogic } from 'scenes/projectLogic'
 
 import {
     messagingSuppressionsAddSuppressionCreate,
-    messagingSuppressionsRemoveSuppressionCreate,
+    messagingSuppressionsBulkRemoveSuppressionsCreate,
     messagingSuppressionsSuppressionsRetrieve,
 } from 'products/messaging/frontend/generated/api'
 import type {
@@ -24,8 +24,8 @@ export interface suppressionListLogicValues {
     addSuppressionLoading: boolean
     currentPage: number
     newIdentifier: string
-    removeSuppression: string | null
-    removeSuppressionLoading: boolean
+    removedSuppressions: string[]
+    removedSuppressionsLoading: boolean
     searchTerm: string
     showAddModal: boolean
     suppressions: PaginatedMessageSuppressionApi
@@ -48,6 +48,9 @@ export interface suppressionListLogicActions {
     ) => {
         addSuppression: MessageSuppressionApi
         payload?: string
+    }
+    confirmRemove: (entries: readonly MessageSuppressionApi[]) => {
+        entries: readonly MessageSuppressionApi[]
     }
     loadNextPage: () => {
         value: true
@@ -76,20 +79,29 @@ export interface suppressionListLogicActions {
             page: number
         }
     }
-    removeSuppression: (identifier: string) => string
-    removeSuppressionFailure: (
+    removeSuppressions: ({ identifiers, confirmComplaints }: { confirmComplaints: boolean; identifiers: string[] }) => {
+        identifiers: string[]
+        confirmComplaints: boolean
+    }
+    removeSuppressionsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    removeSuppressionSuccess: (
-        removeSuppression: string,
-        payload?: string
+    removeSuppressionsSuccess: (
+        removedSuppressions: string[],
+        payload?: {
+            identifiers: string[]
+            confirmComplaints: boolean
+        }
     ) => {
-        removeSuppression: string
-        payload?: string
+        removedSuppressions: string[]
+        payload?: {
+            identifiers: string[]
+            confirmComplaints: boolean
+        }
     }
     setCurrentPage: (page: number) => {
         page: number
@@ -121,6 +133,28 @@ const fetchPage = async (
     })
 }
 
+export function removalWarning(entries: readonly MessageSuppressionApi[]): {
+    title: string
+    description: string
+    confirmLabel: string
+} {
+    const single = entries.length === 1
+    const title = single
+        ? `Remove ${entries[0].identifier} from the suppression list?`
+        : `Remove ${entries.length} addresses from the suppression list?`
+    const resend = single
+        ? 'Your workflows will send to this address again. If it bounces again, it goes back on the list.'
+        : 'Your workflows will send to these addresses again. Any that bounce again go back on the list.'
+    if (!entries.some((entry) => entry.source === 'COMPLAINT')) {
+        return { title, description: resend, confirmLabel: 'Remove' }
+    }
+    return {
+        title,
+        description: `${single ? 'This recipient' : 'Some of these recipients'} reported your emails as spam. Sending to them again can hurt your sender reputation, so more of your email may land in spam. ${resend}`,
+        confirmLabel: 'Remove anyway',
+    }
+}
+
 export const suppressionListLogic = kea<suppressionListLogicType>([
     path(['products', 'workflows', 'frontend', 'Suppression', 'suppressionListLogic']),
     connect(() => ({
@@ -134,6 +168,7 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
         setShowAddModal: (show: boolean) => ({ show }),
         setNewIdentifier: (identifier: string) => ({ identifier }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        confirmRemove: (entries: readonly MessageSuppressionApi[]) => ({ entries }),
     }),
     reducers({
         currentPage: [
@@ -209,19 +244,36 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
                 }
             },
         },
-        removeSuppression: {
-            __default: null as string | null,
-            removeSuppression: async (identifier: string): Promise<string> => {
+        removedSuppressions: {
+            __default: [] as string[],
+            removeSuppressions: async ({
+                identifiers,
+                confirmComplaints,
+            }: {
+                identifiers: string[]
+                confirmComplaints: boolean
+            }): Promise<string[]> => {
                 if (values.currentProjectId === null) {
                     throw new Error('No current project')
                 }
                 try {
-                    await messagingSuppressionsRemoveSuppressionCreate(String(values.currentProjectId), { identifier })
-                    lemonToast.success(`${identifier} removed from suppression list`)
-                    actions.loadSuppressions()
-                    return identifier
+                    const { removed } = await messagingSuppressionsBulkRemoveSuppressionsCreate(
+                        String(values.currentProjectId),
+                        { identifiers, confirm_complaints: confirmComplaints }
+                    )
+                    lemonToast.success(
+                        removed.length === 0
+                            ? 'Already removed from the suppression list'
+                            : removed.length === 1
+                              ? `${removed[0]} removed from the suppression list`
+                              : `${removed.length} addresses removed from the suppression list`
+                    )
+                    // Removing every row on the last page leaves that page empty, and the API rejects an empty page.
+                    const pageEmptied = removed.length >= (values.suppressions.results?.length ?? 0)
+                    actions.loadSuppressions(pageEmptied ? Math.max(1, values.currentPage - 1) : values.currentPage)
+                    return removed
                 } catch (e) {
-                    lemonToast.error('Failed to remove from suppression list')
+                    lemonToast.error('Failed to remove from the suppression list. Reload the list and try again.')
                     throw e
                 }
             },
@@ -234,6 +286,24 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
         },
         loadNextPage: () => actions.loadSuppressions(values.currentPage + 1),
         loadPreviousPage: () => actions.loadSuppressions(Math.max(1, values.currentPage - 1)),
+        confirmRemove: ({ entries }) => {
+            const { title, description, confirmLabel } = removalWarning(entries)
+            const confirmComplaints = entries.some((entry) => entry.source === 'COMPLAINT')
+            LemonDialog.open({
+                title,
+                description,
+                primaryButton: {
+                    children: confirmLabel,
+                    status: 'danger',
+                    onClick: () =>
+                        actions.removeSuppressions({
+                            identifiers: entries.map((entry) => entry.identifier),
+                            confirmComplaints,
+                        }),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadSuppressions()

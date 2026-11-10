@@ -28,7 +28,7 @@ import { StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout, radii, type } from '@/ui/tokens'
-import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { bottomOffset, topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { useScrollTitle } from '@/ui/useScrollTitle'
 import {
     type ErrorsChrome,
@@ -49,7 +49,7 @@ const FILTERS: readonly { key: Exclude<IssueFilter, 'all'>; label: string }[] = 
     { key: 'mine', label: 'Mine' },
 ]
 /** The bottom bar's design inset on a tab; a pushed screen has none. */
-const TAB_BOTTOM = 120
+const _TAB_BOTTOM = 120
 const STACK_BOTTOM = 40
 const STACK_TOAST_BOTTOM = 48
 
@@ -73,6 +73,7 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
     const styles = useStyles()
     const router = useRouter()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     const scrollTitle = useScrollTitle('Errors')
     const access = useFeatureAccess('errors')
     const context = useErrorsContext()
@@ -129,7 +130,7 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
     }
 
     const contentTop = topOffset(insets, chrome === 'tab' ? TABS_HEADER_BOTTOM : SCREEN_CONTENT_TOP)
-    const contentBottom = bottomOffset(insets, chrome === 'tab' ? TAB_BOTTOM : STACK_BOTTOM)
+    const contentBottom = chrome === 'tab' ? tabBottom : bottomOffset(insets, STACK_BOTTOM)
 
     // A pushed screen draws its own title; on a tab the shared tabs header draws it.
     const stackTitle =
@@ -246,7 +247,7 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
                 data={rows}
                 keyExtractor={keyOf}
                 renderItem={({ item }) => <IssueListRow row={item} now={now} myName={viewer.name} onOpen={openIssue} />}
-                ListHeaderComponent={header}
+                ListHeaderComponent={header ?? undefined}
                 ListFooterComponent={
                     <ListPaginationFooter
                         noun="errors"

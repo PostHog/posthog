@@ -136,6 +136,7 @@ const eventGroupTypes = [
     TaxonomicFilterGroupType.EventFeatureFlags,
 ]
 const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFilterGroupType.PersonProperties]
+const accountUsersGroupTypes = [TaxonomicFilterGroupType.PersonProperties]
 const sessionGroupTypes = [
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.SessionProperties,
@@ -196,6 +197,7 @@ export function DataTable({
         newDataLoading,
         highlightedRows,
         backToSourceQuery,
+        canLoadNextData,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
@@ -340,7 +342,9 @@ export function DataTable({
     )
 
     const groupTypes = isActorsQuery(query.source)
-        ? personGroupTypes
+        ? query.source.source?.kind === NodeKind.AccountUsersQuery
+            ? accountUsersGroupTypes
+            : personGroupTypes
         : isSessionsQuery(query.source)
           ? sessionGroupTypes
           : eventGroupTypes
@@ -432,7 +436,7 @@ export function DataTable({
                                         <>
                                             <LemonDivider />
                                             <TaxonomicPopover
-                                                groupType={TaxonomicFilterGroupType.HogQLExpression}
+                                                groupType={groupTypes[0]}
                                                 value={key}
                                                 groupTypes={groupTypes}
                                                 metadataSource={query.source}
@@ -554,7 +558,7 @@ export function DataTable({
                                         <>
                                             <LemonDivider />
                                             <TaxonomicPopover
-                                                groupType={TaxonomicFilterGroupType.HogQLExpression}
+                                                groupType={groupTypes[0]}
                                                 value=""
                                                 groupTypes={groupTypes}
                                                 metadataSource={query.source}
@@ -598,7 +602,7 @@ export function DataTable({
                                                 }}
                                             />
                                             <TaxonomicPopover
-                                                groupType={TaxonomicFilterGroupType.HogQLExpression}
+                                                groupType={groupTypes[0]}
                                                 value=""
                                                 groupTypes={groupTypes}
                                                 metadataSource={query.source}
@@ -1183,7 +1187,10 @@ export function DataTable({
                                 footer={
                                     (dataTableRows ?? []).length > 0 &&
                                     (context?.showLoadNextButton ||
-                                        !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
+                                        !sourceFeatures.has(QueryFeature.hideLoadNextButton)) &&
+                                    (!context?.dataTableHideLoadNextWhenComplete ||
+                                        canLoadNextData ||
+                                        nextDataLoading) ? (
                                         <LoadNext
                                             query={query.source}
                                             nouns={context?.dataTableNouns}

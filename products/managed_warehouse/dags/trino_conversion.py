@@ -115,7 +115,7 @@ def _summarize(
         if plan.rebuild and kind != "events":
             job = f"duckling_{kind}_backfill_job"
             next_steps.append(
-                f"Rebuild {kind}: run {job} for partition {team_id} with rebuild_mismatched_table: true, with the org on the Trino flag"
+                f"Rebuild {kind}: run {job} for partition {team_id} with rebuild_mismatched_table: true, with the org on the Trino flag or register_through_trino: true"
             )
     summary = "\n".join([*lines, *next_steps])
     context.log.info(f"Trino conversion summary for team {team_id}:\n{summary}")

@@ -286,11 +286,12 @@ import { AttachedContextBar } from 'products/posthog_ai/frontend/api/primitives'
 ```
 
 The @-button opens a `TaxonomicPopover` over events/actions/insights/dashboards/notebooks/error-tracking
-issues; a selection becomes a flat `{ type, key, label }` ref in `contextPickerLogic` (`api/logics`) — no
-entity loading, the agent fetches details. The chips render **everything** in `contextItems`, whatever
-provider contributed it. Closing a chip the picker owns removes the pick; closing any other provider's chip
+issues; a selection becomes a flat `{ type, key, label }` ref through `contextPickerLogic` (`api/logics`) — no
+entity loading, the agent fetches details. In a new chat the chips render your picks and **everything** in
+`contextItems`, whatever provider contributed it. A started chat freezes its chips: pass `taskId` to `AttachedContextChips` or
+`QuillAttachedContextChips` to show what `chatContextLogic` holds for that chat. Closing a chip the picker owns removes the pick; closing any other provider's chip
 dismisses that key (`attachedContextLogic.dismissContext`), which sticks even while the provider keeps
-re-registering the item — re-picking it through the popover restores it.
+re-registering the item — re-picking it through the popover adds it back as a pick.
 
 ### React to the agent invoking a tool
 

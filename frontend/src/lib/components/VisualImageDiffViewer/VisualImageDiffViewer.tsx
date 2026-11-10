@@ -944,11 +944,13 @@ export function VisualImageDiffViewer({
 
                 {supportsComparison ? renderComparisonBody() : renderSingleImageBody()}
             </section>
+            {/* The viewer also renders inside the toolbar's modals, which sit above popovers, so the zoom must too. */}
             <LemonModal
                 isOpen={!!zoomedImage}
                 onClose={() => setZoomedImage(null)}
                 fullScreen
                 simple
+                forceAbovePopovers
                 data-attr="visual-review-zoomed-image"
             >
                 <div className="flex h-full min-h-0 items-center justify-center bg-bg-3000 p-4">

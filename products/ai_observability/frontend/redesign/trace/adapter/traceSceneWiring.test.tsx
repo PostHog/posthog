@@ -15,7 +15,9 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
+import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
 import type { TraceClusterApi } from '../../../generated/api.schemas'
+import { queryEvaluationRuns } from '../../../utils'
 import { traceReviewLogic } from '../traceReviewLogic'
 import { TraceScene } from '../TraceScene'
 import {
@@ -26,7 +28,9 @@ import {
     makeFeedback,
     makeFeedbackScore,
     makeFeedbackText,
+    makeMessage,
     makeNodeDetail,
+    makeRawNode,
     makeSurveyResponse,
     makeTrace,
     makeTraceCluster,
@@ -46,6 +50,7 @@ jest.mock('../../../utils', () => ({
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
+const RAW_NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/raw/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
@@ -59,19 +64,48 @@ const REVIEW_QUEUES_URL = '/api/projects/:team_id/llm_analytics/review_queues/'
 const QUEUE_ITEM_URL = '/api/projects/:team_id/llm_analytics/review_queue_items/:id/'
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
-    properties: {
-        $ai_input: [{ role: 'user', content: 'Why did my invoice go up?' }],
-        $ai_output_choices: [{ role: 'assistant', content: 'Two seats were added.' }],
+    content: {
+        input: {
+            kind: 'messages',
+            messages: [
+                makeMessage({
+                    id: 'gen-2-in-0',
+                    role: 'user',
+                    parts: [{ kind: 'text', text: 'Why did my invoice go up?' }],
+                }),
+            ],
+        },
+        output: {
+            kind: 'messages',
+            messages: [
+                makeMessage({
+                    id: 'gen-2-out-0',
+                    role: 'assistant',
+                    parts: [{ kind: 'text', text: 'Two seats were added.' }],
+                }),
+            ],
+        },
     },
-    ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
 })
 const askedGeneration = makeNodeDetail({
     id: 'gen-1',
-    properties: { $ai_input: [{ role: 'user', content: 'Is my invoice right?' }] },
-    ioKeys: { input: '$ai_input' },
+    content: {
+        input: {
+            kind: 'messages',
+            messages: [
+                makeMessage({
+                    id: 'gen-1-in-0',
+                    role: 'user',
+                    parts: [{ kind: 'text', text: 'Is my invoice right?' }],
+                }),
+            ],
+        },
+        output: { kind: 'messages', messages: [] },
+    },
 })
 const nodeDetails: Record<string, typeof answeredGeneration> = { 'gen-1': askedGeneration, 'gen-2': answeredGeneration }
 let nodeRequests: string[] = []
+let datasetListRequests = 0
 const nodeMock = {
     [NODE_URL]: ({ params }: { params: Record<string, unknown> }) => {
         const nodeId = decodeIdSegment(String(params.node_id))
@@ -100,6 +134,14 @@ const generation = makeEvent({
     },
 })
 
+function findElement(container: HTMLElement, dataAttr: string): HTMLElement {
+    const element = container.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`)
+    if (!element) {
+        throw new Error(`expected ${dataAttr} to render`)
+    }
+    return element
+}
+
 let accessToRestore: { saved: Record<AccessControlResourceType, AccessControlLevel> } | null = null
 
 function renderNewView(
@@ -122,6 +164,7 @@ function renderNewView(
         flags
     )
     nodeRequests = []
+    datasetListRequests = 0
     jest.mocked(performQuery).mockReset()
     jest.mocked(performQuery).mockResolvedValue({ results: [] })
     aiObservabilityTraceLogic.mount()
@@ -148,7 +191,10 @@ describe('TraceScene', () => {
             useMocks({
                 get: {
                     [TRACE_URL]: () => [200, makeTraceResource({ defaultNodeId: 'gen-2' })],
-                    [DATASETS_URL]: () => [200, { count: 0, results: [] }],
+                    [DATASETS_URL]: () => {
+                        datasetListRequests++
+                        return [200, { count: 0, results: [] }]
+                    },
                     [SEARCH_URL]: () => [200, { total: 1, matches: [{ nodeId: 'gen-1', count: 1 }] }],
                     ...nodeMock,
                     ...evaluationsMock,
@@ -159,7 +205,7 @@ describe('TraceScene', () => {
             })
         })
 
-        it('opens on the default node without the legacy trace or neighbours queries', async () => {
+        it('opens on the default node without the legacy trace, neighbours or evaluation runs queries', async () => {
             const apiQuery = jest.spyOn(api, 'query').mockResolvedValue({ results: [] })
             const { findAllByText, findByText } = renderNewView({ [TRACE_NAVIGATION_FLAG]: true })
 
@@ -168,6 +214,7 @@ describe('TraceScene', () => {
             await expectLogic(aiObservabilityTraceLogic).toFinishAllListeners()
             expect(jest.mocked(performQuery).mock.calls.some(([query]) => query.kind === 'TraceQuery')).toBe(false)
             expect(apiQuery.mock.calls.some(([query]) => query.kind === 'TraceNeighborsQuery')).toBe(false)
+            expect(queryEvaluationRuns).not.toHaveBeenCalled()
             apiQuery.mockRestore()
         })
 
@@ -490,6 +537,93 @@ describe('TraceScene', () => {
 
             expect(await findByText('Two seats were added.')).toBeTruthy()
             expect(queryByText('Add to dataset') !== null).toBe(enabled)
+            expect(datasetListRequests > 0).toBe(enabled)
+        })
+
+        it('keeps the dataset list loaded while an unread step loads', async () => {
+            const { findByText } = renderNewView({ [DATASETS_FLAG]: true })
+            await findByText('Add to dataset')
+            await waitFor(() => expect(datasetListRequests).toBeGreaterThan(0))
+            const requestsBeforeStep = datasetListRequests
+
+            fireEvent.click(await findByText('span-1'))
+            await waitFor(() => expect(nodeRequests).toContain('span-1'))
+            await findByText('Add to dataset')
+            await expectLogic(saveToDatasetButtonLogic).toFinishAllListeners()
+
+            expect(datasetListRequests).toBe(requestsBeforeStep)
+        })
+
+        it.each([
+            { reach: 'hover', focused: false, opened: false },
+            { reach: 'focus', focused: true, opened: false },
+            { reach: 'click', focused: true, opened: true },
+        ])(
+            'reads the step event when the user reaches for add to dataset by $reach and keeps that intent',
+            async ({ reach, focused, opened }) => {
+                let releaseRaw = (): void => {}
+                const rawReleased = new Promise<void>((resolve) => {
+                    releaseRaw = resolve
+                })
+                const rawRequests: string[] = []
+                useMocks({
+                    get: {
+                        [RAW_NODE_URL]: async ({ params }) => {
+                            rawRequests.push(decodeIdSegment(String(params.node_id)))
+                            await rawReleased
+                            return [200, makeRawNode({ id: 'gen-2' })]
+                        },
+                    },
+                })
+                const { container } = renderNewView({ [DATASETS_FLAG]: true }, {}, AccessControlLevel.Editor)
+                const placeholder = await waitFor(() => findElement(container, 'save-to-dataset-placeholder'))
+
+                if (reach === 'hover') {
+                    fireEvent.mouseEnter(placeholder)
+                } else {
+                    placeholder.focus()
+                }
+                if (reach === 'click') {
+                    fireEvent.click(placeholder)
+                }
+                await waitFor(() => expect(rawRequests).toEqual(['gen-2']))
+                releaseRaw()
+
+                const realButton = await waitFor(() => findElement(container, 'save-to-dataset-open'))
+                await waitFor(() => expect(document.activeElement === document.body).toBe(!focused))
+                if (focused) {
+                    expect(document.activeElement === realButton || opened).toBe(true)
+                }
+                await waitFor(() =>
+                    expect(document.querySelector('[data-attr="save-to-dataset-search"]') !== null).toBe(opened)
+                )
+            }
+        )
+
+        it('does not carry a click on one step into the dataset button of the next step', async () => {
+            useMocks({
+                get: {
+                    [RAW_NODE_URL]: ({ params }) => {
+                        const nodeId = decodeIdSegment(String(params.node_id))
+                        return [
+                            200,
+                            nodeId === 'gen-2'
+                                ? makeRawNode({ id: nodeId, withEvent: false })
+                                : makeRawNode({ id: nodeId, kind: 'span' }),
+                        ]
+                    },
+                },
+            })
+            const { container, findByText } = renderNewView({ [DATASETS_FLAG]: true }, {}, AccessControlLevel.Editor)
+            fireEvent.click(await waitFor(() => findElement(container, 'save-to-dataset-placeholder')))
+            await waitFor(() => expect(container.querySelector('[data-attr="save-to-dataset-placeholder"]')).toBeNull())
+
+            fireEvent.click(await findByText('span-1'))
+            fireEvent.mouseEnter(await waitFor(() => findElement(container, 'save-to-dataset-placeholder')))
+            await waitFor(() => findElement(container, 'save-to-dataset-open'))
+            await expectLogic(saveToDatasetButtonLogic).toFinishAllListeners()
+
+            expect(document.querySelector('[data-attr="save-to-dataset-search"]')).toBeNull()
         })
 
         it.each([

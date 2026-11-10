@@ -13,7 +13,7 @@ from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -168,7 +168,7 @@ class TestResourceTransferPreview(APIBaseTest):
 
     def test_preview_survey_includes_insight_and_dependencies(self) -> None:
         insight = Insight.objects.create(team=self.team, name="Survey insight")
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="survey trigger",
             steps_json=[{"event": "$pageview"}],
@@ -180,7 +180,7 @@ class TestResourceTransferPreview(APIBaseTest):
             questions=[{"id": "q1", "type": "open", "question": "Hi"}],
             linked_insight=insight,
         )
-        survey.actions.add(action)
+        survey.actions.add(action.id)
 
         response = self.client.post(
             self._preview_url(),
@@ -765,11 +765,11 @@ class TestResourceTransferTenantIsolation(APIBaseTest):
         return f"/api/organizations/{self.organization.id}/resource_transfers/transfer/"
 
     def test_preview_rejects_insight_referencing_foreign_org_action(self) -> None:
-        foreign_action = Action.objects.create(team=self.foreign_team, name="Secret action")
+        foreign_action = create_action(team=self.foreign_team, name="Secret action")
         insight = Insight.objects.create(
             team=self.team,
             name="Malicious insight",
-            filters={"actions": [{"id": foreign_action.pk}]},
+            filters={"actions": [{"id": foreign_action.id}]},
         )
 
         response = self.client.post(

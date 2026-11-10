@@ -1,10 +1,12 @@
+import { AccessControlLevel } from '~/types'
+
 import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowScheduleApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
-import { StoppableBroadcast, canEditInWizard, canMoveToDraft } from './broadcastsLogic'
+import { StoppableBroadcast, canEditInWizard, canMoveToDraft, opensInWizard } from './broadcastsLogic'
 import { DEFAULT_BROADCAST_CONVERSION, DEFAULT_BROADCAST_EMAIL, buildBroadcastPayload } from './broadcastWizardLogic'
 
 const trigger = (filters: Record<string, any> = { properties: [] }): Record<string, any> => ({
@@ -56,6 +58,15 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         ],
     ])('opens %s in the wizard: %s', (_, actions, flowEdges, expected) => {
         expect(canEditInWizard(actions, flowEdges)).toBe(expected)
+    })
+
+    it.each<[string, HogFlowApi['status'], AccessControlLevel, boolean]>([
+        ['a draft for an editor', 'draft', AccessControlLevel.Editor, true],
+        ['a draft for a viewer', 'draft', AccessControlLevel.Viewer, false],
+        ['a sent broadcast for an editor', 'active', AccessControlLevel.Editor, false],
+    ])('opens %s in the wizard', (_, status, userAccessLevel, expected) => {
+        const broadcast = { status, user_access_level: userAccessLevel, actions: [trigger(), email(), exit], edges }
+        expect(opensInWizard(broadcast as unknown as HogFlowApi)).toBe(expected)
     })
 
     it.each<

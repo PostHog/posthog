@@ -5,6 +5,7 @@ from django.db import models
 from django.db.models import F, Func, Q, Value
 from django.db.models.expressions import NegatedExpression
 from django.db.models.lookups import Exact
+from django.utils import timezone
 
 from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.tagged_items_relation import Taggable
@@ -34,6 +35,9 @@ class Dataset(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     description = models.TextField(blank=True, default="")
     metadata = models.JSONField(blank=True, default=dict)
     archived = models.BooleanField(default=False)
+    last_used_at = models.DateTimeField(default=timezone.now, null=True)
+    expired_at = models.DateTimeField(null=True, blank=True)
+    retention_checked_at = models.DateTimeField(null=True, blank=True)
     current_revision = models.ForeignKey(
         "DatasetRevision",
         on_delete=models.RESTRICT,
@@ -46,13 +50,19 @@ class Dataset(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         db_table = "llm_analytics_dataset_v2"
         ordering = ["-created_at", "id"]
         constraints = [
-            models.UniqueConstraint(fields=["team", "name"], name="uniq_llma_dataset_v2_team_name"),
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=Q(expired_at__isnull=True),
+                name="uniq_llma_dataset_v2_live_name",
+            ),
             models.CheckConstraint(
                 condition=_json_type_is("metadata", "object"),
                 name="llma_dataset_v2_metadata_object",
             ),
         ]
         indexes = [
+            models.Index(fields=["last_used_at", "id"], name="llma_dataset_retention_idx"),
+            models.Index(fields=["retention_checked_at", "id"], name="llma_dataset_retention_chk_idx"),
             models.Index(
                 fields=["team", "archived", "-created_at", "id"],
                 name="llma_dataset_v2_team_arch_idx",
@@ -80,10 +90,13 @@ class DatasetRevision(UUIDModel, CreatedMetaFields):
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="revisions")
     revision = models.PositiveIntegerField()
+    last_used_at = models.DateTimeField(default=timezone.now, null=True)
+    expired_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "llm_analytics_datasetrevision_v2"
         ordering = ["-revision"]
+        indexes = [models.Index(fields=["last_used_at", "id"], name="llma_revision_retention_idx")]
         constraints = [
             models.UniqueConstraint(
                 fields=["dataset", "revision"],
@@ -156,6 +169,7 @@ class DatasetItemVersion(UUIDModel, CreatedMetaFields):
         related_name="item_versions",
     )
     version = models.PositiveIntegerField()
+    last_used_at = models.DateTimeField(default=timezone.now, null=True)
     archived = models.BooleanField(default=False)
     input = models.JSONField()
     expected_output = models.JSONField(null=True, blank=True)

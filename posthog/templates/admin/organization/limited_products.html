@@ -1,3 +1,4 @@
+<p>{{ actions_moved }}</p>
 <table style="border-collapse: collapse; width: 100%;">
     <thead>
         <tr>
@@ -6,7 +7,6 @@
             <th style="padding: 8px; text-align: left;">Limited Teams</th>
             <th style="padding: 8px; text-align: left;">Redis Until</th>
             <th style="padding: 8px; text-align: left;">Usage Until</th>
-            <th style="padding: 8px; text-align: left;">Actions</th>
         </tr>
     </thead>
     <tbody>
@@ -19,31 +19,6 @@
                 <td style="padding: 8px;">{{ info.limited_teams|length }}<span style="color: #888">/{{ total_teams }}</span></td>
                 <td style="padding: 8px;">{{ info.redis_quota_limited_until_formatted }}</td>
                 <td style="padding: 8px;">{{ info.usage_quota_limited_until_formatted }}</td>
-                <td style="padding: 8px;">
-                    <form method="post"
-                          action="{% url 'admin:limit_product' organization_id %}"
-                          style="display: inline-block;
-                                 margin-right: 4px">
-                        {% csrf_token %}
-                        <input type="hidden" name="resource" value="{{ resource }}">
-                        <button type="submit"
-                                class="button"
-                                style="padding: 2px 8px;
-                                       font-size: 11px"
-                                {% if info.is_limited_in_redis %}disabled{% endif %}>Limit</button>
-                    </form>
-                    <form method="post"
-                          action="{% url 'admin:unlimit_product' organization_id %}"
-                          style="display: inline-block">
-                        {% csrf_token %}
-                        <input type="hidden" name="resource" value="{{ resource }}">
-                        <button type="submit"
-                                class="button"
-                                style="padding: 2px 8px;
-                                       font-size: 11px"
-                                {% if not info.is_limited_in_redis %}disabled{% endif %}>Unlimit</button>
-                    </form>
-                </td>
             </tr>
         {% endfor %}
     </tbody>

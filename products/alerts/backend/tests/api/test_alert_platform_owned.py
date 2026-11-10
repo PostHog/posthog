@@ -41,6 +41,7 @@ from products.alerts_platform.backend.facade.contracts import (
     VerdictChange,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
 from products.notebooks.backend.facade.api import create_notebook
 
 
@@ -289,7 +290,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         self._record(30, "firing", value=150.0)
 
         with patch(
-            "products.alerts.backend.platform_alert_reads.check_page_by_legacy_id",
+            "products.alerts.backend.platform_alert_reads.check_page_by_public_id",
             side_effect=RuntimeError("ClickHouse is down"),
         ):
             row = self._row("retrieve")
@@ -329,7 +330,16 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             )
 
     def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
-        self._edit_on_the_platform(lambda stored: replace(stored, name="Edited on the platform"))
+        stored_config = self._copy().source_config
+        # A platform edit names only the settings it sends, so the insight check settings stay as stored.
+        self._edit_on_the_platform(
+            lambda stored: replace(
+                stored,
+                name="Edited on the platform",
+                source_config={key: stored_config[key] for key in ("insight_id", "condition")},
+            )
+        )
+        assert self._copy().source_config["config"] == stored_config["config"] is not None
         insight_edit = self.client.patch(
             f"{self.url}/{self.alert.id}/",
             {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 200}}}},
@@ -346,19 +356,49 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}),
+            ("rename", {"name": "Renamed"}, "firing"),
+            (
+                "threshold",
+                {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 200}}}},
+                "not_firing",
+            ),
+        ]
+    )
+    def test_an_insight_edit_to_a_copy_without_the_check_settings_ends_a_firing_only_on_a_real_change(
+        self, _name: str, payload: dict[str, Any], state: str
+    ) -> None:
+        with team_scope(self.team.id):
+            stored_config = self._copy().source_config
+            older = {key: stored_config[key] for key in ("insight_id", "condition")}
+            platform_testing.set_source_config(self.copy_id, older)
+            platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=self.now)
+
+        response = self.client.patch(f"{self.url}/{self.alert.id}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        with team_scope(self.team.id):
+            instance = platform_testing.alert_for(self.copy_id)
+        assert instance is not None
+        assert instance.state == state
+
+    @parameterized.expand(
+        [
+            ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}, {}),
             # The insight API checks a detector against its insight and its access rules, so only it may set one.
-            ("detector", {"detector": {"type": "zscore"}}),
+            ("detector", {"detector": {"type": "zscore"}}, {}),
+            ("series", {}, {"config": {"type": "TrendsAlertConfig", "series_index": 1}}),
+            ("skip_weekend", {}, {"skip_weekend": True}),
+            ("evaluation_delay", {}, {"evaluation_delay_intervals": 3}),
         ]
     )
     def test_a_platform_edit_the_insight_stack_cannot_check_is_refused_on_both_rows(
-        self, _name: str, condition_change: dict[str, Any]
+        self, _name: str, condition_change: dict[str, Any], settings_change: dict[str, Any]
     ) -> None:
         stored_config = self._copy().source_config
 
         def edit(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
             condition = {**stored.source_config["condition"], **condition_change}
-            return replace(stored, source_config={**stored.source_config, "condition": condition})
+            return replace(stored, source_config={**stored.source_config, **settings_change, "condition": condition})
 
         with pytest.raises(InvalidPlatformAlertEdit):
             self._edit_on_the_platform(edit)
@@ -384,6 +424,9 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         self.organization.save()
         self._edit_on_the_platform(lambda stored: replace(stored, enabled=False))
         AlertConfiguration.objects.filter(id=self.alert.id).update(**stored)
+        if stored.get("calculation_interval") == AlertCalculationInterval.REAL_TIME:
+            with team_scope(self.team.id):
+                platform_testing.set_check_interval_minutes(self.copy_id, REAL_TIME_CADENCE_MINUTES)
 
         with (
             patch.object(AlertConfiguration, "check_real_time_alert_limit", return_value=real_time_limit_error),

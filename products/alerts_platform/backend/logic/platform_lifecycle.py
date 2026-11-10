@@ -308,6 +308,7 @@ def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> Pl
         owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
         recurrence_unit=c.recurrence_unit,
         anchor_time=c.anchor_time,
+        created_by_id=c.created_by_id,
     )
 
 
@@ -734,6 +735,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             # A source's snooze mutes the whole alert. State is left alone because a muted alert
             # keeps tracking reality.
             "snooze_until": upsert.snooze_until,
+            "created_by_id": upsert.created_by_id,
         }
         if (
             existing is None
@@ -819,6 +821,9 @@ def write_edit(
     if reenabled:
         configuration.next_check_at = now + _REVIVE_FENCE
         update_fields.append("next_check_at")
+        if configuration.first_enabled_at is None:
+            configuration.first_enabled_at = now
+            update_fields.append("first_enabled_at")
     _assign_edit(configuration, edit)
     configuration.save(update_fields=update_fields)
 
@@ -830,6 +835,7 @@ def create_native_configuration(
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
     destinations_owner: PlatformAlertOwner,
+    created_by_id: int | None,
     now: datetime,
 ) -> PlatformAlertConfiguration:
     """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
@@ -840,6 +846,8 @@ def create_native_configuration(
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,
         destinations_owner=destinations_owner,
+        created_by_id=created_by_id,
+        first_enabled_at=now if edit.enabled else None,
     )
     _assign_edit(configuration, edit)
     # The model's own save logs the creation.
@@ -897,7 +905,7 @@ def write_snooze(configuration: PlatformAlertConfiguration, snooze_until: dateti
     configuration.save(update_fields=["snooze_until", "next_check_at", "updated_at"])
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admit_new_teams: bool = False) -> None:
     """Copies one configuration in when its team already runs that source here.
 
     A copy the platform owns gets nothing, because every edit already writes both of its rows.
@@ -905,6 +913,10 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> N
     enabled. A team the backfill left out of its sample, or one
     `disable_configurations` switched off, gets nothing, and neither does a copy an operator switched
     off by name, so a write in the source never widens a sample or undoes an operator's switch-off.
+
+    `admit_new_teams` is for a source whose parallel run covers every team. It also admits a team with
+    no enabled copy, such as one whose first alert this is, while the source runs for another team and
+    no operator switched this team off.
     """
     with transaction.atomic():
         _hold_admission(upsert.source_kind.value, exclusive=False)
@@ -914,10 +926,23 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> N
         existing = team_copies.filter(legacy_configuration_id=upsert.legacy_configuration_id).first()
         if existing is not None and existing.owner == PlatformAlertOwner.PLATFORM:
             return
-        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists()
+        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists() or (
+            admit_new_teams and _admits_new_team(team_copies, upsert.source_kind.value)
+        )
         switched_off = existing is not None and existing.switched_off_at is not None
         if running and not switched_off:
             upsert_configuration(upsert, revive=revive)
+
+
+def _admits_new_team(team_copies: QuerySet[PlatformAlertConfiguration], source_kind: str) -> bool:
+    if team_copies.filter(switched_off_at__isnull=False).exists():
+        return False
+    # A switch-off of the whole source leaves no enabled copy anywhere, so this admits nothing then.
+    return (
+        PlatformAlertConfiguration.objects.unscoped()
+        .filter(source_kind=source_kind, owner=PlatformAlertOwner.SOURCE, enabled=True)
+        .exists()
+    )
 
 
 def _hold_admission(source_kind: str, *, exclusive: bool) -> None:
@@ -954,6 +979,7 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
         datapoints_to_alarm=upsert.datapoints_to_alarm,
         cooldown_minutes=upsert.cooldown_minutes,
         schedule_restriction=upsert.schedule_restriction,
+        created_by_id=upsert.created_by_id,
         # `update()` skips `auto_now`.
         updated_at=django_timezone.now(),
     )
@@ -1138,17 +1164,19 @@ def give_back_ownership(
         return handback
 
 
-def reset_broken(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> int | None:
+def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
     """Clears a broken alert the platform owns so the next tick checks it again, from rest.
 
-    Returns the failure count it cleared, or None when the alert is not broken. Discovery skips a
-    broken alert, so without this it never runs again. The caller holds the source's row lock.
+    `public_id` is the alert's `destination_alert_id`. Returns the failure count it cleared, or None
+    when the alert is not broken.
+    Discovery skips a broken alert, so without this it never runs again. The caller holds the source's
+    row lock, when there is one.
     """
     with transaction.atomic():
         configuration = (
             PlatformAlertConfiguration.objects.for_team(team_id)
             .select_for_update()
-            .get(legacy_configuration_id=legacy_configuration_id)
+            .get(PlatformAlertConfiguration.with_destination_alert_ids([public_id]))
         )
         if configuration.owner != PlatformAlertOwner.PLATFORM:
             raise ValueError("the platform does not own this alert, so its source resets it")
@@ -1182,10 +1210,14 @@ def disable_configurations(
         # source still owns: once the platform owns an alert, its copy is the production alert, and
         # switching it off would silence real notifications rather than stop a parallel check.
         rows = PlatformAlertConfiguration.objects.unscoped().filter(
-            source_kind=source_kind, enabled=True, owner=PlatformAlertOwner.SOURCE
+            source_kind=source_kind, owner=PlatformAlertOwner.SOURCE
         )
         if team_id is not None:
             rows = rows.filter(team_id=team_id)
         if legacy_configuration_ids is not None:
             rows = rows.filter(legacy_configuration_id__in=legacy_configuration_ids)
-        return rows.update(enabled=False, switched_off_at=django_timezone.now())
+        at = django_timezone.now()
+        # A copy that is already disabled carries the switch-off too, so `upsert_if_running` cannot
+        # admit a switched-off team again through a new alert.
+        rows.filter(enabled=False, switched_off_at__isnull=True).update(switched_off_at=at)
+        return rows.filter(enabled=True).update(enabled=False, switched_off_at=at)

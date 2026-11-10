@@ -19,7 +19,7 @@ import { isAbortedRequest } from 'lib/utils/requests'
 import { hashCodeForString } from 'lib/utils/strings'
 import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
 import { teamLogic } from 'scenes/teamLogic'
-import { ProductTab, WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
+import { ProductTab, WEB_ANALYTICS_DEFAULT_QUERY_TAGS, isContentAutopilotEnabled } from 'scenes/web-analytics/common'
 import { isLiveStreamFilter, webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
@@ -275,7 +275,7 @@ export interface liveWebAnalyticsMetricsLogicMeta {
         hasActiveFilters: (liveFilters: WebAnalyticsPropertyFilter[], shouldFilterTestAccounts: boolean) => boolean
         hasBotQueryError: (botQueryStatus: BotQueryStatus) => boolean
         isBotLoading: (botQueryStatus: BotQueryStatus) => boolean
-        shouldLoadBots: (featureFlags: FeatureFlagsSet) => boolean
+        shouldLoadBots: (featureFlags: FeatureFlagsSet, productTab: ProductTab) => boolean
     }
 }
 
@@ -670,8 +670,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (botQueryStatus: BotQueryStatus): boolean => botQueryStatus === 'loading',
         ],
         shouldLoadBots: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS],
+            (s) => [s.featureFlags, s.productTab],
+            (featureFlags: FeatureFlagsSet, productTab: ProductTab): boolean =>
+                // The Bots tab inside AI visibility has its own flag; the Live tab's bot tiles keep the old one.
+                productTab === ProductTab.BOT_ANALYTICS
+                    ? isContentAutopilotEnabled(featureFlags)
+                    : !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS],
         ],
     }),
     listeners(({ actions, values, cache }) => ({

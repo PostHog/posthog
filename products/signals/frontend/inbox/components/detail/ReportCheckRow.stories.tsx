@@ -4,7 +4,9 @@ import { IconTarget } from '@posthog/icons'
 
 import type { SignalReportCheckApi, SignalReportStatusEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { SignalReportArtefact } from '../../types'
 import { DetailSection } from './DetailSection'
+import { checkObservationsByCheck } from './reportCheckObservations'
 import { buildReportCheckRows, reportChecksMeta } from './reportCheckPresentation'
 import { ReportCheckRow } from './ReportCheckRow'
 
@@ -87,10 +89,13 @@ const explanations = new Map([
 function ChecksSection({
     checks,
     reportStatus = 'resolved',
+    artefacts = [],
 }: {
     checks: SignalReportCheckApi[]
     reportStatus?: SignalReportStatusEnumApi
+    artefacts?: SignalReportArtefact[]
 }): JSX.Element {
+    const observations = checkObservationsByCheck(artefacts)
     return (
         <DetailSection
             icon={<IconTarget />}
@@ -99,7 +104,15 @@ function ChecksSection({
         >
             <div className="flex flex-col gap-1.5">
                 {buildReportCheckRows(checks, explanations, reportStatus).map((row) => (
-                    <ReportCheckRow key={row.check.id} row={row} cancelling={false} onCancel={() => undefined} />
+                    <ReportCheckRow
+                        key={row.check.id}
+                        row={row}
+                        reportId="story-report"
+                        observations={observations.get(row.check.id)}
+                        cancelling={false}
+                        onCancel={() => undefined}
+                        onSuggestMetric={() => undefined}
+                    />
                 ))}
             </div>
         </DetailSection>
@@ -141,9 +154,34 @@ export const NarrowRail: Story = {
     args: { checks: everyState },
 }
 
+function observation(measuredAt: string, observedValue: number): SignalReportArtefact {
+    return {
+        id: `observation-${measuredAt}`,
+        type: 'check_observation',
+        created_at: measuredAt,
+        content: {
+            check_id: 'monitoring-scheduled',
+            title: 'Checkout errors stay at zero after the retry fix',
+            monitoring_started_at: '2026-09-21T00:00:00Z',
+            measured_at: measuredAt,
+            monitoring_ends_at: '2026-09-22T00:00:00Z',
+            unit: 'errors',
+            value_format: 'count',
+            observed_value: observedValue,
+            comparison: { operator: 'lte', value: 0 },
+            matches: observedValue <= 0,
+        },
+    }
+}
+
 export const Monitoring: Story = {
     args: {
         reportStatus: 'monitoring',
+        artefacts: [
+            observation('2026-09-21T18:00:00Z', 2),
+            observation('2026-09-21T12:00:00Z', 0),
+            observation('2026-09-21T06:00:00Z', 0),
+        ],
         checks: [
             check({
                 id: 'monitoring-scheduled',

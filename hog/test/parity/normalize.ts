@@ -1,3 +1,7 @@
+import { z } from 'zod'
+
+import { readJson } from '@/testing'
+
 import type { RecordedRequest } from './fake-server'
 
 // Rewrites only what is random by design, so the rest can be compared byte for byte:
@@ -36,7 +40,7 @@ export function normalize(requests: RecordedRequest[]): NormalizedRequest[] {
               }
         let body = request.body
         if (body) {
-            const parsed = JSON.parse(body) as Record<string, unknown>
+            const parsed = readJson(body, z.record(z.string(), z.unknown()))
             if ('upload_run_id' in parsed) {
                 parsed.upload_run_id = '<run>'
             }

@@ -47,6 +47,18 @@ export const messagingSendEmailCreateBodyDistinctIdMax = 400
 
 export const messagingSendEmailCreateBodyReplyToMax = 10
 
+export const messagingSendEmailCreateBodyCcTwoMax = 10
+
+export const messagingSendEmailCreateBodyBccTwoMax = 10
+
+export const messagingSendEmailCreateBodyAttachmentsItemFilenameMax = 255
+
+export const messagingSendEmailCreateBodyAttachmentsItemContentTypeMax = 78
+
+export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 78
+
+export const messagingSendEmailCreateBodyAttachmentsMax = 10
+
 export const messagingSendEmailCreateBodyFromMax = 1024
 
 export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
@@ -91,6 +103,49 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingSendEmailCreateBodyReplyToMax)
         .optional()
         .describe('Addresses replies to the email your code rendered go to.'),
+    cc: zod
+        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyCcTwoMax), zod.null()])
+        .optional()
+        .describe(
+            "Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here."
+        ),
+    bcc: zod
+        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyBccTwoMax), zod.null()])
+        .optional()
+        .describe(
+            "Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here."
+        ),
+    attachments: zod
+        .array(
+            zod.object({
+                filename: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyAttachmentsItemFilenameMax)
+                    .describe(
+                        'File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.'
+                    ),
+                content: zod.string().describe("The file's bytes as standard base64, without line breaks."),
+                content_type: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyAttachmentsItemContentTypeMax)
+                    .optional()
+                    .describe(
+                        'MIME type of the file, such as `application\/pdf`. Without it, the type follows from the file name.'
+                    ),
+                content_id: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyAttachmentsItemContentIdMax)
+                    .optional()
+                    .describe(
+                        'Content ID that the HTML body references as `cid:<content_id>` to show the file inline, such as `logo`. Without `<` or `>`.'
+                    ),
+            })
+        )
+        .max(messagingSendEmailCreateBodyAttachmentsMax)
+        .nullish()
+        .describe(
+            "Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
+        ),
     capture_engagement: zod
         .boolean()
         .optional()
@@ -534,16 +589,48 @@ export const MessagingSuppressionsAddSuppressionCreateBody = /* @__PURE__ */ zod
 })
 
 /**
+ * Remove up to 100 addresses from the suppression list so they can receive messages again.
+ * @summary Remove several email addresses from the suppression list
+ */
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersItemMax = 512
+
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersMax = 100
+
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyConfirmComplaintsDefault = false
+
+export const MessagingSuppressionsBulkRemoveSuppressionsCreateBody = /* @__PURE__ */ zod.object({
+    identifiers: zod
+        .array(zod.string().max(messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersItemMax))
+        .min(1)
+        .max(messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersMax)
+        .describe('The email addresses to remove, at most 100 per request.'),
+    confirm_complaints: zod
+        .boolean()
+        .default(messagingSuppressionsBulkRemoveSuppressionsCreateBodyConfirmComplaintsDefault)
+        .describe(
+            'Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400.'
+        ),
+})
+
+/**
  * Remove an address from the suppression list so it can receive messages again.
  * @summary Remove an email address from the suppression list
  */
 export const messagingSuppressionsRemoveSuppressionCreateBodyIdentifierMax = 512
 
+export const messagingSuppressionsRemoveSuppressionCreateBodyConfirmComplaintsDefault = false
+
 export const MessagingSuppressionsRemoveSuppressionCreateBody = /* @__PURE__ */ zod.object({
     identifier: zod
         .string()
         .max(messagingSuppressionsRemoveSuppressionCreateBodyIdentifierMax)
-        .describe('The email address to suppress. Will not receive any messages until removed.'),
+        .describe('The email address to remove.'),
+    confirm_complaints: zod
+        .boolean()
+        .default(messagingSuppressionsRemoveSuppressionCreateBodyConfirmComplaintsDefault)
+        .describe(
+            'Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400.'
+        ),
 })
 
 export const messagingTemplatesCreateBodyNameMax = 400
@@ -1378,7 +1465,7 @@ export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.obj
 })
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing.
+ * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
 export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod.object({

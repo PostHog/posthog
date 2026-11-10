@@ -82,7 +82,6 @@ class TestQualityGateBranching:
             stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
             stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
             stack.enter_context(patch.object(temporalio.workflow, "logger"))
-            stack.enter_context(patch.object(temporalio.workflow, "deprecate_patch"))
             stack.enter_context(patch(f"{WORKFLOW_MODULE}.capture_exception"))
             for metric in (
                 "get_node_finished_metric",

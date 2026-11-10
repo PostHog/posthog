@@ -59,6 +59,7 @@ from products.signals.backend.artefact_schemas import (
     ReportLink,
     ReviewerState,
     SafetyJudgment,
+    SourceIssue,
     SuggestedReviewerEntry,
     SuggestedReviewers,
     SummaryChange,
@@ -86,8 +87,10 @@ from products.signals.backend.report_tags import set_report_tags
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
+from products.signals.backend.source_issues import append_source_issues
 from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
+from products.signals.backend.trial.funding import direct_report_funding_snapshot
 
 if TYPE_CHECKING:
     from products.signals.backend.supersession import ImplementationResearchContext
@@ -125,6 +128,13 @@ class ExistingScoutReport:
 
     report_id: str
     status: SignalReport.Status
+
+
+class ReviewerClearNeedsReason(Exception):
+    """A `no_suitable_owner` edit tried to clear a non-empty reviewer list without a reason.
+
+    The edit keeps the current reviewers: an earlier pick (often the owner the skill names) must not
+    be lost to an unexplained empty result."""
 
 
 class ScoutReportAlreadyEmittedError(Exception):
@@ -186,11 +196,15 @@ def create_scout_report(
     metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     links: Sequence[ReportLink] = (),
+    source_issues: Sequence[SourceIssue] = (),
     tags: Sequence[str] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
     idempotency_key: str | None = None,
     created_by_id: int | None = None,
+    proposed_reviewer_count: int | None = None,
+    reviewer_outcome: str | None = None,
+    funded_report_id: uuid.UUID | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
 
@@ -233,6 +247,10 @@ def create_scout_report(
     fires autostart. A link that `add_log` rejects rolls back the whole report and raises
     `InvalidScoutReportError`.
 
+    `source_issues`, when supplied, become the report's `source_issue` rows in the same transaction.
+    A report born READY then comments a link on each issue after commit, when the team opted into
+    the GitHub writeback (`source_issues.append_source_issues`).
+
     `idempotency_key`, when supplied, is stored on the report under a per-team unique index, so one
     key can only ever author one report. A call whose key a report already holds raises
     `ScoutReportAlreadyEmittedError` carrying that report, and writes nothing — the emit path turns
@@ -265,13 +283,14 @@ def create_scout_report(
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
 
-    report_id = str(uuid.uuid4())
+    report_id = str(funded_report_id or uuid.uuid4())
     assignment = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     try:
         with transaction.atomic():
             report = SignalReport.objects.create(
                 id=report_id,
                 team_id=team_id,
+                self_driving_funding=direct_report_funding_snapshot(team_id),
                 status=status,
                 title=title,
                 summary=summary,
@@ -347,31 +366,37 @@ def create_scout_report(
                     )
                 except ArtefactContentValidationError as err:
                     raise InvalidScoutReportError(str(err))
-            if (suggested_reviewers is not None and suggested_reviewers.root) or assignment.enabled:
-                suggested_reviewers = suggested_reviewers or SuggestedReviewers(root=[])
+            append_source_issues(team_id=team_id, report_id=report_id, issues=source_issues, attribution=attribution)
+            reviewers_written = (
+                suggested_reviewers is not None and bool(suggested_reviewers.root)
+            ) or assignment.enabled
+            if reviewers_written:
                 artefact = SignalReportArtefact.append_status(
                     team_id=team_id,
                     report_id=report_id,
-                    content=suggested_reviewers,
+                    content=suggested_reviewers or SuggestedReviewers(root=[]),
                     attribution=attribution,
                     reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="scout"),
                     reevaluate_autostart=False,
                 )
                 suggested_reviewers = SuggestedReviewers.model_validate_json(artefact.content)
-                # on_commit, not inline: telemetry must not fire for a rolled-back report, and it must
-                # still fire when the post-commit signal emits below fail (they propagate).
+            # Every surfaced report counts, with or without reviewers, so the share of routed reports
+            # has the same denominator whichever assignment flags the team has. on_commit, not
+            # inline: telemetry must not fire for a rolled-back report, and it must still fire when
+            # the post-commit signal emits below fail (they propagate).
+            if reviewers_written or status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT):
+                stored = suggested_reviewers.root if reviewers_written and suggested_reviewers is not None else []
                 transaction.on_commit(
                     partial(
                         capture_suggested_reviewers_resolved,
                         team_id=team_id,
                         report_id=report_id,
-                        github_logins=[entry.github_login for entry in suggested_reviewers.root if entry.github_login],
-                        user_uuids=[
-                            entry.user_uuid
-                            for entry in suggested_reviewers.root
-                            if entry.user_uuid and not entry.github_login
-                        ],
-                        source="scout",
+                        github_logins=[entry.github_login for entry in stored if entry.github_login],
+                        user_uuids=[entry.user_uuid for entry in stored if entry.user_uuid and not entry.github_login],
+                        source="user_authored" if created_by_id is not None else "scout",
+                        proposed_count=proposed_reviewer_count,
+                        reviewer_outcome=reviewer_outcome,
+                        report_status=str(status),
                     )
                 )
             # In-txn and before the signal emits below: the autostart gate reads authorship from this
@@ -781,6 +806,30 @@ def append_report_links(
         extra={"team_id": team_id, "report_id": report_id, "link_count": len(links)},
     )
     return len(links)
+
+
+def append_report_source_issues(
+    *,
+    team_id: int,
+    report_id: str,
+    source_issues: Sequence[SourceIssue],
+    attribution: ArtefactAttribution,
+) -> int:
+    """Record the source issues an existing report does not hold yet, returning how many landed.
+
+    Additive like `append_report_links`: an issue the report already names is skipped, so a retried
+    edit writes nothing and comments on nothing. Only the new issues get a writeback comment.
+    """
+    _validate_report_id(report_id)
+    if not source_issues:
+        return 0
+    with transaction.atomic():
+        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        written = append_source_issues(
+            team_id=team_id, report_id=report_id, issues=source_issues, attribution=attribution
+        )
+    return len(written)
 
 
 def record_content_revision(*, team_id: int, report_id: str) -> int:
@@ -1259,8 +1308,15 @@ def set_scout_report_reviewers(
         return False
     with transaction.atomic():
         SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
+        snapshot = service.read()
+        outcome_reason = (proposal.outcome_reason or "").strip() if proposal is not None else ""
+        clearing = proposal is not None and proposal.outcome == "no_suitable_owner" and not suggested_reviewers.root
+        if clearing and snapshot.reviewers and not outcome_reason:
+            raise ReviewerClearNeedsReason(
+                "Kept the current reviewers: give reviewer_outcome_reason to clear them with no_suitable_owner."
+            )
         merged = _merge_forward_reviewer_evidence(report_id=report_id, suggested_reviewers=suggested_reviewers)
-        previous = service.read().state.reviewers_id
+        previous = snapshot.state.reviewers_id
         artefact = SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
@@ -1273,10 +1329,15 @@ def set_scout_report_reviewers(
             return False
         applied = SuggestedReviewers.model_validate_json(artefact.content)
         reviewer_labels = [_reviewer_note_label(entry) for entry in applied.root]
+        note = (
+            f"Cleared suggested reviewers: {outcome_reason}"
+            if clearing and outcome_reason and not applied.root
+            else f"Set suggested reviewers: {', '.join(reviewer_labels)}"
+        )
         SignalReportArtefact.add_log(
             team_id=team_id,
             report_id=report_id,
-            content=NoteArtefact(note=f"Set suggested reviewers: {', '.join(reviewer_labels)}", author=author),
+            content=NoteArtefact(note=note, author=author),
             attribution=attribution,
         )
         transaction.on_commit(
@@ -1287,6 +1348,8 @@ def set_scout_report_reviewers(
                 github_logins=[entry.github_login for entry in applied.root if entry.github_login],
                 user_uuids=[entry.user_uuid for entry in applied.root if entry.user_uuid and not entry.github_login],
                 source="scout_edit",
+                proposed_count=len(suggested_reviewers.root),
+                reviewer_outcome=proposal.outcome if proposal is not None else "selected",
             )
         )
     return True

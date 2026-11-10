@@ -32,6 +32,7 @@ import {
     RerunFunctionKind,
     RerunJobProgress,
     RerunJobState,
+    RerunPagingMode,
 } from './rerun-job.types'
 
 const counterRerunPageProcessed = new Counter({
@@ -69,6 +70,29 @@ const toClickhouseDateTime = (value: string): string => {
         .replace(/([+-]\d{2}):?(\d{2})$/, '')
 }
 
+interface Paging {
+    keyColumn: 'first_scheduled_at' | 'scheduled_at'
+    orderColumn: 'run_first_scheduled_at' | 'last_scheduled_at'
+    cursorTime: (row: InvocationRow) => string
+}
+
+const PAGING: Record<RerunPagingMode, Paging> = {
+    // Every row of a run shares `first_scheduled_at`, so the window and cursor keep or drop whole runs.
+    // There is no `scheduled_at` bound, because a rescheduled row can land before the run's start.
+    run_start: {
+        keyColumn: 'first_scheduled_at',
+        orderColumn: 'run_first_scheduled_at',
+        cursorTime: (row) => row.run_first_scheduled_at,
+    },
+    last_row: {
+        keyColumn: 'scheduled_at',
+        orderColumn: 'last_scheduled_at',
+        cursorTime: (row) => row.last_scheduled_at,
+    },
+}
+
+const pagingFor = (state: RerunJobState): Paging => PAGING[state.paging ?? 'last_row']
+
 interface InvocationRow {
     invocation_id: string
     parent_run_id: string
@@ -76,7 +100,7 @@ interface InvocationRow {
     // shadowing the raw `attempts` column in the fetch query — see fetchPage.
     latest_attempts: number
     last_scheduled_at: string
-    first_scheduled_at: string
+    run_first_scheduled_at: string
     invocation_globals: string
 }
 
@@ -135,15 +159,15 @@ export class RerunPaginatorService {
         const { function_kind, function_id, progress } = state
 
         try {
-            const rows = await this.fetchPage(teamId, state)
+            const idPages = this.splitInvocationIds(state)
+            const rows = await this.fetchPage(teamId, state, idPages?.page)
 
             // Stop early if the user's max_count or our hard server cap is reached.
             const remainingBudget = this.remainingBudget(state)
             const toProcess = rows.slice(0, remainingBudget)
 
-            // A historical window can't see the newer lifecycle rows a prior replay wrote —
-            // they land in the partition of their own scheduled_at, outside the window — so
-            // the in-window collapse can report 'failed' for an invocation that has since
+            // A `last_row` page, or a row written without its run's first_scheduled_at, can miss the
+            // newer lifecycle rows a prior replay wrote, so the collapse can report 'failed' for an invocation that has since
             // succeeded. Re-check the page against each invocation's latest status across
             // all partitions; without this, replaying the same window twice re-fires side
             // effects (emails, webhooks) for already-recovered runs.
@@ -256,8 +280,8 @@ export class RerunPaginatorService {
             const nextProgress: RerunJobProgress = {
                 queued: progress.queued + queued - conflictSkipped,
                 skipped: progress.skipped + skipped + conflictSkipped,
-                cursor: this.advanceCursor(state, toProcess),
-                done: this.isDone(state, rows.length, toProcess.length),
+                cursor: idPages ? null : this.advanceCursor(state, toProcess),
+                done: this.isDone(state, rows.length, toProcess.length, idPages?.rest),
                 last_error: undefined,
                 pages_processed: (progress.pages_processed ?? 0) + 1,
             }
@@ -273,7 +297,16 @@ export class RerunPaginatorService {
             // reach the catch below would count a page that did its work as a
             // page error, hold the cursor back, and on a persistent write outage
             // eventually mark a rerun failed that actually ran.
-            await this.writeWrapperUpdate(teamId, state, context, nextProgress, undefined).catch((writeErr) => {
+            const nextState: RerunJobState = {
+                ...state,
+                // Remove covered IDs from the state itself. A worker from before this change ignores any other
+                // position marker and would start over, sending these runs again.
+                request: idPages
+                    ? { ...state.request, filter: { ...state.request.filter, invocation_ids: idPages.rest } }
+                    : state.request,
+                progress: nextProgress,
+            }
+            await this.writeWrapperUpdate(teamId, nextState, context, nextProgress, undefined).catch((writeErr) => {
                 logger.warn('Rerun paginator could not write the wrapper progress row', {
                     rerun_function_kind: function_kind,
                     rerun_function_id: function_id,
@@ -281,7 +314,7 @@ export class RerunPaginatorService {
                 })
             })
 
-            return { state: { ...state, progress: nextProgress } }
+            return { state: nextState }
         } catch (err) {
             const errMessage = err instanceof Error ? err.message : String(err)
             logger.error('Rerun paginator page failed', {
@@ -350,10 +383,14 @@ export class RerunPaginatorService {
             ? `Re-run finished. queued=${nextProgress.queued} skipped=${nextProgress.skipped}`
             : pageErrorMessage
               ? `Re-run page failed: ${pageErrorMessage}. Worker will retry.`
-              : `Re-run page done. queued=${nextProgress.queued} skipped=${nextProgress.skipped} cursor=${
-                    nextProgress.cursor
-                        ? `${nextProgress.cursor.scheduled_at}/${nextProgress.cursor.invocation_id}`
-                        : 'end'
+              : `Re-run page done. queued=${nextProgress.queued} skipped=${nextProgress.skipped} ${
+                    state.request.filter.invocation_ids?.length && !nextProgress.cursor
+                        ? `ids_left=${state.request.filter.invocation_ids.length}`
+                        : `cursor=${
+                              nextProgress.cursor
+                                  ? `${nextProgress.cursor.scheduled_at}/${nextProgress.cursor.invocation_id}`
+                                  : 'end'
+                          }`
                 }`
 
         this.monitoringService.queueLogs(
@@ -424,10 +461,32 @@ export class RerunPaginatorService {
         return Math.max(0, cap - state.progress.queued - state.progress.skipped)
     }
 
-    private isDone(state: RerunJobState, fetchedCount: number, processedCount: number): boolean {
+    private isDone(
+        state: RerunJobState,
+        fetchedCount: number,
+        processedCount: number,
+        idsLeft: string[] | undefined
+    ): boolean {
         const budgetSpent = this.remainingBudget(state) <= processedCount
-        const pageWasPartial = fetchedCount < RERUN_PAGE_SIZE
-        return budgetSpent || pageWasPartial
+        const noMorePages = idsLeft ? idsLeft.length === 0 : fetchedCount < RERUN_PAGE_SIZE
+        return budgetSpent || noMorePages
+    }
+
+    /**
+     * Splits the ID list into this page and the rest. A page holds at most RERUN_PAGE_SIZE IDs, so it can't overflow
+     * the LIMIT, and it stays under ClickHouse's `http_max_field_value_size`.
+     *
+     * Returns undefined for a window-only job, and for a job that already holds a cursor: that job started before IDs
+     * were split, and starting over would send runs again that it already reran.
+     */
+    private splitInvocationIds(state: RerunJobState): { page: string[]; rest: string[] } | undefined {
+        const ids = state.request.filter.invocation_ids
+        if (!ids?.length || state.progress.cursor) {
+            return undefined
+        }
+        // A repeated ID in a later page would rerun again, unlike a repeat inside one `IN` list.
+        const uniqueIds = [...new Set(ids)]
+        return { page: uniqueIds.slice(0, RERUN_PAGE_SIZE), rest: uniqueIds.slice(RERUN_PAGE_SIZE) }
     }
 
     private advanceCursor(state: RerunJobState, processed: InvocationRow[]): RerunJobState['progress']['cursor'] {
@@ -435,7 +494,7 @@ export class RerunPaginatorService {
             return null
         }
         const last = processed[processed.length - 1]
-        return { scheduled_at: last.last_scheduled_at, invocation_id: last.invocation_id }
+        return { scheduled_at: pagingFor(state).cursorTime(last), invocation_id: last.invocation_id }
     }
 
     /**
@@ -522,7 +581,11 @@ export class RerunPaginatorService {
         return new Set(rows.map((r) => r.invocation_id))
     }
 
-    private async fetchPage(teamId: number, state: RerunJobState): Promise<InvocationRow[]> {
+    private async fetchPage(
+        teamId: number,
+        state: RerunJobState,
+        idsForPage: string[] | undefined
+    ): Promise<InvocationRow[]> {
         const filter = state.request.filter
         const requestedStatus = this.requestedStatus(state)
         // The Django serializer accepts ISO 8601 ('2026-05-01T00:00:00Z'), but
@@ -537,13 +600,15 @@ export class RerunPaginatorService {
             ? toClickhouseDateTime(state.progress.cursor.scheduled_at)
             : ''
 
-        // Keyset pagination on (scheduled_at, invocation_id). When the cursor
+        const { keyColumn, orderColumn } = pagingFor(state)
+
+        // Keyset pagination on (key, invocation_id). When the cursor
         // is undefined we start from the top of the window. ClickHouse needs
         // the tuple compared via a single AND-chained inequality.
         const cursor = state.progress.cursor
         const cursorClause =
             cursor && cursor.scheduled_at
-                ? "   AND (scheduled_at, invocation_id) < ({cursor_scheduled_at:DateTime64(6, 'UTC')}, {cursor_invocation_id:String})"
+                ? `   AND (${keyColumn}, invocation_id) < ({cursor_scheduled_at:DateTime64(6, 'UTC')}, {cursor_invocation_id:String})`
                 : ''
         const errorKindClause = filter.error_kind?.length
             ? 'AND argMax(error_kind, version) IN {error_kind:Array(String)}'
@@ -556,11 +621,9 @@ export class RerunPaginatorService {
         const maxAttemptsClause =
             filter.max_attempts !== undefined ? 'AND argMax(attempts, version) < {max_attempts:UInt8}' : ''
         // `invocation_ids` is an OPTIONAL additional restriction layered on top
-        // of the time window. The window is still required — it pins the query
-        // to a small set of date partitions instead of scanning everything.
-        const invocationIdsClause = filter.invocation_ids?.length
-            ? 'AND invocation_id IN {invocation_ids:Array(String)}'
-            : ''
+        // of the time window, which is still required.
+        const invocationIds = idsForPage ?? filter.invocation_ids ?? []
+        const invocationIdsClause = invocationIds.length ? 'AND invocation_id IN {invocation_ids:Array(String)}' : ''
 
         const result = await this.clickhouse.query({
             query: `/* team_id:${teamId} query_type:hog_invocation_rerun_page */
@@ -574,14 +637,15 @@ export class RerunPaginatorService {
                     -- pill autodrain always does) would fail every page. Keep the names distinct.
                     argMax(attempts, version)              AS latest_attempts,
                     argMax(invocation_globals, version)    AS invocation_globals,
-                    argMax(first_scheduled_at, version)    AS first_scheduled_at,
+                    -- Not aliased 'first_scheduled_at': the alias would replace the raw column in the WHERE.
+                    argMax(first_scheduled_at, version)    AS run_first_scheduled_at,
                     max(scheduled_at)                      AS last_scheduled_at
                 FROM hog_invocation_results
                 WHERE team_id = {team_id:Int64}
                   AND function_kind = {function_kind:String}
                   AND function_id = {function_id:String}
-                  AND scheduled_at >= {window_start:DateTime64(6, 'UTC')}
-                  AND scheduled_at <  {window_end:DateTime64(6, 'UTC')}
+                  AND ${keyColumn} >= {window_start:DateTime64(6, 'UTC')}
+                  AND ${keyColumn} <  {window_end:DateTime64(6, 'UTC')}
                   ${invocationIdsClause}
                 ${cursorClause}
                 GROUP BY invocation_id
@@ -590,7 +654,7 @@ export class RerunPaginatorService {
                    ${errorKindClause}
                    ${errorMessageClause}
                    ${maxAttemptsClause}
-                ORDER BY last_scheduled_at DESC, invocation_id DESC
+                ORDER BY ${orderColumn} DESC, invocation_id DESC
                 LIMIT {limit:UInt32}`,
             query_params: {
                 team_id: teamId,
@@ -602,7 +666,7 @@ export class RerunPaginatorService {
                 error_kind: filter.error_kind ?? [],
                 error_message_contains: filter.error_message_contains ?? '',
                 max_attempts: filter.max_attempts ?? 255,
-                invocation_ids: filter.invocation_ids ?? [],
+                invocation_ids: invocationIds,
                 cursor_scheduled_at: cursorScheduledAt,
                 cursor_invocation_id: cursor?.invocation_id ?? '',
                 limit: RERUN_PAGE_SIZE,
@@ -752,7 +816,7 @@ export class RerunPaginatorService {
                     // Carry the original first-scheduled time forward — the
                     // producer writes this verbatim on every retry's lifecycle
                     // rows so ReplacingMergeTree doesn't collapse it away.
-                    firstScheduledAt: row.first_scheduled_at,
+                    firstScheduledAt: row.run_first_scheduled_at,
                 },
                 teamId,
                 functionId,
@@ -869,7 +933,7 @@ export class RerunPaginatorService {
                 // lifecycle row producer can derive `attempts` / `is_retry`
                 // for flows too, and the `max_attempts` guard actually trips.
                 rerunAttempts: (row.latest_attempts || 0) + 1,
-                firstScheduledAt: row.first_scheduled_at,
+                firstScheduledAt: row.run_first_scheduled_at,
             }
             return invocation
         }

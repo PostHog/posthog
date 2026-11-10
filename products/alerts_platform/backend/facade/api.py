@@ -7,12 +7,16 @@ so every write and every scheduling rule has one home.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
+    AlertDestinationData,
+    AlertReceiverEdit,
+    AlertRouteEdit,
     DestinationSend,
     HandbackRefusal,
     HeldDeliveryAddress,
@@ -34,11 +38,14 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformOwnershipHandover,
     SourceKind,
     StoredAlertDestination,
+    StoredAlertReceiver,
+    StoredAlertRoute,
     VerdictChange,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.logic import (
     alert_destinations,
+    alert_routing,
     delivery_holds,
     destination_sends,
     platform_lifecycle,
@@ -138,12 +145,14 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     return platform_lifecycle.upsert_configuration(upsert, revive=revive)
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admit_new_teams: bool = False) -> None:
     """Copy one configuration in only when its team already runs that source here.
 
     `revive` says the source alert was just created or turned back on, so the copy starts clean.
+    `admit_new_teams` also admits a team with no enabled copy while the source runs elsewhere and
+    no operator switched that team off.
     """
-    platform_lifecycle.upsert_if_running(upsert, revive=revive)
+    platform_lifecycle.upsert_if_running(upsert, revive=revive, admit_new_teams=admit_new_teams)
 
 
 def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
@@ -168,9 +177,9 @@ def give_back_ownership(
     )
 
 
-def reset_broken(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> int | None:
+def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
     """Clears a broken alert the platform owns. Returns the failure count it cleared, or None when not broken."""
-    return platform_lifecycle.reset_broken(team_id=team_id, legacy_configuration_id=legacy_configuration_id, at=at)
+    return platform_lifecycle.reset_broken(team_id=team_id, public_id=public_id, at=at)
 
 
 def disable_configurations(
@@ -189,16 +198,67 @@ def list_configurations(
     limit: int,
     offset: int,
     legacy_configuration_id: UUID | None = None,
+    configuration_ids: Collection[UUID] | None = None,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations a caller may read, with the total behind it. With a
-    `legacy_configuration_id`, only the copy of that source row."""
+    `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those."""
     return platform_reads.list_configurations(
         team_id=team_id,
         source_kinds=source_kinds,
         limit=limit,
         offset=offset,
         legacy_configuration_id=legacy_configuration_id,
+        configuration_ids=configuration_ids,
     )
+
+
+def native_configuration_keys(
+    *, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None
+) -> tuple[tuple[datetime, UUID], ...]:
+    """`(created_at, id)` of every alert of a kind with no source row, newest first. A source that keeps
+    rows for its other alerts pages the two together on these, then reads only the page with
+    `list_configurations`. With `created_by_uuid`, only the ones that user created."""
+    return platform_reads.native_configuration_keys(
+        team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
+    )
+
+
+def native_configuration_ids(
+    *, team_id: int, source_kind: SourceKind, source_config_key: str, values: Collection[Any]
+) -> tuple[UUID, ...]:
+    """Ids of the team's alerts of a kind with no source row whose `source_config[key]` is one of
+    `values`, such as the alerts on a set of insights."""
+    return platform_reads.native_configuration_ids(
+        team_id=team_id, source_kind=source_kind.value, source_config_key=source_config_key, values=values
+    )
+
+
+def count_configurations(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    native_only: bool = False,
+    enabled_only: bool = False,
+    check_interval_minutes: int | None = None,
+) -> int:
+    """How many alerts of a kind a team has on the platform. For a source's admission.
+
+    A source that keeps rows counts them and adds `native_only`. A copy stands for a row the source
+    already counts, and a copy left by a delete from before copies went with their row counts nothing.
+    """
+    return platform_reads.count_configurations(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        native_only=native_only,
+        enabled_only=enabled_only,
+        check_interval_minutes=check_interval_minutes,
+    )
+
+
+def hold_cap_lock(*, team_id: int, source_kind: SourceKind) -> None:
+    """The lock the platform holds while a source checks its caps, for a source creating an alert
+    outside the platform. Call it inside the create's transaction."""
+    platform_writes.hold_cap_lock(team_id, source_kind)
 
 
 def get_configuration(
@@ -213,23 +273,21 @@ def get_configuration(
     )
 
 
-def runtime_by_legacy_id(
-    *, team_id: int, legacy_configuration_ids: Collection[UUID]
-) -> dict[UUID, PlatformAlertRuntime]:
-    """The runtime state of each named alert the platform owns, keyed by the source's id."""
-    return platform_reads.runtime_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
+def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, PlatformAlertRuntime]:
+    """The runtime state of each named alert the platform owns, keyed by its public id."""
+    return platform_reads.runtime_by_public_id(team_id=team_id, public_ids=public_ids)
 
 
-def check_page_by_legacy_id(
-    *, team_id: int, legacy_configuration_id: UUID, since: datetime, until: datetime, limit: int, offset: int
+def check_page_by_public_id(
+    *, team_id: int, public_id: UUID, since: datetime, until: datetime, limit: int, offset: int
 ) -> PlatformCheckPage | None:
     """A page of one owned alert's checks in a window, newest first, or None when the platform does not own it.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.check_page_by_legacy_id(
+    return platform_reads.check_page_by_public_id(
         team_id=team_id,
-        legacy_configuration_id=legacy_configuration_id,
+        public_id=public_id,
         since=since,
         until=until,
         limit=limit,
@@ -237,61 +295,55 @@ def check_page_by_legacy_id(
     )
 
 
-def checks_with_detail_by_legacy_id(
+def checks_with_detail_by_public_id(
     *,
     team_id: int,
-    legacy_configuration_ids: Collection[UUID],
+    public_ids: Collection[UUID],
     detail_paths: Sequence[Sequence[str]],
     since: datetime,
     limit: int,
 ) -> dict[UUID, tuple[PlatformCheckEntry, ...]]:
     """Each named owned alert's newest `limit` checks since `since` whose source detail holds
-    every one of `detail_paths`, newest first, keyed by the source's id.
+    every one of `detail_paths`, newest first, keyed by its public id.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.checks_with_detail_by_legacy_id(
+    return platform_reads.checks_with_detail_by_public_id(
         team_id=team_id,
-        legacy_configuration_ids=legacy_configuration_ids,
+        public_ids=public_ids,
         detail_paths=detail_paths,
         since=since,
         limit=limit,
     )
 
 
-def history_by_legacy_id(
-    *, team_id: int, legacy_configuration_ids: Collection[UUID], since: datetime, until: datetime
+def history_by_public_id(
+    *, team_id: int, public_ids: Collection[UUID], since: datetime, until: datetime
 ) -> dict[UUID, PlatformAlertHistory]:
-    """The check history in a window of each named alert the platform owns, keyed by the source's id.
+    """The check history in a window of each named alert the platform owns, keyed by its public id.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.history_by_legacy_id(
-        team_id=team_id, legacy_configuration_ids=legacy_configuration_ids, since=since, until=until
-    )
+    return platform_reads.history_by_public_id(team_id=team_id, public_ids=public_ids, since=since, until=until)
 
 
-def last_check_by_legacy_id(
-    *, team_id: int, legacy_configuration_ids: Collection[UUID]
-) -> dict[UUID, PlatformLastCheck]:
-    """The newest check of each named alert the platform owns, keyed by the source's id.
+def last_check_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, PlatformLastCheck]:
+    """The newest check of each named alert the platform owns, keyed by its public id.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.last_check_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
+    return platform_reads.last_check_by_public_id(team_id=team_id, public_ids=public_ids)
 
 
-def notable_checks_by_legacy_id(
-    *, team_id: int, legacy_configuration_id: UUID, since: datetime, limit: int
+def notable_checks_by_public_id(
+    *, team_id: int, public_id: UUID, since: datetime, limit: int
 ) -> PlatformCheckEventPage | None:
     """The newest `limit` checks since `since` that moved a named alert's state or failed, with
     their total, or None when the platform does not own the alert.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.notable_checks_by_legacy_id(
-        team_id=team_id, legacy_configuration_id=legacy_configuration_id, since=since, limit=limit
-    )
+    return platform_reads.notable_checks_by_public_id(team_id=team_id, public_id=public_id, since=since, limit=limit)
 
 
 def update_configuration(
@@ -300,27 +352,41 @@ def update_configuration(
     source_kinds: Sequence[str],
     configuration_id: UUID,
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+    snooze_until: datetime | None = None,
+    snooze_changed: bool = False,
 ) -> PlatformAlertConfigurationView | None:
     """Applies an edit to a configuration the platform owns, or None when the caller cannot read it.
+    With `snooze_changed`, `snooze_until` becomes the whole alert's mute, and None clears it.
 
     Raises `PlatformAlertNotEditable` for a configuration its source owns, and
     `InvalidPlatformAlertEdit` for an edit its source kind rejects.
     """
     return platform_writes.update_configuration(
-        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, change=change
+        team_id=team_id,
+        source_kinds=source_kinds,
+        configuration_id=configuration_id,
+        change=change,
+        snooze_until=snooze_until,
+        snooze_changed=snooze_changed,
     )
 
 
 def create_configuration(
-    *, team_id: int, source_kind: SourceKind, edit: PlatformAlertConfigurationEdit, created_by_id: int | None
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    edit: PlatformAlertConfigurationEdit,
+    created_by_id: int | None,
+    natively: bool | None = None,
 ) -> PlatformAlertConfigurationView:
-    """Creates an alert the platform owns, with its source's own row when the source keeps one.
+    """Creates an alert the platform owns, with its source's own row when the source keeps one. With
+    `natively`, the caller decides whether that row is skipped.
 
     Raises `PlatformAlertNotEditable` for a kind the API cannot create, `InvalidPlatformAlertEdit` for
     settings its source kind rejects, and `PlatformAlertCreateRefused` when the source refuses.
     """
     return platform_writes.create_configuration(
-        team_id=team_id, source_kind=source_kind, edit=edit, created_by_id=created_by_id
+        team_id=team_id, source_kind=source_kind, edit=edit, created_by_id=created_by_id, natively=natively
     )
 
 
@@ -386,8 +452,31 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     )
 
 
-def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
-    platform_writes.delete_owned_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> None:
+    """Deletes the copy of a source alert with the source row, in its transaction or after it
+    commits. With `owner`, only a copy that stack owns."""
+    platform_writes.delete_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id, owner=owner)
+
+
+def delete_orphaned_shadow_copies(
+    *,
+    source_kind: SourceKind,
+    existing_source_ids: Callable[[Collection[UUID]], Collection[UUID]],
+    dry_run: bool,
+) -> int:
+    """Deletes the shadow copies of `source_kind` whose source row is gone, and returns the count.
+    `existing_source_ids` returns which of the given source row ids still exist."""
+    return platform_writes.delete_orphaned_shadow_copies(
+        source_kind=source_kind, existing_source_ids=existing_source_ids, dry_run=dry_run
+    )
+
+
+def fill_missing_creators(
+    *, source_kind: SourceKind, creators_of: Callable[[Collection[UUID]], Mapping[UUID, int]], dry_run: bool
+) -> int:
+    """Copies `created_by` from the source rows onto the copies of `source_kind` that have none, and
+    returns the count. `creators_of` maps the given source row ids to their creators' user ids."""
+    return platform_writes.fill_missing_creators(source_kind=source_kind, creators_of=creators_of, dry_run=dry_run)
 
 
 def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> None:
@@ -409,6 +498,11 @@ def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[St
     return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
 
 
+def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
+    """A destination's configuration without the parts that are a credential, for showing it."""
+    return alert_destinations.redact_destination_data(data)
+
+
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
     """Whether an alert whose destinations the platform owns has an enabled incident manager."""
     return alert_destinations.has_incident_destination(team_id=team_id, configuration_id=configuration_id)
@@ -426,3 +520,40 @@ def recent_destination_sends(
 ) -> tuple[DestinationSend, ...]:
     """The newest sends to the named destination HogFunctions, on both delivery paths, newest first."""
     return destination_sends.recent_destination_sends(team_id=team_id, destination_ids=destination_ids, limit=limit)
+
+
+def list_alert_receivers(*, team_id: int) -> tuple[StoredAlertReceiver, ...]:
+    return alert_routing.list_receivers(team_id=team_id)
+
+
+def create_alert_receiver(*, team_id: int, edit: AlertReceiverEdit) -> StoredAlertReceiver:
+    """Raises `AlertDestinationValidationError` on a refused receiver."""
+    return alert_routing.create_receiver(team_id=team_id, edit=edit)
+
+
+def update_alert_receiver(*, team_id: int, receiver_id: UUID, edit: AlertReceiverEdit) -> StoredAlertReceiver:
+    """Raises `UnknownAlertRouting` for an id the team has no receiver with."""
+    return alert_routing.update_receiver(team_id=team_id, receiver_id=receiver_id, edit=edit)
+
+
+def delete_alert_receiver(*, team_id: int, receiver_id: UUID) -> None:
+    """Deletes the receiver and its routes. Raises `UnknownAlertRouting` for an id the team has no receiver with."""
+    alert_routing.delete_receiver(team_id=team_id, receiver_id=receiver_id)
+
+
+def list_alert_routes(*, team_id: int) -> tuple[StoredAlertRoute, ...]:
+    return alert_routing.list_routes(team_id=team_id)
+
+
+def create_alert_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRoute:
+    return alert_routing.create_route(team_id=team_id, edit=edit)
+
+
+def update_alert_route(*, team_id: int, route_id: UUID, edit: AlertRouteEdit) -> StoredAlertRoute:
+    """Raises `UnknownAlertRouting` for an id the team has no route with."""
+    return alert_routing.update_route(team_id=team_id, route_id=route_id, edit=edit)
+
+
+def delete_alert_route(*, team_id: int, route_id: UUID) -> None:
+    """Raises `UnknownAlertRouting` for an id the team has no route with."""
+    alert_routing.delete_route(team_id=team_id, route_id=route_id)
