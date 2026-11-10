@@ -17,9 +17,10 @@ import { REPLAY_WINDOW_MS, ReplayCache } from '@/auth/replay'
 import { AUDIENCE, AuthError, INTEGRATIONS_AUDIENCE, type SigningKeys } from '@/auth/types'
 import { integrationAuthTotal, integrationReplayEvictionsTotal, register } from '@/metrics'
 
-const WEB = 'posthog-django'
+const WEB = 'posthog-web-django'
 const WORKER = 'temporal-worker-data-warehouse'
-const CDP = 'cdp-destinations'
+const CELERY = 'posthog-worker-django'
+const CDP = 'cdp-events-consumer'
 
 const KEYS: SigningKeys = {
     [WEB]: ['web-signing-key-fake'],
@@ -109,19 +110,30 @@ beforeEach(() => {
 describe('integration policy', () => {
     it.each([
         [WEB, 'web'],
-        ['temporal-worker', 'worker'],
-        [WORKER, 'worker'],
-        ['posthog-celery', 'worker'],
-        ['posthog-celery-default', 'worker'],
-        ['cdp', 'resolver'],
+        [WORKER, 'temporal'],
+        ['temporal-worker-tasks-agent', 'temporal'],
+        ['temporal-worker-batch-exports', 'temporal'],
+        ['posthog-worker-django', 'worker'],
+        ['posthog-query-django', 'worker'],
+        ['warehouse-sources-load', 'worker'],
         [CDP, 'resolver'],
-        ['ingestion-events', 'resolver'],
-        ['push-api', 'resolver'],
-        // The web role is exact. A family name never extends it.
-        ['posthog-django-canary', null],
-        // A family needs the `-` boundary.
-        ['cdpx', null],
-        ['temporal-workers', null],
+        ['cdp-api-push', 'resolver'],
+        ['cdp-cyclotron-worker-email', 'resolver'],
+        ['ingestion-analytics-main', 'resolver'],
+        ['ingestion-errortracking-overflow', 'resolver'],
+        // Matching is exact. A name that only shares a prefix with a listed one gets nothing.
+        ['cdp', null],
+        ['cdp-foo', null],
+        ['cdp-events-consumer-canary', null],
+        ['ingestion-foo', null],
+        ['push-api', null],
+        ['temporal-worker', null],
+        ['temporal-worker-foo', null],
+        ['posthog-celery', null],
+        ['posthog-django', null],
+        ['posthog-web-django-canary', null],
+        ['posthog-web-django-two', null],
+        ['constructor', null],
         ['someone-else', null],
     ])('gives %s the role %s', (deployment, role) => {
         expect(roleFor(deployment)).toBe(role)
@@ -140,13 +152,20 @@ describe('integration policy', () => {
 
     it.each([
         ...INTEGRATION_OPS.map((op) => [WEB, op, true] as const),
-        ...(['read', 'resolve', 'write', 'refresh', 'list_across_teams'] as const).map(
+        ...(['read', 'resolve', 'write', 'refresh', 'list_across_teams', 'mint'] as const).map(
             (op) => [WORKER, op, true] as const
         ),
         ...crossTeamAndAdmin.map((op) => [WORKER, op, false] as const),
         [WORKER, 'delete', false],
+        [WORKER, 'revoke', false],
         [WORKER, 'changes', false],
         [WORKER, 'oauth_exchange', false],
+        ...(['read', 'resolve', 'write', 'refresh', 'list_across_teams'] as const).map(
+            (op) => [CELERY, op, true] as const
+        ),
+        [CELERY, 'mint', false],
+        [CELERY, 'delete', false],
+        [CELERY, 'revoke', false],
         [CDP, 'resolve', true],
         ...INTEGRATION_OPS.filter((op) => op !== 'resolve').map((op) => [CDP, op, false] as const),
         ['someone-else', 'resolve', false],

@@ -37,43 +37,85 @@ export const CROSS_TEAM_OPS = [
 
 export type CrossTeamOp = (typeof CROSS_TEAM_OPS)[number]
 
-export type IntegrationRole = 'web' | 'worker' | 'resolver'
+export type IntegrationRole = 'web' | 'worker' | 'temporal' | 'resolver'
+
+const WORKER_OPS = [
+    'read',
+    'resolve',
+    'write',
+    'refresh',
+    'list_across_teams',
+] as const satisfies readonly IntegrationOp[]
 
 export const ROLE_OPS: Readonly<Record<IntegrationRole, readonly IntegrationOp[]>> = {
     web: INTEGRATION_OPS,
-    worker: ['read', 'resolve', 'write', 'refresh', 'list_across_teams'],
+    worker: WORKER_OPS,
+    // The tasks sandbox mints GitHub installation tokens from Temporal.
+    temporal: [...WORKER_OPS, 'mint'],
     resolver: ['resolve'],
 }
 
-/** Deployments matched by their exact name. */
-const EXACT: Readonly<Record<string, IntegrationRole>> = {
-    'posthog-django': 'web',
+/**
+ * Every deployment that may call the service, matched by its exact name. There is no prefix
+ * or family match: a new deployment gets nothing until it is listed here.
+ * Names come from the `__CALLER_KEY_<DEPLOYMENT>` entries in PostHog/charts (`apps/<name>`).
+ */
+const ROLES: Readonly<Record<string, IntegrationRole>> = {
+    // Web Django. The web-two, frontdoor and streaming pools sign with this key.
+    'posthog-web-django': 'web',
+
+    // Celery workers.
+    'posthog-worker-django': 'worker',
+    // Query Django refreshes ad-integration tokens. Admin Django holds a key of its own.
+    'posthog-query-django': 'worker',
+    'posthog-admin-django': 'worker',
+    'warehouse-sources-load': 'worker',
+
+    // Temporal workers that hold a caller key.
+    'temporal-worker-batch-exports': 'temporal',
+    'temporal-worker-data-warehouse': 'temporal',
+    'temporal-worker-general-purpose': 'temporal',
+    'temporal-worker-health-check': 'temporal',
+    'temporal-worker-max-ai': 'temporal',
+    'temporal-worker-stamphog': 'temporal',
+    'temporal-worker-tasks-agent': 'temporal',
+    'temporal-worker-video-export': 'temporal',
+    'temporal-worker-wizard': 'temporal',
+
+    // CDP.
+    'cdp-api': 'resolver',
+    'cdp-api-batch-exports': 'resolver',
+    'cdp-api-push': 'resolver',
+    'cdp-api-warehouse-webhooks': 'resolver',
+    'cdp-api-webhooks': 'resolver',
+    'cdp-cyclotron-worker-batch-resolve': 'resolver',
+    'cdp-cyclotron-worker-email': 'resolver',
+    'cdp-cyclotron-worker-hog-kafka': 'resolver',
+    'cdp-cyclotron-worker-hogflows-pg': 'resolver',
+    'cdp-cyclotron-worker-hogoverflow-kafka': 'resolver',
+    'cdp-data-warehouse-events-consumer': 'resolver',
+    'cdp-events-consumer': 'resolver',
+    'cdp-internal-events-consumer': 'resolver',
+    'cdp-legacy-events-consumer': 'resolver',
+    'cdp-realtime-only-events-consumer': 'resolver',
+
+    // Ingestion lanes that read integrations.
+    'ingestion-ai-main': 'resolver',
+    'ingestion-ai-overflow': 'resolver',
+    'ingestion-analytics-async': 'resolver',
+    'ingestion-analytics-historical': 'resolver',
+    'ingestion-analytics-main': 'resolver',
+    'ingestion-analytics-overflow': 'resolver',
+    'ingestion-analytics-team2': 'resolver',
+    'ingestion-analytics-turbo': 'resolver',
+    'ingestion-clientwarnings-main': 'resolver',
+    'ingestion-errortracking-main': 'resolver',
+    'ingestion-errortracking-overflow': 'resolver',
+    'ingestion-heatmaps-main': 'resolver',
 }
 
-/**
- * Deployment families: the name itself, or the name followed by `-` and anything. A family
- * adds no attack surface, because whoever can add a signing key can also choose its name.
- * The web role is never given to a family.
- */
-const FAMILIES: readonly (readonly [string, Exclude<IntegrationRole, 'web'>])[] = [
-    ['temporal-worker', 'worker'],
-    ['posthog-celery', 'worker'],
-    ['cdp', 'resolver'],
-    ['ingestion', 'resolver'],
-    ['push-api', 'resolver'],
-]
-
 export function roleFor(deployment: string): IntegrationRole | null {
-    const exact = EXACT[deployment]
-    if (exact) {
-        return exact
-    }
-    for (const [family, role] of FAMILIES) {
-        if (deployment === family || deployment.startsWith(`${family}-`)) {
-            return role
-        }
-    }
-    return null
+    return Object.prototype.hasOwnProperty.call(ROLES, deployment) ? (ROLES[deployment] ?? null) : null
 }
 
 export function deploymentAllows(deployment: string, op: IntegrationOp): boolean {
