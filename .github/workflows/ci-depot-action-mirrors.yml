@@ -22,7 +22,7 @@ jobs:
     check:
         name: Depot action mirrors remain synchronized
         runs-on: ubuntu-24.04
-        # 5 min absorbs cold-runner startup + the explicit depth=100 fetch of BASE_SHA below.
+        # 5 min absorbs cold-runner startup + the explicit fetch of BASE_SHA below.
         # `actions/checkout` defaults to depth=1 (HEAD only); a full-history clone is unnecessary
         # — we only need to diff two SHAs.
         timeout-minutes: 5
@@ -43,5 +43,5 @@ jobs:
                   # actions/checkout checks out refs/pull/<n>/merge by default, so HEAD
                   # is the merge commit — diffing BASE_SHA..HEAD gives the PR's effective
                   # changes. We only need to fetch BASE_SHA (HEAD is already local).
-                  git fetch --no-tags --depth=100 origin "$BASE_SHA"
+                  git fetch --no-tags --depth=1 origin "$BASE_SHA"
                   python3 tools/hogli-commands/hogli_commands/depot_mirrors.py "$BASE_SHA"
