@@ -713,9 +713,7 @@ bridge.port1.close();
 
         self.assertEqual(diagnostics, [])
         html = next(file["content"] for file in files if file["path"] == "index.html")
-        # A remote stylesheet is not a local build entry, so it stays in the HTML
-        # instead of failing the build with entry_not_found. The style-src policy
-        # does not admit it.
+        # A remote stylesheet stays in the HTML instead of failing with entry_not_found.
         self.assertIn('href="https://styles.example.com/theme.css"', html)
         self.assertIn("style-src 'self' 'unsafe-inline';", html)
 

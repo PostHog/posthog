@@ -635,8 +635,7 @@ async function buildCanvas(project, imageSources = []) {
             `${runtime}${notebookBridge}\n${selectionRuntime}\n${highlightRuntime}\n${keyboardRuntime}`
         )
     )
-    // The meta policy intersects with the artifact origin's response header, so its img-src lists
-    // the same server-defined image sources the header does and never a project's declared origins.
+    // The meta policy intersects with the response header, so it lists the same image sources.
     const projectCsp = imageSources.length
         ? csp.replace("img-src 'self' data: blob:", `img-src 'self' data: blob: ${imageSources.join(' ')}`)
         : csp
