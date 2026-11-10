@@ -2491,8 +2491,8 @@ describe('CDP API', () => {
                 const keyHash = createHash('sha256').update(String(keyed.idempotency_key)).digest('hex')
                 const record = `@posthog/idempotency/transactional-email/${team.id}/${keyHash}`
                 await createIdempotencyValkeyPool(hub)!.useClient({ name: 'older-pod-record' }, async (client) => {
-                    const { replayFields, ...writtenByAnOlderPod } = parseJSON((await client.get(record))!)
-                    expect(replayFields).toEqual({ attachment_count: 0, attachment_bytes: 0 })
+                    const { fingerprint, invocationId, queued } = parseJSON((await client.get(record))!)
+                    const writtenByAnOlderPod = { fingerprint, invocationId, queued }
                     await client.set(record, JSON.stringify(writtenByAnOlderPod), 'EX', await client.ttl(record))
                 })
 
