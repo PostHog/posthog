@@ -448,6 +448,7 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SlackThreadJoin
+                              |SlackDailyFocus
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -964,6 +965,7 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SlackThreadJoin
+                        |SlackDailyFocus
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp
