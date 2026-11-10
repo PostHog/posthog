@@ -389,6 +389,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             ("series", {}, {"config": {"type": "TrendsAlertConfig", "series_index": 1}}),
             ("skip_weekend", {}, {"skip_weekend": True}),
             ("evaluation_delay", {}, {"evaluation_delay_intervals": 3}),
+            ("investigation_agent", {}, {"investigation_agent_enabled": True}),
         ]
     )
     def test_a_platform_edit_the_insight_stack_cannot_check_is_refused_on_both_rows(

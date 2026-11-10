@@ -14092,10 +14092,10 @@ export namespace Schemas {
      * * `notify` - Notify
      * * `suppress` - Suppress
      */
-    export type InvestigationInconclusiveActionEnum = typeof InvestigationInconclusiveActionEnum[keyof typeof InvestigationInconclusiveActionEnum];
+    export type AlertInvestigationInconclusiveActionEnum = typeof AlertInvestigationInconclusiveActionEnum[keyof typeof AlertInvestigationInconclusiveActionEnum];
 
 
-    export const InvestigationInconclusiveActionEnum = {
+    export const AlertInvestigationInconclusiveActionEnum = {
       Notify: 'notify',
       Suppress: 'suppress',
     } as const;
@@ -14193,7 +14193,7 @@ export namespace Schemas {
        *
        * * `notify` - Notify
        * * `suppress` - Suppress */
-      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
@@ -61263,6 +61263,14 @@ export namespace Schemas {
      */
     export type InsightPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
 
+    export type InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum = typeof InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum[keyof typeof InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum];
+
+
+    export const InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum = {
+      Notify: 'notify',
+      Suppress: 'suppress',
+    } as const;
+
     /**
      * Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API.
      */
@@ -61282,6 +61290,12 @@ export namespace Schemas {
          * @minimum 0
          */
       evaluation_delay_intervals?: number;
+      /** Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API. */
+      investigation_agent_enabled?: boolean;
+      /** Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API. */
+      investigation_gates_notifications?: boolean;
+      /** What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API. */
+      investigation_inconclusive_action?: InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum;
     }
 
     /**
@@ -82729,7 +82743,7 @@ export namespace Schemas {
        *
        * * `notify` - Notify
        * * `suppress` - Suppress */
-      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
     }
