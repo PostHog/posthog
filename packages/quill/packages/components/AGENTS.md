@@ -47,6 +47,7 @@ Rules:
 - Pagination is opt-in via `pageSize`; the component owns page state, reports user navigation through `onPageChange`, and resets to page 0 when `pageSize` changes. The pager is suppressed when the table has no rows — an empty table shows only its empty state, never a "0–0 of 0" pager.
 - Custom empty state via the `empty` prop (ReactNode); default is a minimal "No results".
 - `rowClassName` accepts a class string or a function of the row data to style matching rows.
+- Selection uses TanStack's row API in a cell or header (`row.toggleSelected()`, `table.getToggleAllRowsSelectedHandler()`), and a selected row gets `data-state="selected"`. The table keeps the selection itself unless the caller passes `rowSelection` and `onRowSelectionChange`, keyed by row id. A list that loads more rows or reloads passes `getRowId` too, so a selection follows its record and not a position. `enableRowSelection` leaves rows out, such as folders in a list of files, and "select all" skips them.
 - `onRowClick` makes non-interactive parts of each row clickable and keyboard accessible. Links, buttons, form controls, editable content, and custom controls keep their own behavior. Add `data-row-click-ignore` to a custom descendant that must not activate the row.
 - Don't rebuild tables from `Table` primitives when the data is row/column shaped and needs sorting or pagination — that's what DataTable is for. Drop to the `Table` primitive only for fully custom layouts.
 

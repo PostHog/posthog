@@ -19,29 +19,40 @@ import {
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { analyticsShareLogic } from './analyticsShareLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 
-/** Picks the space an item is shared into, or moved to, on the quill Analytics pages. */
+/** Picks the space one or several items are shared into, or moved to, on the quill Analytics pages. */
 export function ShareToSpaceDialog(): JSX.Element {
-    const { target, spaces, spacesLoading, sharing, currentSpace, entryLoading } = useValues(analyticsShareLogic)
+    const { target, bulkTargets, spaces, spacesLoading, sharing, currentSpace, entryLoading } =
+        useValues(analyticsShareLogic)
     const { closeShareToSpace, shareToSpace } = useActions(analyticsShareLogic)
+    const bulk = bulkTargets.length > 0
     const moving = !!currentSpace
     const loading = (spacesLoading && !spaces.length) || entryLoading
 
     return (
-        <Dialog open={!!target} onOpenChange={(open: boolean) => !open && closeShareToSpace()}>
+        <Dialog open={!!target || bulk} onOpenChange={(open: boolean) => !open && closeShareToSpace()}>
             <DialogContent className="max-h-[32rem]" data-attr="analytics-share-dialog">
                 <DialogHeader>
-                    <DialogTitle>{moving ? 'Move to a collection' : 'Add to a collection'}</DialogTitle>
+                    <DialogTitle>
+                        {bulk
+                            ? `Add ${pluralize(bulkTargets.length, 'item')} to a collection`
+                            : moving
+                              ? 'Move to a collection'
+                              : 'Add to a collection'}
+                    </DialogTitle>
                     <DialogDescription>
-                        {target
-                            ? moving
-                                ? `"${target.name}" is in ${currentSpace}. Pick where it goes next.`
-                                : `Pick the collection "${target.name}" goes in.`
-                            : ''}
+                        {bulk
+                            ? 'Items that are already in a collection move to the one you pick.'
+                            : target
+                              ? moving
+                                  ? `"${target.name}" is in ${currentSpace}. Pick where it goes next.`
+                                  : `Pick the collection "${target.name}" goes in.`
+                              : ''}
                     </DialogDescription>
                 </DialogHeader>
                 <DialogBody>

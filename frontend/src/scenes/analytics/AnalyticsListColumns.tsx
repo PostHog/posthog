@@ -13,6 +13,7 @@ import {
 } from '@posthog/icons'
 import {
     Button,
+    Checkbox,
     Chip,
     ChipGroup,
     DropdownMenu,
@@ -38,6 +39,7 @@ import { analyticsListLogic } from './analyticsListLogic'
 import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
+import { analyticsItemRowId } from './analyticsSelectionLogic'
 import { analyticsShareLogic } from './analyticsShareLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
@@ -52,6 +54,11 @@ import {
 export type AnalyticsListRow = { kind: 'folder'; folder: FolderRow } | { kind: 'item'; item: AnalyticsItem }
 
 export type AnalyticsListColumns = ColumnDef<AnalyticsListRow>[]
+
+/** A stable id for a row, so a selection stays on its item while pages load and the list reloads. */
+export function analyticsListRowId(row: AnalyticsListRow): string {
+    return row.kind === 'folder' ? `folder:${row.folder.path}` : analyticsItemRowId(row.item)
+}
 
 function EmptyCell(): JSX.Element {
     return (
@@ -342,6 +349,32 @@ export function analyticsListColumns({
 }): AnalyticsListColumns {
     const draggable = !showSpace
     return [
+        {
+            id: 'select',
+            minSize: 32,
+            enableResizing: false,
+            enableSorting: false,
+            header: ({ table }) => (
+                <Checkbox
+                    size="sm"
+                    aria-label="Select all loaded items"
+                    checked={table.getIsAllRowsSelected()}
+                    indeterminate={table.getIsSomeRowsSelected()}
+                    onCheckedChange={(checked: boolean) => table.toggleAllRowsSelected(checked)}
+                    data-attr="analytics-list-select-all"
+                />
+            ),
+            cell: ({ row }) =>
+                row.getCanSelect() && row.original.kind === 'item' ? (
+                    <Checkbox
+                        size="sm"
+                        aria-label={`Select ${row.original.item.name}`}
+                        checked={row.getIsSelected()}
+                        onCheckedChange={(checked: boolean) => row.toggleSelected(checked)}
+                        data-attr="analytics-list-row-select"
+                    />
+                ) : null,
+        },
         {
             id: 'name',
             minSize: 256,

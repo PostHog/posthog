@@ -59,6 +59,42 @@ describe('DataTable', () => {
         expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
     })
 
+    it('keeps a controlled selection on its record when the rows change order, and skips rows it cannot select', () => {
+        const onRowSelectionChange = jest.fn()
+        const columns: ColumnDef<TestRow>[] = [
+            {
+                id: 'select',
+                header: ({ table }) => (
+                    <input
+                        type="checkbox"
+                        aria-label="Select all"
+                        checked={table.getIsAllRowsSelected()}
+                        onChange={table.getToggleAllRowsSelectedHandler()}
+                    />
+                ),
+            },
+            { accessorKey: 'name', header: 'Name' },
+        ]
+        const props = {
+            columns,
+            rowSelection: { Ada: true },
+            onRowSelectionChange,
+            getRowId: (row: TestRow) => row.name,
+            enableRowSelection: (row: TestRow) => row.name !== 'Folder',
+        }
+        const { container, rerender } = render(
+            <DataTable {...props} data={[{ name: 'Ada' }, { name: 'Grace' }, { name: 'Folder' }]} />
+        )
+        rerender(<DataTable {...props} data={[{ name: 'Grace' }, { name: 'Ada' }, { name: 'Folder' }]} />)
+
+        const states = Array.from(container.querySelectorAll('tbody tr')).map((row) => row.getAttribute('data-state'))
+        expect(states).toEqual([null, 'selected', null])
+
+        fireEvent.click(screen.getByLabelText('Select all'))
+
+        expect(onRowSelectionChange).toHaveBeenCalledWith({ Ada: true, Grace: true })
+    })
+
     it('applies a row class name per row', () => {
         const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
         const { container } = render(
