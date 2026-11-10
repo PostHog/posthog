@@ -117,3 +117,9 @@ def test_restore_reports_cap_hits_per_user(mocker: Any) -> None:
     assert captured["properties"]["outcome"] == "restored"
     assert captured["properties"]["files_written"] == 3
     assert captured["properties"]["skipped_file_too_large"] == 2
+
+
+def test_the_memory_lock_cannot_be_cleared_from_inside_the_sandbox() -> None:
+    from products.tasks.backend.facade.api import _PROTECTED_RUN_STATE_KEYS
+
+    assert "agent_memory_locked" in _PROTECTED_RUN_STATE_KEYS

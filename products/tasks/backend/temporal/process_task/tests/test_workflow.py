@@ -4024,6 +4024,38 @@ class TestProcessTaskWorkflowUnit:
         assert workflow._pending_followups == []
         assert [persist_input.actor_user_id for persist_input in persist_inputs] == [42]
 
+    async def test_a_teammate_followup_waits_for_the_running_persist_before_delivery(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        workflow._context.task_created_by_id = 42
+        workflow._agent_memory_persist_enabled = True
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        persist_finished = asyncio.Event()
+
+        async def in_flight_persist() -> None:
+            await persist_finished.wait()
+
+        workflow._agent_memory_persist_task = asyncio.create_task(in_flight_persist())
+        persist_done_at_delivery: list[bool] = []
+
+        async def send(**kwargs):
+            persist_done_at_delivery.append(workflow._agent_memory_persist_task.done())
+            return "delivered"
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", send)
+
+        dispatch = asyncio.create_task(
+            workflow._dispatch_followup(PendingFollowup(message="teammate turn", artifact_ids=[], actor_user_id=99))
+        )
+        await asyncio.sleep(0)
+        assert persist_done_at_delivery == []
+        assert workflow._agent_memory_persist_enabled is False
+        persist_finished.set()
+        await dispatch
+
+        assert persist_done_at_delivery == [True]
+
     async def test_after_a_teammate_turn_the_creator_turn_schedules_no_persist(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123, state={"mode": "interactive"})

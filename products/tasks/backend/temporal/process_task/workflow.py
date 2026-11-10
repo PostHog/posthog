@@ -590,6 +590,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id},
             )
             return
+        another_member = (
+            followup.actor_user_id is not None and followup.actor_user_id != self.context.task_created_by_id
+        )
+        persist_was_enabled = self._agent_memory_persist_enabled
+        if another_member and persist_was_enabled:
+            # Files written during another member's turn stay in the sandbox, so it never persists again.
+            # A persist still running must finish before the message reaches the agent, or it could
+            # read files from that turn.
+            self._agent_memory_persist_enabled = False
+            await self._drain_agent_memory_persist_task()
         outcome = await self._send_followup_to_sandbox(
             message=followup.message,
             artifact_ids=followup.artifact_ids,
@@ -603,11 +613,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # An actorless follow-up (a Slack member with no PostHog user) keeps the last known actor, so
         # it cannot re-enable persistence as the creator.
         steer_declined = followup.steer and outcome == STEER_DECLINED_OUTCOME
-        if followup.actor_user_id is not None and not steer_declined:
+        if steer_declined:
+            self._agent_memory_persist_enabled = persist_was_enabled
+        elif followup.actor_user_id is not None:
             self._agent_memory_last_actor_user_id = followup.actor_user_id
-            # Files written during another member's turn stay in the sandbox, so it never persists again.
-            if followup.actor_user_id != self.context.task_created_by_id:
-                self._agent_memory_persist_enabled = False
         if followup.steer and outcome == STEER_DECLINED_OUTCOME:
             self._insert_followup_in_arrival_order(
                 PendingFollowup(
