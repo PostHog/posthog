@@ -1417,11 +1417,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             source_config = validated_config
 
         api_version = source.default_version
-        cdc_enabled = (
-            payload.get("cdc_enabled", False)
-            and source_type_supports_cdc(source_type_model)
-            and base.is_cdc_enabled_for_team(self.team)
-        )
+        cdc_enabled = payload.get("cdc_enabled", False) and source_type_supports_cdc(source_type_model)
 
         # Schema discovery and the payload checks run before the insert, so a failure leaves no source and
         # no credentials row. Discovery opens its own connection, so it must not run in a transaction.
