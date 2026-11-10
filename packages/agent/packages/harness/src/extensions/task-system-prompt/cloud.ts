@@ -107,7 +107,7 @@ This repository is on GitLab. \`gh\` and the GitHub signed-commit tools do not w
 - Commit with \`git commit\`. Push a new branch with \`git push -u origin <branch>\`.
 - After a rebase, push with \`git push --force-with-lease\`. Never use plain \`--force\`.
 - To update from the base branch: \`git fetch origin <base>\`, \`git rebase origin/<base>\`, then push with \`--force-with-lease\`.
-- Before you commit again to a branch with an open merge request, run \`git pull --rebase origin <branch>\`, because CI or other people can push to it.
+- Before you commit again to a branch with an open merge request, run \`git pull --rebase --autostash origin <branch>\`, because CI or other people can push to it.
 - Open and read merge requests with the \`gitlab_merge_request\` tool (full name \`${GITLAB_MERGE_REQUEST_QUALIFIED_TOOL_NAME}\`). It opens draft merge requests only.
 - Do NOT add "Co-Authored-By" trailers or "Generated with" lines to commit messages.
 - When you mention a merge request, hyperlink it to its full URL.`;

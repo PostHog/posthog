@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { checkoutExistingPullRequest } from "./pr-checkout";
 
@@ -307,6 +311,77 @@ describe("checkoutExistingPullRequest", () => {
       source_project_id: 1,
       target_project_id: 1,
     };
+
+    it("checks out a single-branch clone and advances an existing branch", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "gitlab-checkout-"));
+      const git = (cwd: string, ...args: string[]): string =>
+        execFileSync("git", args, {
+          cwd,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      try {
+        const remote = path.join(dir, "remote.git");
+        const seed = path.join(dir, "seed");
+        const clone = path.join(dir, "clone");
+        git(dir, "init", "--bare", remote);
+        git(dir, "clone", remote, seed);
+        git(seed, "config", "user.name", "Test");
+        git(seed, "config", "user.email", "test@example.com");
+        writeFileSync(path.join(seed, "file"), "base");
+        git(seed, "add", "file");
+        git(seed, "commit", "-m", "base");
+        git(seed, "branch", "-M", "main");
+        git(seed, "push", "origin", "main");
+        git(seed, "checkout", "-b", PR_BRANCH);
+        writeFileSync(path.join(seed, "file"), "first");
+        git(seed, "commit", "-am", "first");
+        git(seed, "push", "origin", PR_BRANCH);
+        git(
+          dir,
+          "clone",
+          "--single-branch",
+          "--branch",
+          "main",
+          `file://${remote}`,
+          clone,
+        );
+        const runCommand: RunCommand = async (executable, args, cwd) => ({
+          stdout:
+            args[0] === "remote" && args[1] === "get-url"
+              ? "https://gitlab.com/acme/platform/api.git"
+              : execFileSync(executable, args, {
+                  cwd,
+                  encoding: "utf8",
+                  stdio: ["ignore", "pipe", "pipe"],
+                }),
+        });
+        const checkout = () =>
+          checkoutExistingPullRequest({
+            repositoryPath: clone,
+            prUrl: MR_URL,
+            runCommand,
+            lookupGitlabMergeRequest: async () => ({
+              ...mergeRequest,
+              sha: git(seed, "rev-parse", "HEAD").trim(),
+            }),
+          });
+        expect((await checkout()).status).toBe("checked_out");
+        expect(
+          git(clone, "rev-parse", "--abbrev-ref", "@{upstream}").trim(),
+        ).toBe(`origin/${PR_BRANCH}`);
+        git(clone, "checkout", "main");
+        writeFileSync(path.join(seed, "file"), "second");
+        git(seed, "commit", "-am", "second");
+        git(seed, "push", "origin", PR_BRANCH);
+        expect((await checkout()).status).toBe("checked_out");
+        expect(git(clone, "rev-parse", "HEAD").trim()).toBe(
+          git(seed, "rev-parse", "HEAD").trim(),
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
 
     it.each(["fetch", "checkout"])(
       "recovers appropriately when %s fails",

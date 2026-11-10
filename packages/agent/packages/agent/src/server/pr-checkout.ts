@@ -300,6 +300,7 @@ async function checkoutExistingGitlabMergeRequest({
     try {
       // An explicit refspec, because a single-branch clone does not update
       // origin/<branch> on a plain `git fetch origin <branch>`.
+      await git(["remote", "set-branches", "--add", "origin", branch]);
       await git([
         "fetch",
         "origin",
@@ -332,6 +333,9 @@ async function checkoutExistingGitlabMergeRequest({
             ? ["checkout", branch]
             : ["checkout", "-b", branch, "--track", `origin/${branch}`],
         );
+        if (hasLocalBranch) {
+          await git(["merge", "--ff-only", `origin/${branch}`]);
+        }
       } catch (error) {
         await restoreRepoState(
           runCommand,

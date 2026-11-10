@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   redactSecrets,
   SecretEventRedactor,
@@ -96,6 +96,27 @@ describe("redactSecrets", () => {
       }
     },
   );
+
+  it("redacts the resolved GitLab credential in output and across every stream split", () => {
+    for (const token of ["custom+gitlab/token", "phx_custom-secret"]) {
+      vi.stubEnv("GITLAB_TOKEN", token);
+      try {
+        for (const credential of [token, encodeURIComponent(token)]) {
+          const text = `remote https://oauth2:${credential}@gitlab.com/group/repo.git`;
+          const expected =
+            "remote https://oauth2:[REDACTED]@gitlab.com/group/repo.git";
+          expect(redactSecrets(text)).toBe(expected);
+          for (let cut = 1; cut < text.length; cut++) {
+            expect(streamText([text.slice(0, cut), text.slice(cut)])).toBe(
+              expected,
+            );
+          }
+        }
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  });
 
   it("redacts every segment of a JWT", () => {
     const jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhY2N0XzEifQ.c2lnbmF0dXJl";
