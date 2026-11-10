@@ -4864,6 +4864,40 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.restricted_insight.id)
         )
 
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_transfer_checks_the_new_owners_saved_selection(self, enabled: bool, restricted_selection: bool) -> None:
+        admin = User.objects.create_user(email="admin@example.com", first_name="Admin", password=None)
+        OrganizationMembership.objects.create(
+            organization=self.organization, user=admin, level=OrganizationMembership.Level.ADMIN
+        )
+        dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+        subscription = create_subscription(team=self.team, created_by=admin, dashboard=dashboard, enabled=enabled)
+        selected_insight = self.restricted_insight if restricted_selection else self.open_insight
+        subscription.dashboard_export_insights.set([selected_insight])
+        self.client.force_login(admin)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+            {"user_uuid": str(self.user.uuid)},
+        )
+
+        subscription.refresh_from_db()
+        assert list(subscription.dashboard_export_insights.values_list("id", flat=True)) == [selected_insight.id]
+        if restricted_selection:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert response.json()["attr"] == "dashboard_export_insights"
+            assert subscription.created_by == admin
+            assert subscription.enabled is enabled
+            assert not ActivityLog.objects.filter(
+                scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
+            ).exists()
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert subscription.created_by == self.user
+            assert subscription.enabled is True
+            self.client.force_login(self.user)
+            assert self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/").status_code == 200
+
     def _create_on_a_restricted_dashboard(self):
         return self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",

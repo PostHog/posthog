@@ -1070,6 +1070,20 @@ def take_subscription_ownership(
             "Can't take ownership: the new owner doesn't have access to this content."
         ) from None
     if (
+        instance.dashboard_id
+        and blocked_target_ids(
+            owner_access, instance.dashboard_export_insights.filter(team_id=team.id), "insight"
+        ).exists()
+    ):
+        raise SubscriptionRequestInvalidError(
+            {
+                "dashboard_export_insights": [
+                    "The new owner needs viewer access to every selected insight. "
+                    "Choose another owner or update their access."
+                ]
+            }
+        )
+    if (
         instance.resource_type == Subscription.ResourceType.AI_PROMPT
         and not owner_access.check_access_level_for_resource("query", "viewer")
     ):
