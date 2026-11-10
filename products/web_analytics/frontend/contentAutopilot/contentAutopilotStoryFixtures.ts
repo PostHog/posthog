@@ -3,6 +3,7 @@ import type {
     AEOPromptCheckApi,
     AEOPromptSetCountsApi,
     AEOPromptSetOverviewApi,
+    AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
@@ -666,5 +667,102 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
                 },
             ],
         },
+    ],
+}
+
+const RANKED_BRANDS: AEOPromptSetRankingsApi['brands'] = [
+    {
+        domain: 'example.com',
+        name: 'example',
+        is_target: true,
+        answers_mentioning: 1012,
+        visibility: 0.41,
+        previous_visibility: 0.371,
+        positive_share: 0.82,
+    },
+    {
+        domain: 'rival.example.org',
+        name: 'rival',
+        is_target: false,
+        answers_mentioning: 457,
+        visibility: 0.185,
+        previous_visibility: 0.158,
+        positive_share: null,
+    },
+    {
+        domain: 'metrics.example.net',
+        name: 'metrics',
+        is_target: false,
+        answers_mentioning: 425,
+        visibility: 0.172,
+        previous_visibility: 0.154,
+        positive_share: null,
+    },
+    {
+        domain: 'flagship.example.io',
+        name: 'flagship',
+        is_target: false,
+        answers_mentioning: 306,
+        visibility: 0.124,
+        previous_visibility: 0.141,
+        positive_share: null,
+    },
+]
+
+// Thirty days ending on the mocked date, each brand wobbling around its window visibility.
+const RANKED_DAYS = Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(Date.UTC(2026, 8, 1 + index))
+    return date.toISOString().slice(0, 10)
+})
+
+export const EXAMPLE_PROMPT_SET_RANKINGS: AEOPromptSetRankingsApi = {
+    days: 30,
+    window_from: RANKED_DAYS[0],
+    window_to: RANKED_DAYS[RANKED_DAYS.length - 1],
+    answers: 2468,
+    brands: RANKED_BRANDS,
+    daily: RANKED_DAYS.flatMap((date, index) =>
+        RANKED_BRANDS.map((brand, brandIndex) => ({
+            date,
+            domain: brand.domain,
+            answers: 82,
+            visibility: Math.round(((brand.visibility ?? 0) + Math.sin(index / 3 + brandIndex) * 0.02) * 1000) / 1000,
+        }))
+    ),
+    top_domains: [
+        {
+            domain: 'example.com',
+            answers: 509,
+            share_of_answers: 0.206,
+            urls: 131,
+            is_target: true,
+            is_competitor: false,
+        },
+        {
+            domain: 'forum.example.org',
+            answers: 294,
+            share_of_answers: 0.119,
+            urls: 287,
+            is_target: false,
+            is_competitor: false,
+        },
+        {
+            domain: 'rival.example.org',
+            answers: 220,
+            share_of_answers: 0.089,
+            urls: 82,
+            is_target: false,
+            is_competitor: true,
+        },
+    ],
+    top_pages: [
+        { url: 'https://example.com/', answers: 106, share_of_answers: 0.043, is_target: true },
+        {
+            url: 'https://forum.example.org/best-session-replay-tools',
+            answers: 68,
+            share_of_answers: 0.028,
+            is_target: false,
+        },
+        { url: 'https://example.com/pricing', answers: 47, share_of_answers: 0.019, is_target: true },
     ],
 }

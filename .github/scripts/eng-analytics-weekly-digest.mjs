@@ -1,7 +1,9 @@
 // Weekly CI digest for #alerts-devex. It compares the last 7 complete UTC days with the 7 days before.
 // Spend covers every repository in the organization. Runner, Depot CI and container build minutes come
-// from Depot's usage API. Cache storage is not counted. PR workflow p95 durations come from the
-// workflow_health endpoint, which computes them over successful pull request runs only.
+// from Depot's usage API. Cache storage is not counted in weekly spend. The contract line starts from
+// Depot's credit balance, which is current as of the last invoice, and subtracts this month's usage.
+// PR workflow p95 durations come from the workflow_health endpoint, which computes them over
+// successful pull request runs only.
 
 import { pathToFileURL } from 'node:url'
 
@@ -118,8 +120,8 @@ function isThisRepository(name) {
 
 // GetUsage runs out of processing time on a week of our Depot CI usage and answers 500 or 429, so
 // every read asks for one UTC day at a time. Past the time budget, the digest posts without spend
-// rather than letting the job limit stop it before it posts anything. The contract range includes
-// both weeks, so a day is requested once per run and reused after that.
+// rather than letting the job limit stop it before it posts anything. A day is requested once per
+// run and reused, because the contract's month to date overlaps the weeks.
 const dayReads = new Map()
 
 async function spend(startAt, endAt) {
@@ -146,6 +148,37 @@ function* utcDays(startAt, endAt) {
         yield [from, to]
         from = to
     }
+}
+
+async function depotCreditBalanceUsd() {
+    const res = await fetch('https://api.depot.dev/depot.core.v1.CreditService/GetCreditBalance', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Connect-Protocol-Version': '1',
+            Authorization: `Bearer ${DEPOT_TOKEN}`,
+        },
+        body: '{}',
+        signal: AbortSignal.timeout(30_000),
+    }).catch(() => null)
+    if (!res?.ok) {
+        throw Object.assign(new Error(`Depot GetCreditBalance failed${res ? ` with ${res.status}` : ''}`), {
+            retryable: !res || res.status >= 500,
+        })
+    }
+    const balance = await res.json().catch(() => null)
+    const minor = balance?.remainingCreditMinor
+    if (balance?.currency !== 'USD' || typeof minor !== 'string' || !/^\d+$/.test(minor)) {
+        throw new Error('Depot GetCreditBalance returned an invalid balance')
+    }
+    return Number(minor) / 100
+}
+
+async function contractUsed(weekEnd) {
+    const balance = await withRetry(depotCreditBalanceUsd)
+    const monthStart = new Date(Date.UTC(weekEnd.getUTCFullYear(), weekEnd.getUTCMonth(), 1))
+    const monthToDate = await spend(monthStart, weekEnd)
+    return DEPOT_CONTRACT_USD - (balance - monthToDate.total)
 }
 
 function contractDates(weekEnd) {
@@ -186,11 +219,7 @@ async function readSpend(weekStart, weekEnd) {
     if (!priorWeek) {
         return null
     }
-    const used =
-        contract &&
-        (await spend(contract.start, weekEnd)
-            .then((usage) => usage.total)
-            .catch(unavailable('Contract spend')))
+    const used = contract && (await contractUsed(weekEnd).catch(unavailable('Contract spend')))
     return { lastWeek, priorWeek, contract: used == null ? null : { ...contract, used } }
 }
 
@@ -271,7 +300,7 @@ function isoDay(date) {
 }
 
 function contractSummary(contract, weeklySpend, weekEnd) {
-    const used = `Depot contract: ${fmtUsd(contract.used)} of ${fmtUsd(DEPOT_CONTRACT_USD)} used through ${isoDay(new Date(weekEnd.getTime() - DAY_MS))}, not counting cache storage.`
+    const used = `Depot contract: ${fmtUsd(contract.used)} of ${fmtUsd(DEPOT_CONTRACT_USD)} used through ${isoDay(new Date(weekEnd.getTime() - DAY_MS))}, not counting this month's cache storage.`
     const remaining = DEPOT_CONTRACT_USD - contract.used
     if (remaining <= 0) {
         return `${used} The contract is used up.`
