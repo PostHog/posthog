@@ -323,9 +323,6 @@ const dataCatalogMetricCreate = (): ToolBase<
         if (params.ai_model !== undefined) {
             body['ai_model'] = params.ai_model
         }
-        if (params.confidence !== undefined) {
-            body['confidence'] = params.confidence
-        }
         if (params.reasoning !== undefined) {
             body['reasoning'] = params.reasoning
         }
@@ -490,9 +487,6 @@ const dataCatalogMetricUpdate = (): ToolBase<
         }
         if (params.ai_model !== undefined) {
             body['ai_model'] = params.ai_model
-        }
-        if (params.confidence !== undefined) {
-            body['confidence'] = params.confidence
         }
         if (params.reasoning !== undefined) {
             body['reasoning'] = params.reasoning

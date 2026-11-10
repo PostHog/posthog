@@ -288,7 +288,7 @@ describe('metricsLogic', () => {
         expect(logic.values.metrics).toEqual([proposed, approvedDrifted, approved])
     })
 
-    it('orders the review queue by drift, ownership, then AI confidence, and keeps clean approved metrics out', async () => {
+    it('orders the review queue by drift, ownership, then AI proposals newest first, and keeps clean approved metrics out', async () => {
         const me = userLogic.values.user as UserType
         const mine = { id: 1, uuid: me.uuid, email: me.email, hedgehog_config: null }
         const theirs = { id: 2, uuid: 'someone-else', email: 'them@example.com', hedgehog_config: null }
@@ -296,10 +296,10 @@ describe('metricsLogic', () => {
             buildMetric({ id: name, name, created_by: theirs, created_at: '2026-10-01T00:00:00Z', ...overrides })
         logic.actions.loadMetricsSuccess([
             metric('their_proposal', {}),
-            metric('ai_low', { created_source: 'ai_generated', confidence: 0.6 }),
+            metric('ai_older', { created_source: 'ai_generated' }),
             metric('approved_clean', { status: 'approved' }),
             metric('my_newer_proposal', { created_by: mine, created_at: '2026-10-02T00:00:00Z' }),
-            metric('ai_high', { created_source: 'ai_generated', confidence: 0.9 }),
+            metric('ai_newer', { created_source: 'ai_generated', created_at: '2026-10-02T00:00:00Z' }),
             metric('their_drifted_approved', { status: 'approved', is_drifted: true }),
             metric('my_older_proposal', { created_by: mine }),
             metric('owned_drifted', { is_drifted: true, owner: me.email }),
@@ -310,8 +310,8 @@ describe('metricsLogic', () => {
             'their_drifted_approved',
             'my_newer_proposal',
             'my_older_proposal',
-            'ai_high',
-            'ai_low',
+            'ai_newer',
+            'ai_older',
             'their_proposal',
         ])
         expect(logic.values.approvedMetrics.map((m) => m.name)).toEqual(['approved_clean'])

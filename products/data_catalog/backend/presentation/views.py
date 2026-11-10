@@ -209,7 +209,6 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "source_insight_short_id",
                 "created_source",
                 "ai_model",
-                "confidence",
                 "reasoning",
             )
             if key in data

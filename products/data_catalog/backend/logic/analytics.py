@@ -66,7 +66,6 @@ def capture_metric_event(
             "status": metric.status,
             "created_source": metric.created_source,
             "ai_model": metric.ai_model or None,
-            "confidence": metric.confidence,
             "has_definition": metric.definition is not None,
             "is_from_insight": bool(metric.source_insight_short_id),
             **(extra or {}),
