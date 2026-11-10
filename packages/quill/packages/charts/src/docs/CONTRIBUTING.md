@@ -41,7 +41,7 @@ New props and config keys use these names and shapes. Some older charts still di
 - **Animation:** `animationMs: number`, where `0` turns animation off.
 - **Selection:** a drag along x reports through `onRangeSelect`. A 2D brush reports through `onAreaSelect`.
 - **State:** a `default*` prop is read on mount only. State the parent controls is a pair, such as `focusedId` and `onFocusChange`.
-- **Errors:** every chart takes `onError`. A chart that wraps another chart passes `onError` to it.
+- **Errors:** every chart takes `onError`. A chart that wraps another chart passes `onError` to it. A chart passes its data prop to `ChartErrorBoundary` as `resetKey`, so new data clears a render error.
 - **Shared props:** a prop that every chart takes goes on a shared base props type. Do not add it to each chart by hand.
 - **Scope:** every new prop, option or mode has a caller in the PR or a named consumer. Do not add options for later.
 
