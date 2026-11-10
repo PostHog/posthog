@@ -284,6 +284,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         changelog: Arc::from(topic.as_str()),
     });
     let changelog = changelog_kafka(&config.kafka, cluster.as_ref());
+    if backfilling {
+        // Without them the changelog would be read from its first retained record.
+        let (base, group, name) = (
+            base_client_config(&changelog),
+            config.kafka_consumer_group.clone(),
+            topic.clone(),
+        );
+        let partitions = loaded.partitions;
+        let started = tokio::task::spawn_blocking(move || {
+            backfill::start::committed_offsets(&base, &group, &name, partitions)
+        })
+        .await??;
+        let absent = backfill::start::missing(&started, partitions);
+        if !absent.is_empty() {
+            return Err(format!(
+                "backfill group {} has no start on partitions {absent:?}; run `personhog-writer backfill start` first",
+                config.kafka_consumer_group
+            )
+            .into());
+        }
+    }
     let kafka_consumer = Arc::new(
         match &backfill_topic {
             Some(backfill) => PersonConsumer::for_backfill(

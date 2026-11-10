@@ -1,5 +1,5 @@
-//! The one-time load of existing person properties into SlateDB: `ready` checks the writer has
-//! caught up to the backfill group, `plan` splits the person table into key ranges, `scan`
+//! The one-time load of existing person properties into SlateDB: `start` sets where the backfill
+//! writers begin, `plan` splits the person table into key ranges, `scan`
 //! workers publish their ranges onto the backfill topic, and `verify` compares the two stores.
 
 use std::sync::Arc;
@@ -16,8 +16,8 @@ use personhog_property_store::object_store::ObjectStore;
 use rdkafka::producer::Producer;
 use tokio_util::sync::CancellationToken;
 
-use crate::backfill::ready;
 use crate::backfill::scanner::{self, Run, SizeLimits, TopicSink};
+use crate::backfill::start;
 use crate::backfill::verify::{self, Live, Verification};
 use crate::config::Config;
 use crate::kafka::{base_client_config, changelog_kafka};
@@ -35,8 +35,8 @@ pub struct Backfill {
 
 #[derive(clap::Subcommand)]
 enum Command {
-    /// Checks that the writer group's commits have passed the backfill group's start everywhere.
-    Ready,
+    /// Starts the backfill group at the writer group's committed offsets, before any backfill writer runs.
+    Start,
     /// Splits the source table into the key ranges a run scans.
     Plan(PlanArgs),
     /// Scans this worker's share of a planned run onto the backfill topic.
@@ -88,7 +88,7 @@ struct VerifyArgs {
 
 pub async fn run(backfill: Backfill, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     match backfill.command {
-        Command::Ready => ready(config).await,
+        Command::Start => start(config).await,
         Command::Plan(args) => plan(config, args).await,
         Command::Scan(args) => scan(config, args).await,
         Command::Verify(args) => verify(config, args).await,
@@ -141,45 +141,31 @@ async fn changelog(config: &Config) -> Result<Option<ChangelogConfig>, Box<dyn s
     .await?)
 }
 
-async fn ready(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+async fn start(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     if config.property_backfill_group.is_empty() {
-        return Err("the readiness check needs PROPERTY_BACKFILL_GROUP".into());
+        return Err("the start needs PROPERTY_BACKFILL_GROUP".into());
     }
     let Some(loaded) = changelog(config).await? else {
         return Err("no changelog config is registered".into());
     };
     let base = base_client_config(&changelog_kafka(&config.kafka, loaded.cluster.as_ref()));
-    let topic = loaded.topic.clone();
-    let partitions = loaded.partitions;
-    let (writer, backfill) = {
-        let (base, writer_group, backfill_group) = (
-            base.clone(),
-            loaded.writer_group.clone(),
-            config.property_backfill_group.clone(),
-        );
-        tokio::task::spawn_blocking(move || {
-            Ok::<_, rdkafka::error::KafkaError>((
-                ready::committed_offsets(&base, &writer_group, &topic, partitions)?,
-                ready::committed_offsets(&base, &backfill_group, &topic, partitions)?,
-            ))
-        })
-        .await??
-    };
-    let lagging = ready::not_ready(&writer, &backfill, partitions);
-    for partition in &lagging {
-        println!(
-            "partition {} not ready: writer group at {:?}, backfill group started at {:?}",
-            partition.partition, partition.writer, partition.backfill
-        );
-    }
-    if lagging.is_empty() {
-        println!(
-            "ready: the writer group has passed the backfill group's start on all {partitions} partitions"
-        );
-        Ok(())
-    } else {
-        Err(format!("{} of {partitions} partitions are not ready", lagging.len()).into())
-    }
+    let (writer_group, backfill_group) = (
+        loaded.writer_group.clone(),
+        config.property_backfill_group.clone(),
+    );
+    let (topic, partitions) = (loaded.topic.clone(), loaded.partitions);
+    let offsets = tokio::task::spawn_blocking(move || {
+        start::copy_writer_offsets(&base, &writer_group, &backfill_group, &topic, partitions)
+    })
+    .await??;
+    println!(
+        "started {} at {}'s committed offsets on all {} partitions of {}",
+        config.property_backfill_group,
+        loaded.writer_group,
+        offsets.len(),
+        loaded.topic
+    );
+    Ok(())
 }
 
 async fn verify(config: &Config, args: VerifyArgs) -> Result<(), Box<dyn std::error::Error>> {

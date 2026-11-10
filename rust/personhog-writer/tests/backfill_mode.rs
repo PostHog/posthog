@@ -12,6 +12,7 @@ use personhog_property_store::object_store::ObjectStore;
 use personhog_property_store::{
     shard_for, PartitionKey, PropertyReader, PropertyStoreConfig, PropertyWriter,
 };
+use personhog_writer::backfill::start;
 use personhog_writer::backfill_mode::BackfillTopic;
 use personhog_writer::catch_up::{self, CatchUp, Range};
 use personhog_writer::consumer::ConsumerTask;
@@ -207,43 +208,6 @@ async fn backfill_rows_write_the_shards_of_their_changelog_partition() {
 }
 
 #[tokio::test]
-async fn a_new_backfill_group_starts_both_topics_at_their_end() {
-    let (cluster, producer) = common::create_mock_kafka_with_partitions(1).await;
-    cluster.create_topic(BACKFILL_TOPIC, 1, 1).unwrap();
-    let team_id = i64::from(unique_team_id());
-    for topic in [TOPIC, BACKFILL_TOPIC] {
-        produce(&producer, topic, 0, team_id, 1).await;
-    }
-    let consumer = backfill_consumer(&cluster.bootstrap_servers(), "test-backfill-start");
-
-    // Records keep arriving until the group has joined and resolved its start on both topics.
-    let mut seen = HashSet::new();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    while seen.len() < 2 {
-        assert!(tokio::time::Instant::now() < deadline, "saw only {seen:?}");
-        for topic in [TOPIC, BACKFILL_TOPIC] {
-            produce(&producer, topic, 0, team_id, 2).await;
-        }
-        while let Ok(received) =
-            tokio::time::timeout(Duration::from_millis(200), consumer.recv()).await
-        {
-            let message = match received {
-                Ok(message) => message,
-                Err(rdkafka::error::KafkaError::PartitionEOF(_)) => continue,
-                Err(e) => panic!("{e}"),
-            };
-            assert_ne!(
-                message.offset(),
-                0,
-                "{} was read from before the group started",
-                message.topic()
-            );
-            seen.insert(message.topic().to_string());
-        }
-    }
-}
-
-#[tokio::test]
 async fn backfill_members_own_the_same_partitions_of_both_topics() {
     let partitions = 3;
     let (cluster, _producer) = common::create_mock_kafka_with_partitions(partitions).await;
@@ -425,70 +389,91 @@ async fn a_dual_writer_replays_the_changelog_the_backfill_group_never_committed(
 }
 
 #[tokio::test]
-async fn a_backfill_group_resumes_where_it_joined_after_a_restart_before_its_first_commit() {
+async fn a_backfill_group_starts_where_the_writer_group_committed() {
     let (cluster, producer) = common::create_mock_kafka_with_partitions(1).await;
     cluster.create_topic(BACKFILL_TOPIC, 1, 1).unwrap();
     let bootstrap = cluster.bootstrap_servers();
     let team_id = i64::from(unique_team_id());
-    let group = "test-backfill-restart";
-    produce(&producer, TOPIC, 0, team_id, 1).await;
-    let probe: BaseConsumer = ClientConfig::new()
-        .set("bootstrap.servers", &bootstrap)
-        .set("group.id", group)
-        .set("enable.auto.commit", "false")
-        .create()
-        .unwrap();
-
-    // The backfill group's settings with a short session, so the restarted member joins without
-    // waiting out the first member's session. Polling is what lets a member join.
-    let member = || {
-        PersonConsumer::with_topics(
-            ClientConfig::new()
-                .set("bootstrap.servers", &bootstrap)
-                .set("group.id", group)
-                .set("enable.auto.commit", "false")
-                .set("enable.auto.offset.store", "false")
-                .set("auto.offset.reset", "latest")
-                .set("partition.assignment.strategy", "range")
-                .set("enable.partition.eof", "true")
-                .set("session.timeout.ms", "6000")
-                .set("heartbeat.interval.ms", "1000"),
-            TOPIC.to_string(),
-            Some(BACKFILL_TOPIC.to_string()),
-        )
-        .unwrap()
-    };
-    let first = member();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    while committed(&probe, TOPIC, 0).is_none() || committed(&probe, BACKFILL_TOPIC, 0).is_none() {
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the group never committed where it joined"
-        );
-        drop(tokio::time::timeout(Duration::from_millis(200), first.recv()).await);
-    }
-    assert_eq!(committed(&probe, TOPIC, 0), Some(1));
-    // Records arrive while the first member is up, and it dies before any flush commits them.
-    for id in 2..=4 {
+    for id in 1..=4 {
         produce(&producer, TOPIC, 0, team_id, id).await;
     }
-    drop(first);
+    produce(&producer, BACKFILL_TOPIC, 0, team_id, 1).await;
+    commit(&bootstrap, "test-writer-start", &[(TOPIC, 0, 2)]);
+    let base = ClientConfig::new()
+        .set("bootstrap.servers", &bootstrap)
+        .clone();
 
-    let second = member();
-    let mut received = Vec::new();
+    let copied = tokio::task::spawn_blocking(move || {
+        start::copy_writer_offsets(&base, "test-writer-start", "test-backfill-start", TOPIC, 1)
+    })
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(copied.get(&0), Some(&2));
+    let consumer = backfill_consumer(&bootstrap, "test-backfill-start");
+    let mut received = HashSet::new();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     while received.len() < 3 {
         assert!(
             tokio::time::Instant::now() < deadline,
-            "the restarted member saw only {received:?}"
+            "saw only {received:?}"
         );
-        match tokio::time::timeout(Duration::from_millis(500), second.recv()).await {
-            Ok(Ok(message)) if message.topic() == TOPIC => received.push(message.offset()),
-            Ok(Ok(_)) | Ok(Err(rdkafka::error::KafkaError::PartitionEOF(_))) | Err(_) => {}
+        match tokio::time::timeout(Duration::from_millis(500), consumer.recv()).await {
+            Ok(Ok(message)) => {
+                received.insert((message.topic().to_string(), message.offset()));
+            }
+            Ok(Err(rdkafka::error::KafkaError::PartitionEOF(_))) | Err(_) => {}
             Ok(Err(e)) => panic!("{e}"),
         }
     }
-    assert_eq!(received, vec![1, 2, 3]);
+    let expected: HashSet<(String, i64)> = [(TOPIC, 2), (TOPIC, 3), (BACKFILL_TOPIC, 0)]
+        .into_iter()
+        .map(|(topic, offset)| (topic.to_string(), offset))
+        .collect();
+    assert_eq!(received, expected);
+}
+
+#[tokio::test]
+async fn a_start_refuses_the_writer_group_a_started_group_and_a_partial_writer() {
+    let (cluster, _producer) = common::create_mock_kafka_with_partitions(2).await;
+    let bootstrap = cluster.bootstrap_servers();
+    commit(&bootstrap, "test-writer-refuse", &[(TOPIC, 0, 5)]);
+    commit(
+        &bootstrap,
+        "test-backfill-started",
+        &[(TOPIC, 0, 5), (TOPIC, 1, 5)],
+    );
+    let base = ClientConfig::new()
+        .set("bootstrap.servers", &bootstrap)
+        .clone();
+
+    let refusals = tokio::task::spawn_blocking(move || {
+        [
+            ("test-writer-refuse", "test-writer-refuse"),
+            ("test-writer-refuse", "test-backfill-started"),
+            ("test-writer-refuse", "test-backfill-fresh"),
+        ]
+        .map(|(writer, backfill)| start::copy_writer_offsets(&base, writer, backfill, TOPIC, 2))
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        matches!(refusals[0], Err(start::StartError::WriterGroup(_))),
+        "{:?}",
+        refusals[0]
+    );
+    assert!(
+        matches!(&refusals[1], Err(start::StartError::Started(p)) if p == &[0, 1]),
+        "{:?}",
+        refusals[1]
+    );
+    assert!(
+        matches!(&refusals[2], Err(start::StartError::WriterMissing(p)) if p == &[1]),
+        "{:?}",
+        refusals[2]
+    );
 }
 
 #[tokio::test]
