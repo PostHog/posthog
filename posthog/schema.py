@@ -138,6 +138,7 @@ from posthog.schema_enums import (
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
+    ExperimentMetricValueFormatType as ExperimentMetricValueFormatType,
     ExperimentStatsMethod as ExperimentStatsMethod,
     ExperimentStatsValidationFailure as ExperimentStatsValidationFailure,
     ExperimentWarehouseNativeMathType as ExperimentWarehouseNativeMathType,
@@ -5627,6 +5628,10 @@ class DatabaseSchemaField(BaseModel):
         extra="forbid",
     )
     chain: list[str | int] | None = None
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the column, when the HogQL schema defines one."),
+    )
     fields: list[str] | None = None
     hogql_value: str
     id: str | None = None
@@ -5656,6 +5661,10 @@ class DatabaseSchemaTableCommon(BaseModel):
     certification: DatabaseSchemaTableCertification | None = Field(
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -6020,22 +6029,11 @@ class ExperimentExposureHealthRuleMinimum(BaseModel):
     )
 
 
-class ExperimentMetricBaseProperties(BaseModel):
+class ExperimentMetricValueFormat(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdownFilter: BreakdownFilter | None = None
-    conversion_window: int | None = None
-    conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
-    fingerprint: str | None = None
-    goal: ExperimentMetricGoal | None = None
-    isSharedMetric: bool | None = None
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    name: str | None = None
-    response: dict[str, Any] | None = None
-    sharedMetricId: float | None = None
-    uuid: str | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    type: ExperimentMetricValueFormatType
 
 
 class ExperimentStatsBase(BaseModel):
@@ -18682,6 +18680,10 @@ class DatabaseSchemaBatchExportTable(BaseModel):
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
     )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
@@ -18696,6 +18698,10 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     certification: DatabaseSchemaTableCertification | None = Field(
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
     )
     fields: dict[str, DatabaseSchemaField]
     format: str | None = Field(
@@ -18728,6 +18734,10 @@ class DatabaseSchemaPostHogTable(BaseModel):
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
     )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
@@ -18742,6 +18752,10 @@ class DatabaseSchemaSystemTable(BaseModel):
     certification: DatabaseSchemaTableCertification | None = Field(
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -19579,6 +19593,18 @@ class ExperimentApiMetric(BaseModel):
         ),
     )
     uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "For mean metrics without a threshold, ratio metrics and quantile metrics:"
+            " what the metric's value is, so that results show it in a readable format."
+            " Set `type` to 'currency' for an amount in the project's base currency,"
+            " 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for"
+            " a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a"
+            " 0-1 scale. Omit it to show a plain number. It only changes how results"
+            " show the value, and a change to it does not recalculate results."
+        ),
+    )
 
 
 class ExperimentBreakdownResult(BaseModel):
@@ -19627,6 +19653,31 @@ class ExperimentExposureHealthCheckRule(BaseModel):
             " below: when the value is below it. A value at the threshold passes."
         ),
     )
+
+
+class ExperimentMetricBaseProperties(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownFilter: BreakdownFilter | None = None
+    conversion_window: int | None = None
+    conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
+    fingerprint: str | None = None
+    goal: ExperimentMetricGoal | None = None
+    isSharedMetric: bool | None = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    name: str | None = None
+    response: dict[str, Any] | None = None
+    sharedMetricId: float | None = None
+    uuid: str | None = None
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "How results show the value of the metric. Metrics that report a share of"
+            " users (funnel, retention, mean with a threshold) ignore it."
+        ),
+    )
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentQueryResponse(BaseModel):
@@ -33286,6 +33337,10 @@ class DatabaseSchemaEndpointTable(BaseModel):
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
     )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
@@ -33302,6 +33357,10 @@ class DatabaseSchemaManagedViewTable(BaseModel):
     certification: DatabaseSchemaTableCertification | None = Field(
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -33321,6 +33380,10 @@ class DatabaseSchemaMaterializedViewTable(BaseModel):
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
     )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     last_run_at: str | None = None
@@ -33338,6 +33401,10 @@ class DatabaseSchemaViewTable(BaseModel):
     certification: DatabaseSchemaTableCertification | None = Field(
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -33547,6 +33614,13 @@ class ExperimentRatioMetric(BaseModel):
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     uuid: str | None = None
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "How results show the value of the metric. Metrics that report a share of"
+            " users (funnel, retention, mean with a threshold) ignore it."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -33984,6 +34058,13 @@ class ExperimentFunnelMetric(BaseModel):
     series: list[Annotated[EventsNode | ActionsNode | ExperimentDataWarehouseNode, Field(discriminator="kind")]]
     sharedMetricId: float | None = None
     uuid: str | None = None
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "How results show the value of the metric. Metrics that report a share of"
+            " users (funnel, retention, mean with a threshold) ignore it."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -34027,6 +34108,13 @@ class ExperimentMeanMetric(BaseModel):
         ),
     )
     uuid: str | None = None
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "How results show the value of the metric. Metrics that report a share of"
+            " users (funnel, retention, mean with a threshold) ignore it."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -34083,6 +34171,13 @@ class ExperimentQuantileMetric(BaseModel):
         discriminator="kind",
     )
     uuid: str | None = None
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "How results show the value of the metric. Metrics that report a share of"
+            " users (funnel, retention, mean with a threshold) ignore it."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -34110,6 +34205,13 @@ class ExperimentRetentionMetric(BaseModel):
     )
     start_handling: StartHandling
     uuid: str | None = None
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "How results show the value of the metric. Metrics that report a share of"
+            " users (funnel, retention, mean with a threshold) ignore it."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

@@ -744,6 +744,11 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
     source_prefix = source_uri.removeprefix("s3://").rstrip("/")
     landing_prefix = landing_uri.removeprefix("s3://").rstrip("/")
     s3 = get_s3_client()
+    # The client is cached per thread for the life of the worker, and its listings never expire.
+    # s3fs find() never replaces a listing that is already cached, and copy() reads the details of
+    # each source file from that listing. A rotating prepared folder that was rewritten with new
+    # file names would fail with FileNotFoundError, so start from an empty cache.
+    s3.invalidate_cache()
     found = s3.find(source_prefix, detail=True)
     source_paths = list(found.keys()) if isinstance(found, dict) else list(found)
     parquet_paths = sorted(str(path) for path in source_paths if str(path).lower().endswith(".parquet"))

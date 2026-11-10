@@ -70,6 +70,39 @@ These reads go across teams, for example to the teams that share one GitHub inst
 They need an accessor with a kind: on `IntegrationManager.any` they raise `ValueError`, because external ids are unique only per provider.
 Do not take the first row of `list_by_external_id` without `team_ids`: the rule `github-installation-first-team` flags it for GitHub.
 
+### List rows across teams
+
+`list_across_teams(CrossTeamFilter(...))` is the one cross-team list operation.
+Use it only for sweeps, admin and management commands, and reads for an organization (pass the team ids of the organization).
+Request code that reads one team uses `list`.
+In the credentials service, only the web, Celery and Temporal deployments can call it, and the service audits each row that it returns.
+Like the other cross-team reads, it needs an accessor with a kind, and it keeps the scope of the accessor (kinds, auth types, warehouse source rows).
+
+```python
+from posthog.integrations import CrossTeamFilter, IntegrationManager
+
+rows = IntegrationManager.email.any.list_across_teams(
+    CrossTeamFilter(where={"verified": True}, where_in={"domain": ("example.com",)}, exclude_team_ids=(team_id,))
+)
+```
+
+Every field of `CrossTeamFilter` is optional. The fields that are set combine with AND:
+
+| Field                           | Selects the rows                                                                                            |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `team_ids`, `exclude_team_ids`  | Of these teams, or not of these teams. An empty `team_ids` selects no row.                                  |
+| `created_by_ids`                | That these users created. An empty tuple selects no row.                                                    |
+| `external_id`                   | With this external id.                                                                                      |
+| `where={key: value}`            | Whose config key equals the value. The same rules as `find(where=...)`.                                     |
+| `where_in={key: (values, ...)}` | Whose config key equals one of the values. It does not take `None`.                                         |
+| `where_iexact={key: text}`      | Whose config key holds this string, ignoring case. A key can name one nested key, such as `"account.name"`. |
+| `has_config_key=key`            | That have this config key, with any value.                                                                  |
+
+Rows come back ordered by id, oldest first, or newest first with `newest_first=True`.
+To read in pages, pass `limit`, and pass the last id of a page as `after_id` for the next page.
+For a sweep over many rows, read in pages, so that one call does not load every row of a kind.
+The operation has no count and no list of team ids: take them from the rows.
+
 `IntegrationManager.kinds(...)` takes `auth_types`: `"default"` (the default auth type of each kind), `"any"` for every auth type, or a list of auth types.
 
 Reads do not load the GitHub repository cache columns (`repository_cache`, `repository_cache_updated_at`). Django loads them with one more query when code reads them.
@@ -90,6 +123,7 @@ Only an accessor with one auth type can write, because a new row has exactly one
 - `upsert(team_id, external_id, config=..., ...)` returns `(row, created)`. It replaces the config of an existing row. It raises `IntegrationConflict` when the existing row is not in the scope, for example a row with another auth type.
 - `update(team_id, id, config_patch=..., config_remove=..., sensitive_config_patch=..., errors=...)` merges a patch. `errors=None` keeps the errors.
 - `update_by_external_id(external_id, patch)` patches the rows of every team that are in the scope. It writes only the rows that the patch changes, in one `bulk_update`, and returns their count. A `bulk_update` sends no `post_save` signal.
+- `change_external_id(team_id, id, external_id)` gives the row another external id. It raises `IntegrationConflict` when the team already has a row of the kind with that id.
 
 Delete rows with `delete(team_id, id)`. It raises `IntegrationInUse` with the usages when other objects use the row. Pass `ignore_usages=True` to delete it anyway.
 `delete_by_external_id(external_id)` deletes the rows of every team in one transaction. It deletes each row on its own, so the delete signals fire. Like `list_by_external_id`, it needs an accessor with a kind.
@@ -97,7 +131,7 @@ Delete rows with `delete(team_id, id)`. It raises `IntegrationInUse` with the us
 An OAuth accessor (`IntegrationManager.<kind>.oauth`) also refreshes access tokens:
 
 - `refresh_access_token(team_id, id, stale_access_token=None)` locks the row, refreshes the token when it expires soon, saves the new tokens and returns the row.
-  Pass the token that the provider refused as `stale_access_token`, to refresh also when it is still the stored token.
+  Pass the token that the provider refused as `stale_access_token`, to refresh also when it is still the stored token. An empty string matches a row without an access token.
   When another worker already stored a newer token, the row comes back without a refresh.
   The lock stops two workers from spending the same refresh token, which matters for providers that rotate refresh tokens (Resend, Jira).
   A refresh that fails does not raise: the row comes back with `errors` set.
@@ -116,14 +150,19 @@ To set a foreign key to a row, set the id column: `task.github_integration_id = 
 `reference` is the string form of the row reference (see "Store a reference outside a serializer"). Store it instead of `id`.
 
 With `DjangoBackend` the rows are still model instances at runtime. `FakeBackend` returns `FrozenIntegrationRecord`s with the same reads.
-A later change returns frozen records from every backend. It must first move the code that needs a model instance (the per-kind adapters that save the row, and the callers that read `row.team`) onto SDK operations.
-The per-kind adapters next to the model (`SlackIntegration`, `GitHubIntegration`, `OauthIntegration`, ...) take an `IntegrationRecord` and narrow it to the model with `integration_model`, because they still write the row.
+A later change returns frozen records from every backend. It must first move the callers that need a model instance (for example the callers that read `row.team`) onto SDK operations.
+
+The per-kind adapters next to the model (`SlackIntegration`, `GitHubIntegration`, `OauthIntegration`, ...) take an `IntegrationRecord`.
+They write their row through the SDK with the helpers in `posthog/models/integration/row_writes.py`: `update` for a patch, and `refresh_access_token` for OAuth tokens.
+After a write, an adapter holds the row that the SDK returned. Read the tokens from that row (`adapter.integration`, or the return value of `refresh_access_token()`), not from the row that you gave to the adapter.
+While the rows are model instances, `keep_caller_row_current` also copies the stored values into the row that you gave to the adapter, so old callers keep working.
+Some adapters still narrow the row to the model with `integration_model`, because callers outside the package read model-only attributes from `adapter.integration`.
 
 ## Storage backends
 
 The accessors hold the scope rules: the kinds, the auth types, the warehouse source rows and the reserved config keys.
 They send the storage work to one `StorageBackend` (`backend/protocol.py`), which `current_backend()` returns.
-The primitives take and return plain data (`RowScope`, `RowFilter`, `NewIntegration`, `IntegrationPatch`, records), so a backend can send them over HTTP.
+The primitives take and return plain data (`RowScope`, `RowFilter`, `CrossTeamFilter`, `NewIntegration`, `IntegrationPatch`, records), so a backend can send them over HTTP.
 
 | Backend                       | Rows                                                        |
 | ----------------------------- | ----------------------------------------------------------- |
@@ -196,7 +235,7 @@ A failure in the metric code is logged and never reaches the caller.
 - `kind` is `multi` for `any` and `kinds`.
 - `auth_type` is `oauth`, `token`, `credentials` or `any`.
 - `outcome` is `ok`, `not_found`, `conflict`, `in_use`, `unsupported_filter`, `unsupported_auth_type` or `error`. `error` is any other exception, which the SDK raises again unchanged.
-- `result` is `fresh` (no refresh needed), `refreshed`, `stale_token` (refreshed because the caller passed the stored token) or `error` (the refresh failed).
+- `result` is `fresh` (no refresh needed), `refreshed` (the token expires soon), `stale_token` (refreshed only because the caller passed the stored token) or `error` (the refresh failed).
 
 ## Report usages
 
