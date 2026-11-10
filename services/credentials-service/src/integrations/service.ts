@@ -734,17 +734,22 @@ export class IntegrationsService {
      */
     async changes(caller: Caller, query: ChangesQuery): Promise<ChangePage> {
         const after = decodeChangeCursor(query.since)
-        const changed = await listChangedIntegrations(this.deps.pool, {
-            // A token that names kinds sees only those, even when the request names none.
-            kinds: query.kinds ?? caller.auth.kinds,
-            after,
-            limit: query.limit,
-            settleSeconds: this.deps.changesSettleSeconds ?? DEFAULT_CHANGES_SETTLE_SECONDS,
+        // One snapshot for both reads, so a write that commits between them cannot pair a new
+        // secret with an old record, or a deleted row with no secret.
+        const { changed, secrets } = await withTransaction(this.deps.pool, async (tx) => {
+            await tx.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
+            const rows = await listChangedIntegrations(tx, {
+                // A token that names kinds sees only those, even when the request names none.
+                kinds: query.kinds ?? caller.auth.kinds,
+                after,
+                limit: query.limit,
+                settleSeconds: this.deps.changesSettleSeconds ?? DEFAULT_CHANGES_SETTLE_SECONDS,
+            })
+            const live = rows.filter(({ row }) => row.deletedAt === null).map(({ row }) => row.id)
+            // Every live row carries its current secret. A secret that changed before the cursor can
+            // sit on a row that changed again after it, so the reader cannot tell from the cursor alone.
+            return { changed: rows, secrets: await getSecretsOf(tx, live) }
         })
-        const live = changed.filter(({ row }) => row.deletedAt === null).map(({ row }) => row.id)
-        // Every live row carries its current secret. A secret that changed before the cursor can sit
-        // on a row that changed again after it, so the reader cannot tell from the cursor alone.
-        const secrets = await getSecretsOf(this.deps.pool, live)
 
         const outcomes = new Map<string, Awaited<ReturnType<IntegrationsService['changeSecret']>>>()
         await forEachLimit(changed, DECRYPT_CONCURRENCY, async ({ row }) => {
