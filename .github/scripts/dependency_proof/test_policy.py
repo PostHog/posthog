@@ -84,15 +84,6 @@ WORKSPACE = {
         ({}, {}, {"catalog": {"kea": "^4.0.1", "typescript": "6.0.3"}}, ["kea"]),
         ({}, {}, {}, []),
         ({"catalog": {"kea": "^4.0.0", "typescript": "6.0.4"}}, {}, {}, []),
-        ({}, {}, {"allowBuilds": {"esbuild": True, "kea": True}}, "differs from the default branch outside catalog"),
-        ({}, {}, {"packages": [".", "x"]}, "differs from the default branch outside catalog"),
-        ({}, {}, {"catalogs": {"next": {"kea": "^5.0.0"}}}, "differs from the default branch outside catalog"),
-        (
-            {"allowBuilds": {"esbuild": True, "kea": True}},
-            {},
-            {},
-            "differs from the default branch outside catalog",
-        ),
         ({"minimumReleaseAge": "20160"}, {}, {"minimumReleaseAge": "20160"}, "does not set minimumReleaseAge"),
         ({}, {}, {"catalog": {"kea": "~4.0.1", "typescript": "6.0.3"}}, "changes the range operator"),
         ({}, {}, {"catalog": {"kea": "^5.0.0", "typescript": "6.0.3"}}, "major change"),
@@ -113,6 +104,45 @@ def test_check_workspace(default: dict, base: dict, head: dict, expected: list[s
     else:
         with pytest.raises(Refused, match=expected):
             policy.check_workspace("pnpm-workspace.yaml", *files)
+
+
+WORKSPACE_TEXT = b"""packages:
+    - .
+catalog:
+    # state
+    kea: ^4.0.0
+    '@posthog/icons': 0.39.0
+catalogs:
+    next:
+        kea: ^5.0.0
+minimumReleaseAge: 10080
+"""
+
+
+@pytest.mark.parametrize(
+    ("side", "old", "new", "refused"),
+    [
+        ("head", b"kea: ^4.0.0", b"kea: ^4.0.1", False),
+        ("head", b"'@posthog/icons': 0.39.0", b"'@posthog/icons': 0.39.1", False),
+        ("default", b"kea: ^4.0.0", b"kea: ^4.0.1", False),
+        ("head", b"minimumReleaseAge: 10080", b"minimumReleaseAge: 1", True),
+        ("head", b"kea: ^5.0.0", b"kea: ^5.0.1", True),
+        ("head", b"    - .", b"    - |\n        .", True),
+        ("head", b"# state", b"left-pad: ^1.3.0", True),
+        ("head", b"kea: ^4.0.0", b"koa: ^4.0.0", True),
+        ("head", b"kea: ^4.0.0", b'kea: "^4.0.1 "', True),
+        ("head", b"kea: ^4.0.0", b"kea: ^4.0.1 # pinned", True),
+        ("default", b"    # state\n", b"", True),
+    ],
+)
+def test_check_workspace_text(side: str, old: bytes, new: bytes, refused: bool) -> None:
+    texts = {"default": WORKSPACE_TEXT, "head": WORKSPACE_TEXT, side: WORKSPACE_TEXT.replace(old, new)}
+    assert texts[side] != WORKSPACE_TEXT
+    if refused:
+        with pytest.raises(Refused, match="differs from the default branch by more than a catalog version"):
+            policy.check_workspace_text("pnpm-workspace.yaml", texts["default"], texts["head"])
+    else:
+        policy.check_workspace_text("pnpm-workspace.yaml", texts["default"], texts["head"])
 
 
 @pytest.mark.parametrize(
@@ -144,7 +174,7 @@ BLOCKED = policy.blocked_patterns(
     {
         "allowBuilds": {"esbuild": True, "@datadog/pprof": False, "node-gyp@<10": True},
         "onlyBuiltDependencies": ["sharp"],
-        "neverBuiltDependencies": ["fsevents"],
+        "neverBuiltDependencies": "fsevents",
         "minimumReleaseAgeExclude": ["posthog-js", "@posthog/*", "kea@4.0.0-pre.6"],
         "trustPolicyExclude": ["semver@5.7.2 || 6.3.1"],
     },

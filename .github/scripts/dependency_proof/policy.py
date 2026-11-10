@@ -29,6 +29,8 @@ BLOCKING_SETTINGS = (
 SETTINGS_FILES = (WORKSPACE_FILE, ".npmrc", ".pnpmfile.cjs", "pnpmfile.cjs")
 RANGE = re.compile(r"(?P<operator>[~^]?)(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?P<patch>[0-9]+)")
 PLAIN_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
+# One line of a workspace file that gives a package a version, split into the name and the version.
+VERSION_LINE = re.compile(rb"""(?P<name>[ \t]+(['"]?)[A-Za-z0-9@/._-]+\2: )[~^]?[0-9]+\.[0-9]+\.[0-9]+""")
 # A package name with `*` wildcards. pnpm reads more pattern syntax, such as a leading `!`, and that is refused.
 PACKAGE_PATTERN = re.compile(r"(@[A-Za-z0-9._~*-]+/)?[A-Za-z0-9._~*-]+")
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._@-]+(/[A-Za-z0-9._@-]+)*$")
@@ -146,23 +148,37 @@ def check_manifest(path: str, base: Mapping[str, Any], head: Mapping[str, Any]) 
         _moved_ranges(path, field, base, head)
 
 
+def check_workspace_text(path: str, default: bytes, head: bytes) -> None:
+    """Refuse a workspace file that differs from the default branch's by more than a catalog version.
+
+    The settings outside ``catalog`` decide what an update may do, so the head must hold the default
+    branch's. The files are compared line by line as bytes, because two YAML readers can take
+    different settings from one text, and pnpm's is not the one this proof has.
+    """
+    default_lines, head_lines = default.split(b"\n"), head.split(b"\n")
+    reason = f"{path} differs from the default branch by more than a {CATALOG} version"
+    if len(default_lines) != len(head_lines):
+        raise Refused(reason)
+    in_catalog = False
+    for trusted, line in zip(default_lines, head_lines):
+        if trusted[:1].strip():
+            in_catalog = trusted == f"{CATALOG}:".encode()
+        if trusted == line:
+            continue
+        before, after = VERSION_LINE.fullmatch(trusted), VERSION_LINE.fullmatch(line)
+        if not (in_catalog and before and after and before["name"] == after["name"]):
+            raise Refused(reason)
+
+
 def check_workspace(
     path: str, default: Mapping[str, Any], base: Mapping[str, Any], head: Mapping[str, Any]
 ) -> list[str]:
-    """Refuse a workspace file whose settings are not the default branch's, or whose catalog does more than move ranges.
+    """Refuse a workspace file that replays with another release age, or whose catalog does more than move ranges.
 
-    ``default`` is the default branch's file and ``base`` is the merge base's. The settings outside
-    ``catalog`` decide what an update may do, so the head must hold the default branch's. A catalog
-    entry is a dependency range, so it is judged as a manifest's is, against the merge base.
+    ``default`` is the default branch's file and ``base`` is the merge base's. A catalog entry is a
+    dependency range, so it is judged as a manifest's is, against the merge base.
     Returns the names of the catalog entries that move.
     """
-
-    def settings(workspace: Mapping[str, Any]) -> str:
-        # Compared as text, because dict equality ignores key order.
-        return repr({key: value for key, value in workspace.items() if key != CATALOG})
-
-    if settings(head) != settings(default):
-        raise Refused(f"{path} differs from the default branch outside {CATALOG}")
     minutes = int(MINIMUM_RELEASE_AGE.total_seconds() // 60)
     if str(default.get("minimumReleaseAge")) != str(minutes):
         raise Refused(f"{path} does not set minimumReleaseAge to the {minutes} minutes this proof replays with")
@@ -247,6 +263,8 @@ def blocked_patterns(
             if isinstance(entries, Mapping):
                 # `allowBuilds` maps a package to false to keep its scripts from running.
                 entries = [entry for entry, allowed in entries.items() if str(allowed).lower() != "false"]
+            elif not isinstance(entries, list | tuple):
+                entries = [entries]
             patterns.setdefault(key, []).extend(str(entry) for entry in entries)
     if only_built_file is not None:
         patterns["onlyBuiltDependenciesFile"] = [str(entry) for entry in json.loads(only_built_file)]
