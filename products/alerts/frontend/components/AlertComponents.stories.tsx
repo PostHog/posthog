@@ -358,7 +358,7 @@ function MultipleSlackWorkspacesStory(): JSX.Element {
 
     return (
         <div className="max-w-2xl border rounded bg-surface-primary p-4">
-            <InlineAlertNotifications alertId="alert-1" />
+            <InlineAlertNotifications alertId="alert-1" pagerDutyAvailable={false} />
         </div>
     )
 }

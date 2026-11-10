@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -9,6 +11,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import * as generatedApi from 'products/workflows/frontend/generated/api'
 import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { broadcastsLogic } from './broadcastsLogic'
@@ -64,7 +67,9 @@ describe('broadcastsLogic', () => {
     })
 
     afterEach(() => {
-        logic.unmount()
+        if (logic.isMounted()) {
+            logic.unmount()
+        }
         jest.restoreAllMocks()
         resumeKeaLoadersErrors()
     })
@@ -227,6 +232,38 @@ describe('broadcastsLogic', () => {
         await reload()
 
         await waitFor(() => expect(logic.values.rowDetailsById[LIVE.id]).toEqual(expected))
+    })
+
+    it('drops a live row’s lookup without an error when the list unmounts before its runs arrive', async () => {
+        let releaseRuns!: () => void
+        const runsHeld = new Promise<void>((resolve) => {
+            releaseRuns = resolve
+        })
+        batchJobs = async () => {
+            await runsHeld
+            return [200, [RUN]]
+        }
+        const settleRequestsAheadOfANewOne = async (): Promise<void> => {
+            await generatedApi.hogFlowsBatchJobsList(String(MOCK_TEAM_ID), LIVE.id)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        }
+        const rejections: unknown[] = []
+        const onRejection = (error: unknown): void => {
+            rejections.push(error)
+        }
+        process.on('unhandledRejection', onRejection)
+        try {
+            page = { results: [LIVE], count: 1 }
+            await reload()
+
+            logic.unmount()
+            releaseRuns()
+            await settleRequestsAheadOfANewOne()
+        } finally {
+            process.off('unhandledRejection', onRejection)
+        }
+
+        expect(rejections).toEqual([])
     })
 
     it('drops only the run statuses when the list reloads, keeping the tag and counts on screen', () => {

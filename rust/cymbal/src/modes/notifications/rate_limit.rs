@@ -17,7 +17,7 @@ use crate::core::metric_consts::{
 };
 use crate::modes::notifications::config::NotificationsConfig;
 use crate::modes::notifications::token_bucket::TokenBucket;
-use crate::modes::{processing::redis_heal::is_connection_error, shadow_redis};
+use crate::modes::processing::redis_heal::is_connection_error;
 
 pub struct IssueCreatedRateLimiter {
     /// `None` disables the limit: every notification is admitted.
@@ -43,33 +43,18 @@ impl IssueCreatedRateLimiter {
         )
         .await?;
 
-        let shadow = shadow_redis::connect(
-            config.shadow_redis_url.as_deref(),
-            &[&config.notifications_rate_limit_redis_url],
-            common_redis::RedisValueFormat::Utf8,
-            config.redis_response_timeout_ms,
-            config.redis_connection_timeout_ms,
-        )
-        .await;
-
-        let shadow: Option<Arc<dyn common_redis::ScriptRunner>> =
-            shadow.map(|client| -> Arc<dyn common_redis::ScriptRunner> { client });
-
         info!(
             per_hour = config.notifications_rate_limit_per_hour,
             "Error-tracking issue-created rate limiter enabled for all teams",
         );
 
         Ok(Self {
-            bucket: Some(
-                TokenBucket::per_hour(
-                    Arc::new(client),
-                    config.notifications_rate_limit_key_prefix.clone(),
-                    config.notifications_rate_limit_per_hour as f64,
-                    config.notifications_rate_limit_bucket_ttl_seconds,
-                )
-                .with_shadow(shadow),
-            ),
+            bucket: Some(TokenBucket::per_hour(
+                Arc::new(client),
+                config.notifications_rate_limit_key_prefix.clone(),
+                config.notifications_rate_limit_per_hour as f64,
+                config.notifications_rate_limit_bucket_ttl_seconds,
+            )),
         })
     }
 

@@ -113,7 +113,11 @@ def validate_credentials(api_token: str, site_id: str, schema_name: Optional[str
         return True, None
 
     if response.status_code == 401:
-        return False, "Invalid Webflow API token"
+        return (
+            False,
+            "Webflow rejected your API token. Create a new Site API token under Site settings → Apps & integrations "
+            "→ API access, then reconnect.",
+        )
 
     # A 403 means the token is genuine but lacks the scope for this probe. Accept it
     # at source-create (schema_name is None) so users only need to grant scopes for
