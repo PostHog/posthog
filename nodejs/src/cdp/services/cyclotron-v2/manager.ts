@@ -9,6 +9,7 @@ import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
+import { QUEUE_DEPTH_SQL } from './due-rows-sql'
 import { JobRow, withReschedule } from './job-codec'
 import { createCyclotronPool } from './pg-pool'
 import {
@@ -915,10 +916,7 @@ export class CyclotronV2Manager {
 
     private async queryDepth(): Promise<boolean> {
         try {
-            const result = await this.pool.query(
-                `SELECT COUNT(*) AS count FROM cyclotron_jobs
-                 WHERE status = 'available' AND scheduled <= NOW()`
-            )
+            const result = await this.pool.query(QUEUE_DEPTH_SQL)
             const count = parseInt(result.rows[0].count, 10)
             const full = count >= this.depthLimit
 

@@ -122,6 +122,12 @@ oauth_config:
       - search:read.private
       - search:read.im
       - search:read.mpim
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - mpim:history
+      - mpim:read
       - users:read
       - users:read.email
     user_optional:
@@ -166,7 +172,8 @@ Django must be up at that moment.
 > identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
 
 > The `canvases:read` user scope lets the Slack MCP connection read canvases that the authorizing user can access.
-> The `search:read.private`, `search:read.im`, and `search:read.mpim` user scopes let the dev Slack MCP connection search private channels, DMs, and group DMs. Existing connections keep their old scopes until the person disconnects and connects again.
+> The `search:read.private`, `search:read.im`, and `search:read.mpim` user scopes let the dev Slack MCP connection search private channels, DMs, and group DMs.
+> The `groups:history`, `groups:read`, `im:history`, `im:read`, `mpim:history`, and `mpim:read` user scopes let it list and read the private channels, DMs, and group DMs the authorizing user is a member of. Existing connections keep their old scopes until the person disconnects and connects again.
 
 > `reaction_added` + `reactions:read` power thumbs-reaction feedback on agent replies. Without
 > them a 👍/👎 reaction on a reply records nothing, again with no error.
