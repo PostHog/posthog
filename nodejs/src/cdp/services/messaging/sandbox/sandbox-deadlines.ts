@@ -1,3 +1,4 @@
+import { OPTIONAL_VALKEY_TIMEOUT_MS } from '../../rate-limiter/rate-limiter-valkey-pool'
 import { AUTHORIZATION_TIMEOUT_MS } from './sandbox-authorization'
 import { RECIPIENT_READ_TIMEOUT_MS } from './sandbox-recipient-checks'
 
@@ -7,7 +8,10 @@ export const SES_SEND_TIMEOUT_MS = 10_000
 const RECIPIENT_SPELLINGS_CHECKED = 4
 const RECIPIENT_READS_PER_SEND = 1 + RECIPIENT_SPELLINGS_CHECKED
 
+const SES_BUCKET_CLAIM_MS = 2 * OPTIONAL_VALKEY_TIMEOUT_MS
+
 const SLOWEST_WORKER_SEND_MS =
+    SES_BUCKET_CLAIM_MS +
     2 * AUTHORIZATION_TIMEOUT_MS +
     RECIPIENT_READS_PER_SEND * RECIPIENT_READ_TIMEOUT_MS +
     4 * CAPS_VALKEY_TIMEOUT_MS +

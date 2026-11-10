@@ -4,11 +4,19 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { defaultConfig } from '~/common/config/config'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { parseJSON } from '~/common/utils/json-parse'
+import { PubSub } from '~/common/utils/pubsub'
+import { RedisPool } from '~/types'
 
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../../../types'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFlowExecutorService } from '../../hogflows/hogflow-executor.service'
+import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
+import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { RecipientTokensService } from '../recipient-tokens.service'
 import { SES_REJECTED, SES_THROTTLE, SesReply } from './_tests/fake-ses-endpoint'
 import { useSandboxWorld } from './_tests/sandbox-world'
@@ -24,8 +32,31 @@ describe('SandboxEmailSendStep', () => {
     const caps = { team: 5, recipient: 1 }
     let hogFlow: HogFlow
     let events: RecordedEvent[]
+    let pubSubPool: RedisPool
+    let pubSub: PubSub
 
     const member = () => `Member-${world.team.id}@Example.com`
+    const frequencyCapKeys = () => `@posthog/workflows-frequency-cap/${world.team.id}/`
+
+    beforeAll(async () => {
+        pubSubPool = createRedisPoolFromConfig({
+            connection: { url: defaultConfig.REDIS_URL },
+            poolMinSize: 1,
+            poolMaxSize: 2,
+        })
+        pubSub = new PubSub(pubSubPool)
+        await pubSub.start()
+    })
+
+    afterAll(async () => {
+        await pubSub.stop()
+        await pubSubPool.drain()
+        await pubSubPool.clear()
+    })
+
+    afterEach(async () => {
+        await deleteKeysWithPrefix(world.valkey, frequencyCapKeys())
+    })
 
     beforeEach(async () => {
         await world.addMember(member())
@@ -73,7 +104,13 @@ describe('SandboxEmailSendStep', () => {
             service: world.service({ caps: dailyCaps }),
             hogInputsService: new HogInputsService({} as any, tokens, {} as any),
             siteUrl: 'http://localhost:8000',
-            recipientPreferences: { checkMarketingFrequencyCap: () => Promise.resolve({ capped: false }) },
+            recipientPreferences: new RecipientPreferencesService(world.recipients, world.suppression, {
+                teamWorkflowsConfig: new TeamWorkflowsConfigService(world.postgres, pubSub),
+                valkey: world.valkey,
+                persons: {
+                    getCyclotronPerson: () => Promise.reject(new Error('a sandbox email caps the run person')),
+                },
+            }),
             events: {
                 capture: (teamId, outcome, properties) => {
                     events.push({ teamId, outcome, properties })
@@ -304,6 +341,29 @@ describe('SandboxEmailSendStep', () => {
 
         expect(world.ses.delivered).toHaveLength(1)
         expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'skipped', reason: 'opted_out' })
+    })
+
+    it("delivers a marketing email until the person reaches the team's frequency cap, then skips the next one", async () => {
+        await world.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO workflows_teamworkflowsconfig
+                (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                 email_sending_suspension_reason, marketing_frequency_cap_max_messages,
+                 marketing_frequency_cap_window_days)
+             VALUES ($1, false, 'off', '', 1, 7)`,
+            [world.team.id],
+            'test:cap-one-marketing-email-a-week'
+        )
+        const roomy = { dailyCaps: { team: 100, recipient: 100 } }
+
+        const first = await runToNextAction(member(), roomy)
+        const second = await runToNextAction(member(), roomy)
+
+        expect(world.ses.delivered).toHaveLength(1)
+        expect([first, second].map(({ finished }) => finished.invocation.state.variables?.email_result)).toEqual([
+            { status: 'accepted', message_id: 'ses-1' },
+            { status: 'skipped', reason: 'frequency_capped' },
+        ])
     })
 
     it('logs why the template failed to render', async () => {

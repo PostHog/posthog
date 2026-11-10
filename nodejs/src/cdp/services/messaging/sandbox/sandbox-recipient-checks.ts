@@ -8,10 +8,14 @@ import { FrequencyCapCheck } from '../recipient-preferences.service'
 import { readerBeforeDeadline } from './sandbox-authorization'
 
 export const RECIPIENT_READ_TIMEOUT_MS = 2_000
+export const MAX_RUNNING_FREQUENCY_CAP_CHECKS = 8
+
+type FrequencyCapRunner = (check: () => Promise<FrequencyCapCheck>) => Promise<FrequencyCapCheck>
 
 export type SandboxRecipientCheckDependencies = {
     suppression: Pick<EmailSuppressionService, 'isSuppressed'>
     recipients: Pick<RecipientsManagerService, 'get' | 'getPreference' | 'getAllMarketingMessagingPreference'>
+    frequencyCapBeforeDeadline: FrequencyCapRunner
 }
 
 export function sandboxRecipientReads(
@@ -23,6 +27,68 @@ export function sandboxRecipientReads(
     return {
         suppression: new EmailSuppressionService(reader, suppressionConfig),
         recipients: new RecipientsManagerService(reader),
+        frequencyCapBeforeDeadline: frequencyCapRunner(timeoutMs),
+    }
+}
+
+function frequencyCapRunner(timeoutMs: number): FrequencyCapRunner {
+    let running = 0
+    const waiting: (() => void)[] = []
+    const release = (): void => {
+        const next = waiting.shift()
+        if (next) {
+            next()
+        } else {
+            running -= 1
+        }
+    }
+    const acquire = (): { granted: Promise<void>; abandon: () => void } => {
+        if (running < MAX_RUNNING_FREQUENCY_CAP_CHECKS) {
+            running += 1
+            return { granted: Promise.resolve(), abandon: release }
+        }
+        let grant: () => void = () => undefined
+        const granted = new Promise<void>((resolve) => {
+            grant = resolve
+        })
+        waiting.push(grant)
+        return {
+            granted,
+            abandon: () => {
+                const index = waiting.indexOf(grant)
+                if (index >= 0) {
+                    waiting.splice(index, 1)
+                } else {
+                    release()
+                }
+            },
+        }
+    }
+
+    return async (check) => {
+        let timer: NodeJS.Timeout | undefined
+        const deadline = new Promise<'late'>((resolve) => {
+            timer = setTimeout(() => resolve('late'), timeoutMs)
+        })
+        try {
+            const slot = acquire()
+            if ((await Promise.race([slot.granted, deadline])) === 'late') {
+                slot.abandon()
+                logger.warn('Skipped the sandbox frequency cap check', { reason: 'every check slot is busy' })
+                return { capped: false }
+            }
+            const answer = await Promise.race([Promise.resolve().then(check).finally(release), deadline])
+            if (answer === 'late') {
+                logger.warn('Skipped the sandbox frequency cap check', { reason: `no answer in ${timeoutMs} ms` })
+                return { capped: false }
+            }
+            return answer
+        } catch (error) {
+            logger.warn('Skipped the sandbox frequency cap check', { reason: String(error) })
+            return { capped: false }
+        } finally {
+            clearTimeout(timer)
+        }
     }
 }
 
@@ -45,7 +111,7 @@ export function canonicalRecipient(address: string): string {
 }
 
 export async function checkSandboxRecipient(
-    { suppression, recipients }: SandboxRecipientCheckDependencies,
+    { suppression, recipients, frequencyCapBeforeDeadline }: SandboxRecipientCheckDependencies,
     { teamId, address, categoryId, categoryType, optOuts, isTest, frequencyCap }: SandboxRecipientCheckRequest
 ): Promise<SandboxRecipientCheck> {
     const transactional = categoryType === 'transactional'
@@ -63,7 +129,7 @@ export async function checkSandboxRecipient(
         logger.warn('Could not read sandbox recipient suppression or preferences', { teamId, error: String(error) })
         return { ok: false, reason: 'authorization_unavailable' }
     }
-    if (!isTest && (await frequencyCap()).capped) {
+    if (!isTest && (await frequencyCapBeforeDeadline(frequencyCap)).capped) {
         return { ok: false, reason: 'frequency_capped' }
     }
     return { ok: true }

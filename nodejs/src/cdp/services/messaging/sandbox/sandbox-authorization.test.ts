@@ -3,7 +3,6 @@ import { randomUUID } from 'crypto'
 import { defaultConfig } from '~/common/config/config'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
-import { waitForExpect } from '~/tests/helpers/expectations'
 import {
     createOrganization,
     createOrganizationMembership,
@@ -161,15 +160,13 @@ describe('readSandboxAuthorization', () => {
 
     describe('when the database stalls', () => {
         const unavailable = { ok: false, reason: 'authorization_unavailable' }
-        let applicationName: string
         let onePoolRouter: PostgresRouter
 
         const readThrough = (router: PostgresRouter, recipient = memberEmail) =>
             readSandboxAuthorization(router, { teamId: team.id, recipient, tenantName, timeoutMs: 200 })
 
         beforeEach(() => {
-            applicationName = `sandbox-authorization-${randomUUID()}`
-            onePoolRouter = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }, applicationName)
+            onePoolRouter = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 })
         })
 
         afterEach(async () => {
@@ -212,15 +209,6 @@ describe('readSandboxAuthorization', () => {
         it('serves the next read on a clean connection after a query passes the deadline', async () => {
             await createMember(memberEmail, organizationId, true)
             const locker = await postgres.connect(PostgresUse.COMMON_WRITE)
-            const sessionStates = async (): Promise<string[]> =>
-                (
-                    await postgres.query<{ state: string }>(
-                        PostgresUse.COMMON_WRITE,
-                        'SELECT state FROM pg_stat_activity WHERE application_name = $1',
-                        [applicationName],
-                        'test:sandbox-authorization-sessions'
-                    )
-                ).rows.map((row) => row.state)
             let locked = false
             try {
                 await locker.query('BEGIN')
@@ -228,7 +216,16 @@ describe('readSandboxAuthorization', () => {
                 locked = true
 
                 expect(await readThrough(onePoolRouter)).toEqual(unavailable)
-                await waitForExpect(async () => expect(await sessionStates()).not.toContain('active'), 2_000, 10)
+                expect(
+                    (
+                        await onePoolRouter.query(
+                            PostgresUse.COMMON_WRITE,
+                            'SELECT 1 AS answered',
+                            undefined,
+                            'test:sandbox-authorization-next-read'
+                        )
+                    ).rows
+                ).toEqual([{ answered: 1 }])
                 await locker.query('COMMIT')
                 locked = false
 

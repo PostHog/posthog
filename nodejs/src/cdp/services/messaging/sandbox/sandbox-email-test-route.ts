@@ -6,7 +6,8 @@ import { logger } from '~/common/utils/logger'
 
 import { ScopedServiceJwt } from '../../../utils/scoped-service-jwt'
 import { SandboxEmailStepResult } from '../../hogflows/actions/email_sandbox'
-import { RateLimitedQueueOptions } from '../../job-queue/job-queue-rate-limited-postgres-v2'
+import { RateLimitedQueueOptions, sesRateLimitedQueueOptions } from '../../job-queue/job-queue-rate-limited-postgres-v2'
+import { RateLimiterValkeyConfig, createSesRateLimiterValkeyPool } from '../../rate-limiter/rate-limiter-valkey-pool'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { SandboxEmailService, SandboxSendOutcome } from './sandbox-email.service'
 
@@ -25,6 +26,13 @@ export type SandboxEmailTestRouteDeps = {
     service: Pick<SandboxEmailService, 'send'> | null
     events: Pick<SandboxEmailEvents, 'capture'>
     sesBucket: Pick<RateLimitedQueueOptions, 'limiter' | 'key' | 'capacity' | 'refillPerSecond'> | null
+}
+
+export function sandboxTestSendBucket(
+    config: RateLimiterValkeyConfig & Parameters<typeof sesRateLimitedQueueOptions>[0]
+): SandboxEmailTestRouteDeps['sesBucket'] {
+    const valkey = createSesRateLimiterValkeyPool(config, 'sandbox-email-test-send', { optional: true })
+    return valkey ? sesRateLimitedQueueOptions(config, valkey) : null
 }
 
 export function sandboxEmailTestRouter(deps: SandboxEmailTestRouteDeps): express.Router {
