@@ -3338,6 +3338,14 @@ class TestPrinter(BaseTest):
     def test_to_date_with_timezone(self, _name: str, expression: str, expected: str) -> None:
         self.assertEqual(self._expr(expression), expected)
 
+    @parameterized.expand([("toDate",), ("to_date",)])
+    def test_to_date_rejects_expression_timezone(self, name: str) -> None:
+        timezone = "'UTC'"
+        for _ in range(8):
+            timezone = f"toString({name}(event, {timezone}))"
+        with self.assertRaisesMessage(QueryError, "toDate timezone must be a string literal"):
+            self._expr(f"{name}(event, {timezone})")
+
     @parameterized.expand(
         [
             (

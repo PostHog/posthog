@@ -227,6 +227,13 @@ class ClickHousePrinter(BasePrinter):
         return self._unmasked_key_read_type(node.args[0], first_key)
 
     def _render_clickhouse_function_call(self, node: ast.Call, func_meta) -> str:
+        # ClickHouse requires a constant timezone. Check before visiting it: the string
+        # conversion path uses it twice, so nested expressions could expand exponentially.
+        if node.name in ("toDate", "to_date") and len(node.args) == 2:
+            timezone = node.args[1]
+            if not isinstance(timezone, ast.Constant) or not isinstance(timezone.value, str):
+                raise QueryError("toDate timezone must be a string literal")
+
         args_count = len(node.args) - func_meta.passthrough_suffix_args_count
         node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
 
