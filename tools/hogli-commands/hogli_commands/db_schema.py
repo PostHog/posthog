@@ -10,7 +10,7 @@ import shutil
 import zipfile
 import tempfile
 import subprocess
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -124,7 +124,7 @@ def _validate_gzip(path: Path) -> None:
         raise SchemaRestoreError(f"schema dump is not valid gzip: {path}")
 
 
-def _run_psql_with_gzip_input(gzip_path: Path, target_db: str) -> None:
+def run_psql_with_gzip_input(gzip_path: Path, target_db: str) -> None:
     command = [
         *DOCKER_COMPOSE,
         "exec",
@@ -203,7 +203,7 @@ def _psql_write(target_db: str, sql: str) -> None:
     )
 
 
-def _product_routed_app_labels() -> list[str]:
+def product_routed_app_labels() -> list[str]:
     """App labels whose tables live in their own database, per products/db_routing.yaml."""
     config_path = _resolve_repo_path(PRODUCT_DB_ROUTING_PATH)
     if not config_path.is_file():
@@ -229,7 +229,7 @@ def _forget_product_app_migrations(target_db: str) -> None:
     one inside it; `posthog/test/repo_invariants/test_migration_dependencies_share_a_database.py`
     keeps it that way.
     """
-    app_labels = _product_routed_app_labels()
+    app_labels = product_routed_app_labels()
     if not app_labels:
         return
     in_list = ", ".join(f"'{label}'" for label in app_labels)
@@ -237,14 +237,14 @@ def _forget_product_app_migrations(target_db: str) -> None:
 
 
 @dataclass(frozen=True, kw_only=True, slots=True, order=True)
-class _MigrationReference:
+class MigrationReference:
     app: str
     name: str
 
 
-def _recorded_migrations(schema_path: Path) -> set[_MigrationReference]:
+def _recorded_migrations(schema_path: Path) -> set[MigrationReference]:
     """The (app, name) rows in the dump's django_migrations data block."""
-    recorded: set[_MigrationReference] = set()
+    recorded: set[MigrationReference] = set()
     with gzip.open(schema_path, "rt", encoding="utf-8") as dump:
         for line in dump:
             if match := MIGRATIONS_COPY_RE.match(line.rstrip("\n")):
@@ -258,11 +258,11 @@ def _recorded_migrations(schema_path: Path) -> set[_MigrationReference]:
             if row == "\\.":
                 break
             values = row.split("\t")
-            recorded.add(_MigrationReference(app=values[app_index], name=values[name_index]))
+            recorded.add(MigrationReference(app=values[app_index], name=values[name_index]))
     return recorded
 
 
-def _replaced_migrations(source: str) -> set[_MigrationReference]:
+def _replaced_migrations(source: str) -> set[MigrationReference]:
     """The `replaces` list of a squashed migration, read without importing the module."""
     match = REPLACES_RE.search(source)
     if match is None:
@@ -276,30 +276,38 @@ def _replaced_migrations(source: str) -> set[_MigrationReference]:
             if depth == 0:
                 break
     try:
-        return {
-            _MigrationReference(app=app, name=name) for app, name in ast.literal_eval(source[match.end() : end + 1])
-        }
+        return {MigrationReference(app=app, name=name) for app, name in ast.literal_eval(source[match.end() : end + 1])}
     except (ValueError, SyntaxError, TypeError):
         return set()
 
 
-def _checkout_migrations(app_paths: Mapping[str, Path]) -> set[_MigrationReference]:
+def _checkout_migrations(app_paths: Mapping[str, Path]) -> set[MigrationReference]:
     # A fresh migrate records a squash's replaced names alongside the squash itself,
     # so those names count as known even after their files are deleted.
-    known: set[_MigrationReference] = set()
+    known: set[MigrationReference] = set()
     for app, migrations_dir in app_paths.items():
         if not migrations_dir.is_dir():
             continue
         for path in migrations_dir.iterdir():
             if MIGRATION_FILE_RE.fullmatch(path.name):
-                known.add(_MigrationReference(app=app, name=path.stem))
+                known.add(MigrationReference(app=app, name=path.stem))
                 source = path.read_text(encoding="utf-8")
                 if "replaces" in source:
                     known |= _replaced_migrations(source)
     return known
 
 
-def _check_dump_is_not_newer_than_checkout(schema_path: Path) -> None:
+def migrations_missing_from_checkout(recorded: Iterable[MigrationReference]) -> list[MigrationReference]:
+    """The recorded migrations of this checkout's own apps that its migration files do not define."""
+    app_paths = get_managed_app_paths(REPO_ROOT)
+    routed_away = set(product_routed_app_labels())
+    own = {migration for migration in recorded if migration.app in app_paths and migration.app not in routed_away}
+    if not own:
+        return []
+    return sorted(own - _checkout_migrations(app_paths))
+
+
+def check_dump_is_not_newer_than_checkout(schema_path: Path) -> None:
     """Refuse a dump that records migrations of our own apps that this checkout lacks.
 
     Such a dump was built from newer code, typically the newest master dump restored for a
@@ -307,16 +315,7 @@ def _check_dump_is_not_newer_than_checkout(schema_path: Path) -> None:
     swapped models the newer code introduced, and tests then fail on schema the checkout never
     defined. Refusing the dump sends the caller to its full migrate, which is always correct.
     """
-    app_paths = get_managed_app_paths(REPO_ROOT)
-    routed_away = set(_product_routed_app_labels())
-    recorded = {
-        migration
-        for migration in _recorded_migrations(schema_path)
-        if migration.app in app_paths and migration.app not in routed_away
-    }
-    if not recorded:
-        return
-    unknown = sorted(recorded - _checkout_migrations(app_paths))
+    unknown = migrations_missing_from_checkout(_recorded_migrations(schema_path))
     if unknown:
         sample = ", ".join(f"{migration.app}.{migration.name}" for migration in unknown[:UNKNOWN_MIGRATION_SAMPLE])
         raise SchemaRestoreError(
@@ -342,13 +341,13 @@ def restore_schema_dump(
         raise SchemaRestoreError(f"no schema at {schema_path}; run db:download-schema first")
 
     _validate_gzip(resolved_schema_path)
-    _check_dump_is_not_newer_than_checkout(resolved_schema_path)
+    check_dump_is_not_newer_than_checkout(resolved_schema_path)
 
     if recreate:
         _recreate_database(target_db)
 
     try:
-        _run_psql_with_gzip_input(resolved_schema_path, target_db)
+        run_psql_with_gzip_input(resolved_schema_path, target_db)
         _forget_product_app_migrations(target_db)
     except Exception as exc:
         if recreate:
@@ -400,6 +399,7 @@ def _filter_and_sort_candidates(
     artifacts: Iterable[SchemaArtifact],
     *,
     base_branch: str,
+    accept: Callable[[SchemaArtifact], bool] = lambda _: True,
 ) -> list[SchemaArtifact]:
     candidates = [
         artifact
@@ -409,6 +409,7 @@ def _filter_and_sort_candidates(
         and artifact.size_in_bytes > MIN_SCHEMA_ARTIFACT_BYTES
         and artifact.head_sha
         and artifact.head_branch == base_branch
+        and accept(artifact)
     ]
     candidates.sort(key=lambda artifact: (_parse_github_datetime(artifact.created_at), artifact.id), reverse=True)
     return candidates
@@ -418,12 +419,13 @@ def select_newest_compatible_artifact(
     artifacts: Iterable[SchemaArtifact],
     *,
     base_branch: str = DEFAULT_BASE_BRANCH,
+    accept: Callable[[SchemaArtifact], bool] = lambda _: True,
 ) -> SchemaArtifact | None:
-    candidates = _filter_and_sort_candidates(artifacts, base_branch=base_branch)
+    candidates = _filter_and_sort_candidates(artifacts, base_branch=base_branch, accept=accept)
     return candidates[0] if candidates else None
 
 
-def _github_session() -> requests.Session:
+def github_session() -> requests.Session:
     # The GitHub artifacts API sometimes returns a 5xx for one request. Without a
     # retry, that single response fails the CI step that restores the schema.
     retry = Retry(
@@ -444,11 +446,12 @@ def find_newest_compatible_artifact(
     session: requests.Session | None = None,
     base_branch: str = DEFAULT_BASE_BRANCH,
     max_pages: int = MAX_ARTIFACT_PAGES,
+    accept: Callable[[SchemaArtifact], bool] = lambda _: True,
 ) -> SchemaArtifact | None:
     # The listing is newest-first, so the first page holding a candidate holds the
     # newest one and the walk stops there. max_pages caps the miss case at a fixed
     # number of requests instead of paging through the whole retention window.
-    http = session or _github_session()
+    http = session or github_session()
     fetched: list[SchemaArtifact] = []
 
     for page in range(1, max_pages + 1):
@@ -473,7 +476,7 @@ def find_newest_compatible_artifact(
                 if artifact is not None:
                     fetched.append(artifact)
 
-        selected = select_newest_compatible_artifact(fetched, base_branch=base_branch)
+        selected = select_newest_compatible_artifact(fetched, base_branch=base_branch, accept=accept)
         if selected is not None:
             return selected
 
@@ -494,7 +497,7 @@ def download_schema_artifact(
     if token is None:
         raise SchemaRestoreUnavailable("no GitHub token found; run `gh auth login` or set GH_TOKEN")
 
-    http = session or _github_session()
+    http = session or github_session()
     response = http.get(
         artifact.archive_download_url,
         headers=github_headers(token),
@@ -559,7 +562,7 @@ def download_latest_compatible_schema(
     session: requests.Session | None = None,
 ) -> SchemaArtifact:
     token = github_token()
-    session = session or _github_session()
+    session = session or github_session()
     artifact = find_newest_compatible_artifact(token=token, session=session, base_branch=base_branch)
     if artifact is None:
         raise SchemaRestoreUnavailable(

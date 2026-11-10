@@ -233,7 +233,7 @@ def test_github_session_retries_only_server_errors(
 ) -> None:
     monkeypatch.setattr(db_schema, "GITHUB_RETRY_BACKOFF_FACTOR", 0)
     scripted_status_server.statuses = statuses
-    session = db_schema._github_session()
+    session = db_schema.github_session()
     session.mount("http://", session.get_adapter("https://"))
 
     response = session.get(f"http://127.0.0.1:{scripted_status_server.server_port}/", timeout=5)
@@ -351,7 +351,7 @@ def test_run_psql_with_gzip_input_uses_transactional_error_stopping(
 
     monkeypatch.setattr(db_schema.subprocess, "Popen", fake_popen)
 
-    db_schema._run_psql_with_gzip_input(schema_path, "posthog")
+    db_schema.run_psql_with_gzip_input(schema_path, "posthog")
 
     assert len(commands) == 1
     assert "-v" in commands[0]
@@ -368,7 +368,7 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
     monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
     monkeypatch.setattr(
         db_schema,
-        "_run_psql_with_gzip_input",
+        "run_psql_with_gzip_input",
         lambda gzip_path, target_db: restored.append((gzip_path, target_db)),
     )
 
@@ -390,8 +390,8 @@ def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monk
     commands: list[list[str]] = []
 
     monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
-    monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: None)
-    monkeypatch.setattr(db_schema, "_product_routed_app_labels", lambda: ["stamphog", "visual_review"])
+    monkeypatch.setattr(db_schema, "run_psql_with_gzip_input", lambda gzip_path, target_db: None)
+    monkeypatch.setattr(db_schema, "product_routed_app_labels", lambda: ["stamphog", "visual_review"])
 
     db_schema.restore_schema_dump(target_db="test_posthog", recreate=False, schema_path=schema_path)
 
@@ -427,9 +427,9 @@ def test_restore_schema_dump_refuses_dump_newer_than_checkout(
     monkeypatch.setattr(
         db_schema, "get_managed_app_paths", lambda root: {"posthog": migrations_dir, "stamphog": tmp_path}
     )
-    monkeypatch.setattr(db_schema, "_product_routed_app_labels", lambda: ["stamphog"])
+    monkeypatch.setattr(db_schema, "product_routed_app_labels", lambda: ["stamphog"])
     monkeypatch.setattr(db_schema, "_run", lambda command, env=None: None)
-    monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: restored.append(target_db))
+    monkeypatch.setattr(db_schema, "run_psql_with_gzip_input", lambda gzip_path, target_db: restored.append(target_db))
 
     if restores:
         db_schema.restore_schema_dump(target_db="test_posthog", recreate=True, schema_path=schema_path)
@@ -448,7 +448,7 @@ def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, mo
     monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
     monkeypatch.setattr(
         db_schema,
-        "_run_psql_with_gzip_input",
+        "run_psql_with_gzip_input",
         lambda gzip_path, target_db: (_ for _ in ()).throw(db_schema.SchemaRestoreError("restore failed")),
     )
 
@@ -476,7 +476,7 @@ def test_restore_schema_dump_without_recreate_does_not_drop(tmp_path: Path, monk
     commands: list[list[str]] = []
 
     monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
-    monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: None)
+    monkeypatch.setattr(db_schema, "run_psql_with_gzip_input", lambda gzip_path, target_db: None)
 
     db_schema.restore_schema_dump(target_db="posthog", recreate=False, schema_path=schema_path)
 

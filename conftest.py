@@ -11,8 +11,15 @@ from pathlib import Path
 import pytest
 import time_machine
 
+from django.conf import settings
+
 from posthog.test.events_schema_prune import EventsSchemaPruner
 from posthog.test.junit import set_junit_report_location
+
+try:
+    from hogli_commands.db_template import prime_django_test_database
+except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath
+    prime_django_test_database = None
 
 # The default MIXED mode reads naive strings as local time, so a non-UTC machine would
 # freeze at a different instant than CI does.
@@ -356,6 +363,17 @@ def pytest_cmdline_main(config: pytest.Config) -> Generator[None, int | pytest.E
             sys.stderr.flush()
         os._exit(0)
     return exit_code
+
+
+@pytest.fixture(scope="session")
+def django_db_modify_db_settings(
+    django_db_modify_db_settings: None, django_db_keepdb: bool, django_db_createdb: bool
+) -> None:
+    if prime_django_test_database is None or not django_db_keepdb or django_db_createdb:
+        return
+    result = prime_django_test_database(settings.DATABASES["default"])
+    if result is not None and result.outcome != "kept":
+        sys.__stderr__.write(f"\n[test db template] {result.outcome}: {result.detail}\n")
 
 
 @pytest.fixture(autouse=True)

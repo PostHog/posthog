@@ -376,6 +376,11 @@ hogli test posthog/test/test_example.py -k test_something
 
 To see debug logs (such as ClickHouse queries), add argument `--log-cli-level=DEBUG`.
 
+When the test database is missing, or records migrations your checkout does not have, the first run clones it from a template database in a few seconds instead of replaying every migration.
+The template comes from the schema dump that master CI publishes, so the first run needs a GitHub login (`gh auth login` or `GH_TOKEN`) to download it.
+Each later database on the same Postgres server, such as one per `pytest -n` worker, clones the same template.
+Set `POSTHOG_TEST_DB_TEMPLATE=off` to skip the template and migrate from scratch.
+
 You can also run tests for all files changed on the current branch:
 
 ```bash
