@@ -5,10 +5,10 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
+import { ToastContainer, toast } from 'react-toastify'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -102,6 +102,7 @@ describe('email domain setup entry points', () => {
 
     afterEach(() => {
         cleanup()
+        toast.dismiss()
         jest.useRealTimers()
         jest.restoreAllMocks()
     })
@@ -253,8 +254,12 @@ describe('email domain setup entry points', () => {
         })
 
         it('creates and announces one sender when the address changes and Enter is pressed again while saving', async () => {
-            const toastSuccess = jest.spyOn(lemonToast, 'success')
-            await renderInApp(<MessageChannels />)
+            await renderInApp(
+                <>
+                    <ToastContainer />
+                    <MessageChannels />
+                </>
+            )
             fireEvent.click(addSenderButtonOf(OTHER_DOMAIN))
             await flush()
             const address = element('email-sender-add-local-part')
@@ -266,9 +271,8 @@ describe('email domain setup entry points', () => {
 
             expect(backend.senderConfig(44)).toMatchObject({ email: `billing@${OTHER_DOMAIN}` })
             expect(backend.senderConfig(45)).toBeUndefined()
-            expect(toastSuccess.mock.calls.map(([message]) => message)).toEqual([
-                `Added billing@${OTHER_DOMAIN} as a sender`,
-            ])
+            expect(screen.getAllByText(`Added billing@${OTHER_DOMAIN} as a sender`)).toHaveLength(1)
+            expect(screen.queryByText(`Added support@${OTHER_DOMAIN} as a sender`)).not.toBeInTheDocument()
         })
 
         it('keeps the add sender button disabled for project members below admin', async () => {
