@@ -211,8 +211,16 @@ WHERE product = %(product)s
   AND rendering = %(rendering)s
   AND team_id IN %(team_ids)s
   AND inserted_at < %(snapshot_end)s
+  AND modulo(cityHash64(team_id, document_id), %(page_count)s) = %(page)s
 GROUP BY team_id, document_id
 """
+
+# The snapshot is read in this many pages, so the dag holds one page of rows as Python objects at a
+# time rather than the whole fleet's. A page is a hash bucket of the GROUP BY key: every version of a
+# report lands in the same page, so the argMax per page is the argMax over the table. The bucket
+# filter reads only the small key columns, so each page reads the wide embedding column for its own
+# rows only, and the extra cost of a page is one more scan of those small columns.
+REPORT_EMBEDDINGS_PAGES = 8
 
 # Signal documents: the grouping pipeline's own rows in the same table, one per signal, carrying the
 # report they grouped into in the metadata JSON. Read incrementally by inserted_at rather than as a

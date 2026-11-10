@@ -47,6 +47,18 @@ class TestBlastRadiusQueryV2(ClickhouseTestMixin, APIBaseTest):
         assert (result.affected, result.total) == (affected, total)
         assert (result.affected, result.total) == (v1_result.affected, v1_result.total)
 
+    def test_a_boolean_filter_value_matches_people_stored_with_a_json_boolean(self):
+        for i, subscribed in enumerate([True, True, False, "True"], start=1):
+            _create_person(team=self.team, distinct_ids=[f"user-{i}"], properties={"subscribed": subscribed})
+        flush_persons_and_events()
+        filters = {"properties": [{"key": "subscribed", "type": "person", "value": [True], "operator": "exact"}]}
+
+        v1_result = get_user_blast_radius(self.team, filters)
+        result = get_person_blast_radius_v2(self.team, filters)
+
+        # The flag evaluator also serves the string "True", but HogQL compares strings case-sensitively.
+        assert (result.affected, result.total, v1_result.affected) == (2, 4, 2)
+
     def test_flag_dependency_is_weighted_on_both_paths(self):
         self._create_persons([True, True, True, False])
         dependency_flag = FeatureFlag.objects.create(

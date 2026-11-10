@@ -1,21 +1,27 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { IconArrowLeft } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
 
+import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
+import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
 import { ContentAutopilotPromptAnswer } from './ContentAutopilotPromptAnswer'
 import { ContentAutopilotPromptArchiveBanner } from './ContentAutopilotPromptArchiveBanner'
 import { ContentAutopilotPromptChecks } from './ContentAutopilotPromptChecks'
 import { ContentAutopilotPromptConsensus } from './ContentAutopilotPromptConsensus'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
+import { ContentAutopilotPromptEditModal } from './ContentAutopilotPromptEditModal'
 import { ContentAutopilotPromptKpiCard } from './ContentAutopilotPromptKpiCard'
 import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
 import { ContentAutopilotPromptSentiment } from './ContentAutopilotPromptSentiment'
 import { ContentAutopilotPromptVersions } from './ContentAutopilotPromptVersions'
+import { POSITION_DESCRIPTION, positionKpiCard, rateKpiCard } from './promptReport'
 import { promptCitationsContext, promptSearchesContext, promptSourcesContext } from './promptReportColumns'
+import { draftableOpportunity } from './utils'
 
 const Section = ({
     title,
@@ -35,6 +41,33 @@ const Section = ({
     </section>
 )
 
+const PromptPage = ({
+    title,
+    onBack,
+    children,
+}: {
+    title: string
+    onBack: () => void
+    children: React.ReactNode
+}): JSX.Element => (
+    <div className="flex flex-col gap-4" data-attr="content-autopilot-prompt-page">
+        <div>
+            <LemonButton
+                size="small"
+                type="tertiary"
+                icon={<IconArrowLeft />}
+                onClick={onBack}
+                data-attr="content-autopilot-prompt-back"
+            >
+                All prompts
+            </LemonButton>
+        </div>
+        <h2 className="m-0">{title}</h2>
+        {children}
+    </div>
+)
+
+/** One prompt's report, on its own URL in place of the workspace tabs. */
 export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
     const {
         promptId,
@@ -53,9 +86,11 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
         searchesQuery,
         sentimentQuery,
     } = useValues(contentAutopilotPromptDetailLogic)
-    const { closePromptDetail, openPromptDetail, setArchiveConfirming, setVisibilityMetric } = useActions(
-        contentAutopilotPromptDetailLogic
-    )
+    const { closePromptDetail, openPromptDetail, setArchiveConfirming, setPromptEditing, setVisibilityMetric } =
+        useActions(contentAutopilotPromptDetailLogic)
+    const { opportunityByPromptId } = useValues(contentAutopilotLogic)
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const draftOpportunity = prompt ? draftableOpportunity(opportunityByPromptId, prompt) : null
 
     if (!promptId) {
         return null
@@ -63,11 +98,9 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
 
     if (detailError === 'not_found') {
         return (
-            <LemonModal isOpen onClose={closePromptDetail} title="Prompt not found" width={640}>
-                <p className="m-0">
-                    This prompt isn't in the project's prompt set anymore. Close this and refresh the list.
-                </p>
-            </LemonModal>
+            <PromptPage title="Prompt not found" onBack={() => setWorkspaceTab('prompts')}>
+                <p className="m-0">This prompt isn't in the project's prompt set anymore, or the link is wrong.</p>
+            </PromptPage>
         )
     }
 
@@ -84,7 +117,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
         sentimentQuery
 
     return (
-        <LemonModal isOpen onClose={closePromptDetail} title={prompt?.prompt ?? 'Loading prompt'} width={960}>
+        <PromptPage title={prompt?.prompt ?? 'Loading prompt'} onBack={() => setWorkspaceTab('prompts')}>
             {detailError === 'failed' ? (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: () => openPromptDetail(promptId) }}>
                     Couldn't load this prompt. Try again, and if it keeps happening contact support.
@@ -118,17 +151,32 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                         </span>
                         <span className="text-muted">{pluralize(stats.total_checks, 'check')} in total</span>
                         {prompt.archived_at ? null : (
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                status="danger"
-                                className="ml-auto"
-                                onClick={() => setArchiveConfirming(true)}
-                                disabledReason={archiveConfirming ? 'Confirm or cancel below' : undefined}
-                                data-attr="content-autopilot-prompt-archive"
-                            >
-                                Archive
-                            </LemonButton>
+                            <div className="ml-auto flex gap-2">
+                                {draftOpportunity ? (
+                                    <ContentAutopilotDraftButton
+                                        opportunity={draftOpportunity}
+                                        onReview={closePromptDetail}
+                                    />
+                                ) : null}
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() => setPromptEditing(true)}
+                                    data-attr="content-autopilot-prompt-edit"
+                                >
+                                    Edit
+                                </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    status="danger"
+                                    onClick={() => setArchiveConfirming(true)}
+                                    disabledReason={archiveConfirming ? 'Confirm or cancel below' : undefined}
+                                    data-attr="content-autopilot-prompt-archive"
+                                >
+                                    Archive
+                                </LemonButton>
+                            </div>
                         )}
                     </div>
                     <ContentAutopilotPromptArchiveBanner />
@@ -151,24 +199,30 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                 title="Last 30 days, all engines"
                                 description={`${pluralize(reportKpis.answers, 'answer')} across ${pluralize(reportKpis.days, 'day')}.`}
                             >
-                                <div className="grid grid-cols-1 @2xl/prompt-report:grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 @2xl/prompt-report:grid-cols-3 gap-3">
                                     <ContentAutopilotPromptKpiCard
                                         label="Mentioned in answers"
-                                        description="Share of answers that name you. An answer that cites your site always counts."
-                                        kpi={reportKpis.visibility}
+                                        description="Share of answers that name your brand, with or without a link. An answer that cites your site always counts as a mention."
+                                        {...rateKpiCard(reportKpis.visibility)}
                                         data-attr="content-autopilot-prompt-kpi-mentioned"
                                     />
                                     <ContentAutopilotPromptKpiCard
                                         label="Cited as a source"
-                                        description="Share of answers that link to a page on your site."
-                                        kpi={reportKpis.citation}
+                                        description="Share of answers that link to a page on your site as a source, so people can click through to it."
+                                        {...rateKpiCard(reportKpis.citation)}
                                         data-attr="content-autopilot-prompt-kpi-cited"
+                                    />
+                                    <ContentAutopilotPromptKpiCard
+                                        label="Average position"
+                                        description={POSITION_DESCRIPTION}
+                                        {...positionKpiCard(reportKpis.position)}
+                                        data-attr="content-autopilot-prompt-kpi-position"
                                     />
                                 </div>
                             </Section>
 
                             <Section
-                                title="How often engines mention or cite you"
+                                title="Mentions and citations over time"
                                 description="One line per engine, one point per day it ran."
                             >
                                 <ContentAutopilotPromptQueryTile
@@ -201,7 +255,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                             </Section>
 
                             <Section
-                                title="Where the answers come from"
+                                title="Cited sources"
                                 description="The sites and pages the engines link to when they answer this prompt."
                             >
                                 <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-2 gap-4">
@@ -223,21 +277,21 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                             </Section>
 
                             <Section
-                                title="Which sites each engine relies on"
+                                title="Cited sites by engine"
                                 description="The share of each engine's answers that link to a site. A darker cell means the engine links to that site more often."
                             >
                                 <ContentAutopilotPromptConsensus matrix={consensusMatrix} />
                             </Section>
 
                             <Section
-                                title="How answers talk about you"
+                                title="Sentiment"
                                 description="Scored on the sentences that name you, so praise of another tool does not count."
                             >
                                 <ContentAutopilotPromptSentiment summary={sentimentSummary} query={sentimentQuery} />
                             </Section>
 
                             <Section
-                                title="What the engines searched for"
+                                title="Engine searches"
                                 description="The searches an engine ran before it answered. Engines that do not report their searches are left out."
                             >
                                 <ContentAutopilotPromptQueryTile
@@ -268,6 +322,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                     )}
                 </div>
             )}
-        </LemonModal>
+            <ContentAutopilotPromptEditModal />
+        </PromptPage>
     )
 }

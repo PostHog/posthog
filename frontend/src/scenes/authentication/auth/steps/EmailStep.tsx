@@ -1,166 +1,77 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
-import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
-import { usePrevious } from 'lib/hooks/usePrevious'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { Link } from 'lib/lemon-ui/Link'
-import { isWebKitBrowser } from 'lib/utils/dom'
-import { isEmail } from 'lib/utils/url'
-import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
-import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
-import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
-import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { authLogic } from '../authLogic'
-import { ConnectTitle } from '../components/ConnectTitle'
-import { HighlightedName } from '../components/HighlightedName'
+import { AuthEmailField } from '../components/AuthEmailField'
+import { CreateAccountTerms } from '../components/CreateAccountTerms'
+import { EmailStepSocialButtons } from '../components/EmailStepSocialButtons'
+import { EmailStepSubmitButton } from '../components/EmailStepSubmitButton'
+import { EmailStepTitle } from '../components/EmailStepTitle'
+import { EmailTakenNotice } from '../components/EmailTakenNotice'
+import { JoinOrganizationHint } from '../components/JoinOrganizationHint'
 import { LoginErrorBanner } from '../components/LoginErrorBanner'
+import { LoginPasswordField } from '../components/LoginPasswordField'
+import { LoginSignupLink } from '../components/LoginSignupLink'
+import { LoginSingleSignOnButtons } from '../components/LoginSingleSignOnButtons'
+import { OtherRegionNotice } from '../components/OtherRegionNotice'
 import { SessionRiskBanner } from '../components/SessionRiskBanner'
+import { SignupPasswordField } from '../components/SignupPasswordField'
 import { loginLogic } from '../loginLogic'
 import { signupLogic } from '../signupLogic'
 
-function EmailStepTitle(): JSX.Element {
-    const { entry } = useValues(authLogic)
-    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
-    const isReturning = useLastLoginMethod() !== null
-
-    if (pendingConnection) {
-        return (
-            <AuthCardTitle
-                title={<ConnectTitle lead="Log in or sign up to connect" clientName={pendingConnection.clientName} />}
-                sub={`${pendingConnection.clientName} saved you a seat.`}
-            />
-        )
-    }
-    if (entry === 'signup') {
-        return <AuthCardTitle title="Get started" sub="Make your product self-driving." />
-    }
-    return (
-        <AuthCardTitle
-            title={
-                <>
-                    <span>{isReturning ? 'Log in to ' : 'Log in or sign up to '}</span>
-                    <HighlightedName>@PostHog</HighlightedName>
-                </>
-            }
-            sub={isReturning ? "Welcome back. Let's go ship something." : 'Hedgehogs of all kinds welcome.'}
-        />
-    )
-}
-
+/**
+ * The email card. It also renders the `login` and `signup_credentials` steps, so once the precheck
+ * answers, the password for that path opens under the email field instead of on a new screen.
+ */
 export function EmailStep(): JSX.Element {
-    const { login, precheckResponse } = useValues(loginLogic)
-    const { setLoginValue, precheck } = useActions(loginLogic)
-    const { entry, emailError, isEmailSubmitting } = useValues(authLogic)
-    const { continueWithEmail, chooseAccountPath } = useActions(authLogic)
-    const { signupEmailTaken } = useValues(signupLogic)
-    const { preflight } = useValues(preflightLogic)
-    const lastLoginMethod = useLastLoginMethod()
-    const prevEmail = usePrevious(login.email)
-    const [showJoinOrg, setShowJoinOrg] = useState(false)
-
-    // An autofilled address is prechecked at once, so a passkey prompt can open before Continue
-    useEffect(() => {
-        const charDelta = login.email.length - (prevEmail?.length ?? 0)
-        const isAutofill = charDelta > 1
-
-        if (isAutofill && isEmail(login.email, { requireTLD: true }) && precheckResponse.status === 'pending') {
-            precheck({ email: login.email })
-        }
-    }, [login.email, prevEmail, precheckResponse.status, precheck])
+    const { login, generalError } = useValues(loginLogic)
+    const { step } = useValues(authLogic)
+    const { submitEmailStep } = useActions(authLogic)
+    const { signupEmail } = useValues(signupLogic)
 
     return (
-        <AuthSceneCard showPendingConnection>
+        <AuthSceneCard
+            footer={step === 'signup_credentials' ? <CreateAccountTerms /> : undefined}
+            showPendingConnection
+        >
             <EmailStepTitle />
             <SessionRiskBanner className="mb-4" />
             <LoginErrorBanner />
+            {step === 'login' && generalError?.code === 'invalid_credentials' && (
+                <OtherRegionNotice email={login.email} reason="login_failed" />
+            )}
             <form
                 className="flex flex-col gap-4"
                 noValidate
                 onSubmit={(e) => {
                     e.preventDefault()
-                    continueWithEmail()
+                    submitEmailStep()
                 }}
             >
                 <RegionField />
-                <LemonField.Pure label="Email" htmlFor="auth-email" error={emailError}>
-                    <LemonInput
-                        id="auth-email"
-                        className="ph-ignore-input"
-                        // pinned: Playwright and autocapture select these per entry URL
-                        data-attr={entry === 'signup' ? 'signup-email' : 'login-email'}
-                        type="email"
-                        autoFocus
-                        placeholder="you@yourcompany.com"
-                        // The `webauthn` token enables passkey autofill (conditional UI),
-                        // which we only offer on WebKit; elsewhere the auto-modal handles passkeys.
-                        autoComplete={isWebKitBrowser() ? 'username webauthn' : 'username'}
-                        value={login.email}
-                        onChange={(value) => setLoginValue('email', value)}
-                        status={emailError ? 'danger' : 'default'}
-                        fullWidth
-                    />
-                </LemonField.Pure>
-                {signupEmailTaken && (
-                    <p className="-mt-2 mb-0 text-sm text-secondary">
-                        <Link
-                            onClick={() => chooseAccountPath('login', true)}
-                            data-attr="auth-email-taken-login"
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
-                        >
-                            Log in instead
-                        </Link>
-                        <span>
-                            . Signed up with a version of this address with dots or a +tag? Log in with that one.
-                        </span>
-                    </p>
-                )}
-                <LemonButton
-                    type="primary"
-                    size="large"
-                    center
-                    fullWidth
-                    htmlType="submit"
-                    // pinned: `signup-start` is the signup funnel's existing first-step attribute
-                    data-attr={entry === 'signup' ? 'signup-start' : 'login-email-continue'}
-                    loading={isEmailSubmitting}
-                >
-                    Continue
-                </LemonButton>
-            </form>
-            {!preflight?.demo && (
-                <SocialLoginButtons
-                    topDivider
-                    caption="or continue with"
-                    captionLocation="top"
-                    lastUsedProvider={lastLoginMethod}
-                    showPasskey={entry === 'login'}
-                />
-            )}
-            {entry === 'signup' && !preflight?.demo && (
-                <div className="mt-4 text-center">
-                    <button
-                        type="button"
-                        data-attr="signup-join-existing-org"
-                        className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary text-xs"
-                        onClick={() => setShowJoinOrg((v) => !v)}
-                    >
-                        Trying to join an existing organization?
-                    </button>
-                    {showJoinOrg && (
-                        <AuthBanner variant="note" className="mt-3">
-                            You'll need your invite link. When a teammate invites you, we email you a personal link.
-                            Didn't get one? Check spam, or ask them to resend it from their members settings.
-                        </AuthBanner>
-                    )}
+                <div className="flex flex-col">
+                    <AuthEmailField />
+                    <AnimatedCollapsible collapsed={step === 'email'} autoHeight>
+                        {step === 'login' ? (
+                            <LoginPasswordField />
+                        ) : step === 'signup_credentials' ? (
+                            <SignupPasswordField />
+                        ) : (
+                            <></>
+                        )}
+                    </AnimatedCollapsible>
                 </div>
-            )}
+                <EmailTakenNotice />
+                <EmailStepSubmitButton />
+                {step === 'login' && <LoginSingleSignOnButtons />}
+                {step === 'signup_credentials' && <OtherRegionNotice email={signupEmail} reason="no_account" />}
+            </form>
+            {step === 'login' && <LoginSignupLink />}
+            <EmailStepSocialButtons />
+            <JoinOrganizationHint />
         </AuthSceneCard>
     )
 }

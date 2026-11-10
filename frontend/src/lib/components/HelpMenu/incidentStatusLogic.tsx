@@ -5,23 +5,19 @@ import posthog from 'posthog-js'
 import { isBrowserNetworkFailure } from 'lib/api-error'
 // eslint-disable-next-line import/no-cycle
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { NormalizedStatus, STATUS_PAGE_BASE, setIncidentStatus } from 'lib/lemon-ui/LemonToast/incidentStatus'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { Region } from '~/types'
 
 import type { PreflightStatus } from '../../../types'
 import type { FakeStatusOverride } from '../Superpowers/superpowersLogic'
-import { NormalizedStatus, STATUS_PAGE_BASE, setIncidentStatus } from './incidentStatus'
 
 // Raw status page API types
 export type ComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'full_outage'
 export type Impact = 'partial_outage' | 'degraded_performance' | 'full_outage'
 export type IncidentStatus = 'investigating' | 'identified' | 'monitoring'
 export type MaintenanceStatus = 'maintenance_in_progress' | 'maintenance_scheduled'
-
-// The normalized display status and its shared read/write module live in ./incidentStatus, a
-// deliberate leaf so LemonToast can read the status without importing this logic's graph.
-export { getIncidentStatus, setIncidentStatus, STATUS_PAGE_BASE, type NormalizedStatus } from './incidentStatus'
 
 export interface AffectedComponent {
     id: string
@@ -121,6 +117,36 @@ function hasRelevantComponents(affectedComponents: AffectedComponent[], relevant
         return true
     }
     return affectedComponents.some((component) => normalizeGroupName(component.group_name ?? '') === relevantGroupName)
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null
+}
+
+function isComponent(value: unknown): boolean {
+    return (
+        isObject(value) &&
+        typeof value.name === 'string' &&
+        (value.group_name === undefined || typeof value.group_name === 'string')
+    )
+}
+
+function hasComponents(entry: unknown): entry is Record<string, unknown> {
+    return isObject(entry) && Array.isArray(entry.affected_components) && entry.affected_components.every(isComponent)
+}
+
+function isIncident(entry: unknown): boolean {
+    return hasComponents(entry) && typeof entry.name === 'string' && typeof entry.last_update_message === 'string'
+}
+
+function isSummary(data: unknown): data is Summary {
+    return (
+        isObject(data) &&
+        Array.isArray(data.ongoing_incidents) &&
+        Array.isArray(data.in_progress_maintenances) &&
+        data.ongoing_incidents.every(isIncident) &&
+        data.in_progress_maintenances.every(hasComponents)
+    )
 }
 
 function getWorstStatusForRegion(summary: Summary, relevantGroupName: string | null): NormalizedStatus {
@@ -304,7 +330,13 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                             )
                             return null
                         }
-                        const data: Summary = await response.json()
+                        const data: unknown = await response.json()
+                        if (!isSummary(data)) {
+                            // A 2xx body without the incident arrays would throw in every selector that
+                            // reads them, and that error reaches RootErrorBoundary and blanks the app.
+                            posthog.captureException(new Error('incident.io summary has an unexpected shape'))
+                            return null
+                        }
                         return data
                     } catch (error) {
                         if (!isBrowserNetworkFailure(error)) {

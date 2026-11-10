@@ -7,6 +7,7 @@ from posthog.hogql.database.lazy_join_tags import (
 from posthog.hogql.database.models import (
     DatabaseField,
     DateTimeDatabaseField,
+    EventsRetentionTable,
     FieldOrTable,
     FieldTraverser,
     IntegerDatabaseField,
@@ -14,7 +15,6 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
-    Table,
     UUIDDatabaseField,
     VirtualTable,
 )
@@ -28,6 +28,17 @@ from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 
 def events_table_clickhouse_table_ref(context) -> str:
     return DISTRIBUTED_EVENTS_JSON_TABLE if context.uses_new_events_schema() else "events"
+
+
+EVENTS_AVOID_ASTERISK_FIELDS = (
+    "$session_id_uuid",
+    "$virt_is_bot",
+    "$virt_traffic_type",
+    "$virt_traffic_category",
+    "$virt_bot_name",
+    "$virt_bot_operator",
+    "$virt_mcp_harness",
+)
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -88,8 +99,9 @@ class EventsGroupSubTable(VirtualTable):
         return "events"
 
 
-class EventsTable(Table):
+class EventsTable(EventsRetentionTable):
     description: str = "Every analytics event captured for the project. The central fact table for product analytics."
+    events_retention_field: str = "timestamp"
     fields: dict[str, FieldOrTable] = {
         "uuid": UUIDDatabaseField(name="uuid", nullable=False, description="Unique identifier of this event row."),
         "event": StringDatabaseField(
@@ -212,15 +224,7 @@ class EventsTable(Table):
         return "events"
 
     def avoid_asterisk_fields(self) -> list[str]:
-        return [
-            "$session_id_uuid",
-            "$virt_is_bot",
-            "$virt_traffic_type",
-            "$virt_traffic_category",
-            "$virt_bot_name",
-            "$virt_bot_operator",
-            "$virt_mcp_harness",
-        ]
+        return list(EVENTS_AVOID_ASTERISK_FIELDS)
 
 
 # All table types that represent the events table (including virtual subtables like poe/goe).

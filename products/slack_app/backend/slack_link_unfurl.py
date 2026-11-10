@@ -35,6 +35,7 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import get_instance_region
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
@@ -42,20 +43,21 @@ from products.access_control.backend.facade.user_access_control import (
 from products.canvas.backend.facade import access as canvas_access
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models.ticket import Ticket
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade import api as dashboards_api
 from products.error_tracking.backend.facade import api as error_tracking_facade
-from products.experiments.backend.facade import api as experiments_facade
+from products.experiments.backend.facade import (
+    api as experiments_facade,
+    slack as experiments_slack,
+)
 from products.experiments.backend.facade.contracts import StoredArmResult, StoredPrimaryResult
-from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.facade import api as exports_facade
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import condition_rollout_percentage
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.models import SignalReport
-from products.signals.backend.report_access import may_read_reports
+from products.signals.backend.facade.reports import get_report_card, may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
@@ -726,21 +728,8 @@ def _date_range(query: object) -> str | None:
     return f"Last {unit}" if amount == 1 else f"Last {_count(amount, unit)}"
 
 
-def _primary_metric(metrics: object) -> str | None:
-    first = metrics[0] if isinstance(metrics, list) and metrics else None
-    name = first.get("name") if isinstance(first, dict) else None
-    return name if isinstance(name, str) and name else None
-
-
-def _variant_rows(variants: list[dict]) -> list[_ChartRow]:
-    return [
-        _ChartRow(
-            label=_chart_label(variant["key"]),
-            bar=_bar(variant["rollout_percentage"] / 100),
-            value=f"{variant['rollout_percentage']}%",
-        )
-        for variant in variants
-    ]
+def _variant_row(key: object, rollout_percentage: float) -> _ChartRow:
+    return _ChartRow(label=_chart_label(key), bar=_bar(rollout_percentage / 100), value=f"{rollout_percentage}%")
 
 
 def _flag_variants(flag: FeatureFlag) -> list[dict]:
@@ -792,19 +781,17 @@ def _adhoc_insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard 
 
 
 def _dashboard_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
-    dashboard = Dashboard.objects.filter(pk=ref, team_id=ctx.team.pk).first() if ref.isdigit() else None
+    dashboard = dashboards_api.get_dashboard(team_id=ctx.team.pk, dashboard_id=int(ref)) if ref.isdigit() else None
     if not dashboard:
         return "not_found"
-    level = ctx.uac.get_user_access_level(dashboard)
-    if not level or not access_level_satisfied_for_resource("dashboard", level, "viewer"):
+    if not dashboards_api.can_access_dashboard(dashboard, user_access_control=ctx.uac):
         return "no_access"
-    tiles = (
-        DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
-        .exclude(deleted=True)
-        .select_related("insight")
-        .order_by("id")
-    )
-    insights = [tile.insight for tile in tiles if tile.insight]
+    insight_ids = [tile.insight_id for tile in dashboards_api.insight_tiles(dashboard_id=dashboard.id)]
+    insights_by_id = {
+        insight.id: insight
+        for insight in insights_including_soft_deleted_for_team(team_id=dashboard.team_id, insight_ids=insight_ids)
+    }
+    insights = [insights_by_id[insight_id] for insight_id in insight_ids if insight_id in insights_by_id]
     ctx.uac.preload_object_access_controls(cast(list, insights))
     names = [
         insight.name or insight.derived_name or "Untitled"
@@ -814,7 +801,7 @@ def _dashboard_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _S
     return _UnfurlCard(
         label="Dashboard",
         title=dashboard.name or "Untitled",
-        details=(_count(len(names), "insight"), *_by(dashboard.created_by)),
+        details=(_count(len(names), "insight"), *_by(_user(dashboard.created_by_id))),
         chart=_tile_grid(names),
         body=dashboard.description,
     )
@@ -966,7 +953,7 @@ def _notebook_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Sk
 
 
 def _flag_chart(conditions: list[dict], variants: list[dict]) -> str | None:
-    rows = _variant_rows(variants)
+    rows = [_variant_row(variant["key"], variant["rollout_percentage"]) for variant in variants]
     if len(conditions) == 1 and not conditions[0].get("properties"):
         rollout = condition_rollout_percentage(conditions[0])
         rows.insert(0, _ChartRow(label="Rollout", bar=_bar(rollout / 100), value=f"{rollout}% of users"))
@@ -997,31 +984,34 @@ def _flag_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
 
 def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
     experiment = (
-        Experiment.objects.filter(team_id=ctx.team.pk, pk=ref, deleted=False).select_related("feature_flag").first()
-        if ref.isdigit()
-        else None
+        experiments_slack.get_experiment_unfurl(team_id=ctx.team.pk, experiment_id=int(ref)) if ref.isdigit() else None
     )
     if not experiment:
         return "not_found"
-    if not ctx.uac.check_access_level_for_object(experiment, required_level="viewer"):
+    # The experiment can sit on the legacy parent of the sharer's team. Access rules resolve against the sharer's team,
+    # and the check raises for a reference to another team, so the reference names the sharer's team.
+    access_ref = ObjectAccessRef(
+        resource="experiment", id=str(experiment.id), team_id=ctx.team.pk, created_by_id=experiment.created_by_id
+    )
+    if not ctx.uac.check_access_level_for_ref(access_ref, "viewer"):
         return "no_access"
     details: list[str] = []
     if experiment.start_date:
         days = ((experiment.end_date or timezone.now()) - experiment.start_date).days + 1
         details.append(f"Ran {_count(days, 'day')}" if experiment.end_date else f"Day {days}")
-    stats = _stored_primary_result(experiment)
-    metric = stats.metric_name if stats else _primary_metric(experiment.metrics)
+    stats = _stored_primary_result(team_id=ctx.team.pk, experiment_id=experiment.id)
+    metric = stats.metric_name if stats else experiment.primary_metric_name
     if metric:
         details.append(f"Metric: {metric}")
-    variants = _flag_variants(experiment.feature_flag)
     if stats:
-        details.append(f"Split {'/'.join(str(variant['rollout_percentage']) for variant in variants)}")
+        details.append(f"Split {'/'.join(str(variant.rollout_percentage) for variant in experiment.variants)}")
+    variant_rows = [_variant_row(variant.key, variant.rollout_percentage) for variant in experiment.variants]
     return _UnfurlCard(
         label="Experiment",
         title=experiment.name,
-        status=_humanize(experiment.status_label),
+        status=_humanize(experiment.status),
         details=tuple(details),
-        chart=_experiment_chart(stats) if stats else _chart_rows(_variant_rows(variants)),
+        chart=_experiment_chart(stats) if stats else _chart_rows(variant_rows),
         body="\n\n".join(
             part for part in (_experiment_verdict(stats) if stats else None, experiment.description) if part
         ),
@@ -1029,11 +1019,11 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
     )
 
 
-def _stored_primary_result(experiment: Experiment) -> StoredPrimaryResult | None:
+def _stored_primary_result(*, team_id: int, experiment_id: int) -> StoredPrimaryResult | None:
     try:
-        stats = experiments_facade.get_stored_primary_result(team_id=experiment.team_id, experiment_id=experiment.pk)
+        stats = experiments_facade.get_stored_primary_result(team_id=team_id, experiment_id=experiment_id)
     except Exception:
-        logger.exception("slack_app_unfurl_experiment_results_failed", experiment_id=experiment.pk)
+        logger.exception("slack_app_unfurl_experiment_results_failed", experiment_id=experiment_id)
         return None
     if (
         stats is None
@@ -1158,11 +1148,7 @@ def _error_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipR
 
 
 def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
-    report = (
-        SignalReport.objects.filter(team_id=ctx.team.pk, pk=ref).exclude(status=SignalReport.Status.DELETED).first()
-        if _uuid(ref)
-        else None
-    )
+    report = get_report_card(team_id=ctx.team.pk, report_id=ref) if _uuid(ref) else None
     if not report:
         return "not_found"
     if not may_read_reports(user=ctx.user, team=ctx.team):

@@ -592,7 +592,7 @@ class TestStandingExclusions(BaseTest):
     def test_login_only_writer_skips_identity_resolution_without_instructions(self) -> None:
         self.enabled = False
         UserSocialAuth.objects.create(user=self.member, provider="github", uid="1", extra_data={"login": "member"})
-        with self.assertNumQueries(25):
+        with self.assertNumQueries(26):
             self.write(self.me, SuggestedReviewerEntry(github_login="member"), source="custom_agent")
 
     def test_revoked_instruction_stops_suppressing_and_keeps_history(self) -> None:

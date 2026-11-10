@@ -4,7 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api'
+import api, { ApiError } from 'lib/api'
+import * as takeOwnership from 'lib/components/openTakeOwnershipDialog'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getRecentSlackChannelIds } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -99,6 +100,30 @@ describe('subscriptionLogic', () => {
 
     afterEach(() => {
         window.localStorage.clear()
+    })
+
+    it('saves the edits disabled before offering to take ownership when the owner left', async () => {
+        const updateSpy = jest
+            .spyOn(api.subscriptions, 'update')
+            .mockRejectedValueOnce(new ApiError('refused', 400, undefined, { code: 'owner_left_organization' }))
+            .mockResolvedValueOnce(fixtureSubscriptionResponse(1, { enabled: false }))
+        const dialogSpy = jest.spyOn(takeOwnership, 'openTakeOwnershipDialog').mockResolvedValue(false)
+        existingLogic.actions.loadSubscription()
+        await expectLogic(existingLogic).toFinishListeners()
+
+        existingLogic.actions.setSubscriptionValues({ enabled: true, target_value: 'kept@example.com' })
+        existingLogic.actions.submitSubscription()
+        await expectLogic(existingLogic).toFinishAllListeners()
+
+        // The refused save is retried with the subscription still disabled, so the takeover's delivery
+        // goes to the saved recipients.
+        expect(updateSpy).toHaveBeenCalledTimes(2)
+        expect(updateSpy.mock.calls[1][1]).toMatchObject({ enabled: false, target_value: 'kept@example.com' })
+        expect(dialogSpy).toHaveBeenCalledWith(expect.objectContaining({ resourceId: 1, cause: 'left' }))
+        expect(dialogSpy.mock.invocationCallOrder[0]).toBeGreaterThan(updateSpy.mock.invocationCallOrder[1])
+        expect(lemonToast.error).not.toHaveBeenCalled()
+        updateSpy.mockRestore()
+        dialogSpy.mockRestore()
     })
 
     it('loads existing subscription', async () => {

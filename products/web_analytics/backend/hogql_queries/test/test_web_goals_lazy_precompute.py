@@ -19,7 +19,9 @@ from posthog.schema import (
 
 from posthog.models.utils import uuid7
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import list_actions
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action, delete_action
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import can_use_lazy_precompute
@@ -30,7 +32,8 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
-        Action.objects.filter(team__project_id=self.team.project_id).delete()
+        for action in list_actions(project_id=self.team.project_id, include_deleted=True):
+            delete_action(action)
 
     def _enable_lazy(self):
         # Same flag the paths/frustration tests patch — the gate evaluates the
@@ -41,7 +44,7 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _create_action(self, name: str, event: str = "$pageview") -> Action:
-        return Action.objects.create(
+        return create_action(
             team=self.team,
             name=name,
             steps_json=[{"event": event}],

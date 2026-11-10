@@ -48,6 +48,11 @@ export interface HogFunctionInvocationPipelineDeps {
     deadLetterService?: InvocationFailureSink
 }
 
+// The one rule for billing and the destinations quota, so an unbilled invocation (an alert notification) is never quota-dropped.
+function isBilledHogFunction(hogFunction: HogFunctionType): boolean {
+    return hogFunction.type === 'destination'
+}
+
 export interface BuildHogFunctionInvocationsOptions {
     hogTypes: HogFunctionTypeType[]
     filterFn: (fn: HogFunctionType) => boolean
@@ -185,10 +190,12 @@ export class HogFunctionInvocationPipeline {
                     logger.error('🔴', 'Error checking rate limit for hog function', { err: e })
                 }
 
-                const isQuotaLimited = await shouldBlockInvocationDueToQuota(item, {
-                    quotaLimiting: this.deps.quotaLimiting,
-                    hogFunctionMonitoringService: this.deps.hogFunctionMonitoringService,
-                })
+                const isQuotaLimited =
+                    isBilledHogFunction(item.hogFunction) &&
+                    (await shouldBlockInvocationDueToQuota(item, {
+                        quotaLimiting: this.deps.quotaLimiting,
+                        hogFunctionMonitoringService: this.deps.hogFunctionMonitoringService,
+                    }))
 
                 if (isQuotaLimited) {
                     return
@@ -260,7 +267,7 @@ export class HogFunctionInvocationPipeline {
             })
 
             // Bill once per triggering event, not per destination
-            if (item.hogFunction.type === 'destination') {
+            if (isBilledHogFunction(item.hogFunction)) {
                 const eventUuid = item.state?.globals?.event?.uuid
                 if (eventUuid && !billedEventUuids.has(eventUuid)) {
                     billedEventUuids.add(eventUuid)

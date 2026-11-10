@@ -1,4 +1,4 @@
-Aggregate trace span statistics grouped by `(service_name, name)` over a date window.
+Aggregate trace span statistics grouped by `(service_name, name)` over a date window. Set `groupByEndpoint` to group HTTP server spans by route, and `includeHealth` to get a `health_status` per row against a baseline.
 
 All parameters go inside `query` — top-level fields are rejected:
 
@@ -20,6 +20,8 @@ Use to answer:
 - "What's the p95 or p99 latency of `GET /users`?"
 - "How many errors did the checkout service emit in the last day?"
 - "Did `POST /orders` get slower this week vs last week?" (with `compareFilter`)
+- "Which endpoints regressed today?" (with `groupByEndpoint` and `includeHealth`)
+- "Which operations got slower in this service?" (with `includeHealth`)
 
 For per-call-tree breakdowns (parent → child relationships), use `apm-spans-tree` instead. For time-bucketed trends ("when did it change?"), use `apm-spans-sparkline` instead — `compareFilter` only contrasts two static windows.
 

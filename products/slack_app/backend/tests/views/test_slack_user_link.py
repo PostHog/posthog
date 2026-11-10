@@ -7,6 +7,8 @@ entrypoint (``GET /complete/slack-link/start/``) and the OAuth callback
 levels up.
 """
 
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 from unittest.mock import patch
 
@@ -100,6 +102,34 @@ class TestAuthorizeView:
         assert "response_type=code" in location
         assert "user_scope" not in location
 
+    def test_search_scopes_flag_asks_for_user_scopes_on_the_invite_workspace(
+        self, logged_in_client, workspace_integration
+    ):
+        client, _ = logged_in_client
+        token = InviteToken(
+            slack_user_id=SLACK_USER_ID, slack_team_id=SLACK_TEAM_ID, posthog_team_id=workspace_integration.team_id
+        ).encode()
+        with (
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
+            patch(
+                "products.slack_app.backend.views.slack_user_link.is_slack_app_link_search_scopes_enabled",
+                return_value=True,
+            ),
+            patch(
+                "posthog.credentials_service.instance_settings.get_instance_settings",
+                return_value={"SLACK_APP_CLIENT_ID": "cid", "SLACK_APP_CLIENT_SECRET": "csecret"},
+            ),
+        ):
+            response = client.get(f"/complete/slack-link/start/?state={token}")
+
+        location = urlparse(response["Location"])
+        params = parse_qs(location.query)
+        assert f"{location.scheme}://{location.netloc}{location.path}" == "https://slack.com/oauth/v2/authorize"
+        assert params["team"] == [SLACK_TEAM_ID]
+        assert {"search:read.public", "search:read.im", "users:read.email"} <= set(params["user_scope"][0].split(","))
+        state = CallbackState.decode(params["state"][0])
+        assert state is not None and state.search_scopes is True
+
     def test_unauthenticated_user_is_bounced_through_login(self, db):
         # `db` fixture: PostHog's `login_required` consults `User.objects.exists()`
         # before deciding what to do for anonymous traffic, so an empty test DB
@@ -118,8 +148,11 @@ class TestCallbackView:
         client.force_login(user)
         return client, user
 
-    def _state_for(self, user, posthog_team_id, *, slack_team_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID):
+    def _state_for(
+        self, user, posthog_team_id, *, slack_team_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID, search_scopes=False
+    ):
         return CallbackState(
+            search_scopes=search_scopes,
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
             posthog_team_id=posthog_team_id,
@@ -167,19 +200,30 @@ class TestCallbackView:
         # render the friendly "Slack authorization was canceled." copy.
         self._assert_settings_redirect_error(response, "access_denied")
 
-    def test_happy_path_creates_link_and_redirects_to_settings(self, logged_in_client, workspace_integration):
+    @pytest.mark.parametrize("search_scopes", [False, True])
+    def test_happy_path_creates_link_and_redirects_to_settings(
+        self, search_scopes: bool, logged_in_client, workspace_integration
+    ):
         client, user = logged_in_client
-        state = self._state_for(user, workspace_integration.team_id)
+        state = self._state_for(user, workspace_integration.team_id, search_scopes=search_scopes)
 
         with (
             patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
-            patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
+            patch(
+                "products.slack_app.backend.views.slack_user_link.exchange_code",
+                return_value=self._identity(user_scopes="search:read.public users:read" if search_scopes else ""),
+            ) as exchange,
+            patch("products.slack_app.backend.views.slack_user_link.start_work_focus") as work_focus,
             patch("posthog.models.integration.slack.WebClient"),
             patch("products.slack_app.backend.analytics.ph_background_capture") as mock_ph,
+            patch("products.slack_app.backend.views.slack_user_link.request_onboarding") as mock_refresh_card,
         ):
             response = client.get(f"/complete/slack-link/?code=abc&state={state}")
 
         self._assert_settings_redirect_success(response)
+        assert exchange.call_args.kwargs["search_scopes"] is search_scopes
+        assert work_focus.called is search_scopes
+        assert mock_refresh_card.call_args.args[1] == SLACK_USER_ID
         mock_ph.return_value.alias.assert_called_once_with(
             previous_id=user.distinct_id, distinct_id=f"slack:{SLACK_TEAM_ID}:{SLACK_USER_ID}"
         )

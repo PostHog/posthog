@@ -97,6 +97,7 @@ from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
+    reject_lookalike_email_characters,
     reject_plus_addressed_email,
     validate_display_name,
 )
@@ -108,6 +109,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
+from posthog.ip_restrictions import get_ip_blocked_organization_ids
 from posthog.middleware import (
     IMPERSONATION_REASON_SESSION_KEY,
     get_impersonated_session_expires_at,
@@ -123,13 +125,7 @@ from posthog.models.organization_notification_lock import notification_locks_for
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey, max_personal_api_keys_for_user
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-from posthog.models.user import (
-    ROLE_CHOICES,
-    Notifications,
-    OnboardingFlowVariant,
-    OnboardingSkippedReason,
-    ShortcutPosition,
-)
+from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
@@ -244,11 +240,6 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=64,
         help_text="Onboarding step key the user was on when skipping, for analytics only.",
-    )
-    flow_variant = serializers.ChoiceField(
-        choices=OnboardingFlowVariant.choices,
-        required=False,
-        help_text="Which onboarding flow the user skipped from, for analytics only.",
     )
 
 
@@ -481,6 +472,7 @@ class UserSerializer(serializers.ModelSerializer):
             # verification and so cannot rewrite the address a person signs in with.
             return self.instance.email
         reject_plus_addressed_email(value)
+        reject_lookalike_email_characters(value)
         # Excluding the editor lets a legacy '+' account holder drop their own alias.
         exclude_user_id = self.instance.pk if self.instance else None
         if EmailValidationHelper.user_exists_with_stripped_alias(
@@ -912,6 +904,11 @@ class UserSerializer(serializers.ModelSerializer):
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
 
+        request = self.context.get("request")
+        if request is not None and data.get("team") is not None:
+            if str(data["team"]["organization"]) in get_ip_blocked_organization_ids(request):
+                data["team"] = None
+
         # Backfill shortcut_position default for frontend if null
         with tracer.start_as_current_span("user_serializer.shortcut_position_backfill"):
             if data.get("shortcut_position") is None:
@@ -1296,7 +1293,7 @@ class UserViewSet(
 
         try:
             user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             user = None
 
         # A replay of a spent code (double submit) is not a failure: the address is verified.
@@ -1384,7 +1381,7 @@ class UserViewSet(
         throttle_classes=[UserEmailVerificationThrottle],
     )
     def request_email_verification(self, request, **kwargs):
-        uuid = request.data["uuid"]
+        uuid = request.data.get("uuid") if isinstance(request.data, dict) else None
         if not is_email_available():
             raise serializers.ValidationError(
                 "Cannot verify email address because email is not configured for your instance. Please contact your administrator.",
@@ -1392,7 +1389,7 @@ class UserViewSet(
             )
         try:
             user = User.objects.filter(is_active=True).get(uuid=uuid)
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             user = None
         if user:
             # Allow re-requests when there's a pending email change that still
@@ -1453,7 +1450,6 @@ class UserViewSet(
         non_delegated_reasons = {OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER}
         reason = validated["reason"]
         step_at_skip = validated.get("step_at_skip") or ""
-        flow_variant = validated.get("flow_variant")
 
         with transaction.atomic():
             locked = User.objects.select_for_update().get(pk=instance.pk)
@@ -1530,7 +1526,6 @@ class UserViewSet(
                             properties={
                                 "step_at_skip": step_at_skip or None,
                                 "reason": reason,
-                                "flow_variant": flow_variant,
                             },
                             groups=analytics_groups,
                         )

@@ -35,11 +35,21 @@ function googleServicesFile(projectRoot: string): string | undefined {
     return existsSync(join(projectRoot, 'google-services.json')) ? './google-services.json' : undefined
 }
 
-const ICONS: Record<AppVariant, { png: string; adaptive: string }> = {
-    development: { png: './assets/icon-dev.png', adaptive: './assets/adaptive-icon-dev.png' },
-    preview: { png: './assets/icon-preview.png', adaptive: './assets/adaptive-icon-preview.png' },
-    production: { png: './assets/icon.png', adaptive: './assets/adaptive-icon.png' },
+const ICONS: Record<AppVariant, { png: string; adaptive: string; ios: string }> = {
+    development: {
+        png: './assets/icon-dev.png',
+        adaptive: './assets/adaptive-icon-dev.png',
+        ios: './assets/app-dev.icon',
+    },
+    preview: {
+        png: './assets/icon-preview.png',
+        adaptive: './assets/adaptive-icon-preview.png',
+        ios: './assets/app-preview.icon',
+    },
+    production: { png: './assets/icon.png', adaptive: './assets/adaptive-icon.png', ios: './assets/app.icon' },
 }
+
+const APP_LINK_HOSTS = ['us.posthog.com', 'eu.posthog.com']
 
 export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     const variant = readVariant()
@@ -55,19 +65,19 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
 
     return {
         ...config,
-        name,
+        name: variant === 'production' ? 'PostHog App' : name,
         slug: 'posthog',
         owner: 'posthog',
         scheme,
-        version: '1.4.0',
-        orientation: 'portrait',
+        version: '1.15.0',
+        orientation: 'default',
         userInterfaceStyle: 'automatic',
         icon: icons.png,
         ios: {
-            // The Icon Composer bundle draws the iOS 26 layered icon and has no badged copy, so the internal
-            // variants use their PNG, which keeps their band visible on the home screen.
-            icon: variant === 'production' ? './assets/app.icon' : icons.png,
+            icon: icons.ios,
             bundleIdentifier: appId,
+            // The server lists the matching paths in posthog/mobile_app_links.py.
+            associatedDomains: APP_LINK_HOSTS.map((host) => `applinks:${host}`),
             // Local device builds sign automatically with this team; EAS builds carry their own credentials.
             appleTeamId: process.env.APPLE_TEAM_ID,
             supportsTablet: false,
@@ -76,7 +86,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                 'com.apple.security.application-groups': [appGroup],
             },
             infoPlist: {
+                CFBundleDisplayName: name,
                 ITSAppUsesNonExemptEncryption: false,
+                'com.posthog.posthog.CAPTURE_PUSH_NOTIFICATION_OPENED': false,
             },
             // Expo merges these into the template's manifest, which already declares the reasons React Native needs.
             privacyManifests: {
@@ -113,6 +125,21 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         },
         android: {
             package: androidPackage,
+            // Keep pathPattern in sync with APP_LINK_PATHS in posthog/mobile_app_links.py. A pathPattern cannot
+            // exclude a path, so it requires the hyphen of a report UUID. That keeps the web-only
+            // `/inbox/reports/triage` (APP_LINK_EXCLUDED_PATHS) in the browser.
+            intentFilters: [
+                {
+                    action: 'VIEW',
+                    autoVerify: true,
+                    data: APP_LINK_HOSTS.map((host) => ({
+                        scheme: 'https',
+                        host,
+                        pathPattern: '/project/.*/inbox/reports/.*-.*',
+                    })),
+                    category: ['BROWSABLE', 'DEFAULT'],
+                },
+            ],
             googleServicesFile: googleServicesFile(projectRoot),
             adaptiveIcon: {
                 foregroundImage: icons.adaptive,
@@ -125,7 +152,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         },
         plugins: [
             'expo-router',
-            'expo-secure-store',
+            ['expo-secure-store', { configureAndroidBackup: false }],
+            './plugins/withAndroidChartWidgetBackup',
             'expo-notifications',
             'expo-web-browser',
             [
@@ -152,9 +180,11 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                     microphonePermission: false,
                 },
             ],
+            ['expo-video', { supportsBackgroundPlayback: false, supportsPictureInPicture: true }],
             ['./plugins/withAndroidLoopbackNetworking', { allowLoopback: variant !== 'production' }],
             './plugins/withAndroidAdaptiveIconInsets',
-            './plugins/withIosSceneLifecycle',
+            './plugins/withAndroidNotificationIntents',
+            ['./plugins/withAndroidDisplayName', { name }],
             '@bacons/apple-targets',
         ],
         updates: {

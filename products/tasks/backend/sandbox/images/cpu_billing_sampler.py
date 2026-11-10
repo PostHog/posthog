@@ -54,4 +54,7 @@ def run(path: Path, request_cores: float) -> None:
 
 
 if __name__ == "__main__":
+    # Image builds run --check, so a broken interpreter or script fails the build instead of the billing.
+    if sys.argv[1:] == ["--check"]:
+        sys.exit(0)
     run(Path(sys.argv[1]), float(sys.argv[2]))

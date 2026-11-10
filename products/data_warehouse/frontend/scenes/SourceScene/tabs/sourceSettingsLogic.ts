@@ -36,7 +36,8 @@ import {
 } from '~/types'
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
-import { FILE_UPLOAD_SOURCE_LABEL, isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
+import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
+import { sourceTypeLabel } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import {
     clonePayloadPreservingFiles,
     findUploadedFiles,
@@ -790,6 +791,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             // The API returns up to 50 jobs sorted by created_at desc, so this
                             // will refresh the status of recent jobs (e.g. Running -> Completed).
                             const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+                            // The poll can outlive the source page, and reading values from the
+                            // unmounted logic throws. A breakpoint would also drop this load whenever
+                            // the 5s source refresh starts another one, so a slow query never lands.
+                            if (cache.disposables.isDisposed) {
+                                return []
+                            }
 
                             // Merge fresh jobs with existing jobs, preferring the fresh data
                             const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
@@ -805,6 +812,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         cache.jobsPollSoftFailureCount = 0
                         return result
                     } catch (error) {
+                        if (cache.disposables.isDisposed) {
+                            return []
+                        }
                         // Gateway timeouts / transient upstream errors are expected when the jobs
                         // query is slow. Swallow them here so the 5s poll doesn't become a source
                         // of error-tracking noise; loadJobsSuccess reschedules with backoff.
@@ -826,6 +836,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             null,
                             schemas
                         )
+                        if (cache.disposables.isDisposed) {
+                            return []
+                        }
 
                         if (oldJobs.length === 0) {
                             actions.setCanLoadMoreJobs(false)
@@ -1211,6 +1224,18 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     listeners(({ values, actions, props, cache }) => {
         const schemaUpdateCache = getSchemaUpdateCache(cache)
 
+        const setSceneBreadcrumbName = (): void => {
+            const { source } = values
+            const label = source ? sourceTypeLabel(source.source_type, values.availableSources) : 'Source'
+            const breadcrumbName = source?.access_method === 'direct' ? source.prefix || label : label
+
+            const sceneLogicInstance =
+                sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
+                sourceSceneLogic.findMounted({ id: props.id })
+
+            sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
+        }
+
         const scheduleSchemaUpdateFlush = (): void => {
             if (schemaUpdateCache.schemaUpdateFlushTimer) {
                 clearTimeout(schemaUpdateCache.schemaUpdateFlushTimer)
@@ -1332,6 +1357,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
 
         return {
             updateSchema: (schema) => {
+                const current = values.source?.schemas.find((s) => s.id === schema.id)
+                const turnsSyncingOn = schema.should_sync && !current?.should_sync
+                if (turnsSyncingOn && schema.pending_self_managed_table) {
+                    confirmPendingSelfManagedSync(1, () => queueSchemaUpdates([schema]))
+                    return
+                }
                 queueSchemaUpdates([schema])
             },
             updateSchemas: ({ schemas }) => {
@@ -1359,13 +1390,6 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     actions.loadCdcStatus()
                 }
 
-                const breadcrumbName =
-                    values.source?.access_method === 'direct'
-                        ? values.source?.prefix || values.source?.source_type || 'Source'
-                        : isFileUploadSource(values.source)
-                          ? FILE_UPLOAD_SOURCE_LABEL
-                          : values.source?.source_type || 'Source'
-
                 if (values.pollPauseCount === 0) {
                     cache.disposables.add(() => {
                         const timerId = setTimeout(() => {
@@ -1375,12 +1399,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }, 'sourceRefreshTimeout')
                 }
 
-                const sceneLogicInstance =
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
-                    sourceSceneLogic.findMounted({ id: props.id })
-
-                sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
+                setSceneBreadcrumbName()
             },
+            [availableSourcesLogic.actionTypes.loadSuccess]: setSceneBreadcrumbName,
             loadSourceFailure: () => {
                 if (values.pollPauseCount === 0) {
                     cache.disposables.add(() => {
@@ -1498,25 +1519,32 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
             },
             reloadSchema: async ({ schema }) => {
-                // Optimistic UI updates before sending updates to the backend
-                const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
-                const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-                clonedSource.status = ExternalDataJobStatus.Running
-                clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
+                const runReload = async (): Promise<void> => {
+                    // Optimistic UI updates before sending updates to the backend
+                    const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
+                    const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
+                    clonedSource.status = ExternalDataJobStatus.Running
+                    clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
-                actions.loadSourceSuccess(clonedSource)
+                    actions.loadSourceSuccess(clonedSource)
 
-                try {
-                    await api.externalDataSchemas.reload(schema.id)
+                    try {
+                        await api.externalDataSchemas.reload(schema.id)
 
-                    posthog.capture('schema reloaded', { sourceType: clonedSource.source_type })
-                } catch (e: any) {
-                    if (e.message) {
-                        lemonToast.error(e.message)
-                    } else {
-                        lemonToast.error('Cant reload schema at this time')
+                        posthog.capture('schema reloaded', { sourceType: clonedSource.source_type })
+                    } catch (e: any) {
+                        if (e.message) {
+                            lemonToast.error(e.message)
+                        } else {
+                            lemonToast.error('Cant reload schema at this time')
+                        }
                     }
                 }
+                if (schema.pending_self_managed_table) {
+                    confirmPendingSelfManagedSync(1, () => void runReload())
+                    return
+                }
+                await runReload()
             },
             resyncSchema: async ({ schema }) => {
                 // Optimistic UI updates before sending updates to the backend

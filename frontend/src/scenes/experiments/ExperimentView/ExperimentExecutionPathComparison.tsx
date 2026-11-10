@@ -8,9 +8,11 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     ExperimentMetric,
     ExperimentQueryResponse,
@@ -20,11 +22,10 @@ import {
     NewExperimentQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentRefreshMode } from '../metricQueryUtils'
-import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
+import { formatMetricValue, getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import { type ExperimentSavedMetric, sharedMetricsToExperimentMetrics } from '../utils'
 
 const COMPARISON_CONCURRENCY_LIMIT = 10
@@ -42,10 +43,8 @@ interface ComparisonRow {
     variant: string
     directCount: number | null
     precomputedCount: number | null
-    directSum: number | null
-    precomputedSum: number | null
-    directMean: number | null
-    precomputedMean: number | null
+    directValue: string
+    precomputedValue: string
     match: boolean | null
 }
 
@@ -53,7 +52,11 @@ function isNewResponse(response: ExperimentQueryResponse): response is NewExperi
     return 'baseline' in response && response.baseline !== null
 }
 
-function buildComparisonRows(direct: ExperimentQueryResponse, precomputed: ExperimentQueryResponse): ComparisonRow[] {
+function buildComparisonRows(
+    direct: ExperimentQueryResponse,
+    precomputed: ExperimentQueryResponse,
+    metric: ExperimentMetric
+): ComparisonRow[] {
     if (!isNewResponse(direct) || !isNewResponse(precomputed)) {
         return []
     }
@@ -63,7 +66,7 @@ function buildComparisonRows(direct: ExperimentQueryResponse, precomputed: Exper
     const directBaseline = direct.baseline
     const precomputedBaseline = precomputed.baseline
     if (directBaseline && precomputedBaseline) {
-        rows.push(buildRow(directBaseline, precomputedBaseline))
+        rows.push(buildRow(directBaseline, precomputedBaseline, metric))
     }
 
     const directVariants = direct.variant_results || []
@@ -71,7 +74,7 @@ function buildComparisonRows(direct: ExperimentQueryResponse, precomputed: Exper
 
     for (const dv of directVariants) {
         const pv = precomputedVariants.find((v) => v.key === dv.key)
-        rows.push(buildRow(dv, pv ?? null))
+        rows.push(buildRow(dv, pv ?? null, metric))
     }
 
     return rows
@@ -79,28 +82,23 @@ function buildComparisonRows(direct: ExperimentQueryResponse, precomputed: Exper
 
 function buildRow(
     direct: ExperimentStatsBaseValidated,
-    precomputed: ExperimentStatsBaseValidated | null
+    precomputed: ExperimentStatsBaseValidated | null,
+    metric: ExperimentMetric
 ): ComparisonRow {
     return {
         variant: direct.key,
         directCount: direct.number_of_samples,
         precomputedCount: precomputed?.number_of_samples ?? null,
-        directSum: direct.sum,
-        precomputedSum: precomputed?.sum ?? null,
-        directMean: getMean(direct),
-        precomputedMean: precomputed ? getMean(precomputed) : null,
+        directValue: formatMetricValue(direct, metric),
+        precomputedValue: precomputed ? formatMetricValue(precomputed, metric) : '—',
         match:
             precomputed != null
-                ? direct.number_of_samples === precomputed.number_of_samples && direct.sum === precomputed.sum
+                ? direct.number_of_samples === precomputed.number_of_samples &&
+                  direct.sum === precomputed.sum &&
+                  direct.denominator_sum === precomputed.denominator_sum &&
+                  objectsEqual(direct.quantile_grid ?? null, precomputed.quantile_grid ?? null)
                 : null,
     }
-}
-
-function getMean(stats: ExperimentStatsBaseValidated): number | null {
-    if (stats.number_of_samples === 0) {
-        return null
-    }
-    return stats.sum / stats.number_of_samples
 }
 
 function getSignificance(
@@ -160,9 +158,11 @@ async function runPathQuery(
 }
 
 function MetricComparisonResults({
+    metric,
     direct,
     precomputed,
 }: {
+    metric: ExperimentMetric
     direct: PathResult
     precomputed: PathResult
 }): JSX.Element | null {
@@ -171,7 +171,7 @@ function MetricComparisonResults({
     }
 
     const hasResults = direct.response && precomputed.response
-    const comparisonRows = hasResults ? buildComparisonRows(direct.response!, precomputed.response!) : []
+    const comparisonRows = hasResults ? buildComparisonRows(direct.response!, precomputed.response!, metric) : []
     const directSig = direct.response ? getSignificance(direct.response) : null
     const precomputedSig = precomputed.response ? getSignificance(precomputed.response) : null
 
@@ -192,14 +192,14 @@ function MetricComparisonResults({
             render: (_, row) => row.precomputedCount ?? '—',
         },
         {
-            title: 'Direct mean',
-            key: 'directMean',
-            render: (_, row) => (row.directMean != null ? row.directMean.toFixed(4) : '—'),
+            title: 'Direct value',
+            key: 'directValue',
+            dataIndex: 'directValue',
         },
         {
-            title: 'Precomputed mean',
-            key: 'precomputedMean',
-            render: (_, row) => (row.precomputedMean != null ? row.precomputedMean.toFixed(4) : '—'),
+            title: 'Precomputed value',
+            key: 'precomputedValue',
+            dataIndex: 'precomputedValue',
         },
         {
             title: 'Match',
@@ -406,7 +406,13 @@ function ExperimentExecutionPathComparison({ experimentId }: { experimentId: num
                                 Compare paths
                             </LemonButton>
                         </div>
-                        {result && <MetricComparisonResults direct={result.direct} precomputed={result.precomputed} />}
+                        {result && (
+                            <MetricComparisonResults
+                                metric={entry.metric}
+                                direct={result.direct}
+                                precomputed={result.precomputed}
+                            />
+                        )}
                     </div>
                 )
             })}

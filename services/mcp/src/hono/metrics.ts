@@ -126,7 +126,7 @@ export const confirmedActionRefusalsTotal = new Counter({
     labelNames: ['tool', 'reason'] as const,
 })
 
-// 1 if the codec + nonce ledger were installed at boot, 0 otherwise. A
+// 1 if the codec + payload stash were installed at boot, 0 otherwise. A
 // single boot-time console.error is easy to lose; this lets ops alert
 // directly on `mcp_confirmed_action_runtime_installed == 0` regardless
 // of whether anyone has tried a -prepare/-execute call yet.
@@ -218,5 +218,22 @@ export function routeLabel(pathname: string): string {
     }
     return 'other'
 }
+
+export const guidanceNoticesTotal = new Counter({
+    name: 'mcp_guidance_notices_total',
+    help: 'Guidance rule outcomes on tool calls (shown, flag_off, suppressed, no_consent), by rule.',
+    labelNames: ['rule', 'outcome'] as const,
+})
+
+export const guidanceEvaluationErrorsTotal = new Counter({
+    name: 'mcp_guidance_evaluation_errors_total',
+    help: 'Guidance evaluations that failed (Redis errors or timeouts) and yielded no notice.',
+})
+
+export const guidanceProductStateLookupsTotal = new Counter({
+    name: 'mcp_guidance_product_state_lookups_total',
+    help: 'Budgeted reads for guidance conditions, by check and result (answered, timeout, error).',
+    labelNames: ['check', 'result'] as const,
+})
 
 export { register }

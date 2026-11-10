@@ -1,4 +1,6 @@
-import { ApiError, apiFetch, apiJson, apiStream, projectPath } from './client'
+import { ApiError, apiJson, apiReadResponse, apiStream, projectPath, scopedPath } from './client'
+import type { ProjectScope } from './reports'
+import { transport } from './transport'
 
 // Shapes follow `products/tasks/backend/presentation/serializers.py`, keeping the fields the app reads.
 
@@ -194,18 +196,20 @@ export interface TaskRequestOptions {
 }
 
 export function createTask(
+    scope: ProjectScope | null,
     body: TaskCreateRequestApi,
     options: TaskRequestOptions = {}
 ): Promise<TaskCreateResponseApi> {
-    return apiJson<TaskCreateResponseApi>(projectPath('tasks/'), { method: 'POST', json: body, ...options })
+    return apiJson<TaskCreateResponseApi>(scopedPath(scope, 'tasks/'), { method: 'POST', json: body, ...options })
 }
 
 export function startTaskRun(
+    scope: ProjectScope | null,
     taskId: string,
     body: TaskRunCreateRequestApi,
     options: TaskRequestOptions = {}
 ): Promise<TaskRunResponseApi> {
-    return apiJson<TaskRunResponseApi>(projectPath(`tasks/${encodeURIComponent(taskId)}/run/`), {
+    return apiJson<TaskRunResponseApi>(scopedPath(scope, `tasks/${encodeURIComponent(taskId)}/run/`), {
         method: 'POST',
         json: body,
         ...options,
@@ -298,36 +302,46 @@ export async function deleteTask(taskId: string, signal?: AbortSignal): Promise<
 }
 
 /** Every model a run may use, from the live gateway catalogue. Empty when the gateway is unreachable. */
-export async function getTaskModels(signal?: AbortSignal): Promise<ModelChoiceApi[]> {
-    const body = await apiJson<{ models?: ModelChoiceApi[] }>(projectPath('tasks/models/'), { signal })
+export async function getTaskModels(scope: ProjectScope | null, signal?: AbortSignal): Promise<ModelChoiceApi[]> {
+    const body = await apiJson<{ models?: ModelChoiceApi[] }>(scopedPath(scope, 'tasks/models/'), { signal })
     return body.models ?? []
 }
 
-export function getMyTaskConfig(signal?: AbortSignal): Promise<TaskUserConfigApi> {
-    return apiJson<TaskUserConfigApi>(projectPath('tasks/@me/config/'), { signal })
+export function getMyTaskConfig(scope: ProjectScope | null, signal?: AbortSignal): Promise<TaskUserConfigApi> {
+    return apiJson<TaskUserConfigApi>(scopedPath(scope, 'tasks/@me/config/'), { signal })
 }
 
-export function getTask(taskId: string, signal?: AbortSignal): Promise<TaskApi> {
-    return apiJson<TaskApi>(projectPath(`tasks/${encodeURIComponent(taskId)}/`), { signal })
+export function getTask(scope: ProjectScope | null, taskId: string, signal?: AbortSignal): Promise<TaskApi> {
+    return apiJson<TaskApi>(scopedPath(scope, `tasks/${encodeURIComponent(taskId)}/`), { signal })
 }
 
-export function getTaskRun(taskId: string, runId: string, signal?: AbortSignal): Promise<TaskRunApi> {
-    return apiJson<TaskRunApi>(projectPath(`tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/`), {
-        signal,
-    })
+export function getTaskRun(
+    scope: ProjectScope | null,
+    taskId: string,
+    runId: string,
+    signal?: AbortSignal
+): Promise<TaskRunApi> {
+    return apiJson<TaskRunApi>(
+        scopedPath(scope, `tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/`),
+        {
+            signal,
+        }
+    )
 }
 
 /** The stored run log, one JSON record per line. A resumed run's log starts with its ancestors' logs, oldest first. */
 export async function getTaskRunLogs(taskId: string, runId: string, signal?: AbortSignal): Promise<unknown[]> {
-    const response = await apiFetch(
+    return apiReadResponse(
         projectPath(`tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/logs/`),
-        { signal }
+        { signal },
+        async (response) => {
+            const text = await transport(() => response.text())
+            if (!response.ok) {
+                throw new ApiError(response.status, parseJsonLine(text), response.headers)
+            }
+            return parseJsonLines(text)
+        }
     )
-    const text = await response.text()
-    if (!response.ok) {
-        throw new ApiError(response.status, parseJsonLine(text), response.headers)
-    }
-    return parseJsonLines(text)
 }
 
 function parseJsonLine(line: string): unknown {
@@ -356,24 +370,29 @@ export function parseJsonLines(text: string): unknown[] {
 // Without `lastEventId` the server replays the durable run log first, which is how a question asked before the app
 // connected reaches the decision card.
 export function openTaskRunStream(
+    scope: ProjectScope | null,
     taskId: string,
     runId: string,
     options: { lastEventId?: string; signal?: AbortSignal } = {}
 ): Promise<Response> {
-    return apiStream(projectPath(`tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/stream/`), {
-        signal: options.signal,
-        headers: options.lastEventId ? { 'Last-Event-ID': options.lastEventId } : undefined,
-    })
+    return apiStream(
+        scopedPath(scope, `tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/stream/`),
+        {
+            signal: options.signal,
+            headers: options.lastEventId ? { 'Last-Event-ID': options.lastEventId } : undefined,
+        }
+    )
 }
 
 export function sendTaskRunCommand(
+    scope: ProjectScope | null,
     taskId: string,
     runId: string,
     command: TaskRunCommand,
     options: { id: string; signal?: AbortSignal }
 ): Promise<TaskRunCommandResponseApi> {
     return apiJson<TaskRunCommandResponseApi>(
-        projectPath(`tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/command/`),
+        scopedPath(scope, `tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/command/`),
         {
             method: 'POST',
             json: {

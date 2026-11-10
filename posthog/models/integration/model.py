@@ -12,7 +12,8 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.integrations.contracts import IntegrationRecord, creator_can_manage
+from posthog.integrations.references import IntegrationReference
 from posthog.models.user import User
 from posthog.rbac.decorators import field_access_control
 from posthog.sync import database_sync_to_async
@@ -22,6 +23,7 @@ from .auth_types import (
     AuthRequirement,
     AuthTypeSelector,
     IntegrationAuthType,
+    catalogued_kinds,
     config_for_write,
     default_auth_type,
     effective_auth_type,
@@ -98,6 +100,13 @@ def _decrypted_sensitive_value(integration: "Integration", field_name: str) -> s
         field=field_name,
     )
     return recovered
+
+
+# Marks a row that a data warehouse source created from the fields a user typed in. The value is the
+# source type, so a client can show the source's name and icon for a kind it does not know. The row
+# holds `sensitive_config["fields"]` in the source's own field shape, not in the shape that other
+# code of the kind reads. Hog functions must never get such a row as an input.
+WAREHOUSE_SOURCE_TYPE_CONFIG_KEY = "warehouse_source_type"
 
 
 class IntegrationQuerySet(models.QuerySet["Integration"]):
@@ -177,6 +186,8 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
         kind = kwargs.get("kind") or (defaults or {}).get("kind") or (create_defaults or {}).get("kind")
         if defaults is not None and "config" in defaults:
             defaults = self._with_config_for_write(dict(defaults), kind)
+        if create_defaults is not None and "config" in create_defaults:
+            create_defaults = self._with_config_for_write(dict(create_defaults), kind)
         return super().update_or_create(defaults=defaults, create_defaults=create_defaults, **kwargs)
 
     def for_github_installation_id(self, installation_id: str | int) -> Self:
@@ -234,8 +245,13 @@ class _AllRowsManager(IntegrationModelManager):
 
 
 def integration_kind_choices() -> list[tuple[str, str | Promise]]:
-    # Callable so growing the enum doesn't generate a no-op migration.
-    return list(Integration.IntegrationKind.choices)
+    # Callable so growing the enum doesn't generate a no-op migration. Kinds that a product registers
+    # with `register_kind_auth_types` (the warehouse source credential kinds) are valid stored kinds
+    # too, but they stay out of `IntegrationKind` and so out of the public API enum.
+    choices: list[tuple[str, str | Promise]] = list(Integration.IntegrationKind.choices)
+    known = {value for value, _ in choices}
+    choices += [(kind, kind) for kind in sorted(catalogued_kinds()) if kind not in known]
+    return choices
 
 
 class Integration(models.Model):
@@ -350,8 +366,12 @@ class Integration(models.Model):
         return effective_auth_type(self.kind, self.config)
 
     @property
+    def holds_warehouse_source_fields(self) -> bool:
+        return isinstance(self.config, dict) and WAREHOUSE_SOURCE_TYPE_CONFIG_KEY in self.config
+
+    @property
     def display_name(self) -> str:
-        if self.auth_type != default_auth_type(self.kind):
+        if self.holds_warehouse_source_fields or self.auth_type != default_auth_type(self.kind):
             # The branches below read the config shape of the default auth type.
             return self.config.get("display_name") or f"ID: {self.integration_id}"
         if self.kind == "twitter-ads":
@@ -437,9 +457,11 @@ class Integration(models.Model):
         return f"ID: {self.integration_id}"
 
     def can_be_managed_by_creator(self, user_id: int | None) -> bool:
-        return (
-            user_id is not None and self.kind == self.IntegrationKind.GOOGLE_CALENDAR and self.created_by_id == user_id
-        )
+        return creator_can_manage(self.kind, self.created_by_id, user_id)
+
+    @property
+    def reference(self) -> str:
+        return str(IntegrationReference.from_legacy_id(self.id))
 
     @property
     def access_token(self) -> str | None:
@@ -458,7 +480,9 @@ def integration_model(record: IntegrationRecord) -> Integration:
     """The model behind a row of the integrations SDK.
 
     The SDK returns its rows as the read-only `IntegrationRecord`, and they are model instances at
-    runtime. Only the per-kind adapters next to the model use it, because they still write the row.
+    runtime. Only the per-kind adapters next to the model use it, because callers outside this package
+    still read model-only attributes (`team`, `pk`, `refresh_from_db()`) from `adapter.integration`.
+    The adapters write the row through the SDK (see `row_writes.py`), not with `save()`.
     """
     return cast(Integration, record)
 
@@ -470,3 +494,8 @@ def defer_repository_cache_fields[QuerySetT: models.QuerySet[Integration]](query
 @database_sync_to_async
 def aget_integration_by_id(integration_id: str, team_id: int) -> Integration | None:
     return Integration.objects.get(id=integration_id, team_id=team_id)
+
+
+# The kinds that an API request can name. A kind that a product registers (a warehouse source
+# credential kind) is stored data only, so the generated API enum stays small.
+PUBLIC_INTEGRATION_KIND_CHOICES = list(Integration.IntegrationKind.choices)

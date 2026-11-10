@@ -12,6 +12,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.web_analytics.backend.api.heatmaps_utils import MAX_TARGET_WIDTHS, PREWARM_TTL
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
@@ -64,6 +65,7 @@ def _make_response(
 class TestHeatmapScreenshotTask(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(mock_anti_ssrf_dns_lookup())
         # Stub ph_scoped_capture so tests don't spin up a real PostHog client, and record the events.
         self.captured_events: list[dict] = []
 
@@ -401,7 +403,9 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         assert body["viewport"]["isMobile"] is is_mobile
         assert body["options"]["fullPage"] is True
         assert body["options"]["type"] == "jpeg"
-        assert body["scrollPage"] is True
+        assert body["scrollPage"] is False
+        assert body["waitForFunction"]["timeout"] == 30_000
+        assert "addScriptTag" not in body
         assert body["blockConsentModals"] is True
         assert "cookies" not in body
         assert "blockAds" not in body

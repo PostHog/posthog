@@ -22,6 +22,7 @@ import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBa
 import { InboxOnboardingEntry } from './components/onboarding/InboxOnboardingEntry'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { InboxTabBar } from './components/shell/InboxTabBar'
+import { InboxTriageButton } from './components/shell/InboxTriageButton'
 import { InboxValueSummary } from './components/shell/InboxValueSummary'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
@@ -112,8 +113,14 @@ function InboxListView(): JSX.Element {
         <div className="flex flex-col min-h-0 flex-1 min-w-0">
             {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
             {!onboarding && !pending && (
-                <div className="border-b border-primary pl-5 pr-6 shrink-0">
+                <div className="flex items-center gap-2 border-b border-primary pl-5 pr-6 shrink-0">
                     <InboxTabBar />
+                    {/* Pairs with the header Triage button, which hides below the same @2xl/inbox width. */}
+                    {activeTab === 'reports' && (
+                        <div className="ml-auto shrink-0 @2xl/inbox:hidden">
+                            <InboxTriageButton compact />
+                        </div>
+                    )}
                 </div>
             )}
             <div className="flex-1 overflow-auto min-h-0">
@@ -253,8 +260,20 @@ export function InboxScene(): JSX.Element {
         }
     }, [isScratchpadOpen])
 
+    // Each tab's primary action sits in the scene header rather than inside the tab: one predictable
+    // place, and it stays reachable when filters narrow the tab down to nothing. Not while onboarding
+    // has the tab locked (or is still deciding): the tab isn't reachable then.
+    const tabUnlocked = onboardingMode !== 'takeover' && onboardingMode !== 'pending'
+    const headerActions = !tabUnlocked ? undefined : activeTab === 'scouts' ? (
+        <ScoutsRosterActions />
+    ) : activeTab === 'reports' ? (
+        <div className="hidden @2xl/inbox:contents">
+            <InboxTriageButton />
+        </div>
+    ) : undefined
+
     return (
-        <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
+        <SceneContent className="@container/inbox gap-y-0 border-b-0 flex-1 min-h-0">
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
                 <SceneTitleSection
                     name="Self-driving inbox"
@@ -268,15 +287,7 @@ export function InboxScene(): JSX.Element {
                             : INBOX_TAB_DESCRIPTION[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}
-                    // Creating a scout is the Scouts tab's primary action, so it sits in the scene
-                    // header rather than inside the roster — one predictable place, and it stays
-                    // reachable when the roster is filtered down to nothing. Not while onboarding
-                    // has the tab locked (or is still deciding): the roster isn't reachable then.
-                    actions={
-                        activeTab === 'scouts' && onboardingMode !== 'takeover' && onboardingMode !== 'pending' ? (
-                            <ScoutsRosterActions />
-                        ) : undefined
-                    }
+                    actions={headerActions}
                 />
 
                 <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">

@@ -404,9 +404,7 @@ class _BaseEvalRun:
                         settings,
                         self.offline_suite,
                         application_trace_ids_enabled=(
-                            self.posthog_client is not None
-                            and not self.posthog_client.disabled
-                            and settings.host == self.ctx.posthog_trace_host
+                            settings.host == self.ctx.posthog_trace_host
                             and settings.project_id == self.ctx.posthog_trace_project_id
                         ),
                     )
@@ -792,6 +790,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "agent_runtime": self.ctx.agent_runtime,
             "skill_delivery": self.ctx.skill_delivery,
             "reasoning_effort": self.ctx.reasoning_effort,
+            "service_tier": self.ctx.service_tier,
         }
 
 

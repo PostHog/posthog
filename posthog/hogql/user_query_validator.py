@@ -79,7 +79,9 @@ def _is_org_exempted_from_offset_block(team: Team) -> bool:
         return True
 
 
-def validate_user_query(node: ast.SelectQuery | ast.SelectSetQuery, team: Team) -> None:
+def validate_user_query(
+    node: ast.SelectQuery | ast.SelectSetQuery, team: Team, requested_offset: int | None = None
+) -> None:
     """Enforce user-query restrictions on a parsed HogQL AST.
 
     Currently: reject any OFFSET clause unless the team's organization is on the
@@ -88,4 +90,6 @@ def validate_user_query(node: ast.SelectQuery | ast.SelectSetQuery, team: Team) 
     """
     if _is_org_exempted_from_offset_block(team):
         return
+    if requested_offset:
+        raise QueryError(OFFSET_NOT_ALLOWED_MESSAGE)
     _OffsetDetectingVisitor().visit(node)

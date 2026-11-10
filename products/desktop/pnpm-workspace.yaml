@@ -5,15 +5,15 @@ packages:
     - tools/*
 
 catalog:
-    '@hono/node-server': ^1.13.7
-    '@hono/trpc-server': ^0.3.4
+    '@hono/node-server': ^2.1.6
+    '@hono/trpc-server': ^0.4.2
     '@earendil-works/pi-agent-core': 1.2.0
     '@earendil-works/pi-ai': 1.2.0
     '@earendil-works/pi-coding-agent': 1.2.0
     '@earendil-works/pi-tui': 1.2.0
     '@parcel/watcher': ^2.5.6
     '@phosphor-icons/react': ^2.1.10
-    '@posthog/brand': 0.11.0
+    '@posthog/brand': 0.17.2
     '@posthog/quill': 0.3.0-beta.29
     '@radix-ui/themes': ^3.2.1
     '@tanstack/react-query': ^5.100.14
@@ -33,7 +33,7 @@ catalog:
     react-dom: 19.2.6
     reflect-metadata: ^0.2.2
     superjson: ^2.2.2
-    tsup: ^8.5.1
+    tsup: ^9.0.0
     typescript: ^5.5.0
 
 ignoredBuiltDependencies:
@@ -98,7 +98,7 @@ overrides:
     node-abi: ^3.92.0
     # Dedupe the zod 4.x line to one version so cross-package schema types stay
     # nameable (TS2742). Scoped to 4.x; 3.x consumers are untouched.
-    'zod@^4.0.0': 4.4.3
+    'zod@^4.0.0': 4.6.7
     # Keep one React across the monorepo so shared packages resolve one runtime.
     react: 19.2.6
     react-dom: 19.2.6
@@ -125,14 +125,13 @@ overrides:
     # dependents require a patched version on their own.
     protobufjs: 7.6.5
     axios: 1.18.1
-    hono: 4.12.28
+    hono: 4.13.16
     '@xmldom/xmldom': 0.8.13
     node-forge: 1.4.0
     simple-git: 3.36.0
     # Additional HIGH transitive fixes (low-risk patch/minor bumps within range).
-    drizzle-orm: 0.45.2
+    drizzle-orm: 0.45.4
     fast-uri: 3.1.4
-    '@hono/node-server': 1.19.13
     lodash: 4.18.0
     serialize-javascript: 7.0.5
     '@electron/get>undici': 7.28.0
@@ -143,7 +142,7 @@ overrides:
     'ws@8': 8.21.0
     'path-to-regexp@8': 8.4.2
     qs: 6.15.3
-    smol-toml: 1.6.1
+    smol-toml: 1.9.1
 
 allowBuilds:
     '@parcel/watcher': true
@@ -172,5 +171,3 @@ patchedDependencies:
     app-builder-lib@26.15.3: patches/app-builder-lib@26.15.3.patch
     node-pty: patches/node-pty.patch
     react-hotkeys-hook: patches/react-hotkeys-hook.patch
-    # Drawer spring mass 3 -> 1: the stock open/close feels sluggish on mobilehog.
-    react-native-drawer-layout: patches/react-native-drawer-layout.patch
