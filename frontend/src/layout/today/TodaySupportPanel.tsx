@@ -33,6 +33,11 @@ const SUPPORT_MESSAGE_OVERRIDE_BODY =
 //const SUPPORT_MESSAGE_OVERRIDE_BODY =
 //    'Our support engineers recently attended an offsite to make long-term enhancements to our support process. As a result, our response times are slightly delayed for some inquiries. Thanks for your patience as we work to get caught up!'
 
+//Support Christmas messaging
+//const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
+//const SUPPORT_MESSAGE_OVERRIDE_BODY =
+//    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (22nd December to the 5th January). Thanks for your patience!"
+
 const FEEDBACK_LINKS = [
     { label: "See what we're building", href: 'https://posthog.com/wip', Icon: IconHelmet },
     { label: 'Vote on our roadmap', href: 'https://posthog.com/roadmap', Icon: IconMap },
