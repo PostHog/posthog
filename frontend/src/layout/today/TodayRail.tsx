@@ -49,17 +49,17 @@ export function TodayRail(): JSX.Element {
             style={{ width: TODAY_RAIL_WIDTH }}
         >
             {TODAY_RAIL_PANES.map(renderTile)}
+            {wizardUiEnabled &&
+                currentProjectId !== null && (
+                    // A local boundary keeps a failed wizard chunk from reaching the shell's
+                    // ChunkLoadErrorBoundary, which reloads the whole app.
+                    <PostHogErrorBoundary fallback={<></>}>
+                        <Suspense fallback={null}>
+                            <WizardRailButton projectId={String(currentProjectId)} />
+                        </Suspense>
+                    </PostHogErrorBoundary>
+                )}
             <div className="mt-auto flex w-full flex-col items-center gap-3">
-                {wizardUiEnabled &&
-                    currentProjectId !== null && (
-                        // A local boundary keeps a failed wizard chunk from reaching the shell's
-                        // ChunkLoadErrorBoundary, which reloads the whole app.
-                        <PostHogErrorBoundary fallback={<></>}>
-                            <Suspense fallback={null}>
-                                <WizardRailButton projectId={String(currentProjectId)} />
-                            </Suspense>
-                        </PostHogErrorBoundary>
-                    )}
                 <TodayMoreMenu />
                 {TODAY_RAIL_FOOTER_PANES.map(renderTile)}
             </div>

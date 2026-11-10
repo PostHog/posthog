@@ -1,5 +1,12 @@
-// While a run is active the hog keeps casting and an arc circles the button, so the run reads as in progress
-// from anywhere in the app.
+// While a run is active the hog keeps casting and an arc travels around the tile, so the run reads as in
+// progress from anywhere in the app. The rail tile forces every svg inside it to its icon size, so the ring is
+// a masked border rather than an svg, and the badge icons shrink with a transform.
+
+@property --wizard-rail-ring-angle {
+    syntax: '<angle>';
+    inherits: false;
+    initial-value: 0deg;
+}
 
 .WizardRailButton__hog--working {
     transform-origin: 50% 85%;
@@ -7,25 +14,23 @@
 }
 
 .WizardRailButton__ring {
-    animation: WizardRailButton-spin 1.2s linear infinite;
+    position: absolute;
+    inset: -3px;
+    padding: 2px;
+    pointer-events: none;
+    background: conic-gradient(from var(--wizard-rail-ring-angle), var(--primary) 0 25%, var(--border) 25% 100%);
+
+    // The tile is rounded-md; the ring sits 3px outside it, so its corners grow by the same amount.
+    border-radius: calc(var(--radius-md) + 3px);
+    mask:
+        linear-gradient(#000 0 0) content-box exclude,
+        linear-gradient(#000 0 0);
+    animation: WizardRailButton-trace 1.6s linear infinite;
 }
 
-.WizardRailButton__ringTrack,
-.WizardRailButton__ringArc {
-    fill: none;
-    stroke-width: 2;
-}
-
-.WizardRailButton__ringTrack {
-    stroke: var(--border);
-}
-
-.WizardRailButton__ringArc {
-    stroke: var(--primary);
-
-    // A quarter of the circumference (2 * pi * 18.5).
-    stroke-dasharray: 29 117.2;
-    stroke-linecap: round;
+.WizardRailButton__badge svg {
+    color: white;
+    transform: scale(0.5);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -52,8 +57,8 @@
 }
 
 /* stylelint-disable-next-line keyframes-name-pattern */
-@keyframes WizardRailButton-spin {
+@keyframes WizardRailButton-trace {
     to {
-        transform: rotate(360deg);
+        --wizard-rail-ring-angle: 360deg;
     }
 }
