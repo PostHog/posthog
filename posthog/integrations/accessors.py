@@ -243,6 +243,19 @@ class IntegrationReader:
         scope = self._cross_team_scope("exists_by_external_id")
         return self._backend.exists(scope, RowFilter(external_id=external_id))
 
+    @instrumented("get_by_id")
+    def get_by_id(self, id: int) -> IntegrationRecord:
+        """The row with this id in any team. Raises `IntegrationNotFound` when the row is not in the scope.
+
+        For a caller that holds only a row id, such as a cache key or a stored reference.
+        Raises `ValueError` on `IntegrationManager.any`, because the id would match a row of any provider.
+        """
+        rows = self._cross_team_rows("get_by_id")
+        try:
+            return rows.get(id=id)
+        except (Integration.DoesNotExist, ValueError, TypeError) as error:
+            raise IntegrationNotFound(f"No integration {id!r} in {self!r}") from error
+
     @instrumented("usages")
     def usages(self, team_id: int, id: int) -> builtins.list[IntegrationUsage]:
         """The PostHog objects of the team that use the row. See `usages.py`."""
