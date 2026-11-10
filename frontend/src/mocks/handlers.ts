@@ -55,6 +55,10 @@ const hogFunctionTemplateRetrieveMock: MockSignature = ({ params }) => {
     return HttpResponse.json({ ...hogFunctionTemplate })
 }
 
+// The tags endpoint pages its response only when the request carries `search`.
+const tagsMock: MockSignature = ({ request }) =>
+    HttpResponse.json(new URL(request.url).searchParams.has('search') ? EMPTY_PAGINATED_RESPONSE : [])
+
 const hogFunctionTemplatesMock: MockSignature = ({ request }) => {
     const types = new URL(request.url).searchParams.get('types')
     const results = types?.includes('transformation')
@@ -390,7 +394,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/feature_flags/:feature_flag_id/dependent_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/llm_prompts/resolve/': {},
         '/api/environments/:team_id/llm_analytics/': {},
-        '/api/projects/:team_id/tags/': [],
+        '/api/projects/:team_id/tags/': tagsMock,
     },
     post: {
         'https://us.i.posthog.com/e/': posthogCORSResponse,

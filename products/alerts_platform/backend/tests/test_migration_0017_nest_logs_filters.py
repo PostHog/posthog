@@ -1,12 +1,12 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 FILTERS = {"serviceNames": ["api"], "severityLevels": ["error"]}
 CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
 
 
-class TestNestLogsFilters(TestMigrations):
+class TestNestLogsFilters(NonAtomicTestMigrations):
     app = "alerts_platform"
     migrate_from = "0016_platformalertdeliverypath"
     migrate_to = "0017_nest_logs_filters"

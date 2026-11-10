@@ -493,6 +493,10 @@ def test_allowlists_name_only_extracting_sources(allowlist: dict[str, Any]) -> N
         ("ZohoCRM", "401 Client Error:  for url: https://www.zohoapis.com/crm/v8/Leads?page=1"),
         ("ZohoCRM", "403 Client Error:  for url: https://www.zohoapis.com/crm/v8/Notes?page=1"),
         (
+            "Squarespace",
+            "402 Client Error: Payment Required for url: https://api.squarespace.com/v2/commerce/products",
+        ),
+        (
             "Persona",
             "Persona API not enabled for this account: Workflows API is not enabled, url=https://api.withpersona.com/api/v1/workflow-runs",
         ),

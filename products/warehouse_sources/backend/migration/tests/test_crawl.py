@@ -15,9 +15,15 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.warehouse_sources.backend.migration.catalog import TableMatch
-from products.warehouse_sources.backend.migration.crawl import crawl_migration, mark_migration_failed
+from products.warehouse_sources.backend.migration.crawl import (
+    crawl_migration,
+    mark_migration_failed,
+    plan_snapshot,
+    save_plan,
+)
 from products.warehouse_sources.backend.migration.fivetran.client import FIVETRAN_API_URL, FivetranAuthError
-from products.warehouse_sources.backend.migration.types import Verdict
+from products.warehouse_sources.backend.migration.fivetran.snapshot import parse_connection
+from products.warehouse_sources.backend.migration.types import MigrationProvider, VendorSnapshot, Verdict
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.crawl_warehouse_migration import (
     CrawlWarehouseMigrationInputs,
@@ -88,6 +94,9 @@ class TestCrawlMigration(BaseTest):
         items = WarehouseMigrationItem.objects.for_team(self.team.pk).filter(migration=migration)
         return {item.vendor_connection_id: item for item in items}
 
+    def _prefixes(self, migration: WarehouseMigration) -> dict[str, str]:
+        return {cid: (item.proposal or {})["prefix"] for cid, item in self._items(migration).items()}
+
     @parameterized.expand(
         [
             ("applying", WarehouseMigrationItem.Status.APPLYING, "conn_applied_2"),
@@ -137,6 +146,37 @@ class TestCrawlMigration(BaseTest):
         assert items["conn_new"].proposal is not None
         assert items["conn_new"].proposal["source_type"] == ExternalDataSourceType.HUBSPOT
         assert items["conn_new"].proposal["prefix"] == new_prefix
+
+    def test_a_partial_upload_keeps_prefixes_unique_against_items_outside_its_batch(self) -> None:
+        migration = self._migration()
+
+        def snapshot(names: dict[str, str]) -> VendorSnapshot:
+            return VendorSnapshot(
+                provider=MigrationProvider.FIVETRAN,
+                account_id="acct_example",
+                account_name=None,
+                destinations=(),
+                connections=tuple(
+                    parse_connection({"id": cid, "service": "hubspot", "schema": name}, None, utc_offset_hours=0)
+                    for cid, name in names.items()
+                ),
+            )
+
+        first = snapshot({"conn_a": "shared", "conn_b": "shared"})
+        save_plan(migration, first, plan_snapshot(migration, first, catalog=_HubspotOnly()))
+        assert self._prefixes(migration) == {
+            "conn_a": "shared",
+            "conn_b": "shared_2",
+        }
+
+        # Planned whole, conn_b would now get `shared`, but only conn_a is saved.
+        second = snapshot({"conn_a": "shared_2", "conn_b": "shared"})
+        planned = plan_snapshot(migration, second, catalog=_HubspotOnly(), connection_ids=["conn_a"])
+        save_plan(migration, second, planned, replace_all=False)
+
+        prefixes = self._prefixes(migration)
+        assert prefixes["conn_b"] == "shared_2"
+        assert prefixes["conn_a"] != "shared_2"
 
     @parameterized.expand([("auth_message", True, "rejected the API key"), ("generic_message", False, "Try again")])
     def test_failed_crawl_is_marked_failed_once_retries_run_out(

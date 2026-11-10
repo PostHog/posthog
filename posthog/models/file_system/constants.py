@@ -11,9 +11,9 @@ if TYPE_CHECKING:
 WORKFLOW_FILE_SYSTEM_TYPES = frozenset({"hog_flow", "message_template"})
 
 
-def workflow_project_files_enabled(team: "Team", user: "User", *, only_evaluate_locally: bool = False) -> bool:
+def workflows_list_v2_enabled(team: "Team", user: "User", *, only_evaluate_locally: bool = False) -> bool:
     return feature_enabled_or_false(
-        "workflows-project-files",
+        "workflows-list-v2",
         user.distinct_id or str(user.pk),
         groups={"organization": str(team.organization_id), "project": str(team.id)},
         person_properties={"email": user.email},
