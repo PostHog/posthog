@@ -126,6 +126,7 @@ jobs:
                         - '!docs/**'
                         - '!services/**'
                       # Keep these paths aligned with semgrep-devex's scan targets.
+                      # The test sleep step can target any changed Python file, so '**/*.py' is listed too.
                       devex:
                         - '**/*.py'
                         - 'bin/**'
@@ -598,14 +599,11 @@ jobs:
             - name: New sleeps in Python tests (blocking)
               if: github.event_name == 'pull_request'
               run: |
-                  if [ ! -f .semgrep/rules/devex/no-fixed-sleeps-in-tests.yaml ]; then
-                      echo "no-fixed-sleeps-in-tests not present on this branch yet, skipping (rebase to pick it up)"
-                      exit 0
-                  fi
                   # The baseline scan reports findings only in files the pull request changes.
-                  mapfile -d '' -t test_files < <(git diff -z --name-only --diff-filter=d HEAD^1 HEAD -- ':(glob)**/test_*.py' ':(glob)**/*_test.py' ':(glob)**/conftest.py' ':(glob)**/test/**/*.py' ':(glob)**/tests/**/*.py')
-                  if [ "${#test_files[@]}" -eq 0 ]; then
-                      echo "no changed Python test files"
+                  # The rule's paths.include selects the test files among them.
+                  mapfile -d '' -t python_files < <(git diff -z --name-only --diff-filter=d HEAD^1 HEAD -- '*.py')
+                  if [ "${#python_files[@]}" -eq 0 ]; then
+                      echo "no changed Python files"
                       exit 0
                   fi
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
@@ -615,7 +613,7 @@ jobs:
                       --config .semgrep/rules/devex/no-fixed-sleeps-in-tests.yaml \
                       --baseline-commit "$(git rev-parse HEAD^1)" \
                       --error --metrics=off --timeout 300 \
-                      -- "${test_files[@]}"
+                      -- "${python_files[@]}"
 
     semgrep-test-rules:
         needs: changes

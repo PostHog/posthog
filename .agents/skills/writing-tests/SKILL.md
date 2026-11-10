@@ -175,7 +175,7 @@ Without that guard, a refactor that stops calling the decision passes every pure
     Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
     pending on the next line. Test setup may shorten internal delays without changing
     production behavior.
-- **No new `time.sleep` or non-zero `asyncio.sleep` calls in test code.** The `no-fixed-sleeps-in-tests` Semgrep rule blocks new calls in CI, including import aliases and calls with `noqa` comments. Existing calls use Semgrep's PR baseline. When elapsed time is the behavior under test, explain why next to a specific `# nosemgrep: no-fixed-sleeps-in-tests` exemption.
+- **No new `time.sleep` or non-zero `asyncio.sleep` calls in test code.** The `no-fixed-sleeps-in-tests` Semgrep rule blocks new calls in CI, including import aliases and calls with `noqa` comments. Calls already on the base branch stay allowed. When elapsed time is the behavior under test, explain why next to a specific `# nosemgrep: no-fixed-sleeps-in-tests` exemption.
   A fixed delay does not prove another operation finished.
   Replace the sleep with the control that matches the wait:
   - `time.time()` or `datetime.now()`: `time_machine.travel(..., tick=False)`, then `traveller.shift(...)`.
