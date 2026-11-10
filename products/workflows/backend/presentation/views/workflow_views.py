@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
@@ -23,6 +24,8 @@ from posthog.models import User
 from posthog.models.file_system.constants import workflows_list_v2_enabled
 from posthog.permissions import FEATURE_FLAG_REQUIRED_ERROR_CODE
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
 from products.workflows.backend.facade.contracts import WorkflowViewConflict, WorkflowViewNotFound, WorkflowViewState
 from products.workflows.backend.facade.workflow_views import (
     create_workflow_view,
@@ -192,6 +195,18 @@ class WorkflowViewViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     pagination_class = WorkflowViewPagination
     lookup_field = "id"
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        # Saved views are stored on the project's main environment, so a child environment's URL reads and
+        # writes the parent's views. Check the parent's workflow access rules, because the child's own
+        # rules can be looser. The URL environment's membership check still runs on the child.
+        owner = self.team.parent_team
+        if owner is None:
+            return super().user_access_control
+        access = UserAccessControl(user=cast(User, self.request.user), team=owner, organization_id=self.organization_id)
+        authorization.reuse_current_rules(access)
+        return access
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, WorkflowViewNotFound):

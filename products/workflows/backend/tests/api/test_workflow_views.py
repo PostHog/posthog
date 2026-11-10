@@ -290,6 +290,27 @@ class TestWorkflowViewAPI(APIBaseTest):
         self.assertEqual(self.client.get(self.base_url).json()["results"], [])
         self.assertEqual(self.client.post(f"{self.base_url}restore_default/", {}, format="json").status_code, 403)
 
+    def test_a_child_environment_applies_the_parent_projects_workflow_access_to_its_views(self) -> None:
+        view = self._create_view()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child environment")
+        member = User.objects.create_and_join(self.organization, "parent-viewer@example.com", None)
+        AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="viewer")
+        self.client.force_login(member)
+        child_detail_url = f"/api/environments/{child.pk}/workflow_views/{view['id']}/"
+
+        self.assertEqual(self.client.get(child_detail_url).status_code, 200)
+        for method, path, data in [
+            ("patch", child_detail_url, {"name": "Changed from the child", "version": view["version"]}),
+            ("delete", f"{child_detail_url}?version={view['version']}", {}),
+        ]:
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(path, data, format="json")
+                self.assertEqual(response.status_code, 403, response.content)
+
     def test_views_follow_the_url_project_and_canonical_environment_without_crossing_tenants(self) -> None:
         view = self._create_view()
         other_team = Team.objects.create(organization=self.organization, name="Other project")
