@@ -113,7 +113,6 @@ export function InsightsTable({
         showMoreColumns,
     } = useInsightsTableModel({ filterKey, isLegend, embedded, isMainInsightView })
 
-
     const toLemonColumn = (column: InsightsTableColumn): LemonTableColumn<IndexedTrendResult, any> => {
         switch (column.kind) {
             case 'label':
