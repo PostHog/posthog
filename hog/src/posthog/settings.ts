@@ -165,7 +165,6 @@ export function loginsFor(settings: HogSettings, host: Host): LoginRecord[] {
     return settings.logins.filter((record) => sameHost(record.host, host))
 }
 
-// A record without `loggedInAt` counts as the oldest.
 function latest(records: readonly LoginRecord[]): LoginRecord | undefined {
     return records.reduce<LoginRecord | undefined>(
         (last, record) => (last === undefined || (record.loggedInAt ?? 0) > (last.loggedInAt ?? 0) ? record : last),
@@ -173,7 +172,6 @@ function latest(records: readonly LoginRecord[]): LoginRecord | undefined {
     )
 }
 
-// The login `hog auth login` saved last for the host.
 export function latestLoginFor(settings: HogSettings, host: Host): LoginRecord | undefined {
     return latest(loginsFor(settings, host))
 }

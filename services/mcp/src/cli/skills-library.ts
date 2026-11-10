@@ -1,6 +1,3 @@
-// PostHog's agent skills with the `learn` grammar of the MCP server's exec tool, for CLIs that serve
-// them in-process. `scripts/build-cli-library.ts` bundles this file on its own, so a CLI loads it
-// without the tool catalog.
 import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
@@ -125,7 +122,6 @@ function parseContextMill(bytes: Uint8Array): ContextMillRelease {
     }
 }
 
-// Omnibus skills that don't parse are left out, as the server leaves them out.
 function omnibusCatalog(release: Uint8Array): SkillCatalog | undefined {
     try {
         const files = omnibusSkillFiles(unzipOmnibusArchives(release))
@@ -396,7 +392,6 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
         const catalog = product.catalog && omnibus ? product.catalog.withOverlay(omnibus) : (product.catalog ?? omnibus)
 
         return {
-            // A CLI has no exec tool, so the commands in the skills are rewritten once, when they load.
             catalog: catalog?.mapText((text) => rewriteLearnCommands(text, learnCommand)),
             assets: [...product.assets, ...contextMill.assets],
         }

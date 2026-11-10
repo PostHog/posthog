@@ -12,8 +12,8 @@ import {
     type LoginRecord,
 } from '@/posthog/settings'
 
-// The host and project that pick a command's login. `host` comes from --host or HOG_HOST, and
-// `projectId` from HOG_PROJECT_ID. Both override the closest posthog.json.
+// `host` comes from --host or HOG_HOST, and `projectId` from HOG_PROJECT_ID. Both override the closest
+// posthog.json.
 export interface LoginQuery {
     host?: Host
     projectId?: ProjectId
@@ -27,11 +27,8 @@ export interface LoginQuery {
 // `fallback`: nothing names a project, so hog uses the latest login to the host.
 export type LoginMatch = 'exact' | 'override' | 'fallback'
 
-// Why a command uses the login it uses. `hog auth status` reports it.
 export interface LoginChoice {
-    // Null when nothing names a host and hog has no login.
     host: Host | null
-    // Null when nothing names a project.
     projectId: ProjectId | null
     match: LoginMatch
     reason: string
@@ -120,7 +117,6 @@ function projectList(projectIds: readonly string[]): string {
     return projectIds.length === 1 ? `project ${projectIds[0]}` : `projects ${projectIds.join(', ')}`
 }
 
-// For a host and project that something names, when hog has logins, but none for that pair.
 export class ProjectMismatch extends HogError {
     readonly command: string
 

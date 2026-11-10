@@ -7,11 +7,9 @@ import { parseProjectId, type ProjectId } from '@/posthog/ids'
 
 import { saveLogin } from './flow'
 
-// The posthog.json that login writes the host and project to.
 export interface ConfigWrite {
     path: string
     status: 'created' | 'updated' | 'unchanged' | 'failed'
-    // Why hog couldn't write the file. Null unless `status` is failed.
     error: string | null
 }
 
