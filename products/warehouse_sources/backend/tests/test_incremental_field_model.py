@@ -16,6 +16,8 @@ from posthog.llm.system_one import (
     SystemOneRequestFailed,
     SystemOneResult,
 )
+from posthog.redis import TEST_clear_clients, get_client
+from posthog.token_bucket import TEST_reset_scripts, consume
 
 from products.warehouse_sources.backend.logic import incremental_field_model
 from products.warehouse_sources.backend.logic.incremental_field_model import (
@@ -72,6 +74,9 @@ def _pick(option: str, confidence: float = 0.9) -> ChoiceAnswer:
 class TestRecommendIncrementalFields(SimpleTestCase):
     def setUp(self) -> None:
         incremental_field_model.cache.clear()
+        TEST_clear_clients()
+        TEST_reset_scripts()
+        get_client().delete(f"{incremental_field_model.TEAM_BUDGET_KEY_PREFIX}:7")
         self.team: Any = SimpleNamespace(
             pk=7, organization_id="org-1", organization=SimpleNamespace(is_ai_data_processing_approved=True)
         )
@@ -164,6 +169,16 @@ class TestRecommendIncrementalFields(SimpleTestCase):
         self._run([_open_schema()], client)
 
         assert client.calls == []
+
+    def test_spent_team_budget_keeps_the_rule_based_order(self) -> None:
+        consume(f"{incremental_field_model.TEAM_BUDGET_KEY_PREFIX}:7", incremental_field_model.TEAM_BUDGET, cost=12)
+        schema = _open_schema()
+        client = _FakeClient(_pick("c2"))
+
+        self._run([schema], client)
+
+        assert client.calls == []
+        assert schema.incremental_fields[0]["field"] == "created_at"
 
     def test_cached_answer_skips_the_model(self) -> None:
         first = _FakeClient(_pick("c2"))

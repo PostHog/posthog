@@ -36,6 +36,7 @@ from posthog.llm.system_one_client import (
     system_one_configured,
 )
 from posthog.ph_client import feature_enabled_or_false
+from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema, tracks_updates
 from products.warehouse_sources.backend.types import IncrementalField
@@ -56,6 +57,9 @@ MAX_REQUESTS = 4
 CACHE_TTL_SECONDS = 24 * 60 * 60
 # Keyed per team: one team's table names must never answer for another team.
 CACHE_KEY_PREFIX = "warehouse_incremental_field_model"
+# Gateway requests per team. Renamed tables miss the cache, so the cache alone does not bound the calls.
+TEAM_BUDGET = Budget(burst=12, per_hour=60)
+TEAM_BUDGET_KEY_PREFIX = "warehouse_incremental_field_model_rate"
 
 MODEL_PICK_NOTE = "Picked by AI from the table and column names."
 
@@ -81,17 +85,15 @@ def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
     if not pending or not _model_allowed(team):
         return
 
-    picks: dict[int, str] = {}
-    uncached: list[tuple[int, str]] = []
-    for index, schema in enumerate(pending):
-        key = _cache_key(team.pk, schema)
-        cached = _cache_get(key)
-        if cached is None:
-            uncached.append((index, key))
-        elif cached:
-            picks[index] = cached
+    keys = {index: _cache_key(team.pk, schema) for index, schema in enumerate(pending)}
+    cached = _cache_get_many(list(keys.values()))
+    picks = {index: cached[key] for index, key in keys.items() if cached.get(key)}
+    uncached = [index for index, key in keys.items() if key not in cached]
+    batches = [
+        uncached[start : start + GATEWAY_MAX_QUESTIONS] for start in range(0, len(uncached), GATEWAY_MAX_QUESTIONS)
+    ]
 
-    if uncached:
+    if batches and _within_team_budget(team.pk, len(batches)):
         client = build_system_one_client(
             model=MODEL,
             ai_product=AI_PRODUCT,
@@ -99,21 +101,12 @@ def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
             timeout=TIMEOUT_SECONDS,
             privacy_mode=True,
         )
-        batches = [
-            uncached[start : start + GATEWAY_MAX_QUESTIONS] for start in range(0, len(uncached), GATEWAY_MAX_QUESTIONS)
-        ]
+        answers: dict[int, str] = {}
         with ThreadPoolExecutor(max_workers=len(batches)) as executor:
-            answered = executor.map(
-                lambda batch: _ask(client, [(index, pending[index]) for index, _ in batch]), batches
-            )
-            for batch, answers in zip(batches, answered):
-                if answers is None:
-                    continue
-                for index, key in batch:
-                    field_name = answers.get(index, "")
-                    _cache_set(key, field_name)
-                    if field_name:
-                        picks[index] = field_name
+            for answered in executor.map(lambda batch: _ask(client, [(i, pending[i]) for i in batch]), batches):
+                answers.update(answered or {})
+        picks.update({index: field_name for index, field_name in answers.items() if field_name})
+        _cache_set_many({keys[index]: field_name for index, field_name in answers.items()})
 
     changed = sum(_apply_pick(pending[index], field_name) for index, field_name in picks.items())
     logger.info(
@@ -147,6 +140,20 @@ def _model_allowed(team: "Team") -> bool:
         group_properties={"organization": {"id": organization_id}},
         send_feature_flag_events=False,
     )
+
+
+def _within_team_budget(team_id: int, requests: int) -> bool:
+    decision = consume(f"{TEAM_BUDGET_KEY_PREFIX}:{team_id}", TEAM_BUDGET, cost=requests)
+    match decision:
+        case BucketUnavailable():
+            # Fail open: one call is still bounded by MAX_REQUESTS.
+            logger.warning("incremental_field_model_budget_unavailable", team_id=team_id)
+            return True
+        case BucketDecision(allowed=False):
+            logger.info("incremental_field_model_budget_exhausted", team_id=team_id)
+            return False
+        case BucketDecision():
+            return True
 
 
 def _table_state(schema: SourceSchema) -> dict[str, JsonValue]:
@@ -218,17 +225,19 @@ def _cache_key(team_id: int, schema: SourceSchema) -> str:
     return f"{CACHE_KEY_PREFIX}:{team_id}:{digest}"
 
 
-def _cache_get(key: str) -> str | None:
+def _cache_get_many(keys: list[str]) -> dict[str, str]:
     try:
-        cached = cache.get(key)
+        found = cache.get_many(keys)
     except Exception:
         logger.warning("incremental_field_model_cache_read_failed", exc_info=True)
-        return None
-    return cached if isinstance(cached, str) else None
+        return {}
+    return {key: value for key, value in found.items() if isinstance(value, str)}
 
 
-def _cache_set(key: str, field_name: str) -> None:
+def _cache_set_many(values: dict[str, str]) -> None:
+    if not values:
+        return
     try:
-        cache.set(key, field_name, CACHE_TTL_SECONDS)
+        cache.set_many(values, CACHE_TTL_SECONDS)
     except Exception:
         logger.warning("incremental_field_model_cache_write_failed", exc_info=True)
