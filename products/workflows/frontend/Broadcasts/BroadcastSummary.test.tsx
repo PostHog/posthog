@@ -69,7 +69,12 @@ function sentBroadcast(userAccessLevel: AccessControlLevel, schedules: HogFlowSc
 describe('BroadcastSummary', () => {
     const priorAppContext = window.POSTHOG_APP_CONTEXT
 
-    afterEach(() => {
+    afterEach(async () => {
+        const cancel = screen.queryByText('Cancel')
+        if (cancel) {
+            fireEvent.click(cancel)
+            await waitFor(() => expect(screen.queryByText('Cancel')).not.toBeInTheDocument())
+        }
         cleanup()
         window.POSTHOG_APP_CONTEXT = priorAppContext
     })
