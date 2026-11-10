@@ -12,7 +12,8 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.integrations.contracts import IntegrationRecord, creator_can_manage
+from posthog.integrations.references import IntegrationReference
 from posthog.models.user import User
 from posthog.rbac.decorators import field_access_control
 from posthog.sync import database_sync_to_async
@@ -454,9 +455,11 @@ class Integration(models.Model):
         return f"ID: {self.integration_id}"
 
     def can_be_managed_by_creator(self, user_id: int | None) -> bool:
-        return (
-            user_id is not None and self.kind == self.IntegrationKind.GOOGLE_CALENDAR and self.created_by_id == user_id
-        )
+        return creator_can_manage(self.kind, self.created_by_id, user_id)
+
+    @property
+    def reference(self) -> str:
+        return str(IntegrationReference.from_legacy_id(self.id))
 
     @property
     def access_token(self) -> str | None:
