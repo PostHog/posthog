@@ -452,6 +452,19 @@ _INBOX_SEARCH_RECIPE = (
     "`source_product=signals_scout`, so a product-named filter matches none of your own reports."
 )
 
+# The recipe for a team on the `inbox-reports-search` flag whose run holds that tool. `build_run_prompt`
+# swaps it in for `_INBOX_SEARCH_RECIPE` wherever that renders, so both recipes keep `include_unlisted=true`
+# and cover every status: dropping either re-opens a duplicate the list recipe already closes.
+_INBOX_SEARCH_RECIPE_RANKED = (
+    "Call `inbox-reports-search` with a `query` naming the entity, error, or topic, and "
+    "`include_unlisted=true` (reports kept out of the inbox, your own included, show up too). It ranks "
+    "reports by meaning and by keywords across every status, human-dismissed ones included, so a report "
+    "that words the same issue differently still surfaces. Search again in other words before you decide "
+    "nothing matches, and treat `semantic_available: false` as a keyword-only result. Read each result's "
+    "`status` before deciding, and read the closest matches in full with `inbox-reports-retrieve`. Use "
+    "`inbox-reports-list` only to browse by a filter, such as a status or a date."
+)
+
 # Shared dismissal-context guidance: a human dismissal is context to learn from, not just a closed
 # row to dedupe against.
 _DISMISSAL_CONTEXT = (
@@ -1661,6 +1674,7 @@ def build_run_prompt(
     precheck_rows: str | None = None,
     report_tags_in_use: Sequence[str] | None = None,
     strict_reviewer_selection: bool = False,
+    inbox_reports_search_available: bool = False,
 ) -> str:
     """Render the opening prompt for one scout run.
 
@@ -1731,6 +1745,11 @@ def build_run_prompt(
     `activity_summary_search_available` is the harness-side check that the team can search activity
     summaries and the run holds `activity-summary-search`. True renders a reviewer-routing nudge on
     the report channel; False renders nothing. A failed check is False.
+
+    `inbox_reports_search_available` is the harness-side check that the team is on the
+    `inbox-reports-search` flag and the run holds `inbox-reports-search`. True points every inbox search
+    in the prompt at that tool instead of `inbox-reports-list`; False keeps the list recipe. A failed
+    check is False. A private trial always keeps the list recipe, because trial reads cannot search.
 
     `business_knowledge_maintained` must mirror `business_knowledge.is_maintained_for_team`: it
     renders the business-knowledge section, which names tools that only exist in the run's toolset
@@ -1810,6 +1829,10 @@ def build_run_prompt(
         improvement = _CANONICAL_IMPROVEMENT
     sections = [*sections[:-1], improvement, sections[-1]]
     tail = _render_tail(sections, schema_json=schema_json)
+    if inbox_reports_search_available and not is_private_trial:
+        # A two-state swap of fixed text, like the reviewer-selection fork, so the prefix cache keeps one
+        # entry per state.
+        tail = tail.replace(_INBOX_SEARCH_RECIPE, _INBOX_SEARCH_RECIPE_RANKED)
     run_note_section = _run_note_section(
         run_note, triggered_by, can_emit_report=can_emit_report, can_edit_report=can_edit_report
     )
