@@ -19,7 +19,6 @@ common-redis = { path = "../../common/redis" }
 lifecycle = { path = "../../common/lifecycle" }
 replay-core-v4 = { path = "../replay-core-v4" }
 
-aho-corasick = { workspace = true }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
 aws-config = { workspace = true }
@@ -43,10 +42,10 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-url = { workspace = true }
 
 [dev-dependencies]
 aes-gcm = "0.10"
 base64 = { workspace = true }
+hegeltest = { version = "0.50.1", features = ["static-engine"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }

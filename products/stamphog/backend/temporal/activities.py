@@ -23,7 +23,6 @@ import json
 import time
 import shlex
 import base64
-import random
 import tarfile
 import threading
 import contextvars
@@ -32,7 +31,6 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from email.utils import parsedate_to_datetime
 from pathlib import PurePosixPath
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -47,7 +45,6 @@ from django.utils.dateparse import parse_datetime
 
 import yaml
 import requests
-from prometheus_client import Counter
 from temporalio import activity
 
 from posthog.dataclasses import frozen
@@ -87,6 +84,14 @@ from products.stamphog.backend.logic.engine_pregate import (
     run_engine_pregate,
 )
 from products.stamphog.backend.logic.familiarity_facts import ReviewHistory, fetch_review_history
+from products.stamphog.backend.logic.gateway_tokens import (
+    GatewayTokenError,
+    active_user,
+    gateway_root,
+    is_legacy_stamphog_route,
+    mint_scoped_token,
+    revoke_scoped_token,
+)
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
 from products.stamphog.backend.logic.refusal_summary import summarize_refusal
 from products.stamphog.backend.logic.review_trigger import trigger_for_run
@@ -99,7 +104,7 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
-from products.stamphog.backend.tasks.tasks import request_rereview_after_external_review
+from products.stamphog.backend.tasks.tasks import queue_routing_after_verdict, request_rereview_after_external_review
 from products.stamphog.backend.temporal.constants import (
     ACTIVITY_RETRY_POLICY,
     CLONE_STEP_TIMEOUT_SECONDS,
@@ -215,34 +220,9 @@ def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
     run.output = {**(run.output or {}), **_without_nul(updates)}
 
 
-# aio_ continues the series the Action-era runs emitted; the engine blob carries the same word.
-STAMPHOG_AI_PRODUCT = "aio_stamphog"
 # The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.
 _REVIEWER_TOKEN_CAP_USD = "5"
 _REVIEWER_TOKEN_TTL_SECONDS = 3600
-_MINT_ATTEMPTS = 4
-_MINT_TIMEOUT_SECONDS = 3
-# Waits of about 1s, 2s and 4s before the retries, plus jitter so a fleet of workers refused at
-# once does not come back in step. A Retry-After the gateway sends wins, clamped to the same
-# ceiling: the whole mint must stay short against the review activity's start-to-close timeout.
-_MINT_BACKOFF_SECONDS = 1.0
-_MINT_MAX_BACKOFF_SECONDS = 10.0
-
-AI_GATEWAY_TOKEN_MINTS = Counter(
-    "stamphog_ai_gateway_token_mints_total",
-    "Scoped-token mint attempts for hosted stamphog reviews",
-    labelnames=["result"],
-)
-
-
-def _gateway_root(gateway: AIGatewayConfig) -> str:
-    # The config URL carries the OpenAI /v1 base; the token routes hang off the gateway root.
-    return gateway.url.rstrip("/").removesuffix("/v1")
-
-
-def _is_legacy_stamphog_route(url: str) -> bool:
-    # The legacy Python gateway resolves the product from the path, so its route ends in the slug.
-    return urlparse(url).path.rstrip("/").endswith("/stamphog/v1")
 
 
 def _connected_user(run: ReviewRun) -> User:
@@ -252,7 +232,7 @@ def _connected_user(run: ReviewRun) -> User:
         raise RuntimeError(
             "Repo config has no connecting user (installation never synced); cannot mint sandbox LLM credentials"
         )
-    user = User.objects.filter(pk=user_id, is_active=True).first()
+    user = active_user(user_id)
     if user is None:
         raise RuntimeError(
             "The user who connected this installation is missing or deactivated; "
@@ -261,98 +241,27 @@ def _connected_user(run: ReviewRun) -> User:
     return user
 
 
-def _retry_after_seconds(response: requests.Response) -> float | None:
-    """Seconds the gateway asked the caller to wait, from either Retry-After form; None if unusable."""
-    header = response.headers.get("Retry-After")
-    if not header:
-        return None
-    try:
-        return max(0.0, float(header.strip()))
-    except ValueError:
-        pass
-    try:
-        retry_at = parsedate_to_datetime(header)
-    except (TypeError, ValueError):
-        return None
-    if retry_at.tzinfo is None:
-        retry_at = retry_at.replace(tzinfo=UTC)
-    return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
-
-
-def _mint_backoff_seconds(attempt: int, retry_after: float | None) -> float:
-    """What to wait before the next mint attempt: the gateway's own answer, else exponential backoff."""
-    if retry_after is not None:
-        return min(retry_after, _MINT_MAX_BACKOFF_SECONDS)
-    delay = min(_MINT_BACKOFF_SECONDS * 2**attempt, _MINT_MAX_BACKOFF_SECONDS)
-    return delay + random.uniform(0, delay / 4)
-
-
 def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: User) -> str:
     """Per-run ``phe_`` minted with the worker's ``phs_``, which never enters the sandbox.
 
-    Pinned to product and team and capped in spend and lifetime, so a leak buys little. Retries with
-    growing backoff on 429, 5xx and network errors; any other refusal is final, and hosted runs have
-    no shared-key fallback. A token minted without a requested model pin is revoked and fails the
-    run. Kept separate from the tasks and wizard minters: each product owns its failure posture, and
-    this cap and TTL are documented invariants rather than ops knobs.
+    Pinned to product and team and capped in spend and lifetime, so a leak buys little. Any mint
+    failure fails the run: hosted runs have no shared-key fallback. Kept separate from the tasks and
+    wizard minters: each product owns its failure posture, and this cap and TTL are documented
+    invariants rather than ops knobs.
     """
-    body: dict[str, object] = {
-        "cap_usd": _REVIEWER_TOKEN_CAP_USD,
-        "ttl_seconds": _REVIEWER_TOKEN_TTL_SECONDS,
-        "product": STAMPHOG_AI_PRODUCT,
-        "obo": str(run.team_id),
-    }
-    if user.distinct_id:
-        body["user"] = user.distinct_id
     # An empty entry (a trailing comma) is a mint 400, which fails every review.
     allowed_models = [model.strip() for model in settings.STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS if model.strip()]
-    if allowed_models:
-        body["allowed_models"] = allowed_models
-    mint_url = f"{_gateway_root(gateway)}/v1/tokens"
-    last_error = ""
-    for attempt in range(_MINT_ATTEMPTS):
-        retry_after: float | None = None
-        try:
-            response = requests.post(
-                mint_url,
-                json=body,
-                headers={"Authorization": f"Bearer {gateway.api_key}"},
-                timeout=_MINT_TIMEOUT_SECONDS,
-            )
-        except requests.RequestException as e:
-            last_error = type(e).__name__
-        else:
-            if 200 <= response.status_code < 300:
-                try:
-                    payload = response.json()
-                    token = payload["token"]
-                except (ValueError, TypeError, KeyError):
-                    payload, token = {}, None
-                if token:
-                    if allowed_models and not payload.get("allowed_models"):
-                        # A gateway that predates the pin field ignores it and mints an unpinned token.
-                        _release_reviewer_token(gateway, token)
-                        AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned").inc()
-                        raise RuntimeError(
-                            "The gateway minted the reviewer token without the required model pin; "
-                            "the gateway must support allowed_models before the reviewer model list is set"
-                        )
-                    AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
-                    return token
-                last_error = "mint response carried no token"
-                break
-            if response.status_code == 429 or response.status_code >= 500:
-                last_error = f"HTTP {response.status_code}"
-                retry_after = _retry_after_seconds(response)
-            else:
-                last_error = f"HTTP {response.status_code}: {response.text[:200]}"
-                break
-        if attempt < _MINT_ATTEMPTS - 1:
-            time.sleep(_mint_backoff_seconds(attempt, retry_after))
-    AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
-    raise RuntimeError(
-        f"Could not mint the sandbox gateway token ({last_error}); hosted reviews require the LLM gateway"
-    )
+    try:
+        return mint_scoped_token(
+            gateway,
+            team_id=run.team_id,
+            user=user,
+            cap_usd=_REVIEWER_TOKEN_CAP_USD,
+            ttl_seconds=_REVIEWER_TOKEN_TTL_SECONDS,
+            allowed_models=allowed_models,
+        )
+    except GatewayTokenError as e:
+        raise RuntimeError(f"{e}; hosted reviews require the LLM gateway") from e
 
 
 def _release_reviewer_token(gateway: AIGatewayConfig, token: str) -> None:
@@ -360,20 +269,7 @@ def _release_reviewer_token(gateway: AIGatewayConfig, token: str) -> None:
 
     A failure only logs (the token then expires) and never changes the run's outcome.
     """
-    try:
-        response = requests.post(
-            f"{_gateway_root(gateway)}/v1/tokens/revoke",
-            json={"token": token},
-            headers={"Authorization": f"Bearer {gateway.api_key}"},
-            timeout=_MINT_TIMEOUT_SECONDS,
-        )
-        if not 200 <= response.status_code < 300:
-            outcome = f"HTTP {response.status_code}"
-        else:
-            # The gateway answers 200 with revoked=false when no token matched.
-            outcome = "ok" if response.json().get("revoked", True) else "no such token"
-    except Exception as e:  # noqa: BLE001 — a revoke failure must never mask the review outcome
-        outcome = type(e).__name__
+    outcome = revoke_scoped_token(gateway, token)
     if outcome != "ok":
         activity.logger.warning(f"Could not revoke the reviewer token ({outcome}); it expires with its TTL")
 
@@ -412,7 +308,7 @@ def _hosted_gateway() -> AIGatewayConfig:
         raise RuntimeError(
             "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must both be set; hosted reviews require the ai-gateway"
         )
-    if _is_legacy_stamphog_route(gateway.url):
+    if is_legacy_stamphog_route(gateway.url):
         raise RuntimeError(
             "AI_GATEWAY_API_KEY is set but AI_GATEWAY_URL is the legacy stamphog route; "
             "the ai-gateway key belongs with the ai-gateway URL"
@@ -993,7 +889,7 @@ def _fast_refusal_summary(run: ReviewRun, outcome: PregateOutcome) -> str | None
     is already REFUSED, so the note must never delay or fail it.
     """
     gateway = resolve_ai_gateway_config()
-    if gateway is None or _is_legacy_stamphog_route(gateway.url) or outcome.result is None:
+    if gateway is None or is_legacy_stamphog_route(gateway.url) or outcome.result is None:
         return None
     try:
         token = _mint_reviewer_scoped_token(gateway, run, _connected_user(run))
@@ -1003,7 +899,7 @@ def _fast_refusal_summary(run: ReviewRun, outcome: PregateOutcome) -> str | None
     output = run.output or {}
     try:
         return summarize_refusal(
-            gateway_root=_gateway_root(gateway),
+            gateway_root=gateway_root(gateway),
             token=token,
             model=outcome.summary_model,
             gates=outcome.result.get("gates") or [],
@@ -2094,6 +1990,15 @@ def _notify_finished_review(
             hook(finished)
         except Exception:
             activity.logger.exception(f"stamphog: finished-review callback failed for run {run.id}")
+    # Stamphog's own follow-up, called directly rather than registered, because registering it at
+    # app-ready would pull the task module onto the django.setup() path. It only queues a task.
+    queue_routing_after_verdict(
+        pull_request.repo_config,
+        pr_number=pull_request.pr_number,
+        head_sha=run.head_sha,
+        status=finished.status,
+        verdict=finished.verdict,
+    )
 
 
 @activity.defn

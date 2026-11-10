@@ -23,6 +23,9 @@ INBOX_ONBOARDING_REQUIRED_SCOPES: frozenset[str] = INBOX_CHANNEL_REQUIRED_SCOPES
 
 # Just long enough to absorb a concurrent install/join racing to create the same channel.
 _CHANNEL_CLAIM_TTL_SECONDS = 60
+_INBOX_MEMBER_TTL_SECONDS = 60 * 60
+# A no can turn into a yes elsewhere, so it holds only briefly. An invite from PostHog records the yes at once.
+_INBOX_NON_MEMBER_TTL_SECONDS = 10 * 60
 
 # Cap the channel scan so a huge workspace (or a non-advancing cursor) can't loop unbounded.
 # 50 * 200 = 10k channels; past that we bail to create / manual instructions.
@@ -183,13 +186,16 @@ def invite_user_to_inbox(integration: WorkspaceIntegration, channel_id: str, sla
     ``not_in_channel`` the bot joins and retries.
     """
     slack = SlackIntegration(integration)
+    member_key = _inbox_member_key(integration, channel_id, slack_user_id)
     for attempt in range(2):
         try:
             slack.client.conversations_invite(channel=channel_id, users=slack_user_id)
+            cache.set(member_key, True, timeout=_INBOX_MEMBER_TTL_SECONDS)
             return True
         except SlackApiError as e:
             error = e.response.get("error")
             if error == "already_in_channel":
+                cache.set(member_key, True, timeout=_INBOX_MEMBER_TTL_SECONDS)
                 return True
             if error == "not_in_channel" and attempt == 0:
                 try:
@@ -218,6 +224,26 @@ def is_inbox_channel(integration: WorkspaceIntegration, channel_id: str) -> bool
     except SlackApiError:
         return False
     return channel.get("name") == INBOX_CHANNEL_NAME
+
+
+def is_in_team_inbox_channel(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
+    """Whether the person is in the channel the team reports to. False while the team has none."""
+    configured = _get_team_channel(integration.team_id)
+    if configured is None:
+        return False
+    channel_id = channel_id_from_target(configured)
+    key = _inbox_member_key(integration, channel_id, slack_user_id)
+    cached = cache.get(key)
+    if cached is not None:
+        return bool(cached)
+    # The member scan can take many Slack calls, so both answers are cached, and people seldom leave the channel.
+    is_member = _is_channel_member(SlackIntegration(integration), channel_id, slack_user_id)
+    cache.set(key, is_member, timeout=_INBOX_MEMBER_TTL_SECONDS if is_member else _INBOX_NON_MEMBER_TTL_SECONDS)
+    return is_member
+
+
+def _inbox_member_key(integration: WorkspaceIntegration, channel_id: str, slack_user_id: str) -> str:
+    return f"slack_app:inbox_member:v1:{integration.integration_id}:{channel_id}:{slack_user_id}"
 
 
 def _is_channel_member(slack: SlackIntegration, channel_id: str, slack_user_id: str) -> bool:

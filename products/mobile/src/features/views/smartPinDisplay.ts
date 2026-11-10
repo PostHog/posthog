@@ -13,14 +13,7 @@ export interface PinDisplayCandidate {
 }
 
 export function automaticPinCandidates(pins: readonly PinView[], prefs: PinDisplayPrefs): PinView[] {
-    return pins
-        .filter(
-            (pin) =>
-                pin.native &&
-                (pin.kind === 'insight' || pin.kind === 'dashboard') &&
-                prefs[pin.shortcutId] === undefined
-        )
-        .slice(0, AUTOMATIC_PIN_LIMIT)
+    return pins.filter((pin) => prefs[pin.shortcutId] === undefined).slice(0, AUTOMATIC_PIN_LIMIT)
 }
 
 export function automaticPinMode(query: unknown): 'number' | 'chart' | null {
@@ -60,6 +53,6 @@ export function resolvePinDisplays(
 ): PinView[] {
     return pins.map((pin) => {
         const display = prefs[pin.shortcutId] ?? automatic[pin.shortcutId]
-        return display && pin.native ? { ...pin, display } : pin
+        return display ? { ...pin, display } : pin
     })
 }

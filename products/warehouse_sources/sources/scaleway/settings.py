@@ -183,6 +183,48 @@ SCALEWAY_ENDPOINTS: dict[str, ScalewayEndpointConfig] = {
         order_param="order",
         order_value="creation_date_asc",
     ),
+    # The other Instance list endpoints take no sort param, so they page in the API's default order.
+    "instance_volumes": ScalewayEndpointConfig(
+        name="instance_volumes",
+        path="/instance/v1/zones/{zone}/volumes",
+        data_key="volumes",
+        pagination="per_page",
+        partition_key="creation_date",
+        scope="zone",
+        scope_values=INSTANCE_ZONES,
+        org_param="organization",
+    ),
+    "instance_images": ScalewayEndpointConfig(
+        name="instance_images",
+        path="/instance/v1/zones/{zone}/images",
+        data_key="images",
+        pagination="per_page",
+        partition_key="creation_date",
+        scope="zone",
+        scope_values=INSTANCE_ZONES,
+        # The organization filter keeps the table to the organization's own images, not the public catalog.
+        org_param="organization",
+    ),
+    "instance_snapshots": ScalewayEndpointConfig(
+        name="instance_snapshots",
+        path="/instance/v1/zones/{zone}/snapshots",
+        data_key="snapshots",
+        pagination="per_page",
+        partition_key="creation_date",
+        scope="zone",
+        scope_values=INSTANCE_ZONES,
+        org_param="organization",
+    ),
+    "instance_ips": ScalewayEndpointConfig(
+        name="instance_ips",
+        path="/instance/v1/zones/{zone}/ips",
+        data_key="ips",
+        pagination="per_page",
+        # Flexible IPs carry no creation date, so this table is not partitioned.
+        scope="zone",
+        scope_values=INSTANCE_ZONES,
+        org_param="organization",
+    ),
     "audit_trail_events": ScalewayEndpointConfig(
         name="audit_trail_events",
         path="/audit-trail/v1alpha1/regions/{region}/events",

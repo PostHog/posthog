@@ -32,16 +32,18 @@ from posthog.dags.events_backfill_to_duckling import (
     DUCKLAKE_ALIAS,
     DUCKLING_BACKFILL_CONCURRENCY_TAG,
     PARQUET_WRITER_SETTINGS,
+    RETRY_HISTORY_LIMIT,
     TRINO_EXPORT_SETTINGS,
     DucklingBackfillConfig,
     DucklingTarget,
     TrinoExport,
     _compute_fanout,
-    _DuckgresSession,
     _execute_export_with_retry,
+    _failed_run_retry_due,
     _get_cluster,
     _glob_run_files,
     _merged_clickhouse_settings,
+    _open_ducklake_registration,
     _repair_stale_running_statuses,
     _resolve_duckling_target,
     backfill_through_trino,
@@ -52,7 +54,6 @@ from posthog.dags.events_backfill_to_duckling import (
 
 from products.data_warehouse.backend.facade.backfill_status import record_backfill_finished, record_backfill_started
 from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfillPartition
-from products.managed_warehouse.backend.facade.backfill_trino import backfills_through_trino
 from products.managed_warehouse.backend.facade.contracts import DuckLakeDayReplacement, DuckLakeTableReplacement
 from products.managed_warehouse.backend.facade.metrics import record_duckling_backfill_workload, track_duckling_backfill
 from products.managed_warehouse.backend.facade.team_state import (
@@ -69,7 +70,6 @@ GROUPS_SNAPSHOT_TAG = "groups_backfill/snapshot"
 GROUPS_REFRESH_DATE_TAG = "groups_backfill/refresh_date"
 MAX_TEAMS_PER_TICK = 25
 MAX_RUN_REQUESTS_PER_TICK = 3
-RETRY_HISTORY_LIMIT = 6
 RETRY_BASE_SECONDS = 600
 GROUPS_TAGS = {"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **DUCKLING_BACKFILL_CONCURRENCY_TAG}
 duckling_groups_partitions_def = DynamicPartitionsDefinition(name="duckling_groups_backfill")
@@ -179,6 +179,9 @@ def ensure_groups_table(
     if not config.skip_schema_validation:
         rows = conn.execute(sql.SQL("DESCRIBE {}").format(table)).fetchall()
         actual = {str(row[0]): str(row[1]) for row in rows}
+        # A table converted for Trino holds SMALLINT, and DuckLake accepts this export's UTINYINT files into it.
+        if actual.get("group_type_index") == "SMALLINT":
+            actual["group_type_index"] = GROUPS_COLUMN_TYPES["group_type_index"]
         if actual != GROUPS_COLUMN_TYPES:
             raise ValueError(f"Groups table schema mismatch: expected {GROUPS_COLUMN_TYPES}, got {actual}")
 
@@ -261,7 +264,8 @@ def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfill
     target = _resolve_duckling_target(team_id)
     table_name = resolve_groups_table(team_id)
     tags = dagster_tags(context)
-    if backfills_through_trino(target.organization_id):
+    registration = _open_ducklake_registration(context, config, target)
+    if registration.through_trino:
         result = backfill_through_trino(
             context,
             config,
@@ -299,8 +303,7 @@ def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfill
             partitions_exported=result.partitions_exported,
         )
         return
-    should_register = not (config.dry_run or config.skip_ducklake_registration)
-    session = _DuckgresSession(context, target) if should_register else None
+    session = registration.session
     files_registered = 0
     partitions_exported = 0
     try:
@@ -422,16 +425,8 @@ def _groups_snapshot_run_request(
     latest = history[0] if history else None
     if latest is not None and latest.dagster_run.is_success:
         return None
-    if latest is not None and latest.dagster_run.status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
-        failures = 0
-        for record in history:
-            if record.dagster_run.status not in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
-                break
-            failures += 1
-        retry_after = RETRY_BASE_SECONDS * 2 ** (failures - 1)
-        ended_at = latest.end_time or latest.update_timestamp.timestamp()
-        if now.timestamp() < ended_at + retry_after:
-            return None
+    if not _failed_run_retry_due(history, now=now, base_seconds=RETRY_BASE_SECONDS):
+        return None
     return RunRequest(
         partition_key=key,
         run_key=f"{key}_groups_{latest.dagster_run.run_id if latest else 'new'}",

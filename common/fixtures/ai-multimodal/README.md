@@ -41,6 +41,6 @@ Both overrides are load-bearing:
 yields an *empty* key and OpenAI then answers `401 ... You didn't provide an API key`, so check the
 key resolved before blaming the credential.
 
-The screenshot must stay above `AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH` (20480 base64 chars,
-`nodejs/src/ingestion/config.ts:386`). Below that, ingestion leaves the image inline and
+The screenshot must stay above `AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH` (20000 base64 chars by default,
+the base64 length of `media_offload_min_bytes` in `products/ai_observability/shared/crosslang/ai_event_limits.json`). Below that, ingestion leaves the image inline and
 both tests pass while covering nothing. The recorder enforces this.

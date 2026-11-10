@@ -1,18 +1,53 @@
-from products.warehouse_sources.sources.sdk import incremental_field
+from products.warehouse_sources.sources.sdk import IncrementalFieldType, frozen, incremental_field
 
 API_VERSION = "v1"
 BASE_URL = f"https://api.scrunchai.com/{API_VERSION}"
 PAGE_SIZE = 100
+AGENT_TRAFFIC_PAGE_SIZE = 10000
+AGENT_TRAFFIC_HISTORY_DAYS = 365
+AGENT_TRAFFIC_DIMENSIONS = ("date", "site", "path", "agent_source", "agent_type")
+SITEMAP_METRICS = ("citations", "ai_referrals", "agent_traffic")
+SIGNAL_ANCHOR_LIMIT = 365
 
 ENDPOINTS = {
     "brands": "brands",
     "prompts": "{brand_id}/prompts",
     "competitors": "brands/{brand_id}/competitors",
     "personas": "brands/{brand_id}/personas",
+    "site_audit_score": "{brand_id}/audit-scores/site",
+    "agent_traffic": "{brand_id}/sites/{site_id}/agent-traffic",
+    "sitemap_page_metrics": "{brand_id}/sitemap/pages/{page_id}/metrics",
+    # Over a multi-day range the API keeps only the latest detection per fingerprint, so read one day at a time.
+    "signals": "{brand_id}/signals?anchor_from={anchor}&anchor_to={anchor}",
     "responses": "{brand_id}/responses",
 }
-INCREMENTAL_FIELDS = {"responses": [incremental_field("created_at")]}
-PRIMARY_KEYS = {name: ["id"] if name == "brands" else ["brand_id", "id"] for name in ENDPOINTS}
+
+
+@frozen
+class FanoutParent:
+    name: str
+    path: str
+    param: str
+    field: str
+
+
+FANOUT_PARENTS = {
+    "agent_traffic": FanoutParent(name="sites", path="{brand_id}/sites", param="site_id", field="id"),
+    "sitemap_page_metrics": FanoutParent(
+        name="sitemap_pages", path="{brand_id}/sitemap/pages", param="page_id", field="id"
+    ),
+    "signals": FanoutParent(name="signal_anchors", path="{brand_id}/signals/anchors", param="anchor", field="date"),
+}
+INCREMENTAL_FIELDS = {
+    "responses": [incremental_field("created_at")],
+    "signals": [incremental_field("detected_for_date", IncrementalFieldType.Date)],
+    "agent_traffic": [incremental_field("date", IncrementalFieldType.Date)],
+}
+PRIMARY_KEYS = {name: ["id"] if name == "brands" else ["brand_id", "id"] for name in ENDPOINTS} | {
+    "site_audit_score": ["brand_id"],
+    "agent_traffic": ["brand_id", "site_id", *AGENT_TRAFFIC_DIMENSIONS],
+    "sitemap_page_metrics": ["brand_id", "page_id", "metric", "date", "platform"],
+}
 
 AUTH_ERROR = "Scrunch rejected the API key. Check the key in your organization's API Keys menu."
 PERMISSION_ERROR = (

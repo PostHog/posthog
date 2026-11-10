@@ -9,13 +9,13 @@ import { AppMetricsTimeSeriesResponse, appMetricsLogic } from 'lib/components/Ap
 import { dayjs } from 'lib/dayjs'
 import { percentage } from 'lib/utils/numbers'
 
+import { EmailMetricsIncidentBanner } from '../../EmailMetricsIncidentBanner'
 import type { HogFlowBatchJob } from '../hogflows/types'
 import { workflowSuggestionsAvailabilityLogic } from '../suggestions/workflowSuggestionsAvailabilityLogic'
 import { WorkflowMetricCard } from '../WorkflowMetricCard'
 import { METRIC_COLORS, withDisplayName, workflowMetricsSummaryLogic } from '../workflowMetricsSummaryLogic'
 import { WorkflowMessageLeaderboard } from './WorkflowMessageLeaderboard'
 import { WorkflowOverviewDetails } from './WorkflowOverviewDetails'
-import { WorkflowOverviewFeedback } from './WorkflowOverviewFeedback'
 import { WorkflowOverviewHealth } from './WorkflowOverviewHealth'
 import { WorkflowOverviewInFlight } from './WorkflowOverviewInFlight'
 import { workflowOverviewLogic } from './workflowOverviewLogic'
@@ -75,7 +75,11 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
     const appSourceId = run?.id
     const period = run ? 'in this run' : 'in this date range'
     const previousLabel = previousRun ? `Previous run (${dayjs(previousRun.created_at).format('MMM D')})` : undefined
-    const { getSingleTrendSeries: trendSeries, appMetricsTrendsLoading } = useValues(
+    const {
+        getSingleTrendSeries: trendSeries,
+        appMetricsTrendsLoading,
+        getDateRangeAbsolute,
+    } = useValues(
         appMetricsLogic({
             logicKey,
             loadOnChanges: true,
@@ -156,7 +160,6 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
 
     return (
         <div className="@container flex flex-col gap-4" data-attr="workflow-overview">
-            <WorkflowOverviewFeedback />
             <div className="flex flex-wrap items-center justify-end gap-2">
                 {controls ?? <AppMetricsFilters logicKey={logicKey} />}
             </div>
@@ -173,6 +176,7 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
                     Couldn't load this workflow's metrics, so the numbers below may be missing.
                 </LemonBanner>
             ) : null}
+            {hasEmail ? <EmailMetricsIncidentBanner {...getDateRangeAbsolute()} /> : null}
 
             <div className="flex flex-wrap gap-2" data-attr="workflow-overview-metric-cards">
                 <WorkflowMetricCard

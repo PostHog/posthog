@@ -8,6 +8,7 @@ from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.utils import strip_null_bytes
 
 from products.data_warehouse.backend.tasks.tasks import schedule_external_data_failure_digest
 from products.warehouse_sources.backend.facade.models import (
@@ -116,7 +117,9 @@ def update_external_job_status(
         # otherwise clobber the actionable error. Takeover recovery (Failed -> Completed) is exempt
         # — it deliberately replaces the sentinel with the successful run's empty error.
         preserve_existing_error = was_already_terminal and not is_takeover_recovery and existing_error is not None
-        error_to_persist = existing_error if preserve_existing_error else latest_error
+        # latest_error is raw driver/vendor text and can carry a NUL byte, which Postgres text
+        # columns reject outright.
+        error_to_persist = strip_null_bytes(existing_error if preserve_existing_error else latest_error)
         model.latest_error = error_to_persist
 
         # Only stamp finished_at and emit metrics on the first terminal transition. Takeover

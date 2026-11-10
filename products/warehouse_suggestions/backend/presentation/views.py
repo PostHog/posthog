@@ -44,14 +44,23 @@ from ..facade.contracts import (
     SuggestionOutdatedError,
     SuggestionSubjectGoneError,
 )
-from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
+from ..facade.enums import (
+    WarehouseSuggestionKind,
+    WarehouseSuggestionStatus,
+    WarehouseSuggestionSubjectKind,
+    WarehouseSuggestionSurface,
+)
 from .serializers import (
     AcceptWarehouseSuggestionSerializer,
     AssignWarehouseSuggestionSerializer,
     DismissWarehouseSuggestionSerializer,
+    SurfaceMoreWarehouseSuggestionsSerializer,
+    WarehouseSuggestionDecisionQuerySerializer,
     WarehouseSuggestionListQuerySerializer,
     WarehouseSuggestionSerializer,
+    WarehouseSuggestionStatusQuerySerializer,
     WarehouseSuggestionStatusSerializer,
+    WarehouseSuggestionSurfaceMoreResultSerializer,
 )
 
 DEFAULT_PAGE_SIZE = 100
@@ -79,6 +88,11 @@ ACCEPT_SCOPES = ["data_catalog_approval:write", "warehouse_view:write"]
 ScopeLevel = Literal["read", "write"]
 
 
+def _surface(request: ValidatedRequest) -> WarehouseSuggestionSurface | None:
+    surface = request.validated_query_data.get("surface")
+    return WarehouseSuggestionSurface(surface) if surface else None
+
+
 class SuggestionPagination(FacadeLimitOffsetPagination):
     default_limit = DEFAULT_PAGE_SIZE
     max_limit = DEFAULT_PAGE_SIZE
@@ -93,7 +107,7 @@ class ProjectAccessPermission(BasePermission):
 class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = WAREHOUSE_SCOPE_OBJECT
     scope_object_read_actions = ["list", "retrieve", "status"]
-    scope_object_write_actions = ["accept", "assign", "dismiss", "resume"]
+    scope_object_write_actions = ["accept", "assign", "dismiss", "resume", "surface_more"]
     pagination_class = SuggestionPagination
     lookup_value_regex = UUID_REGEX
 
@@ -151,16 +165,37 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 status=WarehouseSuggestionStatus(status) if status else None,
                 subject_id=request.validated_query_data.get("subject_id"),
                 assignee_id=request.validated_query_data.get("assignee_id"),
+                surface=_surface(request),
                 subject_kinds=self._subject_kinds,
                 page=page,
             ),
             serializer_class=WarehouseSuggestionSerializer,
         )
 
-    @extend_schema(responses={200: WarehouseSuggestionStatusSerializer})
+    @validated_request(
+        query_serializer=WarehouseSuggestionStatusQuerySerializer,
+        responses={200: OpenApiResponse(response=WarehouseSuggestionStatusSerializer)},
+    )
     @action(detail=False, methods=["get"], pagination_class=None)
-    def status(self, request: Request, **kwargs: Any) -> Response:
-        return Response(WarehouseSuggestionStatusSerializer(api.suggestion_status(self.team_id)).data)
+    def status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        status = api.suggestion_status(
+            self.team_id, self.user_access_control, subject_kinds=self._subject_kinds, surface=_surface(request)
+        )
+        return Response(WarehouseSuggestionStatusSerializer(status).data)
+
+    @validated_request(
+        request_serializer=SurfaceMoreWarehouseSuggestionsSerializer,
+        responses={200: OpenApiResponse(response=WarehouseSuggestionSurfaceMoreResultSerializer)},
+    )
+    @action(detail=False, methods=["post"], pagination_class=None)
+    def surface_more(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        result = api.surface_more(
+            self.team,
+            self.user_access_control,
+            surface=WarehouseSuggestionSurface(request.validated_data["surface"]),
+            subject_kinds=self._subject_kinds,
+        )
+        return Response(WarehouseSuggestionSurfaceMoreResultSerializer(result).data)
 
     @extend_schema(responses={200: WarehouseSuggestionSerializer})
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -172,6 +207,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     @validated_request(
         request_serializer=DismissWarehouseSuggestionSerializer,
+        query_serializer=WarehouseSuggestionDecisionQuerySerializer,
         responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
     )
     @action(detail=True, methods=["post"])
@@ -185,11 +221,13 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 reason=request.validated_data["reason"],
                 note=request.validated_data.get("note") or None,
                 subject_kinds=self._subject_kinds,
+                surface=_surface(request),
             )
         )
 
     @validated_request(
         request_serializer=AcceptWarehouseSuggestionSerializer,
+        query_serializer=WarehouseSuggestionDecisionQuerySerializer,
         responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
     )
     @action(detail=True, methods=["post"])
@@ -203,6 +241,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 options=request.validated_data,
                 was_impersonated=is_impersonated(request),
                 subject_kinds=self._subject_kinds,
+                surface=_surface(request),
             )
         )
 

@@ -2,12 +2,20 @@ import re
 from collections.abc import Sequence
 from pathlib import Path
 
+from django.conf import settings
+
 import structlog
+from openai import OpenAI
 from openai.types.shared_params import ReasoningEffort, ResponseFormatJSONSchema
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
-from posthog.llm.gateway_client import Product, build_anthropic_client, build_openai_client, trace_id_from_seed
+from posthog.llm.gateway_client import (
+    GatewayNotConfiguredError,
+    build_ai_gateway_anthropic_client,
+    build_ai_gateway_openai_client,
+    trace_id_from_seed,
+)
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.integration import SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -29,9 +37,11 @@ from products.slack_app.backend.services.slack_messages import SlackThreadMessag
 from products.slack_app.backend.services.slack_user_info import find_addressed_bot_user_id
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
+    get_integration,
     require_workspace_integration,
     workspace_integrations,
 )
+from products.slack_app.backend.temporal.activities.repo_selection import capture_repository_resolved
 from products.slack_app.backend.temporal.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppModelOverride,
@@ -50,9 +60,6 @@ CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 # The classifiers bill the customer's PostHog AI credits, the same as the Slack agent's runs,
 # so they share its product.
 CLASSIFIER_AI_PRODUCT = "slack_app"
-# The Python gateway's `slack_app` route refuses API keys, so its fallback keeps the
-# `slack_app_routing` route, which accepts them. The usage report does not bill that route.
-CLASSIFIER_FALLBACK_ROUTE: Product = "slack_app_routing"
 
 # Every classifier here and every Slack agent run share `ai_product="slack_app"`, so the captured
 # generation carries this property to say which classifier made the call. An online evaluation
@@ -67,6 +74,15 @@ def _classifier_properties(classifier: str, team_id: int | None) -> dict[str, st
     if team_id is not None:
         properties["team_id"] = str(team_id)
     return properties
+
+
+def _classifier_openai_client(classifier: str, team_id: int | None, trace_id: str | None) -> OpenAI:
+    return build_ai_gateway_openai_client(
+        settings.AI_GATEWAY_API_KEY,
+        ai_product=CLASSIFIER_AI_PRODUCT,
+        trace_id=trace_id,
+        properties=_classifier_properties(classifier, team_id),
+    )
 
 
 def _thread_trace_id(slack_team_id: str | None, thread_ts: str | None) -> str | None:
@@ -235,8 +251,7 @@ def classify_task_needs_repo(
     )
     try:
         # The Go gateway refuses a Claude model on chat completions.
-        client = build_anthropic_client(
-            product=CLASSIFIER_FALLBACK_ROUTE,
+        client = build_ai_gateway_anthropic_client(
             ai_product=CLASSIFIER_AI_PRODUCT,
             trace_id=trace_id,
             properties=_classifier_properties("task_needs_repo", team_id),
@@ -294,13 +309,23 @@ def classify_posthog_code_task_needs_repo_activity(
     connected = {repo.lower() for repo in _get_full_repo_names(integration, user_id=inputs.user_id)}
     routing_rules = team_routing_rule_lines(integration.team_id, candidate_repos=connected or None)
     thread_ts = inputs.event.get("thread_ts") or inputs.event.get("ts")
-    return classify_task_needs_repo(
+    needs_repo = classify_task_needs_repo(
         event_text,
         thread_messages,
         routing_rules=routing_rules,
         trace_id=_thread_trace_id(inputs.slack_team_id, thread_ts),
         team_id=integration.team_id,
     )
+    # A positive answer hands off to the discovery agent, which records the final outcome.
+    capture_repository_resolved(
+        integration,
+        inputs,
+        "classifier_needs_repo" if needs_repo else "classifier_no_repo",
+        has_repository=False,
+        is_final=not needs_repo,
+        connected_repo_count=len(connected),
+    )
+    return needs_repo
 
 
 def _agent_directed_response_format() -> ResponseFormatJSONSchema:
@@ -363,12 +388,9 @@ def classify_message_is_agent_directed(
         event_text=event_text,
     )
     try:
-        client = build_openai_client(
-            product=CLASSIFIER_FALLBACK_ROUTE,
-            ai_product=CLASSIFIER_AI_PRODUCT,
-            trace_id=trace_id,
-            properties=_classifier_properties("agent_directed", team_id),
-        ).with_options(timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES)
+        client = _classifier_openai_client("agent_directed", team_id, trace_id).with_options(
+            timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES
+        )
         response = client.chat.completions.create(
             model=AGENT_DIRECTED_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -407,7 +429,7 @@ def classify_untagged_followup_activity(
     from products.slack_app.backend.services.slack_messages import cached_collect_thread_messages
 
     try:
-        mapping = SlackThreadTaskMapping.objects.select_related("task", "integration").get(
+        mapping = SlackThreadTaskMapping.objects.select_related("task").get(
             integration_id=inputs.integration_id,
             channel=channel,
             thread_ts=thread_ts,
@@ -421,7 +443,15 @@ def classify_untagged_followup_activity(
         )
         return False
 
-    integration = mapping.integration
+    integration = get_integration(mapping.team_id, mapping.integration_id)
+    if integration is None:
+        logger.info(
+            "posthog_code_thread_message_mapping_gone",
+            integration_id=inputs.integration_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        return False
     slack = SlackIntegration(integration)
 
     # Asked before the history fetch and the model call, because reading the reply cannot
@@ -542,12 +572,9 @@ def classify_slack_app_model_override(
     )
 
     try:
-        client = build_openai_client(
-            product=CLASSIFIER_FALLBACK_ROUTE,
-            ai_product=CLASSIFIER_AI_PRODUCT,
-            trace_id=trace_id,
-            properties=_classifier_properties("model_override", team_id),
-        ).with_options(timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES)
+        client = _classifier_openai_client("model_override", team_id, trace_id).with_options(
+            timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES
+        )
         response = client.chat.completions.create(
             model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -562,6 +589,9 @@ def classify_slack_app_model_override(
         # but the model is still the classifier's word, not ours, until checked against
         # the catalogue below.
         reply = SlackAppModelOverride.model_validate(parsed)
+    except GatewayNotConfiguredError:
+        logger.exception("slack_app_model_override_classify_failed")
+        return None
     except (ValidationError, ValueError):
         logger.info("slack_app_model_override_unusable_reply")
         return None
@@ -695,13 +725,10 @@ def classify_slack_app_project_route(
         event_text=event_text,
     )
 
+    client = _classifier_openai_client("project_route", team_id, trace_id).with_options(
+        timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES
+    )
     try:
-        client = build_openai_client(
-            product=CLASSIFIER_FALLBACK_ROUTE,
-            ai_product=CLASSIFIER_AI_PRODUCT,
-            trace_id=trace_id,
-            properties=_classifier_properties("project_route", team_id),
-        ).with_options(timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES)
         response = client.chat.completions.create(
             model=PROJECT_ROUTE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],

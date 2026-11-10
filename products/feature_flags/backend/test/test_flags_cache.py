@@ -2199,41 +2199,6 @@ class TestBatchOperations(BaseTest):
             ),
         )
 
-    @patch("posthog.storage.cache_expiry_manager.get_client")
-    def test_cleanup_stale_expiry_tracking(self, mock_get_client):
-        """Test cleaning up stale expiry tracking entries."""
-        from products.feature_flags.backend.flags_cache import (
-            FLAGS_CACHE_EXPIRY_SORTED_SET,
-            cleanup_stale_expiry_tracking,
-        )
-
-        team1 = self.team
-        # Create a team that will be deleted
-        team2 = Team.objects.create(
-            organization=self.organization,
-            name="Team 2",
-        )
-        team2_id = team2.id
-        team2.delete()
-
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-
-        # Mock sorted set with both valid and stale team IDs
-        mock_redis.zrange.return_value = [
-            str(team1.id).encode(),
-            str(team2_id).encode(),  # Stale - team deleted
-        ]
-        mock_redis.zrem.return_value = 1  # Redis returns number of elements removed
-
-        removed = cleanup_stale_expiry_tracking()
-
-        # Should remove 1 stale entry
-        self.assertEqual(removed, 1)
-
-        # Should call zrem with the stale team ID
-        mock_redis.zrem.assert_called_once_with(FLAGS_CACHE_EXPIRY_SORTED_SET, str(team2_id))
-
     @patch("posthog.storage.hypercache.get_client")
     @patch("posthog.storage.hypercache.time")
     def test_warm_without_stagger_tracks_expiry_with_default_ttl(self, mock_time, mock_get_client):

@@ -7,6 +7,8 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
+from django.conf import settings
+from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
@@ -29,7 +31,8 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, MethodNotAllowed, PermissionDenied, ValidationError
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -42,6 +45,8 @@ from posthog.api.tagged_item import (
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemSerializerMixin,
     TaggedItemViewSetMixin,
+    current_tag_names,
+    normalize_tag_names,
     set_tags_on_object,
 )
 from posthog.dataclasses import frozen
@@ -101,6 +106,12 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status, TicketMessageType
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.services.attachments import (
+    CONVERSATIONS_MAX_IMAGE_BYTES,
+    resolve_attachment_content_type,
+    sanitize_attachment_filename,
+    save_uploaded_media,
+)
 from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
 from products.conversations.backend.services.messages import ticket_message_type
 from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
@@ -255,6 +266,27 @@ class TicketReplyRequestSerializer(serializers.Serializer):
         if len(serialized) > 100_000:
             raise serializers.ValidationError("Rich content too large (max 100KB).")
         return value
+
+
+class TicketAttachmentUploadRequestSerializer(serializers.Serializer):
+    file = serializers.FileField(allow_empty_file=False, help_text="File to attach.")
+
+    def validate_file(self, value: UploadedFile) -> UploadedFile:
+        if value.size is None or value.size > CONVERSATIONS_MAX_IMAGE_BYTES:
+            raise serializers.ValidationError(
+                f"Attachments must be under {CONVERSATIONS_MAX_IMAGE_BYTES // (1024 * 1024)} MiB.",
+                code="file_too_large",
+            )
+        return value
+
+
+class TicketAttachmentSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the stored file.")
+    url = serializers.CharField(help_text="Public download URL of the stored file.")
+    name = serializers.CharField(help_text="Sanitized file name.")
+    content_type = serializers.CharField(
+        help_text="Stored content type. Inline-safe images come back as their decoded image type."
+    )
 
 
 class AiFeedbackRequestSerializer(serializers.Serializer):
@@ -569,6 +601,9 @@ class TicketAssigneeRequestField(serializers.Field):
             raise
 
 
+MAX_TAGS_ADDED_PER_UPDATE = 100
+
+
 class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     """Fields accepted when updating a ticket."""
 
@@ -581,7 +616,10 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
     tags = serializers.ListField(
         child=serializers.CharField(),
         required=False,
-        help_text="Tag names to set on the ticket.",
+        help_text=(
+            "Tag names to set on the ticket. The list replaces the ticket's current tags. "
+            f"A request can add up to {MAX_TAGS_ADDED_PER_UPDATE} new tags."
+        ),
     )
 
     class Meta:
@@ -607,15 +645,26 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "snoozed_until": {"help_text": "Time to reopen the ticket. Pass null to reopen it now."},
         }
 
+    def validate_tags(self, value: list[str]) -> list[str]:
+        # The cap counts new tags only. A client sends the whole list on every save, so a cap on
+        # its length would reject every update of a ticket that already has more tags than the cap.
+        current = current_tag_names(self.instance) if self.instance else set()
+        if len(normalize_tag_names(value) - current) > MAX_TAGS_ADDED_PER_UPDATE:
+            raise serializers.ValidationError(
+                f"A request can add up to {MAX_TAGS_ADDED_PER_UPDATE} new tags. Add the rest in another request.",
+                code="max_new_tags",
+            )
+        return value
+
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
-        validated_data.pop("tags", None)
+        tags = validated_data.pop("tags", None)
         for field, value in validated_data.items():
             setattr(instance, field, value)
         # Only the submitted columns. A full save writes back every column this request
         # loaded, so a delete that commits in between would be undone.
         instance.save(update_fields=[*validated_data, "updated_at"])
-        self._attempt_set_tags(self.initial_data.get("tags"), instance)
+        self._attempt_set_tags(tags, instance)
         return instance
 
 
@@ -768,6 +817,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "patch",
         "compose",
         "reply",
+        "attachments",
         "ai_feedback",
         "ai_human_outcome",
         "note",
@@ -789,9 +839,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def check_permissions(self, request: Request) -> None:
         super().check_permissions(request)
         if is_scout_sandbox_request(request):
-            if self.action in {"compose", "note", "delete_note"}:
+            if self.action in {"compose", "note", "delete_note", "attachments"}:
                 raise PermissionDenied(
-                    "Scouts can add private notes but cannot compose emails or change existing notes."
+                    "Scouts can add private notes but cannot compose emails, upload files or change existing notes."
                 )
             if self.action in {"update", "partial_update"} and "anonymous_traits" in request.data:
                 raise PermissionDenied("Scouts cannot change customer identity fields.")
@@ -1770,6 +1820,76 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         return Response(
             TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
             status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "File to attach. Must be under 20 MiB.",
+                    },
+                },
+                "required": ["file"],
+            }
+        },
+        responses={
+            201: OpenApiResponse(response=TicketAttachmentSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        pagination_class=None,
+        parser_classes=[MultiPartParser],
+        throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
+    )
+    def attachments(self, request, *args, **kwargs):
+        """Upload a file to put in a reply to this ticket.
+
+        Images are validated and shown inline. Other files are stored as they are and
+        served as a download. Widget tickets do not accept file attachments yet.
+        """
+        ticket = self.get_object()
+
+        if ticket.channel_source == Channel.WIDGET:
+            raise ValidationError(code="channel_not_supported", detail="Widget tickets do not accept file attachments.")
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise ValidationError(
+                code="object_storage_required", detail="Object storage must be available to attach files."
+            )
+
+        serializer = TicketAttachmentUploadRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        file = serializer.validated_data["file"]
+
+        content = file.read()
+        # Validate before saving, so a disguised image gets a clear 400 rather than a storage error.
+        content_type = resolve_attachment_content_type(content, file.content_type or "application/octet-stream")
+        if content_type is None:
+            raise ValidationError(code="invalid_image", detail="The file is not a valid image.")
+
+        uploaded_media = save_uploaded_media(
+            self.team, sanitize_attachment_filename(file.name), content_type, content, validate_images=False
+        )
+        if uploaded_media is None:
+            raise APIException("Could not store the file.")
+
+        return Response(
+            TicketAttachmentSerializer(
+                {
+                    "id": uploaded_media.id,
+                    "url": uploaded_media.get_absolute_url(),
+                    "name": uploaded_media.file_name,
+                    "content_type": uploaded_media.content_type,
+                }
+            ).data,
+            status=drf_status.HTTP_201_CREATED,
         )
 
     @extend_schema(

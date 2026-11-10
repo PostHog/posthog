@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardTileIdOrNew, DashboardType } from '~/types'
+import { DashboardTileIdOrNew, DashboardType, NewDashboardTile } from '~/types'
 
 export interface ButtonTileForm {
     url: string
@@ -20,6 +20,8 @@ export interface ButtonTileCardModalProps {
     dashboard: DashboardType
     buttonTileId: DashboardTileIdOrNew
     onClose: () => void
+    /** Creates the new tile. Without it, the tile is created on the dashboard as is. */
+    onCreateTile?: (tile: NewDashboardTile) => void
 }
 
 const getExistingButtonTile = (dashboard: DashboardType, buttonTileId: number): ButtonTileForm => {
@@ -176,10 +178,12 @@ export const buttonTileCardModalLogic = kea<buttonTileCardModalLogicType>([
                 }))
 
                 if (props.buttonTileId === null) {
-                    actions.updateDashboard({
-                        id: props.dashboard.id,
-                        tiles: [{ button_tile: buttonTileFields, transparent_background }],
-                    })
+                    const tile = { button_tile: buttonTileFields, transparent_background }
+                    if (props.onCreateTile) {
+                        props.onCreateTile(tile)
+                    } else {
+                        actions.updateDashboard({ id: props.dashboard.id, tiles: [tile] })
+                    }
                 } else {
                     const updatedTiles = tiles.map((tile) => {
                         if (tile.id === props.buttonTileId && tile.button_tile) {

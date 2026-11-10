@@ -1,14 +1,6 @@
 import { router } from 'kea-router'
 
-import {
-    IconBell,
-    IconClock,
-    IconDownload,
-    IconLeave,
-    IconNotification,
-    IconSupport,
-    IconTerminal,
-} from '@posthog/icons'
+import { IconClock, IconDownload, IconLeave, IconNotification, IconSupport, IconTerminal } from '@posthog/icons'
 
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
@@ -24,7 +16,7 @@ import { isDefinitionsTabHref } from '~/layout/panel-layout/navbar/tabs/navProdu
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import type { SettingSection, SettingSectionId } from '~/scenes/settings/types'
+import type { SettingId, SettingLevelId, SettingSection, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab } from '~/types'
 
 import { SearchItem, fileSystemEntryToSearchItem } from './searchItems'
@@ -174,12 +166,38 @@ const newItemDisplayName = (path: string): string => {
     return suffix === 'data' ? `New ${rest.join(' ')}` : `New ${rest.join(' ')} ${suffix}`
 }
 
-const ACTIVITY_ITEM = fixedItem('product-activity', 'Activity', 'tools', {
-    href: urls.activity(ActivityTab.ExploreEvents),
-    icon: <IconClock />,
-    sceneKey: 'Activity',
-    record: { type: 'activity' },
-})
+const APP_PRODUCT_ITEMS = [
+    fixedItem('product-activity', 'Activity', 'tools', {
+        href: urls.activity(ActivityTab.ExploreEvents),
+        icon: <IconClock />,
+        sceneKey: 'Activity',
+        record: { type: 'activity' },
+    }),
+    fixedItem('product-exports', 'Exports', 'tools', {
+        href: urls.exports(),
+        icon: <IconDownload />,
+        searchKeywords: ['downloads'],
+        sceneKey: 'Exports',
+        record: { type: 'exports' },
+    }),
+    fixedItem('product-subscriptions', 'Subscriptions', 'tools', {
+        href: urls.subscriptions(),
+        icon: <IconNotification />,
+        searchKeywords: ['subscribe'],
+        sceneKey: 'Subscriptions',
+        record: { type: 'subscriptions' },
+    }),
+    // The user's own tickets with PostHog. The Support product holds tickets from their customers.
+    fixedItem('misc-my-tickets', 'Your tickets', 'tools', {
+        productCategory: 'PostHog support',
+        href: urls.myTickets(),
+        icon: <IconSupport />,
+        itemType: 'my_tickets',
+        searchKeywords: ['my tickets', 'support tickets', 'posthog support', 'contact support', 'support', 'help'],
+        sceneKey: 'MyTickets',
+        record: { type: 'my_tickets' },
+    }),
+]
 
 // Blank SQL query in a new browser tab (inheriting the active warehouse connection when
 // triggered from within the SQL editor). Scoped to the command palette: it relies on
@@ -197,6 +215,12 @@ const NEW_SQL_QUERY_ITEM = fixedItem('new-sql-query-tab', 'New SQL query', 'crea
 })
 
 const HEALTH_ITEMS = [
+    fixedItem('health-overview', 'Health', 'health', {
+        href: urls.health(),
+        itemType: 'health',
+        sceneKey: 'Health',
+        record: { type: 'health', iconType: 'health' },
+    }),
     fixedItem('health-pipeline-status', 'Pipeline status', 'health', {
         href: urls.pipelineStatus(),
         itemType: 'pipeline_status',
@@ -212,43 +236,15 @@ const HEALTH_ITEMS = [
 ]
 
 const terminalItem = (toggleTerminal: () => void): FixedSearchItem =>
-    fixedItem('misc-toggle-terminal', 'Toggle terminal', 'misc', {
+    fixedItem('misc-toggle-terminal', 'Toggle terminal', 'actions', {
         icon: <IconTerminal />,
         searchKeywords: ['terminal', 'shell', 'console'],
         onSelect: toggleTerminal,
         record: { type: 'terminal' },
     })
 
-const MISC_ITEMS = [
-    fixedItem('misc-exports', 'Exports', 'misc', {
-        href: urls.exports(),
-        icon: <IconDownload />,
-        sceneKey: 'Exports',
-        record: { type: 'exports' },
-    }),
-    fixedItem('misc-alerts', 'Alerts', 'misc', {
-        href: urls.alerts(),
-        icon: <IconBell />,
-        sceneKey: 'SavedInsights',
-        record: { type: 'alerts' },
-    }),
-    fixedItem('misc-subscriptions', 'Subscriptions', 'misc', {
-        href: urls.subscriptions(),
-        icon: <IconNotification />,
-        sceneKey: 'Subscriptions',
-        record: { type: 'subscriptions' },
-    }),
-    // The user's own tickets with PostHog. The Support product holds tickets from their customers.
-    fixedItem('misc-my-tickets', 'Your tickets', 'misc', {
-        productCategory: 'PostHog support',
-        href: urls.myTickets(),
-        icon: <IconSupport />,
-        itemType: 'my_tickets',
-        searchKeywords: ['my tickets', 'support tickets', 'posthog support', 'contact support', 'support', 'help'],
-        sceneKey: 'MyTickets',
-        record: { type: 'my_tickets' },
-    }),
-    fixedItem('misc-logout', 'Log out', 'misc', {
+const ACTION_ITEMS = [
+    fixedItem('misc-logout', 'Log out', 'actions', {
         icon: <IconLeave />,
         searchKeywords: ['logout', 'log out', 'sign out', 'signout', 'exit'],
         onSelect: () => userLogic.actions.logout(),
@@ -285,7 +281,7 @@ export const productSearchItems = (
         category: 'tools',
         featureFlags,
         sceneViews,
-        extraItems: [withLastViewed(ACTIVITY_ITEM, sceneViews)],
+        extraItems: APP_PRODUCT_ITEMS.map((item) => withLastViewed(item, sceneViews)),
     })
 }
 
@@ -337,10 +333,10 @@ export const peopleSearchItems = (groupItems: FileSystemImport[], sceneViews: Sc
 export const healthSearchItems = (sceneViews: SceneViews): SearchItem[] =>
     HEALTH_ITEMS.map((item) => withLastViewed(item, sceneViews))
 
-export const miscSearchItems = (sceneViews: SceneViews, toggleTerminal: (() => void) | null): SearchItem[] =>
-    [...(toggleTerminal ? [terminalItem(toggleTerminal)] : []), ...MISC_ITEMS].map((item) =>
-        withLastViewed(item, sceneViews)
-    )
+export const actionSearchItems = (toggleTerminal: (() => void) | null): SearchItem[] => [
+    ...(toggleTerminal ? [terminalItem(toggleTerminal)] : []),
+    ...ACTION_ITEMS,
+]
 
 /**
  * Lean projection of SETTINGS_MAP for search. The full map statically imports every
@@ -428,4 +424,150 @@ export const settingsSearchItems = (sections: SettingsSectionSummary[], gates: S
         }
     }
     return [...items.values()]
+}
+
+export interface CommandKSettingsSection {
+    id: SettingSectionId
+    level: Exclude<SettingLevelId, 'environment'>
+    titleString: string | null
+    to?: string
+    keywords?: string[]
+    settings: {
+        id: SettingId
+        titleString: string | null
+        descriptionString: string | null
+        keywords?: string[]
+    }[]
+}
+
+const LEVEL_SEARCH_KEYWORDS: Partial<Record<CommandKSettingsSection['level'], string[]>> = {
+    user: ['account settings', 'personal settings', 'my settings'],
+}
+
+const settingsItem = (
+    id: string,
+    name: string,
+    href: string,
+    record: Record<string, unknown>,
+    fields: Partial<SearchItem> = {}
+): SearchItem => ({
+    id,
+    name,
+    displayName: name,
+    category: 'settings',
+    href,
+    itemType: 'settings',
+    hideMatchedKeyword: true,
+    record: { type: 'settings', ...record },
+    ...fields,
+})
+
+const settingsLevelName = (level: SettingLevelId): string =>
+    `${toSentenceCase(level === 'environment' ? 'project' : level)} settings`
+
+const settingsContextText = (level: SettingLevelId, sectionTitle: string): string =>
+    `${settingsLevelName(level)} ${sectionTitle}`
+
+interface SettingSearchTextSetting {
+    id: string
+    title: string | null
+    keywords?: string[]
+    description?: string | null
+}
+
+const settingsSearchText = (
+    level: SettingLevelId,
+    sectionTitle: string,
+    sectionKeywords: string[] | undefined,
+    settings: SettingSearchTextSetting[]
+): string =>
+    [
+        settingsContextText(level, sectionTitle),
+        ...(sectionKeywords ?? []),
+        ...settings.flatMap((setting) => [
+            setting.title ?? sentenceCaseId(setting.id),
+            sentenceCaseId(setting.id),
+            ...(setting.keywords ?? []),
+            setting.description ?? '',
+        ]),
+    ]
+        .filter(Boolean)
+        .join(' ')
+
+type SettingSummary = CommandKSettingsSection['settings'][number]
+
+const textSetting = (setting: SettingSummary): SettingSearchTextSetting => ({
+    id: setting.id,
+    title: setting.titleString,
+    keywords: setting.keywords,
+    description: setting.descriptionString,
+})
+
+const commandKSectionSearchItems = (section: CommandKSettingsSection, billingEntryUrl: string | null): SearchItem[] => {
+    const levelName = settingsLevelName(section.level)
+    const title = section.titleString ?? sentenceCaseId(section.id)
+    const context = settingsContextText(section.level, title)
+    const ownsSettings = !section.to
+    const settingTitle = (setting: SettingSummary): string => setting.titleString ?? sentenceCaseId(setting.id)
+    const isOwnItem = (setting: SettingSummary): boolean =>
+        ownsSettings && settingTitle(setting).toLowerCase() !== title.toLowerCase()
+    const folded = section.settings.filter((setting) => !isOwnItem(setting))
+    const sectionItem = settingsItem(
+        `settings-${section.id}`,
+        title,
+        (section.id === 'organization-billing' && billingEntryUrl) || section.to || urls.settings(section.id),
+        { level: section.level, sectionId: section.id },
+        {
+            parentName: levelName,
+            searchKeywords: [
+                context,
+                ...(section.keywords ?? []),
+                ...folded.flatMap((setting) => [sentenceCaseId(setting.id), ...(setting.keywords ?? [])]),
+            ],
+            hiddenSearchText: settingsSearchText(section.level, title, section.keywords, folded.map(textSetting)),
+        }
+    )
+    return [
+        sectionItem,
+        ...section.settings.filter(isOwnItem).map((setting) =>
+            settingsItem(
+                `settings-${section.id}-${setting.id}`,
+                settingTitle(setting),
+                urls.settings(section.id, setting.id),
+                { level: section.level, sectionId: section.id, settingId: setting.id },
+                {
+                    parentName: `${levelName} › ${title}`,
+                    contextKeywords: section.keywords,
+                    searchKeywords: [sentenceCaseId(setting.id), ...(setting.keywords ?? [])],
+                    hiddenSearchText: settingsSearchText(section.level, title, section.keywords, [
+                        textSetting(setting),
+                    ]),
+                }
+            )
+        ),
+    ]
+}
+
+export const commandKSettingsSearchItems = (
+    sections: CommandKSettingsSection[],
+    billingEntryUrl: string | null
+): SearchItem[] => {
+    if (!sections.length) {
+        return []
+    }
+    const levels = [...new Set(sections.map((section) => section.level))]
+    const items = [
+        settingsItem('settings', 'Settings', urls.settings(), {}, { searchKeywords: ['preferences', 'configuration'] }),
+        ...levels.map((level) =>
+            settingsItem(
+                `settings-level-${level}`,
+                settingsLevelName(level),
+                urls.settings(level),
+                { level },
+                { searchKeywords: LEVEL_SEARCH_KEYWORDS[level] }
+            )
+        ),
+        ...sections.flatMap((section) => commandKSectionSearchItems(section, billingEntryUrl)),
+    ]
+    return [...new Map(items.map((item) => [item.id, item])).values()]
 }

@@ -40,7 +40,9 @@ export const productActivityDescribers: Partial<Record<ActivityScope, () => Prom
             (module) => module.crossProjectDashboardActivityDescriber
         ),
     [ActivityScope.DASHBOARD]: () =>
-        import('scenes/dashboard/dashboardActivityDescriber').then((module) => module.dashboardActivityDescriber),
+        import('../../products/dashboards/frontend/dashboardActivityDescriber').then(
+            (module) => module.dashboardActivityDescriber
+        ),
     [ActivityScope.DATA_WAREHOUSE_SAVED_QUERY]: () =>
         import('scenes/data-warehouse/saved_queries/activityDescriptions').then(
             (module) => module.dataWarehouseSavedQueryActivityDescriber

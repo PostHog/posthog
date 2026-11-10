@@ -28,6 +28,7 @@ class AccessMethod(StrEnum):
     OAUTH = "oauth"
     SHARING_TOKEN = "sharing_token"
     ID_JAG = "id_jag"
+    OIDC_WORKLOAD = "oidc_workload"
     PROJECT_SECRET_API_KEY = "project_secret_api_key"
     TEAM_SECRET_TOKEN = "team_secret_token"
 
@@ -118,6 +119,7 @@ class Feature(StrEnum):
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     DATA_QUALITY_CHECK = "data_quality_check"  # one data quality check assertion against its subject
+    BATCH_RUN_OUTCOME = "batch_run_outcome"  # a workflow batch run checks whether its sends errored
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"
@@ -238,6 +240,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ERROR_TRACKING_ISSUE_EVENTS_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
+        case NodeKind.INBOX_USAGE_QUERY:
+            return {"product": Product.SIGNALS}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
@@ -296,7 +300,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
-            NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            NodeKind.MCP_DASHBOARD_QUERY
+            | NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
             | NodeKind.MCP_MODEL_BREAKDOWN_QUERY
             | NodeKind.MCP_PROTOCOL_VERSION_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALL_BREAKDOWN_QUERY
@@ -906,6 +911,13 @@ class QueryCounter:
     def max_query_time_ms(self):
         return self.max_query_time * 1000
 
+    def record_query_time(self, elapsed: float) -> None:
+        self.total_query_time += elapsed
+        self.count += 1
+        self.max_query_time = max(self.max_query_time, elapsed)
+        if elapsed > self.SLOW_QUERY_THRESHOLD_S:
+            self.slow_count += 1
+
     def __call__(self, execute, *args, **kwargs):
         import time
 
@@ -914,13 +926,7 @@ class QueryCounter:
         try:
             return execute(*args, **kwargs)
         finally:
-            elapsed = time.perf_counter() - start_time
-            self.total_query_time += elapsed
-            self.count += 1
-            if elapsed > self.max_query_time:
-                self.max_query_time = elapsed
-            if elapsed > self.SLOW_QUERY_THRESHOLD_S:
-                self.slow_count += 1
+            self.record_query_time(time.perf_counter() - start_time)
 
 
 @contextmanager

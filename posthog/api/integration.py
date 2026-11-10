@@ -115,6 +115,7 @@ from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
     GitLabIntegration,
+    GitLabIntegrationError,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
@@ -146,6 +147,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
+    DenyWorkloadAccessToken,
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
@@ -318,6 +320,7 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
 _USAGE_TYPE_LABELS: dict[str, str] = {
     "warehouse_source": "data warehouse sources",
     "unreadable_warehouse_source": "data warehouse sources with unreadable settings",
+    "warehouse_destination": "data warehouse destinations",
     "workflow": "active workflows",
     "hog_function": "enabled data pipelines",
     "batch_export": "batch exports",
@@ -325,13 +328,13 @@ _USAGE_TYPE_LABELS: dict[str, str] = {
 
 
 def _integration_in_use_error(usages: list[IntegrationUsage]) -> ValidationError:
-    # Integration management does not grant read access to the sources that block deletion.
+    # Integration management does not grant read access to the sources and destinations that block deletion.
     types = [*_USAGE_TYPE_LABELS, *sorted({usage.type for usage in usages} - set(_USAGE_TYPE_LABELS))]
     used_by = [
         f"{_USAGE_TYPE_LABELS.get(usage_type, usage_type)}: "
         + (
             str(sum(usage.type == usage_type for usage in usages))
-            if usage_type in ("warehouse_source", "unreadable_warehouse_source")
+            if usage_type in ("warehouse_source", "unreadable_warehouse_source", "warehouse_destination")
             else ", ".join(sorted(usage.name for usage in usages if usage.type == usage_type))
         )
         for usage_type in types
@@ -719,6 +722,15 @@ SLACK_CHANNELS_CACHE_SECONDS = 60 * 60
 # quota. A re-check spends one per channel it warned about, well inside the cap.
 SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE = 30
 
+
+def take_slack_channels_info_budget(integration_id: int) -> None:
+    _take_slack_lookup_budget(
+        f"slack/{integration_id}/channels_info_budget",
+        SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE,
+        "Too many Slack channel lookups. Try again in a minute.",
+    )
+
+
 # Server-side floor between forced member-list refreshes, matching the picker's visible cooldown.
 SLACK_USERS_MIN_REFRESH_SECONDS = 30
 
@@ -848,6 +860,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "and PostHog can no longer mint tokens for it; `connected` otherwise."
         )
     )
+    needs_webhook_reconnect = serializers.SerializerMethodField(
+        help_text=(
+            "Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app "
+            "had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it."
+        )
+    )
 
     class Meta:
         model = Integration
@@ -863,6 +881,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "files_write_requestable",
             "installation_shared",
             "installation_status",
+            "needs_webhook_reconnect",
         ]
         read_only_fields = [
             "id",
@@ -874,6 +893,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "files_write_requestable",
             "installation_shared",
             "installation_status",
+            "needs_webhook_reconnect",
         ]
 
     @extend_schema_field(serializers.BooleanField())
@@ -894,7 +914,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         if reference_counts is not None:
             # List passes counts for the whole page, so the field costs one query however many rows there are.
             return reference_counts.get(obj.integration_id, 0) > 1
-        return Integration.objects.filter(kind="github", integration_id=obj.integration_id).exclude(id=obj.id).exists()
+        return any(row.id != obj.id for row in IntegrationManager.github.oauth.list_by_external_id(obj.integration_id))
 
     @extend_schema_field(serializers.ChoiceField(choices=GITHUB_INSTALLATION_STATUS_CHOICES, allow_null=True))
     def get_installation_status(self, obj: Integration) -> str | None:
@@ -905,6 +925,13 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             if GitHubIntegration(obj, source="integrations_api", priority=Priority.NORMAL).installation_unavailable()
             else "connected"
         )
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_needs_webhook_reconnect(self, obj: Integration) -> bool | None:
+        # A self-hosted instance may never set up the Linear app, and then no reconnect brings webhooks.
+        if obj.kind != "linear" or obj.auth_type != IntegrationAuthType.OAUTH or not settings.LINEAR_APP_WEBHOOK_SECRET:
+            return None
+        return LinearIntegration(obj).authorized_before_webhooks()
 
     def validate_kind(self, value: str) -> str:
         if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
@@ -950,7 +977,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         ):
             raise PermissionDenied("Changing push identity verification requires project admin access.")
 
-        # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
+        # `create` is a POST with upsert semantics: each kind's helper except email's does an `update_or_create`
         # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
         # existing integration instead of adding a new one. Adding is allowed for any project
         # member. A Google account's creator can also reconnect it because its credentials are
@@ -958,10 +985,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # unauthorized helper upsert.
         with transaction.atomic():
             existing_integrations = {
-                integration.integration_id: integration
-                for integration in Integration.objects.only("id", "kind", "integration_id", "created_by_id").filter(
-                    team_id=team_id, kind=kind
-                )
+                integration.integration_id: integration for integration in IntegrationManager.kinds(kind).list(team_id)
             }
             instance = self._build_integration(validated_data)
             existing_integration = existing_integrations.get(instance.integration_id)
@@ -1061,9 +1085,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             project_id = config.get("project_id")
             project_access_token = config.get("project_access_token")
 
-            instance = GitLabIntegration.create_integration(
-                hostname, project_id, project_access_token, team_id, request.user
-            )
+            try:
+                instance = GitLabIntegration.create_integration(
+                    hostname, project_id, project_access_token, team_id, request.user
+                )
+            except GitLabIntegrationError as e:
+                raise ValidationError(str(e))
             return instance
 
         elif validated_data["kind"] == "anthropic":
@@ -1382,10 +1409,9 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                             user_id=request.user.id,
                         )
 
-                    conflicting = (
-                        Integration.objects.filter(team_id=team_id, kind="stripe")
-                        .exclude(integration_id=stripe_user_id)
-                        .exists()
+                    conflicting = any(
+                        integration.integration_id != stripe_user_id
+                        for integration in IntegrationManager.stripe.oauth.list(team_id)
                     )
                     if conflicting:
                         capture_exception(
@@ -1564,9 +1590,8 @@ class IntegrationManagementPermission(TeamMemberStrictManagementPermission):
             return True
         requesting_level = integration_view.user_permissions.current_team.effective_membership_level
         has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
-        return has_management_access or (
-            isinstance(obj, Integration) and obj.can_be_managed_by_creator(getattr(request.user, "id", None))
-        )
+        integration = cast(IntegrationRecord, obj)
+        return has_management_access or integration.can_be_managed_by_creator(getattr(request.user, "id", None))
 
 
 class PersonalConnectionRecentAuthPermission(BasePermission):
@@ -1582,9 +1607,26 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
     def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
-        if isinstance(obj, Integration) and obj.kind == POSTHOG_CONNECT_KIND:
+        if cast(IntegrationRecord, obj).kind == POSTHOG_CONNECT_KIND:
             return TimeSensitiveActionPermission().has_permission(request, view)
         return True
+
+
+_GITHUB_LINKING_ACTIONS = frozenset(
+    {"github_available_installations", "github_link_existing", "github_oauth_authorize"}
+)
+
+
+class DenyWorkloadTokenGitHubLinking(DenyWorkloadAccessToken):
+    """Linking reuses a GitHub installation from another project, or one the creator's personal GitHub
+    access can see. A workload token is confined to one project and has no personal access to lend."""
+
+    message = "Workload tokens can't link GitHub installations."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) not in _GITHUB_LINKING_ACTIONS:
+            return True
+        return super().has_permission(request, view)
 
 
 class IntegrationFilterSet(filters.FilterSet):
@@ -1645,7 +1687,11 @@ class IntegrationViewSet(
         "request_access",
         "push_tokens",
     ]
-    permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
+    permission_classes = [
+        IntegrationManagementPermission,
+        PersonalConnectionRecentAuthPermission,
+        DenyWorkloadTokenGitHubLinking,
+    ]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
     # page boundary. Clients page this list to find one kind, so a dropped row reads as
     # "not configured". Order oldest-first: several clients take the first row of a kind as their
@@ -1686,6 +1732,7 @@ class IntegrationViewSet(
             AccessControlPermission(),
             TeamMemberAccessPermission(),
             PersonalConnectionRecentAuthPermission(),
+            DenyWorkloadTokenGitHubLinking(),
         ]
         # Adding an integration only requires project membership. Every edit and removal uses the
         # viewset permission class, including the creator exception for Google account removal.
@@ -1695,6 +1742,12 @@ class IntegrationViewSet(
             return [*base_permissions, TeamMemberLightManagementPermission()]
         raise NotImplementedError()
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Importing devices writes person properties and tells which distinct IDs have a person.
+        if self.action == "push_tokens":
+            return ["integration:write", "person:write"]
+        return None
+
     def get_throttles(self):
         if self.action == "refresh_github_repos":
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
@@ -1702,7 +1755,7 @@ class IntegrationViewSet(
             return [PushTokenImportThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
-    def perform_destroy(self, instance: Integration) -> None:
+    def perform_destroy(self, instance: IntegrationRecord) -> None:
         # Check before the teardown below, which revokes grants at the provider. The delete at the end
         # does not check again, because a check decrypts the inputs of every warehouse source of the team.
         try:
@@ -1749,10 +1802,9 @@ class IntegrationViewSet(
             # last team integration for an installation is removed, tear it down everywhere:
             # uninstall the App on GitHub and delete the now-orphaned personal integrations.
             # Other teams still sharing the same GitHub account keep it installed.
-            is_last_team_reference = (
-                not Integration.objects.filter(kind="github", integration_id=instance.integration_id)
-                .exclude(id=instance.id)
-                .exists()
+            is_last_team_reference = not any(
+                row.id != instance.id
+                for row in IntegrationManager.github.oauth.list_by_external_id(instance.integration_id)
             )
             github_audit.record("disconnect_started", last_reference=is_last_team_reference)
             if not is_last_team_reference:
@@ -1988,11 +2040,7 @@ class IntegrationViewSet(
                             return Response({"channels": [channel], "next": None, "previous": None})
             # Past the cached list every lookup reaches Slack, and a forced one skips the list
             # altogether, so the same per-minute budget the member lookup uses applies here.
-            _take_slack_lookup_budget(
-                f"slack/{instance.id}/channels_info_budget",
-                SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE,
-                "Too many Slack channel lookups. Try again in a minute.",
-            )
+            take_slack_channels_info_budget(instance.id)
             try:
                 channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
             except SlackApiError as e:
@@ -2456,7 +2504,7 @@ class IntegrationViewSet(
 
         return Response(body)
 
-    def _get_anthropic_integration_or_400(self) -> Integration:
+    def _get_anthropic_integration_or_400(self) -> IntegrationRecord:
         instance = self.get_object()
         if instance.kind != Integration.IntegrationKind.ANTHROPIC.value:
             raise ValidationError(f"Integration {instance.id} is not an Anthropic integration (kind={instance.kind!r})")
@@ -2475,10 +2523,9 @@ class IntegrationViewSet(
         raise ValueError(f"unknown anthropic managed-agents resource: {resource!r}")
 
     @staticmethod
-    def _record_anthropic_auth_failure(instance: Integration, message: str) -> None:
+    def _record_anthropic_auth_failure(instance: IntegrationRecord, message: str) -> None:
         if instance.errors != ERROR_TOKEN_REFRESH_FAILED:
-            instance.errors = ERROR_TOKEN_REFRESH_FAILED
-            instance.save(update_fields=["errors"])
+            IntegrationManager.anthropic.token.update(instance.team_id, instance.id, errors=ERROR_TOKEN_REFRESH_FAILED)
         logger.warning("anthropic_managed_list_auth_failure", integration_id=instance.id, message=message)
 
     @extend_schema(
@@ -2849,17 +2896,35 @@ class IntegrationViewSet(
         },
         summary="Import push device tokens",
         description="Register existing device tokens, for example exported from another provider, on this push "
-        "channel. Each token is stored encrypted on its person, as the mobile SDK stores it.",
+        "channel. Each token is stored encrypted on its person, as the mobile SDK stores it. A row fails when no "
+        "person has its distinct ID, unless create_missing_persons is set, or when the token is the wrong kind for "
+        "the channel. Send dry_run first to see every failure without storing anything.",
     )
     @action(methods=["POST"], detail=True, url_path="push_tokens")
     def push_tokens(self, request: ValidatedRequest, **kwargs) -> Response:
+        # Session users skip API scopes, and access control checks only the integration scope_object.
+        if not self.user_access_control.check_access_level_for_resource("person", "editor"):
+            raise PermissionDenied("You need edit access to persons to import push devices.")
         integration = self.get_object()
         if not push_channel_app_id(integration):
             raise ValidationError("Device tokens can only be imported into an APNs or Firebase push channel.")
-        result = import_push_tokens(integration, request.validated_data["subscriptions"], integration.team.api_token)
+        data = request.validated_data
+        result = import_push_tokens(
+            integration,
+            data["subscriptions"],
+            self.team.api_token,
+            dry_run=data["dry_run"],
+            create_missing_persons=data["create_missing_persons"],
+            import_id=data["import_id"],
+        )
         return Response(
             PushTokenImportResponseSerializer(
-                {"imported": result.imported, "failed_distinct_ids": result.failed_distinct_ids}
+                {
+                    "imported": result.imported,
+                    "dry_run": result.dry_run,
+                    "failed": result.failed,
+                    "failed_distinct_ids": result.failed_distinct_ids,
+                }
             ).data
         )
 
@@ -3070,10 +3135,9 @@ class IntegrationViewSet(
         return Response({"url": url})
 
     def _record_email_setup_method(self, integration_id: int, setup_method: str) -> None:
-        with transaction.atomic():
-            instance = Integration.objects.select_for_update().get(id=integration_id, team_id=self.team_id)
-            instance.config["setup_method"] = setup_method
-            instance.save(update_fields=["config"])
+        IntegrationManager.email.credentials.update(
+            self.team_id, integration_id, config_patch={"setup_method": setup_method}
+        )
 
     # Defined last: a method named `list` shadows the builtin for the annotations of every method
     # declared after it in this class body.

@@ -14,6 +14,13 @@ DISTRIBUTED_EVENTS_JSON_TABLE = "events_json"
 KAFKA_EVENTS_NATIVE_JSON_TABLE = "kafka_events_json_native_json"
 UNPARSEABLE_PROPERTIES_KEY = "$unparseable_properties"
 TEMPORARY_PROPERTIES_COLUMN = "temporary_properties"
+# The JSON type cannot store null, so the cleaner drops each null field of a JSON column and records its path in the
+# column's companion array.
+NULL_KEYS_COLUMNS = {
+    "properties": "properties_null_keys",
+    TEMPORARY_PROPERTIES_COLUMN: "temporary_properties_null_keys",
+    "person_properties": "person_properties_null_keys",
+}
 
 # Mirrors isTemporaryProperty in clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/main.go, so update both.
 TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
@@ -72,6 +79,7 @@ EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$browser_language": "LowCardinality(String)",
     "$browser_version": "LowCardinality(String)",
     "$config_defaults": "LowCardinality(String)",
+    "$current_url": "String",
     "$device_type": "LowCardinality(String)",
     "$exception_functions": "Array(String)",
     "$exception_list": "Array(JSON(max_dynamic_paths = 0, type String, value String))",
@@ -91,11 +99,13 @@ EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$group_2": "String",
     "$group_3": "String",
     "$group_4": "String",
+    "$host": "String",
     "$lib": "LowCardinality(String)",
     "$lib_version": "LowCardinality(String)",
     "$mcp_listed_tool_names": "Array(String)",
     "$os": "LowCardinality(String)",
     "$os_version": "LowCardinality(String)",
+    "$pathname": "String",
     "$session_id": "String",
     "$timezone": "LowCardinality(String)",
     "$window_id": "String",

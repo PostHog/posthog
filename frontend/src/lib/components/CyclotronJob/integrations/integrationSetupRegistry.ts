@@ -18,11 +18,20 @@ export type IntegrationSetupContext = {
 /** What the connection is for, so a setup modal can ask only for the access that use needs. */
 export type IntegrationSetupPurpose = 'import' | 'export'
 
+// Setup form values the user may not change. The form starts with them, shows them read-only, and saves them as
+// they are. The modal reads them once, when it mounts.
+export type LockedSetupValues = {
+    values: Record<string, any>
+    // Shown on each read-only field.
+    reason: string
+}
+
 type IntegrationSetupModalProps = {
     isOpen: boolean
     kind: string
     integration?: any
     purpose?: IntegrationSetupPurpose
+    locked?: LockedSetupValues
     onComplete: (id?: number) => void
     onClose: () => void
 }
@@ -31,6 +40,8 @@ export type IntegrationSetupDefinition = {
     kind: string | string[]
     menuItem: (ctx: IntegrationSetupContext) => IntegrationSetupMenuItem
     SetupModal?: React.ComponentType<IntegrationSetupModalProps>
+    // Setup form field -> key in a migrated destination's vendor config, for the non-secret fields only.
+    vendorConfigKeys?: Record<string, string>
 }
 
 const registeredSetups = new Map<string, IntegrationSetupDefinition>()

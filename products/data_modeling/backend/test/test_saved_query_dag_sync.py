@@ -7,8 +7,10 @@ from unittest import mock
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
+from products.data_modeling.backend.facade.modeling import ResolutionCycleError
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
     HasDependentsError,
@@ -22,8 +24,9 @@ from products.data_modeling.backend.logic.saved_query_dag_sync import (
 from products.data_modeling.backend.models import Edge, Node
 from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import ResolutionCycleError
 from products.data_modeling.backend.models.node import NodeType
+from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
+from products.revenue_analytics.backend.views.core import SourceHandle
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
@@ -169,6 +172,36 @@ class TestSyncSavedQueryToDag(BaseTest):
         self.assertIsNotNone(edge)
         assert edge is not None
         self.assertEqual(edge.dag_id, dag.id)
+
+    def test_sync_creates_table_node_for_an_in_memory_revenue_view(self):
+        revenue_view = RevenueAnalyticsChargeView(
+            id="stub-view",
+            name="stripe.stub.charges",
+            query="SELECT 'x' AS id",
+            fields={"id": StringDatabaseField(name="id")},
+            prefix="stub",
+        )
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="revenue_reader",
+            team=self.team,
+            query={"query": "SELECT id FROM stripe.stub.charges", "kind": "HogQLQuery"},
+        )
+        orchestrator = "products.revenue_analytics.backend.views.orchestrator"
+
+        with (
+            mock.patch(
+                f"{orchestrator}.list_revenue_source_handles",
+                return_value=[SourceHandle(type="stripe", team=self.team)],
+            ),
+            mock.patch(f"{orchestrator}.build_revenue_views_for_handles", return_value=[revenue_view]),
+            mock.patch(f"{orchestrator}.build_all_revenue_analytics_views", return_value=[revenue_view]),
+        ):
+            node = sync_saved_query_to_dag(saved_query)
+
+        revenue_node = Node.objects.get(team=self.team, name="stripe.stub.charges", saved_query__isnull=True)
+        self.assertEqual(revenue_node.type, NodeType.TABLE)
+        self.assertEqual(revenue_node.properties, {"origin": "managed_view"})
+        self.assertTrue(Edge.objects.filter(source=revenue_node, target=node).exists())
 
     def test_sync_refreshes_the_table_id_when_a_warehouse_table_is_recreated(self):
         old_table = DataWarehouseTable.objects.create(team=self.team, name="orders", format="Parquet")

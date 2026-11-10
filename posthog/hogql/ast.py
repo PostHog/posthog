@@ -499,10 +499,12 @@ class CTETableAliasType(BaseTableType):
         return self.cte_table_type.resolve_column_constant_type(name, context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectSetQueryType
+    # The lazy table that this subquery stands for, when lazy table resolution built it.
+    lazy_table: Optional[LazyTable] = field(default=None, repr=False, compare=False)
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
@@ -1200,7 +1202,7 @@ class PivotExpr(Expr):
     group_by: Optional[list[Expr]] = None
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType] = None
@@ -1218,6 +1220,8 @@ class JoinExpr(Expr):
             "Field",
         ]
     ] = None
+    table_schema: Optional[Table] = None
+    cte_name: Optional[str] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     column_aliases: Optional[list[str]] = None

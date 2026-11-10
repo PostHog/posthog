@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
 import { markPaintDone, markPaintPending } from '../paint-state'
 import type {
@@ -51,16 +51,8 @@ export function useChartDraw({
     drawHover,
     hoverAnimationMs = 0,
 }: UseChartDrawOptions): void {
-    // Cancel the prior RAF on effect re-run — relying on cleanup ordering alone leaves a
-    // window where a stale RAF can paint after the new setup runs.
-    const staticRafRef = useRef<number | null>(null)
-
     // hoverIndex is deliberately not a dep — a hover sweep shouldn't repaint the static layer.
     useEffect(() => {
-        if (staticRafRef.current != null) {
-            cancelAnimationFrame(staticRafRef.current)
-            staticRafRef.current = null
-        }
         if (!ctx) {
             return
         }
@@ -70,8 +62,7 @@ export function useChartDraw({
             return
         }
         markPaintPending(ctx.canvas)
-        staticRafRef.current = requestAnimationFrame(() => {
-            staticRafRef.current = null
+        const raf = requestAnimationFrame(() => {
             clearAndPrepare(ctx, dimensions)
             try {
                 drawStatic({
@@ -91,13 +82,7 @@ export function useChartDraw({
                 markPaintDone(ctx.canvas)
             }
         })
-        return () => {
-            if (staticRafRef.current != null) {
-                cancelAnimationFrame(staticRafRef.current)
-                staticRafRef.current = null
-            }
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        return () => cancelAnimationFrame(raf)
     }, [ctx, dimensions, scales, series, labels, theme, drawStatic])
 
     useHoverAnimation({

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import * as Clipboard from 'expo-clipboard'
 import type { ReactElement } from 'react'
+import { Platform } from 'react-native'
 
 import { taskWebUrl } from '@/model/adapters/chats'
 import { OverlayHost } from '@/ui/OverlayPortal'
@@ -29,7 +30,9 @@ describe('ChatHeader', () => {
             <ChatHeader webUrl={url} onBack={onBack} onNewChat={onNewChat} />
         )
         const view = render(header(taskWebUrl(scope, null)), { wrapper: OverlayHost })
-        expect(screen.getByTestId('chat-more')).toBeDisabled()
+        expect(screen.queryByTestId('chat-more')).toBeNull()
+        expect(screen.queryByTestId('chat-new')).toBeNull()
+        expect(screen.getByText('Back')).toBeTruthy()
         expect(screen.queryByTestId('chat-copy-link')).toBeNull()
 
         view.rerender(header(taskWebUrl(scope, 'first-task')))
@@ -49,6 +52,10 @@ describe('ChatHeader', () => {
         expect(onNewChat).toHaveBeenCalledTimes(1)
         fireEvent.press(screen.getByTestId('chat-back'))
         expect(onBack).toHaveBeenCalledTimes(1)
+
+        view.rerender(header(undefined))
+        expect(screen.queryByTestId('chat-more')).toBeNull()
+        expect(screen.queryByTestId('chat-new')).toBeNull()
     })
 
     test.each(['rejected', 'false'] as const)(
@@ -95,7 +102,10 @@ describe('ChatHeader', () => {
         }
     )
 
-    test('guards archive against double taps and allows retry after failure', async () => {
+    test.each([
+        { name: 'live', webUrl: 'https://us.posthog.com/project/7/ai?task=task-1' },
+        { name: 'demo', webUrl: undefined },
+    ])('guards archive against double taps and allows retry in a $name chat', async ({ webUrl }) => {
         let rejectArchive!: (error: Error) => void
         const onArchive = jest.fn(
             () =>
@@ -103,15 +113,9 @@ describe('ChatHeader', () => {
                     rejectArchive = reject
                 })
         )
-        render(
-            <ChatHeader
-                webUrl="https://us.posthog.com/project/7/ai?task=task-1"
-                onBack={jest.fn()}
-                onNewChat={jest.fn()}
-                onArchive={onArchive}
-            />,
-            { wrapper: OverlayHost }
-        )
+        render(<ChatHeader webUrl={webUrl} onBack={jest.fn()} onNewChat={jest.fn()} onArchive={onArchive} />, {
+            wrapper: OverlayHost,
+        })
         fireEvent.press(screen.getByTestId('chat-more'))
         fireEvent.press(screen.getByTestId('chat-archive'))
         fireEvent.press(screen.getByTestId('chat-archive'))
@@ -128,4 +132,12 @@ describe('ChatHeader', () => {
         expect(onArchive).toHaveBeenCalledTimes(2)
         expect(screen.getByTestId('chat-more').props.accessibilityState.expanded).toBe(false)
     })
+})
+
+const originalPlatform = Platform.OS
+beforeAll(() => {
+    Platform.OS = 'android'
+})
+afterAll(() => {
+    Platform.OS = originalPlatform
 })
