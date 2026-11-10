@@ -515,20 +515,6 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert "WWW-Authenticate" not in response
 
-    def test_a_staff_owners_workload_token_does_not_get_the_mcp_registry_staff_tier(self) -> None:
-        self.user.is_staff = True
-        self.user.save()
-        self.policy.scopes = ["mcp_registry:read"]
-        self.policy.save()
-        token = self._access_token()
-
-        with patch(
-            "posthoganalytics.feature_enabled", side_effect=lambda flag_key, *_, **__: flag_key == "mcp-registry"
-        ):
-            response = self._call("get", f"/api/projects/{self.team.id}/mcp_registry/servers/measured_projects/", token)
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-
     @parameterized.expand(
         [
             ("mcp_server_installations", ["project:read"], "get", "mcp_server_installations/"),

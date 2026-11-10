@@ -120,7 +120,7 @@ describe('editLayoutGesture', () => {
             })
 
             grid = document.createElement('div')
-            grid.className = 'react-grid-layout dashboard-view-mode'
+            grid.className = 'react-grid-layout dashboard-layout-static'
             gridItem = document.createElement('div')
             gridItem.className = 'react-grid-item'
             gridItem.getBoundingClientRect = () => ({ ...rect, x: 0, y: 0, width: 300, height: 200 }) as DOMRect
@@ -151,7 +151,7 @@ describe('editLayoutGesture', () => {
 
             const handle = mountResizeHandle('s')
             handle.addEventListener('mousedown', onHandleMouseDown)
-            grid.className = 'react-grid-layout dashboard-edit-mode'
+            grid.className = 'react-grid-layout dashboard-layout-editable'
             flushFrames()
 
             expect(onHandleMouseDown).toHaveBeenCalledTimes(1)
@@ -195,7 +195,7 @@ describe('editLayoutGesture', () => {
             flushFrames() // grid still in view mode — keeps waiting
             expect(onDragHandleMouseDown).not.toHaveBeenCalled()
 
-            grid.className = 'react-grid-layout dashboard-edit-mode'
+            grid.className = 'react-grid-layout dashboard-layout-editable'
             flushFrames()
 
             expect(onDragHandleMouseDown).toHaveBeenCalledTimes(1)
@@ -211,7 +211,7 @@ describe('editLayoutGesture', () => {
             document.addEventListener('mousemove', onDocumentMouseMove)
 
             continueDragGestureInEditMode(pressEvent(cardMeta, 50, 20), moveEvent(80, 45))
-            grid.className = 'react-grid-layout dashboard-edit-mode'
+            grid.className = 'react-grid-layout dashboard-layout-editable'
             flushFrames()
             gridItem.classList.add('react-draggable-dragging')
             flushFrames()
