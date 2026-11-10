@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("early_access_features", "0009_earlyaccessfeature_assignee"),
     ]
@@ -13,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="earlyaccessfeature",
             name="image_url",
-            field=models.URLField(blank=True, default="", max_length=800),
+            field=models.URLField(blank=True, db_default="", default="", max_length=800),
         ),
     ]
