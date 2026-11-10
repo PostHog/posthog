@@ -377,7 +377,7 @@ def update_owned_copy(
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
             return
-        now = at or django_timezone.now()
+        now = django_timezone.now()
         current, previous_state = edit_of(configuration), platform_lifecycle.shown_state(configuration, now=now)
         # A snooze ends the firing, as on the logs stack. A firing after it opens a new incident.
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now
@@ -394,7 +394,9 @@ def update_owned_copy(
             previous_state=previous_state,
             snooze_changed=snooze_changed,
             snooze_until=snooze_until,
-            now=now,
+            # Only the change's own row takes the source's time. A check can land between `at` and
+            # the lock, and the firings this edit ended must stay after it.
+            now=at or now,
         )
 
 

@@ -19,6 +19,8 @@ from datetime import UTC, datetime
 from typing import Any, Final
 from uuid import UUID
 
+from django.conf import settings as django_settings
+
 import structlog
 
 from posthog.clickhouse.client import sync_execute
@@ -158,7 +160,9 @@ def insert_events(
         # the table serves every source and the write is the platform's own bookkeeping.
         tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
         insert_settings = {"insert_deduplication_token": _deduplication_token(team_id, rows)}
-        if send_receive_timeout is None:
+        # The bounded pool is native, so a team on HTTP keeps its own transport, as `get_client_from_pool` picks it.
+        uses_http = django_settings.CLICKHOUSE_USE_HTTP or team_id in django_settings.CLICKHOUSE_USE_HTTP_PER_TEAM
+        if send_receive_timeout is None or uses_http:
             _execute(_INSERT_SQL, [row.as_row() for row in rows], settings=insert_settings, team_id=team_id)
         else:
             pool = get_pool(ch_user=ClickHouseUser.ALERTS_PLATFORM, send_receive_timeout=send_receive_timeout)
