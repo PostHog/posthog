@@ -210,8 +210,7 @@ async function main(): Promise<void> {
         command === 'help' ||
         command === '--help' ||
         command === '-h' ||
-        args.includes('--help') ||
-        args.includes('-h')
+        args.includes('--help')
     ) {
         process.stdout.write(`${usage()}\n`)
         return
