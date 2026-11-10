@@ -1,15 +1,17 @@
 import json
+import time
 import base64
+import threading
 from collections.abc import Callable
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.db import connection
+from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 
 import requests
@@ -890,6 +892,8 @@ class TestTransactionalEmail(APIBaseTest):
         if make_category:
             make_category(self)
         categories_before = set(MessageCategory.objects.filter(team=self.team).values_list("key", "category_type"))
+        keys_before = set(TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).values_list("key"))
+        workflows_before = HogFlow.objects.filter(team=self.team).count()
 
         with patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1):
             response = self._psak_client(["transactional_email:write"]).post(
@@ -903,6 +907,10 @@ class TestTransactionalEmail(APIBaseTest):
         assert (
             set(MessageCategory.objects.filter(team=self.team).values_list("key", "category_type")) == categories_before
         )
+        assert (
+            set(TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).values_list("key")) == keys_before
+        )
+        assert HogFlow.objects.filter(team=self.team).count() == workflows_before
         assert capture.call_args.kwargs["properties"]["error_code"] == expected_code
 
     def test_a_category_another_project_owns_is_not_this_projects(self, mock_post, _flag, _capture):
@@ -2024,3 +2032,74 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         template.refresh_from_db()
         assert template.transactional_hog_flow_id == linked_hog_flow_id
+
+
+@patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
+@patch(
+    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    return_value=True,
+)
+@patch("posthog.plugins.plugin_server_api.internal_requests.post", **CDP_ACCEPTS)
+class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+        set_default_email_sender_if_unset(self.team.id, sender.id)
+        raw_token = generate_random_token_secret()
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="transactional email",
+            secure_value=hash_key_value(raw_token),
+            scopes=["transactional_email:write"],
+            mask_value=f"{raw_token[:4]}...{raw_token[-4:]}",
+        )
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
+
+    def _insert_and_commit_once_the_send_waits(self, inserted: threading.Event) -> None:
+        try:
+            with transaction.atomic():
+                MessageCategory.objects.create(
+                    team=self.team, key="newsletter", name="Made in the app", category_type="marketing"
+                )
+                inserted.set()
+                for _ in range(600):
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                            "AND wait_event_type = 'Lock' AND query ILIKE 'INSERT INTO \"posthog_messagecategory\"%%'"
+                        )
+                        if cursor.fetchone()[0]:
+                            return
+                    time.sleep(0.05)
+        finally:
+            inserted.set()
+            connection.close()
+
+    def test_a_key_the_app_creates_while_the_send_inserts_it_is_the_one_used(self, mock_post, _flag, _capture):
+        inserted = threading.Event()
+        app = threading.Thread(target=self._insert_and_commit_once_the_send_waits, args=(inserted,))
+        app.start()
+        assert inserted.wait(timeout=30)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging/send/email/",
+            {
+                "to": "user@example.com",
+                "template_key": "welcome",
+                "subject": "Welcome",
+                "html": '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                "category": {"key": "newsletter", "type": "marketing", "name": "Newsletter"},
+            },
+            format="json",
+        )
+        app.join(timeout=30)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        made_in_the_app = MessageCategory.objects.get(team=self.team, key="newsletter")
+        sent = json.loads(mock_post.call_args.kwargs["data"])["send"]
+        assert sent["messageCategory"] == {"id": str(made_in_the_app.id), "type": "marketing"}
