@@ -831,6 +831,50 @@ class TestDeliveryPath(APIBaseTest):
         assert len(self.emitted) == 1
         assert [channel for channel, _ in RecordingTransport.sends] == ["C-native"]
 
+    @parameterized.expand(
+        [
+            ("a_row_beside_a_customized_hog_function", (), DeliveryPath.HOG_FUNCTION, 1, ["C-native"]),
+            (
+                "a_row_copying_a_live_hog_function",
+                HOG_FUNCTION_SLACK.hog_function_ids,
+                DeliveryPath.HOG_FUNCTION,
+                1,
+                [],
+            ),
+            (
+                "a_row_copying_a_stock_hog_function",
+                HOG_FUNCTION_SLACK.hog_function_ids,
+                DeliveryPath.NATIVE,
+                0,
+                ["C-1"],
+            ),
+        ]
+    )
+    def test_an_alert_whose_source_keeps_hog_functions_sends_once_to_each_row(
+        self,
+        _name: str,
+        legacy_hog_function_ids: tuple[UUID, ...],
+        path: DeliveryPath,
+        emitted: int,
+        native_channels: list[str],
+    ) -> None:
+        create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=self.configuration.id,
+            destinations=(
+                NewAlertDestination(
+                    data=cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-native"}),
+                    event_kinds=(AlertEventKind.FIRING, AlertEventKind.RESOLVED),
+                    legacy_hog_function_ids=legacy_hog_function_ids,
+                ),
+            ),
+        )
+
+        self._run(_announcement(_transition(AlertEventKind.FIRING)), self._chooses(path))
+
+        assert len(self.emitted) == emitted
+        assert [channel for channel, _ in RecordingTransport.sends] == native_channels
+
     def test_a_firing_and_its_resolve_take_the_path_the_firing_took(self) -> None:
         fired = self._run(
             _announcement(_transition(AlertEventKind.FIRING)),

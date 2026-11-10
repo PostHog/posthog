@@ -1,4 +1,4 @@
-"""The destinations of an alert whose `destinations_owner` is the platform.
+"""An alert's `AlertDestination` rows. Delivery sends to them beside any HogFunctions the alert has.
 
 The one write path for `AlertDestination`. Each source's alert page and the central page call it
 through the facade, so a destination is valid or refused the same way wherever it is edited.
@@ -23,7 +23,6 @@ from products.alerts_platform.backend.facade.contracts import (
     NewAlertDestination,
     StoredAlertDestination,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
 
 # The destination types that open and close incidents rather than post messages.
@@ -77,9 +76,6 @@ def create_alert_destinations(
         configuration = (
             PlatformAlertConfiguration.objects.for_team(team_id).select_for_update().get(id=configuration_id)
         )
-        # Delivery reads these rows only for such an alert. On any other, they would never send.
-        if configuration.destinations_owner != PlatformAlertOwner.PLATFORM:
-            raise AlertDestinationValidationError("This alert's destinations are managed by its product.")
         _refuse_duplicates(team_id, configuration_id, destinations)
         rows = [
             AlertDestination.objects.for_team(team_id).create(
