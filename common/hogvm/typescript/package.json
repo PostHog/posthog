@@ -20,7 +20,7 @@
     "scripts": {
         "test": "jest --runInBand --forceExit",
         "clean": "rm -rf dist .parcel-cache",
-        "build": "rm -rf .parcel-cache && pnpm build:parcel && pnpm build:cli",
+        "build": "pnpm build:parcel && pnpm build:cli",
         "build:parcel": "parcel build --no-cache",
         "build:compile": "tsc -p tsconfig.build.json",
         "build:cli": "mkdir -p ./dist && cp ./src/cli.js ./dist/cli.js",
