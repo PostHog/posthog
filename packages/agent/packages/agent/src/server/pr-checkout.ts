@@ -314,11 +314,33 @@ async function checkoutExistingGitlabMergeRequest({
         () => true,
         () => false,
       );
-      await git(
-        hasLocalBranch
-          ? ["checkout", branch]
-          : ["checkout", "-b", branch, "--track", `origin/${branch}`],
-      );
+      const status = await git([
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+      ]);
+      if (status.stdout.trim()) {
+        return {
+          status: "failed",
+          error:
+            "Cannot safely check out a merge request with uncommitted changes",
+        };
+      }
+      try {
+        await git(
+          hasLocalBranch
+            ? ["checkout", branch]
+            : ["checkout", "-b", branch, "--track", `origin/${branch}`],
+        );
+      } catch (error) {
+        await restoreRepoState(
+          runCommand,
+          repositoryPath,
+          currentBranch,
+          currentHead,
+        );
+        throw error;
+      }
     } catch (error) {
       return {
         status: "failed",

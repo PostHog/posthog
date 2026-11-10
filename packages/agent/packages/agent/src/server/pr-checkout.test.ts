@@ -309,7 +309,7 @@ describe("checkoutExistingPullRequest", () => {
     };
 
     it.each(["fetch", "checkout"])(
-      "preserves local changes when %s fails",
+      "recovers appropriately when %s fails",
       async (failedCommand) => {
         const { runCommand: baseCommand, calls } = buildRunCommand({
           currentBranch: "main",
@@ -338,9 +338,33 @@ describe("checkoutExistingPullRequest", () => {
           calls.mock.calls.some(
             ([, args]) => args[0] === "reset" || args.includes("--force"),
           ),
-        ).toBe(false);
+        ).toBe(failedCommand === "checkout");
       },
     );
+
+    it("leaves tracked changes untouched when checkout would be needed", async () => {
+      const { runCommand: baseCommand, calls } = buildRunCommand({
+        currentBranch: "main",
+        currentHead: OTHER_OID,
+        originUrl: "https://gitlab.com/acme/platform/api.git",
+      });
+      const runCommand: RunCommand = (executable, args, cwd, signal) =>
+        args[0] === "status"
+          ? Promise.resolve({ stdout: " M file.txt\n" })
+          : baseCommand(executable, args, cwd, signal);
+      const result = await checkoutExistingPullRequest({
+        repositoryPath: "/tmp/repo",
+        prUrl: MR_URL,
+        runCommand,
+        lookupGitlabMergeRequest: async () => mergeRequest,
+      });
+      expect(result.status).toBe("failed");
+      expect(
+        calls.mock.calls.some(
+          ([, args]) => args[0] === "checkout" || args[0] === "reset",
+        ),
+      ).toBe(false);
+    });
 
     it.each([
       {
