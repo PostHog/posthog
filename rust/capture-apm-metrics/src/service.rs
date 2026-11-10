@@ -172,7 +172,7 @@ pub async fn export_metrics_http(
         }
     }
 
-    service.series_label_gate.apply(token, &mut rows);
+    let labelled = service.series_label_gate.decide(token, &mut rows);
 
     let row_count = rows.len();
     if let Err(e) = service
@@ -186,6 +186,7 @@ pub async fn export_metrics_http(
             Json(json!({"error": "Internal server error"})),
         ));
     } else {
+        service.series_label_gate.commit(token, labelled);
         debug!(
             "Successfully sent {} metric data points to Kafka",
             row_count

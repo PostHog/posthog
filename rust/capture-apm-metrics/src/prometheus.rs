@@ -150,7 +150,7 @@ pub async fn export_prometheus_remote_write_http(
     // fingerprint them.
     service.k8s_resource_attributes.apply(&token, &mut rows);
     let mut rows = fold_classic_histograms(rows, &write_request.metadata);
-    service.series_label_gate.apply(&token, &mut rows);
+    let labelled = service.series_label_gate.decide(&token, &mut rows);
     let row_count = rows.len();
 
     if let Err(e) = service
@@ -164,6 +164,7 @@ pub async fn export_prometheus_remote_write_http(
             Json(json!({"error": "Internal server error"})),
         ));
     }
+    service.series_label_gate.commit(&token, labelled);
 
     debug!("Sent {row_count} remote-write data points to Kafka");
     Ok(StatusCode::NO_CONTENT)
