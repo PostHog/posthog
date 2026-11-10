@@ -548,6 +548,9 @@ jobs:
                         - added: '**/test_*.py'
                         - added: '**/*_test.py'
                         - added: '**/*.{test,spec}.{js,jsx,ts,tsx}'
+                        # That check and the other hogli commands in repo-checks import modules from
+                        # this tree, and the backend filter matches only the ones the test setup imports.
+                        - 'tools/hogli-commands/**'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through
