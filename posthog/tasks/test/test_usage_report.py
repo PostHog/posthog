@@ -2039,8 +2039,7 @@ class TestQueryUsageReportSQL:
         assert sponsor_params["sponsor_end"] == end + GATEWAY_SPONSORSHIP_LOOKAROUND
 
 
-@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
-class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
+class _ThreeOrgUsageReportTest(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     clickhouse_reset_materialized_event_properties = ("$exception_values",)
 
     def setUp(self) -> None:
@@ -2058,6 +2057,9 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
 
+
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
+class TestFeatureFlagsUsageReport(_ThreeOrgUsageReportTest):
     @snapshot_clickhouse_queries
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2317,24 +2319,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
 
 @time_machine.travel("2022-01-10T00:01:00Z", tick=False)
-class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
-    clickhouse_reset_materialized_event_properties = ("$exception_values",)
-
-    def setUp(self) -> None:
-        Team.objects.all().delete()
-        return super().setUp()
-
-    def _setup_teams(self) -> None:
-        self.analytics_org = Organization.objects.create(name="PostHog")
-        self.org_1 = Organization.objects.create(name="Org 1")
-        self.org_2 = Organization.objects.create(name="Org 2")
-
-        self.analytics_team = Team.objects.create(pk=2, organization=self.analytics_org, name="Analytics")
-
-        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
-        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
-        self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
-
+class TestSurveysUsageReport(_ThreeOrgUsageReportTest):
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_usage_report_survey_responses(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
@@ -2601,24 +2586,7 @@ class TestCaptureReportTrimsOversizePayload(TestCase):
 
 
 @time_machine.travel("2022-01-10T00:01:00Z", tick=False)
-class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
-    clickhouse_reset_materialized_event_properties = ("$exception_values",)
-
-    def setUp(self) -> None:
-        Team.objects.all().delete()
-        return super().setUp()
-
-    def _setup_teams(self) -> None:
-        self.analytics_org = Organization.objects.create(name="PostHog")
-        self.org_1 = Organization.objects.create(name="Org 1")
-        self.org_2 = Organization.objects.create(name="Org 2")
-
-        self.analytics_team = Team.objects.create(pk=2, organization=self.analytics_org, name="Analytics")
-
-        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
-        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
-        self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
-
+class TestExternalDataSyncUsageReport(_ThreeOrgUsageReportTest):
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_external_data_rows_synced_free_period_response(
@@ -3255,24 +3223,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
 
 @time_machine.travel("2022-01-10T00:01:00Z", tick=False)
-class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
-    clickhouse_reset_materialized_event_properties = ("$exception_values",)
-
-    def setUp(self) -> None:
-        Team.objects.all().delete()
-        return super().setUp()
-
-    def _setup_teams(self) -> None:
-        self.analytics_org = Organization.objects.create(name="PostHog")
-        self.org_1 = Organization.objects.create(name="Org 1")
-        self.org_2 = Organization.objects.create(name="Org 2")
-
-        self.analytics_team = Team.objects.create(pk=2, organization=self.analytics_org, name="Analytics")
-
-        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
-        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
-        self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
-
+class TestDWHStorageUsageReport(_ThreeOrgUsageReportTest):
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_data_in_s3_response(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
@@ -4098,24 +4049,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
 
 @time_machine.travel("2022-01-10T10:00:00Z", tick=False)
-class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
-    clickhouse_reset_materialized_event_properties = ("$exception_values",)
-
-    def setUp(self) -> None:
-        Team.objects.all().delete()
-        return super().setUp()
-
-    def _setup_teams(self) -> None:
-        self.analytics_org = Organization.objects.create(name="PostHog")
-        self.org_1 = Organization.objects.create(name="Org 1")
-        self.org_2 = Organization.objects.create(name="Org 2")
-
-        self.analytics_team = Team.objects.create(pk=2, organization=self.analytics_org, name="Analytics")
-
-        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
-        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
-        self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
-
+class TestErrorTrackingUsageReport(_ThreeOrgUsageReportTest):
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_posthog_exceptions_captured_response(
