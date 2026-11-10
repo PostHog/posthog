@@ -799,6 +799,18 @@ describe('HogFunctionHandler', () => {
         )
     })
 
+    const acceptEmailSends = (): void => {
+        const executeWithAsyncFunctions =
+            mockHogFlowFunctionsService.executeWithAsyncFunctions.bind(mockHogFlowFunctionsService)
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+            async (hogFunctionInvocation, options) => {
+                const functionResult = await executeWithAsyncFunctions(hogFunctionInvocation, options)
+                functionResult.emailSendResult = { status: 'accepted' }
+                return functionResult
+            }
+        )
+    }
+
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
     // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
     // carrying the handler's billing type — never fall back to another channel's kind.
@@ -831,6 +843,9 @@ describe('HogFunctionHandler', () => {
                 null,
                 usageReporter
             )
+            if (billingType === 'email') {
+                acceptEmailSends()
+            }
 
             const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
                 queue: 'hog',
@@ -946,6 +961,9 @@ describe('HogFunctionHandler', () => {
                 billingType,
                 null
             )
+            if (billingType === 'email') {
+                acceptEmailSends()
+            }
             // The run entered on v1; v3 is what is live now and what this step executes under.
             const republished = {
                 ...invocation,

@@ -263,8 +263,7 @@ export class HogFunctionHandler implements ActionHandler {
 
         // Add billable_invocation metric only if the function actually executed (not skipped)
         if (!functionResult.skipped) {
-            // A step that does not send leaves this undefined and bills as before.
-            if (functionResult.deliveredToRecipient !== false) {
+            if (this.isBillable(functionResult)) {
                 trackHogFlowBillableInvocation(result, {
                     invocation: functionResult.invocation,
                     billingMetricType: this.hogFlowActionBillingType,
@@ -340,6 +339,13 @@ export class HogFunctionHandler implements ActionHandler {
             result: functionResult.error ? undefined : functionResult.execResult,
             error: functionResult.error,
         }
+    }
+
+    private isBillable(functionResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>): boolean {
+        if (this.hogFlowActionBillingType === 'email') {
+            return functionResult.emailSendResult?.status === 'accepted'
+        }
+        return functionResult.deliveredToRecipient !== false
     }
 
     private parkForAwaitedRun(

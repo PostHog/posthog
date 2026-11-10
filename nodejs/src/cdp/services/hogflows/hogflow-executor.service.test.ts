@@ -3094,6 +3094,7 @@ describe('Hogflow Executor', () => {
     describe('billing metrics', () => {
         const createHogFlow = (flow: SimpleHogFlowRepresentation): HogFlow => {
             return new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
                 .withExitCondition('exit_on_conversion')
                 .withWorkflow({
                     actions: {
@@ -3266,6 +3267,101 @@ describe('Hogflow Executor', () => {
             )
             expect(emailBilling).toHaveLength(2)
         })
+
+        const suspendEmailSending = async (): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspended_at, email_sending_suspension_reason)
+                 VALUES ($1, false, 'off', now(), 'testing suspension')`,
+                [team.id],
+                'test-suspend-email-sending'
+            )
+        }
+
+        it.each<{
+            label: string
+            senderId?: unknown
+            toEmail?: string
+            verified?: boolean
+            suspended?: boolean
+            outcome: string
+        }>([
+            { label: 'the sender id is not a number', senderId: 'not-a-number', outcome: 'failed' },
+            { label: 'the sender no longer exists', senderId: 999_999_999, outcome: 'email_failed' },
+            { label: 'the sender domain is not verified', verified: false, outcome: 'email_failed' },
+            { label: 'email sending is suspended for the team', suspended: true, outcome: 'email_suspended' },
+            { label: 'the recipient has no email address', toEmail: '', outcome: 'email_missing_recipient' },
+        ])(
+            'does not bill an email step when $label',
+            async ({ senderId, toEmail = 'recipient@example.com', verified = true, suspended = false, outcome }) => {
+                await insertIntegration(hub.postgres, team.id, {
+                    id: integrationId,
+                    kind: 'email',
+                    config: {
+                        email: 'test@posthog.com',
+                        name: 'Test User',
+                        domain: 'posthog.com',
+                        verified,
+                        provider: 'maildev',
+                    },
+                })
+                if (suspended) {
+                    await suspendEmailSending()
+                }
+                await insertHogFunctionTemplate(hub.postgres, {
+                    id: 'template-email',
+                    name: 'Test Email Template',
+                    code: `sendEmail(inputs.email)`,
+                    inputs_schema: [
+                        {
+                            type: 'native_email',
+                            key: 'email',
+                            integration: 'email',
+                            required: true,
+                            templating: 'liquid',
+                        },
+                    ],
+                })
+                const hogFlow = createHogFlow({
+                    actions: {
+                        email: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-email',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: toEmail, name: 'Recipient' },
+                                            from: { integrationId: senderId ?? integrationId },
+                                            subject: 'Subject',
+                                            text: 'Text',
+                                            html: 'HTML',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email', type: 'continue' },
+                        { from: 'email', to: 'exit', type: 'continue' },
+                    ],
+                })
+
+                let result = await executor.execute(createExampleHogFlowInvocation(hogFlow))
+                const metrics = [...result.metrics]
+                while (!result.finished) {
+                    result = await executor.execute(result.invocation)
+                    metrics.push(...result.metrics)
+                }
+
+                const emailStepMetrics = metrics.filter((m) => m.instance_id === 'email').map((m) => m.metric_name)
+                expect(emailStepMetrics).toContain(outcome)
+                expect(emailStepMetrics).not.toContain('billable_invocation')
+            }
+        )
     })
 
     describe('email queue routing', () => {
