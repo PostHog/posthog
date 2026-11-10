@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { TileId } from 'scenes/web-analytics/common'
 import { getNewInsightUrlFactory } from 'scenes/web-analytics/insightsUtils'
 
 import { useMocks } from '~/mocks/jest'
@@ -105,6 +106,8 @@ describe('marketingAnalyticsLogic', () => {
         logic.mount()
         const tiles = marketingAnalyticsTilesLogic()
         tiles.mount()
+        expect(databaseTableListLogic.values.databaseLoading).toBe(true)
+        expect(tiles.values.tiles.map(({ tileId }) => tileId)).not.toContain(TileId.MARKETING)
         await expectLogic(logic).toFinishAllListeners()
         const breakdown = tiles.values.campaignCostsBreakdown
         expect(breakdown).not.toBeNull()
@@ -671,6 +674,13 @@ describe('marketingAnalyticsLogic', () => {
                 )
                 expect(logic.values.tileColumnSelection).toBe('reported_conversion')
             }
+            expect(tiles.values.tiles.map(({ tileId }) => tileId)).toContain(TileId.MARKETING)
+            // A sync reloads the schema, and the warehouse tables stay empty until it lands.
+            const settledChart = tiles.values.marketingChartTile.query
+            databaseTableListLogic.actions.loadDatabase({ force: true })
+            expect(databaseTableListLogic.values.databaseLoading).toBe(true)
+            expect(tiles.values.marketingChartTile.query).toEqual(settledChart)
+            await expectLogic(databaseTableListLogic).toFinishAllListeners()
             logic.actions.setShowConversionGoals(false)
             const overview = tiles.values.overviewTile.query as MarketingAnalyticsAggregatedQuery
             const table = tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery

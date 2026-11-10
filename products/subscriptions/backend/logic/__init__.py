@@ -91,6 +91,7 @@ def _capture_delivery_failed_event(
         distinct_id=str(distinct_id),
         event="subscription_delivery_failed",
         properties={
+            "$update_person_last_seen_at": False,
             "subscription_id": subscription.id,
             "team_id": subscription.team_id,
             "target_type": subscription.target_type,
