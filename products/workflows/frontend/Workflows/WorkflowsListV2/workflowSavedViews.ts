@@ -7,7 +7,7 @@ import {
     FacetFilter,
     FacetSearchValue,
     facetFilterKey,
-    findFacet,
+    resolvedFacetFilterKey,
     serializeFacetQuery,
 } from './FacetSearchBar/facetQuery'
 import { DEFAULT_COLUMNS, OPTIONAL_COLUMNS, OptionalColumn } from './workflowListLabels'
@@ -102,8 +102,7 @@ export function workflowViewState(value: FacetSearchValue, columns: OptionalColu
 }
 
 function resolvedValue<TItem>(facets: FacetDefinition<TItem>[], filter: FacetFilter): string {
-    const facet = findFacet(facets, filter.facet)
-    return (facet?.resolveValue?.(filter.value) ?? filter.value).toLowerCase()
+    return resolvedFacetFilterKey(facets, { ...filter, negated: false })
 }
 
 export function mergeAddedFilters<TItem>(
@@ -119,26 +118,28 @@ export function mergeAddedFilters<TItem>(
     return [...kept, ...added]
 }
 
-export function addedFiltersAfterEdit(
+export function addedFiltersAfterEdit<TItem>(
     previousFilters: FacetFilter[],
     previouslyAdded: FacetFilter[],
-    filters: FacetFilter[]
+    filters: FacetFilter[],
+    facets: FacetDefinition<TItem>[]
 ): FacetFilter[] {
-    const previousKeys = new Set(previousFilters.map((filter) => facetFilterKey(filter)))
-    const addedKeys = new Set(previouslyAdded.map((filter) => facetFilterKey(filter)))
-    return filters.filter(
-        (filter) => addedKeys.has(facetFilterKey(filter)) || !previousKeys.has(facetFilterKey(filter))
-    )
+    const key = (filter: FacetFilter): string => facetFilterKey(filter, facets)
+    const previousKeys = new Set(previousFilters.map(key))
+    const addedKeys = new Set(previouslyAdded.map(key))
+    return filters.filter((filter) => addedKeys.has(key(filter)) || !previousKeys.has(key(filter)))
 }
 
-export function filtersFromView(
+export function filtersFromView<TItem>(
     viewFilters: FacetFilter[],
     added: FacetFilter[],
-    filters: FacetFilter[]
+    filters: FacetFilter[],
+    facets: FacetDefinition<TItem>[]
 ): FacetFilter[] {
-    const viewKeys = new Set(viewFilters.map((filter) => facetFilterKey(filter)))
-    const addedKeys = new Set(added.map((filter) => facetFilterKey(filter)))
-    return filters.filter((filter) => viewKeys.has(facetFilterKey(filter)) && !addedKeys.has(facetFilterKey(filter)))
+    const key = (filter: FacetFilter): string => facetFilterKey(filter, facets)
+    const viewKeys = new Set(viewFilters.map(key))
+    const addedKeys = new Set(added.map(key))
+    return filters.filter((filter) => viewKeys.has(key(filter)) && !addedKeys.has(key(filter)))
 }
 
 export type SavedViewAction = 'save-as' | 'update' | 'rename' | 'delete' | 'restore' | 'reset'

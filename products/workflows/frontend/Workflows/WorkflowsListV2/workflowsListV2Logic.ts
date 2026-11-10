@@ -204,6 +204,7 @@ export interface workflowsListV2LogicValues {
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     facets: FacetDefinition<WorkflowListRow>[]
+    facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[]
     filesByRef: Record<string, FileSystemEntry>
     filteredRows: WorkflowListRow[]
     hasHealthFilter: boolean
@@ -365,11 +366,14 @@ export interface workflowsListV2LogicMeta {
         templateTypeFilter: (value: FacetSearchValue) => WorkflowTemplateTypeFilter
         rows: (workflows: HogFlowListSummaryApi[] | null, metrics: WorkflowStatsRowApi[] | null) => WorkflowListRow[]
         listLoaded: (workflows: HogFlowListSummaryApi[] | null) => boolean
-        facets: (
+        facetsFor: (
             rows: WorkflowListRow[],
             filesByRef: Record<string, FileSystemEntry>,
-            value: FacetSearchValue,
             user: UserType | null
+        ) => (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[]
+        facets: (
+            facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[],
+            value: FacetSearchValue
         ) => FacetDefinition<WorkflowListRow>[]
         matchesText: (serverSearch: ServerSearchResult | null) => MatchesText<WorkflowListRow>
         serverSearchStatus: (value: FacetSearchValue, serverSearch: ServerSearchResult | null) => ServerSearchStatus
@@ -612,20 +616,28 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 workflows ? buildWorkflowListRows(workflows, metrics) : [],
         ],
         listLoaded: [(s) => [s.workflows], (workflows: HogFlowListSummaryApi[] | null): boolean => workflows !== null],
-        facets: [
-            (s) => [s.rows, s.filesByRef, s.value, s.user],
+        facetsFor: [
+            (s) => [s.rows, s.filesByRef, s.user],
             (
                 rows: WorkflowListRow[],
                 filesByRef: Record<string, FileSystemEntry>,
-                value: FacetSearchValue,
                 user: UserType | null
-            ): FacetDefinition<WorkflowListRow>[] =>
-                buildWorkflowListFacets(rows, {
-                    viewer: user,
-                    filesByRef,
-                    includeDescendants:
-                        !!value.text.trim() || value.filters.some((filter) => filter.facet !== 'in' || filter.negated),
-                }),
+            ): ((value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[]) =>
+                (value) =>
+                    buildWorkflowListFacets(rows, {
+                        viewer: user,
+                        filesByRef,
+                        includeDescendants:
+                            !!value.text.trim() ||
+                            value.filters.some((filter) => filter.facet !== 'in' || filter.negated),
+                    }),
+        ],
+        facets: [
+            (s) => [s.facetsFor, s.value],
+            (
+                facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[],
+                value: FacetSearchValue
+            ): FacetDefinition<WorkflowListRow>[] => facetsFor(value),
         ],
         matchesText: [
             (s) => [s.serverSearch],

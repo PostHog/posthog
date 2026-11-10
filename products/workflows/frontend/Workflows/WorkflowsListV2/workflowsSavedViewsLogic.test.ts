@@ -11,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
@@ -44,6 +45,13 @@ const myWorkflows: WorkflowViewApi = {
     name: 'My workflows',
     default_key: 'my-workflows',
     state: { filters: [{ facet: 'createdBy', value: 'me', negated: false }], text: '', columns: ['owner'] },
+}
+
+const hidesArchive: WorkflowViewApi = {
+    ...savedView,
+    id: '00000000-0000-4000-8000-000000000004',
+    name: 'Not archived',
+    state: { filters: [{ facet: 'in', value: 'Archive', negated: true }], text: '', columns: [] },
 }
 
 describe('workflowsSavedViewsLogic', () => {
@@ -97,6 +105,7 @@ describe('workflowsSavedViewsLogic', () => {
     const eventTrigger: FacetFilter = { facet: 'trigger', value: 'event', negated: false }
     const adaOwns: FacetFilter = { facet: 'owner', value: 'ada', negated: false }
     const notMe: FacetFilter = { facet: 'createdBy', value: MOCK_DEFAULT_USER.uuid, negated: true }
+    const notInArchive = (value: string): FacetFilter => ({ facet: 'in', value, negated: true })
     const applyViewById = (id: string): void =>
         logic.actions.applyView(logic.values.views.find((view) => view.id === id)!)
 
@@ -124,7 +133,15 @@ describe('workflowsSavedViewsLogic', () => {
             [],
         ],
         ['a negated addition of the viewer replaces the view filter for me', myWorkflows.id, [notMe], [notMe], []],
+        [
+            'a hidden folder that differs only in case sits beside the view filter',
+            hidesArchive.id,
+            [notInArchive('archive')],
+            [notInArchive('Archive'), notInArchive('archive')],
+            [notInArchive('Archive')],
+        ],
     ])('when switching views, %s', async (_, viewId, added, expected, fromView) => {
+        storedViews = [savedView, hidesArchive]
         router.actions.push(urls.workflows(), { view: 'all' })
         logic = workflowsSavedViewsLogic()
         logic.mount()
@@ -341,6 +358,28 @@ describe('workflowsSavedViewsLogic', () => {
         expect(writes).toEqual([
             expect.objectContaining({ state: expect.objectContaining({ filters: [hideArchive, eventTrigger] }) }),
         ])
+    })
+
+    it('counts a view that hides a folder the same way the view lists it once opened', async () => {
+        storedViews = [savedView, hidesArchive]
+        router.actions.push(urls.workflows(), { view: 'all' })
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        await workflowsListV2Logic.asyncActions.loadWorkflows()
+        projectTreeDataLogic.actions.loadFolderSuccess(
+            'Archive/Old',
+            [{ id: 'archived', path: 'Archive/Old/Welcome', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id }],
+            false,
+            1
+        )
+        const everyWorkflow = workflowsListV2Logic.values.filteredRows.length
+        const countOnAll = logic.values.viewCounts[hidesArchive.id]
+
+        applyViewById(hidesArchive.id)
+
+        expect(countOnAll).toEqual(everyWorkflow - 1)
+        expect(workflowsListV2Logic.values.filteredRows).toHaveLength(countOnAll)
     })
 
     it('withholds health view counts when run metrics are unavailable', async () => {
