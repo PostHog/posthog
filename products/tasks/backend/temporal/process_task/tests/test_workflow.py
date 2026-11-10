@@ -4036,11 +4036,12 @@ class TestProcessTaskWorkflowUnit:
         async def in_flight_persist() -> None:
             await persist_finished.wait()
 
-        workflow._agent_memory_persist_task = asyncio.create_task(in_flight_persist())
+        in_flight = asyncio.create_task(in_flight_persist())
+        workflow._agent_memory_persist_task = in_flight
         persist_done_at_delivery: list[bool] = []
 
         async def send(**kwargs):
-            persist_done_at_delivery.append(workflow._agent_memory_persist_task.done())
+            persist_done_at_delivery.append(in_flight.done())
             return "delivered"
 
         monkeypatch.setattr(workflow, "_send_followup_to_sandbox", send)

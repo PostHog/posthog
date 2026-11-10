@@ -907,12 +907,18 @@ class TestSendFollowupActivityRefreshOrdering:
         )
         assert order == ["store_skills", "mcp"]
 
-    def test_non_slack_delivery_does_not_stamp(self, _patches):
+    @pytest.mark.parametrize("actor_user_id, locks", [(99, True), (42, False)])
+    def test_non_slack_delivery_stamps_only_the_memory_lock(self, _patches, actor_user_id, locks):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
 
-        _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99))
+        _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=actor_user_id))
 
-        _patches["task_run_cls"].update_state_atomic.assert_not_called()
+        if locks:
+            _patches["task_run_cls"].update_state_atomic.assert_called_once_with(
+                "run-1", updates={"agent_memory_locked": True}
+            )
+        else:
+            _patches["task_run_cls"].update_state_atomic.assert_not_called()
         _patches["refresh_store_skills"].assert_not_called()
 
     def test_default_scope_is_read_only(self, _patches):
