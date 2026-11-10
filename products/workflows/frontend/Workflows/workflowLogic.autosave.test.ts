@@ -1495,7 +1495,12 @@ describe('workflowLogic auto-save', () => {
                 get: {
                     '/api/environments/:team_id/hog_flows/:id/': { ...workflow, actions: [...workflow.actions, email] },
                 },
-                post: { '/api/projects/:team_id/workflow_email_drafts/': () => [200, (draftsGenerated += 1)] },
+                post: {
+                    '/api/projects/:team_id/workflow_email_drafts/': () => {
+                        draftsGenerated += 1
+                        return [200, {}]
+                    },
+                },
             })
             initKeaTests()
             logic = workflowLogic(props)
