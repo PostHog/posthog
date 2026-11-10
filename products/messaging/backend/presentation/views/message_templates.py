@@ -33,7 +33,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
-from posthog.api.file_system.file_system import validate_file_system_path
+from posthog.api.fields import OmittableBooleanField
+from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -373,6 +374,7 @@ class MessageTemplateSerializer(serializers.Serializer):
         return tags
 
     def validate(self, data: Any) -> Any:
+        validate_file_system_placement(data.get("_create_in_folder"), data.get("name"))
         template_type = data.get("type")
         email = data.get("content", {}).get("email") if data.get("content") else None
         # Only published content needs a subject. A draft may still be missing one.
@@ -557,7 +559,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         "decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with "
         "`template_id`, which refuses any file here.",
     )
-    capture_engagement = serializers.BooleanField(
+    capture_engagement = OmittableBooleanField(
         required=False,
         help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code "
         "rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned "

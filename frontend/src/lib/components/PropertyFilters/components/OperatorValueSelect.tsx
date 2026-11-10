@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 
 import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
@@ -240,6 +241,7 @@ export function OperatorValueSelect({
     }
 
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
+    const quillSurface = useQuillSurface()
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
@@ -416,8 +418,9 @@ export function OperatorValueSelect({
             </div>
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propertyKey && (
                 <div
-                    // High flex-grow for proper sizing within TaxonomicPropertyFilter
-                    className="shrink grow-[1000] min-w-[10rem] overflow-hidden"
+                    // High flex-grow for proper sizing within TaxonomicPropertyFilter. In quill a zero basis
+                    // keeps the value on the key's line until it would be narrower than its minimum width.
+                    className={clsx('shrink grow-[1000] min-w-[10rem] overflow-hidden', quillSurface && 'basis-0')}
                     data-attr="taxonomic-value-select"
                 >
                     {(type === PropertyFilterType.Span && (propertyKey === 'kind' || propertyKey === 'status_code')) ||

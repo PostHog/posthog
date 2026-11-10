@@ -32,6 +32,8 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     /** TTL in seconds for local cache entries */
     ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
+    /** Max entries in the local cache before LRU eviction */
+    ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: number
     /**
      * When true (default, matching the previous hardcoded behavior), redirects
      * to the overflow lane keep the event's original partition key. When
@@ -68,6 +70,7 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes
         ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
+        ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: 50_000,
         ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY: true,
         ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: 1_800_000,
         INGESTION_PIPELINE: null,

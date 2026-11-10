@@ -49,7 +49,7 @@ from posthog.api.app_metrics2 import (
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
-from posthog.api.file_system.file_system import validate_file_system_path
+from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
@@ -3713,6 +3713,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # `_create_in_folder` is the file-system convention, but MCP tools drop underscore fields, so agents send `folder`.
         folder = validated.pop("folder", None)
         if folder and self.instance is None and not validated.get("_create_in_folder"):
+            try:
+                validate_file_system_placement(folder, validated.get("name"))
+            except serializers.ValidationError as error:
+                detail = error.detail
+                raise serializers.ValidationError(
+                    {"folder": detail["_create_in_folder"] if isinstance(detail, dict) else detail}
+                )
             validated["_create_in_folder"] = folder
         return validated
 
@@ -3793,6 +3800,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)
         is_draft = self.context.get("is_draft")
+        validate_file_system_placement(data.get("_create_in_folder"), data.get("name"))
 
         # Reject duplicate action ids on any client-submitted actions array (create/update/graph), on
         # every path - not just the surgical /graph endpoint where validate_graph enforces it. Secret
@@ -4936,8 +4944,6 @@ def _validate_merge_keys(field: str, items: Any) -> None:
 
 
 class HogFlowListSummarySerializer(HogFlowSummarySerializer):
-    """One row of the workflows list: the summary fields and the workflow type, without the step graph."""
-
     type = serializers.ChoiceField(
         source="workflow_type",
         choices=HogFlowType.choices,

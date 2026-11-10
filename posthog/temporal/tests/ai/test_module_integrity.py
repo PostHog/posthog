@@ -128,6 +128,8 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
+            "check_signals_ai_consent_activity",
+            "discard_signal_batches_activity",
             "update_signal_spend_activity",
             "poll_monitoring_assessment_activity",
             "exhaust_monitoring_assessment_activity",
