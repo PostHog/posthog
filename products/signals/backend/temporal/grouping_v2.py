@@ -37,6 +37,12 @@ BATCH_COLLECT_MAX_SIGNALS = 20
 BATCH_COLLECT_TIMEOUT = timedelta(seconds=30)
 RETRY_BACKOFF = timedelta(seconds=10)
 
+
+def _is_terminal_batch_error(error: BaseException) -> bool:
+    cause = getattr(error, "cause", None) or error.__cause__ or error
+    return bool(getattr(cause, "non_retryable", False))
+
+
 # Patch ID for the multi-batch collection change. Once all in-flight workflows
 # that recorded history under the old single-batch code have drained (they
 # continue_as_new every iteration, so this is fast), replace this
@@ -238,21 +244,28 @@ class TeamSignalGroupingV2Workflow:
                 self._signals_processed_counter.add(len(collected.signals))
             if self._signals_dropped_counter is not None and dropped > 0:
                 self._signals_dropped_counter.add(dropped)
-        except Exception:
+        except Exception as e:
             logger.exception(
                 "Failed to process signal batch",
                 team_id=input.team_id,
                 batch_size=len(collected.signals),
                 batch_keys=collected.object_keys,
             )
-            # Stash keys back so they're retried after continue_as_new.
-            # Sleep first to avoid hot-looping on deterministic failures.
-            self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
-            for key in collected.object_keys:
-                self._failed_rounds_by_batch_key[key] = self._failed_rounds_by_batch_key.get(key, 0) + 1
-            if self._batch_buffer_size_gauge is not None:
-                self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
-            await workflow.sleep(RETRY_BACKOFF)
+            if _is_terminal_batch_error(e):
+                logger.warning(
+                    "Dropping signal batch that can never succeed",
+                    team_id=input.team_id,
+                    batch_keys=collected.object_keys,
+                )
+            else:
+                # Stash keys back so they're retried after continue_as_new.
+                # Sleep first to avoid hot-looping on deterministic failures.
+                self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
+                for key in collected.object_keys:
+                    self._failed_rounds_by_batch_key[key] = self._failed_rounds_by_batch_key.get(key, 0) + 1
+                if self._batch_buffer_size_gauge is not None:
+                    self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+                await workflow.sleep(RETRY_BACKOFF)
 
         # continue_as_new after each processing round to keep history bounded.
         # Carry over any pending keys that arrived while we were processing.

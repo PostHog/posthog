@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+import httpx
 import numpy as np
 import structlog
 import temporalio
@@ -18,6 +19,7 @@ import posthoganalytics
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ApplicationError
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.schema import EmbeddingModelName
@@ -130,6 +132,8 @@ async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbed
             f"Failed to generate embedding for team {input.team_id}: {e}",
             team_id=input.team_id,
         )
+        if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 403:
+            raise ApplicationError(str(e), non_retryable=True) from e
         raise
 
 
