@@ -73,7 +73,7 @@ const MAX_CHANGED_FILES = 100
 const AVG_STORY_DURATION_SECONDS = 6
 // Shards the full chromium matrix uses, i.e. CHROMIUM_SHARDS in ci-storybook.yml.
 // Overridden by --max-shards, which the workflow passes.
-const DEFAULT_FULL_SHARDS = 28
+const DEFAULT_FULL_SHARDS = 40
 const STORY_RE = /\.stories\.(tsx?|mdx|jsx?)$/
 // Per-story render times, keyed by story path, refreshed nightly by
 // ci-storybook-update-test-timing.yml. The same file the test sequencer balances with.
