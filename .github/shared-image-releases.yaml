@@ -69,6 +69,159 @@ filters:
         - bin/temporal-django-worker
         - manage.py
         - Dockerfile
+    alertsPlatformSharedOrchestration:
+        - 'products/alerts_platform/backend/**'
+        - posthog/metrics.py
+        - posthog/sync.py
+        - posthog/dataclasses.py
+        - posthog/enums.py
+        - 'posthog/temporal/common/**'
+        - 'posthog/management/commands/start_temporal_worker.py'
+        - 'posthog/settings/temporal.py'
+        - posthog/schema.py
+        - posthog/schema_enums.py
+        - posthog/schema_discriminators.py
+        - 'posthog/models/**'
+        - 'posthog/migrations/**'
+        - 'products/*/backend/migrations/**'
+        - 'posthog/clickhouse/migrations/**'
+        - posthog/exceptions.py
+        - pyproject.toml
+        - uv.lock
+        - bin/temporal-django-worker
+        - manage.py
+        - Dockerfile
+    alertsPlatformEvaluation:
+        - 'products/alerts_platform/backend/**'
+        - 'products/alerts/backend/**'
+        - 'products/logs/backend/**'
+        - 'products/billing_alerts/backend/**'
+        - 'products/metrics/backend/**'
+        - 'products/tracing/backend/**'
+        - 'products/warehouse_sources/backend/facade/**'
+        - products/warehouse_sources/backend/types.py
+        - products/warehouse_sources/backend/temporal/sync_alert_evaluate.py
+        - 'products/warehouse_sources/backend/sync_alerts/**'
+        - 'products/warehouse_sources/backend/models/**'
+        - products/warehouse_sources/backend/presentation/views/external_data_source/helpers.py
+        - 'products/warehouse_sources/backend/logic/**'
+        - products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py
+        - 'products/warehouse_sources/backend/temporal/data_imports/sources/common/**'
+        - 'products/warehouse_sources/backend/temporal/data_imports/sources/*/source.py'
+        - 'products/warehouse_sources/sources/*/source.py'
+        - 'products/access_control/backend/**'
+        - 'products/product_analytics/backend/facade/**'
+        - products/product_analytics/backend/logic.py
+        - 'products/product_analytics/backend/models/**'
+        - 'products/product_analytics/backend/hogql_queries/trends/**'
+        - 'products/product_analytics/backend/hogql_queries/funnels/**'
+        - 'products/web_analytics/backend/hogql_queries/**'
+        - products/marketing_analytics/backend/facade/queries.py
+        - 'products/marketing_analytics/backend/hogql_queries/**'
+        - 'products/analytics_platform/backend/lazy_computation/**'
+        - 'products/cdp/backend/models/**'
+        - products/cdp/backend/facade/models.py
+        - products/cdp/backend/internal_events.py
+        - 'products/exports/backend/facade/**'
+        - 'products/exports/backend/models/**'
+        - products/exports/backend/tasks/failure_handler.py
+        - 'posthog/temporal/alerts/**'
+        - 'posthog/tasks/alerts/**'
+        - posthog/query_creator_access.py
+        - posthog/permissions.py
+        - posthog/api/snuffle_proxy.py
+        - 'posthog/caching/**'
+        - 'posthog/query_cache/**'
+        - 'posthog/api/services/**'
+        - 'posthog/schema_migrations/**'
+        - posthog/temporal/exports/workflows.py
+        - 'posthog/storage/**'
+        - 'ee/billing/**'
+        - ee/models/license.py
+        - posthog/cloud_utils.py
+        - posthog/redis.py
+        - posthog/errors.py
+        - 'posthog/slack/**'
+        - 'posthog/egress/slack/**'
+        - 'posthog/egress/observability/**'
+        - 'posthog/integrations/**'
+        - posthog/helpers/encrypted_fields.py
+        - posthog/jwt.py
+        - posthog/sync.py
+        - posthog/dataclasses.py
+        - posthog/enums.py
+        - 'posthog/hogql*/**'
+        - 'posthog/clickhouse/**'
+        - 'posthog/temporal/common/**'
+        - 'posthog/management/commands/start_temporal_worker.py'
+        - 'posthog/settings/temporal.py'
+        - posthog/schema.py
+        - posthog/schema_enums.py
+        - posthog/schema_discriminators.py
+        - 'posthog/models/**'
+        - 'posthog/migrations/**'
+        - 'products/*/backend/migrations/**'
+        - posthog/exceptions.py
+        - 'common/hogvm/**'
+        - pyproject.toml
+        - uv.lock
+        - bin/temporal-django-worker
+        - manage.py
+        - Dockerfile
+    alertsPlatformDelivery:
+        - 'products/alerts_platform/backend/**'
+        - 'products/alerts/backend/**'
+        - 'products/logs/backend/**'
+        - 'products/metrics/backend/alerts/**'
+        - 'products/tracing/backend/alerts/**'
+        - 'products/warehouse_sources/backend/sync_alerts/**'
+        - 'products/notifications/backend/**'
+        - 'products/access_control/backend/**'
+        - 'products/signals/backend/**'
+        - 'products/cdp/backend/models/**'
+        - products/cdp/backend/facade/models.py
+        - products/cdp/backend/internal_events.py
+        - 'products/exports/backend/facade/**'
+        - 'products/exports/backend/models/**'
+        - 'posthog/tasks/alerts/**'
+        - posthog/tasks/email.py
+        - posthog/user_permissions.py
+        - 'ee/billing/**'
+        - ee/models/license.py
+        - posthog/cloud_utils.py
+        - posthog/email.py
+        - posthog/templates/email/alert_platform_notification.html
+        - posthog/templates/email/base.html
+        - posthog/templates/email/styles.html
+        - 'posthog/slack/**'
+        - 'posthog/egress/slack/**'
+        - 'posthog/egress/observability/**'
+        - 'posthog/integrations/**'
+        - 'posthog/security/**'
+        - posthog/helpers/encrypted_fields.py
+        - posthog/jwt.py
+        - 'posthog/kafka_client/**'
+        - posthog/sync.py
+        - posthog/dataclasses.py
+        - posthog/enums.py
+        - 'posthog/hogql*/**'
+        - 'posthog/clickhouse/**'
+        - 'posthog/temporal/common/**'
+        - 'posthog/management/commands/start_temporal_worker.py'
+        - 'posthog/settings/temporal.py'
+        - posthog/schema.py
+        - posthog/schema_enums.py
+        - posthog/schema_discriminators.py
+        - 'posthog/models/**'
+        - 'posthog/migrations/**'
+        - 'products/*/backend/migrations/**'
+        - posthog/exceptions.py
+        - 'common/hogvm/**'
+        - pyproject.toml
+        - uv.lock
+        - bin/temporal-django-worker
+        - manage.py
+        - Dockerfile
 
 images:
     posthog-cloud:
@@ -85,3 +238,15 @@ images:
                 repository: posthog-temporal-workers/data-warehouse-metadata
                 filter: dataWarehouseMetadata
                 bootstrapPolicyDigest: 49975342dfa3dce5f0c4767e2bc90c295a7ce12cfb5daaa99075026f20dd3620
+            alerts-platform-shared-orchestration:
+                repository: posthog-temporal-workers/alerts-platform-shared-orchestration
+                filter: alertsPlatformSharedOrchestration
+                bootstrapPolicyDigest: c791e9b76f8ea8c99c144df3efccbba7bdf62c8bfd57a78e23b525ca2483468e
+            alerts-platform-evaluation:
+                repository: posthog-temporal-workers/alerts-platform-evaluation
+                filter: alertsPlatformEvaluation
+                bootstrapPolicyDigest: 0402adcf9be4ebad789a444175df2ceff24c5c6fd7fff8167e451cfc91b147b4
+            alerts-platform-delivery:
+                repository: posthog-temporal-workers/alerts-platform-delivery
+                filter: alertsPlatformDelivery
+                bootstrapPolicyDigest: 9bdb6c09352d9d254e449e085485aa98693d30713a48f91112b19adc4b31e45c
