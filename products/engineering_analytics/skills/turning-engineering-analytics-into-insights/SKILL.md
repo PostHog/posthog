@@ -1,92 +1,75 @@
 ---
 name: turning-engineering-analytics-into-insights
-description: >
-  Converts engineering analytics (PR / CI) data into saved PostHog insights, dashboards, and subscriptions, and
-  explains how to query the product data directly with SQL. Covers discovering per-team GitHub warehouse tables via
-  engineering-analytics-sources, replicating curated column semantics in HogQL, reading exposed
-  engineering_analytics_* warehouse views where product logic is involved (CI cost, fingerprinted failure lines,
-  commit attribution), saving queries with insight-create, and scheduling delivery with subscriptions-create. Use
-  when asked to "save this as an insight", "put CI health / merge times on a dashboard", "email me PR throughput
-  weekly", "chart CI cost", "track time to first review", "subscribe to these numbers", "alert on CI success rate",
-  or "what data/tables/views does engineering analytics read". For ad-hoc CI and merge questions use
-  diagnosing-ci-and-merge-bottlenecks; to investigate one specific CI failure use investigating-ci-failures.
+description: 'Turns engineering analytics (PR and CI) data into saved PostHog insights, dashboards, and subscriptions, and explains how to query the data with SQL. Covers finding the per-team GitHub warehouse tables with engineering-analytics-sources, writing HogQL that matches the product''s own rules, reading the managed engineering_analytics_* warehouse views for CI cost, job history, and fingerprinted failures, saving queries with insight-create, and scheduling delivery with subscriptions-create. Use when asked to "save this as an insight", "put CI health or merge times on a dashboard", "email me PR throughput weekly", "chart CI cost", "track time to first review", "subscribe to these numbers", "alert on CI success rate", or "what tables and views does engineering analytics read". For one-off CI and merge questions use diagnosing-ci-and-merge-bottlenecks. To investigate one CI failure use investigating-ci-failures.'
 ---
 
 # Turning engineering analytics into insights and subscriptions
 
-The engineering analytics dashboard and MCP tools (`pull-requests`, `workflow-health`, `pr-lifecycle`, `engineering-analytics-broken-tests`, …)
-run curated HogQL privately: nothing in the UI or the tool output names the underlying tables,
-and the endpoints cannot themselves be saved as insights or subscribed to.
-The data, however, is queryable directly, through two substrates:
+You cannot save an engineering analytics MCP tool's output as an insight or subscribe to it.
+The same data is queryable with HogQL, and a SQL insight over it can go on a dashboard or into a subscription.
 
-- **Raw warehouse tables** — `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`,
-  `<prefix>github_workflow_jobs`, `<prefix>github_reviews`, and `<prefix>github_teams` /
-  `<prefix>github_team_members` (org team membership — the author→team map) — ordinary team-scoped tables you query with HogQL.
-- **Three curated warehouse views** with fixed names — `engineering_analytics_job_costs`,
-  `engineering_analytics_ci_job_history`, `engineering_analytics_ci_failures` — provisioned per team from the
-  connected GitHub source(s).
-  Non-materialized: computed at query time, always current, and they back insights and subscriptions like any table.
+## Where the data lives
 
-The views exist for exactly one reason: they render **product code** into SQL — the runner-tier cost model, the
-failure-fingerprint recipe, the jobs↔runs commit-attribution rules — logic that would silently drift if hand-rolled,
-re-rendered into the team's view whenever the code changes. Everything else is just table data, and **pure HogQL over
-the raw tables is always enough**: never create additional warehouse views for engineering analytics data, and never
-re-derive in SQL what the three views already encode.
+| Data                                                    | Where to query it                                              | Insight?                      |
+| ------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------- |
+| PRs, merge times, workflow runs                         | `<prefix>github_pull_requests`, `<prefix>github_workflow_runs` | Yes                           |
+| Job durations and queue times                           | `<prefix>github_workflow_jobs`                                 | Yes                           |
+| Reviews and approvals                                   | `<prefix>github_reviews`                                       | Yes                           |
+| Team-level PR metrics                                   | `<prefix>github_team_members`, as a membership filter          | Yes, as team aggregates only  |
+| CI cost per job attempt                                 | `engineering_analytics_job_costs` view                         | Yes                           |
+| Job history with commit attribution                     | `engineering_analytics_ci_job_history` view                    | Yes                           |
+| Fingerprinted pytest failure lines                      | `engineering_analytics_ci_failures` view                       | Yes, for short recent windows |
+| Flaky tests, broken tests, team CI health, failure logs | MCP tools only                                                 | No                            |
 
-| What the product shows                                      | Where the data actually lives                                                        | Can it back an insight?                        |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------- |
-| PR list, merge times, CI status, workflow health            | Data warehouse tables `<prefix>github_pull_requests`, `<prefix>github_workflow_runs` | **Yes** (SQL insight over the tables)          |
-| Reviews and approvals                                       | `<prefix>github_reviews`                                                             | **Yes**                                        |
-| Team-level PR metrics (author→team attribution)             | `<prefix>github_team_members` semi-joined against the PR authors                     | **Yes** (team aggregates only)                 |
-| Job durations, queue times, runner tiers                    | `<prefix>github_workflow_jobs`                                                       | **Yes**                                        |
-| CI cost (runner-tier price ladder)                          | `engineering_analytics_job_costs` view                                               | **Yes** (query the view, never recompute cost) |
-| Per-job CI history with commit attribution                  | `engineering_analytics_ci_job_history` view                                          | **Yes**                                        |
-| Grouped (fingerprinted) CI failure lines                    | `engineering_analytics_ci_failures` view (reads the Logs product, short retention)   | **Yes**, for short recent windows              |
-| Thinned CI failure logs for a PR or run                     | Logs product (`service_name = 'github-ci-logs'`) + thinning logic                    | No (use the MCP tools ad hoc)                  |
-| Flaky-test leaderboard, broken-tests triage, team CI health | CI trace spans + ranking/classification logic in product code                        | No (use the MCP tools ad hoc)                  |
+The three views have fixed names and no prefix.
+A project has them once someone has opened engineering analytics and a GitHub source syncs both workflow runs and workflow jobs.
+They are not materialized, so each query computes them from current data.
+The two job views also include Depot CI jobs, which the raw GitHub tables do not hold.
 
-So the job splits cleanly:
-warehouse-backed metrics (raw tables or the three views) become SQL insights (then dashboards, then subscriptions);
-everything computed by product logic at request time stays on the MCP tools, delivered recurringly via an AI subscription if needed.
+Some projects also have three materialized views: `engineering_analytics_pr_friction`, `engineering_analytics_ci_runs`, and `engineering_analytics_ci_jobs`.
+Use them only after a test query shows they exist.
 
-## Step 1: discover the team's tables
+Never create more warehouse views for this data, and never rewrite in SQL what a view already computes.
 
-Warehouse table names carry a user-chosen prefix, so never hardcode them.
-Call the `engineering-analytics-sources` MCP tool: each connected GitHub source returns its `id`, `repo`, and `prefix`.
-The tables are `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`, `<prefix>github_workflow_jobs`, `<prefix>github_reviews`, and `<prefix>github_teams` / `<prefix>github_team_members`;
-an empty prefix means the plain `github_*` names.
-With multiple sources, ask which repo the user means; each source is one repo.
+## Step 1: find the tables
 
-The three `engineering_analytics_*` views need no discovery: their names are fixed (no prefix), and they cover all of
-the team's GitHub sources at once — filter on `repo_owner` / `repo_name` (`job_costs`, `ci_job_history`) or `repo`
-(`ci_failures`, which reads the Logs product rather than the per-source tables) to scope down to one repo.
+Table names carry a prefix the user chose, so never hardcode them.
+Call `engineering-analytics-sources`.
+It returns one entry per repository, with `id`, `repo`, `prefix`, and `synced`.
 
-## Step 2: write HogQL that carries the curated semantics
+- A source's original repo uses the plain names, such as `<prefix>github_pull_requests`.
+- Every other repo of the same source has a repo-qualified table name. The tool's description gives the naming rule.
+- With several entries, ask which repo the user means.
 
-First check whether one of the three views already answers the question — cost, per-job history and commit
-attribution, fingerprinted failure lines — and query it directly; the rules below are for the raw tables.
+The views cover every GitHub source of the project.
+Filter `repo_owner` and `repo_name` on the two job views, or `repo` on `engineering_analytics_ci_failures`, to keep one repo.
 
-The raw tables land GitHub's JSON verbatim, so a naive `SELECT` gets the domain rules wrong.
-Copy the base subqueries from [references/hogql-recipes.md](references/hogql-recipes.md) (they mirror the product's own curated builders) and follow these rules:
+## Step 2: write the HogQL
 
-- **Timestamps are strings.** Always `parseDateTimeBestEffort(created_at)` etc. before comparing or diffing.
-- **Nested JSON is Nullable.** `ifNull(...)`-unwrap before `JSONExtractArrayRaw` / `splitByChar`: ClickHouse rejects an Array inside a Nullable.
-- **CI ↔ PR attribution is by PR number** (the run's `pull_requests` association), never by head SHA: the PR snapshot keeps only the current head, so a SHA join silently drops every push but the latest. head SHA is only for a PR's _current_ CI status (latest run per `(head_sha, workflow_name)`).
-- **Bot detection**: `author_handle LIKE '%[bot]' OR author_handle IN ('dependabot', 'github-actions', 'posthog-bot', 'renovate')`. Exclude bots and drafts from throughput / merge-time metrics by default.
-- **Honest names.** `merged_at - created_at` is `open_to_merge_seconds` (it fuses draft and review time); never label an insight "cycle time" or "review time".
-- **Conclusions can be stale.** The runs sync watermarks on `created_at`; a run that completes late can show a stale conclusion. Compute rates over `status = 'completed'` rows only.
-- **Reviews join by `pr_number`.** In `github_reviews`, `state` is `APPROVED` / `CHANGES_REQUESTED` / `COMMENTED` / `DISMISSED` (pending drafts are dropped at sync), and the injected `pr_number` joins to the PR table's `number`.
-- **Author→team attribution is a membership semi-join.** Filter `author_handle IN (SELECT member_handle FROM …)` against `github_team_members` (see the team recipe) — the shape the product's own team merge trend uses. A person can belong to several GitHub teams, so a plain JOIN would double-count their PRs across teams; and only team-level aggregates leave the query, never per-member figures.
+First check whether a view already answers the question.
 
-Test the query with the `execute-sql` MCP tool (or the SQL editor) before saving anything.
+The raw tables hold GitHub's JSON as strings, so a plain `SELECT` gets the rules wrong.
+Copy the base subqueries from [references/hogql-recipes.md](references/hogql-recipes.md) and follow these rules:
 
-## Step 3: save it as an insight
+- Timestamps are strings. Wrap each in `parseDateTimeBestEffort` before you compare or subtract.
+- JSON columns are Nullable. Wrap each in `ifNull` before `JSONExtractArrayRaw` or `splitByChar`.
+- Attribute a CI run to a PR by PR number, from the run's own PR association. A head SHA join drops every push except the latest.
+- Exclude bots and drafts from throughput and merge-time metrics.
+- `merged_at` minus `created_at` is `open_to_merge_seconds`. It includes draft time, so never title an insight "cycle time" or "review time".
+- Compute success rates over `status = 'completed'` rows. A run's conclusion arrives by webhook and can lag.
+- Join reviews to PRs on `pr_number`.
+- Attribute PRs to a team with `author_handle IN (SELECT ...)` over the team members table. A plain join double-counts authors who belong to several teams.
+- On the two job views, bound `created_at` and add a string floor such as `created_at_raw >= '<YYYY-MM-DD>'`. The floor lets the scan skip old data.
 
-Use `insight-create` with a SQL insight:
+Test the query with the `execute-sql` tool before you save anything.
+
+## Step 3: save the insight
+
+Call `insight-create` with a SQL insight:
 
 ```json
 {
-  "name": "Weekly PR open→merge time (hours)",
+  "name": "Weekly PR open to merge time (hours)",
   "query": {
     "kind": "DataVisualizationNode",
     "source": { "kind": "HogQLQuery", "query": "<tested SQL>" }
@@ -94,39 +77,30 @@ Use `insight-create` with a SQL insight:
 }
 ```
 
-`display` (a `ChartDisplayType`, e.g. `ActionsLineGraph`) and `chartSettings` (`xAxis` / `yAxis` columns) turn the table into a chart;
-when unsure, save it and let the user pick the visualization in the UI, linking the returned insight URL.
-Bake a relative window into the SQL (`>= now() - INTERVAL 90 DAY`);
-note that a hard-coded date filter means dashboard date overrides won't apply to this tile.
-Bundle several insights with `dashboard-create`.
+- If you are unsure of the chart type, save the table and link the insight so the user picks one.
+- Put a relative window in the SQL, such as `>= now() - INTERVAL 90 DAY`. Tell the user that dashboard date filters will not change it.
+- Use `dashboard-create` to group several insights.
 
 ## Step 4: subscribe
 
-With the insight (or dashboard) saved, this is standard subscription territory: follow the `managing-subscriptions` skill for the `subscriptions-create` payload, channels, frequency, and AI-summary options.
+Follow the `managing-subscriptions` skill for the `subscriptions-create` payload, channels, and frequency.
 
-For "notify me when X" (a condition, not a schedule): alerts require a trends insight, so a SQL insight can't be alerted today.
-Offer a scheduled subscription instead, or a threshold check inside a prompt-kind AI subscription.
+Alerts support only trends insights, so a SQL insight cannot have one.
+For "notify me when X", offer a scheduled subscription, or a threshold check in an AI subscription.
 
-## What NOT to rebuild in SQL
+## What stays on the MCP tools
 
-The **flaky-test ranking**, **broken-tests classification**, **team CI health rollup**, and **failure-log thinning** are product logic over data an insight can't reach (CI trace spans, raw log bodies);
-hand-rolled SQL versions will silently drift from what the dashboard shows.
-For a recurring report on those, create a prompt-kind AI subscription (see the `creating-ai-subscription` skill) whose prompt asks for the relevant engineering analytics reading each period,
-or just call the MCP tools (`engineering-analytics-flaky-tests`, `engineering-analytics-broken-tests`, `engineering-analytics-team-ci-health`, `engineering-analytics-ci-failure-logs`, `engineering-analytics-run-failure-logs`) ad hoc.
+Flaky-test ranking, broken-test classification, team CI health, and failure-log thinning apply rules that live in product code.
+Do not copy them into SQL.
+For a recurring report on those, create an AI subscription with the `creating-ai-subscription` skill.
+Have its prompt call `engineering-analytics-flaky-tests`, `engineering-analytics-broken-tests`, or `engineering-analytics-team-ci-health`.
 
-CI **cost** is not on that list because its product logic is rendered into the
-`engineering_analytics_job_costs` view (parity-tested against the product's own model, re-rendered when the model
-changes), so cost insights are plain SQL over the view — and the cost MCP tools (`engineering-analytics-pr-cost`,
-`engineering-analytics-workflow-runner-costs`) read that same rendered SELECT, so the numbers agree. Still: never
-recompute dollar cost from runner labels yourself.
+For cost, query the `engineering_analytics_job_costs` view, which runs the same cost query as the cost tools.
+Never compute dollar cost from runner labels yourself.
 
-## Caveats to carry into every insight
+## Caveats to write into the insight description
 
-Name these in the insight description so future readers inherit them:
-`open_to_merge_seconds` is coarse (draft + review fused);
-CI conclusions can lag until the run's webhook settles;
-`estimated_cost_usd` NULL means non-billable or still running, never zero — disambiguate via `provider` vs `completed_at`;
-`ci_failures` is pytest-only and failure-only, so its counts are absolute signal, never rates;
-bots and drafts are excluded (or not: say which).
-And never build per-author leaderboards or cross-author rankings; per-developer surveillance is an explicit product non-goal.
-When a team-level split is wanted, group through the `github_team_members` membership semi-join instead.
+- Say whether the insight excludes bots and drafts.
+- A null `estimated_cost_usd` means the job was not billable or has not finished. It never means zero.
+- `engineering_analytics_ci_failures` holds pytest failures only and no passing runs, so its counts are absolute and never rates.
+- Never build a ranking of authors or reviewers. For a team split, use the team membership filter and return team aggregates only.

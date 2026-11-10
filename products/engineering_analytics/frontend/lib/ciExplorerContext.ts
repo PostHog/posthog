@@ -1,6 +1,3 @@
-// What the Context tab compares: the selected workflow, matrix, job, or step against its recent runs on the
-// default branch.
-
 import type { CITimingContextApi, CITimingSampleApi } from '../generated/api.schemas'
 import { CIEngine, statusLabel } from './ciExplorerDetails'
 import { CIExplorerWorkflow, elapsedSeconds, jobsOf, resolveNode, workflowJobs } from './ciExplorerGraph'
@@ -31,7 +28,6 @@ export interface CIContextSelection {
     stepNumber: number | null
 }
 
-/** The selection the Context tab describes, or null when nothing comparable is focused. */
 export function contextSelection(
     workflows: CIExplorerWorkflow[],
     nodeId: string | null,
@@ -112,7 +108,7 @@ export function deltaPercent(selection: CIContextSelection, context: CITimingCon
     return Math.round((selection.currentSeconds / context.average_seconds - 1) * 100)
 }
 
-/** Where a matched run can be read at its source. Depot CI has no public page for a run, so that one stays in PostHog. */
+/** Depot CI has no public page for a run, so that one stays in PostHog. */
 export function sampleUrl(
     repoOwner: string,
     repoName: string,

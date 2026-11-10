@@ -1,6 +1,3 @@
-"""A team scope matches pull request authors through the ``team_members`` snapshot, the same
-author-to-team rule the DORA team filter uses."""
-
 from dataclasses import fields
 from datetime import timedelta
 from typing import Self
@@ -13,8 +10,8 @@ from products.engineering_analytics.backend.facade.contracts import DeliveryScop
 from products.engineering_analytics.backend.logic._shared import _require_repo
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
-# How far before the window a merged PR's CI is still counted. A PR merged in the window usually
-# ran its CI days before; older runs are left out so the runs and jobs scans stay bounded.
+# How far before the window a PR's CI is still read. Older runs are left out to bound the runs
+# and jobs scans.
 CI_LOOKBACK = timedelta(days=30)
 
 _FIELDS_BY_KIND = {
@@ -42,7 +39,7 @@ class DeliveryScope:
     def from_params(
         cls, *, author: str | None, github_team: str | None, pr_number: int | None, repo: str | None
     ) -> Self:
-        """Build a scope from caller input; raises ValueError unless exactly one scope is given."""
+        """Raises ValueError unless exactly one of author, github_team or pr_number is given."""
         author = (author or "").strip() or None
         github_team = (github_team or "").strip() or None
         given = [value for value in (author, github_team, pr_number) if value is not None]
@@ -76,9 +73,8 @@ class DeliveryScope:
         }
 
     def pr_predicate(self, curated: CuratedGitHubSource, *, prefix: str = "pr.") -> str:
-        """A SQL predicate over curated pull request columns (``prefix`` qualifies them) that is true for
-        the pull requests in scope. A team scope without membership data matches nothing, so a team
-        figure is never silently the whole repository."""
+        """A SQL predicate over curated pull request columns. A team scope without membership data
+        matches nothing, so a team figure is never the whole repository."""
         if self.kind == DeliveryScopeKind.AUTHOR:
             return f"{prefix}author_handle = {{scope_author}}"
         if self.kind == DeliveryScopeKind.GITHUB_TEAM:
@@ -97,8 +93,6 @@ class DeliveryScope:
 
 @frozen
 class SummaryScope(DeliveryScope):
-    """A scope the delivery summary can read: one author or one GitHub team, never one pull request."""
-
     def __post_init__(self) -> None:
         DeliveryScope.__post_init__(self)
         if self.kind == DeliveryScopeKind.PULL_REQUEST:

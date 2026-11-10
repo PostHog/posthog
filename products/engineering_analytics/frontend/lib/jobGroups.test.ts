@@ -1,8 +1,6 @@
 import { failedShardsLabel, groupJobs, jobBaseName, stripShardSuffix } from './jobGroups'
 
-// Names below are taken verbatim from real PostHog/posthog runs (see run 28576193541: a
-// master push carries ~80 jobs across a multi-dimension Django matrix, sharded and
-// list-valued product-test groups, and unexpanded templates when a matrix was skipped).
+// The names are taken verbatim from PostHog/posthog runs (see run 28576193541).
 const DJANGO_CORE = 'Django tests – Core (persons-on-events off), Py 3.13.13, clickhouse:26.3.10'
 const DJANGO_TEMPORAL = 'Django tests – Temporal (persons-on-events off), Py 3.13.13, clickhouse:26.3.10'
 const DJANGO_TEMPLATE =
@@ -10,12 +8,11 @@ const DJANGO_TEMPLATE =
 
 describe('jobGroups', () => {
     test.each([
-        // the nested-paren shard: the closing paren must survive the strip
+        // The closing paren of a nested shard must survive the strip.
         ['Product tests (experiments (1/2))', 'Product tests (experiments)'],
         ['Product tests (web-analytics)', 'Product tests (web-analytics)'],
         [`${DJANGO_CORE} (3/23)`, DJANGO_CORE],
         ['Lint & types', 'Lint & types'],
-        // a bare "(G/N)" suffix without an outer paren group
         ['e2e (chromium) (5/8)', 'e2e (chromium)'],
     ])('stripShardSuffix(%s)', (name, expected) => {
         expect(stripShardSuffix(name)).toBe(expected)
@@ -27,7 +24,7 @@ describe('jobGroups', () => {
         ['Product tests (logs, ai-observability)', 'Product tests'],
         ['Repo checks (depot-ubuntu-latest)', 'Repo checks'],
         ['Django Tests Pass', 'Django Tests Pass'],
-        // unexpanded template from a skipped matrix must not crash or leak "${{"
+        // An unexpanded template from a skipped matrix must not crash or leak "${{".
         [DJANGO_TEMPLATE, 'Django tests'],
     ])('jobBaseName(%s)', (name, expected) => {
         expect(jobBaseName(name)).toBe(expected)
@@ -59,7 +56,7 @@ describe('jobGroups', () => {
     })
 
     test.each([
-        // any running job keeps the group open, but a failure wins over running
+        // A running job keeps the group open, but a failure wins over running.
         [[null, 'success'], 'running'],
         [['failure', null], 'failure'],
         [['timed_out', 'success'], 'failure'],

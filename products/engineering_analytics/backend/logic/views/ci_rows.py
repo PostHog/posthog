@@ -1,5 +1,5 @@
-"""The stored CI rows: two materialized managed views, one per grain, that data modeling updates
-in place every 15 minutes. SPEC.md section 5 has the design.
+"""The stored CI rows: a runs view and a jobs view that data modeling materializes and updates in
+place. SPEC.md section 5 has the design.
 """
 
 from collections.abc import Sequence
@@ -29,9 +29,7 @@ JOBS_VIEW_NAME = "engineering_analytics_ci_jobs"
 
 SYNC_FREQUENCY = timedelta(minutes=15)
 
-# Almost every run settles within a day of its creation, so two days of lookback re-read the few
-# that settle later without re-reading much. A run that settles later than that is read again only
-# by a full build.
+# A run that settles later than this after its creation keeps its stored snapshot until a full build.
 LOOKBACK = timedelta(days=2)
 
 
@@ -41,8 +39,8 @@ _INCREMENTAL_CONFIG: dict[str, Any] = {
     "lookback_seconds": int(LOOKBACK.total_seconds()),
 }
 
-# A rerun replaces the run snapshot. Depot's stable job ID also replaces a carried-over copy
-# when that job executes again with a new attempt ID.
+# The run key lets a rerun replace the run's snapshot. The job key uses Depot's stable job ID, so a
+# job that executes again under a new attempt ID replaces its carried-over copy.
 RUN_INCREMENTAL_CONFIG = {**_INCREMENTAL_CONFIG, "unique_key": ["source_id", "ci_engine", "id"]}
 JOB_INCREMENTAL_CONFIG = {
     **_INCREMENTAL_CONFIG,
@@ -167,8 +165,8 @@ class CIViewQueries:
 
 
 def build_views(sources: Sequence[JobSourceTables]) -> CIViewQueries:
-    """The runs view and the jobs view over these sources. The reader compares a stored definition
-    against this output, so it is the one place that assembles either view."""
+    """Both view bodies over ``sources``. The reader compares a stored definition against this
+    output, so no other code may assemble either view."""
     return CIViewQueries(
         runs="\nUNION ALL\n".join(runs_select(source) for source in sources),
         jobs="\nUNION ALL\n".join(jobs_select(source) for source in sources),
@@ -176,6 +174,6 @@ def build_views(sources: Sequence[JobSourceTables]) -> CIViewQueries:
 
 
 def build_team_views(team: "Team") -> CIViewQueries | None:
-    """Both views over every qualifying source of the team, or None when there is none."""
+    """Both view bodies, or None when the team has no source with runs and jobs synced."""
     sources = resolve_job_source_tables(team)
     return build_views(sources) if sources else None

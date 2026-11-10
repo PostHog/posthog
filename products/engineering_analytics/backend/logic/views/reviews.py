@@ -1,11 +1,6 @@
-"""Curated pull request reviews query builder.
+"""The reviews builder. The source drops PENDING drafts, so every row is a submitted review.
 
-The review verdict vocabulary lives here once, so consumers import the constants rather than
-restating the strings.
-
-The source drops PENDING drafts, so every row is a submitted review. The webhook path reshapes events
-into the polled REST shape, so ``upper`` normalizes the state and a lowercase verdict cannot miss the
-approval filter.
+``state`` is uppercased because the webhook path can land a lowercase verdict.
 """
 
 APPROVED_STATE = "APPROVED"
@@ -13,7 +8,6 @@ CHANGES_REQUESTED_STATE = "CHANGES_REQUESTED"
 
 
 def build_query(table_name: str) -> str:
-    # A row with no parsable submitted_at cannot be ordered against the PR's other events.
     return f"""
         SELECT id, pr_number, reviewer_login, state, submitted_at
         FROM (

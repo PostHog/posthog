@@ -12,7 +12,7 @@ const MARKS: Record<NonNullable<CIEngine>, { viewBox: string; path: string }> = 
     },
 }
 
-/** The logo of the CI provider that ran a workflow. It names the provider, not the runner hardware. */
+/** The mark names the CI provider, not the runner hardware. */
 export function CIExplorerProviderMark({ engine }: { engine: CIEngine | undefined }): JSX.Element | null {
     if (!engine) {
         return null

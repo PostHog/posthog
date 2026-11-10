@@ -89,7 +89,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
                   sourceId
               )
             : null
-    // Run started → first job started: the runner-capacity wait before anything executed.
+    // The gap from run start to first job start is the wait for runner capacity.
     const jobStarts = (jobs ?? []).map((job) => job.started_at).filter((at): at is string => !!at)
     const queueSeconds =
         run?.run_started_at && jobStarts.length

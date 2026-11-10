@@ -1,19 +1,7 @@
-"""Curated query: per-workflow CI health over a window.
+"""Per-workflow CI health over a window, and the time from a push to green CI.
 
-Run counts, success rate, and duration percentiles per ``workflow_name`` for runs
-started within ``[date_from, date_to]`` (``date_to`` optional), optionally scoped to
-a single ``head_branch`` and/or one ``run_scope`` group. Rates are over conclusive
-runs (success or a decisive failure), so skipped, cancelled, neutral, and action-required
-runs never read as failures. Duration percentiles are over successful runs only because
-cancelled, skipped, and failed runs end early and would bias a "how long does CI take"
-percentile low. They are ``None`` for a window with no successful runs. No-op gate runs
-are excluded from the percentiles too, with an all-successful fallback for legitimately
-all-fast workflows (see ``run_duration_percentile_expr``), so the Workflows table agrees
-with the activity chart and the detail-page KPIs.
-
-The per-bucket history adapts its granularity to the window length (hour / day / week)
-so the trend sparkline keeps a readable number of points — per-day buckets are useless
-for a 24h window and far too many for a year.
+Success rates count only runs that reached a pass-or-fail verdict. Duration percentiles count only
+successful runs, because a run that fails or is cancelled ends early, and are None when none succeeded.
 """
 
 from dataclasses import dataclass
@@ -61,7 +49,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
 
 _LIMIT = 100
-# Generous bound: _LIMIT workflows x at most ~366 daily buckets.
+# Must cover _LIMIT workflows times the most buckets pick_granularity gives one window.
 _BUCKET_LIMIT = 40000
 
 _SELECT = f"""
@@ -92,10 +80,8 @@ _SELECT = f"""
     LIMIT {_LIMIT}
 """
 
-# Success rate over the equal-length window before date_from, the delta baseline the UI renders as
-# an honest Δpp instead of a server-baked percentage. Kept as its own slim scan so the main query's
-# window (and its LIMIT semantics) stay untouched. It is an unranked lookup, so capping it at _LIMIT
-# would drop workflows _SELECT ranked and make them read as "no previous window".
+# Success rate over the equal-length window before date_from. The rows are unranked, so a cap of
+# _LIMIT would drop workflows that _SELECT returned and make them read as having no previous window.
 _PREV_SELECT = f"""
     SELECT
         repo_owner,
@@ -108,8 +94,8 @@ _PREV_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# Merge-queue run counts with no branch or run_scope filter, over the workflows the main query returned.
-# The explicit LIMIT stops HogQL's default 100-row cap from dropping gating rows.
+# Merge-queue run counts with no branch or run_scope filter, for the workflows _SELECT returned.
+# _SELECT returns at most _LIMIT workflows, so the same LIMIT drops none of them.
 _GATING_SELECT = f"""
     SELECT
         repo_owner,
@@ -140,25 +126,13 @@ _BUCKET_SELECT = f"""
 """
 
 
-# A push round is one (repo, head_sha): every workflow GitHub fired for that push. The measure is the
-# wall from the round's first run start to the moment its last workflow first completed benign: the
-# question a PR author asks ("how long until this push is green"), which no single run answers.
-#
-# Each workflow anchors on its FIRST benign completion, never its latest run: a flake re-run stretches
-# the wall to its recovery, while a re-fire after the round already went green cannot stretch it
-# retroactively. Benign is wider than success (a path-filtered workflow reports 'skipped' and holds
-# nothing back) and narrower than "not a decisive failure": a cancelled run reached no verdict.
-#
-# A round that can't be measured honestly is a non-sample, never a shorter one:
-#   - a workflow with no benign completion (still running, or it never passed)
-#   - no workflow that actually succeeded, so the round only ever skipped
-#   - partial attribution: fork-PR runs land unassociated, so a per-run ``pr_number`` filter would
-#     read a fork push as green in seconds. A round with any unattributed sibling drops out whole.
-#
-# Known overstatement: a workflow whose first run on the SHA lands late (marking a draft ready fires
-# workflows a draft never ran) stretches the wall, because the round really wasn't green until it
-# passed, so the wall then also covers the hours the PR sat in draft. Distinguishing that from a
-# slow queue would need a re-fire gap threshold, which is a number nobody can defend.
+# A push round is every workflow run of one (repo, head_sha). Its time to green runs from the first
+# run start to the moment the last workflow first completed as success, skipped, or neutral. Each
+# workflow counts its first such completion, so a re-run after the round went green adds nothing.
+# A round with any run that has no PR number drops out whole: fork-PR runs carry none, and a per-run
+# filter would read a fork push as green in seconds.
+# Known overstatement: marking a draft ready starts workflows the draft never ran, so the time then
+# includes the hours the PR sat in draft.
 _TIME_TO_GREEN_CTES = f"""
     WITH workflows_on_push AS (
         SELECT
@@ -221,10 +195,9 @@ def query_time_to_green_series(
     date_to: datetime | None,
     granularity: Granularity,
 ) -> list[TimeToGreenBucket]:
-    """Median wall clock from a push round's first run start to all its workflows first green, per
-    bucket, oldest first, keyed on the bucket the round started in. Only fully green, fully attributed
-    rounds are samples (``_TIME_TO_GREEN_SELECT`` has the exclusions and the one known overstatement);
-    an empty bucket carries ``p50_seconds`` None (a gap, not instant CI)."""
+    """Median time to green per bucket, oldest first, keyed on the bucket the push round started in.
+    ``_TIME_TO_GREEN_CTES`` defines which rounds are samples. A bucket with no sample has
+    ``p50_seconds`` None."""
     placeholders: dict[str, ast.Expr] = {
         "scan_from": ast.Constant(value=date_from),
         "run_started_floor": run_started_floor_constant(date_from),
@@ -248,8 +221,7 @@ def query_time_to_green_series(
 
 @dataclass(frozen=True, kw_only=True)
 class TimeToGreenWindow:
-    """Median wall clock for a fully green push round over a window and its previous twin — the
-    same population and exclusions as the time-to-green series."""
+    """Each median is None when its window has no sampled round."""
 
     median_seconds: float | None
     median_seconds_prev: float | None
@@ -262,8 +234,7 @@ def query_time_to_green_window(
     date_to: datetime | None,
     prev_from: datetime,
 ) -> TimeToGreenWindow:
-    """Window-level time-to-green medians for [date_from, date_to] and [prev_from, date_from], one
-    scan, keyed on the bucketless equivalent of the series' round_start."""
+    """Medians for [date_from, date_to] and [prev_from, date_from). A round belongs to the window it started in."""
     windows = window_pair_predicates("round_start", date_to=date_to)
     placeholders: dict[str, ast.Expr] = {
         "scan_from": ast.Constant(value=prev_from),
@@ -304,7 +275,6 @@ def query_workflow_health(
     workflow_clause = workflow_name_filter_clause(workflow_name, placeholders)
 
     prev_from = _prior_window(date_from, date_to).scan_from
-    # One source feeds both the current and the previous window, so it must cover the earlier start.
     runs_source = curated.run_source(started_floor=True, since=prev_from)
 
     def fill(template: str) -> str:
@@ -338,8 +308,8 @@ def query_workflow_health(
             lambda: curated.run(
                 fill(_PREV_SELECT),
                 query_type="engineering_analytics.workflow_health_prev",
-                # The prev window scans [prev_from, date_from); its scan floor must come from prev_from, not
-                # date_from, or the raw prefilter would cut every previous-window row before the parsed filter.
+                # The scan floor must come from prev_from. A floor from date_from would cut every
+                # previous-window row.
                 placeholders={
                     **placeholders,
                     "prev_from": ast.Constant(value=prev_from),
@@ -377,9 +347,8 @@ def query_workflow_health(
             bucket_start=key, run_count=run_count, completed=completed, successes=successes, failures=failures
         )
 
-    # Under an active branch or scope filter the main query's merge-queue count answers the filtered
-    # population, which cannot rank workflows: under merge_queue every row would look gating, under
-    # pull_request none would. So read the count from an unfiltered scan of the same window instead.
+    # A branch or scope filter makes the main query's merge-queue count describe the filter, not the
+    # workflow, so the count then comes from an unfiltered scan of the same window.
     scoped = bool(branch_clause or run_scope_clause)
     gating_by_workflow: dict[tuple[str, str, str], int] = {}
     if scoped:
@@ -409,11 +378,9 @@ def query_workflow_health(
             p50_seconds=opt_float(p50_seconds),
             p95_seconds=opt_float(p95_seconds),
             last_failure_at=last_failure_at,
-            # argMaxIf defaults to 0 when nothing completed; the completed_count guard tells
-            # "latest run passed" apart from "no completed run yet".
+            # argMaxIf returns 0 when nothing completed, so completed_count separates "the latest run
+            # passed" from "no run completed yet".
             latest_run_failed=bool(latest_failed) if completed_count else None,
-            # The raw conclusion of that latest completed run, so the UI can tell a real pass from a
-            # cancelled/skipped run (both have latest_run_failed false). None when nothing completed.
             latest_run_conclusion=(latest_conclusion or None) if completed_count else None,
             latest_run_id=int(latest_run_id) if completed_count else None,
             latest_ci_engine=CIEngine(latest_ci_engine) if completed_count else None,

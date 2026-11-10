@@ -1,6 +1,4 @@
-// A run's jobs with matrix shards rolled up (lib/jobGroups, the same rule as the backend's SQL
-// de-shard); failing groups sort first and name their failed shards. Groups expand via the caret only,
-// because links inside rows must stay clickable.
+// Groups expand through the caret only, because links inside rows must stay clickable.
 
 import { LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
@@ -48,7 +46,6 @@ function groupSpan(group: WorkflowJobGroup): GroupSpan {
     }
 }
 
-/** Earliest-start → latest-finish envelope of the group's shards on the run's shared time axis. */
 function TimingEnvelope({
     span,
     conclusion,
@@ -133,14 +130,11 @@ function resultTag(group: WorkflowJobGroup): JSX.Element {
             </LemonTag>
         )
     }
-    // The shared conclusion→tag convention; RunConclusionTag renders null as Running.
+    // RunConclusionTag renders null as Running.
     return <RunConclusionTag conclusion={group.conclusion === 'running' ? null : group.conclusion} />
 }
 
-/**
- * Grouped jobs of one workflow-run attempt. ``jobs == null`` is the not-loaded state; ``[]`` means the
- * job-level source isn't synced for this team (mirrors RunJobsTable's contract).
- */
+/** `jobs == null` is the not-loaded state. `[]` means the job-level source isn't synced for this team. */
 export function GroupedJobsTable({
     jobs,
     loading,
@@ -187,7 +181,6 @@ export function GroupedJobsTable({
             useURLForSorting={false}
             expandable={{
                 noIndent: true,
-                // Only matrix groups expand, straight to their individual shards.
                 rowExpandable: (group) => group.jobs.length > 1,
                 expandedRowRender: (group) => (
                     <div className="px-3 py-2">

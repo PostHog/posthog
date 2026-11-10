@@ -44,14 +44,13 @@ describe('workflowSwitcherLogic', () => {
     })
 
     it('loads lazily on first open only, keeping just the workflows of the scoped repo', async () => {
-        // Mounting alone must not fetch — detail pages shouldn't pay for the list until the dropdown opens.
+        // Mounting alone must not fetch, because detail pages shouldn't pay for the list until the dropdown opens.
         expect(mockWorkflowHealth).not.toHaveBeenCalled()
 
         logic.actions.ensureWorkflowsLoaded()
         await expectLogic(logic).toDispatchActions(['loadWorkflowNamesSuccess'])
         expect(logic.values.workflowNames).toEqual(['Frontend CI', 'Backend CI'])
 
-        // Re-opening the dropdown reuses the loaded list.
         logic.actions.ensureWorkflowsLoaded()
         await expectLogic(logic).toFinishAllListeners()
         expect(mockWorkflowHealth).toHaveBeenCalledTimes(1)

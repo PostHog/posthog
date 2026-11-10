@@ -96,8 +96,8 @@ describe('runHealth', () => {
     })
 
     it('keeps no-op runs in counts and pass rate but out of the duration percentiles', () => {
-        // A workflow dominated by no-op gate runs (e.g. a preview deploy that mostly decides "not
-        // eligible" in ~4s) must not read as having a ~4s median — that hides the real CI duration.
+        // A workflow dominated by no-op gate runs must not report their median, because that hides
+        // the real CI duration.
         const summary = computeHealthSummary([
             { conclusion: 'success', durationSeconds: 4, startedAt: at(9) },
             { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
@@ -112,8 +112,8 @@ describe('runHealth', () => {
     })
 
     it('falls back to every duration when a workflow is legitimately all-fast', () => {
-        // An intentionally quick workflow (a guard check finishing in seconds) has no "real" runs by
-        // the no-op definition — its median must come from what it has, not read as missing.
+        // An intentionally quick workflow has no "real" runs by the no-op definition, so its median
+        // must come from the runs it has.
         const summary = computeHealthSummary([
             { conclusion: 'success', durationSeconds: 3, startedAt: at(9) },
             { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
@@ -123,8 +123,8 @@ describe('runHealth', () => {
     })
 
     it('lets a lone real duration win over no-op noise', () => {
-        // With exactly one real execution among gate runs, falling back to all durations would let
-        // the no-ops drown it (~4s median) — the single real sample is the honest answer.
+        // With one real execution among gate runs, a fallback to all durations would let the no-ops
+        // drown it.
         const summary = computeHealthSummary([
             { conclusion: 'success', durationSeconds: 4, startedAt: at(9) },
             { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
@@ -250,35 +250,32 @@ describe('runHealth', () => {
     ): CostableJob => ({ runner_provider, duration_seconds, estimated_cost_usd })
 
     it.each<[string, CostableJob[], RunCostSummary | null]>([
-        // Nothing billable (all free / unknown) → null so the caller omits the tile instead of showing $0.
+        // Null lets the caller omit the tile instead of showing $0.
         ['no billable jobs → null', [job('github_hosted', 600, null), job('unknown', 600, null)], null],
-        // Settled self-hosted jobs sum; free runners are ignored.
         [
             'sums settled self-hosted, ignores free',
             [job('self_hosted', 120, 0.5), job('self_hosted', 60, 0.25), job('github_hosted', 600, null)],
             { billableMinutes: 3, estimatedCostUsd: 0.75, unsettledJobs: 0 },
         ],
-        // A still-running (no duration) billable job is excluded from the total and counted as unsettled —
-        // counting it would understate $/min or report a bogus 0.
+        // A running billable job stays out of the total, because counting it would understate $/min or
+        // report a bogus 0.
         [
             'in-flight billable job is unsettled, not in the total',
             [job('self_hosted', 120, 0.5), job('self_hosted', null, null)],
             { billableMinutes: 2, estimatedCostUsd: 0.5, unsettledJobs: 1 },
         ],
-        // Every billable job still in flight → keep the tile (null value) plus the unsettled caveat.
         [
             'all in flight → null value, caveat only',
             [job('self_hosted', null, null)],
             { billableMinutes: null, estimatedCostUsd: null, unsettledJobs: 1 },
         ],
-        // A finished self-hosted job with no cost is an unpriced tier (non-Linux Depot), excluded — NOT
-        // unsettled. It must not keep the "unsettled job excluded" caveat alive on a completed run.
+        // A finished self-hosted job with no cost ran on an unpriced tier (non-Linux Depot). It must not
+        // keep the "unsettled job excluded" caveat alive on a completed run.
         [
             'finished uncostable self-hosted job is excluded, not unsettled',
             [job('self_hosted', 120, 0.5), job('self_hosted', 300, null)],
             { billableMinutes: 2, estimatedCostUsd: 0.5, unsettledJobs: 0 },
         ],
-        // Every billable job finished on an unpriced tier → nothing to show, omit the tile (no dangling "—").
         [
             'all billable jobs finished but unpriced → null',
             [job('self_hosted', 300, null), job('self_hosted', 120, null)],

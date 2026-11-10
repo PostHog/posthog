@@ -1,16 +1,7 @@
-"""The curated read layer over a team's GitHub warehouse tables.
+"""The curated read layer over a team's resolved GitHub warehouse tables.
 
-``CuratedGitHubSource`` binds one team to its resolved ``pull_requests`` / ``workflow_runs``
-table names (see ``logic.sources``) and is the single object the query modules use: it hands
-out the curated ``SELECT`` subqueries and the CI rollup CTE, and runs the assembled HogQL.
-The resolved table names live inside it, so the query layer never threads or re-derives them.
-The product reads its data privately this way — nothing is registered as a global HogQL view,
-keeping it off the per-query catalog hot path.
-
-Every SQL fragment is built from trusted constants and the resolved table identifiers (which
-the resolver has validated to ``[A-Za-z_][A-Za-z0-9_]*``). User-supplied values must always
-flow through ``ast.Constant`` placeholders in the calling query, never be string-substituted
-into these fragments.
+Every SQL fragment is built from trusted constants and resolved table identifiers. User-supplied
+values must go through ``ast.Constant`` placeholders, never string substitution.
 """
 
 import math
@@ -88,10 +79,10 @@ _DEPOT_RUN_IDS = "ea_depot_run_ids"
 def _scope_github_table(table: str, column: Literal["id", "run_id"], *, scoped: bool) -> str:
     if not scoped:
         return table
-    # Bounds let Parquet prune before the dynamic IN set is available. Array membership alone is linear.
+    # The bounds let the Parquet scan prune, which the IN set alone cannot do.
     bounds = f"{column} >= arrayMin({_GITHUB_RUN_IDS}) AND {column} <= arrayMax({_GITHUB_RUN_IDS})"
     membership = f"{column} IN (SELECT arrayJoin({_GITHUB_RUN_IDS}))"
-    # Missing IDs cannot make this conservative prefilter discard otherwise attributable rows.
+    # Rows with a NULL id stay, so the prefilter never discards a row the builders could attribute.
     return f"(SELECT * FROM {table} WHERE (({bounds} AND {membership}) OR {column} IS NULL))"
 
 
@@ -105,8 +96,6 @@ class _IssueEventsWindow:
 
 @frozen
 class DeploySources:
-    """The curated deploy pair's ``SELECT`` subqueries, resolved and gated together."""
-
     deployments: str
     statuses: str
 
@@ -127,13 +116,11 @@ def push_rows_select(*, runs_source: str, run_filter: str) -> str:
 
 @dataclass(frozen=True, kw_only=True)
 class ReadyToMergeSql:
-    """The SQL for reading per-PR ready-to-merge seconds (SPEC §6), in the three pieces a query
-    substitutes. They are only valid together: ``cte`` belongs in the query's ``WITH`` list, ``join``
-    in its ``FROM`` clause with the PR source aliased ``pr``, and ``expr`` reads the joined row.
+    """The SQL for per-PR ready-to-merge seconds, in three pieces that are valid only together.
 
-    When the optional issue-events table isn't synced ``expr`` degrades to a constant NULL and the
-    other two are empty, so a caller substitutes all three unconditionally rather than branching on
-    whether the measure is observable.
+    ``cte`` goes in the ``WITH`` list, ``join`` in the ``FROM`` clause with the PR source aliased
+    ``pr``, and ``expr`` reads the joined row. When the issue-events table isn't synced, ``expr`` is
+    a constant NULL and the other two are empty, so a caller can substitute all three unconditionally.
     """
 
     cte: str
@@ -142,8 +129,7 @@ class ReadyToMergeSql:
 
     @property
     def observable(self) -> bool:
-        """False when ``expr`` is the constant NULL, so a query whose only output is this measure
-        can skip a scan that could return nothing else."""
+        """False when ``expr`` is the constant NULL."""
         return bool(self.cte)
 
     @property
@@ -152,9 +138,8 @@ class ReadyToMergeSql:
         return f"WITH {self.cte} " if self.cte else ""
 
     def median(self, *, scope: str) -> str:
-        """The measure's p50 over the rows matching ``scope``. Unobservable degrades to the NULL
-        expression itself, not a percentile over it: an aggregate needs a column type to work on,
-        and a bare NULL literal has none."""
+        """The measure's p50 over the rows matching ``scope``, or the bare NULL when unobservable,
+        because an aggregate cannot type a NULL literal."""
         return f"quantileIf(0.5)({self.expr}, {scope})" if self.observable else self.expr
 
 
@@ -164,13 +149,10 @@ READY_TO_MERGE_UNOBSERVABLE = ReadyToMergeSql(cte="", join="", expr="NULL")
 def _ready_to_merge_expr(window: _IssueEventsWindow) -> str:
     """Per-PR ready-to-merge seconds, read off the ``ready_by_pr`` join.
 
-    Last transition is a ready -> merged_at minus it; no transition rows and the PR's whole
-    open-to-merge life inside the observed window -> never left ready, so open-to-merge IS
-    ready-to-merge; otherwise NULL (re-drafted, or unobservable). Both window bounds are load-
-    bearing: created_at before the window means pre-window flips are possible, and merged_at past
-    the window means the transitions may simply not have synced yet (every merge lands a `merged`
-    issue event, so an in-range merge with no transition rows is proof of never drafting). The
-    coalesce guards normalize a missed join, which lands NULL or 0 depending on join_use_nulls.
+    A PR with no transition rows was never a draft only when its whole open-to-merge span lies
+    inside the observed window. A PR created before the window may have changed state unobserved,
+    and one merged after it may have transitions that have not synced. A missed join lands NULL or
+    0 depending on join_use_nulls, so the coalesce accepts both.
     """
     return f"""multiIf(
             pr.merged_at IS NULL, NULL,
@@ -183,13 +165,8 @@ def _ready_to_merge_expr(window: _IssueEventsWindow) -> str:
 
 
 class CuratedGitHubSource:
-    """A team's curated GitHub read layer, bound to its resolved warehouse tables.
-
-    Construct once per request with ``for_team`` — it resolves the table names and raises
-    ``GitHubSourceNotConnectedError`` when the team has no connected GitHub source, so the
-    "is a source connected" decision lives in exactly one place (the resolver). The query
-    modules then ask the returned instance for the curated subqueries and run HogQL through it.
-    """
+    """A team's curated GitHub read layer, bound to its resolved warehouse tables. Construct it once
+    per request with ``for_team``, which raises when the team has no connected GitHub source."""
 
     def __init__(
         self,
@@ -217,21 +194,17 @@ class CuratedGitHubSource:
 
     @property
     def team(self) -> Team:
-        """The team this handle reads for — query builders need it for timezone-aware date parsing."""
         return self._team
 
     @property
     def repository(self) -> str:
-        """The selected source's ``owner/name`` identity for reads outside the warehouse."""
+        """The selected source's ``owner/name``."""
         return self._tables.repository
 
     @property
     def source_id(self) -> str:
         """The selected source, which the resolver already filtered by the caller's access.
-
-        A read outside the warehouse that needs a GitHub credential takes it from this source, so
-        it never reads with a credential of a source the caller is not allowed to use.
-        """
+        A read that needs a GitHub credential must take it from this source."""
         return self._tables.source_id
 
     @classmethod
@@ -254,7 +227,6 @@ class CuratedGitHubSource:
         )
 
     def pr_source(self) -> str:
-        """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""
         return f"({pull_requests.build_query(self._tables.pull_requests)})"
 
     def run_source(
@@ -265,12 +237,13 @@ class CuratedGitHubSource:
         live: bool = False,
         scoped: bool = False,
     ) -> str:
-        """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery. ``started_floor``
-        adds the raw-string scan floor — callers must register {run_started_floor} (see
-        run_started_floor_constant). ``since`` is the read's window start; the stored rows serve a
-        read only when they cover it, and an unbounded read never (see ``MaterializedCI.covers``).
-        ``live`` preserves current-status reads and raw step lookups. ``scoped`` bounds every raw CI
-        scan to the runs the query names: wrap the query in ``scoped_to_run`` or
+        """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery.
+
+        ``started_floor`` adds the raw-string scan floor, and the caller must register
+        {run_started_floor} (see ``run_started_floor_constant``). ``since`` is the read's window
+        start: the stored rows serve the read only when they cover it, and never when it is None.
+        ``live`` always reads the raw tables. ``scoped`` bounds every raw CI scan to the runs the
+        query names, and the caller must wrap the query in ``scoped_to_run`` or
         ``scoped_to_pr_history``."""
         if not live and (stored := self._stored_ci_covering(since)):
             return f"({stored.runs(started_floor=started_floor)})"
@@ -291,13 +264,11 @@ class CuratedGitHubSource:
     ) -> str | None:
         """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced.
 
-        ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
-        {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
-        ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it.
-        ``since`` is the read's window start, as for ``run_source``.
-
-        ``include_steps`` appends the raw ``steps`` JSON column, for a read bounded to one run.
-        ``scoped`` is as for ``run_source``. It also bounds the duplicate and hand-off evidence scans."""
+        ``created_floor`` adds the raw-string scan floor, and the caller must register
+        {job_created_floor} (see ``job_created_floor_constant``). A windowed caller needs it, because
+        nothing else bounds the builder's ``is_rerun_copy`` duplicate scan. ``since`` and ``scoped``
+        work as for ``run_source``. ``include_steps`` appends the raw ``steps`` JSON column and
+        always reads the raw tables."""
         if not self._tables.workflow_jobs:
             return None
         if not include_steps and (stored := self._stored_ci_covering(since)):
@@ -310,8 +281,7 @@ class CuratedGitHubSource:
         return f"({query})"
 
     def _depot_job_attempts(self, *, scoped: bool = False) -> depot_ci.DepotJobAttempts | None:
-        """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
-        Trunk tables, so a read that never touches CI pays no lookup."""
+        """The repository's synced Depot CI job attempts, or None."""
         with self._lock:
             if not self._depot_job_attempts_resolved:
                 depot_tables = resolve_depot_job_attempts_tables(self._team, self._user_access_control)
@@ -320,7 +290,7 @@ class CuratedGitHubSource:
             depot = self._depot_job_attempts_table
         if depot is None or not scoped:
             return depot
-        # Keep whole native runs: partial metadata and single-workflow IDs can link their jobs and workflows.
+        # The scope keeps whole native runs, because the builders link a run's jobs and workflows.
         return replace(
             depot,
             table=f"(SELECT * FROM {depot.table} "
@@ -344,22 +314,16 @@ class CuratedGitHubSource:
         )
 
     def ci_read_scope(self) -> str:
-        """Names the tables a CI read of this handle uses, for a cache key.
-
-        The Depot table is part of the answer only for a caller who may read the Depot source. A cache key
-        without it would serve an answer built from Depot rows to a caller who has no access to them.
-        """
+        """Names the tables a CI read of this handle uses, for a cache key. It includes the Depot table,
+        so a caller with no access to the Depot source never gets an answer cached from Depot rows."""
         depot = self._depot_job_attempts()
         scope = f"{self._tables.workflow_runs}|{self._tables.workflow_jobs or ''}|{depot.table if depot else ''}"
         stored = self._stored_ci()
         return f"{scope}|{stored.cache_scope}" if stored else scope
 
     def may_read_ci_tables(self) -> bool:
-        """Whether this reader's catalog grants every table a CI read uses.
-
-        A cached CI answer skips the query that would have applied the table permissions, so a caller must
-        ask this before it serves one.
-        """
+        """Whether this reader's catalog grants every table a CI read uses. A caller must check this
+        before it serves a cached CI answer, which skips the query that applies the permissions."""
         catalog = self._catalog()
         return all(
             catalog.has_table(table) and not catalog.is_table_access_denied(table)
@@ -375,7 +339,7 @@ class CuratedGitHubSource:
         )
 
     def _stored_ci_covering(self, since: datetime | None) -> MaterializedCI | None:
-        # Resolving the views queries the database, and an unbounded read cannot use them.
+        # An unbounded read cannot use the stored rows, so it skips the database lookup that resolves them.
         if since is None:
             return None
         stored = self._stored_ci()
@@ -393,11 +357,9 @@ class CuratedGitHubSource:
             return self._materialized_ci
 
     def _run_scope_ctes(self, github_run_ids: str, depot_runs_where: str) -> list[str]:
-        """The run sets a ``scoped`` source reads: ``github_run_ids`` selects one array of raw GitHub run
-        ids, and ``depot_runs_where`` picks raw Depot attempts whose whole native runs stay.
-
-        Both are scalar subqueries, which ClickHouse evaluates once however many scans read them. They
-        are conservative sets: exact PR and queue attribution stays in the builders."""
+        """The run sets a ``scoped`` source reads. ``github_run_ids`` selects one array of raw GitHub
+        run ids, and ``depot_runs_where`` picks the raw Depot attempts whose native runs stay.
+        The sets are conservative, and the builders still decide exact PR and queue attribution."""
         ctes = [f"({github_run_ids}) AS {_GITHUB_RUN_IDS}"]
         if depot := self._depot_job_attempts():
             ctes.append(
@@ -418,7 +380,7 @@ class CuratedGitHubSource:
         """Bound the ``scoped`` sources of ``sql`` to the CI of {pr_numbers}, which the caller registers.
 
         The sets have no date bound, because CI associated with a PR can predate the PR's creation."""
-        # An Int64 set avoids narrowing unrelated large associations when the requested numbers are small.
+        # toInt keeps the set Int64, so a set of small numbers does not narrow the compared column.
         numbers = "SELECT arrayJoin(arrayMap(number -> toInt(number), {pr_numbers}))"
         association = workflow_runs.ASSOCIATION_PR_NUMBER
         github_runs = _scope_github_table(self._tables.workflow_runs, "id", scoped=True)
@@ -448,9 +410,7 @@ class CuratedGitHubSource:
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
-        opt-in merge-queue endpoint synced (the normal state) or the requesting user can't access
-        one; either way consumers degrade to the GitHub-derived proxy. Resolved lazily on first
-        call and cached, so probing stays as cheap as the sibling sources."""
+        merge-queue endpoint synced or the requesting user can't access one."""
         with self._lock:
             if not self._trunk_table_resolved:
                 self._trunk_table = resolve_trunk_merge_queue_table(self._team, self._user_access_control)
@@ -470,8 +430,7 @@ class CuratedGitHubSource:
 
     def trunk_quarantined_tests_source(self) -> str | None:
         """Curated Trunk quarantined-tests ``SELECT`` subquery, or None when no TrunkIo source has
-        the QuarantinedTests endpoint synced or the requesting user can't access one; consumers
-        degrade to ``available: false``. Lazily resolved and cached like the merge-queue sibling."""
+        the QuarantinedTests endpoint synced or the requesting user can't access one."""
         source = self._trunk_quarantine()
         if source is None:
             return None
@@ -495,33 +454,30 @@ class CuratedGitHubSource:
         return f"({team_members.build_query(self._tables.team_members)})"
 
     def issue_events_source(self, *, created_floor: bool = False) -> str | None:
-        """Curated PR draft/ready transitions ``SELECT`` subquery, or None when the optional
-        issue-events table isn't synced. ``created_floor`` adds the raw-string scan floor, so callers
-        must register {event_created_floor} (see ``run_started_floor_constant``)."""
+        """Curated PR draft and ready transitions ``SELECT`` subquery, or None when the issue-events
+        table isn't synced. ``created_floor`` adds the raw-string scan floor, and the caller must
+        register {event_created_floor} (see ``run_started_floor_constant``)."""
         if not self._tables.issue_events:
             return None
         return f"({issue_events.build_query(self._tables.issue_events, created_floor=created_floor)})"
 
     def team_review_requests_source(self, *, created_floor: bool = False) -> str | None:
         """Curated team review requests ``SELECT`` subquery, or None when the issue events hold none.
-        ``created_floor`` adds the raw-string scan floor; callers must then register {event_created_floor}
-        (see run_started_floor_constant)."""
+        ``created_floor`` works as in ``issue_events_source``."""
         if not (self._tables.issue_events and self._tables.issue_events_team_requests):
             return None
         query = issue_events.build_team_review_requests_query(self._tables.issue_events, created_floor=created_floor)
         return f"({query})"
 
     def reviews_source(self) -> str | None:
-        """Curated submitted-reviews ``SELECT`` subquery, or None when the optional reviews table
-        isn't synced."""
+        """Curated submitted-reviews ``SELECT`` subquery, or None when the reviews table isn't synced."""
         if not self._tables.reviews:
             return None
         return f"({reviews.build_query(self._tables.reviews)})"
 
     def deploy_sources(self) -> "DeploySources | None":
-        """The curated deploy ``SELECT`` subqueries, or None when the optional deploy pair isn't
-        fully synced. Gated on BOTH tables in one place: a deployment's outcome lives on its
-        status rows, so one table without the other can't serve an honest read."""
+        """The curated deploy ``SELECT`` subqueries, or None unless both deploy tables are synced.
+        A deployment's outcome lives on its status rows, so one table alone cannot serve a read."""
         if not (self._tables.deployments and self._tables.deployment_statuses):
             return None
         return DeploySources(
@@ -530,9 +486,8 @@ class CuratedGitHubSource:
         )
 
     def ready_to_merge_sql(self) -> ReadyToMergeSql:
-        """SQL for the per-PR ready-to-merge measure, off the PR source aliased ``pr``. Degrades to
-        a constant NULL when the optional issue-events table isn't synced, so every consumer reads
-        the measure the same way."""
+        """SQL for the per-PR ready-to-merge measure, ``READY_TO_MERGE_UNOBSERVABLE`` when the
+        issue-events table isn't synced."""
         window = self._issue_events_window()
         cte = self.ready_by_pr_cte()
         if window is None or cte is None:
@@ -541,9 +496,7 @@ class CuratedGitHubSource:
 
     def _issue_events_window(self) -> "_IssueEventsWindow | None":
         """Scalar subqueries bounding the observed issue-event range, or None when the table
-        isn't synced. The desc walk lands a contiguous range, so the min and max landed
-        timestamps are its edges; both are NULL over an empty table, so comparisons against
-        them are never-true."""
+        isn't synced. Both are NULL over an empty table, so a comparison against them is never true."""
         if not self._tables.issue_events:
             return None
         return _IssueEventsWindow(
@@ -555,12 +508,8 @@ class CuratedGitHubSource:
         """CTE: each PR's last observed draft-state transition and last ready event, or None when the
         table isn't synced. ``created_floor`` works as in ``issue_events_source``.
 
-        Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
-        that preceded the merge (a draft can't merge); an open PR goes false while re-drafted. The
-        event id breaks same-second ties (GitHub timestamps are second-coarse). Keyed on
-        ``pr_number`` alone, unlike the push-activity query in ``pull_request_list``: a run's association
-        can list the fork network's PRs (which is why that query needs the repo qualifier), whereas every row of a resolved
-        issue-events table belongs to that one repo by table construction.
+        Only the last transition counts, with the event id breaking same-second ties. A resolved
+        issue-events table holds one repo, so ``pr_number`` alone is the key.
 
         The events table and the pull requests table sync independently, so a timestamp here can run
         ahead of what a PR's own row reports. A consumer that compares one against a PR's end must
@@ -587,21 +536,14 @@ class CuratedGitHubSource:
     def job_cost_source(
         self, *, created_floor: bool = False, since: datetime | None = None, scoped: bool = False
     ) -> str | None:
-        """Per-job cost ``SELECT`` subquery: the rows ``engineering_analytics_job_costs`` exposes, with
-        the pass-through columns the public view leaves out (``run_started_at`` and ``run_head_branch``
-        among them). None when the jobs table isn't synced, exactly like ``jobs_source``.
+        """Per-job cost ``SELECT`` subquery: the rows ``engineering_analytics_job_costs`` exposes, plus
+        run columns such as ``run_started_at`` and ``run_head_branch``. None when the jobs table
+        isn't synced.
 
-        This is the single cost-computation path: ``provider`` / ``os`` / ``vcpu`` / ``billable_seconds``
-        / ``estimated_cost_usd`` are rendered from ``logic.cost`` in ClickHouse, so every endpoint cost
-        query aggregates the same per-job figures the exposed view (and the parity test) do — there is
-        no separate Python cost rollup to drift.
-
-        ``created_floor`` adds the raw-string scan floor inside the jobs builder — callers must
-        register {job_created_floor} (see run_windowed_job_created_floor_constant, the right slack for
-        the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
-        source's window predicates read the RUN's columns and so can never prune the jobs scan, and
-        the ``is_rerun_copy`` duplicate scan would otherwise aggregate the full history on every call.
-        ``since`` is the read's window start, as for ``run_source``.
+        ``created_floor`` adds the raw-string scan floor, and the caller must register
+        {job_created_floor} (see ``run_windowed_job_created_floor_constant``). Every windowed caller
+        needs it, because the window predicates read the run's columns and cannot prune the jobs
+        scan. ``since`` and ``scoped`` work as for ``run_source``.
         """
         if not self._tables.workflow_jobs:
             return None
@@ -619,24 +561,16 @@ class CuratedGitHubSource:
         return f"({query})"
 
     def runs_cte(self, *, scoped: bool = False) -> str:
-        """CTE naming the curated workflow-runs source for ``ci_rollup``.
-
-        ClickHouse inlines a CTE at every reference, so each extra reader of ``runs`` scans and
-        parses the whole runs source again.
-        """
+        """CTE naming the live workflow-runs source ``runs``, for ``ci_rollup``. ClickHouse inlines a
+        CTE at every reference, so each extra reader of ``runs`` scans the whole runs source again."""
         return f"runs AS {self.run_source(live=True, scoped=scoped)}"
 
     def _pr_scope_cte(
         self, pr_scope_where: str, *, order_by: str | None = None, limit: int | None = None, offset: int = 0
     ) -> str:
-        """CTE: the number and head SHA of PRs matching ``pr_scope_where`` (a predicate over
-        unqualified curated PR columns).
-
-        The CI rollup only ever joins back to PRs the consuming query keeps, so it
-        prefilters the runs scan to this set. Unscoped, it aggregates the team's whole
-        run history — millions of ``(head_sha, workflow)`` groups on a busy repo — and
-        the query runs out of memory before the join discards almost all of it.
-        """
+        """CTE: the number and head SHA of PRs matching ``pr_scope_where``, a predicate over
+        unqualified curated PR columns. The CI rollup prefilters its runs scan to this set, because
+        aggregating the team's whole run history runs out of memory."""
         paging = ""
         if order_by is not None and limit is not None:
             paging = f" ORDER BY {order_by} LIMIT {limit} OFFSET {offset}"
@@ -645,10 +579,8 @@ class CuratedGitHubSource:
     def ci_rollup_cte(self) -> str:
         """CTE collapsing each head SHA's workflow runs into pass/fail/pending counts.
 
-        Takes the latest run per ``(head_sha, workflow_name)`` via ``argMax`` (a PR's CI status
-        is its newest run per workflow), then aggregates per SHA. Reads the shared ``runs`` CTE
-        (see ``runs_cte``); ``head_sha`` is the only link between a PR and its CI. Scoped to the
-        ``pr_scope`` CTE the composing query adds (see ``_pr_scope_cte``).
+        A SHA's status is its newest run per workflow. The composing query must also add the
+        ``runs`` and ``pr_scope`` CTEs (see ``runs_cte`` and ``_pr_scope_cte``).
         """
         return f"""
             ci_rollup AS (
@@ -694,19 +626,16 @@ class CuratedGitHubSource:
     ) -> str:
         """Compose a pull-requests query that reads ``FROM __PR_SOURCE__ AS pr LEFT JOIN ci_rollup``.
 
-        Prefixes ``select`` with the ``pr_scope`` and CI rollup CTEs, and the CTE of the ``ready``
-        measure when ``select`` reads it, and fills its ``__PR_SOURCE__`` placeholder with the
-        curated pull-requests source. The cards and PR-list queries always do these steps together.
-        ``pr_scope_where`` must keep every PR the ``select`` reads CI for (it prunes the rollup scan,
-        see ``_pr_scope_cte``); a PR outside it joins as if it had no runs.
+        ``pr_scope_where`` must keep every PR that ``select`` reads CI for, because a PR outside it
+        joins as if it had no runs. Pass ``ready`` when ``select`` reads the ready-to-merge measure.
 
         ``pr_scope_limit`` makes ``pr_scope`` the page itself, and the runs scan reads only that page's
         commits. ``pr_scope_where`` and ``pr_scope_order_by`` must then select and order exactly the rows
-        ``select`` does, over PR columns alone, or the rows outside ``pr_scope`` read as having no runs.
+        ``select`` does, over PR columns alone.
         """
         if pr_scope_limit is not None:
             page_head_shas = "SELECT head_sha FROM pr_scope"
-            # Scope by head SHA here, not PR association: CI can belong to another PR sharing this commit.
+            # The scope is by head SHA, because the rollup joins on it and another PR's CI can share the commit.
             ctes = [
                 self._pr_scope_cte(
                     pr_scope_where, order_by=pr_scope_order_by, limit=pr_scope_limit, offset=pr_scope_offset
@@ -725,14 +654,12 @@ class CuratedGitHubSource:
         return self._compose_pr_query(ctes, select)
 
     def _compose_pr_query(self, ctes: list[str], select: str) -> str:
-        """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
         return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
 
     @contextmanager
     def concurrent_reads(self) -> Iterator["ConcurrentReads"]:
-        """Run the reads submitted inside the block together when it exits, so a request waits for
-        its slowest read instead of the sum of all of them. Read each result after the block. A read
-        that needs several reads of its own opens its own block."""
+        """Run the reads submitted inside the block concurrently when it exits. Read each result
+        after the block."""
         reads = ConcurrentReads()
         yield reads
         reads.run()
@@ -745,7 +672,8 @@ class CuratedGitHubSource:
         query_type: str,
         placeholders: dict[str, ast.Expr],
     ) -> list[tuple]:
-        """Read every row by an immutable unique key, without the per-query result cap."""
+        """Read every row of ``sql``, past the per-query result cap. ``page_key`` lists the
+        (column, row index) pairs of an immutable unique key."""
         rows: list[tuple] = []
         cursor: tuple[object, ...] | None = None
         key_columns = [column for column, _index in page_key]
@@ -804,11 +732,8 @@ class CuratedGitHubSource:
         """``load``'s value for every key, reusing values another request computed in the last
         ``ttl_seconds``. ``load`` gets the keys with no cached value and must return one for each.
 
-        ``sql`` is the query ``load`` runs, before its placeholders. Its hash names the cache, so a
-        change to that query, the prices it renders or the tables it resolves starts a fresh one. A
-        cached value is served only when this reader's catalog grants every table that query reads,
-        the decision the query itself would get. A cache that fails to answer loads every key.
-        """
+        ``sql`` is the query ``load`` runs, before its placeholders. Its hash names the cache. A cached
+        value is served only when this reader's catalog grants every table the query reads."""
         prefix = f"engineering_analytics:{self._team.pk}:{hashlib.sha256(sql.encode()).hexdigest()}"
         cache_keys = {key: f"{prefix}:{key}" for key in keys}
         cached: dict[str, V] = {}
@@ -844,21 +769,13 @@ class CuratedGitHubSource:
         placeholders: dict[str, ast.Expr] | None = None,
         workload: Workload = Workload.DEFAULT,
     ) -> HogQLQueryResponse:
-        """Parse + execute a curated HogQL query for this team.
+        """Parse and execute a HogQL query for this team.
 
-        Mirrors the two paths the data warehouse team intends for ``hogql-warehouse-access-control``
-        (#61686). Request-driven reads (the common case — the views thread the requesting user through)
-        forward that user so HogQL honors the per-table warehouse ACL: access is enforced twice over —
-        the resolver (``for_team``) already filtered the source to what this user may read, and now the
-        table-level ACL is honored too, so a user denied a backing ``DataWarehouseTable`` is blocked
-        rather than let through. The facade also documents a userless path (``user_access_control=None``)
-        for system / Temporal / CLI contexts; that build has no user to honor the ACL with and would fail
-        closed (strip every warehouse table), so those reads bypass it — the warehouse team's sanctioned
-        escape hatch for userless callers.
-
-        ``workload`` routes the read to a non-default ClickHouse cluster (e.g. ``Workload.LOGS`` for the
-        ``logs`` table). The warehouse-ACL reasoning above governs warehouse tables only and is a no-op
-        for such reads — those tables carry no per-table ACL, so the ``team_id`` scope is their boundary.
+        With a ``user_access_control``, HogQL applies that user's per-table warehouse access. Without
+        one (system, Temporal and CLI callers) the read bypasses it, because HogQL would otherwise
+        strip every warehouse table. ``workload`` must match the cluster of the tables the query
+        reads, such as ``Workload.LOGS`` for ``logs``. Raises ``QueryWorkLimitExceededError`` when the
+        handle's query budget is spent.
         """
         with self._lock:
             if self._queries_remaining is not None:
@@ -874,8 +791,6 @@ class CuratedGitHubSource:
                 query=parse_select(sql, placeholders=placeholders),
                 team=self._team,
                 query_type=query_type,
-                # The logs table lives on a separate ClickHouse cluster (Workload.LOGS); warehouse
-                # reads use the default. Callers pass the workload that matches the tables they query.
                 workload=workload,
                 user=user,
                 user_access_control=uac,
@@ -936,7 +851,7 @@ def _closing_connections(work: Callable[[], None]) -> None:
 
 
 def opt_float(value: float | None) -> float | None:
-    """ClickHouse aggregate → optional float: quantile/avg over an empty set returns NaN, nullIf None."""
+    """None for NaN, which a ClickHouse quantile or avg over an empty set returns."""
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return None
     return float(value)

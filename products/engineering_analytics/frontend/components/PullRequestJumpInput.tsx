@@ -12,7 +12,6 @@ const FAILURE_MESSAGE: Record<PullRequestJumpFailure, string> = {
     needs_repository: 'Select a repository or paste the full link.',
 }
 
-/** Opens one pull request in the CI explorer from a link or a number, whether or not the list holds it. */
 export function PullRequestJumpInput(): JSX.Element {
     const { pullRequestJumpText, pullRequestJumpFailure, githubSourcesLoading } = useValues(engineeringAnalyticsLogic)
     const { setPullRequestJumpText, submitPullRequestJump } = useActions(engineeringAnalyticsLogic)

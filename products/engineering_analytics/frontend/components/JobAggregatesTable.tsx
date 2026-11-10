@@ -1,6 +1,3 @@
-// One row per de-sharded job name (the backend strips the matrix "(G/N)" suffix with the same rule as
-// jobGroups). Jobs get no standalone pages — a job always needs its run as context.
-
 import { LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -14,9 +11,6 @@ function formatSeconds(seconds: number | null): string {
     return seconds == null ? '—' : humanFriendlyDuration(seconds)
 }
 
-/** The p50→p95 duration spread as a small bar, scaled to the slowest job so rows compare at a glance.
- *  Solid segment reaches the median (p50); the lighter extension is the tail out to p95 — a long light
- *  tail is a job whose worst case dwarfs its typical case. Two raw numbers ("3m … 20m") don't show that. */
 function DurationSpread({ p50, p95, max }: { p50: number | null; p95: number | null; max: number }): JSX.Element {
     if (p50 == null && p95 == null) {
         return <span className="text-xs text-tertiary">—</span>
@@ -53,10 +47,8 @@ export function JobAggregatesTable({
 }: {
     aggregates: WorkflowJobAggregateApi[]
     loading: boolean
-    /** The workflow's total window cost — the denominator of each job's cost share. */
     totalCostUsd: number | null
 }): JSX.Element {
-    // Scale every duration bar to the slowest job's p95, so bar lengths compare directly across rows.
     const maxP95 = Math.max(1, ...aggregates.map((a) => a.p95_seconds ?? a.p50_seconds ?? 0))
     // The container queries follow the space the table gets, not the window. A narrow scene (for example
     // with the side panel open) drops the low-priority columns instead of pushing Cost out of view.

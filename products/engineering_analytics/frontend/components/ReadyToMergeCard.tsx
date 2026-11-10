@@ -74,7 +74,6 @@ export function ReadyToMergeCard({
     footnote,
     dataAttr = 'engineering-analytics-delivery-ready',
 }: {
-    /** The row being compared first, then its baselines, drawn muted. */
     rows: ReadyToMergeRow[]
     reviewsSynced: boolean
     loading: boolean

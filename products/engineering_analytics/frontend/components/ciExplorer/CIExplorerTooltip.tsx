@@ -18,7 +18,6 @@ interface ShownTip {
     y: number
 }
 
-/** A tooltip for whichever node the pointer rests on. One listener serves every node on the canvas. */
 export function CIExplorerTooltip({ stage }: { stage: RefObject<HTMLElement> }): JSX.Element | null {
     const { workflows } = useValues(ciExplorerLogic)
     const [shown, setShown] = useState<ShownTip | null>(null)

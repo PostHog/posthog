@@ -1,19 +1,10 @@
-"""Orchestration for engineering_analytics.
+"""The builders the facade calls, re-exported from one module per area.
 
-Resolves caller inputs (PostHog-convention date strings, ``owner/name`` repo) and binds the
-team to its curated GitHub read layer (``CuratedGitHubSource``, which resolves the warehouse
-table names), then returns canonical contract types. The curated query builders
-(``backend/logic/views``) own all GitHub-shaped mapping and domain rules; this layer deals
-only in canonical types.
-
-Implementation lives in one module per surface area, mirroring ``presentation/views``; this
-package namespace is the layer's interface and re-exports the full builder surface for the
-facade.
+Each builder takes an already-authorized ``CuratedGitHubSource``, because source selection and
+warehouse access control happen once at the facade. A builder validates its own inputs (dates,
+repo) and returns contract types.
 """
 
-# Each builder operates on an already-resolved CuratedGitHubSource: source selection and per-source
-# warehouse access control happen once at the facade, which hands these builders the authorized
-# handle. They validate their own inputs (dates, repo) and read PR/CI data through the handle.
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     get_ci_signals_config as get_ci_signals_config,
     update_ci_signals_config as update_ci_signals_config,

@@ -4,7 +4,6 @@ import { Breadcrumb } from '~/types'
 
 import { withScope } from './scope'
 
-/** The crumbs every page shares, so the top bar reads the same on detail pages as on tabs. */
 export function repoBreadcrumbs(
     repo: string | null,
     searchParams: Record<string, string | undefined> = {},

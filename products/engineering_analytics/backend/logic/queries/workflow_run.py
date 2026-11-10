@@ -1,8 +1,6 @@
-"""HogQL assembly of a single workflow run, for the run detail page.
+"""One workflow run by id, at its latest attempt.
 
-Embeds the curated ``github_workflow_runs`` builder as a subquery (via ``_curated``) and selects one
-run by its GitHub Actions ``id``. Run-level only — per-job/step data isn't in the warehouse yet. A run
-can have multiple attempts (re-runs) sharing the same id; the latest attempt is the canonical row.
+Raises ValueError when the id names more than one run and ``ci_engine`` does not pick one.
 """
 
 from posthog.hogql import ast

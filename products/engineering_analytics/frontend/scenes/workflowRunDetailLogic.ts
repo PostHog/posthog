@@ -23,7 +23,6 @@ export interface WorkflowRunDetailLogicProps {
     repoName: string
     runId: number
     ciEngine?: CIEngineEnumApi | null
-    // Which GitHub source the list was scoped to, threaded from `?source=` via paramsToProps.
     sourceId: string | null
 }
 
@@ -196,7 +195,6 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
             () => [(_, p: WorkflowRunDetailLogicProps) => p.sourceId],
             (sourceId: string | null): string | null => sourceId,
         ],
-        // Summed from the already-loaded jobs, so no extra query.
         runCost: [
             (s) => [s.jobs],
             (jobs: WorkflowJobApi[] | null): RunCostSummary | null => (jobs ? summarizeRunCost(jobs) : null),
@@ -221,7 +219,6 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
         // Load jobs only once the run is in, so they can be scoped to the run's real attempt.
         loadRunSuccess: () => {
             actions.loadJobs()
-            // Failure logs only exist for failed runs, so skip the query otherwise.
             if (isDecisiveFailure(values.run?.conclusion ?? null)) {
                 actions.loadFailureLogs()
             }
@@ -229,7 +226,6 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
     })),
 
     afterMount(({ actions, props }) => {
-        // A non-numeric run id would just 400; the scene renders "not found" instead.
         if (Number.isFinite(props.runId)) {
             actions.loadRun()
         }

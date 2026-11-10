@@ -1,6 +1,3 @@
-// Compact headline formatting for stat tiles and share rows. Tables keep the precise formats from
-// runTables (formatCost) and lib/utils — these are for the big numbers where "$11.4k" beats "$11,400.00".
-
 export function compactUsd(usd: number | null | undefined): string {
     if (usd == null) {
         return '—'
@@ -24,10 +21,8 @@ export function compactCount(count: number | null | undefined): string {
     return Math.round(count).toLocaleString()
 }
 
-// Below this many hours the PR-timing format stays in hours; above, one-decimal days.
 const HOURS_BEFORE_DAYS = 48
 
-/** Hours below two days, one-decimal days above — the PR-timing headline format. */
 export function compactHours(seconds: number | null | undefined): string {
     if (seconds == null) {
         return '—'
@@ -43,7 +38,6 @@ export function compactHoursUnit(seconds: number | null | undefined): string {
     return seconds / 3600 < HOURS_BEFORE_DAYS ? 'hours' : 'days'
 }
 
-/** The compactHours ladder as one short label: "17h" below two days, "3.2d" above. */
 export function compactHoursLabel(seconds: number | null | undefined): string {
     if (seconds == null) {
         return '—'
@@ -51,7 +45,6 @@ export function compactHoursLabel(seconds: number | null | undefined): string {
     return `${compactHours(seconds)}${seconds / 3600 < HOURS_BEFORE_DAYS ? 'h' : 'd'}`
 }
 
-/** Elapsed-time label with minute granularity under an hour: "20m", "27h", "3.2d". */
 export function compactAgeLabel(seconds: number | null | undefined): string {
     if (seconds == null) {
         return '—'
@@ -76,7 +69,7 @@ export function percent(rate: number | null | undefined, precision: number = 0):
     return rate == null ? '—' : `${(rate * 100).toFixed(precision)}%`
 }
 
-/** A friction score, as a multiple of the typical author or pull request: 1.0 is typical. */
+/** A friction score is a multiple of the typical author or pull request, so 1.0 is typical. */
 export function timesTypical(score: number | null | undefined): string {
     if (score == null) {
         return '–'

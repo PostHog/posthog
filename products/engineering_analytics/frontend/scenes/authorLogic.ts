@@ -14,9 +14,7 @@ import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersL
 
 export interface AuthorLogicProps {
     handle: string
-    // Which GitHub source the page was scoped to, threaded from `?source=` via paramsToProps.
     sourceId: string | null
-    /** The 'owner/name' from the path. Every figure on the page is this repository's. */
     repo: string | null
 }
 
@@ -95,8 +93,7 @@ export const authorLogic = kea<authorLogicType>([
     })),
 
     loaders(({ props, values }) => ({
-        // The author's CI spend split by workflow, for "where their CI minutes go". [] when the
-        // job-level source isn't synced.
+        // Empty when the job-level source isn't synced.
         workflowCosts: [
             [] as WorkflowCostApi[],
             {

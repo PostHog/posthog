@@ -49,7 +49,6 @@ import { withScope } from '../lib/scope'
 import { repoScopeLogic } from './repoScopeLogic'
 import { WorkflowRunRow, WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
 
-/** Spend by runner tier: tier, job count, cost (or 'free'), share bar scaled to billable spend. */
 function RunnerTierCard({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Element {
     const totalCost = costs.reduce((sum, cost) => sum + (cost.estimated_cost_usd ?? 0), 0)
     return (
@@ -164,7 +163,6 @@ export function WorkflowRunsScene(): JSX.Element {
             <VerdictPill kind="success">Passing</VerdictPill>
         ) : undefined
 
-    // Lead columns for the runs table; rows expand (caret or row click) to the run's matrix-grouped jobs.
     const runColumns: LemonTableColumns<WorkflowRunRow> = [
         {
             title: 'Run',

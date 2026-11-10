@@ -16,7 +16,6 @@ import { DEFAULT_TEAMS_WINDOW, TEAMS_WINDOW_LABELS, TeamCIHealthRow, UNOWNED_TEA
 
 const FIXED_WINDOW = TEAMS_WINDOW_LABELS[DEFAULT_TEAMS_WINDOW].current.toLowerCase()
 
-/** The team's detail page, carrying the current scope so it opens scoped the same. */
 function detailUrlOf(ownerTeam: string, repo: string | null, sourceId: string | null): string {
     return withCurrentScope(urls.engineeringAnalyticsTeam(ownerTeam, repo), sourceId)
 }

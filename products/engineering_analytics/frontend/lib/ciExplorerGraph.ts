@@ -1,6 +1,3 @@
-// One push as a set of workflow graphs: a node per job or matrix, an edge per `needs` dependency.
-// ELK places the nodes and routes the edges.
-
 import type { ELK, ElkNode } from 'elkjs'
 
 import type { WorkflowJobApi, WorkflowJobStepApi } from '../generated/api.schemas'
@@ -20,7 +17,6 @@ export interface CIExplorerShard {
     durationShare: number
 }
 
-/** A node of a workflow's graph: one job, or one matrix job with its shards. */
 export interface CIExplorerItem {
     id: string
     name: string
@@ -232,7 +228,7 @@ export function latestRunPerWorkflow(runs: WorkflowRun[]): WorkflowRun[] {
     return [...latest.values()]
 }
 
-/** The workflows of a push, failed first and then slowest first. */
+/** Failed first, then slowest first. */
 export function buildWorkflows(runs: WorkflowRun[], jobsByRun: Record<string, WorkflowJobApi[]>): CIExplorerWorkflow[] {
     const longest = Math.max(0, ...runs.map((run) => run.durationSeconds ?? 0))
     return [...runs]
@@ -440,7 +436,6 @@ export interface CIExplorerFocusLevel {
     durationSeconds: number | null
 }
 
-/** What a node id names: a workflow, an item of it, or a shard of that item. */
 export interface CIExplorerNode {
     workflow: CIExplorerWorkflow
     item: CIExplorerItem | null
@@ -464,7 +459,6 @@ export function resolveNode(workflows: CIExplorerWorkflow[], nodeId: string | nu
     return { workflow, item, shard: item?.shards.find((s) => s.id === nodeId) ?? null }
 }
 
-/** The jobs a node of the graph stands for: its one job, or every shard of a matrix. */
 export function jobsOf(item: CIExplorerItem): WorkflowJobApi[] {
     return item.job ? [item.job] : item.shards.map((shard) => shard.job)
 }
@@ -473,7 +467,7 @@ export function workflowJobs(workflow: CIExplorerWorkflow): WorkflowJobApi[] {
     return (workflow.items ?? []).flatMap(jobsOf)
 }
 
-/** The focused node and what contains it, outermost first. */
+/** Outermost first. */
 export function focusPath(workflows: CIExplorerWorkflow[], nodeId: string | null): CIExplorerFocusLevel[] {
     const node = resolveNode(workflows, nodeId)
     if (!node) {
@@ -490,7 +484,6 @@ export function focusPath(workflows: CIExplorerWorkflow[], nodeId: string | null
     return path
 }
 
-/** The job a focused node stands for: a single job, or one shard of a matrix. */
 export function focusedJob(
     workflows: CIExplorerWorkflow[],
     nodeId: string | null

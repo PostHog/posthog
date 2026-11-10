@@ -1,5 +1,3 @@
-// Shared entity header: icon square · title (+muted suffix) · mono slug line · verdict pill.
-
 import { ReactNode } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
@@ -20,7 +18,6 @@ const PILL_DOT: Record<VerdictKind, string> = {
     muted: 'var(--muted)',
 }
 
-/** One-glance verdict for the entity: "Failing on master · 38m", "CI passing", "3 open PRs". */
 export function VerdictPill({ kind, children }: { kind: VerdictKind; children: ReactNode }): JSX.Element {
     return (
         <span
@@ -39,9 +36,6 @@ export function VerdictPill({ kind, children }: { kind: VerdictKind; children: R
     )
 }
 
-/** The repo's identity header, shared across the hub and secondary tabs so the subject reads the same
- *  everywhere: box icon · repo name · owner/name slug with a GitHub link. `right` docks the source
- *  picker on multi-source teams. */
 export function EntityHeader({
     icon,
     title,
@@ -51,9 +45,7 @@ export function EntityHeader({
 }: {
     icon?: ReactNode
     title: string
-    /** Muted addition after the title (e.g. the run id). */
     titleSuffix?: ReactNode
-    /** Mono context line under the title: repo/path, links, attempt, "View on GitHub". */
     slug: ReactNode
     right?: ReactNode
 }): JSX.Element {

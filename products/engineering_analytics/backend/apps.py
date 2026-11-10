@@ -1,5 +1,3 @@
-"""Django app configuration for engineering_analytics."""
-
 from typing import TYPE_CHECKING
 
 from django.apps import AppConfig
@@ -16,7 +14,6 @@ if TYPE_CHECKING:
 
 
 def _sync_views(schema: "ExternalDataSchema", source: "ExternalDataSource") -> None:
-    """Post-load warehouse view sync; the impl is imported lazily to keep the read layer off django.setup()."""
     from products.engineering_analytics.backend.warehouse_view_sync import (  # noqa: PLC0415 - keeps data_modeling + the read layer off the startup path
         sync_engineering_analytics_views,
     )
@@ -25,7 +22,6 @@ def _sync_views(schema: "ExternalDataSchema", source: "ExternalDataSource") -> N
 
 
 def _provided_views(team: "Team") -> list[ProvidedView]:
-    """The team's expected managed views; the impl is imported lazily (same startup constraint)."""
     from products.engineering_analytics.backend.warehouse_view_provider import (  # noqa: PLC0415 - keeps the read layer off the startup path
         get_provided_views,
     )
@@ -38,7 +34,7 @@ class EngineeringAnalyticsConfig(AppConfig):
     label = "engineering_analytics"
 
     def ready(self) -> None:
-        # Hook inversion: the data-import pipeline and data_modeling call this product without
-        # importing it (a direct import in either direction would be a dependency cycle).
+        # The data-import pipeline and data_modeling call this product through these hooks, because
+        # importing it from either would be a dependency cycle.
         register_engineering_analytics_view_sync(_sync_views)
         register_expected_views_provider(DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS, _provided_views)

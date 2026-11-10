@@ -1,5 +1,3 @@
-// Per-workflow CI health table, shared by the Workflows tab and the repo hub.
-
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode } from 'react'
@@ -28,8 +26,8 @@ function formatRate(rate: number | null): string {
     return rate == null ? '—' : `${humanFriendlyNumber(rate * 100)}%`
 }
 
-/** Color only rates backed by a decisive failure in the visible buckets; anything else is plain.
- *  Red rare, amber occasional, so color means "needs attention", not "below a number". */
+/** Only a rate backed by a decisive failure in the visible buckets gets a color, so color means
+ *  "needs attention", not "below a number". */
 function successRateClass(rate: number | null, hasFailures: boolean): string {
     if (rate == null) {
         return 'text-secondary'
@@ -46,7 +44,6 @@ function successRateClass(rate: number | null, hasFailures: boolean): string {
     return ''
 }
 
-/** Sort key so a Status sort surfaces failing workflows first. */
 function statusRank(failed: boolean | null): number {
     if (failed === true) {
         return 2
@@ -73,25 +70,19 @@ function StatusTag({ failed, conclusion }: { failed: boolean | null; conclusion:
 export interface WorkflowHealthTableProps {
     rows: WorkflowHealthRow[]
     loading?: boolean
-    /** Threaded into the Workflow-name link so it preserves the active source. */
     sourceId?: string | null
-    /** Column sort override. Default (null) keeps the rows' merge-queue-first, then busiest, then
-     *  by-name order; pass a column to sort by it instead. */
+    /** Null keeps the order the rows arrive in. */
     defaultSorting?: { columnKey: string; order: 1 | -1 } | null
-    /** Show the billable cost column (needs per-workflow cost on the rows). */
     showCost?: boolean
-    /** Rows per page: the shared 25 by default. The hub passes a small page to stay scannable. */
     pageSize?: number
     emptyState?: ReactNode
     dataAttr?: string
-    /** Drop the table's own border when it sits inside a LemonCard (the hub), to avoid a double frame. */
+    /** Drops the table's own border inside a LemonCard, to avoid a double frame. */
     embedded?: boolean
-    /** Hub preview variant: a focused column set (status · pass rate · cost · health) with the health
-     *  sparkline given room. The full run/p50/p95/re-runs/last-failure columns stay on the Workflows tab. */
     compact?: boolean
 }
 
-// The compact (hub preview) column set, in display order. Cost only appears when showCost adds it.
+// Display order. Cost appears only when showCost adds the column.
 const COMPACT_COLUMN_ORDER = ['workflowName', 'status', 'successRate', 'cost', 'trend']
 
 export function WorkflowHealthTable({
@@ -133,7 +124,6 @@ export function WorkflowHealthTable({
             title: 'Status',
             key: 'status',
             width: 90,
-            // Failing first when sorted: failing (2) > unknown (1) > passing (0).
             sorter: (a, b) => statusRank(a.latestRunFailed) - statusRank(b.latestRunFailed),
             render: (_, row) => <StatusTag failed={row.latestRunFailed} conclusion={row.latestRunConclusion} />,
         },
@@ -265,7 +255,6 @@ export function WorkflowHealthTable({
         },
     ]
 
-    // Compact keeps the focused column set (in COMPACT_COLUMN_ORDER) and lets the health sparkline breathe.
     const displayColumns = compact
         ? COMPACT_COLUMN_ORDER.map((key) => columns.find((column) => String(column.key) === key))
               .filter((column): column is (typeof columns)[number] => column !== undefined)

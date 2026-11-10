@@ -65,13 +65,11 @@ export const scene: SceneExport<PullRequestDetailLogicProps> = {
     }),
 }
 
-// Stable per-row key: re-runs share a runId, so start time disambiguates attempts. Used for rowKey and
-// the expand-state set, so expanding one attempt doesn't open the others.
+// Re-runs share a runId, so the start time disambiguates attempts.
 function runRowKey(run: WorkflowRun): string {
     return `${run.ciEngine ?? ''}:${run.workflow}@${run.startedAt ?? run.finishedAt ?? run.runId ?? ''}`
 }
 
-/** The runs of one workflow on this PR, one row per push × attempt. Jobs live on the run page. */
 function PerPushRunsTable({
     runs,
     runCostByKey,
@@ -242,8 +240,6 @@ function PerPushRunsTable({
     )
 }
 
-/** The PR's CI rolled up per workflow: latest state, what failed (by job name), runs / p50 / cost.
- *  Expands (caret only) to the per-push runs. */
 function PrWorkflowsTable({
     rows,
     filteredRuns,

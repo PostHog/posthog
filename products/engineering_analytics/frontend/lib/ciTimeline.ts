@@ -138,7 +138,6 @@ function jobNode(job: WorkflowJobApi, repo: TimelineRepo, nowMs: number): Timeli
     }
 }
 
-/** A run's jobs with matrix shards nested under their group, in start order. */
 function jobNodes(jobs: WorkflowJobApi[], repo: TimelineRepo, nowMs: number): TimelineNode[] {
     return groupJobs(jobs)
         .map((group): TimelineNode => {
@@ -238,7 +237,6 @@ export function parentNodes(nodes: TimelineNode[]): TimelineNode[] {
 
 const TICK_STEPS_SECONDS = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200]
 
-/** Elapsed-second ticks from 0, at a round step that fits within maxTicks. */
 export function timelineTicks(durationSeconds: number, maxTicks: number): number[] {
     const step =
         TICK_STEPS_SECONDS.find((s) => durationSeconds / s <= Math.max(1, maxTicks)) ??
