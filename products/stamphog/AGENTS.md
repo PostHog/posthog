@@ -188,6 +188,7 @@ An admitted delivery passes the bot-author skip, which also stands in for the au
 The run is stamped `bot_admission` provenance and the `bot_admission` trigger, and retention never keeps its approvals.
 The engine reads the stamped login as `admitted_bot`, checks it against `POLICY.bot_authors` again, keeps every gate including the draft prerequisite, and adds `every_file_attested`, which refuses the run unless an attestation that declares `publisher_files` proved every file in the PR.
 An attestation without `publisher_files` never counts for a bot, because a job of any PR could post it.
+Neither does a `sibling_files` companion, because the publisher did not name it.
 That proof is the PR's independent assurance (`assurance.every_file_proven`), and the reviewer prompt carries a provenance block for the admitted bot, because its bot-author rule would otherwise refuse the PR.
 A pending pinned attestation that could cover every unproven file turns that gate into a WAIT, and the check-run wake carries the `bot_admission` stamp into the re-run, because the refetched PR fails the bot pre-filter on its own.
 Removing the policy entry is enough to stop reviews.

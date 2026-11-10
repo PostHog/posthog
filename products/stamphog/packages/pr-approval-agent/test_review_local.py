@@ -970,7 +970,7 @@ _DOCS_PROOF = Attestation(
     app_id=77,
     lifts=("infra_cicd",),
     paths=(r"^docs/",),
-    sibling_files=(),
+    sibling_files=("index.md",),
     publisher_files=("tools/docs_proof.py",),
 )
 _DOCS_LINT = replace(_DOCS_PROOF, name="docs_lint", check="Docs lint", app_id=78, paths=(r"^docs/linted\.md$",))
@@ -1039,6 +1039,13 @@ _MIGRATION = "posthog/migrations/0999_add_col.py"
             "REFUSED",
             "every_file_attested",
             id="a-rename-leaves-its-old-path-unproven",
+        ),
+        pytest.param(
+            (_RENOVATE,),
+            _bot_context(["docs/a.md", "docs/index.md"], [_docs_proof(["docs/a.md"])]),
+            "REFUSED",
+            "every_file_attested",
+            id="a-sibling-file-the-proof-does-not-name",
         ),
         pytest.param(
             (_RENOVATE,),
