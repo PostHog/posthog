@@ -21,7 +21,7 @@ export function eventsContext(startedAt: number, count: number | null): EventsCo
 }
 
 export async function countEvents(run: SetupRun, events: EventsContext, timeoutMs?: number): Promise<number> {
-    const response = await runHogQL(await run.api(), events.query, { timeoutMs })
+    const response = await runHogQL(await run.api(), events.query, { timeoutMs, refresh: 'force_blocking' })
     return CountSchema.catch(0).parse(response.results[0]?.[0])
 }
 

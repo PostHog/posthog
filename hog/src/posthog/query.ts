@@ -13,6 +13,12 @@ const HogQLResponse = z.looseObject({
 export type HogQLResponse = z.output<typeof HogQLResponse>
 
 // Needs the `query:read` scope.
-export function runHogQL(api: PostHogApi, query: string, options: { timeoutMs?: number } = {}): Promise<HogQLResponse> {
-    return api.post('query', { query: { kind: 'HogQLQuery', query }, refresh: 'blocking' }, HogQLResponse, options)
+// `force_blocking` skips PostHog's cache, for a query whose answer has to be current.
+export function runHogQL(
+    api: PostHogApi,
+    query: string,
+    options: { timeoutMs?: number; refresh?: 'blocking' | 'force_blocking' } = {}
+): Promise<HogQLResponse> {
+    const { refresh = 'blocking', timeoutMs } = options
+    return api.post('query', { query: { kind: 'HogQLQuery', query }, refresh }, HogQLResponse, { timeoutMs })
 }
