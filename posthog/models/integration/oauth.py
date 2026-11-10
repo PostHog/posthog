@@ -1537,7 +1537,7 @@ class OauthIntegration:
                     invalidate_slack_integration_auth_state,
                 )
 
-                invalidate_slack_integration_auth_state(integration.id)
+                invalidate_slack_integration_auth_state(integration.team_id, integration.id)
             except Exception:
                 logger.warning(
                     "slack_app_auth_state_invalidation_on_oauth_failed",
