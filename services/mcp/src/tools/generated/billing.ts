@@ -224,13 +224,13 @@ const BillingProjectUsageStatusGetSchema = () => z.object({})
 
 const billingProjectUsageStatusGet = (): ToolBase<
     ReturnType<typeof BillingProjectUsageStatusGetSchema>,
-    Schemas.BillingUsageStatus
+    Schemas.ProjectBillingUsageStatus
 > => ({
     name: 'billing-project-usage-status-get',
     schema: BillingProjectUsageStatusGetSchema(),
     handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProjectUsageStatusGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.BillingUsageStatus>({
+        const result = await context.api.request<Schemas.ProjectBillingUsageStatus>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/billing/usage/status/`,
         })

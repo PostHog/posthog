@@ -60,6 +60,7 @@ import type {
     PaginatedBillingTimeSeriesPointListApi,
     PatchedBillingAlertConfigurationApi,
     PatchedBillingApi,
+    ProjectBillingUsageStatusApi,
     ProjectUsageSummaryApi,
 } from './api.schemas'
 
@@ -1233,13 +1234,13 @@ export const getBillingProjectUsageStatusRetrieveUrl = (projectId: string) => {
 
 /**
  * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
- * @summary Get the project's organization's usage against limits, without the counts
+ * @summary Get whether the project's organization is over or near its limits, without the counts or limits
  */
 export const billingProjectUsageStatusRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<BillingUsageStatusApi> => {
-    return apiMutator<BillingUsageStatusApi>(getBillingProjectUsageStatusRetrieveUrl(projectId), {
+): Promise<ProjectBillingUsageStatusApi> => {
+    return apiMutator<ProjectBillingUsageStatusApi>(getBillingProjectUsageStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

@@ -131,6 +131,33 @@ def _billing_period(period: Optional[dict[str, Any]]) -> Optional[dict[str, Any]
     }
 
 
+def _usage_status(organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+    """Usage as any member may see it. Per product and add-on: whether usage is over or approaching
+    the limit, and whether PostHog limits the resource now. Billing's status carries the first two,
+    and the organization's own usage record carries the quota dates. Each item keeps the fields
+    billing sent, so the organization route keeps the limit and the project routes do not. The
+    counts themselves are on `usage` and need usage read access."""
+    organization_usage = organization.usage or {}
+
+    def with_quota_state(item: dict[str, Any]) -> dict[str, Any]:
+        own = organization_usage.get(item.get("usage_key") or "")
+        own = own if isinstance(own, dict) else {}
+        return {
+            **item,
+            "quota_limited_until": _iso(own.get("quota_limited_until")),
+            "quota_limiting_suspended_until": _iso(own.get("quota_limiting_suspended_until")),
+        }
+
+    return {
+        "billing_period": _billing_period(data.get("billing_period")),
+        "usage_reported_through": data.get("usage_reported_through"),
+        "products": [
+            {**with_quota_state(product), "addons": [with_quota_state(a) for a in product.get("addons", [])]}
+            for product in data.get("products", [])
+        ],
+    }
+
+
 # Serializers describe the organization API's shapes for the generated schema. The actions build plain dicts.
 
 
@@ -345,15 +372,30 @@ class ProductUsageSerializer(UsageItemSerializer):
     addons = UsageItemSerializer(many=True)
 
 
-class UsageStatusItemSerializer(serializers.Serializer):
+class ProjectUsageStatusItemSerializer(serializers.Serializer):
+    """A usage status item as the project routes serve it, without the limit."""
+
     kind = serializers.ChoiceField(choices=CatalogKind.choices)
     key = serializers.CharField()
     usage_key = serializers.CharField(allow_null=True)
-    usage_limit = serializers.IntegerField(allow_null=True)
     has_exceeded_limit = serializers.BooleanField()
     approaching_limit = serializers.BooleanField()
     quota_limited_until = serializers.DateTimeField(allow_null=True)
     quota_limiting_suspended_until = serializers.DateTimeField(allow_null=True)
+
+
+class ProjectProductUsageStatusSerializer(ProjectUsageStatusItemSerializer):
+    addons = ProjectUsageStatusItemSerializer(many=True)
+
+
+class ProjectBillingUsageStatusSerializer(serializers.Serializer):
+    billing_period = BillingPeriodSerializer(allow_null=True)
+    usage_reported_through = serializers.DateField(allow_null=True)
+    products = ProjectProductUsageStatusSerializer(many=True)
+
+
+class UsageStatusItemSerializer(ProjectUsageStatusItemSerializer):
+    usage_limit = serializers.IntegerField(allow_null=True)
 
 
 class ProductUsageStatusSerializer(UsageStatusItemSerializer):
@@ -813,35 +855,6 @@ class BillingReadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = self._manager().get_organization_products_summary(organization, grants)
         return Response({"results": data.get("products", [])})
 
-    def _usage_status(self, request: Request) -> Response:
-        """What any member may know about usage: per product and add-on, the limit in effect,
-        whether usage is over or approaching it, and whether the resource is being limited right
-        now. The counts themselves are on `usage` and need usage read access."""
-        organization = self.organization
-        grants = self._grants(request, organization)
-        data = self._manager().get_organization_usage_status(organization, grants)
-        organization_usage = organization.usage or {}
-
-        def with_quota_state(item: dict[str, Any]) -> dict[str, Any]:
-            own = organization_usage.get(item.get("usage_key") or "")
-            own = own if isinstance(own, dict) else {}
-            return {
-                **item,
-                "quota_limited_until": _iso(own.get("quota_limited_until")),
-                "quota_limiting_suspended_until": _iso(own.get("quota_limiting_suspended_until")),
-            }
-
-        return Response(
-            {
-                "billing_period": _billing_period(data.get("billing_period")),
-                "usage_reported_through": data.get("usage_reported_through"),
-                "products": [
-                    {**with_quota_state(product), "addons": [with_quota_state(a) for a in product.get("addons", [])]}
-                    for product in data.get("products", [])
-                ],
-            }
-        )
-
 
 @extend_schema(extensions={"x-product": "billing"})
 class OrganizationBillingViewSet(BillingReadViewSet):
@@ -1220,4 +1233,8 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     )
     @action(methods=["GET"], detail=False, url_path="usage/status")
     def usage_status(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._usage_status(request)
+        organization = self.organization
+        grants = self._grants(request, organization)
+        return Response(
+            _usage_status(organization, self._manager().get_organization_usage_status(organization, grants))
+        )

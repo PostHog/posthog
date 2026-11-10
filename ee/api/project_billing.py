@@ -34,9 +34,10 @@ from ee.api.organization_billing import (
     BillingPeriodSerializer,
     BillingProductsSummarySerializer,
     BillingReadViewSet,
-    BillingUsageStatusSerializer,
     PaginatedBillingTimeSeriesPointListSerializer,
+    ProjectBillingUsageStatusSerializer,
     _billing_period,
+    _usage_status,
 )
 from ee.billing.grants import BillingEntitlement
 
@@ -128,11 +129,13 @@ class ProjectBillingViewSet(BillingReadViewSet):
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
         manager = self._manager()
+        # The billing period comes from the project status. Billing refuses the subscription to a token
+        # that names projects, and a project-scoped credential sends one.
         try:
-            subscription = manager.get_organization_subscription(organization, grants)
+            project_status = manager.get_project_usage_status(organization, grants)
         except requests.Timeout:
             raise BillingQueryTimeout()
-        period = _billing_period(subscription.get("billing_period"))
+        period = _billing_period(project_status.get("billing_period"))
         today = datetime.now(UTC).date()
         period_start = (period or {}).get("current_period_start")
         start_date = period_start[:10] if period_start else today.replace(day=1).isoformat()
@@ -231,13 +234,15 @@ class ProjectBillingViewSet(BillingReadViewSet):
 
     @extend_schema(
         operation_id="billing_project_usage_status_retrieve",
-        summary="Get the project's organization's usage against limits, without the counts",
+        summary="Get whether the project's organization is over or near its limits, without the counts or limits",
         description=BETA_NOTICE,
-        responses={200: OpenApiResponse(response=BillingUsageStatusSerializer)},
+        responses={200: OpenApiResponse(response=ProjectBillingUsageStatusSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="usage/status")
     def usage_status(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._usage_status(request)
+        organization = self.organization
+        grants = self._grants(request, organization)
+        return Response(_usage_status(organization, self._manager().get_project_usage_status(organization, grants)))
 
 
 def _usage_key(breakdown_value: Any) -> str:
