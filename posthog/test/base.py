@@ -7,6 +7,7 @@ import logging
 import datetime as dt
 import resource
 import threading
+import dataclasses
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import AbstractContextManager, ExitStack, contextmanager
@@ -2352,8 +2353,13 @@ SELECT
         WHERE database = currentDatabase()
     ),
     (
-        SELECT groupArray((table, mutations))
-        FROM (SELECT table, count() AS mutations FROM system.mutations WHERE database = currentDatabase() GROUP BY table)
+        SELECT groupArray((table, mutations, pending))
+        FROM (
+            SELECT table, count() AS mutations, countIf(NOT is_done) AS pending
+            FROM system.mutations
+            WHERE database = currentDatabase()
+            GROUP BY table
+        )
     )
 FROM system.tables
 WHERE database = currentDatabase()
@@ -2365,6 +2371,7 @@ class _ClickhouseTableState:
     schema: tuple[frozenset[tuple[str, str]], int, int]
     row_counts: dict[str, int | None]
     mutation_counts: dict[str, int]
+    tables_with_pending_mutations: frozenset[str]
 
 
 @frozen
@@ -2380,33 +2387,41 @@ _clickhouse_reset_baseline: _ClickhouseResetBaseline | None = None
 
 def _read_clickhouse_table_state() -> _ClickhouseTableState:
     rows = sync_execute(_CLICKHOUSE_TABLE_STATE_SQL)
-    _, _, _, columns_hash, indices_hash, mutation_counts = rows[0]
+    _, _, _, columns_hash, indices_hash, mutations = rows[0]
     return _ClickhouseTableState(
         schema=(frozenset((name, str(uuid)) for name, uuid, *_ in rows), columns_hash, indices_hash),
         row_counts={name: total_rows for name, _, total_rows, *_ in rows},
-        mutation_counts=dict(mutation_counts),
+        mutation_counts={table: count for table, count, _ in mutations},
+        tables_with_pending_mutations=frozenset(table for table, _, pending in mutations if pending),
     )
 
 
 def _truncate_clickhouse_tables_if_schema_unchanged(materialized_event_properties: tuple[str, ...]) -> bool:
+    global _clickhouse_reset_baseline
     baseline = _clickhouse_reset_baseline
     if baseline is None or baseline.materialized_event_properties != materialized_event_properties:
         return False
     state = _read_clickhouse_table_state()
     if state.schema != baseline.schema:
         return False
-    if {table: count for table, count in state.mutation_counts.items() if table in baseline.row_counts} != (
-        baseline.mutation_counts
-    ):
+    if state.tables_with_pending_mutations & baseline.row_counts.keys():
         return False
-    tables_with_rows: list[str] = []
+    mutation_counts = {table: count for table, count in state.mutation_counts.items() if table in baseline.row_counts}
+    mutated_tables = {
+        table
+        for table in baseline.row_counts
+        if mutation_counts.get(table, 0) != baseline.mutation_counts.get(table, 0)
+    }
+    tables_to_truncate: list[str] = []
     for name, baseline_rows in baseline.row_counts.items():
-        if state.row_counts[name] == baseline_rows:
+        if state.row_counts[name] == baseline_rows and name not in mutated_tables:
             continue
         if baseline_rows > 0:
             return False
-        tables_with_rows.append(name)
-    run_clickhouse_statement_in_parallel([f"TRUNCATE TABLE {name}" for name in tables_with_rows])
+        tables_to_truncate.append(name)
+    run_clickhouse_statement_in_parallel([f"TRUNCATE TABLE {name}" for name in tables_to_truncate])
+    if mutated_tables:
+        _clickhouse_reset_baseline = dataclasses.replace(baseline, mutation_counts=mutation_counts)
     _mark_clickhouse_reset()
     return True
 
@@ -2414,6 +2429,11 @@ def _truncate_clickhouse_tables_if_schema_unchanged(materialized_event_propertie
 def _mark_clickhouse_reset() -> None:
     global _clickhouse_checkouts_at_last_reset
     _clickhouse_checkouts_at_last_reset = _clickhouse_pool_checkouts
+
+
+def truncate_or_reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = ()) -> None:
+    if not _truncate_clickhouse_tables_if_schema_unchanged(materialized_event_properties):
+        reset_clickhouse_database(materialized_event_properties)
 
 
 def reset_clickhouse_database_if_dirty(materialized_event_properties: tuple[str, ...] = ()) -> None:
@@ -2425,8 +2445,7 @@ def reset_clickhouse_database_if_dirty(materialized_event_properties: tuple[str,
         baseline is None or baseline.materialized_event_properties == materialized_event_properties
     ):
         return
-    if not _truncate_clickhouse_tables_if_schema_unchanged(materialized_event_properties):
-        reset_clickhouse_database(materialized_event_properties)
+    truncate_or_reset_clickhouse_database(materialized_event_properties)
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):
