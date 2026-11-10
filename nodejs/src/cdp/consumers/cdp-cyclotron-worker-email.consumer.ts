@@ -74,12 +74,10 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         const plain: CyclotronJobInvocation[] = []
         const sends: Promise<void>[] = []
         const deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[] = []
-        const withFiles = invocations.filter((invocation) => fileBytesOf(invocation) !== null)
-        const hogFlows = withFiles.length
-            ? await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss([
-                  ...new Set(withFiles.map((invocation) => invocation.functionId)),
-              ])
-            : {}
+        const withFiles = invocations.filter(
+            (invocation) => !invocation.cancelRequestedAt && fileBytesOf(invocation) !== null
+        )
+        const hogFlows = withFiles.length ? await this.workflowsWithHeartbeat(invocations, withFiles) : {}
         for (const invocation of invocations) {
             const fileBytes = fileBytesOf(invocation)
             if (
@@ -122,6 +120,20 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
             if (outcome.status === 'rejected') {
                 reportResultWriteFailure(this.queue, outcome.reason)
             }
+        }
+    }
+
+    private async workflowsWithHeartbeat(
+        batch: CyclotronJobInvocation[],
+        withFiles: CyclotronJobInvocation[]
+    ): Promise<Record<string, HogFlow | null>> {
+        const stopHeartbeat = this.startPeriodicHeartbeat(batch)
+        try {
+            return await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss([
+                ...new Set(withFiles.map((invocation) => invocation.functionId)),
+            ])
+        } finally {
+            stopHeartbeat()
         }
     }
 
