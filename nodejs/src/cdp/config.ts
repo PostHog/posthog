@@ -182,7 +182,6 @@ export type CdpConfig = ClickhouseConfig & {
     // Configuration set with ESP-level open/click tracking enabled, used for sends with engagement tracking on.
     SES_TRACKED_CONFIGURATION_SET: string
     // Configuration set without open/click tracking (same delivery/bounce/complaint event destination).
-    // Empty means not provisioned: tracking-off sends fall back to the tracked set with a warning.
     SES_UNTRACKED_CONFIGURATION_SET: string
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
@@ -444,7 +443,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
-        SES_UNTRACKED_CONFIGURATION_SET: '',
+        SES_UNTRACKED_CONFIGURATION_SET: 'posthog-messaging-untracked',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
         EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: false,
