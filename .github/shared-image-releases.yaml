@@ -76,6 +76,7 @@ filters:
         - 'posthog/db_backends/**'
         - posthog/dbrouter.py
         - posthog/person_db_router.py
+        - posthog/persons_db.py
         - posthog/product_db_router.py
         - posthog/product_db_config.py
         - products/db_routing.yaml
@@ -85,6 +86,8 @@ filters:
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
         - posthog/schema.py
+        - posthog/schema_discriminators.py
+        - posthog/raw_sessions_v3_ad_ids.py
         - 'posthog/models/**'
         - 'posthog/migrations/**'
         - 'products/*/backend/migrations/**'
@@ -95,6 +98,9 @@ filters:
         - posthog/run_mode.py
         - posthog/git.py
         - posthog/udf_versioner.py
+        - posthog/event_usage.py
+        - posthog/oauth_provenance.py
+        - posthog/temporal/oauth.py
         - posthog/date_util.py
         - posthog/exchange_rate_constants.py
         - posthog/property_columns.py
@@ -190,6 +196,10 @@ filters:
         - posthog/api/capture.py
         - posthog/api/__init__.py
         - posthog/api/embedding_worker.py
+        - posthog/api/advanced_activity_logs/__init__.py
+        - posthog/api/advanced_activity_logs/viewset.py
+        - posthog/api/shared.py
+        - products/exports/backend/source_authentication.py
         - products/error_tracking/backend/indexed_embedding.py
         - products/web_analytics/backend/hogql_queries/custom_bot_definitions.py
         - products/web_analytics/backend/hogql_queries/cookieless_flag.py
@@ -278,4 +288,4 @@ images:
             generic:
                 repository: posthog-temporal-workers/generic
                 filter: genericWorker
-                bootstrapPolicyDigest: 4a6c711faf122ce904547192255431f8c042e9bbbd80a91428255c01b9cacf67
+                bootstrapPolicyDigest: ad81181feed5b00d441698034d61a8041066241354ef4e94e1cc8914803717b9
