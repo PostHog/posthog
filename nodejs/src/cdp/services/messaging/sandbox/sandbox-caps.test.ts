@@ -17,7 +17,7 @@ describe('claimSandboxCaps', () => {
     let teamId: number
 
     const claim = (caps: { team: number; recipient: number }, storedAddress: string, team = teamId) =>
-        claimSandboxCaps(limiter, caps, { organizationId, teamId: team, storedAddress })
+        claimSandboxCaps(limiter, caps, { organizationId, teamId: team, storedAddress, claimId: randomUUID() })
 
     beforeAll(async () => {
         client = await createRedisFromConfig(
@@ -94,6 +94,25 @@ describe('claimSandboxCaps', () => {
         expect(await claim(caps, nextAddress, teamId + teamOffset)).toEqual({ ok: true })
     })
 
+    it('charges a retried claim once when Valkey ran the first attempt but its reply was lost', async () => {
+        const replyLost: RedisV2 = {
+            ...redis,
+            useClient: async (options, callback) => {
+                await redis.useClient(options, callback)
+                throw new Error('Connection reset before the reply arrived')
+            },
+        }
+        const caps = { team: 5, recipient: 2 }
+        const sendAttempt = { organizationId, teamId, storedAddress: 'member@example.com', claimId: randomUUID() }
+
+        expect(
+            await claimSandboxCaps(new RateLimiterService(replyLost, { name: 'reply-lost' }), caps, sendAttempt)
+        ).toEqual({ ok: false, reason: 'cap_storage_unavailable' })
+        expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toEqual({ ok: true })
+        expect(await claim(caps, 'member@example.com')).toEqual({ ok: true })
+        expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
+    })
+
     it('charges neither bucket when storage fails partway through the claim', async () => {
         await claim({ team: 5, recipient: 2 }, 'warmup@example.com')
         const [projectKey] =
@@ -129,7 +148,7 @@ describe('claimSandboxCaps', () => {
             await claimSandboxCaps(
                 broken,
                 { team: 5, recipient: 5 },
-                { organizationId, teamId, storedAddress: 'member@example.com' }
+                { organizationId, teamId, storedAddress: 'member@example.com', claimId: randomUUID() }
             )
         ).toEqual({ ok: false, reason: 'cap_storage_unavailable' })
     })

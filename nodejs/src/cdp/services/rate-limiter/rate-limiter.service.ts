@@ -140,8 +140,18 @@ const CLAIM_ALL_OR_NOTHING_ACROSS_LUA = `
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 
+local claimKey = KEYS[#KEYS]
+local claimTtlSeconds = tonumber(ARGV[#ARGV])
+if claimTtlSeconds == nil or claimTtlSeconds < 1 or claimTtlSeconds > 2147483647 or claimTtlSeconds % 1 ~= 0 then
+    return redis.error_reply('invalid ttl for ' .. claimKey)
+end
+if redis.call('exists', claimKey) == 1 then
+    return 1
+end
+
 local after = {}
-for i, key in ipairs(KEYS) do
+for i = 1, #KEYS - 1 do
+    local key = KEYS[i]
     local base = (i - 1) * 4
     local requested = tonumber(ARGV[base + 1])
     local capacity = tonumber(ARGV[base + 2])
@@ -167,10 +177,11 @@ for i, key in ipairs(KEYS) do
     after[i] = available - requested
 end
 
-for i, key in ipairs(KEYS) do
-    redis.call('hset', key, 'ts', now, 'pool', after[i])
-    redis.call('expire', key, tonumber(ARGV[(i - 1) * 4 + 4]))
+for i = 1, #KEYS - 1 do
+    redis.call('hset', KEYS[i], 'ts', now, 'pool', after[i])
+    redis.call('expire', KEYS[i], tonumber(ARGV[(i - 1) * 4 + 4]))
 end
+redis.call('set', claimKey, 1, 'EX', claimTtlSeconds)
 return 1
 `
 
@@ -242,7 +253,10 @@ export class RateLimiterService {
         return { granted: granted >= req.requested, retryAfterMs, reserved }
     }
 
-    public async claimAllOrNothingAcross(reqs: ClaimRequest[]): Promise<'granted' | 'denied' | 'unavailable'> {
+    public async claimAllOrNothingAcross(
+        reqs: ClaimRequest[],
+        claim: { key: string; ttlSeconds: number }
+    ): Promise<'granted' | 'denied' | 'unavailable'> {
         const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         try {
             const result = await this.valkey.useClient(
@@ -250,14 +264,16 @@ export class RateLimiterService {
                 (client) =>
                     client.eval(
                         CLAIM_ALL_OR_NOTHING_ACROSS_LUA,
-                        reqs.length,
+                        reqs.length + 1,
                         ...reqs.map((req) => req.key),
+                        claim.key,
                         ...reqs.flatMap((req) => [
                             String(req.requested),
                             String(req.capacity),
                             String(req.refillPerSecond),
                             String(req.ttlSeconds ?? 3600),
-                        ])
+                        ]),
+                        String(claim.ttlSeconds)
                     )
             )
             if (result !== 0 && result !== 1) {
