@@ -27,10 +27,15 @@ def get_check_runs_with_pins(client: StamphogGitHubClient, repo: str, head_sha: 
     """The head's check runs, each one that pins blobs marked with whether the pins still hold."""
     check_runs = client.get_check_runs(repo, head_sha)
     budget = _MAX_PINNING_CHECK_RUNS
-    for check_run in check_runs:
+    publishers: set[tuple[object, object]] = set()
+    # The engine reads only the newest completed run of a check from its App, so an older run of
+    # the same check must not spend the budget.
+    for check_run in sorted(check_runs, key=lambda run: run.get("id") or 0, reverse=True):
         pinned = _pinned_blobs(check_run)
-        if pinned is None:
+        publisher = (check_run.get("name"), (check_run.get("app") or {}).get("id"))
+        if pinned is None or check_run.get("status") != "completed" or publisher in publishers:
             continue
+        publishers.add(publisher)
         budget -= 1
         check_run["pinned_blobs_current"] = (
             budget >= 0
