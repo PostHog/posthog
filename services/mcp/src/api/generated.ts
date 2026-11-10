@@ -112924,6 +112924,26 @@ export namespace Schemas {
     }
 
     /**
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     */
+    export type WarehouseSuggestionSurfaceEnum = typeof WarehouseSuggestionSurfaceEnum[keyof typeof WarehouseSuggestionSurfaceEnum];
+
+
+    export const WarehouseSuggestionSurfaceEnum = {
+      Models: 'models',
+      Catalog: 'catalog',
+    } as const;
+
+    export interface SurfaceMoreWarehouseSuggestions {
+      /** Page to show more suggestions on. Only the kinds that page shows are picked.
+       *
+       * * `models` - Models
+       * * `catalog` - Data catalog */
+      surface: WarehouseSuggestionSurfaceEnum;
+    }
+
+    /**
      * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
      */
     export type SurveyGlobalStatsResponseStats = { [key: string]: unknown };
@@ -119253,6 +119273,15 @@ export namespace Schemas {
          * @nullable
          */
       refreshed_at: string | null;
+      /** Suggestions waiting to be shown on the requested surface that you can read and act on. 0 without a surface, or while new suggestions are paused or off. */
+      waiting: number;
+      /** Whether a surface_more call would show at least one waiting suggestion now. False while the open limits are full. */
+      can_show_more: boolean;
+    }
+
+    export interface WarehouseSuggestionSurfaceMoreResult {
+      /** How many waiting suggestions this call showed. 0 when none could be shown. */
+      surfaced: number;
     }
 
     /**
@@ -141164,6 +141193,14 @@ export namespace Schemas {
      * Only return suggestions about the view or table with this ID.
      */
     subject_id?: string;
+    /**
+     * Only return the kinds of suggestions this page shows. models: materialize, stop materializing and view deprecations. catalog: certify and deprecate.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsListSurface;
     };
 
     export type WarehouseSuggestionsListKind = typeof WarehouseSuggestionsListKind[keyof typeof WarehouseSuggestionsListKind];
@@ -141185,6 +141222,14 @@ export namespace Schemas {
       Dismissed: 'dismissed',
       Expired: 'expired',
       AutoResolved: 'auto_resolved',
+    } as const;
+
+    export type WarehouseSuggestionsListSurface = typeof WarehouseSuggestionsListSurface[keyof typeof WarehouseSuggestionsListSurface];
+
+
+    export const WarehouseSuggestionsListSurface = {
+      Models: 'models',
+      Catalog: 'catalog',
     } as const;
 
     export type WarehouseSuggestionsAcceptCreateParams = {
@@ -141221,6 +141266,25 @@ export namespace Schemas {
 
 
     export const WarehouseSuggestionsDismissCreateSurface = {
+      Models: 'models',
+      Catalog: 'catalog',
+    } as const;
+
+    export type WarehouseSuggestionsStatusRetrieveParams = {
+    /**
+     * Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsStatusRetrieveSurface;
+    };
+
+    export type WarehouseSuggestionsStatusRetrieveSurface = typeof WarehouseSuggestionsStatusRetrieveSurface[keyof typeof WarehouseSuggestionsStatusRetrieveSurface];
+
+
+    export const WarehouseSuggestionsStatusRetrieveSurface = {
       Models: 'models',
       Catalog: 'catalog',
     } as const;

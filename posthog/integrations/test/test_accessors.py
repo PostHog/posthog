@@ -227,6 +227,24 @@ class TestIntegrationAccessors(BaseTest):
         assert {"github_oauth": len(rows)} == expected
         assert all(row.integration_id == "github_oauth" for row in rows)
 
+    def test_change_external_id(self) -> None:
+        row = IntegrationManager.github.oauth.change_external_id(self.team.id, self.rows["github_oauth"].id, "moved")
+
+        assert row.integration_id == "moved"
+        assert IntegrationManager.github.oauth.get(self.team.id, row.id).integration_id == "moved"
+
+    def test_change_external_id_refuses_an_id_the_team_already_has(self) -> None:
+        newer = IntegrationManager.github.oauth.create(self.team.id, external_id="newer", config={})
+
+        with self.assertRaises(IntegrationConflict):
+            IntegrationManager.github.oauth.change_external_id(self.team.id, newer.id, "github_oauth")
+
+        assert IntegrationManager.github.oauth.get(self.team.id, newer.id).integration_id == "newer"
+
+    def test_change_external_id_does_not_reach_other_teams(self) -> None:
+        with self.assertRaises(IntegrationNotFound):
+            IntegrationManager.github.oauth.change_external_id(self.other_team.id, self.rows["github_oauth"].id, "x")
+
     @parameterized.expand(
         [
             ("both_teams", ["own", "other"], "github_oauth"),
