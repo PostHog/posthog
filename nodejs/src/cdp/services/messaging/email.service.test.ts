@@ -316,10 +316,6 @@ describe('EmailService', () => {
         })
     })
 
-    it('refuses to start with SES configured but no untracked configuration set', () => {
-        expect(() => createService({ sesUntrackedConfigurationSet: '' })).toThrow('SES_UNTRACKED_CONFIGURATION_SET')
-    })
-
     describe('executeSendEmail', () => {
         let invocation: CyclotronJobInvocationHogFunction
         let sendEmailSpy: jest.SpyInstance
@@ -2277,18 +2273,33 @@ describe('EmailService', () => {
                 invocation.hogFunction.metadata = { tracking_enabled: false }
             })
 
-            it('delivers tracking-off mail without open or click tracking', async () => {
+            it.each([
+                {
+                    case: 'delivers tracking-off mail without open or click tracking',
+                    untrackedSet: 'posthog-messaging-untracked',
+                    error: undefined,
+                    inbox: [{ to: ['"Test User" <test@example.com>'], html: trackableHtml }],
+                },
+                {
+                    case: 'fails tracking-off mail instead of sending it tracked when no untracked set is named',
+                    untrackedSet: '',
+                    error: expect.stringContaining('SES_UNTRACKED_CONFIGURATION_SET is empty'),
+                    inbox: [],
+                },
+            ])('$case', async ({ untrackedSet, error, inbox }) => {
                 const ses = await startFakeSes({
                     'posthog-messaging': { tracking: true },
                     'posthog-messaging-untracked': { tracking: false },
                 })
                 try {
-                    const sesService = useStaticSesCredentials(createService({ sesEndpoint: ses.endpoint }))
+                    const sesService = useStaticSesCredentials(
+                        createService({ sesEndpoint: ses.endpoint, sesUntrackedConfigurationSet: untrackedSet })
+                    )
 
                     const result = await sesService.executeSendEmail(invocation)
 
-                    expect(result.error).toBeUndefined()
-                    expect(ses.inbox).toEqual([{ to: ['"Test User" <test@example.com>'], html: trackableHtml }])
+                    expect(result.error).toEqual(error)
+                    expect(ses.inbox).toEqual(inbox)
                 } finally {
                     await ses.close()
                 }

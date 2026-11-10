@@ -446,11 +446,6 @@ export class EmailService {
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null
     ) {
-        if (this.sesConfig.sesRegion && !this.sesConfig.sesUntrackedConfigurationSet) {
-            throw new Error(
-                'SES_UNTRACKED_CONFIGURATION_SET is empty while SES_REGION is set. Name the untracked SES configuration set, or tracking-off emails would go out with open and click tracking.'
-            )
-        }
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
                   region: this.sesConfig.sesRegion,
@@ -1244,6 +1239,11 @@ export class EmailService {
     ): Promise<string> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
+        }
+        if (!trackingEnabled && !this.sesConfig.sesUntrackedConfigurationSet) {
+            throw new Error(
+                'Email not sent: tracking is off, but SES_UNTRACKED_CONFIGURATION_SET is empty. Set it to the SES configuration set without open and click tracking.'
+            )
         }
         const distinctId = resolveEmailTrackingDistinctId(result.invocation)
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
