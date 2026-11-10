@@ -12,13 +12,13 @@
         "test:visual:update:docker": "pnpm build:products && NODE_OPTIONS=--max-old-space-size=16384 test-storybook -u --browsers chromium webkit --no-index-json"
     },
     "dependencies": {
-        "@babel/runtime": "^7.26.10",
+        "@babel/runtime": "^7.29.10",
         "@jest/globals": "^30.0.5",
         "@jest/test-sequencer": "^30.0.5",
         "@posthog/frontend": "workspace:*",
-        "@storybook/addon-a11y": "^10.4.3",
-        "@storybook/addon-docs": "^10.4.3",
-        "@storybook/addon-links": "^10.4.3",
+        "@storybook/addon-a11y": "^10.6.1",
+        "@storybook/addon-docs": "^10.6.1",
+        "@storybook/addon-links": "^10.6.1",
         "@storybook/csf": "^0.1.12",
         "@storybook/react": "catalog:",
         "@storybook/react-vite": "catalog:",
@@ -29,7 +29,7 @@
         "history": "^5.0.1",
         "jest-image-snapshot": "^6.4.0",
         "mockdate": "^3.0.5",
-        "posthog-js-lite": "4.13.1",
+        "posthog-js-lite": "4.13.3",
         "sass": "^1.26.2",
         "storybook": "catalog:",
         "vite": "catalog:"
