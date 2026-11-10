@@ -6783,8 +6783,12 @@ const api = {
                     .update({ data: { content } })
             },
 
-            delete(conversationId: string, queueId: string): Promise<ConversationQueueResponse> {
-                return new ApiRequest().conversation(conversationId).withAction(`queue/${queueId}`).delete()
+            async delete(conversationId: string, queueId: string): Promise<ConversationQueueResponse> {
+                const response = await new ApiRequest()
+                    .conversation(conversationId)
+                    .withAction(`queue/${queueId}`)
+                    .delete()
+                return response.json()
             },
 
             clear(conversationId: string): Promise<ConversationQueueResponse> {
