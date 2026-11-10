@@ -4187,7 +4187,8 @@ class TestHeartbeatLoop:
 
         task = asyncio.create_task(consumer._heartbeat_loop())
         await asyncio.sleep(0.03)
-        time.sleep(1.0)  # block the event loop so the heartbeat cannot run
+        # nosemgrep: no-fixed-sleeps-in-tests -- blocks the event loop past the stall-dump deadline
+        time.sleep(1.0)
         assert "most recent call first" in capfd.readouterr().err
 
         await asyncio.sleep(0.03)  # the heartbeat resumes and arms the timer again
