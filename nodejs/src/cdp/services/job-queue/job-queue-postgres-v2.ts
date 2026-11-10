@@ -1,6 +1,7 @@
 import { chunk } from 'lodash'
-import { Gauge, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
+import type { CommonConfig } from '~/common/config'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -16,6 +17,12 @@ import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observ
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
     help: 'Number of postgres-v2 jobs currently held in memory awaiting ack/fail/reschedule',
+})
+
+const resultWriteFailuresCounter = new Counter({
+    name: 'cdp_cyclotron_v2_result_write_failures_total',
+    help: 'Batches whose acks, reschedules or new jobs failed to write; dequeued jobs wait for the janitor stall reset',
+    labelNames: ['queue'],
 })
 
 const jobLatenessHistogram = new Histogram({
@@ -51,10 +58,12 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             | 'CYCLOTRON_NODE_DATABASE_URL'
             | 'CYCLOTRON_SHARD_DEPTH_LIMIT'
             | 'CDP_CYCLOTRON_BATCH_DELAY_MS'
+            | 'CDP_CYCLOTRON_BOUNDED_POLLS'
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
-        >
+        > &
+            Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>
     ) {
         this.sanitizer = createInvocationSanitizer(config)
     }
@@ -98,6 +107,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             queueName: queue,
             batchMaxSize: this.consumerBatchSize,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
+            boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
             includeEmptyBatches: true,
         })
 
@@ -121,7 +131,14 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 maxBatchSize: this.consumerBatchSize,
             })
 
-            await consumeBatch(invocations)
+            const { backgroundTask } = await consumeBatch(invocations)
+            void backgroundTask.catch((error) => {
+                resultWriteFailuresCounter.labels({ queue }).inc()
+                logger.warn('CyclotronV2 failed to write batch results', {
+                    queue,
+                    error: String(error),
+                })
+            })
 
             pendingJobsGauge.set(this.pendingJobs.size)
         })

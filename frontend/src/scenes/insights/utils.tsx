@@ -24,6 +24,7 @@ import {
     containsHogQLQuery,
     isBIVisualizationNode,
     isDataTableNode,
+    isDataVisualizationNode,
     isEventsNode,
     isGroupNode,
     isHogQLQuery,
@@ -36,6 +37,7 @@ import {
     ExperimentDataWarehouseNode,
     BreakdownFilter,
     DashboardFilter,
+    DataVisualizationNode,
     FileSystemIconType,
     GroupNode,
     HogQLQuery,
@@ -660,6 +662,25 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
     return parseQuery(query)
+}
+
+/** Mirrors the queries `urls.insightNew()` sends to the SQL editor or the BI scene */
+export function opensOutsideInsightScene(query: Node | null | undefined): boolean {
+    if (!query) {
+        return false
+    }
+    return (
+        isBIVisualizationNode(query) ||
+        isHogQLQuery(query) ||
+        ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source))
+    )
+}
+
+/** The query to open in the SQL editor for an unsaved SQL insight, which has no other route to its SQL */
+export function unsavedSqlInsightQuery(query: Node | null, isSaved: boolean): DataVisualizationNode | null {
+    return !isSaved && isDataVisualizationNode(query) && !isBIVisualizationNode(query) && isHogQLQuery(query.source)
+        ? query
+        : null
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {

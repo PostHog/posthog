@@ -410,7 +410,9 @@ def _snuffle_response(status_code: int, payload: dict[str, Any]) -> MagicMock:
     return response
 
 
-@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091", SNUFFLE_APM_USER="reader", SNUFFLE_APM_PASSWORD="secret")
+@override_settings(
+    SNUFFLE_METRICS_URL="http://snuffle.test:9091", SNUFFLE_METRICS_USER="reader", SNUFFLE_METRICS_PASSWORD="secret"
+)
 @time_machine.travel(NOW, tick=False)
 class TestMetricsPromQLMode(APIBaseTest):
     def _runner(self, promql: str = "sum by (job) (rate(http_requests_total))") -> MetricsQueryRunner:
@@ -625,7 +627,7 @@ class TestMetricsPromQLMode(APIBaseTest):
                 self._runner().calculate()
 
     def test_explains_when_snuffle_is_not_configured(self) -> None:
-        with override_settings(SNUFFLE_APM_URL=""):
+        with override_settings(SNUFFLE_METRICS_URL=""):
             with pytest.raises(ExposedHogQLError, match="not available"):
                 self._runner().calculate()
 

@@ -4,16 +4,13 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
-    ExperimentHealthMeasurement,
-    ExperimentHealthMeasurementSide,
-    ExperimentHealthMeasurementUnit,
 )
-from products.experiments.backend.health.checks.bias_risk import MULTIPLE_VARIANT_KEY
+from products.experiments.backend.health.checks.bias_risk import MULTIPLE_VARIANT_KEY, multiple_variant_values
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.skips import (
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
-    CheckPassed,
+    CheckValues,
     not_applicable,
     not_checked,
 )
@@ -25,6 +22,10 @@ MULTIPLE_VARIANTS_SHARE_THRESHOLD = 5.0  # on the 0-100 scale (5.0 = 5%)
 # The floor counts users or groups, not exposures: each of them is a fact, so the finding can fire on a new
 # experiment. The floor stops one or two testers who switch between variants from firing it.
 MULTIPLE_VARIANTS_MINIMUM_COUNT = 5
+
+
+def multiple_variants_values(ctx: HealthContext) -> CheckValues:
+    return multiple_variant_values(ctx.exposures) if ctx.exposures else {}
 
 
 def multiple_variants_share(ctx: HealthContext) -> CheckOutcome:
@@ -40,14 +41,7 @@ def multiple_variants_share(ctx: HealthContext) -> CheckOutcome:
         return None
     percentage = multiple / total * 100
     if percentage <= MULTIPLE_VARIANTS_SHARE_THRESHOLD:
-        return CheckPassed(
-            measurement=ExperimentHealthMeasurement(
-                value=percentage,
-                threshold=MULTIPLE_VARIANTS_SHARE_THRESHOLD,
-                unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
-                warns=ExperimentHealthMeasurementSide.ABOVE,
-            )
-        )
+        return None
     # The flag gives every member of a group the same variant, so the causes of a person's several IDs do not apply.
     if exposures.counts_groups:
         title = "Many groups were exposed to multiple variants"

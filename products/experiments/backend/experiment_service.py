@@ -97,7 +97,7 @@ from products.experiments.backend.metric_calculation.config import (
     stamp_calculation_keys,
 )
 from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
-from products.experiments.backend.metric_resolution import MetricRole
+from products.experiments.backend.metric_resolution import MetricRole, apply_saved_metric_overrides, find_metric_dict
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
     defined_event_names,
@@ -121,6 +121,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.task_profiles import CLEANUP
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
 from products.experiments.backend.warehouse_native_sources import (
     validate_experiment_warehouse_native_sources,
@@ -1111,6 +1112,19 @@ class ExperimentService:
             raise ValidationError(
                 f"Legacy shared metrics can't be added to an experiment: {', '.join(legacy_names)}. "
                 "Use a shared metric of kind 'ExperimentMetric' instead."
+            )
+
+        # The breakdowns of a link replace those of the saved query, so a valid saved metric can become a
+        # metric that cannot run, such as a percentile metric with breakdowns. A link without breakdowns
+        # leaves the saved definition as it is, so only those links need the check.
+        saved_queries_by_id = dict(saved_metrics.values_list("id", "query"))
+        for i, saved_metric in enumerate(saved_metrics_ids):
+            metadata = saved_metric.get("metadata") or {}
+            if not metadata.get("breakdowns"):
+                continue
+            parse_and_validate_metric(
+                apply_saved_metric_overrides(saved_queries_by_id[int(saved_metric["id"])], metadata),
+                error_prefix=f"Invalid saved metric at index {i}: ",
             )
 
     @staticmethod
@@ -2789,7 +2803,7 @@ class ExperimentService:
                         team=team,
                         title=title,
                         description=description,
-                        origin_product=tasks_facade.TaskOriginProduct.EXPERIMENTS,
+                        profile=CLEANUP,
                         user_id=user_id,
                         repository=repository,
                         create_pr=True,
@@ -2845,19 +2859,9 @@ class ExperimentService:
         # request import path.
         from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
 
-        # team_only: the candidates are shown to any experiment viewer with Code access, and the
-        # cleanup PR is opened by the team installation's bot identity — a personal-connection
-        # fallback would both leak someone's private repo names and target a repo the bot can't use.
-        github = tasks_repo_selection.resolve_team_github_integration(
-            experiment.team_id, team=experiment.team, team_only=True
-        )
-        if github is None:
+        cached = tasks_repo_selection.team_repository_names(experiment.team_id, team=experiment.team)
+        if cached is None:
             return {"repository": None, "source": "no_integration", "candidates": []}
-        cached = {
-            full_name.lower(): full_name
-            for repo in github.list_all_cached_repositories(max_repos=1000)
-            if (full_name := repo.get("full_name"))
-        }
         candidates = sorted(cached.values(), key=str.lower)
         if not cached:
             # An integration with nothing to target is as good as none — without this, a
@@ -3997,6 +4001,14 @@ class ExperimentService:
         separately because that relation is excluded from it.
         """
         changed_fields = get_changed_fields_local(before_update, experiment) if before_update is not None else []
+        if before_update is not None:
+            # A restamp of the fingerprints alone, for example after the calculation key version changes, is no
+            # metric change.
+            for field_name in ("metrics", "metrics_secondary"):
+                if _metric_list_view(getattr(before_update, field_name)) == _metric_list_view(
+                    getattr(experiment, field_name)
+                ):
+                    changed_fields = [name for name in changed_fields if name != field_name]
         # Check if saved_metric assignment has changed
         if before_saved_metrics != self._saved_metric_signature(experiment):
             changed_fields = [*changed_fields, "saved_metrics"]
@@ -4725,6 +4737,7 @@ class ExperimentService:
             "metric_uuid": metric_uuid,
             "status": overall_status,
             "timeseries": timeseries,
+            "configuration_by_day": {day.isoformat(): status for day, status in stored.configuration_by_day.items()},
             "errors": errors if errors else None,
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
             "created_at": stored.earliest.created_at.isoformat()
@@ -4734,8 +4747,13 @@ class ExperimentService:
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
+        metric_definition = find_metric_dict(experiment, metric_uuid) or {}
         response["formatted_results"] = ExperimentTimeseriesFormatter(
-            MetricTimeseries.from_stored(status=overall_status, timeseries=timeseries)
+            MetricTimeseries.from_stored(
+                status=overall_status,
+                timeseries=timeseries,
+                is_quantile=metric_definition.get("metric_type") == "quantile",
+            )
         ).format()
         return response
 

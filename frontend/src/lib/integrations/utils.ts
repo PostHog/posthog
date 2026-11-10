@@ -162,6 +162,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Apple Ads'
         case 'linkedin-ads':
             return 'LinkedIn Ads'
+        case 'meta-ads':
+            return 'Meta Ads'
         case 'reddit-ads':
             return 'Reddit Ads'
         case 'twitter-ads':

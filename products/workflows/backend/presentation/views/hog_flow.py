@@ -77,9 +77,11 @@ from posthog.permissions import (
 )
 from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import (
+    WORKFLOWS_MANUAL_RUN_JWT_PURPOSE,
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
     create_hog_flow_invocation_test,
+    create_hog_flow_manual_invocation,
     create_hog_flow_scheduled_invocation,
     get_hog_flow_in_flight_count,
     rerun_hog_invocations,
@@ -152,6 +154,8 @@ from products.workflows.backend.facade.activity import (
     bulk_delete_archived_workflows,
     log_workflow_activity,
     log_workflow_schedule_activity,
+    log_workflow_test_run,
+    record_workflow_test_run_origins,
     resume_workflow_email_sending,
 )
 from products.workflows.backend.facade.api import (
@@ -1043,6 +1047,19 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
         value = item.get("value") if isinstance(item, dict) else None
         if not isinstance(value, list) or not value:
             raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
+
+
+_WEEKDAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+
+
+def _reject_unmatchable_time_window_days(day: Any) -> None:
+    if day in ("any", "weekday", "weekend"):
+        return
+    if isinstance(day, list) and day and all(isinstance(name, str) and name in _WEEKDAYS for name in day):
+        return
+    raise serializers.ValidationError(
+        {"config": "day must be 'any', 'weekday', 'weekend', or a list of at least one weekday name."}
+    )
 
 
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
@@ -2436,6 +2453,12 @@ class HogFlowActionSerializer(serializers.Serializer):
         if data.get("type") == "delay":
             self._validate_delay(data, strict)
 
+        if strict and data.get("type") == "wait_until_time_window":
+            day = (data.get("config") or {}).get("day")
+            stored_days = self.context.get("stored_time_window_days") or {}
+            if data.get("id") not in stored_days or stored_days[data.get("id")] != day:
+                _reject_unmatchable_time_window_days(day)
+
         return data
 
     def _validate_delay(self, data: dict, strict: bool) -> None:
@@ -3015,13 +3038,9 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
     max_tier = serializers.IntegerField(
         read_only=True, help_text="The highest tier there is, so the current tier can be shown as progress."
     )
-    emails_per_hour = serializers.IntegerField(read_only=True, help_text="How many emails this tier allows per hour.")
     emails_per_day = serializers.IntegerField(read_only=True, help_text="How many emails this tier allows per day.")
     max_batch_audience = serializers.IntegerField(
         read_only=True, help_text="The largest audience this tier allows for a single batch send."
-    )
-    emails_sent_last_hour = serializers.IntegerField(
-        read_only=True, help_text="Emails sent by this project's workflows in the last hour."
     )
     emails_sent_last_day = serializers.IntegerField(
         read_only=True, help_text="Emails sent by this project's workflows in the last 24 hours."
@@ -3562,6 +3581,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             action["id"]: (action.get("config") or {}).get("condition")
             for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
+        }
+
+        self.context["stored_time_window_days"] = {
+            action["id"]: (action.get("config") or {}).get("day")
+            for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_time_window"
         }
 
         # Durations the flow already stores, so the cap check refuses new over-cap values only.
@@ -6646,10 +6671,19 @@ class HogFlowViewSet(
                 draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)
             payload["configuration"] = draft
 
+        test_run_row = None
         if not payload.get("mock_async_functions", True):
             configuration = payload.get("configuration") or {}
-            self._require_replay_vision_caller_access(
-                request, configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
+            # The worker runs `{...stored, ...configuration}`, so a field the request omits runs as stored.
+            actions = configuration["actions"] if "actions" in configuration else (hog_flow.actions if hog_flow else [])
+            self._require_replay_vision_caller_access(request, actions)
+            test_run_row = log_workflow_test_run(
+                actor=self._activity_actor(),
+                workflow_id=hog_flow.id if hog_flow else None,
+                name=configuration.get("name") or (hog_flow.name if hog_flow else None),
+                actions=actions,
+                current_action_id=payload.get("current_action_id"),
+                encrypted_inputs=hog_flow.encrypted_inputs if hog_flow and "actions" not in configuration else None,
             )
 
         res = create_hog_flow_invocation_test(
@@ -6657,11 +6691,19 @@ class HogFlowViewSet(
             hog_flow_id=str(hog_flow.id) if hog_flow else "new",
             payload=payload,
         )
+        record_workflow_test_run_origins(
+            test_run_row,
+            res,
+            secret_inputs=[hog_flow.encrypted_inputs, hog_flow.draft_encrypted_inputs] if hog_flow else None,
+        )
 
         if res.status_code != 200:
             return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)
 
-        return Response(res.json())
+        body = res.json()
+        # A reported host can hold a stored secret. The audit row keeps the redacted origins.
+        body.pop("request_origins", None)
+        return Response(body)
 
     @extend_schema(request=ApplyUtmDefaultsRequestSerializer, responses=ApplyUtmDefaultsResponseSerializer)
     @action(methods=["POST"], detail=False)
@@ -7661,12 +7703,13 @@ class HogFlowViewSet(
     @action(detail=True, methods=["POST"])
     def run(self, request: Request, *args, **kwargs) -> Response:
         """
-        Fire a schedule-triggered workflow immediately, outside its regular schedule.
+        Run a workflow with a `schedule` or `manual` trigger now, once.
 
-        Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
-        dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
-        guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
-        the scheduler itself applies in `internal_process_due_schedules`.
+        A schedule-triggered workflow runs outside its regular schedule. A manually triggered
+        workflow runs for the calling user, as the trigger button in the editor does. Other
+        triggers have their own entry points (`batch_jobs`, the public webhook URL) with
+        trigger-specific guardrails this endpoint doesn't replicate. Requires the workflow to be
+        active, same gate the scheduler itself applies in `internal_process_due_schedules`.
 
         Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
         after a timed-out request): a repeat with the same key returns the first call's result
@@ -7678,9 +7721,22 @@ class HogFlowViewSet(
             raise exceptions.ValidationError("Workflow must be active to run. Enable it first.")
 
         trigger_type = hog_flow.trigger_type
-        if trigger_type != "schedule":
+        if trigger_type not in ("schedule", "manual"):
             raise exceptions.ValidationError(
-                f"Only workflows with a 'schedule' trigger can be run this way (this one has '{trigger_type}')."
+                f"Only workflows with a 'schedule' or 'manual' trigger can be run this way (this one has '{trigger_type}')."
+            )
+        # A manual run's event belongs to the user who started it, so a caller without an email
+        # (a service credential) has no person to run it for.
+        user_email = getattr(request.user, "email", None)
+        if trigger_type == "manual" and not user_email:
+            raise exceptions.ValidationError("A manual trigger runs for a user. Call this endpoint as a user.")
+        if trigger_type == "manual" and not WORKFLOWS_MANUAL_RUN_JWT_PURPOSE.enabled():
+            return Response(
+                {
+                    "detail": "Manual triggers are not set up on this PostHog instance. "
+                    "An admin needs to set WORKFLOWS_CANCEL_JWT_SECRET on the web and plugin servers."
+                },
+                status=503,
             )
 
         serializer = HogFlowRunRequestSerializer(data=request.data)
@@ -7709,9 +7765,17 @@ class HogFlowViewSet(
                 return Response(HogFlowRunResponseSerializer(cached_result).data)
 
         try:
-            response = create_hog_flow_scheduled_invocation(
-                team_id=self.team_id, hog_flow_id=str(hog_flow.id), variables=variables
-            )
+            if trigger_type == "manual":
+                response = create_hog_flow_manual_invocation(
+                    team_id=self.team_id,
+                    hog_flow_id=str(hog_flow.id),
+                    user_id=cast(str, user_email),
+                    variables=variables,
+                )
+            else:
+                response = create_hog_flow_scheduled_invocation(
+                    team_id=self.team_id, hog_flow_id=str(hog_flow.id), variables=variables
+                )
         except requests.exceptions.ReadTimeout:
             # CDP already had the request when the timeout fired, so it may already have
             # queued the invocation — unlike a connection failure below, nothing here rules
@@ -7734,14 +7798,39 @@ class HogFlowViewSet(
         if response.status_code != 200:
             if cache_key:
                 cache.delete(cache_key)
+            if trigger_type == "manual":
+                return _manual_run_refusal(response)
             return Response({"detail": response.text}, status=response.status_code)
 
         result = response.json()
         if cache_key:
             cache.set(cache_key, result, timeout=HOG_FLOW_RUN_IDEMPOTENCY_TTL_SECONDS)
 
-        self._report_workflow_action("hog_flow_run_now", hog_flow, {})
+        self._report_workflow_action("hog_flow_run_now", hog_flow, {"trigger_type": trigger_type})
         return Response(HogFlowRunResponseSerializer(result).data)
+
+
+def _manual_run_refusal(response: requests.Response) -> Response:
+    """Turn CDP's refusal of a manual run into a message for the editor's toast."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    detail = body.get("error") if isinstance(body, dict) and isinstance(body.get("error"), str) else response.text
+    if response.status_code == 429:
+        return Response(
+            {"detail": "This workflow was disabled after too many failed or slow runs. Check its logs."}, status=429
+        )
+    # A 401 or 403 here is a fault between Django and CDP, not the user's. Passed through, the
+    # frontend would read it as an expired session.
+    if response.status_code in (401, 403):
+        return Response(
+            {"detail": "The workflow engine refused the call. Try again, and contact support if it keeps happening."},
+            status=502,
+        )
+    if response.status_code >= 500:
+        return Response({"detail": detail}, status=502)
+    return Response({"detail": detail}, status=response.status_code)
 
 
 class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):

@@ -14,7 +14,11 @@ from products.slack_app.backend.logic.onboarding.step import OnboardingContext, 
 from products.slack_app.backend.logic.onboarding.steps import ONBOARDING_STEPS, STEPS_BY_KEY
 from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
-from products.slack_app.backend.services.slack_welcome_messages import ONBOARDING_INTRO_TEXT, build_onboarding_ready
+from products.slack_app.backend.services.slack_welcome_messages import (
+    build_onboarding_ready,
+    onboarding_done_text,
+    onboarding_intro_text,
+)
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.temporal.types import (
     ONBOARDING_DONE_PLAN,
@@ -26,6 +30,7 @@ from products.slack_app.backend.temporal.types import (
 SETUP_STARTED_EVENT = "slack app onboarding started"
 STEP_SHOWN_EVENT = "slack app onboarding step shown"
 SETUP_COMPLETED_EVENT = "slack app onboarding completed"
+REMINDED_EVENT = "slack app onboarding reminded"
 
 
 StepStatus = Literal["done", "already_set", "not_needed", "skipped", "pending"]
@@ -66,88 +71,82 @@ def _current(checked: list[_PlannedStep]) -> _PlannedStep | None:
 
 def _progress(checked: list[_PlannedStep]) -> str:
     finished = sum(1 for item in checked if item.status != "pending")
-    return f"{finished} of {len(checked)} {'step' if len(checked) == 1 else 'steps'} done"
+    return f"{finished}/{len(checked)} done"
 
 
-_CHECKLIST_LINES: dict[StepStatus, str] = {
-    "done": ":white_check_mark: {done_text}",
-    "already_set": ":white_check_mark: {title}: already set",
-    "not_needed": ":heavy_minus_sign: {title}: not needed",
-    "skipped": ":heavy_minus_sign: {title}: skipped",
-    "pending": ":white_small_square: {title}",
-}
+def _progress_bar(checked: list[_PlannedStep]) -> str:
+    finished = sum(1 for item in checked if item.status != "pending")
+    return f"{'▰' * finished}{'▱' * (len(checked) - finished)}  {_progress(checked)}"
 
 
-def _checklist(checked: list[_PlannedStep]) -> str:
-    current = _current(checked)
-    lines = []
-    for item in checked:
-        if item is current:
-            line = f":arrow_right: *{item.step.title}*"
-        else:
-            line = _CHECKLIST_LINES[item.status].format(title=item.step.title, done_text=item.step.done_text)
-        lines.append(f"{item.number}. {line}")
-    return "\n".join(lines)
-
-
-def _root_status(checked: list[_PlannedStep]) -> str:
-    """Stored so the thread can tell when any checklist line changes, even when the count stays the same."""
-    return f"{_progress(checked)}\n{_checklist(checked)}"
-
-
-def _root_message(checked: list[_PlannedStep], *, ready: bool, ts: str | None = None) -> SlackAppOnboardingMessage:
+def _root_message(
+    ctx: OnboardingContext, checked: list[_PlannedStep], *, ready: bool, ts: str | None = None
+) -> SlackAppOnboardingMessage:
+    blocks = (
+        [section_block(onboarding_done_text(ctx.slack_user_id))]
+        if ready
+        else [section_block(onboarding_intro_text(ctx.slack_user_id)), context_block(_progress_bar(checked))]
+    )
     return SlackAppOnboardingMessage(
         kind="root",
         text="PostHog is set up" if ready else "Set up PostHog in Slack",
-        blocks=[
-            section_block(ONBOARDING_INTRO_TEXT),
-            context_block(":white_check_mark: Setup done" if ready else _progress(checked)),
-            context_block(_checklist(checked)),
-        ],
+        blocks=blocks,
         ts=ts,
-        root_status=_root_status(checked),
+        root_status=_progress(checked),
     )
 
 
-def _passed_notes(checked: list[_PlannedStep], current: _PlannedStep) -> list[str]:
-    """The steps that were set elsewhere after the previous reply, so the thread jumps over them."""
-    notes = []
-    for item in reversed(checked[: current.number - 1]):
-        if item.shown:
+_SUMMARY_LINES: dict[StepStatus, str] = {
+    "done": ":white_check_mark: {done_text}",
+    "already_set": ":white_check_mark: {title}: already set",
+    "not_needed": "Not needed: {title}",
+    "skipped": "Skipped: {title}",
+}
+
+
+def _summary_line(item: _PlannedStep) -> str:
+    return _SUMMARY_LINES[item.status].format(title=item.step.title, done_text=item.step.done_text)
+
+
+def _passed(items: list[_PlannedStep]) -> list[_PlannedStep]:
+    """The steps the thread jumped over at the start of ``items``, because they were set elsewhere."""
+    passed = []
+    for item in items:
+        if item.shown or item.status == "pending":
             break
-        reason = "is already set" if item.status == "already_set" else "is not needed anymore"
-        notes.append(f"Step {item.number}, {item.step.title}, {reason}, so I skipped it.")
-    return list(reversed(notes))
+        passed.append(item)
+    return passed
 
 
 def _step_message(
     ctx: OnboardingContext, checked: list[_PlannedStep], current: _PlannedStep
 ) -> SlackAppOnboardingMessage:
-    position = f"Step {current.number} of {len(checked)}"
+    position = f"Step {current.number}/{len(checked)}"
+    # A step jumped over before any reply has no summary to sit in, so it shows here.
+    leading = [] if any(item.shown for item in checked[: current.number - 1]) else _passed(checked)
     # The mention makes the person follow the thread, so each new step reply notifies them.
     return SlackAppOnboardingMessage(
         kind="step",
         step=current.step.key,
         text=f"{position}: {current.step.title}",
         blocks=[
+            *(context_block(_summary_line(item)) for item in leading),
             context_block(f"<@{ctx.slack_user_id}> {position}"),
-            *(context_block(note) for note in _passed_notes(checked, current)),
             *current.step.render(ctx),
         ],
     )
 
 
-_SUMMARY_LINES: dict[StepStatus, str] = {
-    "done": ":white_check_mark: {done_text}",
-    "not_needed": "Not needed: {title}",
-    "skipped": "Skipped: {title}",
-}
-
-
-def _summary_message(item: _PlannedStep, ts: str) -> SlackAppOnboardingMessage:
-    line = _SUMMARY_LINES[item.status].format(title=item.step.title, done_text=item.step.done_text)
+def _summary_message(checked: list[_PlannedStep], item: _PlannedStep, ts: str) -> SlackAppOnboardingMessage:
+    # The steps jumped over after this reply get their line here, so every step shows in the thread.
+    lines = [_summary_line(later) for later in [item, *_passed(checked[item.number :])]]
     return SlackAppOnboardingMessage(
-        kind="step", step=item.step.key, text=line, blocks=[context_block(line)], ts=ts, summarizes_step=True
+        kind="step",
+        step=item.step.key,
+        text="\n".join(lines),
+        blocks=[context_block(line) for line in lines],
+        ts=ts,
+        summarizes_step=True,
     )
 
 
@@ -185,7 +184,7 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
             _PlannedStep(number=number, step=step, status="pending", shown=False)
             for number, step in enumerate(steps, start=1)
         ]
-        root = replace(_root_message(checked, ready=False), planned=[step.key for step in steps])
+        root = replace(_root_message(ctx, checked, ready=False), planned=[step.key for step in steps])
         return SlackAppOnboardingPlan(edits=[], post=root, finished=False, status=_status(checked))
 
     # A step can apply only after the account link, such as AI consent for an org admin. It joins at the end,
@@ -201,17 +200,17 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
     checked = _check_planned(ctx, planned, state.step_ts, skipped)
     status = _status(checked)
     edits = [
-        _summary_message(item, state.step_ts[item.step.key])
+        _summary_message(checked, item, state.step_ts[item.step.key])
         for item in checked
         if item.shown and item.status != "pending" and item.step.key not in state.summarized
     ]
     current = _current(checked)
     if current is None:
-        edits.append(_root_message(checked, ready=True, ts=state.root_ts))
+        edits.append(_root_message(ctx, checked, ready=True, ts=state.root_ts))
         return SlackAppOnboardingPlan(edits=edits, post=_ready_message(ctx, checked), finished=True, status=status)
 
-    if state.root_status != _root_status(checked):
-        edits.append(_root_message(checked, ready=False, ts=state.root_ts))
+    if state.root_status != _progress(checked):
+        edits.append(_root_message(ctx, checked, ready=False, ts=state.root_ts))
     message = _step_message(ctx, checked, current)
     current_ts = state.step_ts.get(current.step.key)
     if current_ts is None:
@@ -269,6 +268,28 @@ def _forget_deleted_message(
         update_onboarding(slack_workspace_id, slack_user_id, forget_step=message.step)
     # The rest of this refresh was planned for the old messages, so plan again.
     request_onboarding(integration, slack_user_id, may_start=False)
+
+
+def remind_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> None:
+    """Posts at most one reminder per person, as a reply that mentions them, so Slack notifies them."""
+    slack_workspace_id = integration.integration_id
+    state = resolve_onboarding(slack_workspace_id, slack_user_id)
+    if state is None or state.completed or state.reminded_at or state.channel is None or state.root_ts is None:
+        return
+    ctx = OnboardingContext(integration=integration, slack_user_id=slack_user_id)
+    checked = _check_planned(ctx, state.planned, state.step_ts, state.skipped)
+    current = _current(checked)
+    if current is None or not current.shown:
+        return
+    text = (
+        f"<@{slack_user_id}> Your PostHog setup is waiting at step {current.number} of {len(checked)}, "
+        f"{current.step.title}. Pick it up above when you have a minute, or skip the steps you don't need."
+    )
+    SlackIntegration(integration).client.chat_postMessage(
+        channel=state.channel, thread_ts=state.root_ts, text=text, blocks=[section_block(text)]
+    )
+    update_onboarding(slack_workspace_id, slack_user_id, reminded=True)
+    capture_slack_event(integration, REMINDED_EVENT, slack_user_id=slack_user_id, step=current.step.key)
 
 
 def edit_onboarding_message(

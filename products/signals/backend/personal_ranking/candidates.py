@@ -183,13 +183,17 @@ def _pool_ids(
             )
 
 
+def _open_team_reports(team: Team) -> QuerySet[SignalReport]:
+    # The gate-aware filter, because a `monitoring` report reads as resolved while the monitoring gate is off.
+    return SignalReport.objects.filter(team_id=team.id).exclude(
+        report_status_filter(EXCLUDED_STATUSES, team_id=team.id)
+    )
+
+
 def _pools(
     team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime
 ) -> list[tuple[str, list[str]]]:
-    # The gate-aware filter, because a `monitoring` report reads as resolved while the monitoring gate is off.
-    team_reports = SignalReport.objects.filter(team_id=team.id).exclude(
-        report_status_filter(EXCLUDED_STATUSES, team_id=team.id)
-    )
+    team_reports = _open_team_reports(team)
     return [
         (pool.name, _pool_ids(team, user, pool, config, team_reports=team_reports, now=now))
         for pool in candidate_pools(config)
@@ -248,12 +252,22 @@ def gather_candidates(
 def stored_candidates(team: Team, user: User, report_ids: Sequence[str]) -> list[Candidate]:
     """The current facts of the reports a stored list considered, with no pool query and no source read.
 
-    A report that no longer exists drops out, and no new report joins. `pools` is empty, because only a build reads it.
+    A plain read serves this list without a pool query, so it applies the pool rules here. A report that closed or
+    stopped being this person's drops out, and no new report joins. `pools` is empty, because only a build reads it.
     """
+    ids = list(report_ids)
+    for_person = reports_for_person(team.id, user).filter(id__in=ids).values_list("id", flat=True)
+    claimed = (
+        _open_team_reports(team)
+        .filter(id__in=ids)
+        .filter(reports_claimed_for_user(team_id=team.id, user_id=user.id))
+        .values_list("id", flat=True)
+    )
+    still_theirs = {str(report_id) for report_id in (*for_person, *claimed)}
     return _load_candidates(
         team,
         user,
-        {report_id: [] for report_id in report_ids},
+        {report_id: [] for report_id in ids if report_id in still_theirs},
         can_view_ranking=can_view_inbox_ranking(user, team),
         with_sources=False,
     )

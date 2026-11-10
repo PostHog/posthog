@@ -1291,7 +1291,10 @@ def _run_embeddings_asset(monkeypatch, asset, rows, consent_team_ids=frozenset({
     def fake_sync_execute(sql, params, **kwargs):
         captured["params"] = params
         captured["query_kwargs"] = kwargs
-        return rows
+        if "page" not in params:
+            return rows
+        captured.setdefault("pages", []).append(params["page"])
+        return rows.get(params["page"], []) if isinstance(rows, dict) else rows
 
     def fake_write_parquet(client, bucket, key, table, **kwargs):
         captured["key"] = key
@@ -1321,16 +1324,24 @@ def _run_embeddings_asset(monkeypatch, asset, rows, consent_team_ids=frozenset({
     ],
 )
 def test_each_embeddings_asset_snapshots_its_own_rendering(monkeypatch, asset, table, rendering):
-    written = _run_embeddings_asset(monkeypatch, asset, [(2, UUID_A, [0.5, 0.25], False, T1)])
+    last_page = queries.REPORT_EMBEDDINGS_PAGES - 1
+    written = _run_embeddings_asset(
+        monkeypatch,
+        asset,
+        {0: [(2, UUID_A, [0.5, 0.25], False, T1)], last_page: [(2, UUID_B, [0.75, 0.125], True, T1)]},
+    )
 
     assert written["query_kwargs"]["ch_user"] == ClickHouseUser.SIGNALS
     assert written["query_kwargs"]["settings"] == dag.REPORT_EMBEDDINGS_QUERY_SETTINGS
     assert written["query_kwargs"]["workload"] == queries.etl_workload()
     assert written["params"]["rendering"] == rendering
+    assert written["params"]["page_count"] == queries.REPORT_EMBEDDINGS_PAGES
+    assert written["pages"] == list(range(queries.REPORT_EMBEDDINGS_PAGES))
     assert written["key"] == common.partition_object_key("inbox_ranking", table, SNAPSHOT_DATE.isoformat())
     assert written["table"].schema == EMBEDDINGS_SCHEMA
-    assert written["table"].column("embedding_rendering").to_pylist() == [rendering]
-    assert written["table"].column("report_id").to_pylist() == [UUID_A]
+    assert written["table"].column("embedding_rendering").to_pylist() == [rendering, rendering]
+    assert written["table"].column("report_id").to_pylist() == [UUID_A, UUID_B]
+    assert written["table"].column("embedding_small").to_pylist() == [[0.5, 0.25], None]
 
 
 @pytest.mark.parametrize("asset", [dag.inbox_report_embeddings, dag.inbox_report_title_embeddings])

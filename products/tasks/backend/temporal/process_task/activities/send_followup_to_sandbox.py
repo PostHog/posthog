@@ -8,7 +8,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 from posthog.models.user_integration import ReauthorizationRequired, UserIntegration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import close_db_connections
@@ -797,7 +797,7 @@ def _refresh_sandbox_github(
 
     # Read-only runs use a team installation grant, not the message actor's identity.
     # The periodic credential refresh rotates that grant without widening its permissions.
-    if (state or {}).get("github_read_access") is True:
+    if (state or {}).get("github_read_access") is True or (state or {}).get("github_token_scope"):
         return None
 
     run_id = str(task_run.id)
@@ -844,7 +844,7 @@ def _refresh_sandbox_github(
     except (
         ReauthorizationRequired,
         CredentialUnavailableError,
-        Integration.DoesNotExist,
+        IntegrationNotFound,
         UserIntegration.DoesNotExist,
     ) as e:
         # The new actor has no usable GitHub credential for this repo: needs reauthorization,

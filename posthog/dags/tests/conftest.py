@@ -3,11 +3,11 @@ from posthog.conftest import django_db_setup
 
 __all__ = ["django_db_setup"]
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 
 import pytest
-from posthog.test.base import reset_clickhouse_database, reset_clickhouse_database_if_dirty
+from posthog.test.base import reset_clickhouse_database_if_dirty, truncate_or_reset_clickhouse_database
 from unittest.mock import patch
 
 from django.conf import settings
@@ -97,24 +97,28 @@ def _patched_get_cluster_hosts(self, client, cluster, retry_policy=None):
 
 
 @contextmanager
-def isolated_clickhouse_cluster() -> Iterator[ClickhouseCluster]:
+def isolated_clickhouse_cluster(client_settings: Mapping[str, str] | None = None) -> Iterator[ClickhouseCluster]:
     """
     Cluster fixture with macOS Docker-compatible hostname resolution.
     Patches ClickhouseCluster to use host_name instead of host_address.
     """
-    # Setup reset stays unconditional (Kafka-engine arrivals don't advance the
-    # dirty counter, so a late row would leak into the next test); teardown can
-    # skip when nothing checked out a ClickHouse client.
-    reset_clickhouse_database()
-    try:
-        with patch.object(
-            ClickhouseCluster,
-            "_ClickhouseCluster__get_cluster_hosts",
-            _patched_get_cluster_hosts,
-        ):
-            yield get_cluster()
-    finally:
-        reset_clickhouse_database_if_dirty()
+    # The reset is unconditional because Kafka-engine arrivals do not advance the
+    # dirty counter, so a late row would leak into the next test. There is no
+    # teardown reset: the next test that uses this fixture resets on setup, and
+    # reset_clickhouse_after_module covers the tests that run after the module.
+    truncate_or_reset_clickhouse_database()
+    with patch.object(
+        ClickhouseCluster,
+        "_ClickhouseCluster__get_cluster_hosts",
+        _patched_get_cluster_hosts,
+    ):
+        yield get_cluster(client_settings=client_settings)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def reset_clickhouse_after_module() -> Iterator[None]:
+    yield
+    reset_clickhouse_database_if_dirty()
 
 
 @pytest.fixture

@@ -15,8 +15,6 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectDiffShallow, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
-import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
-import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { crushDraftQueryForLocalStorage, parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -29,14 +27,16 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { Breadcrumb, InsightModel, SavedInsightsTabs, UserType } from '~/types'
 
+import { deleteDashboardLogic } from 'products/dashboards/frontend/deleteDashboardLogic'
+import type { DeleteDashboardForm } from 'products/dashboards/frontend/deleteDashboardLogic'
+import { duplicateDashboardLogic } from 'products/dashboards/frontend/duplicateDashboardLogic'
+import type { DuplicateDashboardForm } from 'products/dashboards/frontend/duplicateDashboardLogic'
 import {
     InsightBulkDeleteResponseApi,
     InsightBulkRestoreResponseApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { Node } from '../../queries/schema/schema-general'
-import type { DeleteDashboardForm } from '../dashboard/deleteDashboardLogic'
-import type { DuplicateDashboardForm } from '../dashboard/duplicateDashboardLogic'
 import { teamLogic } from '../teamLogic'
 import { DraftInsightQuery, draftInsightListItem, isValidDraftInsightQuery } from './draftInsight'
 

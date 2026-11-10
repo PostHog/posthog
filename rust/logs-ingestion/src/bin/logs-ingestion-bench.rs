@@ -49,6 +49,14 @@ fn main() -> anyhow::Result<()> {
     let passes: usize = args.get(2).map_or(10, |p| p.parse().unwrap());
     let warmup: usize = args.get(3).map_or(2, |p| p.parse().unwrap());
 
+    // The production recorder and a warn filter match Node's per-call metric and log work. Logs go to stderr, which keeps stdout for the result.
+    let _recorder = serve_metrics::setup_metrics_recorder();
+    tracing_subscriber::fmt()
+        .json()
+        .with_writer(std::io::stderr)
+        .with_env_filter(tracing_subscriber::EnvFilter::new("warn"))
+        .init();
+
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(std::thread::available_parallelism().map_or(4, |n| n.get()))
         .enable_all()

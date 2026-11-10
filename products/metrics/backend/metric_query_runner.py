@@ -96,7 +96,7 @@ def _series_key_expr() -> ast.Expr:
     """Return the key for one physical series.
 
     Ingestion includes name, type, service, and labels. It excludes
-    `$originalTimestamp`.
+    `posthog.original_timestamp`.
     """
     return ast.Field(chain=["series_fingerprint"])
 
@@ -744,7 +744,7 @@ class MetricQueryRunner:
             query_type="MetricQuery",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+            workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
         self._raise_on_truncation(response.results)
@@ -774,7 +774,7 @@ class MetricQueryRunner:
             query_type="MetricQuery",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,
+            workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
         self._raise_on_truncation(response.results)
@@ -968,8 +968,14 @@ class MetricQueryRunner:
         """Build rate and increase queries from per-series deltas.
 
         Cumulative metrics diff each sample and handle resets. Delta metrics
-        use sample values. Missing predecessors produce gaps. The lookback
-        provides a predecessor before the requested range.
+        use sample values. The lookback provides a predecessor before the
+        requested range.
+
+        A sample without a predecessor usually starts a new series, such as a
+        counter on a new pod. It counts from zero when its value is small next
+        to the following delta, as in VictoriaMetrics' `increase`. That delta
+        handles a reset like any other sample. A larger value means the counter
+        ran before we saw it, so the sample is a gap.
         """
         step_seconds = _interval_step(self.interval).total_seconds()
         divisor = step_seconds if self.range_function == "rate" else 1.0
@@ -985,7 +991,18 @@ class MetricQueryRunner:
                         series_fingerprint AS series_fingerprint,
                         multiIf(
                             aggregation_temporality = 'delta', value,
-                            isNull(prev_value), NULL,
+                            isNull(prev_value),
+                                if(
+                                    abs(value) < 10 * (
+                                        multiIf(
+                                            isNull(next_value), 0,
+                                            assumeNotNull(next_value) >= value, assumeNotNull(next_value) - value,
+                                            assumeNotNull(next_value)
+                                        ) + 1
+                                    ),
+                                    value,
+                                    NULL
+                                ),
                             value >= assumeNotNull(prev_value), value - assumeNotNull(prev_value),
                             value
                         ) AS contribution
@@ -999,7 +1016,12 @@ class MetricQueryRunner:
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
-                            ) AS prev_value
+                            ) AS prev_value,
+                            leadInFrame(toNullable(value)) OVER (
+                                PARTITION BY {series_key}
+                                ORDER BY timestamp ASC
+                                ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING
+                            ) AS next_value
                         FROM {points}
                     )
                 )

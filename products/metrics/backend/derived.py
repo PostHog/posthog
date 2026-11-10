@@ -64,13 +64,6 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
 
 _DATA_PRESENCE_WINDOW = dt.timedelta(hours=24)
 _DATA_PRESENCE_CACHE_TTL_SECONDS = 300
-# Setup polling re-checks an empty or failed answer after a minute, not on every request.
-_DATA_PRESENCE_RECHECK_TTL_SECONDS = 60
-_PRESENCE_QUERY_SETTINGS = HogQLGlobalSettings(
-    max_execution_time=10,
-    max_bytes_to_read=10_000_000_000,
-    read_overflow_mode="throw",
-)
 
 
 class DerivedSource(StrEnum):
@@ -259,7 +252,7 @@ def _sources_with_data(team: Team) -> set[DerivedSource]:
                 query=query,
                 team=team,
                 workload=Workload.LOGS,
-                settings=_PRESENCE_QUERY_SETTINGS,
+                settings=_QUERY_SETTINGS,
             )
         except Exception:
             logger.warning("metrics_derived_presence_check_failed", team_id=team.id, source=source.value, exc_info=True)
@@ -267,12 +260,9 @@ def _sources_with_data(team: Team) -> set[DerivedSource]:
             continue
         if response.results:
             sources.add(source)
-    complete = bool(sources) and not failed
-    cache.set(
-        cache_key,
-        sorted(sources),
-        _DATA_PRESENCE_CACHE_TTL_SECONDS if complete else _DATA_PRESENCE_RECHECK_TTL_SECONDS,
-    )
+    # Cache only a complete answer, so the next request checks a failed source again.
+    if not failed:
+        cache.set(cache_key, sorted(sources), _DATA_PRESENCE_CACHE_TTL_SECONDS)
     return sources
 
 

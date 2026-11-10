@@ -913,10 +913,16 @@ class TestPersonalOrProjectSecretApiKeyRateThrottle(SimpleTestCase):
         auth.project_secret_api_key = Mock(id=key_id)
         return Mock(successful_authenticator=auth)
 
-    def test_psak_requests_do_not_bypass_throttle(self):
+    @parameterized.expand(
+        [
+            ("base", _PSAKThrottleForTest),
+            ("llm_prompt_fetch", rate_limit.LLMPromptFetchRateThrottle),
+        ]
+    )
+    def test_psak_requests_do_not_bypass_throttle(self, _name, throttle_class):
         # PSAK carries no personal API key; the throttle must not let it through the
         # personal_api_key_only gate that PersonalApiKeyRateThrottle uses.
-        throttle = _PSAKThrottleForTest()
+        throttle = throttle_class()
         request = self._psak_request()
         with patch.object(throttle, "_allow_request_internal", return_value=True) as spy:
             throttle.allow_request(request, Mock())

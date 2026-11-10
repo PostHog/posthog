@@ -8,10 +8,13 @@ import type {
     TraceFeedbackApi,
     TraceFeedbackScoreApi,
     TraceFeedbackTextApi,
+    TraceMessageApi,
     TraceNodeApi,
+    TraceNodeContentApi,
     TraceNodeDetailApi,
     TraceNodeIOKeysApi,
     TraceNodeMetadataApi,
+    TraceNodeRawApi,
     TraceNodeStatsApi,
     TraceSurveyResponseApi,
 } from '../../../generated/api.schemas'
@@ -52,21 +55,19 @@ export function decodeIdSegment(segment: string): string {
 interface NodeDetailFixture {
     id: string
     kind?: TraceNodeApi['kind']
-    properties?: Record<string, unknown>
-    ioKeys?: Partial<TraceNodeIOKeysApi>
     error?: string | null
     metadata?: Partial<TraceNodeMetadataApi>
     withEvent?: boolean
+    content?: TraceNodeContentApi
 }
 
 export function makeNodeDetail({
     id,
     kind = 'generation',
-    properties = {},
-    ioKeys = {},
     error = null,
     metadata = {},
     withEvent = true,
+    content = { input: { kind: 'json', value: null }, output: { kind: 'json', value: null } },
 }: NodeDetailFixture): TraceNodeDetailApi {
     return {
         id,
@@ -80,6 +81,35 @@ export function makeNodeDetail({
             promptVersion: null,
             ...metadata,
         },
+        event: withEvent
+            ? {
+                  name: `$ai_${kind}`,
+                  uuid: id,
+                  timestamp: '2026-09-01T10:15:02Z',
+              }
+            : null,
+        content,
+    }
+}
+
+interface RawNodeFixture {
+    id: string
+    kind?: TraceNodeApi['kind']
+    properties?: Record<string, unknown>
+    ioKeys?: Partial<TraceNodeIOKeysApi>
+    withEvent?: boolean
+}
+
+export function makeRawNode({
+    id,
+    kind = 'generation',
+    properties = {},
+    ioKeys = {},
+    withEvent = true,
+}: RawNodeFixture): TraceNodeRawApi {
+    return {
+        id,
+        kind,
         event: withEvent
             ? {
                   name: `$ai_${kind}`,
@@ -122,7 +152,15 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
                 })),
             },
         ],
-        timeline: [],
+        timeline: childIds.map((id) => ({
+            id,
+            kind: id.startsWith('gen') ? 'generation' : 'span',
+            name: id,
+            depth: 0,
+            startMs: 0,
+            durationMs: null,
+            hasError: false,
+        })),
         totalMs: 0,
         threadNodeIds: ['gen-2'],
         defaultNodeId: 'trace-1',
@@ -213,4 +251,14 @@ export function makeFeedback(overrides: Partial<TraceFeedbackApi> = {}): TraceFe
 
 export function makeEvaluationResults(overrides: Partial<TraceEvaluationResultsApi> = {}): TraceEvaluationResultsApi {
     return { results: [], summary: { passed: 0, failed: 0, unrated: 0, nodes: [] }, ...overrides }
+}
+
+export function makeMessage(overrides: Partial<TraceMessageApi> & { id: string }): TraceMessageApi {
+    return {
+        role: 'user',
+        parts: [{ kind: 'text', text: overrides.id }],
+        isInternal: false,
+        sourceNodeId: 'gen-1',
+        ...overrides,
+    }
 }

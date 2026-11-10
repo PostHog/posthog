@@ -289,17 +289,10 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
             names = {row["name"] for row in list_metric_picker_names(team=self.team)}
 
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
-            held = {row["name"] for row in list_metric_picker_names(team=self.team)}
-
-        with (
-            time_machine.travel(DATE_TO + dt.timedelta(minutes=1, seconds=1), tick=False),
-            _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG),
-        ):
             retried = {row["name"] for row in list_metric_picker_names(team=self.team)}
 
         assert LOG_RECORDS in names
         assert REQUESTS not in names
-        assert REQUESTS not in held
         assert REQUESTS in retried
 
     @parameterized.expand(

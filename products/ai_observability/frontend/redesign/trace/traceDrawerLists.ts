@@ -9,6 +9,7 @@ export type TraceDrawerListId =
     | 'review-queue'
     | 'evaluation-runs'
     | 'dataset-items'
+    | 'offline-experiment'
     | 'cluster-traces'
 
 export interface TraceDrawerListConfig {
@@ -20,6 +21,7 @@ export interface TraceDrawerListConfig {
     openingMode?: TraceOpeningMode
     detailTab?: NodeDetailTab
     rowClick: boolean
+    showNavigation?: boolean
 }
 
 export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig> = {
@@ -67,6 +69,13 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backTo: 'dataset',
         backLabel: 'Back to dataset',
         rowClick: false,
+    },
+    'offline-experiment': {
+        pathMatcher: /^\/ai-evals\/evaluations\/offline\/experiments\/[^/]+$/,
+        backTo: 'offline-experiment',
+        backLabel: 'Back to experiment',
+        rowClick: false,
+        showNavigation: false,
     },
     'cluster-traces': {
         pathMatcher: /^\/ai-observability\/clusters\/[^/]+\/[^/]+$/,

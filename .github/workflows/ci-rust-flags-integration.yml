@@ -86,10 +86,21 @@ jobs:
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  # Deep enough to reach the PR's merge base, which keys the schema cache below.
-                  fetch-depth: 1000
-                  filter: blob:none
+
+            - name: Fetch history without file contents
+              if: github.event_name == 'pull_request'
+              # A shallow checkout avoids a separate lazy fetch of every source file.
+              # Fetch the original SHA with --depth because GitHub can replace the PR merge ref.
+              run: |
+                  for attempt in 1 2 3; do
+                      if git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"; then
+                          exit 0
+                      fi
+                      if [ "$attempt" -lt 3 ]; then
+                          sleep 10
+                      fi
+                  done
+                  exit 1
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0

@@ -77,9 +77,10 @@ from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filter
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_failure_handling import captured_elsewhere
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
+from posthog.hogql_queries.warehouse_suggestion_notes import credential_access
 from posthog.models.user import User
 from posthog.models.utils import uuid7
-from posthog.permissions import scopes_caller_lacks
+from posthog.permissions import get_authenticator_scopes, scopes_caller_lacks
 from posthog.query_scan import slot as query_scan_slot
 from posthog.query_scan.flag import QueryScanMode, get_query_scan_flag
 from posthog.query_scan.serve import analysis_with_prompt
@@ -220,6 +221,7 @@ def _process_query_request(
 # API token must hold the product scope, not just query:read, to run them through
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
+    "InboxUsageQuery": ["query:read", "signal_usage:read"],
     "AccountUsersQuery": ["query:read", "account:read", "person:read"],
     "AccountsTableQuery": ["query:read", "account:read"],
     "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
@@ -229,6 +231,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "MetricsHistogramQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
+    "MCPDashboardQuery": ["query:read", "mcp_analytics:read"],
     "MCPHarnessBreakdownQuery": ["query:read", "mcp_analytics:read"],
     "MCPMissingCapabilitiesQuery": ["query:read", "mcp_analytics:read"],
     "MCPModelBreakdownQuery": ["query:read", "mcp_analytics:read"],
@@ -363,6 +366,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 _mark_explicit_date_boundaries(query)
 
             self._tag_client_query_id(client_query_id)
+            tag_queries(
+                warehouse_suggestion_access=credential_access(
+                    get_authenticator_scopes(request.successful_authenticator)
+                )
+            )
             analytics_props = get_query_request_analytics_properties(request)
             query_dict = query.model_dump()
 

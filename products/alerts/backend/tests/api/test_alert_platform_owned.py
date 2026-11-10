@@ -7,8 +7,13 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.schema import InsightThreshold
 
 from posthog.constants import AvailableFeature
 from posthog.models.scoping import team_scope
@@ -37,10 +42,12 @@ from products.alerts_platform.backend.facade.api import get_configuration, recor
 from products.alerts_platform.backend.facade.contracts import (
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
+    PlatformAlertConfigurationView,
     SourceKind,
     VerdictChange,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
 from products.notebooks.backend.facade.api import create_notebook
 
 
@@ -285,6 +292,137 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         reasons = {"2026-10-18": "Before the move.", "2026-10-20": "After."}
         assert flags == tuple(EarlierFlag(date=date, rationale=reasons[date]) for date in dates)
 
+    def test_an_alert_insight_keeps_no_row_for_shows_from_the_platform(self) -> None:
+        threshold = self.alert.threshold
+        assert threshold is not None
+        scheduled = self.client.patch(f"{self.url}/{self.alert.id}/", {"schedule_start_time": "09:30"}, format="json")
+        assert scheduled.status_code == status.HTTP_200_OK, scheduled.json()
+        with team_scope(self.team.id):
+            platform_testing.forget_source_row(self.copy_id)
+            platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=self._at(30))
+        AlertConfiguration.objects.filter(id=self.alert.id).delete()
+        self._record(30, "firing", value=150.0)
+        self._record(20, "firing", value=160.0)
+        platform_testing.released_hold(
+            self.copy_id,
+            team_id=self.team.id,
+            at=self._at(30),
+            action=HoldRelease.SUPPRESS,
+            released_by=HoldReleasedBy.VERDICT,
+        )
+
+        response = self.client.get(f"{self.url}/{self.copy_id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        row = response.json()
+        assert (row["id"], row["insight"]["id"], row["threshold"]["configuration"]) == (
+            str(self.copy_id),
+            self.alert.insight_id,
+            threshold.configuration,
+        )
+        assert (row["state"], row["last_value"], row["checks_total"]) == ("Firing", 160.0, 2)
+        assert (row["schedule_start_time"], row["threshold"]["created_at"] is not None) == ("09:30", True)
+        assert [check["notification_suppressed_by_agent"] for check in row["checks"]] == [False, True]
+        assert not AlertConfiguration.objects.filter(team=self.team).exists()
+        # An alert with no insight row passes the same insight access gate as one with a row.
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda queryset, *args, **kwargs: queryset.none(),
+        ):
+            hidden = self.client.get(f"{self.url}/{self.copy_id}/")
+        assert hidden.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_a_detector_alert_insight_keeps_no_row_for_shows_a_threshold_the_schema_accepts(self) -> None:
+        with team_scope(self.team.id):
+            native = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="detector",
+                source_kind="insight",
+                source_config={"insight_id": self.alert.insight_id, "condition": {"detector": {"type": "zscore"}}},
+                check_interval_minutes=1440,
+                owner="platform",
+                legacy_configuration_id=None,
+            )
+
+        response = self.client.get(f"{self.url}/{native.id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        InsightThreshold.model_validate(response.json()["threshold"]["configuration"])
+
+    @parameterized.expand(
+        [
+            ("everything", "", ["native", "row"]),
+            ("other_insight", "insight_id={row_insight}", ["row"]),
+            ("search_finds_a_native_name", "search=alert", ["native"]),
+            ("detector_alerts_only", "has_detector=true", ["row"]),
+        ]
+    )
+    def test_the_list_merges_alerts_insight_keeps_no_row_for_with_rows(
+        self, _name: str, query: str, expected: list[str]
+    ) -> None:
+        with team_scope(self.team.id):
+            platform_testing.forget_source_row(self.copy_id)
+        AlertConfiguration.objects.filter(id=self.alert.id).delete()
+        row = create_insight_alert(self.team, name="Signups dropped", detector_config={"type": "zscore"})
+        AlertConfiguration.objects.filter(id=row.id).update(created_at=self._at(60))
+        names = {str(self.copy_id): "native", str(row.id): "row"}
+
+        response = self.client.get(f"{self.url}/?{query.format(row_insight=row.insight_id)}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [names[alert["id"]] for alert in response.json()["results"]] == expected
+
+    def test_a_page_of_alerts_insight_keeps_no_row_for_builds_in_queries_that_do_not_grow_with_it(self) -> None:
+        def native(insight_id: int) -> PlatformAlertConfigurationView:
+            with team_scope(self.team.id):
+                created = platform_testing.create_configuration(
+                    team_id=self.team.id,
+                    name="native",
+                    source_kind="insight",
+                    source_config={"insight_id": insight_id},
+                    check_interval_minutes=1440,
+                    owner="platform",
+                    legacy_configuration_id=None,
+                    created_by_id=self.user.id,
+                )
+                view = get_configuration(
+                    team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=created.id
+                )
+            assert view is not None
+            return view
+
+        views = [native(create_insight_alert(self.team).insight_id) for _ in range(3)]
+
+        def built_queries(page: list[PlatformAlertConfigurationView]) -> int:
+            with CaptureQueriesContext(connection) as queries:
+                built = AlertConfiguration.from_platform_views(page, team_id=self.team.id)
+                for alert in built.values():
+                    assert list(alert.subscribed_users.all()) == []
+                    assert (alert.insight.name, alert.created_by, hasattr(alert.insight, "prefetched_tags")) == (
+                        "insight",
+                        self.user,
+                        True,
+                    )
+            assert len(built) == len(page)
+            return len(queries)
+
+        # The first build also loads the tag content type, which Django then caches.
+        built_queries(views[:1])
+        assert built_queries(views[:1]) == built_queries(views)
+
+    def test_the_list_hides_an_alert_insight_keeps_no_row_for_without_insight_access(self) -> None:
+        with team_scope(self.team.id):
+            platform_testing.forget_source_row(self.copy_id)
+        AlertConfiguration.objects.filter(id=self.alert.id).delete()
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda queryset, *args, **kwargs: queryset.none(),
+        ):
+            response = self.client.get(f"{self.url}/")
+
+        assert response.json()["results"] == []
+
     def test_a_platform_history_failure_falls_back_to_the_alerts_own_checks(self) -> None:
         self._record(30, "firing", value=150.0)
 
@@ -329,7 +467,16 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             )
 
     def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
-        self._edit_on_the_platform(lambda stored: replace(stored, name="Edited on the platform"))
+        stored_config = self._copy().source_config
+        # A platform edit names only the settings it sends, so the insight check settings stay as stored.
+        self._edit_on_the_platform(
+            lambda stored: replace(
+                stored,
+                name="Edited on the platform",
+                source_config={key: stored_config[key] for key in ("insight_id", "condition")},
+            )
+        )
+        assert self._copy().source_config["config"] == stored_config["config"] is not None
         insight_edit = self.client.patch(
             f"{self.url}/{self.alert.id}/",
             {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 200}}}},
@@ -346,19 +493,50 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}),
+            ("rename", {"name": "Renamed"}, "firing"),
+            (
+                "threshold",
+                {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 200}}}},
+                "not_firing",
+            ),
+        ]
+    )
+    def test_an_insight_edit_to_a_copy_without_the_check_settings_ends_a_firing_only_on_a_real_change(
+        self, _name: str, payload: dict[str, Any], state: str
+    ) -> None:
+        with team_scope(self.team.id):
+            stored_config = self._copy().source_config
+            older = {key: stored_config[key] for key in ("insight_id", "condition")}
+            platform_testing.set_source_config(self.copy_id, older)
+            platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=self.now)
+
+        response = self.client.patch(f"{self.url}/{self.alert.id}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        with team_scope(self.team.id):
+            instance = platform_testing.alert_for(self.copy_id)
+        assert instance is not None
+        assert instance.state == state
+
+    @parameterized.expand(
+        [
+            ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}, {}),
             # The insight API checks a detector against its insight and its access rules, so only it may set one.
-            ("detector", {"detector": {"type": "zscore"}}),
+            ("detector", {"detector": {"type": "zscore"}}, {}),
+            ("series", {}, {"config": {"type": "TrendsAlertConfig", "series_index": 1}}),
+            ("skip_weekend", {}, {"skip_weekend": True}),
+            ("evaluation_delay", {}, {"evaluation_delay_intervals": 3}),
+            ("investigation_agent", {}, {"investigation_agent_enabled": True}),
         ]
     )
     def test_a_platform_edit_the_insight_stack_cannot_check_is_refused_on_both_rows(
-        self, _name: str, condition_change: dict[str, Any]
+        self, _name: str, condition_change: dict[str, Any], settings_change: dict[str, Any]
     ) -> None:
         stored_config = self._copy().source_config
 
         def edit(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
             condition = {**stored.source_config["condition"], **condition_change}
-            return replace(stored, source_config={**stored.source_config, "condition": condition})
+            return replace(stored, source_config={**stored.source_config, **settings_change, "condition": condition})
 
         with pytest.raises(InvalidPlatformAlertEdit):
             self._edit_on_the_platform(edit)
@@ -384,6 +562,9 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         self.organization.save()
         self._edit_on_the_platform(lambda stored: replace(stored, enabled=False))
         AlertConfiguration.objects.filter(id=self.alert.id).update(**stored)
+        if stored.get("calculation_interval") == AlertCalculationInterval.REAL_TIME:
+            with team_scope(self.team.id):
+                platform_testing.set_check_interval_minutes(self.copy_id, REAL_TIME_CADENCE_MINUTES)
 
         with (
             patch.object(AlertConfiguration, "check_real_time_alert_limit", return_value=real_time_limit_error),

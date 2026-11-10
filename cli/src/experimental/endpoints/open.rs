@@ -1,6 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 
-use crate::invocation_context::context;
+use crate::{invocation_context::context, utils::web_url::WebUrl};
 
 use super::{fetch_endpoint, OpenArgs};
 
@@ -12,9 +12,10 @@ pub fn open_endpoint(args: &OpenArgs) -> Result<()> {
     let ui_url = endpoint
         .ui_url
         .ok_or_else(|| anyhow::anyhow!("Endpoint has no UI URL"))?;
+    let ui_url = WebUrl::try_from(ui_url)?;
 
     crate::safe_println!("Opening {ui_url}...");
-    open::that(&ui_url).context("Failed to open browser")?;
+    ui_url.open_in_browser()?;
 
     Ok(())
 }

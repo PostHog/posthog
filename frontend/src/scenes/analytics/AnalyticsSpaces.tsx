@@ -30,8 +30,9 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
-import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewFolderDialog'
+
+import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
+import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { AnalyticsPinButton } from './AnalyticsPinButton'

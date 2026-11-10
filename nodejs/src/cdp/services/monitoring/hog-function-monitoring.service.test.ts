@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -7,7 +8,11 @@ import { internalFetch } from '~/common/utils/request'
 import { InternalLogsProducer } from '~/logs/internal-logs-producer'
 
 import { LogEntry, MetricLogSource, MinimalAppMetric } from '../../types'
-import { HogFunctionMonitoringService, MonitoringOutput } from './hog-function-monitoring.service'
+import {
+    HogFunctionMonitoringService,
+    MonitoringOutput,
+    createTransformationsMonitoringService,
+} from './hog-function-monitoring.service'
 
 jest.mock('~/common/utils/request', () => ({ internalFetch: jest.fn() }))
 
@@ -124,18 +129,18 @@ describe('HogFunctionMonitoringService', () => {
         ])
     })
 
-    const internalLogsProducer = (): InternalLogsProducer =>
-        new InternalLogsProducer(
-            {
-                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'key',
-                LOGS_INTERNAL_PRODUCER_URL: 'http://capture-logs.test/i/v1/logs',
-                LOGS_INTERNAL_PRODUCER_TEAMS: '2',
-                LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 20,
-                LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: 1024 * 1024,
-                LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 1_000,
-            },
-            { getTeam: (teamId: number) => Promise.resolve({ id: teamId, api_token: `phc_${teamId}` } as any) }
-        )
+    const producerConfig = {
+        LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'key',
+        LOGS_INTERNAL_PRODUCER_URL: 'http://capture-logs.test/i/v1/logs',
+        LOGS_INTERNAL_PRODUCER_TEAMS: '2',
+        LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 20,
+        LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: 1024 * 1024,
+        LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 1_000,
+    }
+    const teamManager = {
+        getTeam: (teamId: number) => Promise.resolve({ id: teamId, api_token: `phc_${teamId}` } as any),
+    }
+    const internalLogsProducer = (): InternalLogsProducer => new InternalLogsProducer(producerConfig, teamManager)
 
     const log = (teamId: number): LogEntry => ({
         team_id: teamId,
@@ -173,6 +178,24 @@ describe('HogFunctionMonitoringService', () => {
         expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
+    it('keeps logs about internal logs out of the logs product, writes them to log_entries, and counts them', async () => {
+        const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
+        const loopGuarded = async (): Promise<number> =>
+            (await register.getSingleMetric('logs_internal_producer_records_total')!.get()).values.find(
+                (v) => v.labels.outcome === 'loop_guard'
+            )?.value ?? 0
+        const before = await loopGuarded()
+        service = new HogFunctionMonitoringService(outputs, internalLogsProducer(), new Set(['hog_flow']))
+
+        service.queueLogs([log(2), log(2), log(3)], 'hog_flow', { aboutInternalLogs: true })
+        await service.flush()
+        await service.stop()
+
+        expect(produceMock).toHaveBeenCalledTimes(3)
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect((await loopGuarded()) - before).toBe(2)
+    })
+
     it('sends nothing to the logs product for a source not in CDP_INTERNAL_LOGS_SOURCES', async () => {
         const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
         service = new HogFunctionMonitoringService(outputs, internalLogsProducer(), new Set(['hog_function']))
@@ -183,5 +206,24 @@ describe('HogFunctionMonitoringService', () => {
 
         expect(produceMock).toHaveBeenCalledTimes(1)
         expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['hog_flow,hog_function', 0],
+        ['hog_flow,hog_function_transformations', 1],
+    ])('sends transformation logs only when the transformations switch is on (%s)', async (sources, sends) => {
+        const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
+        service = createTransformationsMonitoringService(
+            outputs,
+            { ...producerConfig, CDP_INTERNAL_LOGS_SOURCES: sources },
+            teamManager
+        )
+
+        service.queueLogs([{ ...log(2), log_source: 'hog_function' }], 'hog_function')
+        await service.flush()
+        await service.stop()
+
+        expect(produceMock).toHaveBeenCalledTimes(1)
+        expect(fetchMock).toHaveBeenCalledTimes(sends)
     })
 })

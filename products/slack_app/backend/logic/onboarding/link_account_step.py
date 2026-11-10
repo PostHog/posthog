@@ -1,4 +1,8 @@
-from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_daily_work_focus_enabled,
+    is_slack_app_link_search_scopes_enabled,
+    is_slack_app_oauth_enabled,
+)
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStep, OnboardingStepKey
 from products.slack_app.backend.services.slack_messages import section_block
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url
@@ -24,11 +28,16 @@ class LinkAccountStep(OnboardingStep):
             channel=None,
             thread_ts=None,
         )
+        text = "*Link your PostHog account*\nPostHog answers you in Slack from your projects, with the access you have in PostHog."
+        if is_slack_app_link_search_scopes_enabled(ctx.integration):
+            text += (
+                "\nAfter you link, I read your recent Slack messages and suggest what I can help with, then do it "
+                "again each workday morning. You can turn that off in the Home tab. "
+                if is_slack_app_daily_work_focus_enabled(ctx.integration)
+                else "\nAfter you link, I read your recent Slack messages once to suggest what I can help with. "
+            ) + "Slack lets you choose which kinds of conversations I can search."
         return [
-            section_block(
-                "*Link your PostHog account*\n"
-                "PostHog answers you in Slack from your projects, with the access you have in PostHog."
-            ),
+            section_block(text),
             {
                 "type": "actions",
                 "elements": [

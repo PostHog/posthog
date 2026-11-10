@@ -102,6 +102,17 @@ describe('dataCatalogNewMetricSceneLogic', () => {
         logic.unmount()
     })
 
+    function showInvalidQuery(form: Partial<NewMetricFormValues> = {}): void {
+        logic.actions.setMetricFormValues({ ...SQL_FORM, ...form })
+        logic.actions.setSqlEditorError('Error on line 10, column 5')
+        logic.actions.setSqlMetadata({
+            query: SQL_FORM.sql,
+            errors: [{ message: 'Unable to resolve field: foo' }],
+            warnings: [],
+            notices: [],
+        })
+    }
+
     it.each([
         ['Create and approve', true, 1, 'Metric created and approved'],
         ['Save as proposed', false, 0, 'Metric saved as proposed'],
@@ -136,6 +147,29 @@ describe('dataCatalogNewMetricSceneLogic', () => {
         expect(logic.values.metricFormValidationErrors.sql).toBeTruthy()
     })
 
+    it.each([
+        ['sql', true],
+        ['insight', false],
+        ['markdown', false],
+    ] as const)('known query error with a %s definition disables saving: %s', (definitionType, disabled) => {
+        showInvalidQuery({ definitionType })
+
+        expect(!!logic.values.saveDisabledReason).toBe(disabled)
+    })
+
+    it.each([
+        ['the edited query is still validating', true, 'Error on line 10, column 5: Unable to resolve field: foo'],
+        ['validation of the edited query failed', false, null],
+    ])('after an edit when %s', (_case, loading, message) => {
+        showInvalidQuery()
+
+        logic.actions.setMetricFormValues({ sql: 'SELECT 1' })
+        logic.actions.setSqlMetadataLoading(loading)
+
+        expect(logic.values.sqlValidationMessage).toEqual(message)
+        expect(!!logic.values.saveDisabledReason).toBe(!!message)
+    })
+
     it('never approves a confirmed overwrite', async () => {
         ;(dataCatalogMetricsCreate as jest.Mock).mockRejectedValueOnce(takenNameError())
         logic.actions.setMetricFormValues(SQL_FORM)
@@ -164,6 +198,32 @@ describe('dataCatalogNewMetricSceneLogic', () => {
             'Metric created, but approving it failed. Approve it from the banner.'
         )
         expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('monthly_active_users'))
+    })
+
+    it('shows the validation message until the query is valid', () => {
+        showInvalidQuery()
+
+        expect(logic.values.sqlValidationMessage).toEqual('Error on line 10, column 5: Unable to resolve field: foo')
+
+        logic.actions.setSqlEditorError(null)
+        logic.actions.setSqlMetadata({ query: SQL_FORM.sql, errors: [], warnings: [], notices: [] })
+
+        expect(logic.values.sqlValidationMessage).toBeNull()
+    })
+
+    it('does not treat a validator failure as a known query error', () => {
+        logic.actions.setMetricFormValues(SQL_FORM)
+        logic.actions.setSqlEditorError('Error on line 1, column 1')
+        logic.actions.setSqlMetadata({
+            query: SQL_FORM.sql,
+            internalError: true,
+            errors: [{ message: 'Unexpected OperationalError' }],
+            warnings: [],
+            notices: [],
+        })
+
+        expect(logic.values.sqlValidationMessage).toBeNull()
+        expect(logic.values.saveDisabledReason).toBeNull()
     })
 
     it('runs one test query at a time', () => {

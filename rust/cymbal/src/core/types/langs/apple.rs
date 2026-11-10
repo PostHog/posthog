@@ -4,7 +4,7 @@ use common_types::error_tracking::FrameId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use symbolic::common::Name;
-use symbolic::demangle::{Demangle, DemangleOptions};
+use symbolic_demangle::{Demangle, DemangleOptions};
 
 use crate::{
     error::{AppleError, FrameError, ResolveError, UnhandledError},
@@ -425,6 +425,25 @@ mod test {
         assert_eq!(lang_from_filename(Some("Build.kts")), "kotlin");
     }
 
+    #[test]
+    fn unresolved_frame_demangles_cpp_but_leaves_swift_mangled() {
+        for (function, expected) in [
+            ("_ZN7example3runEv", "example::run()"),
+            ("?run@example@@YAXXZ", "void example::run(void)"),
+            (
+                "$s5MyApp11ContentViewV4bodyQrvg",
+                "$s5MyApp11ContentViewV4bodyQrvg",
+            ),
+        ] {
+            let mut raw = frame_at(0x100004000, 0x100000000);
+            raw.function = Some(function.to_string());
+
+            let frame = raw.handle_resolution_error(AppleError::NoMatchingDebugImage);
+
+            assert_eq!(frame.resolved_name.as_deref(), Some(expected));
+        }
+    }
+
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_apple_symbolication(db: sqlx::PgPool) {
         use chrono::Utc;
@@ -481,7 +500,7 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let hmp = HermesMapProvider {};
+        let hmp = HermesMapProvider::new(&config);
         let hmp = ChunkIdFetcher::new(
             hmp,
             client.clone(),
@@ -490,21 +509,21 @@ mod test {
         );
 
         let pgp = ChunkIdFetcher::new(
-            ProguardProvider {},
+            ProguardProvider::new(&config),
             client.clone(),
             db.clone(),
             config.object_storage_bucket.clone(),
         );
 
         let apple = ChunkIdFetcher::new(
-            AppleProvider {},
+            AppleProvider::new(&config),
             client.clone(),
             db.clone(),
             config.object_storage_bucket.clone(),
         );
 
         let native = ChunkIdFetcher::new(
-            NativeProvider {},
+            NativeProvider::new(&config),
             client.clone(),
             db.clone(),
             config.object_storage_bucket.clone(),
@@ -649,25 +668,25 @@ mod test {
                 config.object_storage_bucket.clone(),
             ),
             ChunkIdFetcher::new(
-                HermesMapProvider {},
+                HermesMapProvider::new(&config),
                 client.clone(),
                 db.clone(),
                 config.object_storage_bucket.clone(),
             ),
             ChunkIdFetcher::new(
-                ProguardProvider {},
+                ProguardProvider::new(&config),
                 client.clone(),
                 db.clone(),
                 config.object_storage_bucket.clone(),
             ),
             ChunkIdFetcher::new(
-                AppleProvider {},
+                AppleProvider::new(&config),
                 client.clone(),
                 db.clone(),
                 config.object_storage_bucket.clone(),
             ),
             ChunkIdFetcher::new(
-                NativeProvider {},
+                NativeProvider::new(&config),
                 client.clone(),
                 db.clone(),
                 config.object_storage_bucket.clone(),

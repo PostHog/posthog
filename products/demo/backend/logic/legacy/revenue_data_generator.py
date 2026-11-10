@@ -14,11 +14,11 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.models import EventDefinition, Person, PropertyDefinition
+from posthog.models import Person
 
-from products.actions.backend.models.action import Action
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.actions.backend.facade.api import create_action
+from products.dashboards.backend.facade import api as dashboards_api
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
 from products.product_analytics.backend.facade.models import Insight
 
 from .data_generator import DataGenerator
@@ -65,11 +65,11 @@ class RevenueDataGenerator(DataGenerator):
                     )
 
     def create_actions_dashboards(self):
-        purchase_action = Action.objects.create(team=self.team, name="Purchase", steps_json=[{"event": "purchase"}])
+        purchase_action = create_action(team=self.team, name="Purchase", steps_json=[{"event": "purchase"}])
 
-        Action.objects.create(team=self.team, name="Entered Free Trial", steps_json=[{"event": "entered_free_trial"}])
+        create_action(team=self.team, name="Entered Free Trial", steps_json=[{"event": "entered_free_trial"}])
 
-        dashboard = Dashboard.objects.create(name="Sales & Revenue", pinned=True, team=self.team)
+        dashboard = dashboards_api.create_dashboard(name="Sales & Revenue", pinned=True, team_id=self.team.id)
         insight = Insight.objects.create(
             team=self.team,
             name="Entered Free Trial -> Purchase (Premium)",
@@ -90,5 +90,4 @@ class RevenueDataGenerator(DataGenerator):
             ).model_dump(),
             short_id="TEST1234",
         )
-        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
-        dashboard.save()  # to update the insight's filter hash
+        dashboards_api.add_insight_tile(insight_id=insight.id, dashboard_id=dashboard.id)

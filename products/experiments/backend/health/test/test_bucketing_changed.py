@@ -29,6 +29,7 @@ LAUNCHED_AT = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
 FIRST_CHANGE_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
 FIRST_CHANGE = "September 12, 2026 at 3:04 PM CEST"
 SECOND_CHANGE = "September 12, 2026 at 3:21 PM CEST"
+THIRD_CHANGE = "September 12, 2026 at 3:38 PM CEST"
 MIXED_ASSIGNMENTS = "A sample ratio mismatch or users in more than one variant can come from this change."
 EVEN = [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
 KEY = BucketingSetting.KEY
@@ -64,7 +65,7 @@ def _context(
         ),
         flag_history=flag_history(
             bucketing,
-            launched_at=LAUNCHED_AT,
+            start_date=LAUNCHED_AT,
             exposed_before_first=exposed_before_first,
             exposed_between={ExperimentHealthFlagChangeKind.BUCKETING: exposed_between},
             not_checked=not_checked,
@@ -90,7 +91,7 @@ class TestBucketingChangedMidRun(TestCase):
                 _context((KEY, "old-key", "new-key"), exposed_units=4),
                 ("key_changed", ExperimentHealthFindingSeverity.INFO, "The flag key changed after launch"),
                 f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. The change came 3 hours after '
-                f"launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
+                f"the start date, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
                 'Code that still uses "old-key" no longer gets this flag.',
             ),
             (
@@ -111,7 +112,7 @@ class TestBucketingChangedMidRun(TestCase):
                     "The flag's variant assignment changed after launch",
                 ),
                 f"The flag changed from matching by users to matching by groups on {FIRST_CHANGE}. The change came 3 "
-                f"hours after launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
+                f"hours after the start date, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
             ),
             (
                 "bucketing_identifier_changed_days_after_launch",
@@ -122,7 +123,7 @@ class TestBucketingChangedMidRun(TestCase):
                     "The flag's variant assignment changed after launch",
                 ),
                 "The flag changed from matching by user ID to matching by device ID on September 20, 2026 at 3:04 PM "
-                "CEST. The change came 8 days after launch. Users whose device ID differs from their user ID got a "
+                "CEST. The change came 8 days after the start date. Users whose device ID differs from their user ID got a "
                 f"new variant draw, so they may have switched variants. {MIXED_ASSIGNMENTS} Reset the experiment, or "
                 "move its start date to September 20, 2026 at 3:04 PM CEST.",
             ),
@@ -134,9 +135,38 @@ class TestBucketingChangedMidRun(TestCase):
                     ExperimentHealthFindingSeverity.WARNING,
                     "The flag's variant assignment changed after launch",
                 ),
-                f'"Persist flag across authentication steps" was turned off on {FIRST_CHANGE}. The change came 3 '
-                "hours after launch. Users who logged in got a new variant draw, so they may have switched variants. "
-                f"{MIXED_ASSIGNMENTS} Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                f'On {FIRST_CHANGE}, "Persist flag across authentication steps" was turned off. The change came 3 '
+                "hours after the start date. Users who logged in while it was on no longer keep the variant they got before "
+                f"logging in, so they may have switched variants. {MIXED_ASSIGNMENTS} Reset the experiment, or move "
+                f"its start date to {FIRST_CHANGE}.",
+            ),
+            (
+                "experience_continuity_turned_on_after_a_set_back_change",
+                _context(
+                    (IDENTIFIER, "distinct_id", "device_id"),
+                    (IDENTIFIER, "device_id", "distinct_id"),
+                    (CONTINUITY, False, True),
+                ),
+                (
+                    "experience_continuity_changed",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The flag's variant assignment changed after launch",
+                ),
+                f'On {THIRD_CHANGE}, "Persist flag across authentication steps" was turned on. Users exposed between '
+                "these changes may have switched variants. A sample ratio mismatch or users in more than one variant "
+                f"can come from these changes. Reset the experiment, or move its start date to {THIRD_CHANGE}.",
+            ),
+            (
+                "experience_continuity_turned_on",
+                _context((CONTINUITY, False, True), exposed_units=5),
+                (
+                    "experience_continuity_changed",
+                    ExperimentHealthFindingSeverity.INFO,
+                    "The flag's variant assignment changed after launch",
+                ),
+                f'On {FIRST_CHANGE}, "Persist flag across authentication steps" was turned on. Turning it on '
+                "doesn't move users who were already exposed to another variant, unless they log in later on another "
+                "device or after logging out.",
             ),
             (
                 "aggregation_changed",
@@ -154,8 +184,8 @@ class TestBucketingChangedMidRun(TestCase):
                 "two_settings_name_the_key_first",
                 _context((CONTINUITY, True, False), (KEY, "old-key", "new-key")),
                 ("key_changed", ExperimentHealthFindingSeverity.WARNING, "The flag key changed after launch"),
-                f'The flag key changed from "old-key" to "new-key" on {SECOND_CHANGE}. "Persist flag across '
-                f'authentication steps" was turned off on {FIRST_CHANGE}. The key is an input of the variant draw, so '
+                f'The flag key changed from "old-key" to "new-key" on {SECOND_CHANGE}. On {FIRST_CHANGE}, "Persist '
+                'flag across authentication steps" was turned off. The key is an input of the variant draw, so '
                 'every user got a new one. Exposures under "old-key" are no longer in the results, and code that '
                 'still uses "old-key" no longer gets this flag. Reset the experiment, or move its start date to '
                 f"{SECOND_CHANGE}.",
@@ -190,7 +220,7 @@ class TestBucketingChangedMidRun(TestCase):
                     "The flag's variant assignment changed after launch",
                 ),
                 f'The flag\'s "Match by" setting changed on {FIRST_CHANGE} and was set back on {SECOND_CHANGE}. '
-                "The last change came 3 hours after launch, when 4 people had been exposed. Move the start date to "
+                "The last change came 3 hours after the start date, when 4 people had been exposed. Move the start date to "
                 f"{SECOND_CHANGE} so the results count only exposures after it.",
             ),
             (
@@ -206,11 +236,11 @@ class TestBucketingChangedMidRun(TestCase):
             ),
             (
                 "not_checked",
-                _context((KEY, "old-key", "new-key"), not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                _context((KEY, "old-key", "new-key"), not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
                 ("not_checked", ExperimentHealthFindingSeverity.INFO, "Variant assignment changes were not checked"),
                 f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. This check can\'t tell whether '
-                "anyone was exposed before the change, because the exposure criteria filter by properties. Review "
-                "the change in the flag history.",
+                "anyone was exposed before the change, because exposures come from an action. Review the change in "
+                "the flag history.",
             ),
         ]
     )

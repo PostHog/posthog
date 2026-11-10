@@ -172,7 +172,10 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
         try:
             error_data = res.json()
             if error_data.get("code") == "missing_value":
-                return False, "Invalid Attio API key"
+                return (
+                    False,
+                    "Attio rejected your API key. Create a new API key in your Attio workspace settings, then reconnect.",
+                )
         except Exception:
             pass
         return False, f"HTTP {res.status_code}: {res.text}"

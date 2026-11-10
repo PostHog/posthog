@@ -11,25 +11,36 @@ import enum
 import asyncio
 
 import structlog
+import posthoganalytics
+from redis.exceptions import RedisError
 
 from posthog.schema import AlertState
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import groups
 from posthog.models import Team
+from posthog.redis import get_client
 from posthog.temporal.alerts.investigation import investigates
+from posthog.temporal.alerts.metrics import record_alert_firing_signal_outcome
 from posthog.token_bucket import BucketUnavailable, Budget, consume, refund
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.facade.signal_extras import AnalyticsAlertFiringSignalExtra
-from products.signals.backend.facade.source_configs import get_analytics_alert_scope, get_source_config
+from products.signals.backend.facade.source_configs import (
+    AlertFilterOutcome,
+    evaluate_alert_filter,
+    get_analytics_alert_name_patterns,
+    get_analytics_alert_scope,
+    get_source_config,
+)
 
 logger = structlog.get_logger(__name__)
 
 SIGNAL_SOURCE_PRODUCT = "analytics"
 SIGNAL_SOURCE_TYPE = "alert_firing"
-# The product analytics source row. Its `enabled` flag and `alert_scope` key govern this signal too.
+# The product analytics source row. Its `enabled` flag and its alert config keys govern this signal too.
 _SOURCE_CONFIG_TYPE = "anomaly_investigation"
 _ALL_FIRING_ALERTS = "all_firing_alerts"
 
@@ -50,17 +61,34 @@ class AlertFiringSkipReason(enum.StrEnum):
     INVESTIGATED = "investigated"
     SOURCE_DISABLED = "source_disabled"
     SCOPE = "scope"
+    FILTERED = "filtered"
+    # Logged apart from FILTERED, so a broken filter that drops every alert is not read as a quiet one.
+    FILTER_INVALID = "filter_invalid"
     CAP = "cap"
     CAP_UNAVAILABLE = "cap_unavailable"
     NOT_DISPATCHED = "not_dispatched"
 
 
-# Nearly every check fails one of these, so a log line for them would only be noise.
+# Nearly every check fails one of these, so a log line or an outcome count for them would only be noise.
 _UNLOGGED_SKIP_REASONS = frozenset({AlertFiringSkipReason.NOT_NEW_EPISODE, AlertFiringSkipReason.INVESTIGATED})
+
+EMITTED_OUTCOME = "emitted"
+CAP_DROP_EVENT = "alert firing signal skipped"
+_CAP_DROP_REASONS = frozenset({AlertFiringSkipReason.CAP, AlertFiringSkipReason.CAP_UNAVAILABLE})
+# Longer than every attempt of the emit activity together, so a retry finds the outcome of the first attempt.
+_OUTCOME_KEY_TTL_SECONDS = 60 * 60
 
 
 def cap_key(team_id: int) -> str:
     return f"signals_alert_firing_rate:{team_id}"
+
+
+def _outcome_key(source_id: str) -> str:
+    return f"signals_alert_firing_outcome:{source_id}"
+
+
+def _source_id(alert_id: str, alert_check_id: str) -> str:
+    return f"{alert_id}:{alert_check_id}"
 
 
 def alert_firing_skip_reason(
@@ -102,7 +130,8 @@ def prepare_alert_firing_signal(
         )
         return None
     if skip_reason is not None and skip_reason not in _UNLOGGED_SKIP_REASONS:
-        _log_skip(str(alert.id), str(alert_check.id), skip_reason)
+        _log_skip(alert.team_id, str(alert.id), str(alert_check.id), skip_reason)
+        _record_outcome(alert.team, str(alert.id), str(alert_check.id), skip_reason)
     return signal
 
 
@@ -113,7 +142,7 @@ async def dispatch_alert_firing_signal(signal: AlertFiringSignal) -> bool:
     default executor, so a call that blocks an executor thread on it can deadlock once every executor
     thread waits the same way. A failure never changes the committed check.
     """
-    source_id = f"{signal.alert_id}:{signal.alert_check_id}"
+    source_id = _source_id(signal.alert_id, signal.alert_check_id)
     try:
         async with asyncio.timeout(EMISSION_TIMEOUT_SECONDS):
             dispatched = await emit_signal(
@@ -139,15 +168,68 @@ async def dispatch_alert_firing_signal(signal: AlertFiringSignal) -> bool:
         dispatched = None
     if dispatched:
         logger.info("alert_firing.signal_emitted", alert_id=signal.alert_id, alert_check_id=signal.alert_check_id)
+        await asyncio.to_thread(_record_outcome, signal.team, signal.alert_id, signal.alert_check_id, None)
         return True
     await asyncio.to_thread(refund, cap_key(signal.team.id), CAP_BUDGET)
     if dispatched is False:
-        _log_skip(signal.alert_id, signal.alert_check_id, AlertFiringSkipReason.NOT_DISPATCHED)
+        reason = AlertFiringSkipReason.NOT_DISPATCHED
+        _log_skip(signal.team.id, signal.alert_id, signal.alert_check_id, reason)
+        await asyncio.to_thread(_record_outcome, signal.team, signal.alert_id, signal.alert_check_id, reason)
     return False
 
 
-def _log_skip(alert_id: str, alert_check_id: str, reason: AlertFiringSkipReason) -> None:
-    logger.info("alert_firing.signal_skipped", alert_id=alert_id, alert_check_id=alert_check_id, reason=reason.value)
+def _log_skip(team_id: int, alert_id: str, alert_check_id: str, reason: AlertFiringSkipReason) -> None:
+    logger.info(
+        "alert_firing.signal_skipped",
+        team_id=team_id,
+        alert_id=alert_id,
+        alert_check_id=alert_check_id,
+        reason=reason.value,
+    )
+
+
+def _record_outcome(team: Team, alert_id: str, alert_check_id: str, skip_reason: AlertFiringSkipReason | None) -> None:
+    """Count the outcome of an episode once, and capture a cap drop for the team. Never raises.
+
+    Call it from a thread. A cancelled attempt records nothing, because its retry decides again.
+    """
+    source_id = _source_id(alert_id, alert_check_id)
+    try:
+        if not _claims_outcome(source_id):
+            return
+        record_alert_firing_signal_outcome(EMITTED_OUTCOME if skip_reason is None else skip_reason.value)
+        if skip_reason is not None and skip_reason in _CAP_DROP_REASONS:
+            posthoganalytics.capture(
+                event=CAP_DROP_EVENT,
+                distinct_id=str(team.uuid),
+                properties={
+                    "source_product": SIGNAL_SOURCE_PRODUCT,
+                    "source_type": SIGNAL_SOURCE_TYPE,
+                    "source_id": source_id,
+                    "team_id": team.id,
+                    "alert_id": alert_id,
+                    "alert_check_id": alert_check_id,
+                    "reason": skip_reason.value,
+                },
+                groups=groups(team.organization, team),
+            )
+    except Exception:
+        logger.exception(
+            "alert_firing.signal_outcome_failed", team_id=team.id, alert_id=alert_id, alert_check_id=alert_check_id
+        )
+
+
+def _claims_outcome(source_id: str) -> bool:
+    """Whether this attempt is the first to record an outcome for the episode.
+
+    It uses the emission idempotency key, so an activity retry never counts the episode twice,
+    for example as both `emitted` and `cap`.
+    """
+    try:
+        return bool(get_client().set(_outcome_key(source_id), 1, nx=True, ex=_OUTCOME_KEY_TTL_SECONDS))
+    except RedisError:
+        # Without Redis the cap fails closed as `cap_unavailable`. Counting that drop twice beats losing it.
+        return True
 
 
 def _resumes_interrupted_episode(alert: AlertConfiguration, alert_check: AlertCheck) -> bool:
@@ -182,6 +264,15 @@ def _prepare(
         return AlertFiringSkipReason.SCOPE, None
     if previous_state == AlertState.ERRORED and _resumes_interrupted_episode(alert, alert_check):
         return AlertFiringSkipReason.NOT_NEW_EPISODE, None
+    filter_outcome = evaluate_alert_filter(
+        get_analytics_alert_name_patterns(team_id=alert.team_id),
+        alert_name=alert.name,
+        insight_name=alert.insight.name or alert.insight.derived_name,
+    )
+    if filter_outcome == AlertFilterOutcome.INVALID:
+        return AlertFiringSkipReason.FILTER_INVALID, None
+    if filter_outcome != AlertFilterOutcome.PASSED:
+        return AlertFiringSkipReason.FILTERED, None
 
     team = alert.team
     # `emit_signal` reads the organization for its consent gate. Loading it here keeps that read off the event loop.

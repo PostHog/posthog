@@ -18,12 +18,13 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
 from products.cdp.backend.filters import (
     DATA_WAREHOUSE_SOURCES,
     FILTER_FUNCTIONS,
@@ -154,7 +155,8 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
             }
         )
 
-    if not FROM_OVERRIDE_EMAIL_REGEX.match(override):
+    override_domain = email_domain(override.lower())
+    if override_domain is None or not FROM_OVERRIDE_EMAIL_REGEX.match(override):
         raise serializers.ValidationError(
             {
                 "input": f'The custom sender address "{override}" is not a valid email address. '
@@ -166,7 +168,6 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     if not integration_ids:
         return
 
-    override_domain = override.split("@")[1].lower()
     # An empty cached domain means the id resolved to no email integration for this team; the
     # save is not blocked on it (there is no domain to compare), matching the uncached behavior.
     shared_cache = context.get("email_integration_domain_cache")
@@ -175,7 +176,9 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     if missing_ids:
         for integration in IntegrationManager.email.credentials.get_many(get_team().id, missing_ids).values():
             config = integration.config or {}
-            domain_cache[integration.id] = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
+            domain_cache[integration.id] = (
+                config.get("domain") or email_domain(config.get("email") or "") or ""
+            ).lower()
         for integration_id in missing_ids:
             domain_cache.setdefault(integration_id, "")
 
@@ -248,7 +251,25 @@ _TAG_NAME = re.compile(r"</?\s*([a-z!][a-z0-9]*)")
 _SKIPPED_ELEMENT_ENDS = {"head": "</head>", "style": "</style>"}
 
 
+_CONDITIONAL_COMMENT_START = "<!--[if"
+_CONDITIONAL_COMMENT_MARKERS = ("<![endif]-->", "<!-->")
+
+
+# Outlook renders what a conditional comment holds, so the scan skips only its markers.
+def _position_after_conditional_marker(html: str, position: int) -> int | None:
+    if html.startswith(_CONDITIONAL_COMMENT_START, position):
+        end = html.find("]>", position + len(_CONDITIONAL_COMMENT_START))
+        return -1 if end == -1 else end + 2
+    for marker in _CONDITIONAL_COMMENT_MARKERS:
+        if html.startswith(marker, position):
+            return position + len(marker)
+    return None
+
+
 def _position_after_layout_markup(html: str, position: int) -> int:
+    after_marker = _position_after_conditional_marker(html, position)
+    if after_marker is not None:
+        return after_marker
     if html.startswith("<!--", position):
         end = html.find("-->", position + 4)
         return -1 if end == -1 else end + 3
@@ -1287,7 +1308,7 @@ def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: A
     if not added_ids:
         return
 
-    actions = Action.objects.filter(team__project_id=context["get_team"]().project_id, id__in=added_ids)
+    actions = get_actions(project_id=context["get_team"]().project_id, action_ids=added_ids)
     denied_ids = user_access_control.denied_object_ids(
         "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
     )
@@ -1437,8 +1458,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         collected = set(filter_cohort_ids(data))
         action_ids = filter_action_ids(data)
         if action_ids:
-            # nosemgrep: idor-lookup-without-team (scoped by team__project_id)
-            for action in Action.objects.filter(id__in=action_ids, team__project_id=team.project_id, deleted=False):
+            for action in get_actions(project_id=team.project_id, action_ids=action_ids, include_deleted=False):
                 for step in action.steps:
                     collected |= collect_property_cohort_ids(step.properties or [])
         validate_realtime_cohorts(collected, team, require_ready=require_ready)

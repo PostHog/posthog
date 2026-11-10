@@ -17,6 +17,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.test.persons import create_person
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
 from products.experiments.backend.health.context import (
     MIN_EXPOSED_UNITS_TO_WARN,
@@ -47,6 +48,20 @@ _BY_EVENT_PROPERTY: dict[str, Any] = {
         "kind": "ExperimentEventExposureConfig",
         "event": "$feature_flag_called",
         "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "event"}],
+    }
+}
+_BY_PERSON_PROPERTY: dict[str, Any] = {
+    "exposure_config": {
+        "kind": "ExperimentEventExposureConfig",
+        "event": "$feature_flag_called",
+        "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}],
+    }
+}
+_BY_HOGQL: dict[str, Any] = {
+    "exposure_config": {
+        "kind": "ExperimentEventExposureConfig",
+        "event": "$feature_flag_called",
+        "properties": [{"key": "properties.plan = 'pro'", "type": "hogql"}],
     }
 }
 _BY_ACTION: dict[str, Any] = {"exposure_config": {"kind": "ActionsNode", "id": 1}}
@@ -267,6 +282,20 @@ class TestLoadFlagHistory(BaseTest):
         assert isinstance(history, FlagHistory)
         self.assertEqual((query.call_count, self.units_query.call_count), (0, 0))
 
+    def test_split_history_after_a_split_change_after_the_end_queries_no_exposures(self) -> None:
+        ended_at = self.launched_at + timedelta(days=1)
+        self.experiment.end_date = ended_at
+        self.experiment.save()
+        changed_at = self._log_split_changes(
+            [_split(50, 50), _split(60, 40), _split(70, 30)], first_at=ended_at - timedelta(minutes=30)
+        )
+
+        history, query = self._load([True], load=load_split_history)
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual([change.changed_at for change in history.of_kind(SplitChange)], changed_at)
+        self.assertEqual((query.call_count, self.units_query.call_count), (0, 0))
+
     def test_a_count_is_cached_apart_from_the_exposure_answer_of_the_same_window(self) -> None:
         self._log_split_changes([_split(50, 50), _split(60, 40)])
         first, _ = self._load([True], units=[3])
@@ -324,6 +353,8 @@ class TestLoadFlagHistory(BaseTest):
                 "custom_event_without_property_filters",
                 {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "checkout", "properties": []}},
             ),
+            ("event_property_filters", _BY_EVENT_PROPERTY),
+            ("person_property_filters", _BY_PERSON_PROPERTY),
             (
                 "activation_event_on_the_default_exposure",
                 {
@@ -412,7 +443,7 @@ class TestLoadFlagHistory(BaseTest):
 
     @parameterized.expand(
         [
-            ("exposure_filters", _BY_EVENT_PROPERTY, True, True, FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+            ("exposure_filters", _BY_HOGQL, True, True, FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
             ("exposure_action", _BY_ACTION, True, True, FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
             ("exposure_criteria", _UNREADABLE, True, True, FlagHistoryNotCheckedReason.EXPOSURE_CRITERIA),
             ("no_query_access", {}, True, False, FlagHistoryNotCheckedReason.NO_QUERY_ACCESS),
@@ -421,7 +452,7 @@ class TestLoadFlagHistory(BaseTest):
                 _BY_EVENT_PROPERTY,
                 True,
                 False,
-                FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
+                FlagHistoryNotCheckedReason.NO_QUERY_ACCESS,
             ),
             ("no_history_access", {}, False, True, FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
         ]
@@ -455,7 +486,7 @@ class TestLoadFlagHistory(BaseTest):
 
     @parameterized.expand(
         [
-            ("exposure_filters", _BY_EVENT_PROPERTY, FULL_ACCESS),
+            ("exposure_action", _BY_ACTION, FULL_ACCESS),
             (
                 "no_query_access",
                 {},
@@ -571,6 +602,24 @@ class TestLoadFlagHistory(BaseTest):
         self.assertEqual(history.exposed_units_before_last, {ExperimentHealthFlagChangeKind.SPLIT: None})
         self.assertEqual(self.units_query.call_count, 0)
 
+    @parameterized.expand([("team_timezone",), ("property_type",)])
+    def test_a_setting_that_the_filters_compile_with_asks_again(self, setting: str) -> None:
+        self.experiment.exposure_criteria = _BY_EVENT_PROPERTY
+        self.experiment.save()
+        self._log_split_changes([_split(50, 50), _split(60, 40)])
+        self._load([False])
+
+        if setting == "team_timezone":
+            self.experiment.team.timezone = "Europe/Berlin"
+            self.experiment.team.save()
+        else:
+            PropertyDefinition.objects.create(
+                team=self.team, name="plan", property_type="Numeric", type=PropertyDefinition.Type.EVENT
+            )
+        _, query = self._load([False])
+
+        self.assertEqual(query.call_count, 1)
+
     def test_cached_walk_reads_the_cache_once(self) -> None:
         self._log_split_changes([_split(50, 50), _split(60, 40)] * 5)
         self._load([False] * 9)
@@ -641,6 +690,15 @@ class TestQueryAnyExposure(ClickhouseTestMixin, BaseTest):
                 3,
                 True,
             ),
+            (
+                "event_property_filter_that_the_exposure_misses",
+                _BY_EVENT_PROPERTY,
+                "$feature_flag_called",
+                "test",
+                3,
+                False,
+            ),
+            ("person_property_filter_left_out", _BY_PERSON_PROPERTY, "$feature_flag_called", "test", 3, True),
         ]
     )
     def test_query_any_exposure(

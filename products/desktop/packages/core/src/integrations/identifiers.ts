@@ -48,3 +48,7 @@ export const GITHUB_CONNECT_CLIENT = Symbol.for(
 export const GITHUB_CONNECT_SERVICE = Symbol.for(
   "posthog.core.integrations.githubConnectService",
 );
+
+export const GIT_PROVIDER_SERVICE = Symbol.for(
+  "posthog.core.integrations.gitProviderService",
+);
