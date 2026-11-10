@@ -15,6 +15,7 @@ const message = (teamId: number): MetricsIngestionMessage => ({
     teamId,
     message: { headers: [] } as unknown as Message,
     bytesUncompressed: 1000,
+    bytesUncompressedRecords: 0,
     bytesCompressed: 100,
     recordCount: 1,
 })
