@@ -222,11 +222,18 @@ export class IntegrationsService {
         const id = randomUUID()
         // Sealed before the transaction, so the KMS call holds no row lock or connection.
         const sealed = isEmpty(blob) ? null : await this.seal({ id, ownerId: teamOwner.id, kind: body.kind }, blob)
+        // The hash covers the secret key names, not their values: an unkeyed hash of a
+        // low-entropy secret stored next to the row would allow offline guessing.
         const requestHash =
             idempotencyKey === null
                 ? null
                 : createHash('sha256')
-                      .update(canonicalJson(body as unknown as JsonValue))
+                      .update(
+                          canonicalJson({
+                              ...body,
+                              sensitive_config: Object.keys(blob).sort(),
+                          } as unknown as JsonValue)
+                      )
                       .digest()
 
         const result = await withTransaction(this.deps.pool, async (tx) => {
