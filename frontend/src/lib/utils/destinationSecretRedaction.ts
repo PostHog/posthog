@@ -32,14 +32,15 @@ export function redactDestinationSecrets(body: unknown): unknown {
     if (typeof body !== 'string' || !SECRET_FIELD.test(body)) {
         return body
     }
-    let parsed: unknown
+    // A deeply nested body overflows the stack during traversal. The SDK drops the whole $snapshot event
+    // when a before_send function throws, so every failure here redacts the body instead.
     try {
-        parsed = JSON.parse(body)
+        const parsed = JSON.parse(body)
+        const redacted = redactSecretFields(parsed)
+        return redacted === parsed ? body : JSON.stringify(redacted)
     } catch {
         return REDACTED_BODY
     }
-    const redacted = redactSecretFields(parsed)
-    return redacted === parsed ? body : JSON.stringify(redacted)
 }
 
 function redactRequest(request: unknown): unknown {

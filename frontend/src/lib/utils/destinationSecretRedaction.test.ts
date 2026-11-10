@@ -31,8 +31,11 @@ describe('destination secret redaction', () => {
         expect(redactDestinationSecrets(body)).toBe(body)
     })
 
-    it('replaces a body that is not JSON but names a secret field', () => {
-        expect(redactDestinationSecrets(`webhook_url=${encodeURIComponent(WEBHOOK)}`)).toBe(
+    it.each([
+        ['is not JSON', `webhook_url=${encodeURIComponent(WEBHOOK)}`],
+        ['nests deeper than the stack allows', `${'['.repeat(10000)}{"webhook_url":"x"}${']'.repeat(10000)}`],
+    ])('replaces a body that names a secret field and %s', (_name, body) => {
+        expect(redactDestinationSecrets(body)).toBe(
             '[SessionRecording] body redacted as might contain a destination secret'
         )
     })
