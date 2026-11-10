@@ -105,11 +105,11 @@ tools:
         disabled_reason: Enable together with aeo-keywords-create, after the aeo_keywords route is deployed.
         title: Get the AI visibility keyword report
         description: >
-            Get one row per tracked keyword for the last `days` days (default 7, at most 30, in the project's
-            timezone), over answered checks. In the prompts: `prompts` that contain it, and `prompt_mention_rate` and
-            `prompt_cited_rate` for their answers. In the engines' searches: `searched_rate` (share of answers whose
-            web searches contain it) and `searched_cited_rate` (how often those answers cite the project). In the
-            answers: `answer_rate`, `uses_per_answer`, `answer_mention_rate` (answers that also name the brand),
+            Get one row per tracked keyword for the last `days` days (default 7, at most 30, in the project's timezone),
+            over answered checks. In the prompts: `prompts` that contain it, and `prompt_mention_rate` and
+            `prompt_cited_rate` for their answers. In the engines' searches: `searched_rate` (share of answers whose web
+            searches contain it) and `searched_cited_rate` (how often those answers cite the project). In the answers:
+            `answer_rate`, `uses_per_answer`, `answer_mention_rate` (answers that also name the brand),
             `avg_citation_position` and `median_first_mention_depth` (where the brand is first named, 0 is the start).
             Rates are 0-1 and null when nothing matched. Use it to find keywords the engines search for where the
             project is rarely cited.
