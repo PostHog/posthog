@@ -15,6 +15,22 @@ export interface TagPage {
 
 export type LoadTags = (search: string, offset: number) => Promise<TagPage>
 
+/** Drops the tags `exclude` matches, and keeps loading pages while a whole page is excluded, because only a scroll asks for the next one. */
+export function excludingTags(loadTags: LoadTags, exclude: (tag: string) => boolean): LoadTags {
+    return async (search, offset) => {
+        let pageOffset = offset
+        while (true) {
+            const page = await loadTags(search, pageOffset)
+            const nextOffset = page.nextOffset ?? pageOffset + page.results.length
+            const results = page.results.filter(({ tag }) => !exclude(tag))
+            if (results.length > 0 || !page.hasMore || nextOffset <= pageOffset) {
+                return { results, hasMore: page.hasMore, nextOffset }
+            }
+            pageOffset = nextOffset
+        }
+    }
+}
+
 export interface TagSelectLogicProps {
     logicKey: string
 }
