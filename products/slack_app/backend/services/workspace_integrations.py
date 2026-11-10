@@ -3,11 +3,15 @@ from typing import Protocol, cast
 
 from django.db.models import Model, prefetch_related_objects
 
-from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReader, IntegrationRecord
 from posthog.models.team import Team
 
-# Older thread mappings and default projects can point at a row of the legacy PostHog Code kind.
-SLACK_ROW_READER = IntegrationManager.kinds("slack", "slack-posthog-code", auth_types="any")
+
+def slack_row_reader() -> IntegrationReader:
+    """Reads Slack rows of any auth type. Older thread mappings and default projects can point at a row of the legacy PostHog Code kind."""
+    # Built on call, not at import: a module-level call joins an import cycle that mypy cannot type.
+    return IntegrationManager.kinds("slack", "slack-posthog-code", auth_types="any")
+
 
 # Slack webhooks carry the workspace id and no team, so these reads scope rows by the workspace id.
 
@@ -42,7 +46,7 @@ def team_id_of_integration(integration_id: int, candidates: Iterable[Integration
         if candidate.id == integration_id:
             return candidate.team_id
     try:
-        return SLACK_ROW_READER.get_by_id(integration_id).team_id
+        return slack_row_reader().get_by_id(integration_id).team_id
     except IntegrationNotFound:
         return None
 
@@ -50,7 +54,7 @@ def team_id_of_integration(integration_id: int, candidates: Iterable[Integration
 def get_integration_by_id(integration_id: int) -> WorkspaceIntegration | None:
     """The Slack row with this id, or None. For code that holds a row id from a thread mapping and no workspace id."""
     try:
-        return with_teams([SLACK_ROW_READER.get_by_id(integration_id)])[0]
+        return with_teams([slack_row_reader().get_by_id(integration_id)])[0]
     except IntegrationNotFound:
         return None
 
