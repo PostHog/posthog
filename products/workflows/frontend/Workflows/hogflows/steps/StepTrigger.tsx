@@ -1,5 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
 
 import {
@@ -219,7 +220,7 @@ function TriggerTypeDropdownItem({
 
 export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }): JSX.Element {
     const { setWorkflowActionConfig, setWorkflowValue } = useActions(workflowLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
+    const { actionValidationErrorsById, workflow } = useValues(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const type = node.data.config.type
@@ -284,6 +285,11 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
     const registeredMatch = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(node.data.config))
 
     const handleSelect = (value: string): void => {
+        posthog.capture('workflow trigger selected', {
+            workflow_id: workflow.id,
+            trigger_type: value,
+            previous_trigger_type: displayType,
+        })
         // The frequency hash lives on the workflow, not the trigger config, and hashes are
         // trigger-specific ({person.id} vs event-keyed) — a stale one silently disables masking.
         if (value !== displayType) {

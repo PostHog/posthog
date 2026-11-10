@@ -84,6 +84,7 @@ WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset(
     {
         "$slack_message_received",
         "$github_event_received",
+        "$error_tracking_issue_created",
         # A public support reply. Its payload omits the reply body and matches the analytics event.
         "$conversation_message_sent",
     }

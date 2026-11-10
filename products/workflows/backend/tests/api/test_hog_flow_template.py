@@ -279,6 +279,14 @@ class TestHogFlowTemplateAPI(APIBaseTest):
                 201,
             ),
             (
+                "error_tracking_issue_created",
+                {
+                    "type": "internal-event",
+                    "filters": {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
+                },
+                201,
+            ),
+            (
                 "disallowed_internal_event",
                 {
                     "type": "internal-event",

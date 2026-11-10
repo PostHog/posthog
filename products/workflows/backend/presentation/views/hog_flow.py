@@ -796,6 +796,38 @@ def _require_replay_vision_editor_access(request: Request | None, context: dict[
             raise serializers.ValidationError({"variables": error})
 
 
+def _require_error_tracking_trigger_access(context: dict[str, Any], trigger: Any) -> None:
+    if not isinstance(trigger, dict) or trigger.get("type") != "internal-event":
+        return
+    filters = trigger.get("filters")
+    events = filters.get("events") if isinstance(filters, dict) else None
+    if not isinstance(events, list) or not any(
+        isinstance(event, dict) and event.get("id") == "$error_tracking_issue_created" for event in events
+    ):
+        return
+    # The lifecycle event includes exception_props, so workflow write access alone cannot authorize it.
+    request = context.get("request")
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if scopes is not None and not {"*", "error_tracking:read", "error_tracking:write"}.intersection(scopes):
+        raise serializers.ValidationError(
+            {"filters": "This trigger needs error tracking access. Use a key with the error_tracking:read scope."}
+        )
+    user = getattr(request, "user", None)
+    get_team = context.get("get_team")
+    if (
+        user is not None
+        and user.is_authenticated
+        and not isinstance(user, SyntheticUser)
+        and get_team is not None
+        and not UserAccessControl(user=user, team=get_team()).check_access_level_for_resource(
+            "error_tracking", "viewer"
+        )
+    ):
+        raise serializers.ValidationError(
+            {"filters": "You do not have access to error tracking. Ask an admin to grant you access."}
+        )
+
+
 REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 1
@@ -2177,6 +2209,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                                 "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
                             }
                         )
+                _require_error_tracking_trigger_access(self.context, data["config"])
                 if _subscribes_to("$github_event_received"):
                     _normalize_github_repository_filters(filters)
                     if not is_draft and not _has_exact_string_filter(filters, "repository"):
@@ -3792,6 +3825,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                     utm_defaults,
                     saving_draft=stored.status == HogFlowState.ACTIVE,
                 )
+
+        # Action-less edits can redirect the payload through variables or activate an existing trigger.
+        if stored:
+            _require_error_tracking_trigger_access(self.context, stored.trigger)
+            for action in (stored.draft or {}).get("actions", []):
+                if isinstance(action, dict) and action.get("type") == "trigger":
+                    _require_error_tracking_trigger_access(self.context, action.get("config"))
 
         # A Replay Vision step can read its session from a variable, so changing variables alone changes what
         # it scans. Submitted actions get this check through HogFlowActionSerializer.

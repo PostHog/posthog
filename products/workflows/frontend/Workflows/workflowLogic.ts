@@ -4745,6 +4745,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 posthog.capture('workflow enabled', {
                     workflow_id: originalWorkflow.id,
                     entry_source: loadEntrySource(originalWorkflow.id),
+                    trigger_type: originalWorkflow.trigger?.type,
+                    trigger_event_ids:
+                        originalWorkflow.trigger?.type === 'internal-event'
+                            ? (originalWorkflow.trigger.filters?.events?.map(({ id }) => id) ?? [])
+                            : [],
                 })
             }
 

@@ -4288,7 +4288,7 @@ class TestHogFlowAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("activity_log", "$activity_log_entry_created"),
-            ("error_tracking", "$error_tracking_issue_created"),
+            ("error_tracking", "$error_tracking_issue_reopened"),
             ("discussion", "$discussion_mention_created"),
             ("logs_alert", "$logs_alert_firing"),
             ("insight_alert", "$insight_alert_firing"),
@@ -4326,7 +4326,7 @@ class TestHogFlowAPI(APIBaseTest):
                     "source": "internal-events",
                     "events": [
                         {"id": "$slack_message_received", "type": "events"},
-                        {"id": "$error_tracking_issue_created", "type": "events"},
+                        {"id": "$error_tracking_issue_reopened", "type": "events"},
                     ],
                     "properties": [{"key": "channel", "value": ["C0ALERTS"], "operator": "exact", "type": "event"}],
                 },
@@ -4337,7 +4337,79 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
         assert response.status_code == 400, response.json()
-        assert "$error_tracking_issue_created" in response.json()["detail"]
+        assert "$error_tracking_issue_reopened" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("read", ["hog_flow:write", "error_tracking:read"], "active", 201),
+            ("write", ["hog_flow:write", "error_tracking:write"], "active", 201),
+            ("wildcard", ["*"], "active", 201),
+            ("missing", ["hog_flow:write"], "active", 400),
+            ("draft_missing", ["hog_flow:write"], "draft", 400),
+        ]
+    )
+    def test_error_tracking_trigger_requires_error_tracking_scope(
+        self, _name: str, scopes: list[str], flow_status: str, expected: int
+    ) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {
+                "name": "New issue flow",
+                "status": flow_status,
+                "actions": [
+                    {
+                        "id": "trigger_node",
+                        "name": "New issue",
+                        "type": "trigger",
+                        "config": {
+                            "type": "internal-event",
+                            "filters": {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
+                        },
+                    }
+                ],
+            },
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert response.status_code == expected, response.json()
+        if expected == 201:
+            assert response.json()["trigger"]["filters"]["source"] == "internal-events"
+            assert response.json()["exit_condition"] == "exit_only_at_end"
+        else:
+            assert "error_tracking:read" in response.json()["detail"]
+
+    @parameterized.expand([("allowed", "viewer", 200), ("restricted", "none", 400)])
+    def test_error_tracking_trigger_partial_edits_require_error_tracking_access(
+        self, _name: str, access_level: str, expected: int
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        trigger = {
+            "type": "internal-event",
+            "filters": {
+                "source": "internal-events",
+                "events": [{"id": "$error_tracking_issue_created", "type": "events"}],
+            },
+        }
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="New issue flow",
+            status="active",
+            created_by=self.user,
+            trigger=trigger,
+            actions=[{"id": "trigger_node", "name": "New issue", "type": "trigger", "config": trigger}],
+        )
+        AccessControl.objects.create(team=self.team, resource="error_tracking", access_level=access_level)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow.id}", {"name": "Updated flow"})
+
+        assert response.status_code == expected, response.json()
+        if expected == 400:
+            assert "access to error tracking" in response.json()["detail"]
 
     def test_hog_flow_internal_event_trigger_requires_an_explicit_event_even_when_draft(self):
         trigger_action = {
