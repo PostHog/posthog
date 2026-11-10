@@ -247,12 +247,16 @@ describe('RateLimiterService', () => {
     })
 
     describe('claimAllOrNothingAcross', () => {
-        it('charges no bucket when any request carries a TTL that EXPIRE rejects', async () => {
+        it.each([
+            ['a fraction', 0, 1.5],
+            ['an expiry past Redis range', 1, 1e16],
+        ])('charges no bucket when a TTL is %s that EXPIRE rejects', async (_case, badIndex, ttlSeconds) => {
             // Redis keeps the writes of a script that fails partway, so a TTL rejected only when
-            // the first bucket is already charged would leave it charged and without an expiry.
+            // an earlier bucket is already charged would leave it charged and without an expiry.
             const first = { key: `${KEY}/across/first`, requested: 1, capacity: 5, refillPerSecond: 0 }
             const second = { key: `${KEY}/across/second`, requested: 1, capacity: 5, refillPerSecond: 0 }
-            const claim = await limiter.claimAllOrNothingAcross([{ ...first, ttlSeconds: 1.5 }, second])
+            const reqs = [first, second].map((req, i) => (i === badIndex ? { ...req, ttlSeconds } : req))
+            const claim = await limiter.claimAllOrNothingAcross(reqs)
             expect(claim).toBe('unavailable')
             expect(await limiter.claimUpTo({ ...first, requested: 5 })).toBe(5)
             expect(await limiter.claimUpTo({ ...second, requested: 5 })).toBe(5)

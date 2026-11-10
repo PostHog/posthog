@@ -160,7 +160,7 @@ for i, key in ipairs(KEYS) do
     local capacity = tonumber(ARGV[base + 2])
     local refillPerSecond = tonumber(ARGV[base + 3])
     local ttlSeconds = tonumber(ARGV[base + 4])
-    if ttlSeconds == nil or ttlSeconds < 1 or ttlSeconds % 1 ~= 0 then
+    if ttlSeconds == nil or ttlSeconds < 1 or ttlSeconds > 2147483647 or ttlSeconds % 1 ~= 0 then
         return redis.error_reply('invalid ttl for ' .. key)
     end
 
