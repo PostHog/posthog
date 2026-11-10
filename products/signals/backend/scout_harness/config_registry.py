@@ -26,7 +26,7 @@ from django.utils import timezone
 import structlog
 from croniter import CroniterError, croniter
 
-from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
+from posthog.models.activity_logging.activity_log import ActivityLog, Trigger, field_name_overrides
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.activity_logging.utils import SCOUT_CLIENT_PREFIX
 
@@ -790,9 +790,11 @@ def unchosen_general_scout_configs(
         .exclude(skill_name__in=canonical_operational_scout_names())
         .filter(Q(enabled_by__isnull=False) | Q(created_by__isnull=False))
     )
+    logged_names = field_name_overrides.get("SignalScoutConfig", {})
     person_tuned_change = Q()
     for tuned_field in _PERSON_TUNED_SCOUT_FIELDS:
-        person_tuned_change |= Q(detail__changes__contains=[{"field": tuned_field}])
+        logged_name = logged_names.get(tuned_field, tuned_field)
+        person_tuned_change |= Q(detail__changes__contains=[{"field": logged_name}])
     person_log = ActivityLog.objects.filter(
         person_tuned_change,
         team_id=OuterRef("team_id"),
@@ -821,11 +823,11 @@ def unchosen_general_scout_configs(
     return configs
 
 
-def _general_scout_is_proven_canonical(team_id: int) -> bool:
+def _general_scout_is_proven_canonical(team_id: int, *, lock: bool = False) -> bool:
     # A team that edited the general scout in place owns the result, so only an unedited row counts.
-    skill = LLMSkill.objects.filter(
-        team_id=team_id, name=GENERAL_SCOUT_SKILL_NAME, is_latest=True, deleted=False
-    ).first()
+    skills = LLMSkill.objects.filter(team_id=team_id, name=GENERAL_SCOUT_SKILL_NAME, is_latest=True, deleted=False)
+    # Publishing a new version clears `is_latest` on this row, so the lock holds a publish off until we commit.
+    skill = (skills.select_for_update() if lock else skills).first()
     return skill is not None and scout_skill_row_is_proven_canonical(skill)
 
 
@@ -841,7 +843,7 @@ def unenroll_unchosen_general_scout(config: SignalScoutConfig) -> bool:
             .select_for_update(of=("self",))
             .first()
         )
-        if locked is None:
+        if locked is None or not _general_scout_is_proven_canonical(locked.team_id, lock=True):
             return False
         trigger = Trigger(
             job_type=_UNCHOSEN_GENERAL_UNENROLL_JOB_TYPE,
