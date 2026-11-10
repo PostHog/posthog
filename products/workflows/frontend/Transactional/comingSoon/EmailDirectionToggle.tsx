@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { userLogic } from 'scenes/userLogic'
+
 import { comingSoonInterestLogic } from './comingSoonInterestLogic'
 import { ComingSoonInterestModal } from './ComingSoonInterestModal'
 import { ComingSoonInterestTag } from './ComingSoonInterestTag'
@@ -9,7 +11,9 @@ import { RECEIVING_INTEREST_SURVEY } from './receivingInterestSurvey'
 
 /** Sending is the only real view, so choosing Receiving asks about interest and leaves Sending selected. */
 export function EmailDirectionToggle(): JSX.Element {
-    const logic = comingSoonInterestLogic(RECEIVING_INTEREST_SURVEY)
+    const { user } = useValues(userLogic)
+    const survey = { ...RECEIVING_INTEREST_SURVEY, accountId: user?.uuid ?? '' }
+    const logic = comingSoonInterestLogic(survey)
     const { hasRecordedInterest } = useValues(logic)
     const { registerInterest } = useActions(logic)
 
@@ -42,7 +46,7 @@ export function EmailDirectionToggle(): JSX.Element {
                 className="max-w-full self-start"
             />
             <ComingSoonInterestModal
-                survey={RECEIVING_INTEREST_SURVEY}
+                survey={survey}
                 title="Receiving email is coming soon"
                 question="What would you use receiving email for, and what do you use to handle incoming email today?"
                 placeholder="For example, which emails you need to receive, and what handles them now"
