@@ -36,10 +36,22 @@ def manifest(name: str, version_range: str) -> bytes:
     ).encode()
 
 
-def lockfile(name: str, specifier: str, version: str, integrity: str = "sha512-x", deprecated: bool = False) -> bytes:
+def lockfile(
+    name: str,
+    specifier: str,
+    version: str,
+    integrity: str = "sha512-x",
+    deprecated: bool = False,
+    catalog: str | None = None,
+) -> bytes:
     deprecation = "    deprecated: use something else\n" if deprecated else ""
+    snapshot = (
+        f"catalogs:\n  default:\n    {name}:\n      specifier: {catalog}\n      version: {version}\n\n"
+        if catalog
+        else ""
+    )
     return (
-        f"lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n      {name}:\n        specifier: {specifier}\n"
+        f"lockfileVersion: '9.0'\n\n{snapshot}importers:\n\n  .:\n    dependencies:\n      {name}:\n        specifier: '{specifier}'\n"
         f"        version: {version}\n\npackages:\n\n  {name}@{version}:\n    resolution: {{integrity: {integrity}}}\n"
         f"{deprecation}\nsnapshots:\n\n  {name}@{version}: {{}}\n"
     ).encode()
@@ -57,6 +69,25 @@ def trees(name: str = "left-pad", head_range: str = "^1.3.1", head_version: str 
         "pnpm-lock.yaml": lockfile(name, head_range, head_version),
     }
     return {WORKFLOW_SHA: base, MERGE_BASE: base, HEAD: {**head, **head_extra}}
+
+
+def catalog_trees(
+    name: str = "left-pad", head_catalog: str = "^1.3.1", head_version: str = "1.3.1", head_settings: bytes = b""
+) -> dict:
+    def workspace(catalog: str) -> bytes:
+        return WORKSPACE + f"catalog:\n    {name}: {catalog}\n".encode()
+
+    base = {
+        "pnpm-workspace.yaml": workspace("^1.3.0"),
+        "package.json": manifest(name, "catalog:"),
+        "pnpm-lock.yaml": lockfile(name, "catalog:", "1.3.0", catalog="^1.3.0"),
+    }
+    head = {
+        **base,
+        "pnpm-workspace.yaml": head_settings + workspace(head_catalog),
+        "pnpm-lock.yaml": lockfile(name, "catalog:", head_version, catalog=head_catalog),
+    }
+    return {WORKFLOW_SHA: base, MERGE_BASE: base, HEAD: head}
 
 
 def every_tree(**files: bytes | None) -> dict:
@@ -106,17 +137,21 @@ def pull(
         "state": state,
         "user": {"id": author},
         "base": {"ref": base},
-        "head": {"sha": head, "repo": {"full_name": head_repository}},
+        "head": {"sha": head, "ref": "renovate/left-pad", "repo": {"full_name": head_repository}},
     }
 
 
 class FakeGitHub(prover.GitHub):
-    def __init__(self, *pulls: dict) -> None:
+    def __init__(self, *pulls: dict, pusher: int = RENOVATE_BOT_USER_ID) -> None:
         super().__init__(REPOSITORY, "token")
-        self.pulls = list(pulls)
+        self.pulls, self.pusher = list(pulls), pusher
 
     def get(self, path: str) -> Any:
-        return self.pulls if path.startswith("commits/") else {"merge_base_commit": {"sha": MERGE_BASE}}
+        if path.startswith("commits/"):
+            return self.pulls
+        if path.startswith("activity?ref=refs%2Fheads%2Frenovate%2Fleft-pad&"):
+            return [{"after": "d" * 40, "actor": {"id": 42}}, {"after": HEAD, "actor": {"id": self.pusher}}]
+        return {"merge_base_commit": {"sha": MERGE_BASE}}
 
 
 class FakePnpm:
@@ -133,51 +168,64 @@ def registry(name: str) -> dict:
     return {"time": {"1.3.1": "2026-10-01T00:00:00.000Z"}}
 
 
-def environment(tmp_path: Path, actor: str = str(RENOVATE_BOT_USER_ID)) -> dict[str, str]:
+def environment(tmp_path: Path) -> dict[str, str]:
     return {
         "REPOSITORY": REPOSITORY,
         "HEAD_SHA": HEAD,
         "WORKFLOW_SHA": WORKFLOW_SHA,
         "BASE_BRANCH": "master",
-        "TRIGGERING_ACTOR_ID": actor,
         "MERGE_BASE_DIR": str(tmp_path / "merge-base"),
     }
 
 
-def handover(found: prover.Identified | None) -> dict[str, str]:
-    if found is None:
-        return {"PULL_REQUEST": "0", "MERGE_BASE": "", "ELIGIBLE": "false"}
-    return {"PULL_REQUEST": str(found.pr), "MERGE_BASE": found.merge_base, "ELIGIBLE": "true"}
+def handover(found: prover.Identified) -> dict[str, str]:
+    return {"PULL_REQUEST": str(found.pr), "MERGE_BASE": found.merge_base}
 
 
 def prove(
     env: dict[str, str], github: FakeGitHub, git: FakeGit, registry: Callable[[str], dict], pnpm: FakePnpm
 ) -> prover.Proof:
-    return prover.prove({**env, **handover(prover.identify(env, github))}, git, registry, pnpm, NOW)
+    found = prover.identify(env, github)
+    assert found is not None
+    return prover.prove({**env, **handover(found)}, git, registry, pnpm, NOW)
 
 
-def test_a_pull_request_by_a_person_attests_nothing(tmp_path: Path) -> None:
-    github = FakeGitHub(pull(author=42))
-    assert prove(environment(tmp_path), github, FakeGit({}), registry, FakePnpm(b"")) == prover.Proof([], {})
+INSTALL = ["pnpm", "install", *REPLAY_FLAGS, "--no-frozen-lockfile"]
 
 
 @pytest.mark.parametrize(
-    ("head_range", "files", "replay"),
+    ("update", "replayed", "files", "replay"),
     [
-        ("^1.3.1", ["package.json", "pnpm-lock.yaml"], ["pnpm", "install", *REPLAY_FLAGS, "--no-frozen-lockfile"]),
-        ("^1.3.0", ["pnpm-lock.yaml"], ["pnpm", "update", "--no-save", "left-pad@1.3.1", *REPLAY_FLAGS]),
+        (
+            trees(),
+            lockfile("left-pad", "^1.3.1", "1.3.1", deprecated=True),
+            ["package.json", "pnpm-lock.yaml"],
+            INSTALL,
+        ),
+        (
+            trees(head_range="^1.3.0"),
+            lockfile("left-pad", "^1.3.0", "1.3.1"),
+            ["pnpm-lock.yaml"],
+            ["pnpm", "update", "--no-save", "left-pad@1.3.1", *REPLAY_FLAGS],
+        ),
+        (
+            catalog_trees(),
+            lockfile("left-pad", "catalog:", "1.3.1", catalog="^1.3.1"),
+            ["pnpm-lock.yaml", "pnpm-workspace.yaml"],
+            INSTALL,
+        ),
     ],
 )
 def test_an_eligible_update_is_attested_after_a_frozen_replay_of_renovates_command(
-    tmp_path: Path, head_range: str, files: list[str], replay: list[str]
+    tmp_path: Path, update: dict, replayed: bytes, files: list[str], replay: list[str]
 ) -> None:
-    pnpm = FakePnpm(lockfile("left-pad", head_range, "1.3.1", deprecated=True))
-    update = trees(head_range=head_range)
+    pnpm = FakePnpm(replayed)
     git = FakeGit({**update, WORKFLOW_SHA: {**update[WORKFLOW_SHA], PROVER: b"the prover"}})
     proof = prove(environment(tmp_path), FakeGitHub(pull()), git, registry, pnpm)
     assert proof == prover.Proof(
         files,
         {
+            ".github/actions/setup-uv/action.yml": None,
             ".github/scripts/dependency_proof/__init__.py": None,
             ".github/scripts/dependency_proof/__main__.py": None,
             ".github/scripts/dependency_proof/policy.py": None,
@@ -185,8 +233,9 @@ def test_an_eligible_update_is_attested_after_a_frozen_replay_of_renovates_comma
             ".github/workflows/dependency-proof-trigger.yml": None,
             ".github/workflows/dependency-proof.yml": None,
             ".npmrc": None,
+            ".nvmrc": None,
             ".pnpmfile.cjs": None,
-            "pnpm-workspace.yaml": _fake_blob_sha(WORKSPACE),
+            "pnpm-workspace.yaml": _fake_blob_sha(update[WORKFLOW_SHA]["pnpm-workspace.yaml"]),
             "pnpmfile.cjs": None,
         },
     )
@@ -195,105 +244,70 @@ def test_an_eligible_update_is_attested_after_a_frozen_replay_of_renovates_comma
         (["npm", "install", "--global", "--no-audit", "--no-fund", "pnpm@11.28.5"], worktree),
         ([*replay, "--config.minimumReleaseAge=10201"], worktree),
     ]
-    assert (worktree / "package.json").read_bytes() == manifest("left-pad", head_range)
-    assert (worktree / "pnpm-workspace.yaml").read_bytes() == WORKSPACE
+    assert (worktree / "package.json").read_bytes() == update[HEAD]["package.json"]
+    assert (worktree / "pnpm-workspace.yaml").read_bytes() == update[HEAD]["pnpm-workspace.yaml"]
+
+
+def stray(path: str, base: bytes, head: bytes) -> dict:
+    return {sha: {**tree, path: head if sha == HEAD else base} for sha, tree in trees().items()}
 
 
 @pytest.mark.parametrize(
-    ("github", "git", "actor", "replayed", "reason"),
+    ("github", "update", "replayed", "reason"),
     [
+        (FakeGitHub(pull(), pusher=42), trees(), None, "not pushed by the pull request author"),
+        (FakeGitHub(pull(head_repository="fork/posthog")), trees(), None, "not in this repository"),
+        (None, trees(**{"pnpm-workspace.yaml": b"packages: []\n"}), None, "differs from the default branch outside"),
+        (None, trees(**{".npmrc": b"audit=false\n"}), None, ".npmrc is not a modification"),
         (
-            FakeGitHub(pull()),
-            FakeGit(trees()),
-            "19864447",
             None,
-            "not triggered by the pull request author",
-        ),
-        (FakeGitHub(pull(head_repository="fork/posthog")), FakeGit(trees()), None, None, "not in this repository"),
-        (
-            FakeGitHub(pull()),
-            FakeGit(trees(), committed=NOW + timedelta(minutes=5)),
-            None,
-            None,
-            "dated in the future",
-        ),
-        (
-            FakeGitHub(pull()),
-            FakeGit(trees(**{"pnpm-workspace.yaml": b"packages: []\n"})),
-            None,
-            None,
-            "neither a manifest nor a lockfile",
-        ),
-        (
-            FakeGitHub(pull()),
-            FakeGit(trees(**{".npmrc": b"audit=false\n"})),
-            None,
-            None,
-            ".npmrc is not a modification",
-        ),
-        (
-            FakeGitHub(pull()),
-            FakeGit({**trees(), WORKFLOW_SHA: {**trees()[WORKFLOW_SHA], ".npmrc": b"audit=false\n"}}),
-            None,
+            {**trees(), WORKFLOW_SHA: {**trees()[WORKFLOW_SHA], ".npmrc": b"audit=false\n"}},
             None,
             ".npmrc differs from the default branch",
         ),
-        (FakeGitHub(pull()), FakeGit(trees("esbuild")), None, None, "esbuild is named in allowBuilds"),
+        (None, trees("esbuild"), None, "esbuild is named in allowBuilds"),
+        (None, trees("posthog-js"), None, "posthog-js is named in minimumReleaseAgeExclude"),
+        (None, trees(head_range="^2.0.0", head_version="2.0.0"), None, "major change"),
+        (None, trees(head_range="npm:left-pad@^1.3.1"), None, "not a plain registry"),
+        (None, trees(), lockfile("left-pad", "^1.3.1", "1.3.1", integrity="sha512-y"), "different pnpm-lock.yaml"),
+        (None, every_tree(**{"pnpm-workspace.yaml": None}), None, "pnpm-workspace.yaml is missing"),
         (
-            FakeGitHub(pull()),
-            FakeGit(trees("posthog-js")),
             None,
-            None,
-            "posthog-js is named in minimumReleaseAgeExclude",
-        ),
-        (
-            FakeGitHub(pull()),
-            FakeGit(trees(head_range="^2.0.0", head_version="2.0.0")),
-            None,
-            None,
-            "major change",
-        ),
-        (
-            FakeGitHub(pull()),
-            FakeGit(trees(head_range="npm:left-pad@^1.3.1")),
-            None,
-            None,
-            "not a plain registry",
-        ),
-        (
-            FakeGitHub(pull()),
-            FakeGit(trees()),
-            None,
-            lockfile("left-pad", "^1.3.1", "1.3.1", integrity="sha512-y"),
-            "different pnpm-lock.yaml",
-        ),
-        (
-            FakeGitHub(pull()),
-            FakeGit(every_tree(**{"pnpm-workspace.yaml": None})),
-            None,
-            None,
-            "pnpm-workspace.yaml is missing",
-        ),
-        (
-            FakeGitHub(pull()),
-            FakeGit(
-                {
-                    sha: {**tree, "tools/package.json": manifest("left-pad", "^1.3.1" if sha == HEAD else "^1.3.0")}
-                    for sha, tree in trees().items()
-                }
-            ),
-            None,
+            stray("tools/package.json", manifest("left-pad", "^1.3.0"), manifest("left-pad", "^1.3.1")),
             None,
             "tools/package.json is not a project of pnpm-lock.yaml",
         ),
+        (
+            None,
+            stray("tools/pnpm-workspace.yaml", b"packages: []\n", b"packages: ['*']\n"),
+            None,
+            "tools/pnpm-workspace.yaml is not beside a lockfile",
+        ),
+        (
+            None,
+            catalog_trees(head_settings=b"trustPolicy: off\n"),
+            None,
+            "differs from the default branch outside catalog",
+        ),
+        (None, catalog_trees(head_catalog="~1.3.1"), None, "changes the range operator"),
+        (None, catalog_trees("esbuild", head_version="1.3.0"), None, "esbuild is named in allowBuilds"),
+        (
+            None,
+            catalog_trees(),
+            lockfile("left-pad", "catalog:", "1.3.1", integrity="sha512-y", catalog="^1.3.1"),
+            "different pnpm-lock.yaml",
+        ),
     ],
 )
-def test_refusals(
-    tmp_path: Path, github: FakeGitHub, git: FakeGit, actor: str | None, replayed: bytes | None, reason: str
-) -> None:
-    env = environment(tmp_path) if actor is None else environment(tmp_path, actor)
+def test_refusals(tmp_path: Path, github: FakeGitHub | None, update: dict, replayed: bytes | None, reason: str) -> None:
     with pytest.raises(Refused, match=reason):
-        prove(env, github, git, registry, FakePnpm(replayed or b""))
+        prove(environment(tmp_path), github or FakeGitHub(pull()), FakeGit(update), registry, FakePnpm(replayed or b""))
+
+
+def test_a_head_commit_dated_in_the_future_is_refused(tmp_path: Path) -> None:
+    git = FakeGit(trees(), committed=NOW + timedelta(minutes=5))
+    with pytest.raises(Refused, match="dated in the future"):
+        prove(environment(tmp_path), FakeGitHub(pull()), git, registry, FakePnpm(b""))
 
 
 @pytest.mark.parametrize(
@@ -301,7 +315,6 @@ def test_refusals(
     [
         ({"PULL_REQUEST": "123; id"}, "not a positive integer"),
         ({"MERGE_BASE": "B" * 40}, "not a commit id"),
-        ({"ELIGIBLE": "no"}, "neither true nor false"),
     ],
 )
 def test_a_malformed_handover_is_refused(tmp_path: Path, forged: dict[str, str], reason: str) -> None:
@@ -359,6 +372,7 @@ def test_comparable_keeps_scalars_that_pnpm_reads_differently_apart(one: bytes, 
     ("text", "reason"),
     [
         (b"a: 1\na: 2\n", "repeats a key"),
+        (b"a: [1\n", "does not parse"),
         (b"a: &x 1\nb: *x\n", "an alias or an explicit tag"),
         (b"hasBin: !!int true\n", "an alias or an explicit tag"),
         (b"a: !!map {}\n", "an alias or an explicit tag"),
@@ -429,11 +443,11 @@ def test_a_refusal_is_logged_while_the_runner_reads_no_commands(
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "output"))
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary"))
 
-    assert prover.main() == 1
+    assert prover.main() == 0
     stopped, refusal, resumed = capsys.readouterr().out.splitlines()
     assert refusal == "Refused: ##[set-output name=eligible]true"
     assert resumed == f"::{stopped.removeprefix('::stop-commands::')}::"
-    assert (tmp_path / "output").read_text() == "pr=0\nmerge_base=\neligible=false\n"
+    assert (tmp_path / "output").read_text() == "pr=0\nmerge_base=\neligible=false\nrefused=true\n"
 
 
 def test_a_replayed_command_gets_no_runner_file_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
