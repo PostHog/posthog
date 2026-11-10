@@ -21,7 +21,6 @@ from posthog.hogql.database.database import (
     is_reserved_models_name,
     models_namespace_chain,
 )
-from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql.trino_adapter import ensure_read_only_raw_trino_statement
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import get_table_names
@@ -44,6 +43,7 @@ from products.data_modeling.backend.facade import api as modeling_api
 from products.data_modeling.backend.facade.api import has_incremental_history
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
 from products.data_modeling.backend.facade.models import (
+    CONNECTION_SAVE_REASON,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
     ViewColumnSource,
@@ -163,6 +163,17 @@ def _apply_frequency_target(
             "modeling DAG yet. Re-save the view to create its node, then set the frequency."
         )
     return target
+
+
+def _cadence_asks_to_materialize(view: DataWarehouseSavedQuery, sync_frequency: str | None) -> bool:
+    # Incremental only means something for a materialized table, so a cadence on an incremental
+    # view asks for one. Without a cadence the caller materializes it, as the SQL editor does.
+    return (
+        view.engine.can_materialize.available
+        and not view.is_materialized
+        and sync_frequency not in (None, "never")
+        and bool((view.incremental_config or {}).get("enabled"))
+    )
 
 
 def _authored_model_answering_to(
@@ -407,6 +418,27 @@ class DataWarehouseSavedQuerySerializer(
             raise serializers.ValidationError("Run the query in the SQL editor before saving it as a view.")
         return _columns_from_client_types(client_types)
 
+    def _materialize(self, view: DataWarehouseSavedQuery, sync_frequency: str) -> None:
+        request = self.context["request"]
+        try:
+            modeling_api.enable_saved_query_materialization(
+                view.team_id,
+                view.id,
+                user=cast(User, request.user),
+                frequency_target=sync_frequency_to_sync_frequency_interval(sync_frequency),
+                visible_blocker_names=lambda bounds: sync_cadence.visible_blocker_names(
+                    bounds, self.user_access_control, team_id=view.team_id
+                ),
+                was_impersonated=is_impersonated(request),
+            )
+        except modeling_api.MaterializationForbiddenError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except modeling_api.MaterializationRefusedError as e:
+            raise serializers.ValidationError(str(e))
+        except modeling_api.MaterializationFailedError as e:
+            raise exceptions.APIException(str(e))
+        view.refresh_from_db()
+
     def _validate_view_dependencies(self, team: Team, name: str, query: str) -> None:
         try:
             get_parents_from_model_query(team, name, query, database=self.context["database"])
@@ -498,6 +530,10 @@ class DataWarehouseSavedQuerySerializer(
                         database=self.context.get("database"),
                     )
                 _apply_frequency_target(view, sync_frequency, self.user_access_control)
+
+        if _cadence_asks_to_materialize(view, sync_frequency):
+            # After commit, so the first run the schedule starts can read the new row.
+            self._materialize(view, sync_frequency)
 
         self._report_view_action(
             "view created",
@@ -618,12 +654,6 @@ class DataWarehouseSavedQuerySerializer(
                 validated_data["query_revision"] = uuid.uuid4()
                 validated_data["query_updated_at"] = timezone.now()
 
-            if frequency_changed:
-                # The node target is the only store of frequency intent. The interval column
-                # stays NULL so a stale v1 schedule can never be revived from it.
-                locked_instance.sync_frequency_interval = None
-                validated_data["sync_frequency_interval"] = None
-
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
             name_changed = before_update.name != view.name
 
@@ -686,6 +716,9 @@ class DataWarehouseSavedQuerySerializer(
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                     modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
 
+        if frequency_changed and _cadence_asks_to_materialize(view, sync_frequency):
+            self._materialize(view, sync_frequency)
+
         self._report_view_action(
             "view updated",
             view,
@@ -718,10 +751,9 @@ class DataWarehouseSavedQuerySerializer(
         user = self.context["request"].user
         engine = ViewEngine.from_query(query)
 
-        if engine.target == ViewEngineTarget.CONNECTION and (
-            get_direct_connection_source(self.context["get_team"](), engine.connection_id, user=user) is None
-        ):
-            raise exceptions.ValidationError(detail=INVALID_CONNECTION_ID_ERROR)
+        # Saved connection views stay as they are; this only blocks writing a connection query.
+        if engine.target == ViewEngineTarget.CONNECTION:
+            raise exceptions.ValidationError(detail=CONNECTION_SAVE_REASON)
 
         if engine.is_raw_trino:
             try:
@@ -770,6 +802,18 @@ class DataWarehouseSavedQuerySerializer(
 
         return query
 
+    def is_valid(self, *, raise_exception: bool = False) -> bool:
+        try:
+            return super().is_valid(raise_exception=raise_exception)
+        except serializers.ValidationError as error:
+            # DRF rebuilds the error raised in validate(), so the refused keys are attached here.
+            # drf-exceptions-hog renders `extra` into the response, and the editor reads
+            # `extra.blocked_keys` to show the error under the field it names.
+            refused_keys = getattr(self, "_refused_incremental_keys", None)
+            if refused_keys:
+                error.extra = {"blocked_keys": refused_keys}  # type: ignore[attr-defined]
+            raise
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
 
@@ -779,12 +823,20 @@ class DataWarehouseSavedQuerySerializer(
         config = attrs.get("incremental_config")
         if config is None and self.instance is not None:
             config = self.instance.incremental_config
-        if not isinstance(config, dict) or not config.get("enabled"):
+        incremental = isinstance(config, dict) and bool(config.get("enabled"))
+
+        query_changed = "query" in attrs or self.instance is None
+        output_columns = self._pending_output_columns(query_changed)
+        if output_columns is not None and self._changes_what_materializes(attrs, incremental):
+            duplicates = modeling_api.duplicate_output_columns(name for name, _ in output_columns)
+            if duplicates:
+                raise serializers.ValidationError({"query": modeling_api.duplicate_output_columns_message(duplicates)})
+
+        if not incremental or not isinstance(config, dict):
             return attrs
         if not config.get("incremental_key") or not config.get("unique_key"):
             return attrs
 
-        query_changed = "query" in attrs
         query = attrs.get("query") or (self.instance.query if self.instance is not None else None)
         sql = (query or {}).get("query")
         if not isinstance(sql, str):
@@ -796,9 +848,9 @@ class DataWarehouseSavedQuerySerializer(
             definition_database,
         )
 
-        # The stored column types describe the stored query, so they say nothing about a query being
-        # replaced. The runtime guard still catches a nullable key on the first incremental run.
-        column_types = None if query_changed or self.instance is None else self.instance.columns
+        # Without column types the nullable key check is skipped, and the runtime guard catches a
+        # nullable key on the first incremental run instead.
+        column_types = {name: clickhouse_type for name, clickhouse_type in output_columns or [] if clickhouse_type}
         database = definition_database(self.context["team_id"], user=cast(User, self.context["request"].user))
         result = check_incremental_eligibility(
             sql,
@@ -807,12 +859,47 @@ class DataWarehouseSavedQuerySerializer(
                 unique_key=tuple(config["unique_key"]),
                 lookback_seconds=config.get("lookback_seconds", 0),
             ),
-            column_types=incremental_config._clickhouse_types(column_types),
+            column_types=column_types or None,
             database=database,
         )
         if not result.eligible:
+            self._refused_incremental_keys = result.blocked_keys
             raise serializers.ValidationError({"incremental": result.blockers})
         return attrs
+
+    def _pending_output_columns(self, query_changed: bool) -> list[tuple[str, str | None]] | None:
+        """The saved query's output columns as (name, ClickHouse type), in output order, or None when
+        they are unknown before inference runs. A query's output can repeat a name, so this is a list.
+
+        The stored columns describe the stored query, so they say nothing about a query being
+        replaced. For a new query, only the types the editor sends from running it are known here."""
+        if not query_changed:
+            assert self.instance is not None
+            stored = self.instance.columns if isinstance(self.instance.columns, dict) else {}
+            return [(name, meta.get("clickhouse") if isinstance(meta, dict) else None) for name, meta in stored.items()]
+        client_types = self.context["request"].data.get("types")
+        if (
+            not isinstance(client_types, list)
+            or not client_types
+            or any(
+                not isinstance(item, list | tuple)
+                or len(item) != 2
+                or not isinstance(item[0], str)
+                or not isinstance(item[1], str)
+                for item in client_types
+            )
+        ):
+            return None
+        return [(name, clickhouse_type) for name, clickhouse_type in client_types]
+
+    def _changes_what_materializes(self, attrs: dict[str, Any], incremental: bool) -> bool:
+        """Whether this write sets what a materialized table is built from: the query of a materialized
+        view, or settings that make the view materialize. Pausing or renaming a view builds nothing."""
+        if not {"query", "incremental_config", "sync_frequency"} & attrs.keys():
+            return False
+        if incremental or attrs.get("sync_frequency") not in (None, "never"):
+            return True
+        return "query" in attrs and self.instance is not None and bool(self.instance.is_materialized)
 
     def validate_is_test(self, is_test):
         if is_test and not self.context["request"].user.is_staff:

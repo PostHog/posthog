@@ -1,26 +1,10 @@
 """Incremental materialization: its config, its recorded state, and the eligibility check."""
 
-from typing import Any
-
 from rest_framework import serializers
 
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.data_modeling.backend.facade.api import MAX_LOOKBACK_SECONDS
-
-
-def _clickhouse_types(columns: Any) -> dict[str, str] | None:
-    """Pull the ClickHouse type out of each entry in a saved query's stored `columns` blob.
-
-    Only used to spot a nullable unique key, which would silently duplicate rows on every run.
-    """
-    if not isinstance(columns, dict):
-        return None
-    types: dict[str, str] = {}
-    for name, meta in columns.items():
-        if isinstance(meta, dict) and isinstance(meta.get("clickhouse"), str):
-            types[name] = meta["clickhouse"]
-    return types or None
 
 
 class IncrementalConfigSerializer(serializers.Serializer):

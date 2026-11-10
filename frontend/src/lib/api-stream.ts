@@ -3,6 +3,9 @@ import api from 'lib/api'
 const INITIAL_RETRY_DELAY_MS = 1000
 const MAX_RETRY_DELAY_MS = 30000
 
+export const streamEvents = (url: string, options: Parameters<typeof api.stream>[1]): Promise<void> =>
+    api.stream(url, options)
+
 export interface StreamConnectionConfig {
     url: URL
     token: string
