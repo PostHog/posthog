@@ -511,12 +511,16 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.browserLoadFailed).toBe(true)
     })
 
-    it('moves workflow files and drops folders to match a full reload', async () => {
+    it("moves workflow files and drops folders and other products' files to match a full reload", async () => {
         await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.folderPaths).not.toContain('Reports')
         useMocks({
             get: {
                 '/api/projects/:team_id/file_system/': ({ request }) => {
                     const type = new URL(request.url).searchParams.get('search')
+                    if (type === 'type:folder') {
+                        return [200, paginated([{ id: 'dashboards', path: 'Reports', type: 'folder' }])]
+                    }
                     return [
                         200,
                         paginated(
@@ -541,6 +545,7 @@ describe('workflowFoldersLogic', () => {
         logic.actions.openFolder('Archive')
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
         expect(logic.values.folderPaths).not.toContain('Empty')
+        expect(logic.values.folderPaths).toContain('Reports')
     })
 
     it('rejects a folder name that only another product uses', async () => {
