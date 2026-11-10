@@ -119,9 +119,9 @@ describe('load', () => {
         ],
         [
             'a when predicate other than running_on_queue',
-            { ...card, valves: [{ ...emailWorkerKill, when: { name: 'queue_empty' } }] },
+            { ...card, valves: [{ ...emailWorkerKill, when: { ...emailWorkerKill.when, name: 'queue_empty' } }] },
             undefined,
-            'valves.0.when.name: running_on_queue is the only predicate, not queue_empty',
+            'valves.0.when.name: running_on_queue is the only predicate',
         ],
         [
             'running_on_queue without its queue',
@@ -198,6 +198,12 @@ describe('load', () => {
             'profile: no shipped profile prod-shape; pass its file with --profile',
         ],
         [
+            'a profile setting no role reads',
+            card,
+            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMOUT_MS: '60000' } },
+            'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMOUT_MS: not a setting the roles read',
+        ],
+        [
             'a profile that uses a YAML alias',
             card,
             'name: synthetic\ntraffic: &loop { event_email: { ratePerSecond: 2 }, again: *loop }\nsettings: {}\n',
@@ -230,19 +236,28 @@ describe('load', () => {
         expect(loadCard({ ...card, valves: [emailWorkerKill], convergeWithin: '48s' }).card.valves).toHaveLength(1)
     })
 
-    it('hashes the card without its gates or key order, and with its seed and profile', () => {
-        const base = loadCard(card)
-        const settings = { CDP_SES_WEBHOOKS_QUEUE_ENABLED: 'false', CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '30000' }
-        const reversedSettings = Object.fromEntries(Object.entries(settings).reverse())
-        const otherProfile = loadCard(card, { ...profile, traffic: { event_email: { ratePerSecond: 3 } } })
+    const settings = { CDP_SES_WEBHOOKS_QUEUE_ENABLED: 'false', CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '30000' }
 
-        expect(loadCard({ ...card, gates: { duplicate_sends: 3 } }).cardHash).toBe(base.cardHash)
-        expect(loadCard(card, { ...profile, settings: reversedSettings }).cardHash).toBe(
-            loadCard(card, { ...profile, settings }).cardHash
-        )
-        expect(loadCard({ ...card, seed: 8 }).cardHash).not.toBe(base.cardHash)
-        expect(otherProfile.profileHash).not.toBe(base.profileHash)
-        expect(otherProfile.cardHash).not.toBe(base.cardHash)
+    it.each<[string, [object, object], [object, object], boolean]>([
+        ['leaves out the gates', [card, profile], [{ ...card, gates: { duplicate_sends: 3 } }, profile], true],
+        [
+            'ignores the key order of the profile settings',
+            [card, { ...profile, settings }],
+            [card, { ...profile, settings: Object.fromEntries(Object.entries(settings).reverse()) }],
+            true,
+        ],
+        ['covers the seed', [card, profile], [{ ...card, seed: 8 }, profile], false],
+        [
+            'covers the profile',
+            [card, profile],
+            [card, { ...profile, traffic: { event_email: { ratePerSecond: 3 } } }],
+            false,
+        ],
+    ])('the card hash %s', (_name, [leftCard, leftProfile], [rightCard, rightProfile], same) => {
+        const left = loadCard(leftCard, leftProfile).cardHash
+        const right = loadCard(rightCard, rightProfile).cardHash
+
+        expect(left === right).toBe(same)
     })
 
     it.each(readdirSync(__dirname).filter((file) => file.endsWith('.yaml')))(

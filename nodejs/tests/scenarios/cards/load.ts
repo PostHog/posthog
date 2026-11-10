@@ -4,12 +4,12 @@ import path from 'path'
 import { parse } from 'yaml'
 import { z } from 'zod'
 
-import { getDefaultCdpConfig } from '~/cdp/config'
+import { getDefaultConfig } from '~/common/config/config'
 import { stringToBoolean } from '~/common/utils/env-utils'
 
 import { durationMs } from '../duration'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
-import { Card, Named, Profile, RunningOnQueue } from './schema'
+import { Card, Named, Profile } from './schema'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
 export const ROLE_RESTART_BACKOFF_MS = 2000
@@ -100,14 +100,7 @@ function checkNames(card: Card, definitions: Definitions): string[] {
 
 function checkSchedules(card: Card): string[] {
     return card.valves.flatMap((entry, i) => {
-        if (entry.when && entry.when.name !== 'running_on_queue') {
-            return [`valves.${i}.when.name: running_on_queue is the only predicate, not ${entry.when.name}`]
-        }
-        if (entry.when) {
-            const params = RunningOnQueue.safeParse(entry.when.params)
-            return params.success ? [] : problemsOf(params.error, `valves.${i}.when.params`)
-        }
-        if (entry.valve === 'pg.drop_connections') {
+        if (entry.at !== undefined && entry.valve === 'pg.drop_connections') {
             return [`valves.${i}.at: pg.drop_connections waits for running jobs, so it takes when, not at`]
         }
         return []
@@ -152,9 +145,18 @@ function checkSuppression(card: Card): string[] {
     )
 }
 
-function checkProfile(card: Card, profile: Profile, definitions: Definitions, setting: (name: string) => string) {
+function checkProfile(
+    card: Card,
+    profile: Profile,
+    definitions: Definitions,
+    defaults: Record<string, unknown>,
+    setting: (name: string) => string
+) {
     const queue = 'CDP_SES_WEBHOOKS_QUEUE_ENABLED'
     return [
+        ...Object.keys(profile.settings)
+            .filter((name) => !(name in defaults))
+            .map((name) => `profile.settings.${name}: not a setting the roles read`),
         ...(profile.name === card.profile
             ? []
             : [`profile.name: ${profile.name} is not the card profile ${card.profile}`]),
@@ -194,7 +196,7 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
     }
     const card = parsed.data
     const loaded = loadProfile(card, options.profilePath)
-    const defaults = getDefaultCdpConfig() as unknown as Record<string, unknown>
+    const defaults = getDefaultConfig() as unknown as Record<string, unknown>
     const settings = 'profile' in loaded ? loaded.profile.settings : {}
     const setting = (name: string): string => settings[name] ?? String(defaults[name])
 
@@ -203,7 +205,7 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
         ...checkSchedules(card),
         ...checkStallBound(card, setting),
         ...checkSuppression(card),
-        ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, setting) : loaded.problems),
+        ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults, setting) : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {
         throw new CardError(cardPath, problems)
