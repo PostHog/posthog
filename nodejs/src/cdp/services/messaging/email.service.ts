@@ -1293,9 +1293,6 @@ export class EmailService {
                     },
                 },
             },
-            // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
-            // destination (suppression and the Metrics tab depend on those events); they differ only in
-            // ESP-level open/click tracking.
             ConfigurationSetName: trackingEnabled
                 ? this.sesConfig.sesTrackedConfigurationSet
                 : this.sesConfig.sesUntrackedConfigurationSet,
