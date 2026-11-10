@@ -50,8 +50,6 @@ class MovedPage:
     title: str
     # Where the page lives now. A path parameter of `old_path` goes in as {name}, for example "?check={kind}".
     url: str
-    # The URL name, for an old page that something still reverses.
-    name: str | None = None
 
 
 class MovedToConsole:

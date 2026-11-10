@@ -411,7 +411,5 @@ class TopHogTool(ConsoleTool):
         return operations
 
 
-console.register_moved_page(old_path="admin/tophog/", title="TopHog", url=TOOL_URL, name="tophog-dashboard")
-console.register_moved_page(
-    old_path="admin/tophog/restrictions/", title="TopHog restrictions", url=TOOL_URL, name="tophog-restrictions"
-)
+console.register_moved_page(old_path="admin/tophog/", title="TopHog", url=TOOL_URL)
+console.register_moved_page(old_path="admin/tophog/restrictions/", title="TopHog restrictions", url=TOOL_URL)

@@ -269,5 +269,4 @@ console.register_moved_page(
     old_path="admin/resave-cohorts/",
     title="Re-save cohorts",
     url="/admin/console/tools/resave-cohorts/",
-    name="resave-cohorts",
 )

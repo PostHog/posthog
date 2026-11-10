@@ -113,5 +113,4 @@ console.register_moved_page(
     old_path="admin/events-retention/",
     title="Events retention",
     url="/admin/console/tools/events-retention/",
-    name="events-retention",
 )

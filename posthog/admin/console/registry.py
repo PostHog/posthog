@@ -97,11 +97,11 @@ class ConsoleRegistry:
             raise ValueError(f"Moved URL {old_path!r} needs a <pk> path parameter, or a resolver that finds the record")
         self._register_moved(MovedAction(old_path=old_path, record=record, target=target, resolver=resolver))
 
-    def register_moved_page(self, *, old_path: str, title: str, url: str, name: str | None = None) -> None:
+    def register_moved_page(self, *, old_path: str, title: str, url: str) -> None:
         """Redirect the old URL of a Django admin page to the console page that replaced it."""
         if not url.startswith("/admin/console/"):
             raise ValueError(f"Moved URL {old_path!r} must lead to a console page, not {url!r}")
-        self._register_moved(MovedPage(old_path=old_path, title=title, url=url, name=name))
+        self._register_moved(MovedPage(old_path=old_path, title=title, url=url))
 
     def moved(self) -> list[MovedAction | MovedPage]:
         self.discover()

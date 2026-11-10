@@ -16,7 +16,7 @@ def moved_url_patterns() -> list[URLPattern]:
             view = MovedToConsole.record_redirect(RECORD_TYPES[moved.record].plural, moved.target, moved.resolver)
             patterns.append(path(moved.old_path, view))
         else:
-            patterns.append(path(moved.old_path, MovedToConsole.page_redirect(moved.title, moved.url), name=moved.name))
+            patterns.append(path(moved.old_path, MovedToConsole.page_redirect(moved.title, moved.url)))
     return patterns
 
 
