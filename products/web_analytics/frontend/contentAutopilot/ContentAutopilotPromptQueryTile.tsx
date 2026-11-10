@@ -9,7 +9,7 @@ import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
+import { DataTableNode, DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 /** One report tile: a card with the web analytics tile header, a read-only query inside, and a way to open
@@ -26,7 +26,7 @@ export const ContentAutopilotPromptQueryTile = ({
     'data-attr': dataAttr,
 }: {
     title: string
-    query: DataTableNode | DataVisualizationNode
+    query: DataTableNode | DataVisualizationNode | InsightVizNode
     uniqueKey: string
     context?: QueryContext
     actions?: ReactNode

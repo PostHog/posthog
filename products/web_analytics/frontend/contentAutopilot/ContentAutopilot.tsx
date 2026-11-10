@@ -14,6 +14,7 @@ import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail
 import { ContentAutopilotRankings } from './ContentAutopilotRankings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
+import { ContentAutopilotTraffic } from './ContentAutopilotTraffic'
 
 export interface ContentAutopilotBotsTab {
     active: boolean
@@ -145,6 +146,11 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                                 key: 'rankings',
                                 label: 'Rankings',
                                 content: <ContentAutopilotRankings />,
+                            },
+                            {
+                                key: 'traffic',
+                                label: 'Traffic',
+                                content: <ContentAutopilotTraffic />,
                             },
                             {
                                 key: 'prompts',
