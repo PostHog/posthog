@@ -797,7 +797,6 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
 
 
 def require_workflow_editor(team_id: int, hog_flow_id: Any, user_access_control: "UserAccessControl") -> None:
-    # The template's own access rules don't cover the workflow it sends through, which can carry its own.
     try:
         get_workflow_ref(
             team_id=team_id,
