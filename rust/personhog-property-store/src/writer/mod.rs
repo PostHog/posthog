@@ -451,54 +451,59 @@ impl PropertyWriter {
             )
         }))
         .await;
-        held.into_iter().flatten().flatten().collect()
+        let mut dbs: Vec<(u32, Arc<Db>)> = held.into_iter().flatten().flatten().collect();
+        dbs.sort_by_key(|(shard, _)| *shard);
+        dbs
     }
 
     /// Deletes every key of a team from the owned shards and returns how many there were.
     pub async fn erase_team(&self, team_id: i64) -> Result<usize, PropertyStoreError> {
-        self.erase_team_in_batches(team_id, ERASE_BATCH_KEYS).await
+        self.erase_team_in_batches(team_id, ERASE_BATCH_KEYS, MAINTENANCE_STEP_TIMEOUT)
+            .await
     }
 
     /// Each batch is scanned, deleted and made durable before the next, so memory stays at one
-    /// batch whatever the team's size, and a restart resumes past the keys already gone.
+    /// batch whatever the team's size, and a restart resumes past the keys already gone. Each
+    /// batch's I/O is bounded by `step_timeout`, since SlateDB retries object store errors without
+    /// limit: a shard that cannot finish a batch is left for the next pass, and the other shards
+    /// go on. The error of the first such shard comes back once every shard has been tried.
     pub async fn erase_team_in_batches(
         &self,
         team_id: i64,
         batch_keys: usize,
+        step_timeout: Duration,
     ) -> Result<usize, PropertyStoreError> {
         let batch_keys = batch_keys.max(1);
         let end = Bytes::copy_from_slice(&encode_key(team_id, i64::MAX));
         let mut erased = 0;
+        let mut failed = None;
         for (shard, db) in self.open_dbs().await {
             let mut from = 0;
             let mut in_shard = 0;
-            loop {
-                let start = Bytes::copy_from_slice(&encode_key(team_id, from));
-                let mut keys = Vec::with_capacity(batch_keys);
-                let mut found = db.scan(start..=end.clone()).await?;
-                while keys.len() < batch_keys {
-                    match found.next().await? {
-                        Some(kv) => keys.push(kv.key),
-                        None => break,
+            let outcome: Result<(), PropertyStoreError> = async {
+                loop {
+                    let start = Bytes::copy_from_slice(&encode_key(team_id, from));
+                    let keys = tokio::time::timeout(
+                        step_timeout,
+                        scan_keys(&db, start..=end.clone(), batch_keys),
+                    )
+                    .await
+                    .map_err(|_| PropertyStoreError::Timeout)??;
+                    let Some(last) = keys.last().and_then(|key| person_id_of(key)) else {
+                        break;
+                    };
+                    tokio::time::timeout(step_timeout, delete_keys(&db, &keys))
+                        .await
+                        .map_err(|_| PropertyStoreError::Timeout)??;
+                    in_shard += keys.len();
+                    if last == i64::MAX {
+                        break;
                     }
+                    from = last + 1;
                 }
-                drop(found);
-                let Some(last) = keys.last().and_then(|key| person_id_of(key)) else {
-                    break;
-                };
-                let mut batch = WriteBatch::new();
-                for key in &keys {
-                    batch.delete(key.clone());
-                }
-                let written = db.write(batch).await?;
-                db.flush().await?;
-                written.await_durable().await?;
-                in_shard += keys.len();
-                if last == i64::MAX {
-                    break;
-                }
-                from = last + 1;
+                Ok(())
             }
+            .await;
             if in_shard > 0 {
                 counter!("personhog_property_store_erased_keys_total").increment(in_shard as u64);
                 tracing::info!(
@@ -509,8 +514,17 @@ impl PropertyWriter {
                 );
             }
             erased += in_shard;
+            if let Err(e) = outcome {
+                counter!("personhog_property_store_erase_failures_total", "kind" => e.class())
+                    .increment(1);
+                tracing::warn!(team_id, shard, error = %e, "erasing a deleted team's keys from a shard stopped; the next pass retries it");
+                failed.get_or_insert(e);
+            }
         }
-        Ok(erased)
+        match failed {
+            Some(e) => Err(e),
+            None => Ok(erased),
+        }
     }
 
     pub async fn close(&self) {
@@ -526,6 +540,33 @@ impl PropertyWriter {
         }))
         .await;
     }
+}
+
+async fn scan_keys(
+    db: &Db,
+    range: std::ops::RangeInclusive<Bytes>,
+    limit: usize,
+) -> Result<Vec<Bytes>, PropertyStoreError> {
+    let mut keys = Vec::with_capacity(limit);
+    let mut found = db.scan(range).await?;
+    while keys.len() < limit {
+        match found.next().await? {
+            Some(kv) => keys.push(kv.key),
+            None => break,
+        }
+    }
+    Ok(keys)
+}
+
+async fn delete_keys(db: &Db, keys: &[Bytes]) -> Result<(), PropertyStoreError> {
+    let mut batch = WriteBatch::new();
+    for key in keys {
+        batch.delete(key.clone());
+    }
+    let written = db.write(batch).await?;
+    db.flush().await?;
+    written.await_durable().await?;
+    Ok(())
 }
 
 /// Every write was durable, so close skips the memtable flush; a fenced shard's close fails and is logged.

@@ -168,7 +168,7 @@ The `backfill` subcommands keep a run's plan and progress under `PROPERTY_BACKFI
 
 ## Project deletion
 
-`DeletePersonsBatchForTeam` on the replica hard-deletes a project's persons and lists the team in `personhog_deleted_teams`. Every minute the writer reads that table and deletes each listed team's keys from the shards it owns, in every mode that writes SlateDB, and the next full compaction removes the bytes. A team stays listed for the replica's retention window, so a record for it that arrives late, from a lagging changelog, a catch-up replay or the backfill topic, is erased on the next tick. `backfill verify` reports a listed team that still has keys.
+`DeletePersonsBatchForTeam` on the replica hard-deletes a project's persons and lists the team in `personhog_deleted_teams`. Every minute the writer reads that table and deletes each listed team's keys from the shards it owns, in every mode that writes SlateDB, and the next full compaction removes the bytes. A team stays listed for the replica's retention window, so a record for it that arrives late, from a lagging changelog, a catch-up replay or the backfill topic, is erased on the next tick. Each batch of an erasure waits a bounded time for storage; a shard that does not answer is left for the next tick while the other shards and teams go on. `backfill verify` reports a listed team that still has keys.
 
 ## Configuration
 
