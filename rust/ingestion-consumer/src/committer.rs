@@ -105,8 +105,6 @@ impl Committer {
         Self { shared, task }
     }
 
-    /// Offsets replace what is queued for their partitions. The settlement
-    /// hands out each partition's offsets in order.
     pub(crate) fn submit(&self, offsets: &HashMap<TopicPartition, Offset>) {
         let mut state = self.shared.state();
         for (topic_partition, offset) in offsets {
