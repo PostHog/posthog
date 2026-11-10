@@ -40,7 +40,7 @@ LINK_SCHEMES = ("http://", "https://", "mailto:")
 JAVASCRIPT_WHITESPACE = r"[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]"
 TEXT_WORDS = re.compile(rf"{JAVASCRIPT_WHITESPACE}+")
 TEXT_LINK_START = re.compile(r"[hH][tT][tT][pP][sS]?://|[wW]{3}\.")
-TEXT_LINK_END = re.compile(r"""[.,;:!?'")\]}>*]*\Z""")
+TEXT_LINK_END_PUNCTUATION = ".,;:!?'\")]}>*"
 UNSUBSCRIBE_PLACEHOLDER = re.compile(rf"\{{\{{{JAVASCRIPT_WHITESPACE}*unsubscribe_url{JAVASCRIPT_WHITESPACE}*\}}\}}")
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
@@ -62,7 +62,7 @@ def has_unsubscribe_link(html: str, text: str) -> bool:
 
 def _text_links_to(text: str, base: str) -> list[str]:
     links = (word[start.start() :] for word in TEXT_WORDS.split(text) if (start := TEXT_LINK_START.search(word)))
-    return [TEXT_LINK_END.sub("", link[len(base) :], count=1) for link in links if link.startswith(base)]
+    return [link[len(base) :].rstrip(TEXT_LINK_END_PUNCTUATION) for link in links if link.startswith(base)]
 
 
 def text_from_html(html: str, *, keep_unsubscribe_link: bool = False) -> str:
