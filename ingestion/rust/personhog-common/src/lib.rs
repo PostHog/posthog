@@ -6,9 +6,8 @@ pub mod h2_window;
 pub mod metrics;
 pub mod partitioning;
 pub mod persons;
-mod pool_monitor;
 pub mod properties;
 pub mod query_tags;
 pub mod storage_error;
 
-pub use pool_monitor::{spawn_pool_monitor, MonitoredPool};
+pub use common_database::{spawn_pool_monitor, MonitoredPool};

@@ -13,8 +13,10 @@ use sqlx::{
 };
 use thiserror::Error;
 
+pub mod pool_monitor;
 pub mod writer_guard;
 
+pub use pool_monitor::{spawn_pool_monitor, MonitoredPool};
 pub use writer_guard::{
     install_writer_guard, WriterGuard, WriterGuardConfig, DB_WRITER_GUARD_CAPPED_COUNTER,
     DB_WRITER_PROBE_COUNTER,

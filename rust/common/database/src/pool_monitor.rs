@@ -1,3 +1,6 @@
+//! Periodic gauges of a Postgres pool's size, idle count and ceiling. The metric names carry
+//! the personhog prefix from the service that first reported them, and its dashboards read them.
+
 use std::time::Duration;
 
 use sqlx::postgres::PgPool;

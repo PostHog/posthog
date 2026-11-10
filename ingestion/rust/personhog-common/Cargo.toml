@@ -6,6 +6,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
+common-database = { path = "../../../rust/common/database" }
+common-grpc = { path = "../../../rust/common/grpc" }
 personhog-proto = { path = "../personhog-proto" }
 
 bytes = { workspace = true }

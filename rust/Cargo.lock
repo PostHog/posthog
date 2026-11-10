@@ -3034,13 +3034,16 @@ dependencies = [
 name = "common-grpc"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "http 1.4.0",
  "metrics",
  "metrics-util",
  "pin-project",
  "tokio",
+ "tokio-util",
  "tonic 0.12.3",
  "tower 0.4.13",
+ "tracing",
 ]
 
 [[package]]
@@ -3648,6 +3651,7 @@ dependencies = [
  "common-continuous-profiling",
  "common-database",
  "common-dns",
+ "common-grpc",
  "common-kafka",
  "common-metrics",
  "common-posthog",
@@ -3665,7 +3669,6 @@ dependencies = [
  "metrics-util",
  "mockall",
  "moka",
- "personhog-common",
  "posthog-rs",
  "posthog-symbol-data",
  "proguard",
@@ -5003,7 +5006,6 @@ dependencies = [
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
- "personhog-common",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -9261,6 +9263,8 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "chrono",
+ "common-database",
+ "common-grpc",
  "flate2",
  "futures",
  "http 1.4.0",

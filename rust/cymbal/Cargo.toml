@@ -54,7 +54,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 tiktoken-rs.workspace = true
 tonic = { workspace = true }
 tokio-stream = "0.1"
-personhog-common = { path = "../../ingestion/rust/personhog-common" }
+common-grpc = { path = "../common/grpc" }
 async-stream = { workspace = true }
 subtle = "2.6"
 common-temporal = { path = "../common/temporal" }
