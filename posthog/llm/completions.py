@@ -48,7 +48,7 @@ def hit_openai(
     # A reasoning model left at its default effort is several times slower than the gpt-4.1
     # default these callers were written for. OPENAI_MODEL can name a non-reasoning model or a
     # deployment alias, which rejects the parameter, so it is only sent for known families.
-    if settings.OPENAI_MODEL.startswith(REASONING_MODEL_PREFIXES):
+    if settings.OPENAI_MODEL.startswith(REASONING_MODEL_PREFIXES) and "chat" not in settings.OPENAI_MODEL:
         optional_params["reasoning_effort"] = "low"
 
     if resolve_ai_gateway_config() is not None:

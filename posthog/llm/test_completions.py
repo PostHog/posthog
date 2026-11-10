@@ -22,7 +22,7 @@ def _stub_create(client: MagicMock) -> MagicMock:
 
 
 class TestHitOpenai(SimpleTestCase):
-    @parameterized.expand([("my-gateway-deployment", None), ("gpt-6-luna", "low")])
+    @parameterized.expand([("my-gateway-deployment", None), ("gpt-5-chat-latest", None), ("gpt-6-luna", "low")])
     @patch("posthog.llm.completions._get_openai_client")
     def test_sends_the_configured_model(
         self, model: str, expected_effort: str | None, mock_get_client: MagicMock
