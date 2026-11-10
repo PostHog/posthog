@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCollapse, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTag } from '@posthog/lemon-ui'
 
 import { OAuthConnectionLogos } from 'lib/components/OAuthConnectionLogos/OAuthConnectionLogos'
 import { OAuthScopeList } from 'lib/components/ScopeAccessRow/OAuthScopeList'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
@@ -13,15 +12,11 @@ import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene
 import type { DeviceGrantDetailsApi } from '~/generated/core/api.schemas'
 
 import { oauthDeviceAuthorizeLogic } from '../oauthDeviceAuthorizeLogic'
+import { DeviceProjectPicker } from './DeviceProjectPicker'
 
 export function DeviceReview({ deviceGrant }: { deviceGrant: DeviceGrantDetailsApi }): JSX.Element {
     const {
-        organizationId,
-        organizations,
         projectId,
-        projects,
-        projectsLoading,
-        projectsError,
         decisionLoading,
         error,
         isStepUp,
@@ -34,8 +29,7 @@ export function DeviceReview({ deviceGrant }: { deviceGrant: DeviceGrantDetailsA
         scopeSummary,
         keptScopes,
     } = useValues(oauthDeviceAuthorizeLogic)
-    const { setOrganizationId, setProjectId, loadProjects, approve, deny, setScopeAccess, setScopeGroupAccess } =
-        useActions(oauthDeviceAuthorizeLogic)
+    const { approve, deny, setScopeAccess, setScopeGroupAccess } = useActions(oauthDeviceAuthorizeLogic)
 
     return (
         <AuthScene notes={AUTH_NOTES.oauthDevice.review}>
@@ -64,45 +58,7 @@ export function DeviceReview({ deviceGrant }: { deviceGrant: DeviceGrantDetailsA
                         Only approve a login you started yourself. If someone sent you this code, deny it: approving
                         gives them access to your account.
                     </AuthBanner>
-                    <LemonField.Pure label="Organization">
-                        <LemonSelect
-                            data-attr="oauth-device-organization"
-                            placeholder="Select an organization"
-                            value={organizationId}
-                            onChange={setOrganizationId}
-                            options={organizations.map((organization) => ({
-                                label: organization.name,
-                                value: organization.id,
-                            }))}
-                        />
-                    </LemonField.Pure>
-                    <LemonField.Pure label="Project" help="The login only works in this project.">
-                        <LemonSelect
-                            data-attr="oauth-device-project"
-                            placeholder="Select a project"
-                            value={projectId}
-                            onChange={setProjectId}
-                            disabledReason={organizationId ? undefined : 'Select an organization first'}
-                            loading={projectsLoading}
-                            options={projects.map((project) => ({ label: project.name, value: project.id }))}
-                        />
-                    </LemonField.Pure>
-                    {projectsError && organizationId && (
-                        <AuthBanner variant="danger">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span>Couldn't load the projects. {projectsError}</span>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => loadProjects(organizationId)}
-                                    loading={projectsLoading}
-                                    data-attr="oauth-device-retry-projects"
-                                >
-                                    Try again
-                                </LemonButton>
-                            </div>
-                        </AuthBanner>
-                    )}
+                    <DeviceProjectPicker />
                     <LemonCollapse
                         panels={[
                             {
