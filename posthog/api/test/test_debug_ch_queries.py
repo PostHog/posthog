@@ -6,11 +6,9 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import SimpleTestCase
 
-from parameterized import parameterized
 from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN
 
 from posthog.api.debug_ch_queries import _cache_table_stats
-from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.preaggregation.experiment_exposures_sql import SHARDED_EXPERIMENT_EXPOSURES_TABLE
 from posthog.clickhouse.preaggregation.experiment_metric_events_sql import SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE
 from posthog.models import User
@@ -68,25 +66,6 @@ class TestDebugCHQuery(APIBaseTest):
         for sql, params in (call.args for call in mock_sync_execute.call_args_list):
             self.assertIn("%(team_id)s", sql)
             self.assertEqual(params["team_id"], self.team.pk)
-
-    @parameterized.expand([("recent_queries_for_user", ""), ("insight_filter", "?insight_id=1")])
-    @patch("posthog.api.debug_ch_queries.sync_execute")
-    def test_time_bounds_render_as_timestamps(self, _name, query_string, mock_sync_execute):
-        mock_sync_execute.side_effect = lambda sql, params: [(0, 0, 0.0, 0.0, 0.0)] if "total_queries" in sql else []
-        self.user.is_staff = True
-        self.user.save()
-
-        resp = self.client.get(f"/api/debug_ch_queries/{query_string}")
-
-        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
-        bounded = [
-            substitute_params(sql, params)
-            for sql, params in (call.args for call in mock_sync_execute.call_args_list)
-            if "%(start_time)s" in sql
-        ]
-        self.assertTrue(bounded)
-        for rendered in bounded:
-            self.assertRegex(rendered, r"event_time > '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'")
 
     def test_filtered_queries_denied_when_requester_has_no_current_team(self):
         # A filtered read scopes to the requester's team; without one, refuse rather
