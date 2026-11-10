@@ -362,13 +362,22 @@ class TestRecordingRuleEvaluation(APIBaseTest):
             None,
         )
 
-    def test_a_failed_write_keeps_the_minute_due(self) -> None:
-        self.ingest.return_value = _response(503, {})
+    @parameterized.expand(
+        [
+            ("refused", {"return_value": _response(503, {})}, None),
+            ("unreachable", {"side_effect": requests.ConnectionError()}, None),
+            ("unconfirmed", {"side_effect": requests.ReadTimeout()}, datetime(2026, 11, 6, 12, 0, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_a_failed_write_keeps_the_minute_due_unless_it_may_have_landed(
+        self, _name: str, ingest: dict[str, Any], last_evaluated_at: datetime | None
+    ) -> None:
+        self.ingest.configure_mock(**ingest)
 
         assert self._evaluate() == 0
 
         self.rule.refresh_from_db()
-        assert self.rule.last_evaluated_at is None
+        assert self.rule.last_evaluated_at == last_evaluated_at
         assert self.rule.last_error
 
     def test_only_enabled_rules_are_evaluated(self) -> None:

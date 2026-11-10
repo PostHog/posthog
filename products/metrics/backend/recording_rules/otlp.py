@@ -7,6 +7,7 @@ from typing import Final
 
 from django.conf import settings
 
+import requests
 from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceRequest
 from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from opentelemetry.proto.metrics.v1 import metrics_pb2
@@ -30,6 +31,10 @@ class RecordedSample:
 
 class IngestError(Exception):
     pass
+
+
+class IngestUnconfirmed(IngestError):
+    """The request went out, but no answer came back, so ingestion may have stored it."""
 
 
 def _attributes(values: dict[str, str]) -> list[KeyValue]:
@@ -72,6 +77,8 @@ def send(token: str, request: ExportMetricsServiceRequest) -> None:
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/x-protobuf"},
             timeout=SEND_TIMEOUT_SECONDS,
         )
+    except requests.ReadTimeout as error:
+        raise IngestUnconfirmed("Metrics ingestion did not confirm the write in time.") from error
     except Exception as error:
         raise IngestError("Metrics ingestion could not be reached.") from error
     if not 200 <= response.status_code < 300:

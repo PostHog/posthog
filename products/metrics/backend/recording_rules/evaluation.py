@@ -29,7 +29,13 @@ from products.metrics.backend.alerts.freshness import IngestionReach, fetch_part
 from products.metrics.backend.facade.contracts import METRICS_RECORDING_RULES_FEATURE_FLAG, PromQLQueryError
 from products.metrics.backend.models import MetricRecordingRule
 from products.metrics.backend.promql import snuffle_payload
-from products.metrics.backend.recording_rules.otlp import IngestError, RecordedSample, export_request, send
+from products.metrics.backend.recording_rules.otlp import (
+    IngestError,
+    IngestUnconfirmed,
+    RecordedSample,
+    export_request,
+    send,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -108,6 +114,10 @@ def evaluate_team_recording_rules(team_id: int, now: datetime) -> int:
             # A result with no number in it has nothing to write, and an empty request is not a valid export.
             if any(sample.value is not None for sample in samples):
                 send(team.api_token, export_request(rule.metric_name, samples, at))
+        except IngestUnconfirmed as error:
+            # The write may have landed, so a retry could record the minute twice. Skip the minute instead.
+            _record(rule, now, last_evaluated_at=at, last_series_count=len(samples), last_error=str(error))
+            continue
         except (PromQLQueryError, IngestError) as error:
             _record(rule, now, last_error=str(error))
             continue
