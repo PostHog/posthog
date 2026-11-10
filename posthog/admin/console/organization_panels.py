@@ -26,6 +26,7 @@ class OrganizationOverviewPanel(Panel):
     key = "overview"
     title = "Overview"
     owner = DEV_EXPERIENCE
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Organization)
@@ -51,6 +52,7 @@ class OrganizationTeamsPanel(Panel):
     key = "teams"
     title = "Teams"
     owner = DEV_EXPERIENCE
+    order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Organization)
@@ -127,6 +129,7 @@ class BillingPanel(Panel):
     key = "billing"
     title = "Billing"
     owner = BILLING
+    order = 30
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Organization)

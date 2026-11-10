@@ -619,8 +619,8 @@ class TestAdminConsoleViews(BaseTest):
             ("already_pending_when_confirmed", True, False, None, None, True, 404, True),
         ]
     )
-    @patch("posthog.admin.console.organization_deletion.report_organization_deleted")
-    @patch("posthog.admin.console.organization_deletion.start_delete_organization_workflow")
+    @patch("posthog.admin.console.organization_deletion_panels.report_organization_deleted")
+    @patch("posthog.admin.console.organization_deletion_panels.start_delete_organization_workflow")
     def test_deleting_an_organization_needs_the_deletion_group_and_a_confirmed_preview(
         self,
         _name: str,

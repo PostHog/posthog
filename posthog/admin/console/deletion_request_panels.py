@@ -115,6 +115,7 @@ class DeletionRequestOverviewPanel(Panel):
     key = "overview"
     title = "Overview"
     owner = CLICKHOUSE
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -192,6 +193,7 @@ class DeletionRequestStatsPanel(Panel):
     key = "stats"
     title = "ClickHouse stats"
     owner = CLICKHOUSE
+    order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -485,6 +487,7 @@ class DeletionRequestWorkflowPanel(Panel):
     key = "workflow"
     title = "Workflow"
     owner = CLICKHOUSE
+    order = 30
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -680,6 +683,7 @@ class DeletionRequestCriteriaPanel(Panel):
     key = "criteria"
     title = "Criteria"
     owner = CLICKHOUSE
+    order = 40
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)

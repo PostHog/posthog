@@ -28,6 +28,7 @@ class ProjectOverviewPanel(Panel):
     key = "overview"
     title = "Overview"
     owner = DEV_EXPERIENCE
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Project)
@@ -200,6 +201,7 @@ class ProjectDeletionPanel(Panel):
     key = "deletion"
     title = "Deletion"
     owner = DEV_EXPERIENCE
+    order = 10
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:

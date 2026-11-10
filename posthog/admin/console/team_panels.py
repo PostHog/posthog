@@ -25,6 +25,7 @@ class TeamOverviewPanel(Panel):
     key = "overview"
     title = "Overview"
     owner = DEV_EXPERIENCE
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)
@@ -65,6 +66,7 @@ class RemoteConfigPanel(Panel):
     key = "remote-config"
     title = "Remote config cache"
     owner = DEV_EXPERIENCE
+    order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)
@@ -125,6 +127,7 @@ class ApiTokenPanel(Panel):
     key = "api-token"
     title = "Project API token"
     owner = DEV_EXPERIENCE
+    order = 30
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:

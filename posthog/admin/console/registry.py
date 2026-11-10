@@ -1,4 +1,7 @@
 import re
+import pkgutil
+import importlib
+from pathlib import Path
 
 from django.utils.module_loading import autodiscover_modules
 
@@ -9,6 +12,8 @@ from posthog.admin.console.tools import ConsoleTool
 # Navigation headings. Add one here, in the shell, only when no existing group fits a new tool.
 TOOL_GROUPS = frozenset({"Data", "Billing", "Organizations", "Access"})
 KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+# A shell module whose name ends in one of these registers panels or tools, and discover() imports it.
+CONTRIBUTION_SUFFIXES = ("_panels", "_tool", "_tools")
 
 
 def _check_metadata(kind: str, cls: type, key: str, title: str) -> None:
@@ -38,7 +43,10 @@ class ConsoleRegistry:
     def panels_for(self, record: str) -> list[Panel]:
         self.discover()
         # Danger panels go last, so destructive actions always sit at the bottom of a page.
-        classes = sorted(self._panels[record].values(), key=lambda panel_class: panel_class.danger)
+        classes = sorted(
+            self._panels[record].values(),
+            key=lambda panel_class: (panel_class.danger, panel_class.order, panel_class.title),
+        )
         return [panel_class() for panel_class in classes]
 
     def get_panel(self, record: str, key: str) -> Panel | None:
@@ -78,23 +86,9 @@ class ConsoleRegistry:
     def discover(self) -> None:
         if self._discovered:
             return
-        # Core panels register first, so they lead each page.
-        import posthog.admin.console.oauth_tool  # noqa: F401, PLC0415 — registers a core tool
-        import posthog.admin.console.team_panels  # noqa: F401, PLC0415 — registers the core Team panels
-        import posthog.admin.console.tophog_tool  # noqa: F401, PLC0415 — registers a core tool
-        import posthog.admin.console.user_panels  # noqa: F401, PLC0415 — registers the core User panels
-        import posthog.admin.console.api_key_panels  # noqa: F401, PLC0415 — registers the core API key panels
-        import posthog.admin.console.project_panels  # noqa: F401, PLC0415 — registers the core Project panels
-        import posthog.admin.console.health_checks_tool  # noqa: F401, PLC0415 — registers a core tool
-        import posthog.admin.console.organization_tools  # noqa: F401, PLC0415 — registers a core tool
-        import posthog.admin.console.remote_config_tool  # noqa: F401, PLC0415 — registers a core tool
-        import posthog.admin.console.usage_reports_tool  # noqa: F401, PLC0415 — registers a core tool
-        import posthog.admin.console.organization_panels  # noqa: F401, PLC0415 — registers the core Organization panels
-        import posthog.admin.console.events_retention_tool  # noqa: F401, PLC0415 — registers a core tool
-        import posthog.admin.console.organization_deletion  # noqa: F401, PLC0415 — registers the core Organization deletion panel
-        import posthog.admin.console.distinct_id_usage_tool  # noqa: F401, PLC0415 — registers a core tool
-        import posthog.admin.console.deletion_request_panels  # noqa: F401, PLC0415 — registers the core deletion request panels
-
+        for module in sorted(pkgutil.iter_modules([str(Path(__file__).parent)]), key=lambda module: module.name):
+            if module.name.endswith(CONTRIBUTION_SUFFIXES):
+                importlib.import_module(f"{__package__}.{module.name}")
         autodiscover_modules("console")
         # Set only after the imports succeed, so a failed import raises again on the next request instead of
         # leaving the console with some panels missing.

@@ -173,6 +173,7 @@ class OrganizationDeletionPanel(Panel):
     key = "deletion"
     title = "Deletion"
     owner = DEV_EXPERIENCE
+    order = 10
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:

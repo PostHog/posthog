@@ -168,6 +168,8 @@ class Panel:
     title: ClassVar[str]
     owner: ClassVar[Owner]
     danger: ClassVar[bool] = False
+    # A page sorts its panels by order, then by title. Core panels set an order below the default, so they lead.
+    order: ClassVar[int] = 100
 
     def facts(self, obj: "Model") -> list[Fact]:
         return []

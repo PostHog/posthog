@@ -80,6 +80,7 @@ class PersonalApiKeysPanel(Panel):
     key = "personal-api-keys"
     title = "Personal API keys"
     owner = DEV_EXPERIENCE
+    order = 40
     danger = True
 
     def _keys(self, user: User) -> list[PersonalAPIKey]:
@@ -132,6 +133,7 @@ class ProjectSecretApiKeysPanel(Panel):
     key = "secret-api-keys"
     title = "Project secret API keys"
     owner = DEV_EXPERIENCE
+    order = 40
     danger = True
 
     def _keys(self, team: Team) -> list[ProjectSecretAPIKey]:

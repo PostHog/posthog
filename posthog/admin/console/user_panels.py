@@ -65,6 +65,7 @@ class UserOverviewPanel(Panel):
     key = "overview"
     title = "Overview"
     owner = DEV_EXPERIENCE
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, User)
@@ -100,6 +101,7 @@ class UserOrganizationsPanel(Panel):
     key = "organizations"
     title = "Organizations"
     owner = DEV_EXPERIENCE
+    order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, User)
@@ -201,6 +203,7 @@ class UserSignInPanel(Panel):
     key = "sign-in"
     title = "Sign-in"
     owner = DEV_EXPERIENCE
+    order = 30
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, User)
@@ -478,6 +481,7 @@ class UserDeletionPanel(Panel):
     key = "deletion"
     title = "Deletion"
     owner = DEV_EXPERIENCE
+    order = 10
     danger = True
 
     def operations(self, obj: Model) -> list[Operation]:
