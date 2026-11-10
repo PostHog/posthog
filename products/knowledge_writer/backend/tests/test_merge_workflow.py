@@ -281,8 +281,8 @@ async def test_the_hourly_reconcile_starts_a_numbered_check_for_each_pull_reques
         time_machine.travel(RECONCILE_STARTED_AT, tick=False),
     ):
         await ActivityEnvironment().run(reconcile_merged_pull_requests_activity)
-        # Read inside the frozen clock: the saved value has a 1-day TTL counted from RECONCILE_STARTED_AT.
-        saved_reconciled_at = cache.get(reconciled_at_cache_key("PostHog/posthog"))
+        # The entry expires a day after the frozen time, so read it before the clock returns to now.
+        reconciled_at = cache.get(reconciled_at_cache_key("PostHog/posthog"))
 
     assert github.requested_pages == [("PostHog/posthog", 1), ("PostHog/posthog", 2)]
     async_connect.assert_awaited_once()
@@ -294,4 +294,4 @@ async def test_the_hourly_reconcile_starts_a_numbered_check_for_each_pull_reques
         (merge_check_workflow_id(f"{number:040d}"), "PostHog/posthog", number)
         for number in checked_pull_request_numbers
     ]
-    assert saved_reconciled_at == RECONCILE_STARTED_AT
+    assert reconciled_at == RECONCILE_STARTED_AT
