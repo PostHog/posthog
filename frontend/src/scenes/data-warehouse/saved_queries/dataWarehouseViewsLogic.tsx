@@ -29,6 +29,11 @@ import {
 
 import type { DatabaseSchemaViewTable } from '../../../queries/schema/schema-general'
 import type { UserType } from '../../../types'
+import {
+    BreakingColumnChangeDeclinedError,
+    confirmBreakingColumnChange,
+    getBreakingColumnChange,
+} from '../editor/BreakingColumnChangeDialog'
 
 // Materialization is async: enabling it flips `is_materialized` either synchronously (the
 // /materialize action) or later, when the Temporal job runs (scheduled sync frequency). After
@@ -90,6 +95,7 @@ export interface DataWarehouseSavedQueryUpdate extends Partial<DataWarehouseSave
     edited_history_id?: string
     folder_id?: string | null
     soft_update?: boolean
+    acknowledge_breaking_changes?: boolean
 }
 
 export async function renameDataWarehouseSavedQuery(viewId: string, name: string): Promise<void> {
@@ -672,7 +678,27 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 },
                 updateDataWarehouseSavedQuery: async (view: DataWarehouseSavedQueryUpdate) => {
                     try {
-                        const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
+                        const save = async (
+                            payload: DataWarehouseSavedQueryUpdate
+                        ): Promise<DataWarehouseSavedQuerySummary> =>
+                            (await warehouseSavedQueriesPartialUpdate(
+                                String(ApiConfig.getCurrentTeamId()),
+                                payload.id,
+                                payload as Parameters<typeof warehouseSavedQueriesPartialUpdate>[2]
+                            )) as unknown as DataWarehouseSavedQuerySummary
+                        let newView: DataWarehouseSavedQuerySummary
+                        try {
+                            newView = await save(view)
+                        } catch (error) {
+                            const breakingChange = getBreakingColumnChange(error)
+                            if (!breakingChange) {
+                                throw error
+                            }
+                            if (!(await confirmBreakingColumnChange(breakingChange))) {
+                                throw new BreakingColumnChangeDeclinedError()
+                            }
+                            newView = await save({ ...view, acknowledge_breaking_changes: true })
+                        }
                         return values.dataWarehouseSavedQueries.map((savedQuery) => {
                             if (savedQuery.id === view.id) {
                                 return newView
