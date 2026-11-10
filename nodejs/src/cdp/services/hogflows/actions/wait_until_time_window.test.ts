@@ -211,6 +211,14 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             expect(result!.toISO()).toMatchInlineSnapshot(`"2025-07-01T14:00:00.000-04:00"`)
         })
 
+        it('finds the same weekday a week ahead across a late-evening DST change', () => {
+            action.config.timezone = 'America/Nuuk'
+            action.config.day = ['saturday']
+            // 23:30 on Saturday 2027-03-20 in Nuuk; clocks spring forward on Saturday 2027-03-27
+            jest.setSystemTime(new Date('2027-03-21T01:30:00.000Z'))
+            expect(getWaitUntilTime(action)!.toISO()).toBe('2027-03-27T14:00:00.000-02:00')
+        })
+
         it('should handle timezone with negative offset', () => {
             action.config.timezone = 'Asia/Tokyo'
 
