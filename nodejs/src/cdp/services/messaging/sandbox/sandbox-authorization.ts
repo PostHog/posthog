@@ -11,6 +11,9 @@ export const MAX_PENDING_AUTHORIZATION_CONNECTIONS = 8
 
 const connectionGates = new WeakMap<PostgresRouter, AcquisitionGate>()
 
+export const sandboxReadRouter = (db: PostgresRouter): PostgresRouter =>
+    db.withConnectionTimeout(AUTHORIZATION_TIMEOUT_MS)
+
 const connectionGate = (db: PostgresRouter): AcquisitionGate => {
     let gate = connectionGates.get(db)
     if (!gate) {
@@ -175,8 +178,9 @@ async function queryBeforeDeadline<Row extends QueryResultRow>(
     tag: string
 ): Promise<QueryResult<Row>> {
     const deadlineAt = Date.now() + timeoutMs
+    const reads = sandboxReadRouter(db)
     const client = await connectionGate(db).acquire(
-        () => db.connect(use),
+        () => reads.connect(use),
         deadlineAt,
         (late) => late.release()
     )
@@ -197,10 +201,10 @@ async function queryBeforeDeadline<Row extends QueryResultRow>(
         try {
             return await Promise.race([
                 (async () => {
-                    await db.query(tx, 'BEGIN', undefined, tag)
-                    await db.query(tx, `SET LOCAL statement_timeout = ${timeoutMs}`, undefined, tag)
-                    const result = await db.query<Row>(tx, queryString, values, tag)
-                    await db.query(tx, 'COMMIT', undefined, tag)
+                    await reads.query(tx, 'BEGIN', undefined, tag)
+                    await reads.query(tx, `SET LOCAL statement_timeout = ${timeoutMs}`, undefined, tag)
+                    const result = await reads.query<Row>(tx, queryString, values, tag)
+                    await reads.query(tx, 'COMMIT', undefined, tag)
                     return result
                 })(),
                 deadline,
