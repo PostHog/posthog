@@ -22,7 +22,12 @@ describe('spaceFeedSelection', () => {
                         kind: 'pr',
                         key: 'pr:1',
                         item: item('t2'),
-                        pullRequest: { url: 'https://github.com/acme/web/pull/1', number: 1, repository: 'acme/web' },
+                        pullRequest: {
+                            url: 'https://github.com/acme/web/pull/1',
+                            provider: 'github',
+                            number: 1,
+                            repository: 'acme/web',
+                        },
                     },
                     { kind: 'canvas', key: 'canvas:c1', canvas: { id: 'c1' } as CanvasApi },
                 ],

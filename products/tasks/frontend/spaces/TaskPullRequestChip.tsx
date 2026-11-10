@@ -4,7 +4,7 @@ import { Badge, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/qui
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { PrStateEnumApi } from '../generated/api.schemas'
-import { TaskPullRequest } from './taskPullRequests'
+import { TaskPullRequest, pullRequestReference } from './taskPullRequests'
 
 export interface PullRequestStateMeta {
     label: string
@@ -26,8 +26,10 @@ export function pullRequestStateMeta(state: PrStateEnumApi | null | undefined): 
 
 export function pullRequestLinkLabel(pullRequest: TaskPullRequest, state: PrStateEnumApi | null | undefined): string {
     const known = pullRequestStateMeta(state)
-    const name = `pull request ${pullRequest.repository}#${pullRequest.number}`
-    return known ? `Open ${known.label.toLowerCase()} ${name} on GitHub` : `Open ${name} on GitHub`
+    const isGitLab = pullRequest.provider === 'gitlab'
+    const name = `${isGitLab ? 'merge request' : 'pull request'} ${pullRequest.repository}${pullRequestReference(pullRequest)}`
+    const host = isGitLab ? 'GitLab' : 'GitHub'
+    return known ? `Open ${known.label.toLowerCase()} ${name} on ${host}` : `Open ${name} on ${host}`
 }
 
 /**

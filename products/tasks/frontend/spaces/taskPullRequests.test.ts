@@ -10,6 +10,14 @@ import {
 
 const pr = (repository: string, number: number): TaskPullRequest => ({
     url: `https://github.com/${repository}/pull/${number}`,
+    provider: 'github',
+    repository,
+    number,
+})
+
+const mr = (repository: string, number: number): TaskPullRequest => ({
+    url: `https://gitlab.com/${repository}/-/merge_requests/${number}`,
+    provider: 'gitlab',
     repository,
     number,
 })
@@ -20,7 +28,20 @@ describe('taskPullRequests', () => {
     it.each<[string, TaskRunDetailDTOApi['output'] | undefined, string[]]>([
         ['a run with no output shows no chip', null, []],
         ['a malformed URL does not crash the card', { pr_url: 'not a url' }, []],
-        ['a non-GitHub host is not linked as a GitHub PR', { pr_url: 'https://gitlab.com/org/app/pull/1' }, []],
+        ['a GitHub-style path on GitLab is not linked', { pr_url: 'https://gitlab.com/org/app/pull/1' }, []],
+        [
+            'a self-managed GitLab host is not linked',
+            { pr_url: 'https://gitlab.example.com/org/app/-/merge_requests/1' },
+            [],
+        ],
+        [
+            'a merge request in a nested GitLab project is linked, and its subpage collapses into it',
+            {
+                pr_url: 'https://gitlab.com/acme/platform/api/-/merge_requests/4',
+                pr_urls: ['https://gitlab.com/acme/platform/api/-/merge_requests/4/diffs'],
+            },
+            ['https://gitlab.com/acme/platform/api/-/merge_requests/4'],
+        ],
         ['a GitHub issue is not shown as a PR', { pr_url: 'https://github.com/org/app/issues/1' }, []],
         ['a lookalike path on another host is rejected', { pr_url: 'https://example.com/org/app/pull/1' }, []],
         [
@@ -45,6 +66,8 @@ describe('taskPullRequests', () => {
         ['a task repository without the owner still matches', pr('org/app', 12), 'app', '#12'],
         ['a PR in another repository names that repo', pr('org/web', 12), 'org/app', 'web#12'],
         ['a task with no repository names the repo', pr('org/web', 12), null, 'web#12'],
+        ['a GitLab MR in the task project uses !', mr('acme/platform/api', 4), 'acme/platform/api', '!4'],
+        ['a GitLab MR in another project names its last path segment', mr('acme/platform/api', 4), null, 'api!4'],
     ])('labels %s', (_, pullRequest, taskRepository, label) => {
         expect(pullRequestLabel(pullRequest, taskRepository)).toEqual(label)
     })
