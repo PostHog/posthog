@@ -12009,20 +12009,20 @@ Note: The official index supplied the operation inventory; individual Markdown p
 
 ## Systeme.io — **thin**
 
-Today (7): `communities`, `contacts`, `courses`, `enrollments`, `memberships`, `newsletters`, `tags`
+Today (13): `campaign_steps`, `campaigns`, `communities`, `contacts`, `course_modules_with_lectures`, `courses`, `digital_products`, `enrollments`, `funnels`, `memberships`, `newsletters`, `physical_products`, `tags`
 
 Diffed against: <https://developer.systeme.io/llms.txt>
 
-- [ ] `Subscriptions (GET /api/payment/subscriptions)` — analyze subscription growth, cancellations, and recurring revenue by price plan (high)
-- [ ] `Email statistics (GET /api/mailing/statistics/newsletters; GET /api/mailing/statistics/campaign-steps; GET /api/mailing/statistics/automation-emails)` — compare messages sent, opens, clicks, bounces, and spam reports across email types (high)
+- [ ] `Subscriptions (GET /api/payment/subscriptions)` — analyze subscription growth, cancellations, and recurring revenue by price plan (high); skipped: the list requires a `contact` filter, so a table needs one request per contact on every sync
+- [ ] `Email statistics (GET /api/mailing/statistics/newsletters; GET /api/mailing/statistics/campaign-steps; GET /api/mailing/statistics/automation-emails)` — compare messages sent, opens, clicks, bounces, and spam reports across email types (high); skipped: all three routes are marked Beta (contract may change without notice) and need a send-date window of 31 days or less, so the counts of older sends never refresh
 - [x] `Digital products (GET /api/payment/digital-products)` — analyze the digital product catalog alongside courses and subscription offerings (medium)
 - [x] `Physical products (GET /api/payment/physical-products)` — analyze physical product offerings and compare them with digital products (medium)
 - [x] `Campaigns (GET /api/mailing/campaigns)` — analyze automated email campaigns alongside newsletters (medium)
 - [x] `Campaign steps (GET /api/mailing/campaigns/{campaignId}/steps)` — connect email performance to each message and its position in a campaign (medium)
-- [ ] `Funnels (GET /api/funnels)` — identify marketing funnels for comparisons with contacts and their source URLs (medium)
+- [x] `Funnels (GET /api/funnels)` — identify marketing funnels for comparisons with contacts and their source URLs (medium)
 - [ ] `Funnel steps (GET /api/funnels/{funnelId}/steps)` — describe funnel pages and their sequence for acquisition analysis (medium)
 - [ ] `Bookings (GET /api/booking-calendar/bookings)` — analyze appointment demand and booking activity alongside contact growth (medium)
-- [ ] `Course modules with lectures (GET /api/school/courses/{courseId}/modules-with-lectures)` — describe course structure and teaching content alongside course enrollments (medium)
+- [x] `Course modules with lectures (GET /api/school/courses/{courseId}/modules-with-lectures)` — describe course structure and teaching content alongside course enrollments (medium)
 
 Note: The official index supplied collection operations; individual Markdown pages supplied embedded OpenAPI definitions and response schemas. Direct API specification downloads required authentication. Email statistics are documented as beta, while campaign steps, funnel steps, and course modules need parent IDs. Contact field names and tags already appear in contacts; webhooks, files, domains, and automation configuration are excluded.
 
@@ -12049,15 +12049,15 @@ Note: Full Backstage API path list extracted from the ReadMe reference page HTML
 
 ## Tailscale — gaps
 
-Today (4): `configuration_audit_logs`, `devices`, `keys`, `users`
+Today (7): `configuration_audit_logs`, `devices`, `keys`, `network_flow_logs`, `service_devices`, `services`, `users`
 
 Diffed against: <https://api.tailscale.com/api/v2?outputOpenapiSchema=true>
 
-- [ ] `GET /tailnet/{tailnet}/logging/network` — Network flow logs - per-connection traffic records, the one genuinely high-volume analytical table in the API and a direct sibling of the audit logs already synced (high)
-- [ ] `GET /device/{deviceId}/routes` — Subnet routes and exit-node advertisements per device, including which are approved - the state that explains tailnet topology (medium)
+- [x] `GET /tailnet/{tailnet}/logging/network` — Network flow logs - per-connection traffic records, the one genuinely high-volume analytical table in the API and a direct sibling of the audit logs already synced (high). Added as `network_flow_logs` (append sync on `logged`, 15-minute windows over the 30-day retention).
+- ~~`GET /device/{deviceId}/routes` — Subnet routes and exit-node advertisements per device, including which are approved - the state that explains tailnet topology (medium)~~ — skipped: it returns only `advertisedRoutes` and `enabledRoutes`, which the `devices` table already syncs with `fields=all`
 - [ ] `GET /device/{deviceId}/attributes` — Device posture attributes (OS version, disk encryption, custom attributes) used in ACL posture rules, keyed to devices already synced (medium)
-- [ ] `GET /tailnet/{tailnet}/services` — Tailscale Services inventory, a first-class resource with no coverage (medium)
-- [ ] `GET /tailnet/{tailnet}/services/{serviceName}/devices` — Service-to-device hosting membership, joining services to the synced devices table (medium)
+- [x] `GET /tailnet/{tailnet}/services` — Tailscale Services inventory, a first-class resource with no coverage (medium). Added as `services`.
+- [x] `GET /tailnet/{tailnet}/services/{serviceName}/devices` — Service-to-device hosting membership, joining services to the synced devices table (medium). Added as `service_devices` (fan-out over `services`).
 - [ ] `GET /tailnet/{tailnet}/user-invites` — Outstanding and accepted user invites with status - onboarding funnel data alongside the synced users table (low)
 - [ ] `GET /device/{deviceId}/device-invites` — Device sharing invites and their acceptance state (low)
 
@@ -12084,10 +12084,10 @@ Today (5): `conversations`, `memory_stores`, `personas`, `replicas`, `videos`
 
 Diffed against: <https://docs.tavus.io/openapi.yaml>
 
-- [ ] `GET /v2/pals` — Current replacement for personas - the lookup table resolving the agent ID carried on every conversation (high)
-- [ ] `GET /v2/faces` — Current replacement for replicas - the lookup table for the face/avatar ID on conversations and videos (high)
-- [ ] `GET /v2/transcriptions` — Conversation transcripts, the primary analytical output of a conversational-video product and completely uncovered (high)
-- [ ] `GET /v2/conversations/{conversation_id}/canvas/interactions` — Per-conversation interaction events (clicks, inputs, component responses) - the event stream under the synced conversations table (high)
+- [x] `GET /v2/pals` — Current replacement for personas - the lookup table resolving the agent ID carried on every conversation (high) → `pals` (full refresh)
+- [x] `GET /v2/faces` — Current replacement for replicas - the lookup table for the face/avatar ID on conversations and videos (high) → `faces` (full refresh)
+- [x] `GET /v2/transcriptions` — Conversation transcripts, the primary analytical output of a conversational-video product and completely uncovered (high) → `transcriptions` (full refresh; the endpoint lists speech-to-text jobs for video files, not conversation transcripts)
+- [x] `GET /v2/conversations/{conversation_id}/canvas/interactions` — Per-conversation interaction events (clicks, inputs, component responses) - the event stream under the synced conversations table (high) → `canvas_interactions` (full refresh, fan-out over `conversations`)
 - [ ] `GET /v2/deployments` — Deployments group conversations by embed/widget surface; needed to attribute conversation volume to a channel (medium)
 - [ ] `GET /v2/objectives` — Lookup table for the objectives a PAL is scored against, the basis of conversation outcome analysis (medium)
 - [ ] `GET /v2/documents` — Knowledge-base documents attached to PALs, with crawl status (medium)
@@ -12102,12 +12102,12 @@ Note: Important: the current spec no longer contains /v2/personas or /v2/replica
 
 ## TawkTo — gaps
 
-Today (4): `chats`, `members`, `properties`, `tickets`
+Today (5): `chats`, `knowledge_base_articles`, `members`, `properties`, `tickets`
 
 Diffed against: <https://help.tawk.to/article/rest-api>
 
-- [ ] `chat statistics report (by agent, tag, department, date)` — the vendor's headline aggregate for support performance; also exposes agent/tag/department as breakdown dimensions we have no table for (high)
-- [ ] `knowledge base articles (list)` — lets a warehouse user join deflection and self-serve content against chats and tickets (low)
+- [ ] `chat statistics report (by agent, tag, department, date)` — the vendor's headline aggregate for support performance; also exposes agent/tag/department as breakdown dimensions we have no table for (high); skipped: the method is `metrics.chats` (a probe returns 401, not 404), but its required date-range and grouping parameters and its response shape are only in the access-gated reference, so a request cannot be built without approved access
+- [x] `knowledge base articles (list)` — lets a warehouse user join deflection and self-serve content against chats and tickets (low). Added as `knowledge_base_articles` (`knowledge-base.article.list`, one call per property).
 
 Note: tawk.to's full REST reference is access-gated (you must be approved before you get the docs link), so no public endpoint list exists. The only public vendor page enumerates capabilities in prose. PostHog's own settings.py says the same. Gaps below are quoted from that page's capability list, not from a spec — exact RPC method names (the API is POST-only RPC style, e.g. `chat.list`) cannot be confirmed without approved access, so an implementer must obtain API access first.
 

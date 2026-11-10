@@ -60,6 +60,8 @@ class IncrementalField(typing.TypedDict, total=False):
     # Used to warn users picking an incremental field that would force a full scan
     # on every sync. Defaults to True when omitted so missing detection never warns.
     is_indexed: bool
+    recommended: bool
+    notes: list[str]
 
 
 class PartitionSettings(typing.NamedTuple):
