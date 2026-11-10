@@ -97,8 +97,11 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
     }, [cardMounted, withinKeepBand, keepMountedForOverlay])
     const sharedView = isSharedView()
     const tileActions = useMemo(() => {
-        const refresh = (updatedInsight?: InsightModel): void => {
-            refreshDashboardItem({ tile: updatedInsight ? { ...tile, insight: updatedInsight } : tile })
+        const refreshAfterDisplayOptionsChange = (updatedInsight?: InsightModel): void => {
+            refreshDashboardItem({
+                tile: updatedInsight ? { ...tile, insight: updatedInsight } : tile,
+                reason: 'update',
+            })
         }
         return {
             updateColor: (color: DashboardTile['color']): void => updateTileColor(tile.id, color),
@@ -106,8 +109,8 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
             duplicate: (): void => duplicateTile(tile),
             rename: (): void => renameInsight(insight),
             setOverride: (): void => setTileOverride(tile),
-            refresh: sharedView ? undefined : (): void => refresh(),
-            refreshAfterDisplayOptionsChange: sharedView ? undefined : refresh,
+            refresh: sharedView ? undefined : (): void => refreshDashboardItem({ tile }),
+            refreshAfterDisplayOptionsChange: sharedView ? undefined : refreshAfterDisplayOptionsChange,
         }
     }, [
         tile,

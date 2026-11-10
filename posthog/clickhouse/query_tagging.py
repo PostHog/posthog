@@ -99,6 +99,26 @@ class Product(StrEnum):
     INTERNAL = "internal"  # for internal use only
 
 
+class RefreshReason(StrEnum):
+    """Why a dashboard or insight query was asked to run. The dashboard client sends every value except CACHE_WARMING."""
+
+    INITIAL_LOAD = "initial_load"
+    UPDATE = "update"
+    MANUAL_REFRESH = "manual_refresh"
+    MANUAL_TILE_REFRESH = "manual_tile_refresh"
+    AUTO_REFRESH = "auto_refresh"
+    STALE_REFRESH = "stale_refresh"
+    PREVIEW = "preview"
+    CACHE_WARMING = "cache_warming"
+
+
+_CLIENT_REFRESH_REASONS = frozenset(RefreshReason) - {RefreshReason.CACHE_WARMING}
+
+
+def client_refresh_reason(value: str | None) -> RefreshReason | None:
+    return RefreshReason(value) if value in _CLIENT_REFRESH_REASONS else None
+
+
 class Feature(StrEnum):
     ACCOUNTS = "accounts"
     ALERTING = "alerting"
@@ -601,6 +621,10 @@ class QueryTags(BaseModel):
     timings: Optional[dict[str, float]] = None
     execution_mode: Optional[str] = None
     trigger: Optional[str] = None
+    # The `refresh` value the client asked for, absent when the client sent none. execution_mode is what it
+    # resolved to, which differs when a shared resource clamps the request or a runner forces a fresh calculation.
+    refresh_requested: Optional[str] = None
+    refresh_reason: Optional[RefreshReason] = None
 
     # used by billing
     usage_report: Optional[str] = None

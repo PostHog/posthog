@@ -124,7 +124,15 @@ class TestQueryStatusManager(SimpleTestCase):
             patch.object(process_query_task, "retry", wraps=process_query_task.retry) as retry,
         ):
             result = process_query_task.apply(
-                args=(self.team_id, None, self.query_id, build_query("SELECT 1"), {}, False), throw=False
+                args=(
+                    self.team_id,
+                    None,
+                    self.query_id,
+                    build_query("SELECT 1"),
+                    {"tag_from_a_newer_release": "value"},
+                    False,
+                ),
+                throw=False,
             )
 
         self.assertTrue(result.successful())

@@ -24,7 +24,7 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, QueryTags, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
@@ -487,7 +487,8 @@ def process_query_task(
 
     existing_query_tags = get_query_tags()
     all_query_tags = {**query_tags, **existing_query_tags.model_dump(exclude_unset=True)}
-    tag_queries(**all_query_tags)
+    # The enqueuing process can run a newer release, so drop tag keys this worker's model does not have.
+    tag_queries(**{key: value for key, value in all_query_tags.items() if key in QueryTags.model_fields})
 
     if is_query_service:
         tag_queries(chargeable=1)

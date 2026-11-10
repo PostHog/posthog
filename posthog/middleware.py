@@ -46,7 +46,13 @@ from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
-from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import (
+    QueryCounter,
+    client_refresh_reason,
+    get_query_tag_value,
+    reset_query_tags,
+    tag_queries,
+)
 from posthog.cloud_utils import is_cloud, is_dev_mode, is_hobby
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
@@ -680,6 +686,7 @@ class CHQueries:
             is_impersonated=is_impersonated_session(request) if user.is_authenticated else None,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
+            refresh_reason=client_refresh_reason(self._get_param(request, "refresh_reason")),
             http_referer=request.headers.get("referer"),
             http_user_agent=request.headers.get("user-agent"),
             source=get_event_source(request),

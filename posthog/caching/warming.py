@@ -16,7 +16,7 @@ from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, RefreshReason, get_team_query_tags, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
@@ -255,6 +255,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         **get_team_query_tags(insight.team),
         insight_id=insight.pk,
         trigger="warmingV2",
+        refresh_reason=RefreshReason.CACHE_WARMING,
         feature=Feature.CACHE_WARMUP,
     )
     if dashboard_id:

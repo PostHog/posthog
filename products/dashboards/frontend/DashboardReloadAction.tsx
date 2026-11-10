@@ -12,6 +12,7 @@ import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { reportDashboardAutoRefreshChanged } from 'scenes/dashboard/dashboardEvents'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -73,6 +74,13 @@ export function DashboardReloadAction(): JSX.Element {
         useActions(dashboardLogic)
 
     usePageVisibilityCb(setPageVisibility)
+
+    const changeAutoRefresh = (enabled: boolean, interval: number): void => {
+        setAutoRefresh(enabled, interval)
+        if (dashboard) {
+            reportDashboardAutoRefreshChanged(dashboard.id, enabled, interval)
+        }
+    }
 
     const refreshDisabledReason =
         !itemsLoading &&
@@ -138,7 +146,7 @@ export function DashboardReloadAction(): JSX.Element {
                                                 label: () => (
                                                     <LemonSwitch
                                                         onChange={(checked) =>
-                                                            setAutoRefresh(checked, autoRefresh.interval)
+                                                            changeAutoRefresh(checked, autoRefresh.interval)
                                                         }
                                                         label="Auto refresh while on page"
                                                         checked={autoRefresh.enabled}
@@ -157,9 +165,9 @@ export function DashboardReloadAction(): JSX.Element {
                                                                       <LemonRadio
                                                                           value={autoRefresh.interval}
                                                                           options={options}
-                                                                          onChange={(value: number) => {
-                                                                              setAutoRefresh(true, value)
-                                                                          }}
+                                                                          onChange={(value: number) =>
+                                                                              changeAutoRefresh(true, value)
+                                                                          }
                                                                           className="mx-2 mb-1"
                                                                       />
                                                                   ),
