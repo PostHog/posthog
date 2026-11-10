@@ -348,6 +348,14 @@ Keep the selection flag disabled until the trial confirms suitable assignments a
 
 When a project member adds a reviewer, the report shows "Added by" and that member's name as the reason above the reviewer. The name comes from the authenticated author of the artefact that added the reviewer, not from the editable reason. If the author is unavailable, the report shows the generic "Added by teammate" badge instead.
 
+Shared Slack notification settings belong to the project selected in PostHog.
+Project members with Inbox editor access can change these settings; admin access is not required.
+API callers also need `inbox:write`.
+The team channel has its own minimum priority, separate from each reviewer's personal notification setting.
+The default, "All priorities", includes reports without a priority.
+A set minimum priority excludes reports without a priority and reports below that threshold.
+Filtering out a team notification does not block a reviewer's personal notification if it meets their personal threshold.
+
 Slack notifications for a ready report include only reviewers who have access to the report's project when delivery starts.
 The same access rule applies when a reviewer is added later.
 The team channel shows eligible suggested owners within Slack's text limit.
@@ -355,9 +363,9 @@ When the labels exceed that limit, the notification shows complete labels and a 
 It pings only owners routed to that channel, so owners with a personal notification target appear as plain text.
 Slack keeps plain-text owner names literal instead of converting them into mentions.
 Report text also escapes incomplete mention prefixes and nested tokens while it keeps valid HTTP links.
-If no suggested reviewer has access, the ready report still goes to the configured team channel without an owner label.
+If no suggested reviewer has access, a ready report that meets the team priority setting still goes to the configured team channel without an owner label.
 If the latest actionability judgment marks the report as already addressed, the system does not assign a fallback owner or send a reviewer push notification.
-Slack still sends the report to the configured team channel without reviewer mentions.
+Slack still sends the report to the configured team channel without reviewer mentions if it meets the team priority setting.
 The notification activity retries transient ClickHouse reads before it claims the report for delivery.
 The Slack notification's Implement button posts a request in the report thread and starts the Slack agent flow.
 The agent uses the clicking member's project access and can ask them to select a repository in Slack.
