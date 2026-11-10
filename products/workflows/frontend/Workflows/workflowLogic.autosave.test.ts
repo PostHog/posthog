@@ -1,6 +1,9 @@
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import { createElement } from 'react'
+import { ToastContainer, toast } from 'react-toastify'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -1245,7 +1248,6 @@ describe('workflowLogic auto-save', () => {
         const audience = {
             properties: [{ key: 'plan', value: ['paid'], operator: 'exact', type: 'person' }],
         } as Parameters<typeof logic.actions.triggerBatchWorkflow>[1]
-        let dialogs: LemonDialogProps[]
         let posted: Record<string, any>[]
 
         const recordPost =
@@ -1260,33 +1262,36 @@ describe('workflowLogic auto-save', () => {
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
         }
+        const toastShown = async (message: string): Promise<string | null | undefined> =>
+            (await screen.findByText(message)).closest('[data-attr$="-toast"]')?.getAttribute('data-attr')
+        const click = async (label: string): Promise<void> => {
+            const button = await screen.findByText(label)
+            await act(async () => fireEvent.click(button))
+        }
 
         beforeEach(() => {
-            dialogs = []
             posted = []
-            jest.spyOn(LemonDialog, 'open').mockImplementation((props) => {
-                dialogs.push(props)
-            })
+            toast.dismiss()
+            render(createElement(ToastContainer))
         })
 
         afterEach(() => {
+            cleanup()
             jest.restoreAllMocks()
         })
 
         it('starts a batch run for the audience and links the success toast to the logs', async () => {
             useMocks({ post: { [BATCH_URL]: recordPost(200, { id: 'job-1' }) } })
             await mountLoaded()
-            const infoToast = jest.spyOn(lemonToast, 'info')
-            const successToast = jest.spyOn(lemonToast, 'success')
 
             await expectLogic(logic, () => {
                 logic.actions.triggerBatchWorkflow({ plan: 'paid' }, audience)
             }).toFinishAllListeners()
 
             expect(posted).toEqual([{ variables: { plan: 'paid' }, filters: audience }])
-            expect(infoToast).toHaveBeenCalledWith('Triggering batch workflow...')
-            expect(successToast).toHaveBeenCalledWith('Batch workflow triggered', expect.anything())
-            successToast.mock.calls[0][1]?.button?.action?.()
+            expect(await toastShown('Triggering batch workflow...')).toBe('info-toast')
+            expect(await toastShown('Batch workflow triggered')).toBe('success-toast')
+            await click('View logs')
             expect(router.values.location.pathname).toBe(`/project/997${urls.workflow(WORKFLOW_ID, 'logs')}`)
         })
 
@@ -1306,16 +1311,14 @@ describe('workflowLogic auto-save', () => {
         ])('reports $case instead of claiming the batch run started', async ({ id, message, requests }) => {
             useMocks({ post: { [BATCH_URL]: recordPost(403, { detail: 'No access' }) } })
             await mountLoaded(id)
-            const errorToast = jest.spyOn(lemonToast, 'error')
-            const successToast = jest.spyOn(lemonToast, 'success')
 
             await expectLogic(logic, () => {
                 logic.actions.triggerBatchWorkflow({}, audience)
             }).toFinishAllListeners()
 
             expect(posted).toHaveLength(requests)
-            expect(errorToast).toHaveBeenCalledWith(message)
-            expect(successToast).not.toHaveBeenCalled()
+            expect(await toastShown(message)).toBe('error-toast')
+            expect(screen.queryByText('Batch workflow triggered')).toBeNull()
         })
 
         it('ignores discard and duplicate before the workflow has loaded', async () => {
@@ -1324,10 +1327,12 @@ describe('workflowLogic auto-save', () => {
             logic = workflowLogic({ id: WORKFLOW_ID })
             logic.mount()
 
-            logic.actions.discardChanges()
-            logic.actions.duplicate()
+            act(() => {
+                logic.actions.discardChanges()
+                logic.actions.duplicate()
+            })
 
-            expect(dialogs).toEqual([])
+            expect(screen.queryByText('Discard changes')).toBeNull()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
             expect(posted).toEqual([])
         })
@@ -1349,12 +1354,13 @@ describe('workflowLogic auto-save', () => {
             async ({ loaded, expectedName, expectedSteps }) => {
                 useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': loaded } })
                 await mountLoaded()
-                logic.actions.setWorkflowValue('name', 'Unwanted edit')
+                logic.actions.setWorkflowValues({ name: 'Unwanted edit' })
 
-                logic.actions.discardChanges()
-                expect(dialogs.map((dialog) => dialog.title)).toEqual(['Discard changes'])
+                act(() => logic.actions.discardChanges())
+                expect(screen.getByText('Discard changes')).toBeTruthy()
                 expect(logic.values.workflow.name).toBe('Unwanted edit')
-                ;(dialogs[0].primaryButton?.onClick as () => void)()
+                await click('Discard')
+                await waitFor(() => expect(screen.queryByText('Discard changes')).toBeNull())
 
                 expect(logic.values.workflow.name).toBe(expectedName)
                 expect(logic.values.workflow.actions).toHaveLength(expectedSteps)
@@ -1368,17 +1374,15 @@ describe('workflowLogic auto-save', () => {
                 post: { '/api/environments/:team_id/hog_flows/': recordPost(201, makeWorkflow({ id: 'wf-copy' })) },
             })
             await mountLoaded()
-            const successToast = jest.spyOn(lemonToast, 'success')
             logic.actions.setWorkflowValues({ name: 'Unsaved edit' })
-            const leavePrompt = jest.spyOn(window, 'confirm').mockReturnValue(true)
+            jest.spyOn(window, 'confirm').mockReturnValue(true)
 
             await expectLogic(logic, () => logic.actions.duplicate()).toFinishAllListeners()
 
             expect(posted).toHaveLength(1)
             expect(posted[0]).toMatchObject({ name: 'Autosave test (copy)', status: 'draft' })
             expect(posted[0]).not.toHaveProperty('id')
-            expect(successToast).toHaveBeenCalledWith('Workflow duplicated')
-            expect(leavePrompt).toHaveBeenCalledTimes(1)
+            expect(await toastShown('Workflow duplicated')).toBe('success-toast')
             expect(router.values.location.pathname).toBe(`/project/997${urls.workflow('wf-copy', 'workflow')}`)
         })
     })
@@ -1454,6 +1458,7 @@ describe('workflowLogic auto-save', () => {
             expect(subject()).toBe(expected.subject)
             const body = status === 'applied' ? 'AI body' : act === 'typeBody' ? 'Typed by me' : 'Template body'
             expect(prefilledEmailContent(logic.values.workflow)?.text).toContain(body)
+            expect(prefilledEmailContent(logic.values.workflow)?.html).toContain(`>${body}<`)
             expect(logic.values.aiEmailDraftStatus?.status).toBe(status)
             expect(capture).toHaveBeenCalledWith(
                 'email draft prefilled',
