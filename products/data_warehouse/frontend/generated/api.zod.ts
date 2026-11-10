@@ -522,6 +522,8 @@ export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsDefault
 export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsMin = 0
 export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsMax = 2592000
 
+export const warehouseSavedQueriesCreateBodyAcknowledgeBreakingChangesDefault = false
+
 export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -607,6 +609,12 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
             .describe(
                 'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
             ),
+        acknowledge_breaking_changes: zod
+            .boolean()
+            .default(warehouseSavedQueriesCreateBodyAcknowledgeBreakingChangesDefault)
+            .describe(
+                "Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access."
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -623,6 +631,8 @@ export const warehouseSavedQueriesUpdateBodyIncrementalOneEnabledDefault = false
 export const warehouseSavedQueriesUpdateBodyIncrementalOneLookbackSecondsDefault = 0
 export const warehouseSavedQueriesUpdateBodyIncrementalOneLookbackSecondsMin = 0
 export const warehouseSavedQueriesUpdateBodyIncrementalOneLookbackSecondsMax = 2592000
+
+export const warehouseSavedQueriesUpdateBodyAcknowledgeBreakingChangesDefault = false
 
 export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -709,6 +719,12 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
             ),
+        acknowledge_breaking_changes: zod
+            .boolean()
+            .default(warehouseSavedQueriesUpdateBodyAcknowledgeBreakingChangesDefault)
+            .describe(
+                "Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access."
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -725,6 +741,8 @@ export const warehouseSavedQueriesPartialUpdateBodyIncrementalOneEnabledDefault 
 export const warehouseSavedQueriesPartialUpdateBodyIncrementalOneLookbackSecondsDefault = 0
 export const warehouseSavedQueriesPartialUpdateBodyIncrementalOneLookbackSecondsMin = 0
 export const warehouseSavedQueriesPartialUpdateBodyIncrementalOneLookbackSecondsMax = 2592000
+
+export const warehouseSavedQueriesPartialUpdateBodyAcknowledgeBreakingChangesDefault = false
 
 export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -813,6 +831,12 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
             ),
+        acknowledge_breaking_changes: zod
+            .boolean()
+            .default(warehouseSavedQueriesPartialUpdateBodyAcknowledgeBreakingChangesDefault)
+            .describe(
+                "Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access."
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -846,6 +870,8 @@ export const warehouseSavedQueriesCancelCreateBodyIncrementalOneEnabledDefault =
 export const warehouseSavedQueriesCancelCreateBodyIncrementalOneLookbackSecondsDefault = 0
 export const warehouseSavedQueriesCancelCreateBodyIncrementalOneLookbackSecondsMin = 0
 export const warehouseSavedQueriesCancelCreateBodyIncrementalOneLookbackSecondsMax = 2592000
+
+export const warehouseSavedQueriesCancelCreateBodyAcknowledgeBreakingChangesDefault = false
 
 export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
     .object({
@@ -932,6 +958,12 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
             .describe(
                 'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
             ),
+        acknowledge_breaking_changes: zod
+            .boolean()
+            .default(warehouseSavedQueriesCancelCreateBodyAcknowledgeBreakingChangesDefault)
+            .describe(
+                "Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access."
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -1003,6 +1035,8 @@ export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneE
 export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneLookbackSecondsDefault = 0
 export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneLookbackSecondsMin = 0
 export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneLookbackSecondsMax = 2592000
+
+export const warehouseSavedQueriesRevertMaterializationCreateBodyAcknowledgeBreakingChangesDefault = false
 
 export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1092,6 +1126,12 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             .nullish()
             .describe(
                 'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
+            ),
+        acknowledge_breaking_changes: zod
+            .boolean()
+            .default(warehouseSavedQueriesRevertMaterializationCreateBodyAcknowledgeBreakingChangesDefault)
+            .describe(
+                "Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access."
             ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
