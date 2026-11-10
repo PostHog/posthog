@@ -135,7 +135,17 @@ from products.warehouse_sources.backend.types import (
     IncrementalSyncBlockedReason,
 )
 
+from ee.billing.quota_limiting import (
+    QuotaLimitingCaches,
+    QuotaResource,
+    add_limited_team_tokens,
+    remove_limited_team_tokens,
+)
+
 BUCKET_NAME = "test-pipeline"
+IS_TEAM_LIMITED = (
+    "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits.is_team_limited"
+)
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
@@ -1011,12 +1021,16 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
         external_data_schema_id=schema.id,
     )
 
-    with mock.patch(
-        "ee.billing.quota_limiting.list_limited_team_attributes",
-    ) as mock_list_limited_team_attributes:
-        mock_list_limited_team_attributes.return_value = [team.api_token]
-
+    limited_until = int(timezone.now().timestamp()) + 3600
+    add_limited_team_tokens(
+        QuotaResource.ROWS_SYNCED, {team.api_token: limited_until}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+    )
+    try:
         await _execute_run(workflow_id, inputs, stripe_customer["data"])
+    finally:
+        remove_limited_team_tokens(
+            QuotaResource.ROWS_SYNCED, [team.api_token], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
 
     job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(team_id=team.id, schema_id=schema.pk)
 
@@ -1058,11 +1072,7 @@ async def test_create_external_job_failure(team, stripe_customer, mock_stripe_cl
         external_data_schema_id=schema.id,
     )
 
-    with mock.patch(
-        "ee.billing.quota_limiting.list_limited_team_attributes",
-    ) as mock_list_limited_team_attributes:
-        mock_list_limited_team_attributes.side_effect = Exception("Ruhoh!")
-
+    with mock.patch(IS_TEAM_LIMITED, side_effect=Exception("Ruhoh!")):
         with pytest.raises(Exception):
             await _execute_run(workflow_id, inputs, stripe_customer["data"])
 
@@ -1162,13 +1172,9 @@ async def test_non_retryable_error(team, zendesk_brands):
     )
 
     with (
-        mock.patch(
-            "ee.billing.quota_limiting.list_limited_team_attributes",
-        ) as mock_list_limited_team_attributes,
+        mock.patch(IS_TEAM_LIMITED, side_effect=Exception("404 Client Error: Not Found for url")),
         mock.patch.object(posthoganalytics, "capture") as capture_mock,
     ):
-        mock_list_limited_team_attributes.side_effect = Exception("404 Client Error: Not Found for url")
-
         with pytest.raises(Exception):
             await _execute_run(workflow_id, inputs, zendesk_brands["brands"])
 
@@ -1218,14 +1224,10 @@ async def test_non_retryable_error_with_special_characters(team, stripe_customer
 
     with (
         mock.patch(
-            "ee.billing.quota_limiting.list_limited_team_attributes",
-        ) as mock_list_limited_team_attributes,
+            IS_TEAM_LIMITED, side_effect=Exception("401 Client Error:\nUnauthorized for url: https://api.stripe.com")
+        ),
         mock.patch.object(posthoganalytics, "capture") as capture_mock,
     ):
-        mock_list_limited_team_attributes.side_effect = Exception(
-            "401 Client Error:\nUnauthorized for url: https://api.stripe.com"
-        )
-
         with pytest.raises(Exception):
             await _execute_run(workflow_id, inputs, stripe_customer["data"])
 
