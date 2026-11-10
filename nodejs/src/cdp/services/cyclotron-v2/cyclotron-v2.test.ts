@@ -171,41 +171,12 @@ async function dequeueOneBatch(worker: CyclotronV2Worker, timeoutMs = 2000): Pro
     return captured
 }
 
-interface SentStatement {
-    text: string
-    values: unknown[]
-}
-
-const DUE_ROWS_STATEMENT = /scheduled\s*<=\s*NOW\(\)/i
-
-async function dueRowStatementsSentBy(
-    operation: (statementSent: Promise<void>) => Promise<unknown>
-): Promise<SentStatement[]> {
-    const sent: SentStatement[] = []
-    let markSent: () => void = () => {}
-    const statementSent = new Promise<void>((resolve) => (markSent = resolve))
-    const query = Client.prototype.query
-    const spy = jest.spyOn(Client.prototype, 'query').mockImplementation(function (this: Client, ...args: any[]) {
-        const [config, values] = args
-        const text = typeof config === 'string' ? config : config?.text
-        if (typeof text === 'string' && DUE_ROWS_STATEMENT.test(text)) {
-            sent.push({ text, values: (typeof config === 'string' ? values : config.values) ?? [] })
-            markSent()
-        }
-        return (query as (...a: any[]) => any).apply(this, args)
-    } as any)
-    try {
-        await operation(statementSent)
-    } finally {
-        spy.mockRestore()
-    }
-    return sent
-}
-
-async function pollUntilSent(worker: CyclotronV2Worker, statementSent: Promise<void>): Promise<void> {
-    await worker.connect(() => Promise.resolve())
-    await statementSent
-    await worker.disconnect()
+async function backendsNamed(applicationName: string): Promise<number> {
+    const { rows } = await assertPool.query<{ n: number }>(
+        'SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE application_name = $1',
+        [applicationName]
+    )
+    return rows[0].n
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -1916,30 +1887,60 @@ describe('Cyclotron V2', () => {
             expect(new Set(allIds).size).toBe(10)
         })
 
-        it('locks only the rows a dequeue claims when several priority classes are due', async () => {
+        it('leaves the due rows a dequeue does not claim to other workers', async () => {
             const scheduled = new Date(Date.now() - 60_000)
             for (const priority of [0, 1, 2]) {
                 await manager.createJob({ teamId: 1, queueName: QUEUE, priority, scheduled })
             }
-            const [dequeue] = await dueRowStatementsSentBy((sent) =>
-                pollUntilSent(createWorker(QUEUE, { batchMaxSize: 1 }), sent)
+            // The trigger parks the first worker's claim after its row locks are taken, so the
+            // second worker polls while those locks are held.
+            const heldWorker = 'cyclotron-held-claim'
+            const claimLock = 4242
+            await assertPool.query(`
+                CREATE OR REPLACE FUNCTION cyclotron_test_hold_claim() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF current_setting('application_name') = '${heldWorker}' THEN
+                        PERFORM pg_advisory_xact_lock(${claimLock});
+                    END IF;
+                    RETURN NEW;
+                END $$`)
+            await assertPool.query(
+                'CREATE TRIGGER cyclotron_test_hold_claim BEFORE UPDATE ON cyclotron_jobs FOR EACH ROW EXECUTE FUNCTION cyclotron_test_hold_claim()'
             )
-
-            const client = await assertPool.connect()
+            const gate = await assertPool.connect()
+            let heldBatch: Promise<CyclotronV2DequeuedJob[]> = Promise.resolve([])
             try {
-                await client.query('BEGIN')
-                const claimed = await client.query<{ priority: number }>(dequeue.text, dequeue.values)
-                const locked = await client.query<{ n: number }>(
-                    `SELECT COUNT(*)::int AS n FROM cyclotron_jobs
-                     WHERE status = 'available' AND xmax::text = txid_current()::text`
+                await gate.query('SELECT pg_advisory_lock($1)', [claimLock])
+                heldBatch = dequeueOneBatch(
+                    createWorker(QUEUE, {
+                        batchMaxSize: 1,
+                        pool: { dbUrl: `${DB_URL}?application_name=${heldWorker}` },
+                    })
+                )
+                await waitForExpect(
+                    async () => {
+                        const { rows } = await assertPool.query(
+                            `SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+                             WHERE a.application_name = $1 AND l.locktype = 'advisory' AND NOT l.granted`,
+                            [heldWorker]
+                        )
+                        expect(rows).toHaveLength(1)
+                    },
+                    2000,
+                    10
                 )
 
-                expect(claimed.rows.map((row) => row.priority)).toEqual([1])
-                expect(locked.rows[0].n).toBe(0)
+                const other = await dequeueOneBatch(createWorker(QUEUE, { batchMaxSize: 1 }), 500)
+
+                expect(other.map((job) => job.priority)).toEqual([1])
             } finally {
-                await client.query('ROLLBACK')
-                client.release()
+                await gate.query('SELECT pg_advisory_unlock_all()')
+                gate.release()
+                await heldBatch
+                await assertPool.query('DROP TRIGGER cyclotron_test_hold_claim ON cyclotron_jobs')
+                await assertPool.query('DROP FUNCTION cyclotron_test_hold_claim()')
             }
+            expect((await heldBatch).map((job) => job.priority)).toEqual([0])
         })
 
         it('transition_count increments on dequeue', async () => {
@@ -1965,42 +1966,120 @@ describe('Cyclotron V2', () => {
     })
 
     describe('polling cost with a backlog scheduled for later', () => {
+        // Only these tests touch this copy of the table, so its I/O counters hold what one operation read.
+        const PROBE_SCHEMA = 'polling_cost_probe'
         const BACKLOG_QUEUE = 'future-backlog'
         const BACKLOG_ROWS = 20_000
-        const BUFFER_BUDGET = 50
+        const BACKLOG_BUFFER_BUDGET = 30
 
-        const operations: [string, (statementSent: Promise<void>) => Promise<unknown>][] = [
-            ['the worker dequeue', (sent) => pollUntilSent(createWorker(BACKLOG_QUEUE), sent)],
+        type PlanMode = 'custom' | 'generic'
+
+        function sessionUrl(applicationName: string, mode: PlanMode): string {
+            const options = `-c search_path=${PROBE_SCHEMA} -c plan_cache_mode=force_${mode}_plan`
+            return `${DB_URL}?application_name=${applicationName}&options=${encodeURIComponent(options)}`
+        }
+
+        // A backend flushes its I/O counters as it exits, before it leaves pg_stat_activity.
+        async function untilSessionsExit(applicationName: string): Promise<void> {
+            await waitForExpect(async () => expect(await backendsNamed(applicationName)).toBe(0), 2000, 10)
+        }
+
+        async function buffersTouched(): Promise<number> {
+            const { rows } = await assertPool.query<{ n: number }>(
+                `SELECT (COALESCE(heap_blks_hit, 0) + COALESCE(heap_blks_read, 0)
+                       + COALESCE(idx_blks_hit, 0) + COALESCE(idx_blks_read, 0))::int AS n
+                 FROM pg_statio_all_tables WHERE relid = $1::regclass`,
+                [`${PROBE_SCHEMA}.cyclotron_jobs`]
+            )
+            return rows[0].n
+        }
+
+        async function seed(dueJobs: number, backlogJobs: number): Promise<void> {
+            const applicationName = 'polling-cost-seed'
+            const client = new Client({ connectionString: sessionUrl(applicationName, 'custom') })
+            await client.connect()
+            try {
+                await client.query('TRUNCATE cyclotron_jobs')
+                await client.query(
+                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
+                     SELECT gen_random_uuid(), 1, $1, 'available', (g % 3)::smallint,
+                            CASE WHEN g <= $3 THEN NOW() - interval '1 minute'
+                                 ELSE NOW() + interval '1 hour' + g * interval '1 minute' END,
+                            NOW(), NOW()
+                     FROM generate_series(1, $2::int + $3::int) g`,
+                    [BACKLOG_QUEUE, backlogJobs, dueJobs]
+                )
+                await client.query('VACUUM ANALYZE cyclotron_jobs')
+            } finally {
+                await client.end()
+            }
+            await untilSessionsExit(applicationName)
+        }
+
+        beforeAll(async () => {
+            await assertPool.query(`DROP SCHEMA IF EXISTS ${PROBE_SCHEMA} CASCADE`)
+            await assertPool.query(`CREATE SCHEMA ${PROBE_SCHEMA}`)
+            await assertPool.query(
+                `CREATE TABLE ${PROBE_SCHEMA}.cyclotron_jobs (LIKE public.cyclotron_jobs INCLUDING ALL)
+                 WITH (autovacuum_enabled = false)`
+            )
+        })
+
+        afterAll(async () => {
+            await assertPool.query(`DROP SCHEMA ${PROBE_SCHEMA} CASCADE`)
+        })
+
+        // The rate-limited worker consults its hook only when a job is due, so that case
+        // seeds one due job and reads the hook call as the end of its poll.
+        const operations: [string, number, (dbUrl: string) => Promise<void>][] = [
+            [
+                'the worker dequeue',
+                0,
+                async (dbUrl) => {
+                    const worker = createWorker(BACKLOG_QUEUE, { pool: { dbUrl } })
+                    await new Promise<void>((polled) => {
+                        void worker.connect(() => Promise.resolve(polled()))
+                    })
+                    await worker.disconnect()
+                },
+            ],
             [
                 'the rate-limited worker count',
-                (sent) =>
-                    pollUntilSent(
-                        new CyclotronV2RateLimitedWorker(
-                            {
-                                pool: { dbUrl: DB_URL },
-                                queueName: BACKLOG_QUEUE,
-                                batchMaxSize: 100,
-                                pollDelayMs: 10,
-                                boundedPolls: true,
-                            },
-                            () => Promise.resolve(undefined)
-                        ),
-                        sent
-                    ),
+                1,
+                async (dbUrl) => {
+                    let counted: () => void = () => {}
+                    const polled = new Promise<void>((resolve) => (counted = resolve))
+                    const worker = new CyclotronV2RateLimitedWorker(
+                        { pool: { dbUrl }, queueName: BACKLOG_QUEUE, pollDelayMs: 10, boundedPolls: true },
+                        () => {
+                            counted()
+                            return Promise.resolve({ limit: 0 })
+                        }
+                    )
+                    await worker.connect(() => Promise.resolve())
+                    await polled
+                    await worker.disconnect()
+                },
             ],
             [
                 'the manager depth check',
-                () =>
-                    manager.createJob({
-                        teamId: 1,
-                        queueName: BACKLOG_QUEUE,
-                        scheduled: new Date(Date.now() + 2 * 60 * 60 * 1000),
-                    }),
+                0,
+                async (dbUrl) => {
+                    const depthChecked = createManager({ pool: { dbUrl }, depthLimit: 0 })
+                    try {
+                        await expect(depthChecked.createJob({ teamId: 1, queueName: BACKLOG_QUEUE })).rejects.toThrow(
+                            'queue is full'
+                        )
+                    } finally {
+                        await depthChecked.disconnect()
+                    }
+                },
             ],
             [
                 'the janitor depth gauges',
-                async () => {
-                    const janitor = createJanitor()
+                0,
+                async (dbUrl) => {
+                    const janitor = createJanitor({ pool: { dbUrl } })
                     try {
                         await janitor.measureQueueDepths()
                     } finally {
@@ -2009,45 +2088,29 @@ describe('Cyclotron V2', () => {
                 },
             ],
         ]
-        const cases = operations.flatMap(([label, operation]) =>
-            (['custom', 'generic'] as const).map((mode) => [label, mode, operation] as const)
+        const cases = operations.flatMap(([label, dueJobs, operation]) =>
+            (['custom', 'generic'] as const).map((mode) => [label, mode, dueJobs, operation] as const)
         )
 
-        async function buffersRead(statement: SentStatement, mode: 'custom' | 'generic'): Promise<number> {
-            const client = await assertPool.connect()
-            try {
-                await client.query('BEGIN')
-                await client.query(`SET LOCAL plan_cache_mode = force_${mode}_plan`)
-                await client.query(`PREPARE polling_statement AS ${statement.text}`)
-                const args = statement.values.map((p) => client.escapeLiteral(String(p))).join(', ')
-                const execute = args ? `EXECUTE polling_statement(${args})` : 'EXECUTE polling_statement'
-                const explained = await client.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${execute}`)
-                const plan = explained.rows[0]['QUERY PLAN'][0].Plan
-                return plan['Shared Hit Blocks'] + plan['Shared Read Blocks']
-            } finally {
-                await client.query('ROLLBACK')
-                await client.query('DEALLOCATE ALL')
-                client.release()
-            }
+        async function buffersReadBy(operation: (dbUrl: string) => Promise<void>, mode: PlanMode): Promise<number> {
+            const applicationName = 'polling-cost-operation'
+            const before = await buffersTouched()
+            await operation(sessionUrl(applicationName, mode))
+            await untilSessionsExit(applicationName)
+            return (await buffersTouched()) - before
         }
 
-        it.each(cases)('%s reads a bounded number of buffers under a %s plan', async (_label, mode, operation) => {
-            await assertPool.query(
-                `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
-                 SELECT gen_random_uuid(), 1, $1, 'available', (g % 3)::smallint,
-                        NOW() + interval '1 hour' + g * interval '1 minute', NOW(), NOW()
-                 FROM generate_series(1, $2) g`,
-                [BACKLOG_QUEUE, BACKLOG_ROWS]
-            )
-            await assertPool.query('VACUUM ANALYZE cyclotron_jobs')
+        it.each(cases)(
+            '%s does not read through a backlog scheduled for later under a %s plan',
+            async (_label, mode, dueJobs, operation) => {
+                await seed(dueJobs, 0)
+                const withoutBacklog = await buffersReadBy(operation, mode)
+                await seed(dueJobs, BACKLOG_ROWS)
+                const withBacklog = await buffersReadBy(operation, mode)
 
-            const statements = await dueRowStatementsSentBy(operation)
-
-            expect(statements.length).toBeGreaterThan(0)
-            for (const statement of statements) {
-                expect(await buffersRead(statement, mode)).toBeLessThan(BUFFER_BUDGET)
+                expect(withBacklog - withoutBacklog).toBeLessThan(BACKLOG_BUFFER_BUDGET)
             }
-        })
+        )
     })
 
     // ── Email fair dequeue ───────────────────────────────────────────

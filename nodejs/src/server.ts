@@ -446,6 +446,7 @@ export class PluginServer implements NodeServer {
                     // it only leaves queued peers un-heartbeated behind a slow audience fetch until
                     // the janitor's stall sweep reclaims them. Same shape as the rerun worker.
                     batchMaxSize: 1,
+                    boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
                 })
                 const internalFetchService = new InternalFetchService(
                     this.config.INTERNAL_API_BASE_URL,
