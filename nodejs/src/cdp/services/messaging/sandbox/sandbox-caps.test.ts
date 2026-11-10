@@ -113,21 +113,24 @@ describe('claimSandboxCaps', () => {
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
     })
 
-    it('charges a reused claim id again when it names another member', async () => {
-        const caps = { team: 5, recipient: 1 }
-        const claimId = randomUUID()
-        await claimSandboxCaps(limiter, caps, { organizationId, teamId, storedAddress: 'first@example.com', claimId })
+    it.each([
+        ['another member', { team: 5, recipient: 1 }, 'second@example.com', 0, 'second@example.com'],
+        ['another project', { team: 1, recipient: 5 }, 'first@example.com', 1, 'other@example.com'],
+    ])(
+        'charges a reused claim id again when it names %s',
+        async (_other, caps, secondAddress, teamOffset, nextAddress) => {
+            const claimId = randomUUID()
+            const sendAttempt = (storedAddress: string, team: number) =>
+                claimSandboxCaps(limiter, caps, { organizationId, teamId: team, storedAddress, claimId })
+            await sendAttempt('first@example.com', teamId)
 
-        expect(
-            await claimSandboxCaps(limiter, caps, {
-                organizationId,
-                teamId,
-                storedAddress: 'second@example.com',
-                claimId,
+            expect(await sendAttempt(secondAddress, teamId + teamOffset)).toEqual({ ok: true })
+            expect(await claim(caps, nextAddress, teamId + teamOffset)).toEqual({
+                ok: false,
+                reason: 'daily_cap_reached',
             })
-        ).toEqual({ ok: true })
-        expect(await claim(caps, 'second@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
-    })
+        }
+    )
 
     it('charges neither bucket when storage fails partway through the claim', async () => {
         await claim({ team: 5, recipient: 2 }, 'warmup@example.com')
