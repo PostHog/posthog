@@ -109,7 +109,7 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     # `creates_native_alert` turn them on. A native create picks any insight cadence, daily by default.
     native=NativeAlertLifecycle(
         check_interval_minutes=MINUTES_PER_DAY,
-        check_intervals=frozenset(minutes for minutes, _ in RECURRENCE.values()),
+        check_intervals=dict(RECURRENCE.values()),
         remove_destinations=remove_native_destinations,
         creates=False,
     ),

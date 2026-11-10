@@ -1224,8 +1224,9 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
-    # None for a kind with one fixed cadence. `admit` sees the chosen interval, so cadence limits hold.
-    check_intervals: frozenset[int] | None = None
+    # Each cadence a create may choose, with the calendar unit it repeats on, since a month is not a fixed
+    # number of minutes. None for a kind with one fixed cadence.
+    check_intervals: Mapping[int, str | None] | None = None
     # The most alerts of the kind a team can have, or None for no cap.
     max_per_team: int | None = None
     # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose

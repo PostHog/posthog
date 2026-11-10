@@ -239,6 +239,7 @@ def create_configuration(
     validated = _validated(source_kind, None, edit, team_id=team_id)
     if spec.native is not None and (spec.creates_natively(team_id) if natively is None else natively):
         check_interval_minutes = _native_check_interval(spec.native, validated)
+        recurrence_unit = (spec.native.check_intervals or {}).get(check_interval_minutes)
         with transaction.atomic():
             _admit(
                 team_id=team_id,
@@ -252,6 +253,7 @@ def create_configuration(
                 source_kind=source_kind,
                 edit=validated,
                 check_interval_minutes=check_interval_minutes,
+                recurrence_unit=recurrence_unit,
                 destinations_owner=PlatformAlertOwner.PLATFORM
                 if spec.native.platform_destinations
                 else PlatformAlertOwner.SOURCE,

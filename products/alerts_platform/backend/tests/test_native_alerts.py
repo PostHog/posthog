@@ -233,15 +233,20 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("fixed_cadence_kind", None, None, 5),
+            ("fixed_cadence_kind", None, None, (5, None)),
             ("fixed_cadence_kind_asked_for_another", None, 60, None),
-            ("chosen_cadence", frozenset({1, 60}), 60, 60),
-            ("chosen_cadence_left_out", frozenset({1, 60}), None, 5),
-            ("cadence_the_kind_lacks", frozenset({1, 60}), 15, None),
+            ("chosen_minute_cadence", {1: None, 10080: "week"}, 1, (1, None)),
+            ("chosen_calendar_cadence", {1: None, 10080: "week"}, 10080, (10080, "week")),
+            ("chosen_cadence_left_out", {1: None, 10080: "week"}, None, (5, None)),
+            ("cadence_the_kind_lacks", {1: None, 10080: "week"}, 15, None),
         ]
     )
     def test_a_native_create_is_admitted_and_stored_at_the_cadence_it_gets(
-        self, _name: str, check_intervals: frozenset[int] | None, requested: int | None, stored: int | None
+        self,
+        _name: str,
+        check_intervals: dict[int, str | None] | None,
+        requested: int | None,
+        stored: tuple[int, str | None] | None,
     ) -> None:
         admitted: list[int | None] = []
 
@@ -263,9 +268,13 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
             )
 
         with team_scope(self.team.id):
-            stored_intervals = list(PlatformAlertConfiguration.objects.values_list("check_interval_minutes", flat=True))
-        expected = [] if stored is None else [stored]
-        assert (admitted, stored_intervals) == (expected, expected)
+            stored_cadences = list(
+                PlatformAlertConfiguration.objects.values_list("check_interval_minutes", "recurrence_unit")
+            )
+        assert (admitted, stored_cadences) == (
+            [] if stored is None else [stored[0]],
+            [] if stored is None else [stored],
+        )
 
     @parameterized.expand([("native_kind", False), ("kind_whose_source_rows_have_a_delete_hook", True)])
     def test_deleting_a_firing_native_alert_resolves_by_its_own_id_before_its_destinations_go(

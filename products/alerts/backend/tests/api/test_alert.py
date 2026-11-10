@@ -2956,12 +2956,13 @@ class TestAlertRealTimeInterval(TrendsInsightAPITest):
 
     @parameterized.expand(
         [
-            ("real_time_past_the_limit", REAL_TIME_CADENCE_MINUTES, False),
-            ("hourly", 60, True),
+            ("real_time_past_the_limit", REAL_TIME_CADENCE_MINUTES, None),
+            ("hourly", 60, (60, None)),
+            ("weekly", 60 * 24 * 7, (60 * 24 * 7, "week")),
         ]
     )
     def test_a_create_with_no_insight_row_is_admitted_at_its_own_cadence(
-        self, _name: str, check_interval_minutes: int, created: bool
+        self, _name: str, check_interval_minutes: int, stored: tuple[int, str | None] | None
     ) -> None:
         self._enable_real_time_alerts(limit=1)
         first = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
@@ -2989,7 +2990,7 @@ class TestAlertRealTimeInterval(TrendsInsightAPITest):
         with (
             mock.patch("products.alerts_platform.backend.logic.source_configs.spec", return_value=creating),
             team_scope(self.team.id),
-            nullcontext() if created else pytest.raises(PlatformAlertCreateRefused, match="limit of 1 real-time"),
+            nullcontext() if stored else pytest.raises(PlatformAlertCreateRefused, match="limit of 1 real-time"),
         ):
             platform_api.create_configuration(
                 team_id=self.team.id,
@@ -3001,7 +3002,7 @@ class TestAlertRealTimeInterval(TrendsInsightAPITest):
 
         page = list_configurations(team_id=self.team.id, source_kinds=["insight"], limit=10, offset=0)
         native = [view for view in page.configurations if view.legacy_configuration_id is None]
-        assert [view.check_interval_minutes for view in native] == ([check_interval_minutes] if created else [])
+        assert [(view.check_interval_minutes, view.recurrence_unit) for view in native] == ([stored] if stored else [])
 
     @parameterized.expand(
         [
