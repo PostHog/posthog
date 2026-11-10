@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect, useRef } from 'react'
 
 import { IconBug, IconInfo, IconSidePanel, IconSparkles } from '@posthog/icons'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger, Badge, Button } from '@posthog/quill'
@@ -49,6 +49,15 @@ export function WatchPanelSections({
     const debugTabs = debugTabKeys(linkedIssuesAvailable)
     const debugTab = debugTabs.includes(activeTab) ? activeTab : SessionRecordingSidebarTab.INSPECTOR
 
+    // The debug item sits under Overview and Observations, so opening it from the mode toggle lands below the fold.
+    const debugItemRef = useRef<HTMLDivElement>(null)
+    const debugOpen = debug && open.includes('debug')
+    useEffect(() => {
+        if (debugOpen) {
+            debugItemRef.current?.scrollIntoView({ block: 'start' })
+        }
+    }, [debugOpen])
+
     return (
         <Accordion multiple value={open} onValueChange={onOpenChange} data-attr="watch-panel-sections">
             <AccordionItem value="overview" className={ITEM_CLASS}>
@@ -75,7 +84,7 @@ export function WatchPanelSections({
                 </AccordionItem>
             )}
             {debug && (
-                <AccordionItem value="debug" className={ITEM_CLASS}>
+                <AccordionItem value="debug" className={ITEM_CLASS} ref={debugItemRef}>
                     <AccordionTrigger data-attr="watch-panel-section-debug">
                         <span className="flex items-center gap-1.5">
                             <IconBug />

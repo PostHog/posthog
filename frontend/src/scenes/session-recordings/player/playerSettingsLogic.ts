@@ -16,7 +16,8 @@ import { urls } from 'scenes/urls'
 import { AutoplayDirection, ReplayTabs, SessionRecordingSidebarStacking } from '~/types'
 
 export type WatchPanelSection = 'overview' | 'observations' | 'debug'
-export const WATCH_PANEL_SECTIONS: WatchPanelSection[] = ['overview', 'observations', 'debug']
+// Overview starts closed; opening it is remembered.
+const WATCH_PANEL_OPEN_BY_DEFAULT: WatchPanelSection[] = ['observations', 'debug']
 export type WatchPanelLayout = Record<string, number>
 export type WatchDebugDock = 'bottom' | 'right'
 
@@ -36,6 +37,7 @@ export interface playerSettingsLogicValues {
     autoplayDirection: AutoplayDirection
     canOverrideLayout: boolean
     debugHintDismissed: boolean
+    debugHintShown: boolean
     debugMode: boolean
     debugModePreference: boolean
     hideRecordingsMenuLabelFor: (
@@ -158,6 +160,7 @@ export interface playerSettingsLogicMeta {
             canOverrideLayout: boolean
         ) => ReplayLayout
         debugMode: (debugModePreference: boolean, urlOverrideSidebarOpen: boolean | null) => boolean
+        debugHintShown: (replayLayout: ReplayLayout, debugMode: boolean, debugHintDismissed: boolean) => boolean
         sidebarOpen: (userPreferenceSidebarOpen: boolean, urlOverrideSidebarOpen: boolean | null) => boolean
         isVerticallyStacked: (preferredSidebarStacking: SessionRecordingSidebarStacking) => boolean
     }
@@ -324,7 +327,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
         watchPanelOpenSections: [
-            WATCH_PANEL_SECTIONS,
+            WATCH_PANEL_OPEN_BY_DEFAULT,
             { persist: true },
             {
                 setWatchPanelOpenSections: (_, { sections }) => sections,
@@ -368,6 +371,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             (s) => [s.debugModePreference, s.urlOverrideSidebarOpen],
             (debugModePreference: boolean, urlOverrideSidebarOpen: boolean | null): boolean =>
                 urlOverrideSidebarOpen ?? debugModePreference,
+        ],
+        // The scene banner that points legacy users at the Watch/Debug toggle. Gone on the first switch to Debug.
+        debugHintShown: [
+            (s) => [s.replayLayout, s.debugMode, s.debugHintDismissed],
+            (replayLayout: ReplayLayout, debugMode: boolean, debugHintDismissed: boolean): boolean =>
+                isNewReplayLayout(replayLayout) && !debugMode && !debugHintDismissed,
         ],
         sidebarOpen: [
             (s) => [s.userPreferenceSidebarOpen, s.urlOverrideSidebarOpen],
