@@ -101,7 +101,6 @@ async def list_chunks_activity(_inputs: ScoreSessionsBatchInputs) -> ListChunksR
     # Return before the backlog gauge so a disabled region leaves the gauge absent and the
     # not-draining alert stays quiet. The workflow still completes, so the stalled alert stays quiet too.
     if not str_to_bool(os.environ.get(SCORING_ENABLED_ENV_VAR)):
-        logger.info("surfacing_scoring_sweep.disabled", env_var=SCORING_ENABLED_ENV_VAR)
         return ListChunksResult()
 
     lookback_days = SCORE_LOOKBACK_DAYS
