@@ -103,8 +103,6 @@ class ExperimentSavedMetricService:
         saved_metric.delete()
 
     def _validate_linked_experiments(self, saved_metric: ExperimentSavedMetric, query: dict) -> None:
-        # Each link applies its own breakdowns to the saved query, so a query change that is valid on its own,
-        # such as a switch to a percentile metric, can make the metric fail on every linked experiment.
         links = ExperimentToSavedMetric.objects.filter(saved_metric=saved_metric, experiment__deleted=False)
         for link in links:
             metadata = link.metadata or {}

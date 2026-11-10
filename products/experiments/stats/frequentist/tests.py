@@ -186,11 +186,8 @@ class SequentialTwoSidedTTest(StatisticalTest):
 
     @staticmethod
     def _sequential_sample_size(statistic: AnyStatistic) -> int:
-        # The sequential test uses n only as a clock: n sets how much the test widens the interval and raises the
-        # p-value compared to a fixed-horizon test. The clock counts exposed users because users are the
-        # randomized unit, so the tuning parameter has the same meaning for every metric. A quantile statistic
-        # counts events in n, and its clustered variance already accounts for several events per user, so only
-        # its clock changes.
+        # Users are the randomized unit, so counting exposed users gives the tuning parameter the same meaning for
+        # every metric. A quantile statistic counts events in n and exposed users in n_clusters.
         if isinstance(statistic, QuantileStatistic):
             return statistic.n_clusters
         return get_sample_size(statistic)

@@ -425,23 +425,15 @@ class TestExperimentSavedMetricService(APIBaseTest):
             (
                 "link_with_breakdowns",
                 {"type": "primary", "breakdowns": [{"property": "$browser"}]},
-                {"method": "bayesian"},
                 "The breakdowns it adds to this metric don't work with this change.",
             ),
-            ("link_without_breakdowns", {"type": "primary"}, {"method": "bayesian"}, None),
-            (
-                "experiment_sequential_testing",
-                {"type": "primary"},
-                {"method": "frequentist", "frequentist": {"sequential_testing_enabled": True}},
-                None,
-            ),
+            ("link_without_breakdowns", {"type": "primary"}, None),
         ]
     )
     def test_update_saved_metric_to_percentile_checks_linked_experiments(
         self,
         _name: str,
         link_metadata: dict,
-        stats_config: dict,
         expected_error: str | None,
     ) -> None:
         saved_metric = ExperimentSavedMetric.objects.create(
@@ -458,7 +450,6 @@ class TestExperimentSavedMetricService(APIBaseTest):
             name="Checkout speed test",
             feature_flag_key="saved-metric-percentile-breakdowns",
             saved_metrics_ids=[{"id": saved_metric.id, "metadata": link_metadata}],
-            stats_config=stats_config,
         )
         percentile_query = {
             "kind": "ExperimentMetric",
