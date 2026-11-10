@@ -108,6 +108,16 @@
             display: none;
         }
 
+        &::after {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            content: '';
+            background: color-mix(in srgb, var(--color-bg-primary) 60%, transparent);
+            backdrop-filter: blur(12px);
+        }
+
         .SpinnerOverlay__ribbon {
             position: absolute;
             inset: -20%;
@@ -233,7 +243,8 @@
         }
 
         @media (forced-colors: active) {
-            .SpinnerOverlay__ribbon {
+            .SpinnerOverlay__ribbon,
+            &::after {
                 display: none;
             }
 
