@@ -58,7 +58,7 @@ import {
     serializeFacetQuery,
 } from './FacetSearchBar/facetQuery'
 import { workflowFilesByRef } from './workflowFilesByRef'
-import { buildWorkflowListFacets, matchesWorkflowListText } from './workflowListFacets'
+import { buildWorkflowListFacets, matchesWorkflowListText, searchesAcrossFolders } from './workflowListFacets'
 import {
     LIST_TYPES,
     DEFAULT_COLUMNS,
@@ -627,8 +627,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 // scopes exist, so each is built once for these rows.
                 const byScope = new Map<boolean, FacetDefinition<WorkflowListRow>[]>()
                 return (value) => {
-                    const includeDescendants =
-                        !!value.text.trim() || value.filters.some((filter) => filter.facet !== 'in' || filter.negated)
+                    const includeDescendants = searchesAcrossFolders(value)
                     let facets = byScope.get(includeDescendants)
                     if (!facets) {
                         facets = buildWorkflowListFacets(rows, { viewer: user, filesByRef, includeDescendants })

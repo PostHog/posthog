@@ -382,6 +382,31 @@ describe('workflowsSavedViewsLogic', () => {
         expect(workflowsListV2Logic.values.filteredRows).toHaveLength(countOnAll)
     })
 
+    it('counts the email templates a view lists beside its workflows', async () => {
+        const emailTemplates: WorkflowViewApi = {
+            ...savedView,
+            id: '00000000-0000-4000-8000-000000000005',
+            name: 'Email templates',
+            state: { filters: [{ facet: 'kind', value: 'email-template', negated: false }], text: '', columns: [] },
+        }
+        storedViews = [savedView, hidesArchive, emailTemplates]
+        router.actions.push(urls.workflows(), { view: 'all' })
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        await workflowsListV2Logic.asyncActions.loadWorkflows()
+        projectTreeDataLogic.actions.loadFolderSuccess(
+            'Archive',
+            [{ id: 'template', path: 'Archive/Receipt', type: 'message_template', ref: 'receipt' }],
+            false,
+            1
+        )
+
+        expect(logic.values.viewCounts[emailTemplates.id]).toEqual(1)
+        expect(logic.values.viewCounts.all).toEqual(FIXTURE_WORKFLOWS.length + 1)
+        expect(logic.values.viewCounts[hidesArchive.id]).toEqual(FIXTURE_WORKFLOWS.length)
+    })
+
     it('withholds health view counts when run metrics are unavailable', async () => {
         useMocks({
             get: { '/api/projects/:team_id/hog_flows/metrics/global/': () => [500, { detail: 'Unavailable' }] },

@@ -3,7 +3,12 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import type { UserBasicApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import type { FacetDefinition } from './FacetSearchBar/facetQuery'
+import {
+    createFacetMatcher,
+    type FacetDefinition,
+    type FacetSearchValue,
+    type MatchesText,
+} from './FacetSearchBar/facetQuery'
 import { HEALTH_TAGS, STATUS_LABELS, TRIGGER_LABELS, TYPE_LABELS } from './workflowListLabels'
 import { WorkflowListRow, creatorHandle } from './workflowListRows'
 
@@ -42,6 +47,97 @@ export function matchesWorkflowListText(row: WorkflowListRow, text: string): boo
         .split(/\s+/)
         .filter(Boolean)
         .every((word) => row.searchText.includes(word))
+}
+
+export type WorkflowFolderFileRow = { id: string; name: string; path: string } & (
+    | { kind: 'workflow'; row: WorkflowListRow }
+    | { kind: 'email_template'; entry: FileSystemEntry }
+)
+
+/** Text or any filter other than an opened folder searches every folder, not only the opened one. */
+export function searchesAcrossFolders(value: FacetSearchValue): boolean {
+    return !!value.text.trim() || value.filters.some((filter) => filter.facet !== 'in' || filter.negated)
+}
+
+/** The workflows and email templates the folder view lists, each placed at its project tree path. */
+export function workflowFolderFiles(
+    rows: WorkflowListRow[],
+    entries: FileSystemEntry[],
+    filesByRef: Record<string, FileSystemEntry>,
+    currentTeamId: number | null
+): WorkflowFolderFileRow[] {
+    return [
+        ...rows.map(
+            (row): WorkflowFolderFileRow => ({
+                kind: 'workflow',
+                id: `workflow:${row.id}`,
+                name: row.name,
+                path: filesByRef[`hog_flow::${row.id}`]?.path ?? 'Unfiled/Workflows/',
+                row,
+            })
+        ),
+        ...entries
+            .filter(
+                (entry) =>
+                    entry.type === 'message_template' &&
+                    !entry.shortcut &&
+                    (entry.team_id ?? currentTeamId) === currentTeamId
+            )
+            .map(
+                (entry): WorkflowFolderFileRow => ({
+                    kind: 'email_template',
+                    id: `email_template:${entry.ref}`,
+                    name: splitPath(entry.path).at(-1) ?? '',
+                    path: entry.path,
+                    entry,
+                })
+            ),
+    ]
+}
+
+export function folderFileFacets(
+    facets: FacetDefinition<WorkflowListRow>[],
+    searching: boolean
+): FacetDefinition<WorkflowFolderFileRow>[] {
+    return facets.map((facet) => ({
+        ...facet,
+        getValues: (item: WorkflowFolderFileRow): string[] => {
+            if (item.kind === 'workflow') {
+                return facet.getValues(item.row)
+            }
+            if (facet.key === 'kind') {
+                return ['email-template']
+            }
+            if (facet.key !== 'in') {
+                return []
+            }
+            return folderScopes(parentPath(item.path), searching)
+        },
+    }))
+}
+
+export function folderFileMatchesText(matchesText: MatchesText<WorkflowListRow>): MatchesText<WorkflowFolderFileRow> {
+    return (item, text) =>
+        item.kind === 'workflow'
+            ? matchesText(item.row, text)
+            : text
+                  .toLowerCase()
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .every((word) => item.name.toLowerCase().includes(word))
+}
+
+/** Matches the files a query finds in every folder. The opened folder narrows them afterwards, so its scope is left out. */
+export function folderFileMatcher(
+    value: FacetSearchValue,
+    facets: FacetDefinition<WorkflowFolderFileRow>[],
+    matchesText: MatchesText<WorkflowFolderFileRow>
+): (item: WorkflowFolderFileRow) => boolean {
+    return createFacetMatcher(
+        { ...value, filters: value.filters.filter((filter) => filter.facet !== 'in' || filter.negated) },
+        facets,
+        matchesText
+    )
 }
 
 export type WorkflowListViewer = Pick<UserBasicApi, 'uuid' | 'first_name' | 'email'>

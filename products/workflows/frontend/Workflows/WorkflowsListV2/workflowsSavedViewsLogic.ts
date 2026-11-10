@@ -24,6 +24,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, type UserType } from '~/types'
 
 import * as api from '../../generated/api'
@@ -31,12 +33,18 @@ import type { WorkflowViewApi } from '../../generated/api.schemas'
 import {
     FacetFilter,
     FacetSearchValue,
-    createFacetMatcher,
     facetFilterKey,
     parseFacetQuery,
     serializeFacetQuery,
 } from './FacetSearchBar/facetQuery'
 import type { FacetDefinition, MatchesText } from './FacetSearchBar/facetQuery'
+import {
+    folderFileFacets,
+    folderFileMatcher,
+    folderFileMatchesText,
+    searchesAcrossFolders,
+    workflowFolderFiles,
+} from './workflowListFacets'
 import { DEFAULT_COLUMNS } from './workflowListLabels'
 import type { OptionalColumn } from './workflowListLabels'
 import type { WorkflowListRow } from './workflowListRows'
@@ -66,6 +74,7 @@ export interface workflowsSavedViewsLogicValues {
     currentTeamId: number | null // workflowsListV2Logic
     facets: FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
     facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
+    filesByRef: Record<string, FileSystemEntry> // workflowsListV2Logic
     listLoaded: boolean // workflowsListV2Logic
     matchesText: MatchesText<WorkflowListRow> // workflowsListV2Logic
     metricsLoaded: boolean // workflowsListV2Logic
@@ -73,6 +82,7 @@ export interface workflowsSavedViewsLogicValues {
     serverSearch: ServerSearchResult | null // workflowsListV2Logic
     shownColumns: OptionalColumn[] // workflowsListV2Logic
     value: FacetSearchValue // workflowsListV2Logic
+    savedItems: FileSystemEntry[] // projectTreeDataLogic
     activeView: WorkflowSavedView
     activeViewChanges: string[]
     activeViewConflicted: boolean
@@ -257,6 +267,9 @@ export interface workflowsSavedViewsLogicMeta {
         viewCounts: (
             views: WorkflowSavedView[],
             rows: WorkflowListRow[],
+            savedItems: FileSystemEntry[], // projectTreeDataLogic
+            filesByRef: Record<string, FileSystemEntry>, // workflowsListV2Logic
+            currentTeamId: number | null, // workflowsListV2Logic
             facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[], // workflowsListV2Logic
             matchesText: MatchesText<WorkflowListRow>,
             serverSearch: ServerSearchResult | null,
@@ -293,6 +306,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 'rows',
                 'facets',
                 'facetsFor',
+                'filesByRef',
                 'matchesText',
                 'serverSearch',
                 'metricsLoaded',
@@ -300,6 +314,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             ],
             userLogic,
             ['user'],
+            projectTreeDataLogic,
+            ['savedItems'],
         ],
         actions: [
             featureFlagLogic,
@@ -506,39 +522,58 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         myWorkflowsDeleted: [(s) => [s.defaultView], (view: WorkflowViewApi | null): boolean => view?.deleted === true],
         saving: [(s) => [s.pendingAction], (pendingAction: SavedViewAction | null): boolean => pendingAction !== null],
         viewCounts: [
-            (s) => [s.views, s.rows, s.facetsFor, s.matchesText, s.serverSearch, s.metricsLoaded, s.listLoaded],
+            (s) => [
+                s.views,
+                s.rows,
+                s.savedItems,
+                s.filesByRef,
+                s.currentTeamId,
+                s.facetsFor,
+                s.matchesText,
+                s.serverSearch,
+                s.metricsLoaded,
+                s.listLoaded,
+            ],
             (
                 views: WorkflowSavedView[],
                 rows: WorkflowListRow[],
+                savedItems: FileSystemEntry[],
+                filesByRef: Record<string, FileSystemEntry>,
+                currentTeamId: number | null,
                 facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[],
                 matchesText: MatchesText<WorkflowListRow>,
                 serverSearch: ServerSearchResult | null,
                 metricsLoaded: boolean,
                 listLoaded: boolean
-            ): Record<string, number> =>
-                !listLoaded
-                    ? {}
-                    : Object.fromEntries(
-                          views.flatMap((view) => {
-                              if (!metricsLoaded && view.state.filters.some((filter) => filter.facet === 'health')) {
-                                  return []
-                              }
-                              const text = view.state.text.trim()
-                              if (
-                                  text.length >= MIN_SERVER_SEARCH_LENGTH &&
-                                  (serverSearch?.text !== text || serverSearch.failed)
-                              ) {
-                                  return []
-                              }
-                              const value = workflowViewValue(view.state)
-                              return [
-                                  [
-                                      view.id,
-                                      rows.filter(createFacetMatcher(value, facetsFor(value), matchesText)).length,
-                                  ],
-                              ]
-                          })
-                      ),
+            ): Record<string, number> => {
+                if (!listLoaded) {
+                    return {}
+                }
+                // The list shows email templates beside workflows, so a view counts both.
+                const files = workflowFolderFiles(rows, savedItems, filesByRef, currentTeamId)
+                const fileMatchesText = folderFileMatchesText(matchesText)
+                return Object.fromEntries(
+                    views.flatMap((view) => {
+                        if (!metricsLoaded && view.state.filters.some((filter) => filter.facet === 'health')) {
+                            return []
+                        }
+                        const text = view.state.text.trim()
+                        if (
+                            text.length >= MIN_SERVER_SEARCH_LENGTH &&
+                            (serverSearch?.text !== text || serverSearch.failed)
+                        ) {
+                            return []
+                        }
+                        const value = workflowViewValue(view.state)
+                        const matches = folderFileMatcher(
+                            value,
+                            folderFileFacets(facetsFor(value), searchesAcrossFolders(value)),
+                            fileMatchesText
+                        )
+                        return [[view.id, files.filter(matches).length]]
+                    })
+                )
+            },
         ],
     }),
     listeners(({ actions, values, cache }) => {
