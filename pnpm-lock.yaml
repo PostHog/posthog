@@ -199,6 +199,7 @@ patchedDependencies:
   jest-junit@16.0.0: b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811
   kea@4.0.0-pre.6: 139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5
   react-draggable@4.5.0: b88af139afc5e153f59c5614bc991ce1404e950acff31e86a86d2f81bcf659e6
+  react-grid-layout@2.3.0: 0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615
   v86@0.5.458: 567937f0364248ae4346886b1da715b6e5a29dd6835c33b66f3264a6bb95d37f
 
 importers:
@@ -1248,7 +1249,7 @@ importers:
         version: 1.7.11(react@18.3.1)
       react-grid-layout:
         specifier: ^2.3.0
-        version: 2.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 2.3.0(patch_hash=0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-intersection-observer:
         specifier: ^9.16.0
         version: 9.16.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2661,9 +2662,15 @@ importers:
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea-forms:
+        specifier: 'catalog:'
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.447.1(@types/react@18.3.31)(react@18.3.1)
@@ -3257,7 +3264,7 @@ importers:
         version: 18.3.1
       react-grid-layout:
         specifier: ^2.3.0
-        version: 2.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 2.3.0(patch_hash=0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@testing-library/jest-dom':
         specifier: ^5.17.0
@@ -3399,7 +3406,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       react-grid-layout:
         specifier: ^2.3.0
-        version: 2.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 2.3.0(patch_hash=0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-intersection-observer:
         specifier: ^9.16.0
         version: 9.16.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -45056,7 +45063,7 @@ snapshots:
       react: 18.3.1
       unlayer-types: 1.532.0
 
-  react-grid-layout@2.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  react-grid-layout@2.3.0(patch_hash=0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       clsx: 2.1.1
       fast-equals: 4.0.3
