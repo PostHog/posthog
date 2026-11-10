@@ -17,7 +17,6 @@ from typing import Literal
 import yaml
 from hogli.manifest import REPO_ROOT
 from hogli.telemetry import is_ci
-from owners_yaml import newly_unowned
 
 from hogli_commands.change_detection import matches_globs
 from hogli_commands.size_lint import _rename_map
@@ -485,17 +484,6 @@ def _first(files: list[str], total: int) -> str:
     count = max(total, len(files))
     more = f" (+{count - 2} more)" if count > 2 else ""
     return ", ".join(files[:2]) + more
-
-
-def check_unowned_paths(scope: Scope) -> Outcome:
-    paths = newly_unowned(REPO_ROOT, scope.merge_base, committed_only=scope.committed_only)
-    if not paths:
-        return "pass", "the diff leaves no file without an owner"
-    return (
-        "warning",
-        f"no owner for {_first(paths, len(paths))}. Name the owner in the nearest owners.yaml, "
-        "or set `owners: null` for a file that nobody owns on purpose",
-    )
 
 
 def check_cross_lane(scope: Scope) -> Outcome:

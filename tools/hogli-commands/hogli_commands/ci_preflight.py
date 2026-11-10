@@ -51,6 +51,7 @@ from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIP
 from hogli_commands.depot_mirrors import mirror_violations
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 from hogli_commands.lockfile_merge import LOCKFILE_GLOBS, missing_resolutions
+from hogli_commands.ownership_lint import check_unowned_paths
 from hogli_commands.preflight_checks import (
     SEMGREP_SCOPE,
     SNAPSHOT_MANIFEST,
@@ -62,7 +63,6 @@ from hogli_commands.preflight_checks import (
     check_semgrep_devex,
     check_snapshot_baselines,
     check_stack_depth,
-    check_unowned_paths,
     prepare_semgrep,
 )
 from hogli_commands.projections import all_outputs as projection_outputs
@@ -175,11 +175,10 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="unowned-paths",
-        label="ownership (the diff leaves a file with no owner)",
+        label="ownership (CI fails on a new test with no owner)",
         triggers=["*"],
         verify=None,
         run=check_unowned_paths,
-        soft=True,
     ),
     DiffCheck(
         key="ruff-format",

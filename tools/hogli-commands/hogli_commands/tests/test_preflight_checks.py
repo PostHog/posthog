@@ -20,7 +20,6 @@ from hogli_commands.preflight_checks import (
     check_semgrep_devex,
     check_snapshot_baselines,
     check_stack_depth,
-    check_unowned_paths,
 )
 
 MANIFEST = """version: 1
@@ -368,36 +367,6 @@ class TestMergeQueueLane:
 
 
 MIXED = {"cross_lane": True, "cross_lane_heavy_files": [PRODUCT_FILE], "cross_lane_light_files": ["nodejs/a.ts"]}
-
-
-class TestUnownedPaths:
-    @pytest.mark.parametrize(
-        ("path", "status"),
-        [
-            pytest.param("owned/new.py", "pass", id="new_file_with_owners"),
-            pytest.param("gap/new.py", "warning", id="new_file_with_no_owner"),
-        ],
-    )
-    def test_warns_about_a_file_the_diff_leaves_unowned(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git: Callable[..., str], path: str, status: str
-    ) -> None:
-        (tmp_path / "owners.yaml").write_text(
-            "version: 1\nowners: []\nrules:\n  - match: '/owned/'\n    owners: team-a\n"
-        )
-        git(tmp_path, "init", "-q")
-        git(tmp_path, "add", "-A")
-        git(tmp_path, "commit", "-q", "-m", "init")
-        (tmp_path / path).parent.mkdir()
-        (tmp_path / path).write_text("new = 1\n")
-        git(tmp_path, "add", "-A")
-        monkeypatch.setattr(preflight_checks, "REPO_ROOT", tmp_path)
-
-        result_status, detail = check_unowned_paths(
-            Scope(files=[path], changed=[path], merge_base="HEAD", committed_only=False)
-        )
-
-        assert result_status == status
-        assert status == "pass" or path in detail
 
 
 class TestCrossLane:
