@@ -29,14 +29,14 @@ tools:
             Built-in lists (pinned, recents, by_posthog) are references, not their resolved items. Do not assume a
             destination is missing because it is not listed here. Check the list contents with the relevant tools before
             adding shortcuts, or ask the person when those contents are unavailable. Project-wide favorites do not
-            identify the person's own favorites.
-            For a general redesign, use activity-summary-get when available to ground a few navigation suggestions in
-            the current person's recent work, repeatedly opened objects, and product pages in this project. Use the
-            dates and object IDs it returns, and briefly explain why each suggestion is relevant. The summary is not an
-            exact last-few-days query and may be stale, not_ready, or unavailable. When it cannot provide recent context,
-            use resolved Pinned and Recents items or ask what matters now. Activity does not resolve those built-in
-            lists. The person's stated goal takes priority; inferred interests do not authorize removing sections or
-            adding metrics. Do not delay a specific request to fetch activity.
+            identify the person's own favorites. For a general redesign, use activity-summary-get when available to
+            ground a few navigation suggestions in the current person's recent work, repeatedly opened objects, and
+            product pages in this project. Use the dates and object IDs it returns, and briefly explain why each
+            suggestion is relevant. The summary is not an exact last-few-days query and may be stale, not_ready, or
+            unavailable. When it cannot provide recent context, use resolved Pinned and Recents items or ask what
+            matters now. Activity does not resolve those built-in lists. The person's stated goal takes priority;
+            inferred interests do not authorize removing sections or adding metrics. Do not delay a specific request to
+            fetch activity.
         feature_flag: ui-customization
     ui-customization-reset:
         operation: ui_customization_destroy
