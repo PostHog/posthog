@@ -2159,7 +2159,7 @@ export const fileSystemTypes = {
         filterKey: 'feature_flag',
     },
     hog_flow: {
-        flag: FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES,
+        flag: FEATURE_FLAGS.WORKFLOWS_LIST_V2,
         name: 'Workflow',
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
@@ -2184,7 +2184,7 @@ export const fileSystemTypes = {
         filterKey: 'insight',
     },
     message_template: {
-        flag: FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES,
+        flag: FEATURE_FLAGS.WORKFLOWS_LIST_V2,
         name: 'Email template',
         iconType: 'broadcasts',
         href: (ref: string) => urls.workflowsLibraryTemplate(ref),
