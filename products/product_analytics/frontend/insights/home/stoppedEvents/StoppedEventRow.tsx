@@ -4,19 +4,21 @@ import { combineUrl } from 'kea-router'
 import { IconEllipsis, IconSparkles } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Text } from '@posthog/quill'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
 import type { HealthIssue } from 'scenes/health/types'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
 
 import { SavedInsightsTabs } from '~/types'
 
 import { stoppedEventsLogic } from './stoppedEventsLogic'
-import { stoppedEventAnnotationText, stoppedEventPayload, stoppedEventSummary } from './stoppedEventText'
+import { stoppedEventAnnotationText, stoppedEventLastSeen, stoppedEventPayload } from './stoppedEventText'
 
 export function StoppedEventRow({ issue }: { issue: HealthIssue }): JSX.Element {
     const { postHogAIOpen } = useValues(stoppedEventsLogic)
     const { investigateWithPostHogAI, reportActionClicked, dismissIssue, snoozeIssue } = useActions(stoppedEventsLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const payload = stoppedEventPayload(issue)
     const annotation = stoppedEventAnnotationText(payload)
 
@@ -30,7 +32,14 @@ export function StoppedEventRow({ issue }: { issue: HealthIssue }): JSX.Element 
                     {payload.event}
                 </Text>
                 <Text size="xs" variant="muted" render={<span />}>
-                    {stoppedEventSummary(payload)}
+                    {stoppedEventLastSeen(payload)} · used in{' '}
+                    <Link
+                        to={combineUrl(urls.savedInsights(SavedInsightsTabs.All), { events: [payload.event] }).url}
+                        onClick={() => reportActionClicked('review_insights', issue)}
+                        data-attr="stopped-event-review-insights"
+                    >
+                        {pluralize(payload.insight_count, 'insight')}
+                    </Link>
                 </Text>
                 {annotation && (
                     <Text size="xs" variant="muted" render={<span />}>
@@ -38,17 +47,7 @@ export function StoppedEventRow({ issue }: { issue: HealthIssue }): JSX.Element 
                     </Text>
                 )}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-                <Button
-                    variant="outline"
-                    size="sm"
-                    disabledReason={postHogAIOpen ? 'PostHog AI is already open' : undefined}
-                    onClick={() => investigateWithPostHogAI(issue)}
-                    data-attr="stopped-event-investigate-with-ai"
-                >
-                    <IconSparkles />
-                    Investigate with PostHog AI
-                </Button>
+            <div className="flex items-center gap-2">
                 <Button
                     variant="outline"
                     size="sm"
@@ -57,19 +56,6 @@ export function StoppedEventRow({ issue }: { issue: HealthIssue }): JSX.Element 
                     data-attr="stopped-event-view-event"
                 >
                     View event
-                </Button>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    render={
-                        <LinkPrimitive
-                            to={combineUrl(urls.savedInsights(SavedInsightsTabs.All), { events: [payload.event] }).url}
-                        />
-                    }
-                    onClick={() => reportActionClicked('review_insights', issue)}
-                    data-attr="stopped-event-review-insights"
-                >
-                    Review {pluralize(payload.insight_count, 'insight')}
                 </Button>
                 <DropdownMenu>
                     <DropdownMenuTrigger
@@ -85,7 +71,17 @@ export function StoppedEventRow({ issue }: { issue: HealthIssue }): JSX.Element 
                     >
                         <IconEllipsis />
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="min-w-48">
+                    <DropdownMenuContent align="end" className="min-w-56">
+                        {dataProcessingAccepted && (
+                            <DropdownMenuItem
+                                disabled={postHogAIOpen}
+                                onClick={() => investigateWithPostHogAI(issue)}
+                                data-attr="stopped-event-investigate-with-ai"
+                            >
+                                <IconSparkles />
+                                Investigate with PostHog AI
+                            </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => snoozeIssue(issue)} data-attr="stopped-event-snooze">
                             Snooze for 7 days
                         </DropdownMenuItem>

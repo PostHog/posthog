@@ -4,7 +4,7 @@ import {
     StoppedEventPayload,
     stoppedEventAnnotationText,
     stoppedEventPrompt,
-    stoppedEventSummary,
+    stoppedEventLastSeen,
 } from './stoppedEventText'
 
 const NOW = dayjs('2026-11-10T12:00:00Z')
@@ -18,15 +18,10 @@ const basePayload: StoppedEventPayload = {
 
 describe('stoppedEventText', () => {
     test.each([
-        ['several insights', basePayload, 'Last seen 5\u00a0days ago. 3 insights use it.'],
-        ['one insight', { ...basePayload, insight_count: 1 }, 'Last seen 5\u00a0days ago. 1 insight uses it.'],
-        [
-            'seen under a day ago',
-            { ...basePayload, last_seen_at: '2026-11-10T06:00:00Z' },
-            'Last seen 1\u00a0day ago. 3 insights use it.',
-        ],
-    ])('summary with %s', (_name, payload, expected) => {
-        expect(stoppedEventSummary(payload, NOW)).toEqual(expected)
+        ['several days ago', basePayload, 'Last seen 5\u00a0days ago'],
+        ['under a day ago', { ...basePayload, last_seen_at: '2026-11-10T06:00:00Z' }, 'Last seen 1\u00a0day ago'],
+    ])('last seen %s', (_name, payload, expected) => {
+        expect(stoppedEventLastSeen(payload, NOW)).toEqual(expected)
     })
 
     test.each([

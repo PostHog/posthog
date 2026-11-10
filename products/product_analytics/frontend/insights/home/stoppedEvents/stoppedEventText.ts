@@ -15,11 +15,9 @@ export function stoppedEventPayload(issue: HealthIssue): StoppedEventPayload {
     return issue.payload as StoppedEventPayload
 }
 
-export function stoppedEventSummary(payload: StoppedEventPayload, now: dayjs.Dayjs = dayjs()): string {
-    const lastSeen = dayjs(payload.last_seen_at)
-    const days = Math.max(1, now.diff(lastSeen, 'day'))
-    const usedIn = payload.insight_count === 1 ? '1 insight uses it' : `${payload.insight_count} insights use it`
-    return `Last seen ${pluralize(days, 'day')} ago. ${usedIn}.`
+export function stoppedEventLastSeen(payload: StoppedEventPayload, now: dayjs.Dayjs = dayjs()): string {
+    const days = Math.max(1, now.diff(dayjs(payload.last_seen_at), 'day'))
+    return `Last seen ${pluralize(days, 'day')} ago`
 }
 
 export function stoppedEventAnnotationText(payload: StoppedEventPayload): string | null {
