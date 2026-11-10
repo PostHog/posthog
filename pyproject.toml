@@ -15,6 +15,7 @@ dependencies = [
     "aiokafka~=0.13.0",
     "anthropic==0.80.0",
     "asyncstdlib==3.14.0",
+    "babel==2.18.0",
     "beautifulsoup4==4.12.3",
     "boto3==1.40.61",
     "brotli==1.2.1",
