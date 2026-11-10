@@ -1098,7 +1098,13 @@ class StamphogGitHubClient:
         )
 
     def get_check_runs(
-        self, repo: str, head_sha: str, *, check_name: str | None = None, app_id: int | None = None
+        self,
+        repo: str,
+        head_sha: str,
+        *,
+        check_name: str | None = None,
+        app_id: int | None = None,
+        priority: Priority = Priority.CRITICAL,
     ) -> list[dict]:
         """Fetch the check runs for a commit, paginating through GitHub's endpoint.
 
@@ -1115,6 +1121,7 @@ class StamphogGitHubClient:
                 f"/repos/{repo}/commits/{head_sha}/check-runs",
                 endpoint="/repos/{owner}/{repo}/commits/{ref}/check-runs",
                 params={"per_page": _PER_PAGE, "page": page, **only},
+                priority=priority,
             )
             if response.status_code != 200:
                 raise StamphogGitHubError(

@@ -28,6 +28,9 @@ from typing import Any
 
 from slack_sdk.errors import SlackApiError
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
+
 from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_PAYLOAD_PATH, STAMPHOG_SANDBOX_REPO_DIR
 from products.tasks.backend.facade.sandbox import SandboxNotFoundError
 
@@ -195,6 +198,8 @@ class GitHubRecorder:
         # The files every compare lists, for a caller that pins a PR's file list to two commits.
         self.compare_files: list[dict] = []
         self.check_runs: dict[tuple[str, str], list[dict]] = {}
+        # Whether the egress limiter sheds every request on the BATCH lane.
+        self.shed_batch = False
         # Repositories with no commits at all. GitHub answers their head lookup with a null
         # defaultBranchRef, which is what a freshly created connected repo looks like.
         self.empty_repositories: set[str] = set()
@@ -237,6 +242,8 @@ class GitHubRecorder:
         json_body = kwargs.get("json")
         params = kwargs.get("params") or {}
 
+        if self.shed_batch and kwargs.get("priority") is Priority.BATCH:
+            raise GitHubEgressBudgetExhausted("the installation budget is spent")
         if method == "POST" and (m := _TOKEN_RE.match(path)):
             return self._mint_token(m.group("inst"))
         if method == "GET" and (m := _PR_FILES_RE.match(path)):

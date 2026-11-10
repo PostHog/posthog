@@ -24,7 +24,8 @@ import structlog
 from celery import Task, shared_task
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
 
@@ -1993,7 +1994,9 @@ def waits_on_attestations(run: ReviewRun) -> bool:
 def _has_reported(client: StamphogGitHubClient, repository: str, head_sha: str, check: PendingCheck) -> bool:
     # The engine's own test for a pending check, so the new review finds every check it waited for.
     # GitHub filters by name and App, so a poll does not page through every check run of the head.
-    check_runs = client.get_check_runs(repository, head_sha, check_name=check.name, app_id=check.app_id)
+    check_runs = client.get_check_runs(
+        repository, head_sha, check_name=check.name, app_id=check.app_id, priority=Priority.BATCH
+    )
     return any(
         check_run.get("name") == check.name
         and (check_run.get("app") or {}).get("id") == check.app_id
@@ -2007,7 +2010,9 @@ def rereview_once_attestations_reported(run: ReviewRun) -> bool:
 
     The review workflow polls this after it saves a WAIT. It reads the run's own record of what it
     waited on and GitHub's record of the checks, and it queues through the same gates as the external
-    re-review. A GitHub or Temporal error propagates, so the calling activity retries.
+    re-review. The poll is background work, so it reads the checks on the sheddable lane, and a shed or
+    rate-limited read means poll again. Any other GitHub or Temporal error propagates, so the calling
+    activity retries.
     """
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
@@ -2025,7 +2030,10 @@ def rereview_once_attestations_reported(run: ReviewRun) -> bool:
     if latest.id != run.id and not stranded:
         return True
     client = StamphogGitHubClient(repo_config.installation_id)
-    if not all(_has_reported(client, repo_config.repository, run.head_sha, check) for check in pending):
+    try:
+        if not all(_has_reported(client, repo_config.repository, run.head_sha, check) for check in pending):
+            return False
+    except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
         return False
     _rereview_waiting_run(
         repo_config, pull_request.pr_number, run.head_sha, wake=_ATTESTATION_WAKE, waiting=waits_on_attestations

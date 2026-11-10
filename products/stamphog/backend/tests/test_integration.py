@@ -2376,6 +2376,26 @@ def test_a_wait_polls_for_its_checks_only_while_a_report_can_wake_it(
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_poll_read_the_limiter_sheds_waits_for_the_next_poll(team, stamphog_chain: StamphogChain) -> None:
+    # The check reported, so only a read on the sheddable lane, taken as "poll again", answers False.
+    stamphog_chain.recorder.check_runs[(REPO, "sha129b")] = [_check_run("success")]
+    stamphog_chain.recorder.shed_batch = True
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=_repo_config(team.id), pr_number=129, author_login="devex-dev"
+    )
+    waiting = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha129b",
+        status=GATED,
+        verdict=ReviewVerdict.WAIT,
+        gate_result={"final_verdict": "WAIT", "classification": {"attestations": {"pending": [_CHECK]}}},
+    )
+
+    assert rereview_once_attestations_reported(waiting) is False
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
     "error, countdown",
     [
