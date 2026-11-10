@@ -41,6 +41,7 @@ Use `posthog:llma-prompt-create`.
   Choose a name that describes the job, for example `support-reply-system`.
 - Write runtime values as `{{variable}}`.
   When you move a prompt out of code, convert each f-string field or template literal placeholder to this form and keep the variable names.
+  `compile` only substitutes values. A format spec such as `{amount:.2f}` or an expression such as `${items.length}` stays in the application code, which passes the result as a plain variable.
 - Put model settings (model, temperature, tool definitions) in `config` when the user wants to change them without a deploy.
   `config` is versioned with the prompt.
 - Copy the prompt text exactly when you move it. Do not improve the wording in the same step.
