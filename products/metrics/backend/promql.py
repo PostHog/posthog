@@ -13,6 +13,7 @@ import requests
 
 from posthog.api.snuffle_proxy import SnuffleNotConfiguredError, snuffle_request
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries, PromQLQueryError
@@ -85,7 +86,16 @@ def snuffle_payload(
     if path in _QUERY_PATHS and data and data.get("query"):
         record_promql_query(team, data["query"])
     try:
-        response = snuffle_request(team.pk, method, path, data=data, params=params, timeout=timeout, ch_user=ch_user)
+        response = snuffle_request(
+            team.pk,
+            method,
+            path,
+            data=data,
+            params=params,
+            timeout=timeout,
+            ch_user=ch_user,
+            workload=Workload.METRICS,
+        )
     except SnuffleNotConfiguredError as exc:
         # Deployment config, not the query, so an alert waiting on it is not counted as broken.
         raise PromQLQueryError("PromQL queries are not available on this PostHog instance.", transient=True) from exc
