@@ -863,6 +863,9 @@ export const platformAlertsUpdateBodyOneSourceConfigOneSkipWeekendDefault = fals
 export const platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault = 0
 export const platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin = 0
 
+export const platformAlertsUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault = false
+export const platformAlertsUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault = false
+export const platformAlertsUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault = `notify`
 export const platformAlertsUpdateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyOneGroupingOneMaxInstancesMax = 100
 
@@ -1034,6 +1037,24 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                         .default(platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault)
                         .describe(
                             "How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API."
+                        ),
+                    investigation_agent_enabled: zod
+                        .boolean()
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault)
+                        .describe(
+                            "Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API."
+                        ),
+                    investigation_gates_notifications: zod
+                        .boolean()
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault)
+                        .describe(
+                            "Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API."
+                        ),
+                    investigation_inconclusive_action: zod
+                        .enum(['notify', 'suppress'])
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault)
+                        .describe(
+                            "What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API."
                         ),
                 })
                 .describe('Settings for a insight alert. The bound the alert is evaluated against is under condition.'),
@@ -1823,6 +1844,9 @@ export const platformAlertsPartialUpdateBodyOneSourceConfigOneSkipWeekendDefault
 export const platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault = 0
 export const platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin = 0
 
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault = false
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault = false
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault = `notify`
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesMax = 100
 
@@ -1998,6 +2022,28 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                         .default(platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault)
                         .describe(
                             "How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API."
+                        ),
+                    investigation_agent_enabled: zod
+                        .boolean()
+                        .default(platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault)
+                        .describe(
+                            "Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API."
+                        ),
+                    investigation_gates_notifications: zod
+                        .boolean()
+                        .default(
+                            platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault
+                        )
+                        .describe(
+                            "Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API."
+                        ),
+                    investigation_inconclusive_action: zod
+                        .enum(['notify', 'suppress'])
+                        .default(
+                            platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault
+                        )
+                        .describe(
+                            "What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API."
                         ),
                 })
                 .optional()

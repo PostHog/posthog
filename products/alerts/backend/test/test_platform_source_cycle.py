@@ -42,7 +42,6 @@ from products.alerts.backend.evaluation.contract import (
     AlertOwnerAccessError,
 )
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
-from products.alerts.backend.facade import investigations
 from products.alerts.backend.judge.contract import (
     LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -56,6 +55,7 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
+from products.alerts.backend.platform_insight_alert import investigated_alert
 from products.alerts.backend.platform_investigation import claim_requested_investigations
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY, requested_investigation
 from products.alerts.backend.platform_source_cycle import (
@@ -1199,7 +1199,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert (start.alert_id, start.user_id) == (str(configuration.id), self.user.id)
         investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get(id=start.investigation_id)
         assert (investigation.alert_configuration_id, investigation.configuration_id) == (None, configuration.id)
-        investigated = investigations.investigated_alert(self.team.id, configuration.id)
+        investigated = investigated_alert(self.team.id, configuration.id)
         assert investigated is not None
         assert (investigated.id, investigated.insight_id, investigated.investigation_gates_notifications) == (
             configuration.id,

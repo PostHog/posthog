@@ -14,7 +14,6 @@ from products.alerts.backend.platform_insight_alert import investigated_alert
 
 __all__ = [
     "finish_investigation",
-    "investigated_alert",
     "mark_investigation_failed",
     "mark_investigation_running",
     "verdict_change_is_news",

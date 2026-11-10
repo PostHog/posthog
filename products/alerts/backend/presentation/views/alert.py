@@ -1851,7 +1851,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
     )
     def retrieve(self, request, *args, **kwargs):
-        instance = self._alert_or_native()
+        # `Any`, because the serializer reads the page of checks off attributes set on the alert below.
+        instance: Any = self._alert_or_native()
 
         checks_qs = instance.alertcheck_set.select_related("investigation_notebook").order_by("-created_at")
 
