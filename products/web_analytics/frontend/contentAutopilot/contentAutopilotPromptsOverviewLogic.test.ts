@@ -5,8 +5,9 @@ import { expectLogic } from 'kea-test-utils'
 import { ApiError } from 'lib/api-error'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import type { HogQLQuery } from '~/queries/schema/schema-general'
+import type { HogQLQuery, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import type { HogQLPropertyFilter } from '~/types'
 
 import {
     aeoPromptsList,
@@ -33,6 +34,10 @@ jest.mock('../generated/api', () => ({
 }))
 
 const mockOverview = jest.mocked(aeoPromptsOverview)
+
+/** The HogQL filters on each Trends series, in series order. */
+const seriesFilters = (query: InsightVizNode<TrendsQuery>): string[][] =>
+    query.source.series.map((series) => (series.properties ?? []).map((filter) => (filter as HogQLPropertyFilter).key))
 
 describe('contentAutopilotPromptsOverviewLogic', () => {
     let logic: ReturnType<typeof contentAutopilotPromptsOverviewLogic.build>
@@ -68,24 +73,38 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             days: OVERVIEW_DAYS,
             branded: 'non_branded',
         })
-        expect(logic.values.citationQuery?.source.values).toEqual({
-            window_start: '2026-09-01 00:00:00',
-            brand_pattern: '\\b(example)\\b',
+        expect(logic.values.citationQuery?.source).toMatchObject({
+            kind: 'TrendsQuery',
+            dateRange: { date_from: '2026-09-01' },
+            trendsFilter: { formula: 'A / B' },
+            series: [{ table_name: 'system.aeo_citation_checks' }, { table_name: 'system.aeo_citation_checks' }],
         })
-        // The legend shows the engine's display name, built into the SQL from the shared label map.
-        expect(logic.values.citationQuery?.source.query).toContain("engine = 'claude-web-search', 'Claude'")
+        // The legend shows the engine's display name, built into the breakdown from the shared label map.
+        expect(logic.values.citationQuery?.source.breakdownFilter?.breakdown).toContain(
+            "engine = 'claude-web-search', 'Claude'"
+        )
         expect(logic.values.sourcesQuery?.source).toMatchObject({ values: { window_start: '2026-09-01 00:00:00' } })
     })
 
     it.each([
-        ['all', ['example'], null],
-        ['branded', ['example'], 'AND match(lower(prompt_text), {brand_pattern})'],
-        ['non_branded', ['example'], 'AND NOT match(lower(prompt_text), {brand_pattern})'],
-        ['branded', [], 'AND false'],
-        ['non_branded', [], null],
+        ['all', ['example'], null, []],
+        [
+            'branded',
+            ['example'],
+            'AND match(lower(prompt_text), {brand_pattern})',
+            ["match(lower(prompt_text), '\\\\b(example)\\\\b')"],
+        ],
+        [
+            'non_branded',
+            ['example'],
+            'AND NOT match(lower(prompt_text), {brand_pattern})',
+            ["NOT match(lower(prompt_text), '\\\\b(example)\\\\b')"],
+        ],
+        ['branded', [], 'AND false', ['false']],
+        ['non_branded', [], null, []],
     ] as const)(
         'reloads the %s segment with brand names %j and filters the set queries the same way',
-        async (segment, brandNames, where) => {
+        async (segment, brandNames, where, conditions) => {
             mockOverview.mockImplementation(async (_, params) => ({
                 ...EXAMPLE_PROMPT_SET_OVERVIEW,
                 brand_names: [...brandNames],
@@ -102,16 +121,16 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
                 days: OVERVIEW_DAYS,
                 branded: segment,
             })
-            const queries = [logic.values.citationQuery?.source, logic.values.sourcesQuery?.source].map(
-                (source) => (source as HogQLQuery).query
-            )
-            for (const query of queries) {
-                if (where) {
-                    expect(query).toContain(where)
-                } else {
-                    expect(query).not.toContain('prompt_text')
-                    expect(query).not.toContain('AND false')
-                }
+            expect(seriesFilters(logic.values.citationQuery!)).toEqual([
+                ['NOT check_failed', ...conditions, 'cited'],
+                ['NOT check_failed', ...conditions],
+            ])
+            const sourcesQuery = (logic.values.sourcesQuery?.source as HogQLQuery).query
+            if (where) {
+                expect(sourcesQuery).toContain(where)
+            } else {
+                expect(sourcesQuery).not.toContain('prompt_text')
+                expect(sourcesQuery).not.toContain('AND false')
             }
         }
     )

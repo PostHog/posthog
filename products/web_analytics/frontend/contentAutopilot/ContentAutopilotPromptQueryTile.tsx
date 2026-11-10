@@ -9,8 +9,14 @@ import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
+import { DataTableNode, DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+
+type PromptReportQuery = DataTableNode | DataVisualizationNode | InsightVizNode
+
+/** The page shows a Trends chart without a frame or person lists. The insight it opens gets both back. */
+const insightQuery = (query: PromptReportQuery): PromptReportQuery =>
+    query.kind === NodeKind.InsightVizNode ? { ...query, embedded: undefined, hidePersonsModal: undefined } : query
 
 /** One report tile: a card with the web analytics tile header, a read-only query inside, and a way to open
  *  the same query as an insight so it can be saved or added to a dashboard. */
@@ -26,7 +32,7 @@ export const ContentAutopilotPromptQueryTile = ({
     'data-attr': dataAttr,
 }: {
     title: string
-    query: DataTableNode | DataVisualizationNode
+    query: PromptReportQuery
     uniqueKey: string
     context?: QueryContext
     actions?: ReactNode
@@ -44,7 +50,7 @@ export const ContentAutopilotPromptQueryTile = ({
                     <LemonButton
                         size="small"
                         icon={<IconOpenInNew />}
-                        to={urls.insightNew({ query })}
+                        to={urls.insightNew({ query: insightQuery(query) })}
                         targetBlank
                         tooltip="Open as insight"
                         aria-label="Open as insight"

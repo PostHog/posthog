@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
+import type { DataTableNode, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 
 import { aeoPromptsOverview } from 'products/web_analytics/frontend/generated/api'
 import type {
@@ -29,7 +29,7 @@ export const OVERVIEW_DAYS = 30
 export interface contentAutopilotPromptsOverviewLogicValues {
     brandedSegment: BrandedSegmentEnumApi // contentAutopilotBrandedLogic
     currentTeamIdStrict: number | string // teamLogic
-    citationQuery: DataVisualizationNode | null
+    citationQuery: InsightVizNode<TrendsQuery> | null
     hasChecks: boolean
     overview: AEOPromptSetOverviewApi | null
     overviewError: ContentAutopilotPromptsError | null
@@ -108,7 +108,7 @@ export interface contentAutopilotPromptsOverviewLogicMeta {
         overviewKpis: (overview: AEOPromptSetOverviewApi | null) => PromptsOverviewKpis | null
         hasChecks: (overview: AEOPromptSetOverviewApi | null) => boolean
         overviewWindow: (overview: AEOPromptSetOverviewApi | null) => PromptSetWindow | null
-        citationQuery: (overviewWindow: PromptSetWindow | null) => DataVisualizationNode | null
+        citationQuery: (overviewWindow: PromptSetWindow | null) => InsightVizNode<TrendsQuery> | null
         sourcesQuery: (overviewWindow: PromptSetWindow | null) => DataTableNode | null
     }
 }
@@ -190,7 +190,7 @@ export const contentAutopilotPromptsOverviewLogic = kea<contentAutopilotPromptsO
         ],
         citationQuery: [
             (s) => [s.overviewWindow],
-            (overviewWindow: PromptSetWindow | null): DataVisualizationNode | null =>
+            (overviewWindow: PromptSetWindow | null): InsightVizNode<TrendsQuery> | null =>
                 overviewWindow ? promptSetCitationQuery(overviewWindow) : null,
         ],
         sourcesQuery: [

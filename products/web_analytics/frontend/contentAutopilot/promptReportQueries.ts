@@ -1,7 +1,15 @@
 import { escapeRegex } from 'lib/utils/actions'
 
-import { DataTableNode, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    DataWarehouseNode,
+    HogQLQuery,
+    InsightVizNode,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
+import { BaseMathType, ChartDisplayType, PropertyFilterType } from '~/types'
 
 import type { BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
@@ -34,17 +42,17 @@ export const PROMPT_SOURCE_COLUMNS = ['domain', 'answers', 'share_of_answers', '
 export const PROMPT_CITATION_COLUMNS = ['url', 'answers', 'share_of_answers', 'is_target'] as const
 export const PROMPT_SEARCH_COLUMNS = ['query', 'searches', 'engines'] as const
 
-// Every query is answered checks inside the window, for one prompt or for the whole set. The prompt id and the
+// Every SQL query is answered checks inside the window, for one prompt or for the whole set. The prompt id and the
 // window start travel as placeholder values, so the HogQL text never embeds user data.
 const SET_WHERE = 'created_at >= toDateTime({window_start}) AND NOT check_failed'
 const WHERE = `prompt_id = {prompt_id} AND ${SET_WHERE}`
 
 const answered = (where: string): string => `(SELECT count() FROM system.aeo_citation_checks WHERE ${where})`
 
-const hogql = (query: string, window: PromptReportWindow, values: Record<string, string> = {}): HogQLQuery => ({
+const hogql = (query: string, window: PromptReportWindow): HogQLQuery => ({
     kind: NodeKind.HogQLQuery,
     query,
-    values: { prompt_id: window.promptId, window_start: `${window.from} 00:00:00`, ...values },
+    values: { prompt_id: window.promptId, window_start: `${window.from} 00:00:00` },
 })
 
 const setHogql = (query: string, window: PromptSetWindow): HogQLQuery => ({
@@ -62,9 +70,6 @@ const setHogql = (query: string, window: PromptSetWindow): HogQLQuery => ({
 export const brandMentionPattern = (brandNames: string[]): string =>
     `\\b(${brandNames.map((name) => escapeRegex(name.toLowerCase())).join('|')})\\b`
 
-const mentionedExpr = (brandNames: string[]): string =>
-    brandNames.length ? "cited OR match(lower(coalesce(answer_text, '')), {brand_pattern})" : 'cited'
-
 const sqlString = (value: string): string => `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
 
 /** The engine's display name, so a chart legend reads "Claude" rather than its id. Unknown ids stay as they are. */
@@ -72,42 +77,60 @@ const ENGINE_NAME = `multiIf(${Object.entries(ENGINE_LABELS)
     .map(([engine, label]) => `engine = ${sqlString(engine)}, ${sqlString(label)}`)
     .join(', ')}, engine)`
 
-// The label gets its own alias: naming it `engine` too would make the alias refer to itself.
-const dailyRateSql = (where: string, counted: string): string =>
-    `SELECT toDate(created_at) AS day, ${ENGINE_NAME} AS engine_name, round(countIf(${counted}) / count(), 3) AS rate
-FROM system.aeo_citation_checks
-WHERE ${where}
-GROUP BY day, engine_name
-ORDER BY day, engine_name`
+const CHECKS_TABLE = 'system.aeo_citation_checks'
 
-const dailyRateChart = (source: HogQLQuery): DataVisualizationNode => ({
-    kind: NodeKind.DataVisualizationNode,
-    source,
-    display: ChartDisplayType.ActionsLineGraph,
-    chartSettings: {
-        xAxis: { column: 'day' },
-        yAxis: [{ column: 'rate', settings: { formatting: { style: 'percent', decimalPlaces: 0 } } }],
-        seriesBreakdownColumn: 'engine_name',
-        showLegend: true,
-    },
+// Trends series take no placeholder values, so the brand pattern and the prompt id go into the filter text as
+// escaped string literals.
+const namesBrand = (field: string, brandNames: string[]): string =>
+    `match(lower(${field}), ${sqlString(brandMentionPattern(brandNames))})`
+
+const mentionedCondition = (brandNames: string[]): string =>
+    brandNames.length ? `cited OR ${namesBrand("coalesce(answer_text, '')", brandNames)}` : 'cited'
+
+/** Answered checks with every condition met, counted once each. */
+const checksSeries = (conditions: string[]): DataWarehouseNode => ({
+    kind: NodeKind.DataWarehouseNode,
+    id: CHECKS_TABLE,
+    table_name: CHECKS_TABLE,
+    timestamp_field: 'timestamp',
+    id_field: 'id',
+    distinct_id_field: 'prompt_id',
+    math: BaseMathType.TotalCount,
+    properties: ['NOT check_failed', ...conditions].map((key) => ({ type: PropertyFilterType.HogQL, key })),
 })
 
-/** Daily citation (or brand mention) rate per engine. Days an engine did not run are gaps, not zeros. */
+/** Daily share of the answered checks that meet `counted`, one line per engine, as a Trends insight so it opens,
+ * saves and subscribes like any other. A day an engine did not run reads as 0%. */
+const dailyRateChart = (conditions: string[], counted: string, from: string): InsightVizNode<TrendsQuery> => ({
+    kind: NodeKind.InsightVizNode,
+    source: {
+        kind: NodeKind.TrendsQuery,
+        series: [checksSeries([...conditions, counted]), checksSeries(conditions)],
+        interval: 'day',
+        dateRange: { date_from: from, date_to: null, explicitDate: true },
+        breakdownFilter: { breakdown_type: 'hogql', breakdown: ENGINE_NAME },
+        trendsFilter: {
+            display: ChartDisplayType.ActionsLineGraph,
+            formula: 'A / B',
+            aggregationAxisFormat: 'percentage_scaled',
+            decimalPlaces: 0,
+            showLegend: true,
+        },
+    },
+    embedded: true,
+    hidePersonsModal: true,
+})
+
+/** Daily citation (or brand mention) rate per engine for one prompt. */
 export const promptVisibilityQuery = (
     window: PromptReportWindow,
     metric: PromptVisibilityMetric
-): DataVisualizationNode => {
-    const counted = metric === 'mentioned' ? mentionedExpr(window.brandNames) : 'cited'
-    return dailyRateChart(
-        hogql(
-            dailyRateSql(WHERE, counted),
-            window,
-            metric === 'mentioned' && window.brandNames.length
-                ? { brand_pattern: brandMentionPattern(window.brandNames) }
-                : {}
-        )
+): InsightVizNode<TrendsQuery> =>
+    dailyRateChart(
+        [`toString(prompt_id) = ${sqlString(window.promptId)}`],
+        metric === 'mentioned' ? mentionedCondition(window.brandNames) : 'cited',
+        window.from
     )
-}
 
 /** The set's checks on one side of the branded split, matching the API's `branded` filter. Without brand names no
  * prompt is branded. */
@@ -118,13 +141,25 @@ const setWhere = ({ branded, brandNames }: PromptSetWindow): string => {
     if (!brandNames.length) {
         return branded === 'branded' ? `${SET_WHERE} AND false` : SET_WHERE
     }
-    const namesBrand = 'match(lower(prompt_text), {brand_pattern})'
-    return `${SET_WHERE} AND ${branded === 'branded' ? namesBrand : `NOT ${namesBrand}`}`
+    const namesBrandSql = 'match(lower(prompt_text), {brand_pattern})'
+    return `${SET_WHERE} AND ${branded === 'branded' ? namesBrandSql : `NOT ${namesBrandSql}`}`
+}
+
+/** `setWhere` as Trends series filters. */
+const segmentConditions = ({ branded, brandNames }: PromptSetWindow): string[] => {
+    if (branded === 'all') {
+        return []
+    }
+    if (!brandNames.length) {
+        return branded === 'branded' ? ['false'] : []
+    }
+    const condition = namesBrand('prompt_text', brandNames)
+    return [branded === 'branded' ? condition : `NOT ${condition}`]
 }
 
 /** Daily citation rate per engine across every prompt in the set. */
-export const promptSetCitationQuery = (window: PromptSetWindow): DataVisualizationNode =>
-    dailyRateChart(setHogql(dailyRateSql(setWhere(window), 'cited'), window))
+export const promptSetCitationQuery = (window: PromptSetWindow): InsightVizNode<TrendsQuery> =>
+    dailyRateChart(segmentConditions(window), 'cited', window.from)
 
 const citedUrls = (where: string): string =>
     `SELECT id, engine, arrayJoin(JSONExtract(cited_urls, 'Array(String)')) AS url, target_urls

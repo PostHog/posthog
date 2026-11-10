@@ -5,8 +5,9 @@ import { expectLogic } from 'kea-test-utils'
 import { ApiError } from 'lib/api-error'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import type { HogQLQuery } from '~/queries/schema/schema-general'
+import type { HogQLQuery, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import type { HogQLPropertyFilter } from '~/types'
 
 import {
     aeoPromptsChecks,
@@ -46,6 +47,10 @@ const mockPartialUpdate = jest.mocked(aeoPromptsPartialUpdate)
 
 const PROMPT = EXAMPLE_PROMPTS[0]
 const TEAM_ID = String(MOCK_DEFAULT_TEAM.id)
+
+/** The HogQL filters on each Trends series, in series order. */
+const seriesFilters = (query: InsightVizNode<TrendsQuery>): string[][] =>
+    query.source.series.map((series) => (series.properties ?? []).map((filter) => (filter as HogQLPropertyFilter).key))
 
 describe('contentAutopilotPromptDetailLogic', () => {
     let logic: ReturnType<typeof contentAutopilotPromptDetailLogic.build>
@@ -95,17 +100,27 @@ describe('contentAutopilotPromptDetailLogic', () => {
         logic.actions.openPromptDetail(PROMPT.id)
         await expectLogic(logic).toFinishAllListeners()
 
+        const reportValues = { prompt_id: PROMPT.id, window_start: '2026-09-01 00:00:00' }
+        const promptFilter = `toString(prompt_id) = '${PROMPT.id}'`
         const citedQuery = logic.values.visibilityQuery!
-        expect(citedQuery.source.values).toEqual({ prompt_id: PROMPT.id, window_start: '2026-09-01 00:00:00' })
-        expect(citedQuery.source.query).toContain('countIf(cited)')
-        expect((logic.values.sourcesQuery!.source as HogQLQuery).values).toEqual(citedQuery.source.values)
-        expect(logic.values.sentimentQuery!.source.values).toEqual(citedQuery.source.values)
+        expect(citedQuery.source).toMatchObject({
+            dateRange: { date_from: '2026-09-01' },
+            trendsFilter: { formula: 'A / B' },
+        })
+        expect(seriesFilters(citedQuery)).toEqual([
+            ['NOT check_failed', promptFilter, 'cited'],
+            ['NOT check_failed', promptFilter],
+        ])
+        expect((logic.values.sourcesQuery!.source as HogQLQuery).values).toEqual(reportValues)
+        expect(logic.values.sentimentQuery!.source.values).toEqual(reportValues)
         expect(logic.values.sentimentQuery!.source.query).toContain('brand_sentiment IS NOT NULL')
 
         logic.actions.setVisibilityMetric('mentioned')
-        const mentionedQuery = logic.values.visibilityQuery!
-        expect(mentionedQuery.source.query).toContain('{brand_pattern}')
-        expect(mentionedQuery.source.values?.brand_pattern).toBe('\\b(example)\\b')
+        expect(seriesFilters(logic.values.visibilityQuery!)[0]).toEqual([
+            'NOT check_failed',
+            promptFilter,
+            "cited OR match(lower(coalesce(answer_text, '')), '\\\\b(example)\\\\b')",
+        ])
 
         // A new prompt starts over on the citation metric.
         logic.actions.openPromptDetail(EXAMPLE_PROMPTS[1].id)

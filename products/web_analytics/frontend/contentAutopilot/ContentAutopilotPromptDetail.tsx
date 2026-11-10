@@ -196,7 +196,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
 
                             <Section
                                 title="Mentions and citations over time"
-                                description="One line per engine, one point per day it ran."
+                                description="One line per engine, one point per day."
                             >
                                 <ContentAutopilotPromptQueryTile
                                     title={
