@@ -16,6 +16,8 @@ const image: ImageTileImage = {
     position: { x: 50, y: 50 },
 }
 
+const previewTrigger = (): HTMLElement => screen.getByLabelText('Signup chart')
+
 const renderTile = (isDragging = false): void => {
     render(
         <DashboardImageTile
@@ -34,16 +36,17 @@ describe('DashboardImageTile', () => {
     it('is not a native button, so the grid can still start a drag from the image', () => {
         renderTile()
 
-        const trigger = screen.getByRole('button', { name: 'Signup chart' })
+        const trigger = previewTrigger()
         // The grid's drag `cancel` selector matches `button`, but not `[role="button"]`.
         expect(trigger.tagName).not.toBe('BUTTON')
+        expect(trigger).toHaveAttribute('role', 'button')
         expect(trigger).toHaveAttribute('tabIndex', '0')
     })
 
     it.each(['Enter', ' '])('opens the preview with the %j key', (key) => {
         renderTile()
 
-        fireEvent.keyDown(screen.getByRole('button', { name: 'Signup chart' }), { key })
+        fireEvent.keyDown(previewTrigger(), { key })
 
         expect(screen.getByText('Image preview')).toBeInTheDocument()
     })
@@ -51,7 +54,7 @@ describe('DashboardImageTile', () => {
     it('ignores the click that ends a drag', () => {
         renderTile(true)
 
-        fireEvent.click(screen.getByRole('button', { name: 'Signup chart' }))
+        fireEvent.click(previewTrigger())
 
         expect(screen.queryByText('Image preview')).not.toBeInTheDocument()
     })
