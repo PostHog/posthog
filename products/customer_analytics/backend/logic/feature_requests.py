@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
-from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
+from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.db.models import (
     Case,
@@ -23,6 +23,7 @@ from django.db.models.functions import Coalesce, Concat, Lower, NullIf, Trim
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import UploadedMedia, User
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
@@ -128,15 +129,13 @@ def _get_feature_request_can_update(feature_request: FeatureRequest, user_access
 
 
 def _can_view_github_link(link: FeatureRequestGitHubLink | None, user_access_control: "UserAccessControl") -> bool:
-    if link is None:
+    if link is None or link.integration_id is None:
         return False
     try:
-        integration = link.integration
-    except ObjectDoesNotExist:
+        integration = IntegrationManager.github.any.get(link.team_id, link.integration_id)
+    except IntegrationNotFound:
         return False
-    return integration is not None and user_access_control.check_access_level_for_object(
-        integration, required_level="viewer"
-    )
+    return user_access_control.check_access_level_for_object(integration, required_level="viewer")
 
 
 def _to_github_link_view(
@@ -228,7 +227,7 @@ def _feature_request_queryset(
     queryset = (
         FeatureRequest.objects.for_team(team_id)
         .filter(account_links__account_id__in=accessible_account_ids, account_links__unlinked_at__isnull=True)
-        .select_related("github_link__integration")
+        .select_related("github_link")
         .prefetch_related("product_areas", Prefetch("account_links", queryset=visible_links))
     )
     return queryset.prefetch_related(
@@ -1355,10 +1354,7 @@ def list_feature_request_history(
     if not _feature_request_queryset(team_id, user_access_control).filter(id=feature_request_id).exists():
         return None
     github_link = (
-        FeatureRequestGitHubLink.objects.for_team(team_id)
-        .select_related("integration")
-        .filter(feature_request_id=feature_request_id)
-        .first()
+        FeatureRequestGitHubLink.objects.for_team(team_id).filter(feature_request_id=feature_request_id).first()
     )
     can_view_github_link = _can_view_github_link(github_link, user_access_control)
     history = list(
