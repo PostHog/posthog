@@ -1,5 +1,5 @@
-# The metrics4 ingest chain runs on the APM ingestion nodes.
-# Its Distributed tables write to the metrics4 data tables on the logs cluster.
+# The metrics4 ingest chain. The ingestion-metrics nodes run it, and their patches point its
+# Distributed tables at the metrics cluster. The local stack runs it unpatched, into the logs tables.
 database "posthog" {
   table "kafka_metrics_avro4" {
     column "uuid" { type = "String" }

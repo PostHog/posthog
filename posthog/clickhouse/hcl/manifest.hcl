@@ -43,13 +43,14 @@ role "logs" {
 }
 
 # APM satellite: the ingestion-apm nodes. Every environment runs the shared
-# custom_metrics suite and writes to the query log archive. Every environment also
-# runs the metrics4 ingest chain and the logs Kafka ingest. Development runs the
-# legacy APM ingest chain too. The production logs nodes still run that legacy chain.
+# custom_metrics suite, writes to the query log archive, and runs the logs Kafka
+# ingest. Development runs the legacy APM ingest chain too. The production logs
+# nodes still run that legacy chain. The metrics4 ingest chain runs only on the
+# ingestion-metrics nodes, which write to the metrics cluster.
 role "apm" {
-  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/apm/shared", "roles/apm/dev"] }
-  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest", "roles/apm/shared"] }
-  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest", "roles/apm/shared"] }
+  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/apm/dev"] }
+  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest"] }
+  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest"] }
 }
 
 # Dedicated metrics storage, split off the logs cluster. Holds the metrics4 tables, which the
@@ -60,12 +61,12 @@ role "metrics" {
   env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared"] }
 }
 
-# The ingestion-metrics nodes run the same metrics4 ingest chain as apm, patched to write to the
-# metrics cluster under their own consumer group. Both chains run while the topic is dual-written.
+# The ingestion-metrics nodes run the metrics4 ingest chain, patched to write to the metrics
+# cluster under their own consumer group.
 role "ingestion_metrics" {
-  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared", "roles/ingestion_metrics/shared", "roles/ingestion_metrics/dev"] }
-  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared", "roles/ingestion_metrics/shared"] }
-  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared", "roles/ingestion_metrics/shared"] }
+  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/metrics4_ingest", "roles/ingestion_metrics/shared", "roles/ingestion_metrics/dev"] }
+  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/metrics4_ingest", "roles/ingestion_metrics/shared"] }
+  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/metrics4_ingest", "roles/ingestion_metrics/shared"] }
 }
 
 # AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
@@ -162,7 +163,7 @@ role "medium" {
 # and not MULTINODE_CLICKHOUSE. Composed as the deduped union of the local-multi stacks it
 # hosts, so any name two of those roles declare fails this load instead of drifting.
 role "all" {
-  env "local-single" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local", "roles/apm/shared", "roles/apm/local", "roles/coshared/ai_events_data", "roles/coshared/person_shims", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/coshared/log_entries_aux", "roles/coshared/aux_small", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/main_join_readers", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/log_entries_aux_write", "roles/coshared/session_replay_write", "roles/coshared/person_group_membership_config", "roles/coshared/person_group_membership_write", "roles/data/shared", "roles/data/common", "roles/coshared/main_proxies", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_events/local-single", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
+  env "local-single" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local", "roles/coshared/metrics4_ingest", "roles/apm/local", "roles/coshared/ai_events_data", "roles/coshared/person_shims", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/coshared/log_entries_aux", "roles/coshared/aux_small", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/main_join_readers", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/log_entries_aux_write", "roles/coshared/session_replay_write", "roles/coshared/person_group_membership_config", "roles/coshared/person_group_membership_write", "roles/data/shared", "roles/data/common", "roles/coshared/main_proxies", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_events/local-single", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
 }
 
 # role "endpoints" {
