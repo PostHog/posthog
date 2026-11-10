@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 import pydantic
+import posthoganalytics
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig
 
@@ -83,6 +84,8 @@ if TYPE_CHECKING:
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 SPEC_VERSION = 1
+
+CALCULATION_KEY_V2_FLAG = "experiment-calculation-key-v2"
 
 # The version of the calculation key, hashed into the key itself. A change that makes the engine compute a
 # different result for an existing config bumps it, so that results computed before the change stop counting
@@ -258,8 +261,23 @@ def _cuped_key_input(cuped: CupedQueryConfig) -> dict[str, Any]:
 
 def resolve_calculation_key_version(team: "Team") -> int:
     """The calculation key version that a new operation of this team uses. It is the only activation decision:
-    queued work carries the version in its key, so a worker never calls this."""
-    return 1
+    queued work carries the version in its key, so a worker never calls this.
+
+    The team gets version 2 when the `experiment-calculation-key-v2` flag is on for it. The flag is evaluated
+    locally, because the experiment read path calls this. An inconclusive or failed evaluation gives version 1.
+    """
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            CALCULATION_KEY_V2_FLAG,
+            str(team.id),
+            groups={"project": str(team.id)},
+            group_properties={"project": {"id": str(team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return 1
+    return CALCULATION_KEY_VERSION if enabled is True else 1
 
 
 @frozen
