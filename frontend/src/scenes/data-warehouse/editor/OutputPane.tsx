@@ -1001,7 +1001,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 outputContent
             )}
             <div className="flex flex-wrap justify-between gap-x-4 px-2 border-t">
-                <div className="flex flex-wrap items-center gap-x-4">
+                <div className="flex min-h-4 flex-wrap items-center gap-x-4">
                     {response && !responseError ? <LoadPreviewText localResponse={response} /> : null}
                     {showRowLimitHint ? (
                         <span className="text-xs text-muted" role="status" data-attr="sql-editor-row-limit">
