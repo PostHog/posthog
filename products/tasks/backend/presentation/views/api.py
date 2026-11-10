@@ -577,8 +577,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         *,
         partial: bool = False,
         serializer_class: type[TaskWriteSerializer] = TaskWriteSerializer,
+        instance=None,
     ) -> TaskWriteSerializer:
         serializer = serializer_class(
+            instance=instance,
             data=data,
             partial=partial,
             context={"team": self.team, "team_id": self.team.id, "request": self.request},
@@ -1114,9 +1116,24 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             and authenticator.access_token.sandbox_task_id is not None
         ):
             raise PermissionDenied("Task agents cannot move tasks between channels.")
-        serializer = self._write_serializer(request.data, partial=True)
+        if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
+            raise NotFound()
+        current = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        if current is None:
+            raise NotFound()
+        serializer = self._write_serializer(request.data, partial=True, instance=current)
         task = tasks_facade.update_task(
-            pk, self.team_id, self._user_id(), validated_data=dict(serializer.validated_data)
+            pk,
+            self.team_id,
+            self._user_id(),
+            validated_data=dict(serializer.validated_data),
+            expected_repository_state=(
+                current.repository,
+                current.repositories,
+                current.github_integration,
+                current.github_user_integration,
+                current.repository_integration,
+            ),
         )
         if task is None:
             raise NotFound()
@@ -2470,6 +2487,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if outcome == "gitlab_unsupported":
+            raise ValidationError("GitLab task runs are not available yet.")
         if outcome == "ownership_changed":
             return Response(
                 TaskRunErrorResponseSerializer(
