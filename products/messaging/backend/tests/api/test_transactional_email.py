@@ -29,6 +29,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
 from products.access_control.backend.facade.testing import create_access_control
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.transactional_email import report_first_code_send
 from products.messaging.backend.models.first_code_send import FirstCodeSend
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
@@ -102,6 +103,27 @@ class TestTransactionalEmail(APIBaseTest):
             or {"email": {"subject": "Reset your password", "html": "<a href='{{ variables.link }}'>Reset</a>"}},
             type="email",
         )
+
+    def _edit_workflow_email(self, fields: dict) -> None:
+        sync_template_to_db(
+            {
+                "id": "template-email",
+                "name": "Email",
+                "code": "return event",
+                "code_language": "hog",
+                "type": "destination",
+                "status": "stable",
+                "inputs_schema": [
+                    {"key": "email", "type": "native_email", "label": "Email", "required": True, "templating": "liquid"}
+                ],
+            }
+        )
+        url = f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}"
+        actions = self.client.get(url).json()["actions"]
+        step = next(action for action in actions if action["config"].get("template_id") == "template-email")
+        step["config"]["inputs"]["email"]["value"].update(fields)
+        saved = self.client.patch(url, {"actions": actions}, format="json")
+        assert saved.status_code == status.HTTP_200_OK, saved.json()
 
     def _save_template(self, fields: dict) -> None:
         saved = self.client.patch(
@@ -368,7 +390,8 @@ class TestTransactionalEmail(APIBaseTest):
             ("category_turned_marketing", "marketing_template"),
             ("marketing_template_without_an_unsubscribe_link", "unsubscribe_link_required"),
             ("marketing_workflow_without_an_unsubscribe_link", "unsubscribe_link_required"),
-            ("marketing_workflow_with_copies", "copies_not_allowed"),
+            ("marketing_workflow_with_cc", "copies_not_allowed"),
+            ("marketing_workflow_with_bcc", "copies_not_allowed"),
             ("liquid_in_recipient", "invalid_recipient"),
             ("idempotency_key_with_spaces", "invalid_idempotency_key"),
             ("idempotency_key_too_long", "invalid_idempotency_key"),
@@ -399,13 +422,11 @@ class TestTransactionalEmail(APIBaseTest):
                 message_category=self._category(),
                 content={"email": {"subject": "Reset your password", "html": self.UNSUBSCRIBE_HTML}},
             )
-        elif case == "marketing_workflow_with_copies":
+        elif case in ("marketing_workflow_with_cc", "marketing_workflow_with_bcc"):
             content = {"email": {"subject": "Reset your password", "html": self.UNSUBSCRIBE_HTML}}
             self._save_template({"message_category": str(self._category().id), "content": content})
-            # An edit in the workflows editor, or a restored version, can add copies the template never had.
-            actions = HogFlow.objects.get(team=self.team, id=self.hog_flow_id).actions
-            actions[1]["config"]["inputs"]["email"]["value"]["bcc"] = "audit@example.com"
-            HogFlow.objects.filter(team=self.team, id=self.hog_flow_id).update(actions=actions)
+            # The workflows editor can add copies the template never had.
+            self._edit_workflow_email({case.rsplit("_", 1)[1]: "audit@example.com"})
         elif case == "liquid_in_recipient":
             body["to"] = "{{person.properties.email}}@example.com"
         elif case == "idempotency_key_with_spaces":
