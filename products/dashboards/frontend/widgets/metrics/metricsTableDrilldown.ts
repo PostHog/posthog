@@ -76,7 +76,16 @@ function drilldownFilterSets(labels: string[], rows: string[][]): MetricsQueryFi
     return [...byPrefix.values()].map((group) => rowsFilters(labels, group))
 }
 
-// The metrics query fails at 10,000 (bucket, series) rows, and each selected row is one series.
+/** How many series the filter sets can match: every combination of the values in each set. Past the clause
+ * limit this is more than the selected rows. */
+function matchedSeriesCount(filterSets: MetricsQueryFilter[][], labels: string[], rows: string[][]): number {
+    if (filterSets.length !== 1) {
+        return rows.length
+    }
+    return labels.reduce((count, _, index) => count * new Set(rows.map((row) => row[index])).size, 1)
+}
+
+// The metrics query fails at 10,000 (bucket, series) rows, and each matched combination is one series.
 const DRILLDOWN_ROW_BUDGET = 9_000
 // The same numbers the backend uses: about 60 points when no interval is set, and never more than 500.
 const DRILLDOWN_TARGET_BUCKETS = 60
@@ -114,12 +123,12 @@ function spanSeconds(dateFrom: string, dateTo: string | null, timezone: string):
 }
 
 /** The point spacing all charts share: the requested one, or the backend's pick for the range when there is none,
- * made coarser until the selected rows fit in the row budget of the query. */
+ * made coarser until the matched series fit in the row budget of the query. */
 function drilldownInterval(
     interval: string | null,
     dateFrom: string,
     dateTo: string | null,
-    rowCount: number,
+    seriesCount: number,
     timezone: string
 ): string | null {
     const span = spanSeconds(dateFrom, dateTo, timezone)
@@ -135,7 +144,7 @@ function drilldownInterval(
     const fits = INTERVAL_SECONDS.slice(start).find(
         ([, seconds]) =>
             span / seconds <= DRILLDOWN_MAX_BUCKETS &&
-            (Math.ceil(span / seconds) + 1) * rowCount <= DRILLDOWN_ROW_BUDGET
+            (Math.ceil(span / seconds) + 1) * seriesCount <= DRILLDOWN_ROW_BUDGET
     )
     return (fits ?? INTERVAL_SECONDS[INTERVAL_SECONDS.length - 1])[0]
 }
@@ -206,9 +215,10 @@ export function buildMetricsTableDrilldown(
         return { dateFrom, dateTo, interval: null, charts: [] }
     }
     const requested = dashboardFilters?.interval ? DASHBOARD_INTERVALS[dashboardFilters.interval] : config.interval
-    const interval = drilldownInterval(requested ?? null, dateFrom, dateTo, rows.length, timezone)
-    const dateRange = dateTo ? { date_from: dateFrom, date_to: dateTo } : { date_from: dateFrom }
     const filterSets = drilldownFilterSets(groupBy, rows)
+    const seriesCount = matchedSeriesCount(filterSets, groupBy, rows)
+    const interval = drilldownInterval(requested ?? null, dateFrom, dateTo, seriesCount, timezone)
+    const dateRange = dateTo ? { date_from: dateFrom, date_to: dateTo } : { date_from: dateFrom }
     return {
         dateFrom,
         dateTo,

@@ -51,7 +51,7 @@ export const metricsTableWidgetGroupedSampleResult: MetricsTableWidgetResult = {
         { label: 'p95 latency', aggregation: 'histogram_quantile', unit: 's' },
     ],
     rows: METHOD_VIEWS.map(([method, view, requests, latency], index) => ({
-        key: `${method} · ${view}`,
+        key: JSON.stringify([method, view]),
         labels: [method, view],
         values: [requests, latency],
         sparklines: [wave(requests, index + 1), wave(latency, index + 5)],

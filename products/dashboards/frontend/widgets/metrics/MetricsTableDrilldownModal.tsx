@@ -36,20 +36,21 @@ function gridColumnsClass(chartCount: number): string {
 
 export function MetricsTableDrilldownModal({
     config,
-    keys,
+    names,
     dashboardFilters,
     labelValues,
     onClose,
 }: {
     config: MetricsTableWidgetConfig
-    keys: string[]
+    /** The shown name of each row to chart. */
+    names: string[]
     dashboardFilters?: MetricsTableDrilldownDashboardFilters | null
-    /** The label values of each row in `keys`, in the order of the config's group-by labels. */
+    /** The label values of each row in `names`, in the order of the config's group-by labels. */
     labelValues: string[][]
     onClose: () => void
 }): JSX.Element | null {
     const { timezone } = useValues(teamLogic)
-    if (keys.length === 0) {
+    if (names.length === 0) {
         return null
     }
     const { dateFrom, dateTo, interval, charts } = buildMetricsTableDrilldown(
@@ -66,11 +67,11 @@ export function MetricsTableDrilldownModal({
             onClose={onClose}
             width={1200}
             title={
-                keys.length === 1
-                    ? keys[0]
-                    : `${keys.length} ${metricsTableGroupByLabels(config.groupBy).join(' · ')} values`
+                names.length === 1
+                    ? names[0]
+                    : `${names.length} ${metricsTableGroupByLabels(config.groupBy).join(' · ')} values`
             }
-            description={keys.length === 1 ? undefined : keys.join(', ')}
+            description={names.length === 1 ? undefined : names.join(', ')}
         >
             <div className="flex flex-col gap-3" data-attr="metrics-table-widget-drilldown">
                 <p className="m-0 text-xs text-secondary" data-attr="metrics-table-widget-drilldown-range">

@@ -201,9 +201,9 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
 
         assert result["groupBy"] == ["method", "route"]
         assert [(row["key"], row["labels"], row["values"][0]) for row in result["rows"]] == [
-            ("POST · /api/a", ["POST", "/api/a"], 7.0),
-            ("GET · /api/b", ["GET", "/api/b"], 4.0),
-            ("GET · /api/a", ["GET", "/api/a"], 2.0),
+            ('["POST", "/api/a"]', ["POST", "/api/a"], 7.0),
+            ('["GET", "/api/b"]', ["GET", "/api/b"], 4.0),
+            ('["GET", "/api/a"]', ["GET", "/api/a"], 2.0),
         ]
 
     def test_limit_and_ascending_order_keep_the_lowest_rows(self) -> None:

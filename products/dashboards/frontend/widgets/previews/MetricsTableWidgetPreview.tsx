@@ -1,6 +1,6 @@
 import { MetricsTableView } from '../metrics/MetricsTableWidget'
-import { metricsTableWidgetSampleResult } from '../metrics/metricsTableWidgetSampleData'
 import { metricsTableGroupByLabels } from '../metrics/metricsTableWidgetConfigValidation'
+import { metricsTableWidgetSampleResult } from '../metrics/metricsTableWidgetSampleData'
 
 export function MetricsTableWidgetPreview(): JSX.Element {
     return (

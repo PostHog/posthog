@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
 
@@ -37,8 +38,6 @@ DEFAULT_METRICS_TABLE_DATE_FROM = "-1h"
 
 # A counter column sums the per-series change, so each row is the total for its label value.
 _COUNTER_FUNCTIONS = {"rate": MetricRangeFunction.RATE, "increase": MetricRangeFunction.INCREASE}
-# Joins the label values of a row grouped by several labels, e.g. `POST · upload`.
-ROW_KEY_SEPARATOR = " · "
 
 
 def _clause(index: int, column: dict[str, Any], group_by: list[str]) -> MetricQueryClause:
@@ -174,7 +173,7 @@ def run_metrics_table_widget(
             "queryError": str(error),
         }
 
-    rows_by_key: dict[str, dict[str, Any]] = {}
+    rows_by_key: dict[tuple[str, ...], dict[str, Any]] = {}
     units: list[str | None] = [None] * len(columns)
     present: set[tuple[str, int]] = set()
     series_counts = [0] * len(columns)
@@ -187,11 +186,13 @@ def run_metrics_table_widget(
         if any(label not in item.labels for label in group_by):
             continue
         label_values = [item.labels[label] for label in group_by]
-        key = ROW_KEY_SEPARATOR.join(label_values)
+        # Joining the values could make two combinations one key, so a row grouped by several labels has
+        # its values as a JSON list for a key. The frontend shows its labels.
+        key = label_values[0] if len(label_values) == 1 else json.dumps(label_values)
         units[index] = units[index] or item.unit
         present.add((key, index))
         row = rows_by_key.setdefault(
-            key,
+            tuple(label_values),
             {"key": key, "labels": label_values, "values": [None] * len(columns), "sparklines": [[] for _ in columns]},
         )
         values = [point.value for point in item.points if point.value is not None]

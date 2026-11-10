@@ -26,8 +26,13 @@ export type MetricsTableResultColumn = {
     unit?: string | null
 }
 
+/** The label values joined with ` · `, e.g. `POST · upload`. */
+export function metricsTableRowName(row: MetricsTableResultRow): string {
+    return row.labels?.join(' · ') ?? row.key
+}
+
 export type MetricsTableResultRow = {
-    /** The label values joined with ` · `, e.g. `POST · upload`. */
+    /** Identifies the row: its one label value, or a JSON list of the values when grouped by several labels. */
     key: string
     /** The value of each group-by label. */
     labels?: string[]
@@ -114,7 +119,7 @@ export function MetricsTableView({
                           <LemonCheckbox
                               checked={selection.selected.includes(row.key)}
                               onChange={() => selection.onToggle(row.key)}
-                              aria-label={`Select ${row.key}`}
+                              aria-label={`Select ${metricsTableRowName(row)}`}
                           />
                       ),
                   },
@@ -132,11 +137,11 @@ export function MetricsTableView({
                         tooltip="Open full charts"
                         data-attr="metrics-table-widget-open-row"
                     >
-                        <span className="truncate">{row.key}</span>
+                        <span className="truncate">{metricsTableRowName(row)}</span>
                     </LemonButton>
                 ) : (
-                    <span className="font-mono text-xs truncate block max-w-[24rem]" title={row.key}>
-                        {row.key}
+                    <span className="font-mono text-xs truncate block max-w-[24rem]" title={metricsTableRowName(row)}>
+                        {metricsTableRowName(row)}
                     </span>
                 ),
         },
@@ -253,21 +258,26 @@ export function MetricsTableWidget({
         )
     }
 
+    // A refresh can drop a selected row, and the drilldown needs every label value of a row.
+    const rowsByKey = new Map(rows.map((row) => [row.key, row]))
+    const shownSelected = selected.filter((key) => rowsByKey.has(key))
+    const openRows = openKeys.flatMap((key) => rowsByKey.get(key) ?? [])
+
     return (
         <>
             <WidgetCardContent>
                 <MetricsTableView groupBy={groupBy} columns={payload.columns ?? []} rows={rows} selection={selection} />
             </WidgetCardContent>
             <WidgetContentFooter className="items-center gap-2">
-                {selected.length > 0 ? (
+                {shownSelected.length > 0 ? (
                     <>
                         <LemonButton
                             type="primary"
                             size="xsmall"
-                            onClick={() => openCharts(selected)}
+                            onClick={() => openCharts(shownSelected)}
                             data-attr="metrics-table-widget-open-selected"
                         >
-                            Open {selected.length} in full charts
+                            Open {shownSelected.length} in full charts
                         </LemonButton>
                         <LemonButton size="xsmall" onClick={() => setSelected([])}>
                             Clear
@@ -284,9 +294,9 @@ export function MetricsTableWidget({
             </WidgetContentFooter>
             <MetricsTableDrilldownModal
                 config={parseMetricsTableWidgetConfig(config)}
-                keys={openKeys}
+                names={openRows.map(metricsTableRowName)}
                 dashboardFilters={dashboardFilters}
-                labelValues={openKeys.map((key) => rows.find((row) => row.key === key)?.labels ?? [key])}
+                labelValues={openRows.map((row) => row.labels ?? [row.key])}
                 onClose={() => setOpenKeys([])}
             />
         </>

@@ -125,6 +125,20 @@ describe('buildMetricsTableDrilldown', () => {
         jest.useRealTimers()
     })
 
+    it('budgets for every combination the filters match past the clause limit', () => {
+        // 25 rows that differ in both labels need more clauses than the query allows, so one clause matches
+        // all 625 combinations. Over three hours at one point a minute that is over 100,000 rows.
+        const rows = Array.from({ length: 25 }, (_, index) => [`M${index}`, `view${index}`])
+
+        const drilldown = buildMetricsTableDrilldown(
+            { ...CONFIG, groupBy: ['method', 'view'], interval: 'minute' },
+            rows
+        )
+
+        expect(drilldown.charts[0].query.clauses).toHaveLength(1)
+        expect(drilldown.interval).toEqual('minute_15')
+    })
+
     it('matches several rows with one anchored regex that escapes the values', () => {
         const [errors] = buildMetricsTableDrilldown(CONFIG, [['GET /api/traces/{id}'], ['POST /api/chat']]).charts
 
