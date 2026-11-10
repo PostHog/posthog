@@ -1,10 +1,10 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UpdatedMetaFields, UUIDTModel, sane_repr
+from posthog.models.utils import UpdatedMetaFields, UUIDModel, sane_repr
 
 
-class NodeSubscription(TeamScopedRootMixin, UpdatedMetaFields, UUIDTModel):
+class NodeSubscription(TeamScopedRootMixin, UpdatedMetaFields, UUIDModel):
     """One user's choice to watch, or stop watching, a DAG node for failure notifications.
 
     A node's default watcher watches it without a row. A row with `subscribed=False` is how that
