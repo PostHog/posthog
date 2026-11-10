@@ -64,6 +64,5 @@ class WorkflowsConfig(AppConfig):
 
             require_linked_workflow_editor(context, template)
 
-        # A transactional email template sends through a workflow, so this product guards its project file.
         register_pre_delete_hook("message_template", require_linked_workflow_editor)
         register_pre_restore_hook("message_template", require_linked_workflow_editor)

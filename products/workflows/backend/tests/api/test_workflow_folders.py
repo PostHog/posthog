@@ -1,7 +1,7 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -70,8 +70,7 @@ class TestWorkflowFolders(APIBaseTest):
             )
             self.assertEqual(restored.status_code, 200 if level == "editor" else 400, restored.content)
 
-    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_private_workflow_files_follow_member_grants(self, _reload: MagicMock) -> None:
+    def test_private_workflow_files_follow_member_grants(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -136,9 +135,8 @@ class TestWorkflowFolders(APIBaseTest):
             ("canonical_deleted_beside_urn_alias", "urn", "canonical"),
         ]
     )
-    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_deleting_one_spelling_of_a_workflow_ref_keeps_the_workflow_and_the_other_file(
-        self, _name: str, spelling: str, deleted_row: str, _reload: MagicMock
+        self, _name: str, spelling: str, deleted_row: str
     ) -> None:
         workflow = HogFlow.objects.create(team=self.team, name="Renewal", created_by=self.user)
         files_url = f"/api/projects/{self.team.id}/file_system/"
@@ -175,10 +173,7 @@ class TestWorkflowFolders(APIBaseTest):
             ("template_too_long", "messaging_templates", "a" * 4001),
         ]
     )
-    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_create_in_folder_rejects_paths_past_the_tree_limits(
-        self, _name: str, resource: str, folder: str, _reload: MagicMock
-    ) -> None:
+    def test_create_in_folder_rejects_paths_past_the_tree_limits(self, _name: str, resource: str, folder: str) -> None:
         payloads: dict[str, dict[str, Any]] = {
             "hog_flows": {
                 "name": "Bounded",
@@ -212,8 +207,7 @@ class TestWorkflowFolders(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "Unfiled"})
         self.assertEqual([entry["path"] for entry in response.json()["results"]], ["Unfiled"])
 
-    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_list_v2_off_writes_no_rows_and_hides_the_ones_filed_earlier(self, _reload: MagicMock) -> None:
+    def test_list_v2_off_writes_no_rows_and_hides_the_ones_filed_earlier(self) -> None:
         trigger = [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}]
         hog_flows_url = f"/api/projects/{self.team.id}/hog_flows/"
         templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
@@ -258,8 +252,7 @@ class TestWorkflowFolders(APIBaseTest):
         )
         self.assertFalse(FileSystem.objects.filter(team=self.team, path="Campaigns").exists())
 
-    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_other_workflow_product_surfaces_are_not_filed_as_workflows(self, _reload: MagicMock) -> None:
+    def test_other_workflow_product_surfaces_are_not_filed_as_workflows(self) -> None:
         for origin_product in ("broadcasts", "loops"):
             created = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/",
@@ -278,8 +271,7 @@ class TestWorkflowFolders(APIBaseTest):
                 self.client.get(files_url, {"type": "hog_flow", "ref": created.json()["id"]}).json()["results"], []
             )
 
-    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_disabled_files_survive_recursive_folder_deletion(self, _reload: MagicMock) -> None:
+    def test_disabled_files_survive_recursive_folder_deletion(self) -> None:
         workflow = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/",
             {
@@ -351,8 +343,7 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/").status_code, 200)
         self.assertEqual(self.client.get(f"{files_url}{file['id']}/").json()["path"], "Campaigns/Welcome")
 
-    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_deleting_workflow_through_the_project_tree_records_activity(self, _reload: MagicMock) -> None:
+    def test_deleting_workflow_through_the_project_tree_records_activity(self) -> None:
         workflow_id, file = self._workflow_file_in_folder("archived")
         with self.captureOnCommitCallbacks(execute=True):
             deleted = self.client.delete(f"/api/projects/{self.team.id}/file_system/{file['id']}/")
@@ -381,10 +372,7 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(reloaded.json()["path"], "Campaigns/Retention/Welcome email")
 
     @parameterized.expand([("flag_on", True), ("local_evaluation_inconclusive", None)])
-    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_new_workflow_is_created_in_the_requested_project_folder(
-        self, _name: str, local: bool | None, _reload: MagicMock
-    ) -> None:
+    def test_new_workflow_is_created_in_the_requested_project_folder(self, _name: str, local: bool | None) -> None:
         self._local_flag_answer(local)
         created = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/",
@@ -402,8 +390,7 @@ class TestWorkflowFolders(APIBaseTest):
         ).json()["results"]
         self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
 
-    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_workflow_move_survives_reload_and_rename(self, _reload: MagicMock) -> None:
+    def test_workflow_move_survives_reload_and_rename(self) -> None:
         created = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/",
             {
