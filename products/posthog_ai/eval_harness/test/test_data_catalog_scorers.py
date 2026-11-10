@@ -949,11 +949,34 @@ def test_evidence_queried(_name: str, calls: list[tuple[str, dict[str, Any], str
             0.0,
         ),
         ("other_subject", "SELECT min(timestamp) FROM events WHERE event = 'uploaded_file'", 0.0),
+        (
+            "qualified_timestamp",
+            "SELECT min(e.timestamp) FROM events AS e WHERE e.properties.tool_name = 'evalpack-export'",
+            1.0,
+        ),
     ]
 )
 def test_first_seen_checked(_name: str, query: str, expected_score: float) -> None:
     score = FirstSeenChecked()._run_eval_sync(
         {"raw_log": _sql_log(query)}, {"first_seen_checked": {"subject": "evalpack-export"}}
+    )
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
+        ("list", "annotations-list", {}, 1.0),
+        ("sql", "execute-sql", {"query": "SELECT content FROM system.annotations"}, 1.0),
+        ("change_feed", "change-feed-list", {"date_from": "2026-11-01"}, 1.0),
+        ("change_feed_without_annotations", "change-feed-list", {"kinds": ["feature_flag"]}, 0.0),
+        ("create_is_not_a_read", "annotation-create", {"content": "launch"}, 0.0),
+        ("column_annotations", "warehouse-column-annotations-list", {}, 0.0),
+    ]
+)
+def test_annotations_read(_name: str, tool: str, tool_input: dict[str, Any], expected_score: float) -> None:
+    score = AnnotationsRead()._run_eval_sync(
+        {"raw_log": _tool_log([(tool, tool_input, "completed")])}, {"annotations_read": {}}
     )
 
     assert score.score == expected_score

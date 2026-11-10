@@ -26,10 +26,12 @@ from products.posthog_ai.evals.experiments.scorers import SurfacesAllFindings
 _EXECUTE_SQL = "execute-sql"
 _TYPED_QUERY_PREFIX = "query-"
 _FIRST_SEEN_PATTERN = re.compile(
-    r"\bmin\s*\(\s*(to\w+\s*\()?\s*timestamp|\bargmin\b|order\s+by\s+(\w+\.)?timestamp(?!\s+desc)|\bfirst_seen\b",
+    r"\bmin\s*\(\s*(to\w+\s*\()?\s*(\w+\.)?timestamp|\bargmin\b|order\s+by\s+(\w+\.)?timestamp(?!\s+desc)|\bfirst_seen\b",
     re.IGNORECASE,
 )
 _ANNOTATION_PATTERN = re.compile(r"\bannotations?\b", re.IGNORECASE)
+_ANNOTATION_READ_TOOLS = frozenset({"annotations-list", "annotation-retrieve"})
+_CHANGE_FEED_TOOL = "change-feed-list"
 
 
 def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
@@ -172,6 +174,16 @@ class FirstSeenChecked(Scorer):
         return Score(name=self._name(), score=1.0 if hits else 0.0, metadata={"first_seen_queries": hits})
 
 
+def _reads_annotations(call: ToolCall) -> bool:
+    if call.name in _ANNOTATION_READ_TOOLS:
+        return True
+    if call.name == _CHANGE_FEED_TOOL:
+        # The change feed returns annotations unless `kinds` leaves them out.
+        kinds = call.input.get("kinds")
+        return not kinds or (isinstance(kinds, list) and "annotation" in kinds)
+    return call.name == _EXECUTE_SQL and bool(_ANNOTATION_PATTERN.search(_call_text(call)))
+
+
 class AnnotationsRead(Scorer):
     """Binary: did the agent read the project's annotations, through a tool or SQL?"""
 
@@ -184,15 +196,7 @@ class AnnotationsRead(Scorer):
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
-        hits = [
-            call.name
-            for call in parser.get_tool_calls()
-            if not call.is_error
-            and (
-                "annotation" in call.name
-                or (call.name == _EXECUTE_SQL and _ANNOTATION_PATTERN.search(_call_text(call)))
-            )
-        ]
+        hits = [call.name for call in parser.get_tool_calls() if not call.is_error and _reads_annotations(call)]
         return Score(name=self._name(), score=1.0 if hits else 0.0, metadata={"annotation_calls": hits})
 
 
