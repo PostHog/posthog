@@ -3,13 +3,13 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
-import { getDefaultCdpConfig } from '~/cdp/config'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { CdpRole, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { EDGE_URL, Environment, defaultStateDir } from '../environment/environment'
+import { consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { STACK } from '../environment/stack'
 import { DriveSummary, drive, seed } from '../generator/generator'
 import { Convergence, InvariantResult, Judge, Measurement, createJudge } from '../judge/judge'
@@ -110,10 +110,11 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             mkdirSync(evidenceDir, { recursive: true })
             const writeLogTails = keepLogTails(stateDir)
             const judge = createJudge({ edgeUrl: EDGE_URL, probe })
-            const eventsTopic =
-                profile.settings.CDP_EVENTS_CONSUMER_TOPIC ||
-                env.CDP_EVENTS_CONSUMER_TOPIC ||
-                getDefaultCdpConfig().CDP_EVENTS_CONSUMER_TOPIC
+            const [
+                {
+                    topics: [eventsTopic],
+                },
+            ] = consumerGroupsOf(roleSpecs(env, EDGE_URL, secretsOf(env), profile.settings))
             let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [], measurements: [] }
             let stopHealth: (() => Promise<string[]>) | undefined
             try {
