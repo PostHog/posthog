@@ -116,6 +116,7 @@ def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
                     "subject_id": verdict.subject_id,
                     "needs_docs": verdict.needs_docs,
                     "reason": verdict.reason,
+                    "failure_reason": verdict.failure_reason,
                     "change_kind": request.change_kind if request else None,
                     "dedupe_id": request.dedupe_id if request else None,
                     "requested_by": request.requested_by if request else None,
