@@ -14,6 +14,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import s3fs
 import pyarrow as pa
 import pyarrow.parquet as pq
 from parameterized import parameterized
@@ -218,6 +219,9 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     class FakeS3:
         def __init__(self) -> None:
             self.copy_calls: list[tuple[list[str], list[str], int]] = []
+
+        def invalidate_cache(self, path: str | None = None) -> None:
+            pass
 
         def find(self, prefix: str, detail: bool = False):
             files = {
@@ -2121,6 +2125,47 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
     assert kwargs["filesystem"] is s3
     assert kwargs["canary"] is trino_canary
     assert kwargs["deadline_monotonic"] == pytest.approx(time.monotonic() + 99.0, abs=30.0)
+
+
+class _InMemoryS3FileSystem(s3fs.S3FileSystem):
+    def __init__(self) -> None:
+        super().__init__(anon=True, skip_instance_cache=True)
+        self.keys: set[str] = set()
+        self.copied: list[tuple[str, str]] = []
+
+    async def _iterdir(self, bucket, max_items=None, delimiter="/", prefix="", versions=False):
+        for key in sorted(self.keys):
+            if key.startswith(f"{bucket}/{prefix}"):
+                yield {"Key": key, "name": key, "Size": 10, "size": 10, "type": "file"}
+
+    async def _copy_basic(self, path1, path2, **kwargs):
+        if path1 not in self.keys:
+            raise FileNotFoundError(path1)
+        self.copied.append((path1, path2))
+        self.invalidate_cache(path2)
+
+
+def test_copy_prepared_parquet_files_lists_a_reused_folder_again_on_the_same_client(monkeypatch) -> None:
+    s3 = _InMemoryS3FileSystem()
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
+    source_prefix = "source/team/customers__query_a"
+
+    s3.keys = {f"{source_prefix}/k=1/run1.parquet"}
+    registration_module._copy_prepared_parquet_files(f"s3://{source_prefix}", "s3://ducklake/landing/first")
+
+    s3.keys = {f"{source_prefix}/k=1/run2.parquet", f"{source_prefix}/k=2/run2.parquet"}
+    landing_paths, _ = registration_module._copy_prepared_parquet_files(
+        f"s3://{source_prefix}", "s3://ducklake/landing/second"
+    )
+
+    assert landing_paths == [
+        "s3://ducklake/landing/second/k=1/run2.parquet",
+        "s3://ducklake/landing/second/k=2/run2.parquet",
+    ]
+    assert s3.copied[1:] == [
+        (f"{source_prefix}/k=1/run2.parquet", "ducklake/landing/second/k=1/run2.parquet"),
+        (f"{source_prefix}/k=2/run2.parquet", "ducklake/landing/second/k=2/run2.parquet"),
+    ]
 
 
 class _FakeS3:

@@ -744,6 +744,10 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
     source_prefix = source_uri.removeprefix("s3://").rstrip("/")
     landing_prefix = landing_uri.removeprefix("s3://").rstrip("/")
     s3 = get_s3_client()
+    # The client is cached per thread, and the source folder is reused with new file names. find
+    # keeps an older listing of a folder, so copy would not find the new files. s3fs drops only
+    # the path and its parents for a path argument, not the partition folders below it.
+    s3.invalidate_cache()
     found = s3.find(source_prefix, detail=True)
     source_paths = list(found.keys()) if isinstance(found, dict) else list(found)
     parquet_paths = sorted(str(path) for path in source_paths if str(path).lower().endswith(".parquet"))
