@@ -7,7 +7,7 @@ import { useDemoMode } from '@/demo/demoMode'
 import { type AnalyticsProperties, setAnalyticsClient } from './analytics'
 import { DEMO_REPLAY_CONFIG, DemoReplay } from './demoReplay'
 import { appVariant, hostKind, isInternalBuild, updateChannel } from './environment'
-import { setFeatureFlags } from './featureFlags'
+import { FEATURE_FLAGS, isFeatureFlagEnabled, setFeatureFlags } from './featureFlags'
 import { initMobileTelemetry } from './mobileTelemetry'
 
 const DEFAULT_HOST = 'https://us.i.posthog.com'
@@ -70,9 +70,14 @@ export function initAnalytics(): void {
         enablePersistSessionIdAcrossRestart: isInternalBuild && process.env.EXPO_PUBLIC_POSTHOG_HANDOFF === '1',
         sessionReplayConfig: DEMO_REPLAY_CONFIG,
     })
-    initMobileTelemetry(apiKey, process.env.EXPO_PUBLIC_POSTHOG_HOST || DEFAULT_HOST, (level, body, attributes) => {
-        posthog.logger[level](body, attributes)
-    })
+    initMobileTelemetry(
+        apiKey,
+        process.env.EXPO_PUBLIC_POSTHOG_HOST || DEFAULT_HOST,
+        (level, body, attributes) => {
+            posthog.logger[level](body, attributes)
+        },
+        () => isFeatureFlagEnabled(FEATURE_FLAGS.networkObservability)
+    )
     const replay = new DemoReplay(posthog)
     const syncReplay = (): void => {
         replay.setAllowed(

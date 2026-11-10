@@ -4,8 +4,6 @@ import { resourceFromAttributes } from '@opentelemetry/resources'
 import { BasicTracerProvider, BatchSpanProcessor, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base'
 import { AppState } from 'react-native'
 
-import { FEATURE_FLAGS, isFeatureFlagEnabled } from './featureFlags'
-
 const INSTRUMENTATION_NAME = 'posthog-mobile'
 const SLOW_REQUEST_MS = 2000
 // Django samples with parentbased_traceidratio and follows the sampled flag in `traceparent`.
@@ -17,6 +15,7 @@ type Log = (level: 'warn' | 'error', body: string, attributes: Record<string, st
 let started = false
 let requestTracer = trace.getTracer(INSTRUMENTATION_NAME)
 let log: Log | undefined
+let isEnabled: () => boolean = () => false
 let telemetryConfig: { apiKey: string; host: string } | undefined
 
 // Every other path segment is an identifier, so an unknown ID format can never add a new route series.
@@ -78,9 +77,10 @@ export function routeForPath(path: string): string {
         .join('/')
 }
 
-export function initMobileTelemetry(apiKey: string, host: string, logRequest: Log): void {
+export function initMobileTelemetry(apiKey: string, host: string, logRequest: Log, enabled: () => boolean): void {
     telemetryConfig = { apiKey, host }
     log = logRequest
+    isEnabled = enabled
 }
 
 function ensureTelemetry(): boolean {
@@ -136,7 +136,7 @@ export async function instrumentApiRequest(
     request: (traceparent?: string) => Promise<Response>,
     signal?: AbortSignal | null
 ): Promise<Response> {
-    if (!isFeatureFlagEnabled(FEATURE_FLAGS.networkObservability) || !ensureTelemetry()) return request()
+    if (!isEnabled() || !ensureTelemetry()) return request()
 
     const route = routeForPath(path)
     const attributes = { 'http.request.method': method.toUpperCase(), 'http.route': route }

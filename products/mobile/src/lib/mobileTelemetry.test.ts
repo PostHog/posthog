@@ -1,18 +1,15 @@
 type MobileTelemetryModule = typeof import('./mobileTelemetry')
-type FeatureFlagsModule = typeof import('./featureFlags')
 type Log = Parameters<MobileTelemetryModule['initMobileTelemetry']>[2]
 
 function loadEnabledTelemetry(host: string, log: Log): MobileTelemetryModule {
     let loaded: MobileTelemetryModule | undefined
     jest.isolateModules(() => {
-        const { FEATURE_FLAGS, setFeatureFlags } = jest.requireActual<FeatureFlagsModule>('./featureFlags')
-        setFeatureFlags({ [FEATURE_FLAGS.networkObservability]: true })
         loaded = jest.requireActual<MobileTelemetryModule>('./mobileTelemetry')
     })
     if (!loaded) {
         throw new Error('mobile telemetry module did not load')
     }
-    loaded.initMobileTelemetry('phc_test', host, log)
+    loaded.initMobileTelemetry('phc_test', host, log, () => true)
     return loaded
 }
 
