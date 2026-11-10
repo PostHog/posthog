@@ -53,6 +53,9 @@ function setupMocks({
         if (logic === featurePreviewsLogic) {
             return {
                 filteredEarlyAccessFeatures: features,
+                activePreviewFeatures: features.filter((f) => f.stage === 'beta' || f.stage === 'alpha'),
+                conceptPreviewFeatures: features.filter((f) => f.stage === 'concept'),
+                shouldShowEmptyState: features.length === 0,
                 rawEarlyAccessFeaturesLoading: false,
                 searchTerm: '',
                 activeFeedbackFlagKey: null,

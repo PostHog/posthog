@@ -22,7 +22,12 @@ import { QuillFeaturePreviewsComingSoon } from './QuillFeaturePreviewsComingSoon
 // Feature previews can be linked to by using hash in the url
 // example external link: https://app.posthog.com/settings/user-feature-previews#llm-analytics
 export function FeaturePreviews(): JSX.Element {
-    const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading, searchTerm } = useValues(featurePreviewsLogic)
+    const {
+        activePreviewFeatures: betaFeatures,
+        rawEarlyAccessFeaturesLoading,
+        searchTerm,
+        shouldShowEmptyState,
+    } = useValues(featurePreviewsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { loadEarlyAccessFeatures, setSearchTerm } = useActions(featurePreviewsLogic)
@@ -34,11 +39,6 @@ export function FeaturePreviews(): JSX.Element {
     // fires too early — defer the scroll + highlight until the cards exist.
     useAnchor(rawEarlyAccessFeaturesLoading ? '' : window.location.hash)
 
-    // Active stages the enrollment toggle can unlock: alpha and beta both set feature
-    // enrollment on their flag. Concept ("Coming Soon") cards live in FeaturePreviewsComingSoon.
-    const betaFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'beta' || f.stage === 'alpha')
-    const shouldShowEmptyState =
-        filteredEarlyAccessFeatures.length === 0 && !rawEarlyAccessFeaturesLoading && !searchTerm
     const failedToLoadFeaturePreviews = shouldShowEmptyState && hasPosthogJsFailedToLoadFeaturePreviews()
     const flagsHonored = areClientFeatureFlagsHonored(preflight)
 
@@ -110,7 +110,7 @@ export function FeaturePreviews(): JSX.Element {
 }
 
 export function FeaturePreviewsComingSoon(): JSX.Element {
-    const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
+    const { conceptPreviewFeatures: conceptFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
@@ -119,8 +119,6 @@ export function FeaturePreviewsComingSoon(): JSX.Element {
     // Cards render only after the async feature fetch, so the scene-level anchor handling
     // fires too early — defer the scroll + highlight until the cards exist.
     useAnchor(rawEarlyAccessFeaturesLoading ? '' : window.location.hash)
-
-    const conceptFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'concept')
 
     if (todayRailNav) {
         return <QuillFeaturePreviewsComingSoon features={conceptFeatures} />

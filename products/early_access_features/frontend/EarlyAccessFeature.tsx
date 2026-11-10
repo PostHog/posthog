@@ -85,6 +85,7 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 import { MessageAudienceButton } from 'products/workflows/frontend/MessageAudience/MessageAudienceButton'
 
 import { EarlyAccessFeatureImageInput } from './EarlyAccessFeatureImageInput'
+import { EarlyAccessFeatureImagePreview } from './EarlyAccessFeatureImagePreview'
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { enrolledPeopleAudience } from './enrolledPeopleAudience'
 import { InstructionsModal } from './InstructionsModal'
@@ -694,52 +695,44 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                 ) : null}
 
                 {isEditingFeature || isNewEarlyAccessFeature ? (
-                    <div className="max-w-prose">
-                        <LemonField name="documentation_url" label="Documentation URL" showOptional>
-                            <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-                        </LemonField>
-                    </div>
-                ) : (
-                    <div>
-                        <b>Documentation URL</b>
-                        <div>
-                            {earlyAccessFeature.documentation_url ? (
-                                <Link to={earlyAccessFeature.documentation_url} target="_blank">
-                                    {earlyAccessFeature.documentation_url}
-                                </Link>
-                            ) : (
-                                <span className="text-secondary">No documentation URL</span>
-                            )}
-                        </div>
-                    </div>
-                )}
-
-                {isEditingFeature || isNewEarlyAccessFeature ? (
-                    <div className="max-w-prose">
-                        <LemonField
-                            name="image_url"
-                            label="Image"
-                            showOptional
-                            help="Shown on the feature's card in the opt-in UI. A screenshot or short GIF of the feature works well."
-                        >
-                            <EarlyAccessFeatureImageInput />
-                        </LemonField>
-                    </div>
-                ) : (
-                    <div>
-                        <b>Image</b>
-                        <div>
-                            {earlyAccessFeature.image_url ? (
-                                <img
-                                    src={earlyAccessFeature.image_url}
-                                    alt={`Preview of ${earlyAccessFeature.name}`}
-                                    className="block max-h-60 max-w-full rounded border object-contain"
+                    <>
+                        <div className="max-w-prose">
+                            <LemonField name="documentation_url" label="Documentation URL" showOptional>
+                                <LemonInput
+                                    autoComplete="off"
+                                    autoCapitalize="off"
+                                    autoCorrect="off"
+                                    spellCheck={false}
                                 />
-                            ) : (
-                                <span className="text-secondary">No image</span>
-                            )}
+                            </LemonField>
                         </div>
-                    </div>
+                        <div className="max-w-prose">
+                            <LemonField
+                                name="image_url"
+                                label="Image"
+                                showOptional
+                                help="Shown on the feature's card in the opt-in UI. A screenshot or short GIF of the feature works well."
+                            >
+                                <EarlyAccessFeatureImageInput />
+                            </LemonField>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div>
+                            <b>Documentation URL</b>
+                            <div>
+                                {earlyAccessFeature.documentation_url ? (
+                                    <Link to={earlyAccessFeature.documentation_url} target="_blank">
+                                        {earlyAccessFeature.documentation_url}
+                                    </Link>
+                                ) : (
+                                    <span className="text-secondary">No documentation URL</span>
+                                )}
+                            </div>
+                        </div>
+                        <EarlyAccessFeatureImagePreview imageUrl={earlyAccessFeature.image_url} />
+                    </>
                 )}
 
                 {isEditingFeature || isNewEarlyAccessFeature ? (
