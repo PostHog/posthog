@@ -172,9 +172,8 @@ test.describe('Dashboards', () => {
 
             // Saving the variable kicks off a reload of the insightVariables list, and the
             // editor can only substitute {variables.test_number} once that list has loaded.
-            // Running the query before the reload returns sends the placeholder unresolved,
-            // the backend errors with "Global variable not found: variables", and
-            // "Save as insight" never enables. Wait for the reload before using the variable.
+            // Running the query before the reload returns sends an unresolved placeholder.
+            // Wait for the reload to prevent a "Global variable not found: variables" error.
             const variablesReloaded = page.waitForResponse(
                 (response) =>
                     response.url().includes('/insight_variables') &&
@@ -192,22 +191,18 @@ test.describe('Dashboards', () => {
             await page.keyboard.press('ControlOrMeta+a')
             // insertText() inserts the whole string at once, so Monaco's bracket
             // auto-close and autocomplete don't intercept the `{`/`}` mid-type and
-            // produce a malformed query that leaves "Save as insight" disabled.
+            // produce a malformed query.
             await page.keyboard.insertText('SELECT {variables.test_number}')
             await page.keyboard.press('Escape')
 
-            // The editor attaches the variable to the query through a short debounce, so a
-            // fast first Run can execute before {variables.test_number} is substituted —
-            // the query then errors with "Global variable not found: variables" and leaves
-            // "Save as insight" disabled. Re-run until the variable resolves and the query
-            // succeeds (a successful run is the only thing that enables "Save as insight").
-            const saveAsInsight = page.getByRole('button', { name: 'Save as insight' })
+            // The editor attaches the variable after a debounce. Wait for its result before saving.
             await expect(async () => {
                 await page.getByRole('button', { name: 'Run' }).click()
                 await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
-                await expect(saveAsInsight).toBeEnabled({ timeout: 15000 })
+                await expect(page.getByRole('gridcell', { name: '5', exact: true })).toBeVisible({ timeout: 15000 })
             }).toPass({ timeout: 60000 })
-            await saveAsInsight.click()
+            await page.getByTestId('sql-editor-save-options-button').click()
+            await page.getByTestId('sql-editor-save-as-insight').click()
 
             const saveModal = page.locator('.LemonModal').filter({ hasText: 'Save as new insight' })
             await expect(saveModal).toBeVisible()
