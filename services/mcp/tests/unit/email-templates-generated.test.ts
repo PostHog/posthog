@@ -101,7 +101,7 @@ describe('Generated email template tools', () => {
             )
             await setActiveProjectAndOrg(context, '42', 'org-1')
             const request = vi.spyOn(context.api, 'request').mockResolvedValue({ id: 'send-1' })
-            const confirmed = { ...codeSend, reply_to: 'support@example.com', capture_engagement: false }
+            const confirmed = { ...codeSend, reply_to: ['support@example.com'], capture_engagement: false }
 
             const prepared = (await GENERATED_TOOL_MAP['workflows-send-email-prepare']!().handler(
                 context,
