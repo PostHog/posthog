@@ -49,6 +49,13 @@ _BY_EVENT_PROPERTY: dict[str, Any] = {
         "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "event"}],
     }
 }
+_BY_PERSON_PROPERTY: dict[str, Any] = {
+    "exposure_config": {
+        "kind": "ExperimentEventExposureConfig",
+        "event": "$feature_flag_called",
+        "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}],
+    }
+}
 _BY_ACTION: dict[str, Any] = {"exposure_config": {"kind": "ActionsNode", "id": 1}}
 _UNREADABLE: dict[str, Any] = {"exposure_config": {"kind": "ExperimentEventExposureConfig"}}
 
@@ -338,6 +345,8 @@ class TestLoadFlagHistory(BaseTest):
                 "custom_event_without_property_filters",
                 {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "checkout", "properties": []}},
             ),
+            ("event_property_filters", _BY_EVENT_PROPERTY),
+            ("person_property_filters", _BY_PERSON_PROPERTY),
             (
                 "activation_event_on_the_default_exposure",
                 {
@@ -426,7 +435,6 @@ class TestLoadFlagHistory(BaseTest):
 
     @parameterized.expand(
         [
-            ("exposure_filters", _BY_EVENT_PROPERTY, True, True, FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
             ("exposure_action", _BY_ACTION, True, True, FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
             ("exposure_criteria", _UNREADABLE, True, True, FlagHistoryNotCheckedReason.EXPOSURE_CRITERIA),
             ("no_query_access", {}, True, False, FlagHistoryNotCheckedReason.NO_QUERY_ACCESS),
@@ -435,7 +443,7 @@ class TestLoadFlagHistory(BaseTest):
                 _BY_EVENT_PROPERTY,
                 True,
                 False,
-                FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
+                FlagHistoryNotCheckedReason.NO_QUERY_ACCESS,
             ),
             ("no_history_access", {}, False, True, FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
         ]
@@ -469,7 +477,7 @@ class TestLoadFlagHistory(BaseTest):
 
     @parameterized.expand(
         [
-            ("exposure_filters", _BY_EVENT_PROPERTY, FULL_ACCESS),
+            ("exposure_action", _BY_ACTION, FULL_ACCESS),
             (
                 "no_query_access",
                 {},
@@ -655,6 +663,15 @@ class TestQueryAnyExposure(ClickhouseTestMixin, BaseTest):
                 3,
                 True,
             ),
+            (
+                "event_property_filter_that_the_exposure_misses",
+                _BY_EVENT_PROPERTY,
+                "$feature_flag_called",
+                "test",
+                3,
+                False,
+            ),
+            ("person_property_filter_left_out", _BY_PERSON_PROPERTY, "$feature_flag_called", "test", 3, True),
         ]
     )
     def test_query_any_exposure(

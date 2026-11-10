@@ -17,6 +17,7 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
+    exposure_criteria_on_the_event,
     get_exposure_event_and_property,
     get_multiple_variant_handling_from_experiment,
     get_test_accounts_filter,
@@ -146,6 +147,29 @@ class TestNormalizeToExposureCriteria:
         )
 
         assert from_dict == ExperimentExposureCriteria(exposure_config=_WAREHOUSE_NATIVE_EXPOSURE)
+
+
+class TestExposureCriteriaOnTheEvent:
+    @parameterized.expand(
+        [
+            ("event_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "event"}, True),
+            ("element", {"key": "text", "value": "Buy", "operator": "exact", "type": "element"}, True),
+            ("hogql_on_the_timestamp", {"key": "timestamp >= toDateTime('2026-01-01', 'UTC')", "type": "hogql"}, True),
+            ("person_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "person"}, False),
+            ("cohort", {"key": "id", "value": 1, "type": "cohort"}, False),
+            ("hogql_on_the_person", {"key": "person.properties.plan = 'pro'", "type": "hogql"}, False),
+            ("hogql_subquery", {"key": "distinct_id IN (SELECT distinct_id FROM events)", "type": "hogql"}, False),
+            ("hogql_posthog_function", {"key": "matchesAction(1)", "type": "hogql"}, False),
+            ("hogql_that_does_not_parse", {"key": "plan = (", "type": "hogql"}, False),
+        ]
+    )
+    def test_keeps_only_the_filters_on_the_exposure_event(self, _name, prop, kept):
+        criteria = exposure_criteria_on_the_event(
+            {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "checkout", "properties": [prop]}}
+        )
+
+        assert criteria is not None and isinstance(criteria.exposure_config, ExperimentEventExposureConfig)
+        assert len(criteria.exposure_config.properties or []) == int(kept)
 
 
 class TestGetExposureConfigParamsForBuilder:

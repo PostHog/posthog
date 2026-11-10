@@ -135,7 +135,6 @@ class FlagHistoryNotCheckedReason(StrEnum):
     # pinned: the finding's `reason`.
     NO_HISTORY_ACCESS = "no_history_access"
     NO_QUERY_ACCESS = "no_query_access"
-    EXPOSURE_FILTERS = "exposure_filters"
     EXPOSURE_ACTION = "exposure_action"
     EXPOSURE_CRITERIA = "exposure_criteria"
     # The history is not read past these bounds, because the work grows with the saves and the conditions, and the

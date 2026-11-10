@@ -8,9 +8,11 @@ The answer for a past window does not change, so it is cached per window and sha
 answer is then paid once per change, not on every load of the experiment page. A failed query is cached as
 unknown too, so a scan that is too large for a request runs at most once a day.
 
-Only exposure criteria that name an event are asked about. The answer for a property filter or an action can
-depend on what each reader may read, and can change as the filter matches other events over time, so no cached
-answer for them is safe to share. The changes of those experiments are reported as not checked.
+The questions keep only the property filters of the exposure criteria that read the exposure event itself, because
+the answer for a filter on persons, cohorts, sessions or groups can depend on what each reader may read, and can change
+as people match it over time. Without those filters the questions cover more exposures than the results count, so
+"nobody" still holds, and "somebody" can count a change that moved none of the counted users. An action can match
+other events, so the changes of an experiment whose exposures come from an action are reported as not checked.
 
 The answers run without the reader and are shared, so a reader denied any event property gets none. Every change
 then counts for that reader, as if every answer were unknown.
@@ -30,7 +32,7 @@ from django.utils import timezone
 
 import pydantic
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig
+from posthog.schema import ActionsNode
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -70,6 +72,7 @@ from products.experiments.backend.health.split_changes import split_change_from_
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     aggregates_by_group,
     build_exposure_event_conditions,
+    exposure_criteria_on_the_event,
     get_entity_key,
     get_exposure_event_and_property,
     normalize_to_exposure_criteria,
@@ -179,8 +182,9 @@ def query_any_exposure(
 ) -> bool:
     """Whether anyone was exposed to one of the variant keys of the flag key in `[window_start, window_end)`."""
     team = experiment.team
+    criteria = exposure_criteria_on_the_event(experiment.exposure_criteria)
     _, variant_property = get_exposure_event_and_property(
-        flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
+        flag_key, criteria, default_exposure_event=default_exposure_event
     )
     # No test-account filter, as in the exposure freeze: the question is whether the flag served anyone.
     query = parse_select(
@@ -194,7 +198,7 @@ def query_any_exposure(
             "window_end": ast.Constant(value=window_end),
             "exposure": ast.And(
                 exprs=build_exposure_event_conditions(
-                    experiment.exposure_criteria, team, flag_key, default_exposure_event=default_exposure_event
+                    criteria, team, flag_key, default_exposure_event=default_exposure_event
                 )
             ),
             "variant": ast.Field(chain=["properties", variant_property]),
@@ -221,16 +225,17 @@ def query_exposed_units(
     # `person_id` joins an aggregation of the team's person overrides, which runs in full whatever the LIMIT. The raw
     # id on the event needs no join. A person merged after an exposure can then count twice, which only keeps a warning.
     unit = get_entity_key(group_type_index) if aggregates_by_group(group_type_index) else "event_person_id"
+    criteria = exposure_criteria_on_the_event(experiment.exposure_criteria)
     conditions: list[ast.Expr] = []
     for flag_key, variant_keys in served:
         _, variant_property = get_exposure_event_and_property(
-            flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
+            flag_key, criteria, default_exposure_event=default_exposure_event
         )
         conditions.append(
             ast.And(
                 exprs=[
                     *build_exposure_event_conditions(
-                        experiment.exposure_criteria, team, flag_key, default_exposure_event=default_exposure_event
+                        criteria, team, flag_key, default_exposure_event=default_exposure_event
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
@@ -590,8 +595,6 @@ def _not_checked_reason(
     config = criteria.exposure_config if criteria else None
     if isinstance(config, ActionsNode):
         return FlagHistoryNotCheckedReason.EXPOSURE_ACTION
-    if isinstance(config, ExperimentEventExposureConfig) and config.properties:
-        return FlagHistoryNotCheckedReason.EXPOSURE_FILTERS
     if not reader_access.can_query_events:
         return FlagHistoryNotCheckedReason.NO_QUERY_ACCESS
     return None

@@ -41,8 +41,6 @@ def the_change(change_count: int, determiner: Literal["the", "this"]) -> str:
 
 def not_checked_because(reason: FlagHistoryNotCheckedReason) -> str:
     match reason:
-        case FlagHistoryNotCheckedReason.EXPOSURE_FILTERS:
-            return "the exposure criteria filter by properties"
         case FlagHistoryNotCheckedReason.EXPOSURE_ACTION:
             return "exposures come from an action"
         case FlagHistoryNotCheckedReason.EXPOSURE_CRITERIA:

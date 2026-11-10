@@ -9,16 +9,22 @@ import posthoganalytics
 
 from posthog.schema import (
     ActionsNode,
+    ElementPropertyFilter,
+    EventPropertyFilter,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
     ExperimentWarehouseNativeExposureConfig,
+    HogQLPropertyFilter,
     MultipleVariantHandling,
     PropertyOperator,
 )
 
 from posthog.hogql import ast
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
+from posthog.hogql.functions.mapping import find_hogql_function
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, operator_is_negative, property_to_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.team.team import Team
 
@@ -415,6 +421,62 @@ def build_exposure_event_conditions(
         *_build_event_filters(exposure_config, team, feature_flag_key, default_exposure_event),
         *_build_property_filters(exposure_config, team),
     ]
+
+
+def exposure_criteria_on_the_event(
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
+) -> Optional[ExperimentExposureCriteria]:
+    """
+    The exposure criteria with only the property filters that read the exposure event itself, such as its properties
+    or its timestamp. The other filters read persons, cohorts, sessions or groups. Their match can change after the
+    event, and a reader can be denied a property that they read.
+    """
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    config = criteria.exposure_config if criteria else None
+    if criteria is None or not isinstance(config, ExperimentEventExposureConfig) or not config.properties:
+        return criteria
+    kept = [prop for prop in config.properties if _reads_only_the_event(prop)]
+    return criteria.model_copy(update={"exposure_config": config.model_copy(update={"properties": kept})})
+
+
+# The fields of the events table that hold the event's own values, with no join.
+_EVENT_FIELDS = frozenset({"event", "timestamp", "distinct_id", "properties", "elements_chain", "uuid", "$session_id"})
+
+
+def _reads_only_the_event(prop: object) -> bool:
+    if isinstance(prop, EventPropertyFilter | ElementPropertyFilter):
+        return True
+    if isinstance(prop, HogQLPropertyFilter):
+        try:
+            expr = parse_expr(prop.key)
+        except BaseHogQLError:
+            return False
+        reader = _EventFieldsReader()
+        reader.visit(expr)
+        return reader.only_event_fields
+    return False
+
+
+class _EventFieldsReader(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.only_event_fields = True
+
+    def visit_field(self, node: ast.Field) -> None:
+        if str(node.chain[0]) not in _EVENT_FIELDS:
+            self.only_event_fields = False
+
+    def visit_call(self, node: ast.Call) -> None:
+        # An aggregation or a PostHog function, such as `matchesAction`, reads more than the event.
+        if find_hogql_function(node.name) is None:
+            self.only_event_fields = False
+        super().visit_call(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.only_event_fields = False
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.only_event_fields = False
 
 
 def aggregates_by_group(group_type_index: object) -> bool:
