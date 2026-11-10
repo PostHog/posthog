@@ -2,10 +2,11 @@ import { Pool } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
-import { ValueMatcher, buildIntegerMatcher } from '~/common/config/matchers'
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { isTransientPgError } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 import { sleep } from '~/common/utils/utils'
+import type { ValueMatcher } from '~/types'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
@@ -36,6 +37,11 @@ import {
  */
 export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
 
+const HIGHEST_EMAIL_COUNTER = `GREATEST(
+    (SELECT COALESCE(MAX(counter), 0) FROM cyclotron_email_team_seq),
+    (SELECT COALESCE(MAX(counter), 0) FROM cyclotron_email_team_seq_fast)
+)`
+
 /**
  * Atomically bump the per-team email counter and return the formatted
  * `dequeue_seq` string for one new email job. Exported because the worker's
@@ -44,11 +50,17 @@ export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
  * `NULL dequeue_seq` and bypass the per-team interleave (`NULLS FIRST` would
  * drain them ahead of any fair-ordered rows).
  *
- * A team's *first ever* email starts at `MAX(counter) + 1` across the table
- * (Hatchet's `p_max_assigned` pattern), so a brand-new tenant can't enqueue a
- * burst that gets free priority over established tenants' in-flight emails.
- * Continuing tenants just increment their own counter as before. `COALESCE`
- * handles the empty-table cold-start (`MAX = NULL` → starting point of 0).
+ * A team's *first ever* email starts at `MAX(counter) + 1` across both
+ * counter tables (Hatchet's `p_max_assigned` pattern), so a brand-new tenant
+ * can't enqueue a burst that gets free priority over established tenants'
+ * in-flight emails. Continuing tenants just increment their own counter as
+ * before. `COALESCE` handles the empty-table cold-start (`MAX = NULL` →
+ * starting point of 0).
+ *
+ * Teams on `fastEmailCounterTeams` count fast email in
+ * `cyclotron_email_team_seq_fast`. Each table's allocation starts above the
+ * team's row in the other table, read without a lock, so a team's emails stay
+ * in send order while producers on and off the switch both write them.
  *
  * The plain UPDATE runs first because Postgres evaluates the `MAX` subquery in
  * the INSERT's VALUES before it checks for a conflict, which means a full scan
@@ -63,8 +75,8 @@ export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
  */
 export async function assignEmailDequeueSeq(pool: Pool, teamId: number): Promise<string> {
     let result = await pool.query<{ counter: string }>(
-        `UPDATE cyclotron_email_team_seq
-         SET counter = counter + 1
+        `UPDATE cyclotron_email_team_seq AS seq
+         SET counter = GREATEST(seq.counter, COALESCE((SELECT counter FROM cyclotron_email_team_seq_fast WHERE team_id = $1), 0)) + 1
          WHERE team_id = $1
          RETURNING counter`,
         [teamId]
@@ -72,9 +84,15 @@ export async function assignEmailDequeueSeq(pool: Pool, teamId: number): Promise
     if (result.rows.length === 0) {
         result = await pool.query<{ counter: string }>(
             `INSERT INTO cyclotron_email_team_seq (team_id, counter)
-             VALUES ($1, COALESCE((SELECT MAX(counter) FROM cyclotron_email_team_seq), 0) + 1)
+             VALUES (
+                 $1,
+                 COALESCE(
+                     (SELECT counter FROM cyclotron_email_team_seq_fast WHERE team_id = $1),
+                     ${HIGHEST_EMAIL_COUNTER}
+                 ) + 1
+             )
              ON CONFLICT (team_id) DO UPDATE
-                SET counter = cyclotron_email_team_seq.counter + 1
+                SET counter = GREATEST(cyclotron_email_team_seq.counter, COALESCE((SELECT counter FROM cyclotron_email_team_seq_fast WHERE team_id = $1), 0)) + 1
              RETURNING counter`,
             [teamId]
         )
@@ -91,8 +109,11 @@ export function usesFastEmailCounter(
 }
 
 export async function assignFastEmailDequeueSeq(pool: Pool, teamId: number): Promise<string> {
-    const counters = await bumpFastEmailCounters(pool, new Map([[teamId, 1]]))
-    return emailDequeueSeq(counters.get(teamId)!, teamId)
+    const counter = (await bumpFastEmailCounters(pool, new Map([[teamId, 1]]))).get(teamId)
+    if (counter === undefined) {
+        throw new Error(`No fast email counter for team ${teamId} after seeding it`)
+    }
+    return emailDequeueSeq(counter, teamId)
 }
 
 function emailDequeueSeq(counter: bigint, teamId: number): string {
@@ -130,8 +151,9 @@ async function incrementFastEmailCounters(
 async function seedFastEmailCounters(pool: Pool, teamIds: number[]): Promise<void> {
     await pool.query(
         `INSERT INTO cyclotron_email_team_seq_fast (team_id, counter)
-         SELECT t.team_id, (SELECT COALESCE(MAX(counter), 0) FROM cyclotron_email_team_seq_fast)
+         SELECT t.team_id, COALESCE(shared.counter, ${HIGHEST_EMAIL_COUNTER})
          FROM unnest($1::int[]) AS t(team_id)
+         LEFT JOIN cyclotron_email_team_seq AS shared ON shared.team_id = t.team_id
          ON CONFLICT (team_id) DO NOTHING`,
         [teamIds]
     )
@@ -463,9 +485,11 @@ export class CyclotronV2Manager {
      *
      * Non-email jobs get NULL (leaves the existing FIFO ordering untouched).
      *
-     * One UPSERT for the whole batch regardless of job count — per-team
-     * counters bump by the count of email jobs from that team in this batch,
-     * and we derive each job's individual counter value in memory.
+     * The counter queries don't grow with job count: one UPSERT for the
+     * shared counter, and one UPDATE for the fast counter of teams on
+     * `fastEmailCounterTeams` (three when a team's fast row needs seeding).
+     * Per-team counters bump by the count of email jobs from that team in
+     * this batch, and we derive each job's individual counter value in memory.
      *
      * A team's first-ever email starts at `MAX(counter) + 1` across the table
      * (Hatchet's `p_max_assigned` pattern), so a new tenant joining the
@@ -514,20 +538,23 @@ export class CyclotronV2Manager {
         // new counter value per team — we then derive individual job counters
         // by subtracting back through the batch.
         //
-        // Hatchet `p_max_assigned`: new-team rows insert at `MAX + increment`
-        // so they slot in next to established teams. Existing-team rows still
-        // add just `increment` (we subtract the MAX shift back out in the ON
-        // CONFLICT branch). MAX is computed once per batch via the CTE.
+        // Hatchet `p_max_assigned`: a team with no counter in either table
+        // starts at the highest counter of both, so it slots in next to
+        // established teams. The read of the team's fast row takes no lock.
         const upsertResult = await this.pool.query<{ team_id: number; counter: string }>(
-            `WITH max_counter AS (
-                 SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
+            `WITH batch AS (
+                 SELECT t.team_id, t.increment, fast.counter AS fast_counter
+                 FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
+                 LEFT JOIN cyclotron_email_team_seq_fast AS fast ON fast.team_id = t.team_id
              )
              INSERT INTO cyclotron_email_team_seq (team_id, counter)
-             SELECT team_id, increment + (SELECT m FROM max_counter)
-             FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
+             SELECT team_id, increment + COALESCE(fast_counter, ${HIGHEST_EMAIL_COUNTER})
+             FROM batch
              ON CONFLICT (team_id) DO UPDATE
-                SET counter = cyclotron_email_team_seq.counter
-                            + (EXCLUDED.counter - (SELECT m FROM max_counter))
+                SET counter = (
+                    SELECT GREATEST(cyclotron_email_team_seq.counter, COALESCE(batch.fast_counter, 0)) + batch.increment
+                    FROM batch WHERE batch.team_id = EXCLUDED.team_id
+                )
              RETURNING team_id, counter`,
             [teamIds, increments]
         )

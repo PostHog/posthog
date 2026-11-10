@@ -1900,8 +1900,8 @@ describe('Cyclotron V2', () => {
         }
 
         beforeEach(async () => {
-            // Wipe the per-team counter table between tests so each starts cold.
             await assertPool.query('DELETE FROM cyclotron_email_team_seq')
+            await assertPool.query('DELETE FROM cyclotron_email_team_seq_fast')
         })
 
         describe('Manager: dequeue_seq assignment', () => {
@@ -2350,10 +2350,6 @@ describe('Cyclotron V2', () => {
                     return await done
                 }
 
-                beforeEach(async () => {
-                    await assertPool.query('DELETE FROM cyclotron_email_team_seq_fast')
-                })
-
                 it.each([
                     [
                         'sent straight to the email queue',
@@ -2414,31 +2410,61 @@ describe('Cyclotron V2', () => {
                     }
                 })
 
-                it("keeps a team's fast email in send order while producers on and off the switch both write it", async () => {
-                    const fastManager = createFastCounterManager()
-                    const sendBulk = (): Promise<string[]> =>
-                        manager.bulkCreateJobs(
-                            Array.from({ length: 5 }, () => ({ teamId, queueName: EMAIL_QUEUE, priority: BULK }))
-                        )
-                    const sendFast = async (producer: CyclotronV2Manager): Promise<string> =>
-                        (await producer.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, priority: FAST }]))[0]
-
-                    const sentInOrder: string[] = []
-                    for (let round = 0; round < 2; round++) {
-                        await sendBulk()
-                        sentInOrder.push(await sendFast(manager))
-                        sentInOrder.push(await sendFast(fastManager))
+                const otherTeamId = 78
+                it.each<[string, ['on' | 'off', number, number][]]>([
+                    [
+                        'alternate around bulk sends',
+                        [
+                            ['off', teamId, BULK],
+                            ['off', teamId, FAST],
+                            ['on', teamId, FAST],
+                            ['off', teamId, BULK],
+                            ['off', teamId, FAST],
+                            ['on', teamId, FAST],
+                        ],
+                    ],
+                    [
+                        'take turns with no bulk send between',
+                        [
+                            ['off', teamId, FAST],
+                            ['on', teamId, FAST],
+                            ['on', teamId, FAST],
+                            ['off', teamId, FAST],
+                        ],
+                    ],
+                    [
+                        "write a team's first fast email after another team's",
+                        [
+                            ['off', otherTeamId, BULK],
+                            ['off', otherTeamId, FAST],
+                            ['on', teamId, FAST],
+                        ],
+                    ],
+                ])('drains fast email in send order when producers on and off the switch %s', async (_case, sends) => {
+                    const producers = { off: manager, on: createFastCounterManager() }
+                    await producers.on.connect()
+                    const fastInSendOrder: string[] = []
+                    try {
+                        for (const [producer, sendingTeamId, priority] of sends) {
+                            const [id] = await producers[producer].bulkCreateJobs([
+                                { teamId: sendingTeamId, queueName: EMAIL_QUEUE, priority },
+                            ])
+                            if (priority === FAST) {
+                                fastInSendOrder.push(id)
+                            }
+                        }
+                    } finally {
+                        await producers.on.disconnect()
                     }
-                    await fastManager.disconnect()
 
                     const drained: string[] = []
-                    for (let i = 0; i < sentInOrder.length; i++) {
+                    for (let i = 0; i < fastInSendOrder.length; i++) {
                         const [job] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
                         drained.push(job.id)
                         await job.ack()
                     }
 
-                    expect(drained).toEqual(sentInOrder)
+                    expect(drained).toEqual(fastInSendOrder)
                 })
             })
 

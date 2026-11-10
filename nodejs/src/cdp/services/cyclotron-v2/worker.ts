@@ -3,8 +3,9 @@ import { Pool, PoolClient } from 'pg'
 import { Counter } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
-import { ValueMatcher, buildIntegerMatcher } from '~/common/config/matchers'
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
+import type { ValueMatcher } from '~/types'
 
 import { assignEmailDequeueSeq, assignFastEmailDequeueSeq, usesFastEmailCounter } from './manager'
 import { createCyclotronPool } from './pg-pool'
