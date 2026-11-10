@@ -1,24 +1,29 @@
 import json
 import uuid
 import asyncio
+import datetime as dt
 import dataclasses
 from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 import pytest
+import unittest.mock
 
+from django.conf import settings
 from django.test import override_settings
 
 import pytest_asyncio
 import temporalio.testing
 
-from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger
+from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, get_logger
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
     FailMaterializationInputs,
+    MaterializeViewInputs,
     SucceedMaterializationInputs,
     create_data_modeling_job_activity,
     fail_materialization_activity,
+    materialize_view_activity,
     succeed_materialization_activity,
 )
 
@@ -61,6 +66,7 @@ class ActivityInfo:
     workflow_namespace: str
     workflow_run_id: str
     workflow_type: str
+    heartbeat_timeout: dt.timedelta | None = None
 
 
 @pytest_asyncio.fixture
@@ -187,3 +193,55 @@ async def test_failure_logs_do_not_expose_clickhouse_hostnames(
     for message in routed_messages:
         assert "svc.cluster.local" not in message["message"]
     assert any("Memory limit exceeded" in message["message"] for message in routed_messages)
+
+
+@pytest.mark.usefixtures("minio_client")
+async def test_each_failed_materialize_attempt_is_written_to_the_run_log(
+    v2_activity_environment, queue, ateam, adag, anode, asaved_query, ajob, bucket_name
+):
+    def failing_hogql_table(*args, **kwargs):
+        fail = unittest.mock.Mock(
+            side_effect=ValueError("Code 241. Memory limit exceeded (from chi-posthog-data-0-0.svc.cluster.local:9000)")
+        )
+
+        async def generator():
+            yield fail()
+
+        return generator()
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        ),
+        unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", failing_hogql_table
+        ),
+        # An earlier test in the run may have cached the module logger against the default
+        # configuration, which never reaches the captured queue.
+        unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.LOGGER",
+            get_logger("posthog.temporal.data_modeling.activities.materialize_view"),
+        ),
+        pytest.raises(ValueError),
+    ):
+        await v2_activity_environment.run(
+            materialize_view_activity,
+            MaterializeViewInputs(team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)),
+        )
+
+    def is_failed_attempt(message: dict) -> bool:
+        return message.get("log_source") == "data_modeling_run" and "Attempt 1 failed" in message["message"]
+
+    await _wait_for_queue_entries(queue, matches=is_failed_attempt)
+
+    failed_attempts = [
+        m for m in (json.loads(entry.decode("utf-8")) for entry in queue.entries) if is_failed_attempt(m)
+    ]
+    assert len(failed_attempts) == 1
+    assert failed_attempts[0]["log_source_id"] == str(asaved_query.id)
+    assert failed_attempts[0]["level"] == "error"
+    assert "Memory limit exceeded" in failed_attempts[0]["message"]
+    assert "svc.cluster.local" not in failed_attempts[0]["message"]

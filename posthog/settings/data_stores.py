@@ -427,6 +427,11 @@ SNUFFLE_APM_URL: str = os.getenv("SNUFFLE_APM_URL", "")
 SNUFFLE_APM_USER: str = os.getenv("SNUFFLE_APM_USER", CLICKHOUSE_LOGS_CLUSTER_USER)
 SNUFFLE_APM_PASSWORD: str = os.getenv("SNUFFLE_APM_PASSWORD", CLICKHOUSE_LOGS_CLUSTER_PASSWORD)
 SNUFFLE_APM_TIMEOUT_SECONDS: int = get_from_env("SNUFFLE_APM_TIMEOUT_SECONDS", 60, type_cast=int)
+# PromQL goes to the Snuffle next to the metrics cluster. Each setting falls back to the logs Snuffle's, which
+# reads the same metrics4 tables, so PromQL stays there until a deployment sets SNUFFLE_METRICS_URL.
+SNUFFLE_METRICS_URL: str = os.getenv("SNUFFLE_METRICS_URL", SNUFFLE_APM_URL)
+SNUFFLE_METRICS_USER: str = os.getenv("SNUFFLE_METRICS_USER", SNUFFLE_APM_USER)
+SNUFFLE_METRICS_PASSWORD: str = os.getenv("SNUFFLE_METRICS_PASSWORD", SNUFFLE_APM_PASSWORD)
 
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
 CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(

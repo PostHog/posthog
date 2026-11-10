@@ -11,7 +11,7 @@ from django.db import OperationalError, connection, transaction
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.contracts import HistoryTableDropRefusedError
+from products.warehouse_sources.backend.facade.contracts import HistoryTableDropRefusedError, LegacyHistoryTableError
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table 
     drop_history_table,
     history_naming,
     history_tables,
+    incremental_history_naming,
     is_another_schemas_history_table,
     new_history_names_taken,
     pin_history_naming,
@@ -100,6 +101,36 @@ class TestHistoryNaming(BaseTest):
 
         with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: flag_on):
             assert history_naming(self.schema) == pinned
+
+    @parameterized.expand(
+        [
+            ("flag_off", None, None, False),
+            ("pinned_legacy", LEGACY_HISTORY_NAMING, None, True),
+            ("stamped_table", None, ("orders_history", {"history_table": True, "history_naming": "ph_validity"}), True),
+            # An unmarked `orders_cdc` can be a source table that has not synced yet.
+            ("unmarked_legacy_named_table", None, ("orders_cdc", {}), True),
+        ]
+    )
+    def test_incremental_history_always_takes_the_new_naming(
+        self, _name: str, pinned: HistoryNaming | None, table: tuple[str, dict] | None, flag_on: bool
+    ) -> None:
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        if pinned is not None:
+            pin_history_naming(self.schema.sync_type_config, pinned)
+        self.schema.save()
+        if table is not None:
+            self._table(*table)
+
+        with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: flag_on):
+            assert incremental_history_naming(self.schema) == HISTORY_NAMING
+
+    def test_incremental_history_refuses_a_legacy_history_table(self) -> None:
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.save()
+        self._table("orders_cdc", {"history_table": True})
+
+        with pytest.raises(LegacyHistoryTableError, match="orders_cdc"):
+            incremental_history_naming(self.schema)
 
     def test_a_stamped_new_table_wins_over_a_legacy_named_table(self) -> None:
         # An unlinked `orders_cdc` can be a source table that has not synced yet. Taking the legacy naming
@@ -252,6 +283,7 @@ class TestDropHistoryTable(BaseTest):
             f"{folder}/orders_cdc",
             f"{folder}/orders_cdc__query_b",
             f"{folder}/orders_cdc__query_1700000000_abc",
+            f"{folder}/orders_cdc_ph_staging",
         ]
         self.folder = folder
 
@@ -286,6 +318,7 @@ class TestDropHistoryTable(BaseTest):
             f"{self.folder}/orders_cdc",
             f"{self.folder}/orders_cdc__query_1700000000_abc",
             f"{self.folder}/orders_cdc__query_b",
+            f"{self.folder}/orders_cdc_ph_staging",
         ]
         self.history.refresh_from_db()
         self.schema.refresh_from_db()

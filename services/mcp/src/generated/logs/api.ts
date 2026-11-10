@@ -3835,7 +3835,7 @@ export const LogsAlertsDestinationsDeleteCreateBody = () => zod.object({
 })
 
 /**
- * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind. For an alert the alerts platform evaluates, checks since it took the alert over come from the platform's check history.
+ * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind. For an alert the alerts platform evaluates, checks since it took the alert over come from the platform's check history. So do control-plane rows from the oldest one the platform recorded onward.
  */
 export const LogsAlertsEventsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),

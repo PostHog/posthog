@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     CREDENTIALS_REFERENCE_INPUT_KEY,
 )
 from products.warehouse_sources.backend.facade.models import (
+    INCREMENTAL_HISTORY_KEY,
     DataWarehouseCredential,
     DataWarehouseTable,
     ExternalDataJob,
@@ -66,6 +67,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
+from products.warehouse_sources.backend.facade.source_management import history_table_name
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, IncrementalFieldType, SourceKey
 from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
@@ -561,6 +563,41 @@ class TestExternalDataSource(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization)
         ExternalDataSource.objects.create(team=other_team, source_type="Stripe")
         self.assertEqual(self.client.get(url).json(), {"exists": False})
+
+    @parameterized.expand(
+        [
+            ("schema_status", lambda schema: ExternalDataSchema.objects.filter(pk=schema.pk).update(status="Running")),
+            ("sync_toggle", lambda schema: ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False)),
+            (
+                "row_count",
+                lambda schema: DataWarehouseTable.objects.filter(pk=schema.table_id).update(row_count=10),
+            ),
+            (
+                "completed_run",
+                lambda schema: ExternalDataJob.objects.create(
+                    team_id=schema.team_id,
+                    pipeline_id=schema.source_id,
+                    schema=schema,
+                    status=ExternalDataJob.Status.COMPLETED,
+                ),
+            ),
+            ("schema_deleted", lambda schema: ExternalDataSchema.objects.filter(pk=schema.pk).update(deleted=True)),
+            (
+                "source_deleted",
+                lambda schema: ExternalDataSource.objects.filter(pk=schema.source_id).update(deleted=True),
+            ),
+        ]
+    )
+    def test_sync_state_fingerprint_changes_only_with_sync_state(self, _name, change_sync_state) -> None:
+        schema = self._make_schema_with_table(self._make_source("tracked"), "Customer", status="Completed")
+        url = f"/api/projects/{self.team.pk}/external_data_sources/sync_state/"
+        before = self.client.get(url).json()["fingerprint"]
+        other_team = Team.objects.create(organization=self.organization)
+        ExternalDataSource.objects.create(team=other_team, source_type="Stripe")
+
+        assert self.client.get(url).json()["fingerprint"] == before
+        change_sync_state(schema)
+        assert self.client.get(url).json()["fingerprint"] != before
 
     def test_list_serializes_trimmed_schema_shape_while_retrieve_stays_full(self):
         # The sources list embeds every schema of every source, so it serializes a trimmed per-schema
@@ -12033,8 +12070,31 @@ class TestDisableCDC(APIBaseTest):
             team_id=self.team.pk,
             source_id=source.pk,
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"cdc_table_mode": "both", INCREMENTAL_HISTORY_KEY: True},
             should_sync=True,
         )
+        history_off_schema = ExternalDataSchema.objects.create(
+            name="incremental_history_off",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"cdc_table_mode": "both", INCREMENTAL_HISTORY_KEY: True},
+            should_sync=True,
+        )
+        history_tables = {
+            schema.name: DataWarehouseTable.objects.create(
+                team_id=self.team.pk,
+                name=str(history_table_name(schema)),
+                format="DeltaS3Wrapper",
+                url_pattern="s3://bucket/history",
+                external_data_source=source,
+                options={"history_table": True, "history_naming": "ph_validity"},
+            )
+            for schema in (history_schema, non_cdc_schema, history_off_schema)
+        }
+        # History turned off later keeps the table it wrote, with the only copy of its past versions.
+        history_off_schema.sync_type_config = {"cdc_table_mode": "consolidated"}
+        history_off_schema.save()
 
         with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
             response = self.client.post(
@@ -12061,6 +12121,15 @@ class TestDisableCDC(APIBaseTest):
         cdc_schema.refresh_from_db()
         assert cdc_schema.sync_type is None
         assert cdc_schema.should_sync is False
+
+        # The CDC history table goes; the incremental ones stay, also one that stopped writing its table.
+        assert {
+            name: DataWarehouseTable.objects.get(id=table.id).deleted for name, table in history_tables.items()
+        } == {
+            "cdc_history_table": True,
+            "incremental_table": False,
+            "incremental_history_off": False,
+        }
 
         # Non-CDC schema must NOT be touched.
         non_cdc_schema.refresh_from_db()
