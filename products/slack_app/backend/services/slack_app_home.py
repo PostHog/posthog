@@ -519,20 +519,31 @@ def render_home_view(
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
     # threads you started reach PostHog on their own.
+    uses_own_plan = bool(own_plan and own_plan.connected)
+    reply_blocks: list[dict] = []
     if untagged_followup_mode is not None:
-        blocks.append({"type": "divider"})
-        blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
+        reply_blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
 
     # Section 4a — multiplayer: who may join the threads you started, and whose plan pays.
-    uses_own_plan = bool(own_plan and own_plan.connected)
     if thread_join_mode is not None or uses_own_plan:
-        blocks.append({"type": "divider"})
-        blocks.extend(_multiplayer_section_blocks(thread_join_mode, uses_own_plan=uses_own_plan))
+        reply_blocks.extend(_multiplayer_section_blocks(thread_join_mode, uses_own_plan=uses_own_plan))
 
     # Section 4b — channel questions. `None` means the flag is off for this workspace.
     if untagged_question_mode is not None:
-        blocks.append({"type": "divider"})
-        blocks.extend(_untagged_questions_section_blocks(untagged_question_mode))
+        reply_blocks.extend(_untagged_questions_section_blocks(untagged_question_mode))
+    if reply_blocks:
+        blocks.append(
+            {
+                "type": "container",
+                "block_id": "slack_app_home:reply_settings",
+                "title": {"type": "plain_text", "text": "Reply settings"},
+                "subtitle": {"type": "plain_text", "text": "Thread replies, questions, and collaboration"},
+                "width": "full",
+                "is_collapsible": True,
+                "default_collapsed": True,
+                "child_blocks": reply_blocks,
+            }
+        )
 
     # Section 5 — channel welcome: a workspace setting, so only admins see it.
     if is_admin and channel_welcome_mode is not None:
@@ -629,10 +640,8 @@ def _static_select(
 
 def _header_blocks() -> list[dict]:
     return [
-        _section_title(
-            "Welcome to PostHog! 👋",
-            "Tune how @PostHog mentions get routed and answered from this Slack workspace.",
-        ),
+        {"type": "header", "text": {"type": "plain_text", "text": "PostHog in Slack"}},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "Manage your projects, model, and replies."}]},
     ]
 
 
@@ -703,26 +712,26 @@ def _active_model_blocks(run_defaults: RunDefaultsState) -> list[dict]:
     Two rungs, in resolution order: the central PostHog default (personal or
     project), else Slack's own floor.
     """
-    header = _section_title(
-        "🤖 AI model",
-        "Which Claude / Codex configuration handles your @PostHog mentions.",
-    )
-
     if run_defaults.applies:
         headline = (
-            # Same phrasing as the notice a mention override posts, so the card and the
-            # thread describe a run the same way.
-            f"Currently running {describe_run_model(run_defaults.model, run_defaults.reasoning_effort)}"
+            f"{describe_run_model(run_defaults.model, run_defaults.reasoning_effort)}"
             f" · {label_for(run_defaults.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}"
         )
         source_label = run_defaults.source_label
     else:
-        headline = f"Defaulting to {display_name_for_model(SLACK_DEFAULT_MODEL)}. Pick your own settings to override."
+        headline = display_name_for_model(SLACK_DEFAULT_MODEL)
         source_label = "System default"
 
     blocks: list[dict] = [
-        header,
-        {"type": "section", "text": {"type": "mrkdwn", "text": headline}},
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*AI model*\n{headline}"},
+            "accessory": {
+                "type": "button",
+                "action_id": ACTION_EDIT_PERSONAL,
+                "text": {"type": "plain_text", "text": "Edit model"},
+            },
+        },
         {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Source: {source_label}"}]},
     ]
     if run_defaults.settings_url:
@@ -732,8 +741,8 @@ def _active_model_blocks(run_defaults: RunDefaultsState) -> list[dict]:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": f"<{run_defaults.settings_url}|Task agent defaults in PostHog> apply everywhere: "
-                        "the task composer, PostHog Desktop, and Slack.",
+                        "text": f"<{run_defaults.settings_url}|Task agent defaults> apply to Slack, PostHog Desktop, "
+                        "and the task composer.",
                     }
                 ],
             }
@@ -753,35 +762,36 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
         for c in state.candidates
     ]
 
-    blocks: list[dict] = [
-        _section_title(
-            "🧭 Project routing",
-            "Which PostHog project @PostHog mentions land in. Personal picks override the workspace default.",
-        ),
-    ]
+    blocks: list[dict] = []
 
     if options:
-        blocks.append(_subsection_label("Your default"))
         personal_select: dict[str, Any] = {
             "type": "static_select",
             "action_id": ACTION_SET_PROJECT_PERSONAL,
             "placeholder": {"type": "plain_text", "text": "Inherit workspace default"},
             "options": options,
         }
-        personal_elements: list[dict[str, Any]] = [personal_select]
+        personal_actions: list[dict[str, Any]] = []
         if state.personal_team_id is not None and any(c.team_id == state.personal_team_id for c in state.candidates):
             personal_select["initial_option"] = next(o for o in options if o["value"] == str(state.personal_team_id))
-            personal_elements.append(
+            personal_actions.append(
                 {
                     "type": "button",
                     "action_id": ACTION_RESET_PROJECT_PERSONAL,
-                    "text": {"type": "plain_text", "text": "Reset to workspace default", "emoji": True},
+                    "text": {"type": "plain_text", "text": "Use workspace default", "emoji": True},
                 }
             )
-        blocks.append({"type": "actions", "elements": personal_elements})
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "*Project*\nYour default for @PostHog mentions."},
+                "accessory": personal_select,
+            }
+        )
+        if personal_actions:
+            blocks.append({"type": "actions", "elements": personal_actions})
 
     if is_admin and options:
-        blocks.append(_subsection_label("Workspace default"))
         workspace_select: dict[str, Any] = {
             "type": "static_select",
             "action_id": ACTION_SET_PROJECT_WORKSPACE,
@@ -790,7 +800,16 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
         }
         if state.workspace_team_id is not None and any(c.team_id == state.workspace_team_id for c in state.candidates):
             workspace_select["initial_option"] = next(o for o in options if o["value"] == str(state.workspace_team_id))
-        blocks.append({"type": "actions", "elements": [workspace_select]})
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Workspace project*\nDefault for people without a personal choice.",
+                },
+                "accessory": workspace_select,
+            }
+        )
         # Footnote when the default points at a project the admin can't access:
         # the picker can't surface it via `initial_option` since it isn't in `options`.
         if state.workspace_team_label and not any(c.team_id == state.workspace_team_id for c in state.candidates):
@@ -803,8 +822,12 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
                 }
             )
     elif state.workspace_team_label:
-        blocks.append(_subsection_label("Workspace default"))
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"_{state.workspace_team_label}_"}})
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": f"Workspace default: {state.workspace_team_label}"}],
+            }
+        )
 
     return blocks
 
@@ -835,8 +858,7 @@ def _linked_accounts_section_blocks(
 
     return [
         _section_title(
-            "🔗 Linked accounts",
-            "Who @PostHog acts as: your PostHog user, and the GitHub account it opens pull requests with.",
+            "Linked accounts",
         ),
         *rows,
     ]
@@ -860,7 +882,6 @@ def _posthog_account_button(account_state: AccountState) -> dict | None:
         return {
             "type": "button",
             "action_id": ACTION_UNLINK_ACCOUNT,
-            "style": "danger",
             "text": {"type": "plain_text", "text": "Disconnect", "emoji": True},
             "confirm": {
                 "title": {"type": "plain_text", "text": "Disconnect your PostHog account?"},
@@ -924,26 +945,13 @@ def _personal_section_blocks(run_defaults: RunDefaultsState) -> list[dict]:
     """
 
     has_preference = run_defaults.source == "user"
-    summary = (
-        "_Your personal default (shown above) applies to Slack, the task composer, and PostHog Desktop._"
-        if has_preference
-        else "_No personal default. Inheriting the project default._"
-    )
-
-    actions: list[dict] = [
-        {
-            "type": "button",
-            "action_id": ACTION_EDIT_PERSONAL,
-            "text": {"type": "plain_text", "text": "Edit my settings", "emoji": True},
-        }
-    ]
+    actions: list[dict] = []
     if has_preference:
         actions.append(
             {
                 "type": "button",
                 "action_id": ACTION_RESET_PERSONAL,
-                "style": "danger",
-                "text": {"type": "plain_text", "text": "Reset to default", "emoji": True},
+                "text": {"type": "plain_text", "text": "Use project default", "emoji": True},
                 "confirm": {
                     "title": {"type": "plain_text", "text": "Clear your personal default?"},
                     "text": {
@@ -957,11 +965,7 @@ def _personal_section_blocks(run_defaults: RunDefaultsState) -> list[dict]:
             }
         )
 
-    return [
-        _subsection_label("Your default"),
-        {"type": "section", "text": {"type": "mrkdwn", "text": summary}},
-        {"type": "actions", "elements": actions},
-    ]
+    return [{"type": "actions", "elements": actions}] if actions else []
 
 
 AUTO_MODEL_CHOICE_VALUE = "on"
@@ -987,7 +991,6 @@ def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
     if enabled:
         checkbox["initial_options"] = [option]
     return [
-        _subsection_label("Auto model choice"),
         {"type": "actions", "elements": [checkbox]},
         {
             "type": "context",
@@ -1011,8 +1014,11 @@ def _feature_tips_section_blocks(enabled: bool) -> list[dict]:
     if enabled:
         checkbox["initial_options"] = [option]
     return [
-        _section_title("💡 Tips", "Short tips about PostHog features you have not used yet."),
-        {"type": "actions", "elements": [checkbox]},
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "*Tips*\nLearn about PostHog features you have not used yet."},
+            "accessory": checkbox,
+        },
     ]
 
 
@@ -1063,9 +1069,11 @@ def _untagged_mode_section_blocks(
         "initial_option": next(o for o in options if o["value"] == mode.value),
     }
     return [
-        _section_title(title, subtitle),
-        {"type": "actions", "elements": [select]},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": note}]},
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*{title}*\n{subtitle}\n{note}"},
+            "accessory": select,
+        },
     ]
 
 
@@ -1074,9 +1082,9 @@ def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
         mode,
         action_id=ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
         labels=UNTAGGED_FOLLOWUP_MODE_LABELS,
-        title="💬 Thread follow-ups",
-        subtitle="What I do with replies in a thread you started, when nobody tags @PostHog.",
-        note="Applies to every reply in those threads, yours included.",
+        title="Thread follow-ups",
+        subtitle="Replies in threads you start, without an @PostHog mention.",
+        note="Applies to all replies, including yours.",
     )
 
 
@@ -1085,12 +1093,9 @@ def _untagged_questions_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
         mode,
         action_id=ACTION_SET_UNTAGGED_QUESTION_MODE,
         labels=UNTAGGED_QUESTION_MODE_LABELS,
-        title="❓ Questions in channels",
-        subtitle=(
-            "What I do when you post a question in a channel without tagging @PostHog, "
-            "and your PostHog data can answer it."
-        ),
-        note="Only your own questions. Thread follow-ups keep the setting above.",
+        title="Questions in channels",
+        subtitle="Your questions without an @PostHog mention, when your data can answer them.",
+        note="Does not change thread follow-ups.",
     )
 
 
@@ -1099,9 +1104,8 @@ def _multiplayer_section_blocks(mode: ThreadJoinMode | None, *, uses_own_plan: b
 
     ``mode`` is `None` when the join setting is not offered to this viewer.
     """
-    blocks: list[dict] = [
-        _section_title("👥 Multiplayer", "What I do when someone else tags @PostHog in a thread you started."),
-    ]
+    row = _section_title("Multiplayer", "When another person mentions @PostHog in a thread you start.")
+    blocks: list[dict] = [row]
     if mode is not None:
         select = _static_select(
             action_id=ACTION_SET_THREAD_JOIN_MODE,
@@ -1109,9 +1113,8 @@ def _multiplayer_section_blocks(mode: ThreadJoinMode | None, *, uses_own_plan: b
             pairs=ThreadJoinMode.choices,
             selected=mode.value,
         )
-        blocks.append({"type": "actions", "elements": [select]})
+        row["accessory"] = select
     if uses_own_plan:
-        blocks.append(_subsection_label("ChatGPT plan"))
         blocks.append(
             {
                 "type": "context",

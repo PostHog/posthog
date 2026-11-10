@@ -197,7 +197,7 @@ class TestStatsCardRendering:
         view = _render(StatsState(tasks_started=1))
         rendered = [str(block) for block in view["blocks"]]
 
-        welcome_at = next(i for i, b in enumerate(rendered) if "Welcome to PostHog" in b)
+        welcome_at = next(i for i, b in enumerate(rendered) if "PostHog in Slack" in b)
         stats_at = next(i for i, b in enumerate(rendered) if "Workspace activity" in b)
         model_at = next(i for i, b in enumerate(rendered) if "AI model" in b)
 

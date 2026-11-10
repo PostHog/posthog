@@ -165,6 +165,12 @@ Django must be up at that moment.
 > locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
 > identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
 
+The Home tab puts project selectors beside their labels.
+Expand Reply settings to change thread replies, channel questions, and collaboration options.
+Edit model opens the personal model form.
+Use project default clears the personal model choice for Slack, PostHog Desktop, and the task composer.
+Workspace project and channel welcome controls appear only for Slack workspace admins.
+
 > The `canvases:read` user scope lets the Slack MCP connection read canvases that the authorizing user can access.
 > The `search:read.private`, `search:read.im`, and `search:read.mpim` user scopes let the dev Slack MCP connection search private channels, DMs, and group DMs. Existing connections keep their old scopes until the person disconnects and connects again.
 

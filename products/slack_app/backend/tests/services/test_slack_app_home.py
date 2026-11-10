@@ -268,13 +268,18 @@ def _stub_picker_facade():
 
 def _action_ids(view: dict) -> list[str]:
     out: list[str] = []
-    for block in view["blocks"]:
-        for el in block.get("elements", []) or []:
-            if "action_id" in el:
-                out.append(el["action_id"])
-        accessory = block.get("accessory")
-        if accessory and "action_id" in accessory:
-            out.append(accessory["action_id"])
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            if "action_id" in node:
+                out.append(node["action_id"])
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(view["blocks"])
     return out
 
 
@@ -545,11 +550,11 @@ class TestThreadFollowupsCard:
         # Without the right initial option the tab misreports the setting, and picking
         # the value already stored is a no-op click that looks broken.
         view = self._view(mode)
+        replies = next(block for block in view["blocks"] if block.get("type") == "container")
         select = next(
-            el
-            for block in view["blocks"]
-            for el in block.get("elements", []) or []
-            if el.get("action_id") == ACTION_SET_UNTAGGED_FOLLOWUP_MODE
+            block["accessory"]
+            for block in replies["child_blocks"]
+            if block.get("accessory", {}).get("action_id") == ACTION_SET_UNTAGGED_FOLLOWUP_MODE
         )
         assert select["initial_option"]["value"] == mode.value
         assert {o["value"] for o in select["options"]} == set(UntaggedFollowupMode.values)
