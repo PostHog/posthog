@@ -69,7 +69,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         slug: 'posthog',
         owner: 'posthog',
         scheme,
-        version: '1.12.0',
+        version: '1.13.0',
         orientation: 'default',
         userInterfaceStyle: 'automatic',
         icon: icons.png,
@@ -184,6 +184,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
             './plugins/withAndroidAdaptiveIconInsets',
             './plugins/withAndroidNotificationIntents',
             '@bacons/apple-targets',
+            './plugins/withIosArchiveScheme',
         ],
         updates: {
             url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
