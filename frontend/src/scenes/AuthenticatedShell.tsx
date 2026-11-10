@@ -31,6 +31,11 @@ import { sceneLogic } from './sceneLogic'
 const TerminalDock = lazyWithRetry(() =>
     import('./terminal/TerminalDock').then(({ TerminalDock }) => ({ default: TerminalDock }))
 )
+const InAppOnboarding = lazyWithRetry(() =>
+    import('lib/components/InAppOnboarding/InAppOnboarding').then(({ InAppOnboarding }) => ({
+        default: InAppOnboarding,
+    }))
+)
 const importCommand = (): Promise<typeof import('lib/components/Command/Command')> =>
     import('lib/components/Command/Command')
 const Command = lazyWithRetry(() => importCommand().then(({ Command }) => ({ default: Command })))
@@ -98,6 +103,15 @@ export default function AuthenticatedShell({ children }: { children: React.React
                         <ChunkLoadErrorBoundary>
                             <Suspense fallback={null}>
                                 <Command />
+                            </Suspense>
+                        </ChunkLoadErrorBoundary>
+                    </ErrorBoundary>
+                )}
+                {featureFlags[FEATURE_FLAGS.IN_APP_ONBOARDING] && (
+                    <ErrorBoundary>
+                        <ChunkLoadErrorBoundary>
+                            <Suspense fallback={null}>
+                                <InAppOnboarding />
                             </Suspense>
                         </ChunkLoadErrorBoundary>
                     </ErrorBoundary>

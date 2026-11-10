@@ -14,6 +14,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { inAppOnboardingLogic } from 'lib/components/InAppOnboarding/inAppOnboardingLogic'
 import { SearchItem, fileSystemEntryToSearchItem } from 'lib/components/Search/searchItems'
 import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
 import { canOpenInNewTab } from 'lib/components/Search/utils'
@@ -887,6 +888,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 return
             }
             actions.markResultOpened()
+            // Found rather than connected: onboarding only runs while its flag is on.
+            inAppOnboardingLogic.findMounted()?.actions.recordSignal('command-result-opened')
             posthog.capture('command k result opened', {
                 section: row.kind === 'item' ? row.section : 'ask-ai',
                 ranked_section: row.key.split('/')[0],
