@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -141,6 +142,7 @@ export class SandboxEmailService {
             teamId: request.teamId,
             storedAddress: authorization.storedAddress,
             claimId: request.capClaimId,
+            attemptId: randomUUID(),
         }
         const caps = await this.deps.claimCaps(capClaim)
         if (!caps.ok) {
