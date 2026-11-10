@@ -32,6 +32,8 @@ class QuotaLimitingResult:
     orgs_processed: int = 0
     orgs_limited: int = 0
     orgs_suspended: int = 0
+    ai_overage_teams: int = 0
+    ai_overage_mb: int = 0
 
 
 @activity.defn(name="run-quota-limiting-all-orgs")

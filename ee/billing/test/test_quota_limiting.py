@@ -21,6 +21,7 @@ from posthog.constants import FlagRequestType
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.temporal.quota_limiting.run_quota_limiting import QuotaLimitingResult
 from posthog.test.fixtures import create_app_metric2
 from posthog.usage_counters import UsageCounterService
 
@@ -2036,8 +2037,8 @@ class TestQuotaLimiting(BaseTest):
             result = update_all_orgs_billing_quotas()
 
             assert result.quota_limited_orgs["llm_events"] == {str(self.organization.id): 1612137599}
-            assert result.stats["ai_overage_teams"] == 1
-            assert result.stats["ai_overage_mb"] == 3
+            quota_result = QuotaLimitingResult(**result.stats)
+            assert (quota_result.ai_overage_teams, quota_result.ai_overage_mb) == (1, 3)
 
     @parameterized.expand(
         [
