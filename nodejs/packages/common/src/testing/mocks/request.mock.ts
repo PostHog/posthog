@@ -1,6 +1,7 @@
 import { FetchResponse } from '~/utils/request'
 
-jest.mock('~/utils/request', () => {
+// Relative, not aliased: consumers load the compiled helper, and tsc-alias leaves jest.mock specifiers alone.
+jest.mock('../../utils/request', () => {
     return {
         fetch: jest.fn(() =>
             Promise.resolve({

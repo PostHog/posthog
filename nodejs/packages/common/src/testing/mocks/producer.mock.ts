@@ -9,9 +9,10 @@ import { HighLevelProducer } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
-const ActualKafkaProducerWrapper = jest.requireActual('~/kafka/producer').KafkaProducerWrapper
+// Relative, not aliased: consumers load the compiled helper, and tsc-alias leaves jest.mock specifiers alone.
+const ActualKafkaProducerWrapper = jest.requireActual('../../kafka/producer').KafkaProducerWrapper
 
-jest.mock('~/kafka/producer', () => {
+jest.mock('../../kafka/producer', () => {
     const mockHighLevelProducer: jest.Mocked<HighLevelProducer> = {
         produce: jest.fn((...args) => args[args.length - 1]?.()),
         flush: jest.fn((...args) => args[args.length - 1]?.()),

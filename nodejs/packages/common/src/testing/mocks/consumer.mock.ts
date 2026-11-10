@@ -10,6 +10,7 @@ const mockKafkaConsumer = (): jest.Mocked<KafkaConsumerInterface> => ({
     getPartitionsForTopic: jest.fn().mockResolvedValue([]),
 })
 
-jest.mock('~/kafka/consumer', () => ({
+// Relative, not aliased: consumers load the compiled helper, and tsc-alias leaves jest.mock specifiers alone.
+jest.mock('../../kafka/consumer', () => ({
     createKafkaConsumer: jest.fn(mockKafkaConsumer),
 }))
