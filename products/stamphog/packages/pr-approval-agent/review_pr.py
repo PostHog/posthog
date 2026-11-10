@@ -358,8 +358,7 @@ class Pipeline:
         `admitted_bot` is the login the hosted server admitted under the policy's `bot_authors`. The
         login and the author's numeric id are checked against that list again here, so neither a
         server that admits a bot the policy does not name nor a server reading a cached policy can
-        pass an account the policy has since dropped. An admitted bot keeps every gate, and every
-        file in its PR must be attested.
+        pass an account the policy has since dropped.
         """
         if not self.pr.author_is_bot or self.self_driving:
             return False

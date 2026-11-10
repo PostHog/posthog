@@ -1,8 +1,7 @@
 """Admit a bot's PR to review when the repo policy names that bot.
 
 `.stamphog/policy.yml` lists under `bot_authors` the bots whose PRs stamphog reviews. The list is
-read from the repo's default branch only, so a PR cannot admit its own author. An admitted PR still
-passes every gate, and the engine refuses it unless an attestation vouches for each file in it.
+read from the repo's default branch only, so a PR cannot admit its own author.
 """
 
 from __future__ import annotations

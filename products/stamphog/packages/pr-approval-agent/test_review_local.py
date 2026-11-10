@@ -1080,9 +1080,6 @@ _MIGRATION = "posthog/migrations/0999_add_col.py"
 def test_an_admitted_bot_is_reviewed_only_when_every_file_is_proven(
     monkeypatch, bot_authors: tuple[BotAuthor, ...], context: dict, expect_verdict: str | None, failed_gate: str | None
 ) -> None:
-    # The server stamps the admitted login, and the engine checks it against the policy again, so
-    # a server that admits a bot the policy does not name still refuses. A bot carries no author
-    # trust, so a file outside every pinned proof refuses, and a pinned proof still running waits.
     # `Docs lint` never reports here, and it must not hold back a PR whose files are all proven.
     policy = replace(
         review_pr.POLICY,

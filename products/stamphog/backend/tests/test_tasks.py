@@ -305,10 +305,7 @@ def _renovate_pr(**overrides: Any) -> dict[str, Any]:
 def test_a_bot_the_policy_names_is_reviewed_on_its_own_identity(
     team, repo_config, payload: dict[str, Any], policy: str | None, review_mode: ReviewMode, expect_run: bool
 ):
-    # The admission reads the policy from the default branch and matches login and numeric id, so a
-    # renamed login, a fork, or a machine user of the same name stays refused. An admitted bot skips
-    # the repo's review mode and the write-permission gate, which the harness sets to "none" here,
-    # because the policy entry replaces both.
+    # The harness answers "none" for the author's permission, so a run here skipped that gate.
     with team_scope(team.id):
         repo_config.review_mode = review_mode
         repo_config.save(update_fields=["review_mode"])
@@ -329,8 +326,6 @@ def test_a_bot_the_policy_names_is_reviewed_on_its_own_identity(
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_rate_limited_bot_policy_read_backs_off_before_it_answers_the_pr(team, repo_config):
-    # The policy may admit this bot, so the skip path must not tell the PR that stamphog skips bots,
-    # or remove its label, before the retry has read the policy.
     with team_scope(team.id):
         repo_config.review_mode = ReviewMode.LABEL
         repo_config.save(update_fields=["review_mode"])

@@ -2349,8 +2349,6 @@ def test_a_wait_on_attestation_checks_is_reviewed_again_only_when_all_of_them_re
 def test_a_reported_check_reviews_a_bot_wait_again_only_with_the_admission_it_was_created_with(
     team, stamphog_chain: StamphogChain, admitted: bool
 ) -> None:
-    # The re-review refetches the PR and runs the same pre-filters as a delivery, which drop every bot
-    # author. Only the waiting run's own admission stamp lets a named bot through.
     repo_config = _repo_config(team.id)
     head_sha = "sha129b"
     live_pr = _pr_object(129, "renovate[bot]", head_sha) | {"state": "open", "author_association": "CONTRIBUTOR"}

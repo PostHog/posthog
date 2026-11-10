@@ -210,8 +210,7 @@ class BotAuthor:
     """A bot whose PRs the hosted server may admit to review.
 
     `login` and `id` together name one GitHub account, because a login can be renamed and claimed
-    by someone else while the numeric id cannot. An admitted bot's PR still passes every gate, and
-    every file in it must be lifted by an attestation.
+    by someone else while the numeric id cannot.
     """
 
     name: str
