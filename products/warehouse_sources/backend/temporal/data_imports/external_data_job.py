@@ -20,6 +20,7 @@ from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
+from posthog.models.utils import strip_null_bytes
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
@@ -542,7 +543,9 @@ def _fail_stale_running_schema(
     if schema is None or schema.status != ExternalDataSchema.Status.RUNNING or schema.cdc_halted:
         return
     schema.status = ExternalDataSchema.Status.FAILED
-    schema.latest_error = latest_error
+    # latest_error is raw driver/vendor text and can carry a NUL byte, which Postgres text
+    # columns reject outright.
+    schema.latest_error = strip_null_bytes(latest_error)
     schema.save(update_fields=["status", "latest_error", "updated_at"])
     logger.info("Reset stale Running schema status to Failed", schema_id=schema_id)
 
