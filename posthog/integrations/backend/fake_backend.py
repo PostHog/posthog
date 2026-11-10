@@ -165,11 +165,13 @@ class FakeBackend:
 
     @staticmethod
     def _copy(record: FrozenIntegrationRecord) -> FrozenIntegrationRecord:
-        # A caller that changes a returned dict must not change the stored row.
+        # A caller that changes a returned dict must not change the stored row. Like Django, a secret
+        # field that cannot be decrypted is a raw string, not a dict.
+        secrets = record.sensitive_config
         return replace(
             record,
             config=copy.deepcopy(dict(record.config)),
-            sensitive_config=copy.deepcopy(dict(record.sensitive_config)),
+            sensitive_config=copy.deepcopy(dict(secrets) if isinstance(secrets, Mapping) else secrets),
         )
 
     @staticmethod
@@ -329,6 +331,26 @@ class FakeBackend:
         with self._lock:
             del self._rows[self._row(scope, team_id, id).id]
 
+    def change_external_id(self, scope: RowScope, *, team_id: int, id: int, external_id: str) -> IntegrationRecord:
+        with self._lock:
+            record = self._row(scope, team_id, id)
+            if record.integration_id == external_id:
+                return self._copy(record)
+            if any(
+                (other.team_id, other.kind, other.integration_id) == (record.team_id, record.kind, external_id)
+                for other in self._rows.values()
+            ):
+                raise IntegrationConflict(
+                    f"Team {team_id} already has a {record.kind!r} integration with external id {external_id!r}"
+                )
+            moved = replace(
+                record,
+                integration_id=external_id,
+                display_name=_display_name(record.kind, external_id, record.config),
+            )
+            self._rows[record.id] = moved
+            return self._copy(moved)
+
     def _by_external_id(self, scope: RowScope, external_id: str) -> Iterable[FrozenIntegrationRecord]:
         return self._selected(scope, RowFilter(external_id=external_id))
 
@@ -351,9 +373,10 @@ class FakeBackend:
         # The lock covers the provider call, like the row lock of `DjangoBackend`.
         with self._lock:
             record = self._row(scope, team_id, id)
-            stale = stale_access_token is not None and record.access_token == stale_access_token
-            if not (stale or OauthIntegration(record).access_token_expired()):
+            stale = stale_access_token is not None and (record.access_token or "") == stale_access_token
+            expired = OauthIntegration(record).access_token_expired()
+            if not (stale or expired):
                 return TokenRefresh(record=self._copy(record), result="fresh")
             refreshed = self._patched(record, self._token_refresher(self._copy(record))) or record
-            result: TokenRefreshResult = "error" if refreshed.errors else "stale_token" if stale else "refreshed"
+            result: TokenRefreshResult = "error" if refreshed.errors else "refreshed" if expired else "stale_token"
             return TokenRefresh(record=self._copy(refreshed), result=result)

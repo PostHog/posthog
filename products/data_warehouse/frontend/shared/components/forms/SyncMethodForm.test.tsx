@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { ExternalDataSourceSyncSchema } from '~/types'
 
@@ -51,6 +51,58 @@ describe('SyncMethodForm', () => {
         ['keyless with columns known', false, 'append'],
     ])('preselects incremental only when the key resolves: %s', (_, keyResolvable, expected) => {
         expect(getInitialRadioState({ ...baseSchema, xmin_available: false }, true, true, keyResolvable)).toBe(expected)
+    })
+
+    describe('output tables of an incremental table', () => {
+        afterEach(cleanup)
+
+        const renderIncremental = (
+            fieldType: 'datetime' | 'integer',
+            historyAvailable: boolean,
+            onSave: jest.Mock = jest.fn()
+        ): HTMLElement => {
+            const { container } = render(
+                <SyncMethodForm
+                    schema={{
+                        ...baseSchema,
+                        sync_type: 'incremental',
+                        incremental_available: true,
+                        incremental_history_available: historyAvailable,
+                        incremental_field: 'updated_at',
+                        incremental_fields: [
+                            { field: 'updated_at', field_type: fieldType, label: 'updated_at', type: fieldType },
+                        ],
+                        primary_key_columns: ['id'],
+                    }}
+                    availableColumns={[]}
+                    onClose={() => {}}
+                    onSave={onSave}
+                />
+            )
+            return container
+        }
+
+        it.each([
+            ['a date or time cursor', 'datetime' as const, true, true, true],
+            ['an integer cursor', 'integer' as const, true, true, false],
+            ['the organization without the flag', 'datetime' as const, false, false, false],
+        ])('offers history for %s', (_, fieldType, historyAvailable, shown, enabled) => {
+            const container = renderIncremental(fieldType, historyAvailable)
+
+            expect(screen.queryByText('Output tables') !== null).toBe(shown)
+            const historyOnly = container.querySelector('input[value="cdc_only"]')
+            expect(historyOnly !== null && !historyOnly.hasAttribute('disabled')).toBe(enabled)
+        })
+
+        it('saves the chosen output tables', () => {
+            const onSave = jest.fn()
+            renderIncremental('datetime', true, onSave)
+
+            fireEvent.click(screen.getByText('Both'))
+            fireEvent.click(screen.getByText('Save'))
+
+            expect(onSave).toHaveBeenCalledWith('incremental', 'updated_at', 'datetime', ['id'], 'both', null)
+        })
     })
 
     describe('primary key picker', () => {

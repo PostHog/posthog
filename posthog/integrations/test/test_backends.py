@@ -1,5 +1,6 @@
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -52,7 +53,12 @@ class TestBackendsBehaveTheSame(BaseTest):
             self.fake = self.enterContext(fake_integrations_backend(token_refresher=self._count_refresh))
         else:
             self.enterContext(
-                patch.object(OauthIntegration, "refresh_access_token", autospec=True, side_effect=self._django_refresh)
+                patch.object(
+                    OauthIntegration,
+                    "token_refresh_patch",
+                    autospec=True,
+                    side_effect=lambda oauth: self._count_refresh(oauth.integration),
+                )
             )
         self.other_team = Team.objects.create(organization=self.organization, name="Other")
         self.ids = {name: self._seed(name, kind, config) for name, (kind, config) in ROWS.items()}
@@ -61,13 +67,6 @@ class TestBackendsBehaveTheSame(BaseTest):
     def _count_refresh(self, record: IntegrationRecord) -> IntegrationPatch:
         self.refreshes.append(record.id)
         return _refreshed_tokens(record)
-
-    def _django_refresh(self, oauth: OauthIntegration) -> None:
-        patch_ = self._count_refresh(oauth.integration)
-        if patch_.errors:
-            oauth.integration.errors = patch_.errors
-        oauth.integration.sensitive_config = {**oauth.integration.sensitive_config, **patch_.sensitive_config_patch}
-        oauth.integration.save()
 
     def _seed(
         self,
@@ -470,6 +469,50 @@ class TestBackendsBehaveTheSame(BaseTest):
         saved = self._stored(row_id).config["flag"]
         assert (saved, type(saved)) == (after, type(after))
 
+    def test_update_leaves_an_unreadable_secret_field_alone(self) -> None:
+        # An undecryptable secret field reads back as a raw string, not a dict.
+        row_id = self._seed("unreadable", "github", {})
+        if self.fake is not None:
+            self.fake._rows[row_id] = replace(self.fake._rows[row_id], sensitive_config="raw")  # type: ignore[arg-type]
+        else:
+            Integration._base_manager.filter(id=row_id).update(sensitive_config="raw")
+
+        updated = IntegrationManager.github.oauth.update(self.team.id, row_id, config_patch={"login": "x"})
+
+        stored = self._stored(row_id)
+        for record in (updated, stored):
+            sensitive_config: object = record.sensitive_config
+            assert (record.config, sensitive_config) == ({"login": "x"}, "raw")
+
+    @parameterized.expand(
+        [
+            ("moves", "github_oauth", "moved", "moved"),
+            ("same_id_writes_nothing", "github_oauth", "github_oauth", "github_oauth"),
+            # Postgres checks the unique key across auth types, so the token row blocks the oauth row.
+            ("taken_by_a_row_of_another_auth_type", "github_oauth", "github_token", IntegrationConflict),
+            ("row_out_of_scope", "github_token", "moved", IntegrationNotFound),
+        ]
+    )
+    def test_change_external_id(
+        self, _name: str, row_name: str, external_id: str, expected: str | type[Exception]
+    ) -> None:
+        row_id = self.ids[row_name]
+
+        if isinstance(expected, type):
+            with self.assertRaises(expected):
+                IntegrationManager.github.oauth.change_external_id(self.team.id, row_id, external_id)
+            assert self._stored(row_id).integration_id == row_name
+            return
+        row = IntegrationManager.github.oauth.change_external_id(self.team.id, row_id, external_id)
+
+        assert (row.integration_id, self._stored(row_id).integration_id) == (expected, expected)
+        # The row of the other team keeps its external id.
+        assert self._stored(self.other_id, self.other_team).integration_id == "github_oauth"
+
+    def test_change_external_id_stays_in_the_team(self) -> None:
+        with self.assertRaises(IntegrationNotFound):
+            IntegrationManager.github.oauth.change_external_id(self.other_team.id, self.ids["github_oauth"], "x")
+
     def test_update_raises_for_a_row_out_of_scope(self) -> None:
         with self.assertRaises(IntegrationNotFound):
             IntegrationManager.github.oauth.update(self.team.id, self.ids["github_token"], errors="")
@@ -549,3 +592,26 @@ class TestBackendsBehaveTheSame(BaseTest):
         assert self.refreshes == ([row_id] if token == "new" or fail else [])
         for record in (row, stored):
             assert (record.access_token, record.errors) == (token, errors)
+
+    @parameterized.expand(
+        [
+            ("row_without_a_token", None, "new"),
+            ("row_with_a_token", "old", "old"),
+        ]
+    )
+    def test_refresh_access_token_reads_an_empty_stale_token_as_no_token(
+        self, _name: str, stored_token: str | None, token: str
+    ) -> None:
+        sensitive_config: dict[str, Any] = {"refresh_token": "r1"}
+        if stored_token is not None:
+            sensitive_config["access_token"] = stored_token
+        row_id = self._seed(
+            "resend-account",
+            "resend",
+            {"expires_in": 900, "refreshed_at": int(time.time())},
+            sensitive_config=sensitive_config,
+        )
+
+        row = IntegrationManager.resend.oauth.refresh_access_token(self.team.id, row_id, stale_access_token="")
+
+        assert (row.access_token, self._stored(row_id).access_token) == (token, token)

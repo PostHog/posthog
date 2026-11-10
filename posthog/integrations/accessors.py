@@ -484,6 +484,11 @@ class AuthAccessor(IntegrationReader):
         scope = self._cross_team_scope("update_by_external_id")
         return self._backend.update_by_external_id(scope, external_id=external_id, patch=patch)
 
+    @instrumented("change_external_id")
+    def change_external_id(self, team_id: int, id: int, external_id: str) -> IntegrationRecord:
+        """Give the row another external id. Raises `IntegrationConflict` when the team has a row of the kind with that id."""
+        return self._backend.change_external_id(self._scope(), team_id=team_id, id=id, external_id=external_id)
+
     async def acreate(
         self,
         team_id: int,
@@ -554,8 +559,8 @@ class OAuthAccessor(AuthAccessor):
         worker stored.
 
         Pass `stale_access_token` to refresh also when that token is still the stored access token,
-        for example after the provider refused it. When the row has another token, the row comes back
-        without a refresh. A refresh that fails does not raise: the row comes back with `errors` set.
+        for example after the provider refused it. An empty string matches a row without an access
+        token. When the row has another token, the row comes back without a refresh. A refresh that fails does not raise: the row comes back with `errors` set.
         Raises `ValueError` when the kind has no OAuth token refresh.
         """
         if self._kind not in OauthIntegration.supported_kinds:

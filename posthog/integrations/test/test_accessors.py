@@ -227,6 +227,24 @@ class TestIntegrationAccessors(BaseTest):
         assert {"github_oauth": len(rows)} == expected
         assert all(row.integration_id == "github_oauth" for row in rows)
 
+    def test_change_external_id(self) -> None:
+        row = IntegrationManager.github.oauth.change_external_id(self.team.id, self.rows["github_oauth"].id, "moved")
+
+        assert row.integration_id == "moved"
+        assert IntegrationManager.github.oauth.get(self.team.id, row.id).integration_id == "moved"
+
+    def test_change_external_id_refuses_an_id_the_team_already_has(self) -> None:
+        newer = IntegrationManager.github.oauth.create(self.team.id, external_id="newer", config={})
+
+        with self.assertRaises(IntegrationConflict):
+            IntegrationManager.github.oauth.change_external_id(self.team.id, newer.id, "github_oauth")
+
+        assert IntegrationManager.github.oauth.get(self.team.id, newer.id).integration_id == "newer"
+
+    def test_change_external_id_does_not_reach_other_teams(self) -> None:
+        with self.assertRaises(IntegrationNotFound):
+            IntegrationManager.github.oauth.change_external_id(self.other_team.id, self.rows["github_oauth"].id, "x")
+
     @parameterized.expand(
         [
             ("both_teams", ["own", "other"], "github_oauth"),
@@ -622,12 +640,10 @@ class TestIntegrationAccessors(BaseTest):
     ) -> None:
         row = self._resend_row(refreshed_ago=refreshed_ago)
 
-        def rotate(oauth: OauthIntegration) -> None:
-            oauth.integration.sensitive_config = {"access_token": "new", "refresh_token": "r2"}
-            oauth.integration.save()
+        rotated = IntegrationPatch(sensitive_config_patch={"access_token": "new", "refresh_token": "r2"})
 
         with (
-            patch.object(OauthIntegration, "refresh_access_token", autospec=True, side_effect=rotate) as refresh,
+            patch.object(OauthIntegration, "token_refresh_patch", autospec=True, return_value=rotated) as refresh,
             CaptureQueriesContext(connection) as queries,
         ):
             result = IntegrationManager.resend.oauth.refresh_access_token(
@@ -655,7 +671,7 @@ class TestIntegrationAccessors(BaseTest):
     def test_refresh_access_token_raises(
         self, _name: str, accessor: Callable[[], Any], row_name: str, error: type[Exception]
     ) -> None:
-        with patch.object(OauthIntegration, "refresh_access_token") as refresh:
+        with patch.object(OauthIntegration, "token_refresh_patch") as refresh:
             with self.assertRaises(error):
                 accessor().refresh_access_token(self.team.id, self.rows[row_name].id)
 
