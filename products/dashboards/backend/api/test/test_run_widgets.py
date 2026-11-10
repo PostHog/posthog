@@ -1,5 +1,6 @@
 import json
 import typing
+import inspect
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
@@ -91,6 +92,12 @@ class TestWidgetRegistry(SimpleTestCase):
         assert "propertyName" in widget_filter_entry["properties"]
         widget_filters = components["ErrorTrackingListWidgetConfig"]["properties"]["widgetFilters"]
         assert "WidgetFilterEntry" in str(widget_filters)
+
+    @parameterized.expand(sorted(EXPECTED_WIDGET_TYPES))
+    def test_widget_runner_accepts_dashboard_filters(self, widget_type: str) -> None:
+        parameters = inspect.signature(WIDGET_REGISTRY[widget_type]["query_fn"]).parameters
+
+        self.assertIn("dashboard_filters", parameters)
 
     def test_validate_widget_config_unknown_type(self) -> None:
         with self.assertRaises(Exception):
@@ -650,9 +657,9 @@ class TestDashboardRunWidgets(APIBaseTest):
             ("saved_dashboard_filters_apply", None, None, ("-30d", "-1d", True, ["$browser"])),
             (
                 "request_override_wins_over_saved",
-                {"date_from": "-90d", "date_to": None, "filterTestAccounts": False},
+                {"date_from": "-60d", "date_to": None, "filterTestAccounts": False},
                 None,
-                ("-90d", None, False, ["$browser"]),
+                ("-60d", None, False, ["$browser"]),
             ),
             ("tile_ignores_dashboard_filters", None, {"ignoreDashboardFilters": True}, ("-7d", None, None, [])),
         ]

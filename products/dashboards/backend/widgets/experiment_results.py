@@ -9,6 +9,7 @@ from posthog.models.user import User
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.widget_specs.configs import EXPERIMENT_RESULTS_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
+from products.dashboards.backend.widgets.dashboard_filters import NO_DASHBOARD_FILTERS, WidgetDashboardFilters
 from products.experiments.backend.facade.dashboard_widgets import experiment_results_widget, has_accessible_experiments
 
 # Cap on metrics computed per section (primary, secondary) so one widget can't fan out into many
@@ -23,6 +24,7 @@ def run_experiment_results_widget(
     user: User | None = None,
     *,
     include_total_count: bool = True,
+    dashboard_filters: WidgetDashboardFilters = NO_DASHBOARD_FILTERS,
 ) -> dict[str, Any]:
     typed_config = validate_widget_config(EXPERIMENT_RESULTS_WIDGET_TYPE, config)
     experiment_id = typed_config.get("experimentId")

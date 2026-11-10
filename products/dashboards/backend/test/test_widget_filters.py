@@ -169,7 +169,9 @@ class TestBuildWidgetDashboardFilters(SimpleTestCase):
         }
 
         self.assertEqual(
-            build_widget_dashboard_filters(dashboard_filters, tile_filters_overrides, supported),
+            build_widget_dashboard_filters(
+                dashboard_filters, tile_filters_overrides, supported, team=Team(timezone="UTC"), max_date_from=None
+            ),
             expected,
         )
 
@@ -191,18 +193,25 @@ class TestBuildWidgetDashboardFilters(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("all_time_replaced_for_widget", "all", "-90d", ("-90d", None)),
-            ("all_time_kept_by_default", "all", None, ("all", None)),
-            ("dashboard_range_wins", "-30d", "-90d", ("-30d", None)),
+            ("range_past_the_limit_starts_at_the_limit", "-180d", "-90d", "-90d"),
+            ("all_time_starts_at_the_limit", "all", "-90d", "-90d"),
+            ("old_absolute_date_starts_at_the_limit", "2020-01-01", "-90d", "-90d"),
+            ("range_inside_the_limit_kept", "-30d", "-90d", "-30d"),
+            ("no_limit_keeps_all_time", "all", None, "all"),
         ]
     )
-    def test_resolve_date_range(
-        self, _name: str, date_from: str, all_time_date_from: str | None, expected: tuple[str | None, str | None]
+    def test_build_widget_dashboard_filters_clamps_date_from(
+        self, _name: str, date_from: str, max_date_from: str | None, expected_date_from: str
     ) -> None:
-        filters = WidgetDashboardFilters(date_from=date_from)
-        kwargs = {"all_time_date_from": all_time_date_from} if all_time_date_from else {}
+        filters = build_widget_dashboard_filters(
+            {"date_from": date_from},
+            None,
+            frozenset({"date_range"}),
+            team=Team(timezone="UTC"),
+            max_date_from=max_date_from,
+        )
 
-        self.assertEqual(filters.resolve_date_range({"dateRange": {"date_from": "-1h"}}, "-7d", **kwargs), expected)
+        self.assertEqual(filters.date_from, expected_date_from)
 
     @parameterized.expand(
         [

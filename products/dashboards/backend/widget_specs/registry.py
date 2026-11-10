@@ -7,7 +7,11 @@ from typing import Any, Literal, NotRequired, TypedDict
 from pydantic import BaseModel, ValidationError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT
+from products.dashboards.backend.constants import (
+    DASHBOARD_GRID_COLUMN_COUNT,
+    METRICS_TABLE_MAX_DASHBOARD_DATE_FROM,
+    WIDGET_MAX_DASHBOARD_DATE_FROM,
+)
 from products.dashboards.backend.widget_specs.common import WidgetDashboardFilterKind
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
@@ -96,6 +100,8 @@ class WidgetSpec:
     # (WidgetDashboardFilters) holding only these kinds. Leave empty when a filter has no meaning for
     # the widget's data (e.g. event properties on logs).
     dashboard_filters: frozenset[WidgetDashboardFilterKind] = frozenset()
+    # None means no limit.
+    max_dashboard_date_from: str | None = WIDGET_MAX_DASHBOARD_DATE_FROM
 
     def __post_init__(self) -> None:
         if self.is_live:
@@ -255,6 +261,8 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             # counts as a filter change — include it so "dashboard widget filters updated" fires on re-pick.
             filter_fields=("surveyId", "dateRange"),
             dashboard_filters=frozenset({"date_range"}),
+            # A survey widget with no range covers the survey's whole lifetime, so "all time" stays open.
+            max_dashboard_date_from=None,
         ),
         LOGS_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=LOGS_LIST_WIDGET_TYPE,
@@ -324,6 +332,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             default_height=6,
             creation_flag=METRICS_FEATURE_FLAG,
             dashboard_filters=frozenset({"date_range"}),
+            max_dashboard_date_from=METRICS_TABLE_MAX_DASHBOARD_DATE_FROM,
         ),
     }
 
@@ -337,7 +346,8 @@ class WidgetRegistryEntry(TypedDict):
     query_fn: Callable[..., dict[str, Any]]
     required_scopes: list[str]
     required_product_access: NotRequired[str | None]
-    dashboard_filters: NotRequired[frozenset[WidgetDashboardFilterKind]]
+    dashboard_filters: frozenset[WidgetDashboardFilterKind]
+    max_dashboard_date_from: str | None
 
 
 def get_widget_registry_entry(widget_type: str) -> WidgetRegistryEntry | None:
@@ -349,6 +359,7 @@ def get_widget_registry_entry(widget_type: str) -> WidgetRegistryEntry | None:
         "required_scopes": list(spec.required_scopes),
         "required_product_access": spec.required_product_access,
         "dashboard_filters": spec.dashboard_filters,
+        "max_dashboard_date_from": spec.max_dashboard_date_from,
     }
 
 

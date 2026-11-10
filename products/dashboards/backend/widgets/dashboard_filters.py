@@ -43,20 +43,10 @@ class WidgetDashboardFilters:
         return self.date_from is not None or self.date_to is not None
 
     def resolve_date_range(
-        self,
-        config: Mapping[str, Any],
-        default_date_from: str | None,
-        *,
-        all_time_date_from: str | None = ALL_TIME_DATE_FROM,
+        self, config: Mapping[str, Any], default_date_from: str | None
     ) -> tuple[str | None, str | None]:
-        """The date range a widget queries: the dashboard's when it sets one, else the widget's preset.
-
-        Pass `all_time_date_from` when the widget's query cannot read the dashboard's "all time" value,
-        to replace it with the widest range that the query supports.
-        """
+        """The date range a widget queries: the dashboard's when it sets one, else the widget's preset."""
         if self.has_date_range:
-            if self.date_from == ALL_TIME_DATE_FROM:
-                return all_time_date_from, self.date_to
             return self.date_from or default_date_from, self.date_to
         date_range = config.get("dateRange")
         if isinstance(date_range, Mapping) and isinstance(date_range.get("date_from"), str):
@@ -96,12 +86,28 @@ def parse_widget_datetime(value: str | None, team: Team, *, end_of_day: bool = F
     return parsed
 
 
+def _clamp_date_from(date_from: str | None, max_date_from: str | None, team: Team) -> str | None:
+    if date_from is None or max_date_from is None:
+        return date_from
+    if date_from == ALL_TIME_DATE_FROM:
+        return max_date_from
+    earliest = relative_date_parse(max_date_from, team.timezone_info)
+    return max_date_from if relative_date_parse(date_from, team.timezone_info) < earliest else date_from
+
+
 def build_widget_dashboard_filters(
     dashboard_filters: dict[str, Any] | None,
     tile_filters_overrides: dict[str, Any] | None,
     supported: frozenset[WidgetDashboardFilterKind],
+    *,
+    team: Team,
+    max_date_from: str | None,
 ) -> WidgetDashboardFilters:
-    """Merge the dashboard and tile filter layers like insight tiles do, keeping only the supported kinds."""
+    """Merge the dashboard and tile filter layers like insight tiles do, keeping only the supported kinds.
+
+    A date range that starts before `max_date_from`, or covers all time, starts at `max_date_from`, so a
+    dashboard filter cannot make a widget query more than the widget allows on its own. None means no limit.
+    """
     effective = normalize_dashboard_filters_properties(
         merge_filters_by_priority(dashboard_filters or {}, tile_filters_overrides or {})
     )
@@ -112,7 +118,7 @@ def build_widget_dashboard_filters(
     properties = effective.get("properties") if "properties" in supported else None
 
     return WidgetDashboardFilters(
-        date_from=date_from if isinstance(date_from, str) else None,
+        date_from=_clamp_date_from(date_from if isinstance(date_from, str) else None, max_date_from, team),
         date_to=date_to if isinstance(date_to, str) else None,
         filter_test_accounts=filter_test_accounts if isinstance(filter_test_accounts, bool) else None,
         properties=tuple(prop for prop in properties or [] if isinstance(prop, dict)),

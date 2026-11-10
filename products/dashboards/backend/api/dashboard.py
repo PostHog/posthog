@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from enum import StrEnum
 from functools import partial
-from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -380,7 +380,7 @@ class _RunWidgetQueryWorkItem(TypedDict):
     query_fn: Any
     config: dict[str, Any]
     user: User | None
-    dashboard_filters: NotRequired[WidgetDashboardFilters]
+    dashboard_filters: WidgetDashboardFilters
 
 
 def _run_in_context(context: contextvars.Context, work: Callable[[], dict[str, Any]]) -> dict[str, Any]:
@@ -413,15 +413,12 @@ def _run_widget_query(
     ) as slo:
         try:
             query_fn = work_item["query_fn"]
-            extra_kwargs: dict[str, Any] = {}
-            if "dashboard_filters" in work_item:
-                extra_kwargs["dashboard_filters"] = work_item["dashboard_filters"]
             result = query_fn(
                 team,
                 work_item["config"],
                 user=work_item["user"],
                 include_total_count=False,
-                **extra_kwargs,
+                dashboard_filters=work_item["dashboard_filters"],
             )
             return {
                 "tile_id": tile_id,
@@ -4295,31 +4292,35 @@ class DashboardsViewSet(
                     }
                     continue
 
-            work_item: _RunWidgetQueryWorkItem = {
-                "tile_id": tile_id,
-                "widget_type": widget.widget_type,
-                "query_fn": registry_entry["query_fn"],
-                "config": widget.config,
-                "user": cast(User, request.user),
-            }
-            supported_dashboard_filters = registry_entry.get("dashboard_filters") or frozenset()
-            if supported_dashboard_filters:
-                try:
-                    work_item["dashboard_filters"] = build_widget_dashboard_filters(
-                        requested_dashboard_filters, tile.filters_overrides, supported_dashboard_filters
-                    )
-                except ValueError:
-                    # Rows saved before filter validation can hold property groups that cannot merge. Fail
-                    # only this tile, so the other tiles in the batch still load.
-                    logger.exception("dashboard_run_widgets_filters_invalid", tile_id=tile_id)
-                    results_by_id[tile_id] = {
-                        "tile_id": tile_id,
-                        "widget_type": widget.widget_type,
-                        "result": None,
-                        "error": "Couldn't apply the dashboard filters to this tile. Clear the dashboard and tile filters, then try again.",
-                    }
-                    continue
-            query_work_items.append(work_item)
+            try:
+                tile_dashboard_filters = build_widget_dashboard_filters(
+                    requested_dashboard_filters,
+                    tile.filters_overrides,
+                    registry_entry["dashboard_filters"],
+                    team=self.team,
+                    max_date_from=registry_entry["max_dashboard_date_from"],
+                )
+            except ValueError:
+                # Rows saved before filter validation can hold property groups that cannot merge. Fail
+                # only this tile, so the other tiles in the batch still load.
+                logger.exception("dashboard_run_widgets_filters_invalid", tile_id=tile_id)
+                results_by_id[tile_id] = {
+                    "tile_id": tile_id,
+                    "widget_type": widget.widget_type,
+                    "result": None,
+                    "error": "Couldn't apply the dashboard filters to this tile. Clear the dashboard and tile filters, then try again.",
+                }
+                continue
+            query_work_items.append(
+                {
+                    "tile_id": tile_id,
+                    "widget_type": widget.widget_type,
+                    "query_fn": registry_entry["query_fn"],
+                    "config": widget.config,
+                    "user": cast(User, request.user),
+                    "dashboard_filters": tile_dashboard_filters,
+                }
+            )
 
         if query_work_items:
             max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(query_work_items))
