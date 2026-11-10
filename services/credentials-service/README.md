@@ -30,7 +30,7 @@ maintained pretending otherwise.
 
 ```text
 GET  /_liveness          200 always
-GET  /_readiness         200 once the pod holds credentials
+GET  /_readiness         200 once the pod holds credentials (and, with a database, once it has reached it)
 POST /v1/secrets/resolve
 
 GET  /metrics            prometheus text, on its own port (CREDENTIALS_SERVICE_METRICS_PORT)
@@ -221,6 +221,50 @@ on the two staleness signals, or neither degradation is observable.
 `/metrics` listens on its own port, which the chart keeps off the ingress; in-cluster Prometheus
 scrapes it unauthenticated, the same shape as every other service.
 
+## Database
+
+The service has its own Postgres database for customer integrations. Platform secrets never use it.
+When `CREDENTIALS_SERVICE_DATABASE_URL` is not set, the service starts as before and serves platform secrets only.
+So the service can deploy before its database exists.
+
+Tables:
+
+| Table                 | Holds                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `integrations`        | One row per credential, without secrets. Soft delete with `deleted_at`, and a `version` for optimistic writes |
+| `integration_secrets` | The encrypted secret blob of one integration (1:1)                                                            |
+| `audit_log`           | One row per access, partitioned by day on `occurred_at`                                                       |
+| `idempotency_keys`    | Request keys for create and exchange, with `expires_at` 24 hours after the write                              |
+
+`src/db/integrations.ts` holds the typed queries. Every query binds the owner, so no query reads or changes another team's row.
+
+Readiness waits for the database until it answers once.
+After that, a database outage does not make the pod unready, because platform secrets do not need the database.
+
+### Migrations
+
+Migrations are plain SQL files in `migrations/`, applied with `node-pg-migrate`.
+Each file has a `-- Up Migration` and a `-- Down Migration` section.
+To add one, create `migrations/<unix ms>_<name>.sql`. Never edit a migration that has run in production.
+
+The migration runner is a separate bundle in the same image. Run it as a Kubernetes Job before each deploy, never from the server:
+
+```bash
+node credentials-service-migrate.mjs            # apply every pending migration
+node credentials-service-migrate.mjs down 1     # revert the last migration
+pnpm --filter @posthog/credentials-service migrate   # the same, from source, in local development
+```
+
+It reads `CREDENTIALS_SERVICE_DATABASE_URL` and the `migrations/` directory relative to the working directory.
+An advisory lock makes two Jobs that start together run one after the other.
+
+### Audit partitions
+
+`audit_log` is partitioned by range on `occurred_at`, with one default partition, `audit_log_default`.
+Infra runs pg_partman for the daily partitions: `create_parent('public.audit_log', 'occurred_at', '1 day', p_premake => 7, p_default_table => false)`, because the migration already made the default partition.
+Set pg_partman up before the service writes audit rows.
+Rows that land in the default partition stop pg_partman from making a partition for that day, until they are moved with `partition_data_proc`.
+
 ## Isolation
 
 This package must not depend on the rest of the monorepo. It shares the pnpm workspace only for
@@ -238,30 +282,33 @@ the npm-specific supply-chain path worth closing here.
 pnpm --filter @posthog/credentials-service dev                # tsx watch, pretty logs
 pnpm --filter @posthog/credentials-service typecheck
 pnpm --filter @posthog/credentials-service test:unit
-pnpm --filter @posthog/credentials-service test:integration   # boots a real server on a temp mount
+pnpm --filter @posthog/credentials-service test:integration   # real server on a temp mount, Postgres in Docker
 ```
 
 The integration suite boots a real `CredentialsServer` against a temp-dir mount and a real
-socket, so it covers the wiring the unit suite fakes. Neither suite needs a database or Docker.
+socket, so it covers the wiring the unit suite fakes. The database tests start Postgres with
+testcontainers, so the integration suite needs Docker. The unit suite needs neither.
 
 Point `CREDENTIALS_SERVICE_SECRETS_DIR` at a directory of files, one per key, to stand in for the
 mount.
 
 ## Configuration
 
-| Variable                               | Default                       | Notes                                                   |
-| -------------------------------------- | ----------------------------- | ------------------------------------------------------- |
-| `CREDENTIALS_SERVICE_ENV`              | `dev`                         | Logical env, recorded on every startup log line         |
-| `CREDENTIALS_SERVICE_SECRET_SOURCE`    | `directory`                   | `directory` or `kubernetes`; anything else fails boot   |
-| `CREDENTIALS_SERVICE_SECRETS_DIR`      | `/etc/credentials-secrets`    | Where the Kubernetes Secret is mounted (`directory`)    |
-| `CREDENTIALS_SERVICE_SECRET_NAME`      | `credentials-service-secrets` | The Secret to watch (`kubernetes`)                      |
-| `CREDENTIALS_SERVICE_SECRET_NAMESPACE` | the pod's namespace           | Read from the service account when unset (`kubernetes`) |
-| `CREDENTIALS_SERVICE_RELOAD_SECONDS`   | `30`                          | Re-read interval; a safety re-list next to the watch    |
-| `CREDENTIALS_SERVICE_METRICS_PORT`     | `9090`                        | Dedicated `/metrics` listener, kept off the ingress     |
-| `CREDENTIALS_SERVICE_LOG_LEVEL`        | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                      |
-| `PORT`                                 | `8004`                        |                                                         |
-| `HOST`                                 | `0.0.0.0`                     |                                                         |
-| `SHUTDOWN_PRESTOP_DELAY_MS`            | `5000`                        | Wait before draining, for the Kubernetes prestop window |
+| Variable                                 | Default                       | Notes                                                   |
+| ---------------------------------------- | ----------------------------- | ------------------------------------------------------- |
+| `CREDENTIALS_SERVICE_ENV`                | `dev`                         | Logical env, recorded on every startup log line         |
+| `CREDENTIALS_SERVICE_SECRET_SOURCE`      | `directory`                   | `directory` or `kubernetes`; anything else fails boot   |
+| `CREDENTIALS_SERVICE_SECRETS_DIR`        | `/etc/credentials-secrets`    | Where the Kubernetes Secret is mounted (`directory`)    |
+| `CREDENTIALS_SERVICE_SECRET_NAME`        | `credentials-service-secrets` | The Secret to watch (`kubernetes`)                      |
+| `CREDENTIALS_SERVICE_SECRET_NAMESPACE`   | the pod's namespace           | Read from the service account when unset (`kubernetes`) |
+| `CREDENTIALS_SERVICE_RELOAD_SECONDS`     | `30`                          | Re-read interval; a safety re-list next to the watch    |
+| `CREDENTIALS_SERVICE_METRICS_PORT`       | `9090`                        | Dedicated `/metrics` listener, kept off the ingress     |
+| `CREDENTIALS_SERVICE_LOG_LEVEL`          | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                      |
+| `PORT`                                   | `8004`                        |                                                         |
+| `HOST`                                   | `0.0.0.0`                     |                                                         |
+| `SHUTDOWN_PRESTOP_DELAY_MS`              | `5000`                        | Wait before draining, for the Kubernetes prestop window |
+| `CREDENTIALS_SERVICE_DATABASE_URL`       | unset                         | Postgres URL; unset means platform secrets only         |
+| `CREDENTIALS_SERVICE_DATABASE_POOL_SIZE` | `20`                          | Connections per pod                                     |
 
 The service exits at boot rather than starting degraded: a missing production variable, a
 numeric variable that does not parse, or a `kubernetes` source without `KUBERNETES_SERVICE_HOST`

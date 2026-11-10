@@ -22,6 +22,12 @@ export interface KubernetesSourceConfig {
     caFile: string
 }
 
+/** The service's own Postgres database. */
+export interface DatabaseConfig {
+    url: string
+    poolSize: number
+}
+
 export interface Config {
     port: number
     host: string
@@ -49,6 +55,12 @@ export interface Config {
 
     /** Serves /metrics on its own listener, kept off the ingress like every other service. */
     metricsPort: number
+
+    /**
+     * Set when CREDENTIALS_SERVICE_DATABASE_URL is set. Without it the service serves platform
+     * secrets only, and the integration features are off.
+     */
+    database?: DatabaseConfig
 }
 
 function intFromEnv(key: string, fallback: number, min = 0): number {
@@ -123,6 +135,15 @@ function kubernetesFromEnv(serviceAccountDir: string): KubernetesSourceConfig {
     }
 }
 
+/** The database settings, or undefined when no database URL is set. */
+export function loadDatabaseConfig(): DatabaseConfig | undefined {
+    const url = process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    if (!url) {
+        return undefined
+    }
+    return { url, poolSize: intFromEnv('CREDENTIALS_SERVICE_DATABASE_POOL_SIZE', 20, 1) }
+}
+
 export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
     const config: Config = {
         port: intFromEnv('PORT', 8004),
@@ -139,6 +160,11 @@ export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
         reloadSeconds: intFromEnv('CREDENTIALS_SERVICE_RELOAD_SECONDS', 30, 1),
 
         metricsPort: intFromEnv('CREDENTIALS_SERVICE_METRICS_PORT', 9090),
+    }
+
+    const database = loadDatabaseConfig()
+    if (database) {
+        config.database = database
     }
 
     if (secretSourceFromEnv() === 'kubernetes') {

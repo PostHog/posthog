@@ -145,3 +145,36 @@ describe('loadConfig secret source', () => {
         expect(() => loadConfig(dir)).toThrow(message)
     })
 })
+
+describe('loadConfig database', () => {
+    const DB_VARS = ['CREDENTIALS_SERVICE_DATABASE_URL', 'CREDENTIALS_SERVICE_DATABASE_POOL_SIZE']
+    const URL = 'postgres://credentials:not-a-real-password@localhost:5432/credentials'
+
+    afterEach(() => {
+        for (const key of DB_VARS) {
+            delete process.env[key]
+        }
+    })
+
+    // No URL must mean no database at all, so the service deploys before its database exists.
+    it.each([
+        ['no URL leaves the database off', {}, undefined],
+        ['an empty URL leaves the database off', { CREDENTIALS_SERVICE_DATABASE_URL: '' }, undefined],
+        ['a pool size with no URL is ignored', { CREDENTIALS_SERVICE_DATABASE_POOL_SIZE: '5' }, undefined],
+        ['a URL defaults the pool to 20', { CREDENTIALS_SERVICE_DATABASE_URL: URL }, { url: URL, poolSize: 20 }],
+        [
+            'a URL takes the configured pool size',
+            { CREDENTIALS_SERVICE_DATABASE_URL: URL, CREDENTIALS_SERVICE_DATABASE_POOL_SIZE: '7' },
+            { url: URL, poolSize: 7 },
+        ],
+    ])('%s', (_label, env: Record<string, string>, expected) => {
+        Object.assign(process.env, env)
+        expect(loadConfig().database).toEqual(expected)
+    })
+
+    it.each(['0', '-1', '20x'])('refuses to boot with pool size %j', (size) => {
+        process.env.CREDENTIALS_SERVICE_DATABASE_URL = URL
+        process.env.CREDENTIALS_SERVICE_DATABASE_POOL_SIZE = size
+        expect(() => loadConfig()).toThrow('CREDENTIALS_SERVICE_DATABASE_POOL_SIZE')
+    })
+})
