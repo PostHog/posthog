@@ -1,7 +1,9 @@
-import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
+import { join } from 'node:path'
+
+import type { ApiToolLibrary, SkillsLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { PostHogApi } from '@/posthog/api'
-import { resolveCredentials, type Credentials } from '@/posthog/credentials'
+import { posthogHomeDir, resolveCredentials, type Credentials } from '@/posthog/credentials'
 import { KeySession } from '@/posthog/key-session'
 import { canStepUp } from '@/posthog/scope-challenge'
 
@@ -21,6 +23,7 @@ export class Context {
     private keySession?: Promise<KeySession>
     private loaded?: Promise<LoadedConfig | undefined>
     private tools?: Promise<ApiToolLibrary>
+    private skillsLibrary?: Promise<SkillsLibrary>
     private stepUpRunning?: Promise<boolean>
 
     constructor(
@@ -77,6 +80,23 @@ export class Context {
     apiTools(): Promise<ApiToolLibrary> {
         this.tools ??= this.runtime.loadApiTools()
         return this.tools
+    }
+
+    // The PostHog agent skills, saved in ~/.posthog/skills for when a download fails. Without a home
+    // folder, the skills still download and nothing is saved.
+    skills(): Promise<SkillsLibrary> {
+        this.skillsLibrary ??= this.runtime.loadSkills({
+            cacheDir: this.skillsCacheDir(),
+            learnCommand: 'hog learn',
+            // The downloads go to GitHub, not PostHog, so --rate-limit doesn't count them.
+            fetch: (url, init) => this.runtime.fetch(url, { ...init, skipRateLimit: true }),
+        })
+        return this.skillsLibrary
+    }
+
+    private skillsCacheDir(): string | undefined {
+        const home = posthogHomeDir(this.runtime.env, this.runtime.homeDir())
+        return home === undefined ? undefined : join(home, 'skills')
     }
 
     // Throws `not_authenticated` when there are none.

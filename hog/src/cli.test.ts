@@ -114,6 +114,7 @@ describe('hog', () => {
             'api access',
             'api skill',
             'api agents-md',
+            'learn',
             'error-tracking inject',
             'error-tracking clone',
             'error-tracking upload',
