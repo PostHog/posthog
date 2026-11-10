@@ -64,18 +64,32 @@ function copyHoggies() {
 const REPO_ROOT = path.resolve(FRONTEND, '..')
 const CREST_ARGUMENT = /crest="([a-z0-9-]+)"/g
 
-function consoleSourceFiles() {
-    const files = fs
-        .readdirSync(path.join(REPO_ROOT, 'posthog/admin/console'))
-        .filter((name) => name.endsWith('.py'))
-        .map((name) => path.join(REPO_ROOT, 'posthog/admin/console', name))
-    for (const product of fs.readdirSync(path.join(REPO_ROOT, 'products'))) {
-        const consoleModule = path.join(REPO_ROOT, 'products', product, 'backend/console.py')
-        if (fs.existsSync(consoleModule)) {
-            files.push(consoleModule)
+const CONSOLE_SOURCE_ROOTS = ['posthog', 'ee', 'products']
+const SKIPPED_DIRECTORIES = new Set(['node_modules', '__pycache__', 'migrations'])
+
+// A console contribution lives in a console.py, or in a module of a console package such as posthog/admin/console/.
+function isConsoleSource(file) {
+    return (
+        file.endsWith('.py') &&
+        (path.basename(file) === 'console.py' || path.basename(path.dirname(file)) === 'console')
+    )
+}
+
+function findConsoleSources(directory) {
+    const files = []
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const entryPath = path.join(directory, entry.name)
+        if (entry.isDirectory() && !entry.name.startsWith('.') && !SKIPPED_DIRECTORIES.has(entry.name)) {
+            files.push(...findConsoleSources(entryPath))
+        } else if (entry.isFile() && isConsoleSource(entryPath)) {
+            files.push(entryPath)
         }
     }
     return files
+}
+
+function consoleSourceFiles() {
+    return CONSOLE_SOURCE_ROOTS.flatMap((root) => findConsoleSources(path.join(REPO_ROOT, root)))
 }
 
 async function writeCrests() {
