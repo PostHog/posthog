@@ -206,39 +206,58 @@ describe('provider edge', () => {
         }
     })
 
-    it('clears one fault or every fault while the truth keeps its sequence', async () => {
-        const forAlice = await addFault({
-            name: 'ses.reject',
-            params: { type: 'rejected' },
-            match: { recipient: ALICE },
-            dose: { share: 1 },
-        })
-        await addFault({
-            name: 'ses.reject',
-            params: { type: 'rejected' },
-            match: { recipient: BOB },
-            dose: { share: 1 },
-        })
-        expect(await sendEach([ALICE, BOB])).toEqual(['MessageRejected', 'MessageRejected'])
-
-        expect((await call('DELETE', `/_faults/${forAlice}`)).status).toBe(204)
-        expect(await sendEach([ALICE, BOB])).toEqual(['sent', 'MessageRejected'])
-
-        expect((await call('DELETE', '/_faults')).status).toBe(204)
-        expect(await sendEach([ALICE, BOB])).toEqual(['sent', 'sent'])
-
-        expect((await call('DELETE', `/_faults/${forAlice}`)).status).toBe(404)
-        expect((await truth()).records.map((record) => record.seq)).toEqual([1, 2, 3, 4, 5, 6])
+    const rejectFor = (recipient: string): object => ({
+        name: 'ses.reject',
+        params: { type: 'rejected' },
+        match: { recipient },
+        dose: { share: 1 },
     })
 
-    it('pages the truth after a sequence number', async () => {
+    it.each<[string, (forAlice: string) => string, string[]]>([
+        ['one fault by its id', (forAlice) => `/_faults/${forAlice}`, ['sent', 'MessageRejected']],
+        ['every fault', () => '/_faults', ['sent', 'sent']],
+    ])('stops applying %s once the edge removes it', async (_name, pathOf, outcomes) => {
+        const forAlice = await addFault(rejectFor(ALICE))
+        await addFault(rejectFor(BOB))
+        expect(await sendEach([ALICE, BOB])).toEqual(['MessageRejected', 'MessageRejected'])
+
+        expect((await call('DELETE', pathOf(forAlice))).status).toBe(204)
+
+        expect(await sendEach([ALICE, BOB])).toEqual(outcomes)
+    })
+
+    it('answers a fault id it no longer holds with a 404', async () => {
+        const id = await addFault(rejectFor(ALICE))
+        await call('DELETE', `/_faults/${id}`)
+
+        expect((await call('DELETE', `/_faults/${id}`)).status).toBe(404)
+    })
+
+    it('keeps the truth when the faults are cleared', async () => {
+        await addFault(rejectFor(ALICE))
+        await sendEach([ALICE, BOB])
+        await call('DELETE', '/_faults')
+        await send(ALICE)
+
+        expect((await truth()).records.map((record) => record.seq)).toEqual([1, 2, 3])
+    })
+
+    it.each<[string, string, TruthPage]>([
+        [
+            'after a sequence number up to the limit',
+            '?after=1&limit=1',
+            { records: [expect.objectContaining({ seq: 2, unitId: 'run-1-2' })], next: 2 },
+        ],
+        ['past its end as an empty page', '?after=3', { records: [], next: 3 }],
+        [
+            'with the default limit when the limit is zero',
+            '?after=1&limit=0',
+            { records: [expect.objectContaining({ seq: 2 }), expect.objectContaining({ seq: 3 })], next: 3 },
+        ],
+    ])('pages the truth %s', async (_name, query, page) => {
         await sendEach([ALICE, BOB, ALICE])
 
-        expect(await truth('?after=1&limit=1')).toEqual({
-            records: [expect.objectContaining({ seq: 2, unitId: 'run-1-2' })],
-            next: 2,
-        })
-        expect(await truth('?after=3')).toEqual({ records: [], next: 3 })
+        expect(await truth(query)).toEqual(page)
     })
 
     it.each([
