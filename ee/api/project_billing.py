@@ -102,7 +102,7 @@ class ProjectBillingViewSet(BillingReadViewSet):
     """
 
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions = PROJECT_BILLING_READ_ACTIONS
+    psak_allowed_actions = PROJECT_BILLING_READ_ACTIONS + ORGANIZATION_READ_ACTIONS
     scope_object_read_actions = PROJECT_BILLING_READ_ACTIONS + ORGANIZATION_READ_ACTIONS
     # The routing mixin adds the project membership check for project routes.
     permission_classes = [permissions.IsAuthenticated, PostHogFeatureFlagPermission]
