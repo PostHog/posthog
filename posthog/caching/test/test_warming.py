@@ -169,6 +169,26 @@ class TestWarming(APIBaseTest):
                 {"over_max_duration": 1},
             ),
             ("under_max_duration_viewed_recently", True, 200.0, 2, {"CACHE_WARMING_MAX_SECONDS": 300}, True, {}),
+            ("tile_viewed_two_days_ago_with_the_dashboard_window_off", True, None, 48, {}, True, {}),
+            (
+                "tile_outside_the_dashboard_window",
+                True,
+                None,
+                48,
+                {"CACHE_WARMING_DASHBOARD_VIEWED_HOURS": 24},
+                False,
+                {"dashboard_not_recently_viewed": 1},
+            ),
+            ("tile_inside_the_dashboard_window", True, None, 2, {"CACHE_WARMING_DASHBOARD_VIEWED_HOURS": 24}, True, {}),
+            (
+                "standalone_insight_ignores_the_dashboard_window",
+                False,
+                None,
+                48,
+                {"CACHE_WARMING_DASHBOARD_VIEWED_HOURS": 24},
+                True,
+                {},
+            ),
         ]
     )
     def test_insights_to_keep_fresh_skips_expensive_insights(

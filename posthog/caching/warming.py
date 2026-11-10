@@ -77,7 +77,12 @@ WARMING_CHAIN_LIFETIME = timedelta(minutes=50)
 # ClickHouseAtCapacity is included via CH_TRANSIENT_ERRORS (it's what codes 202/439 surface as).
 RETRIABLE_WARMING_ERRORS = (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded)
 
-SkipReason = Literal["over_max_duration", "expensive_not_recently_viewed", "dashboard_not_viewed_by_person"]
+SkipReason = Literal[
+    "over_max_duration",
+    "expensive_not_recently_viewed",
+    "dashboard_not_viewed_by_person",
+    "dashboard_not_recently_viewed",
+]
 MAX_VIEWED_WINDOW_DAYS = 365
 
 _SETTING_KEYS = [
@@ -89,6 +94,7 @@ _SETTING_KEYS = [
     "CACHE_WARMING_LARGEST_TEAMS",
     "CACHE_WARMING_LAST_VIEWED_DAYS",
     "CACHE_WARMING_IGNORE_API_DASHBOARD_ACCESS",
+    "CACHE_WARMING_DASHBOARD_VIEWED_HOURS",
 ]
 
 
@@ -102,6 +108,7 @@ class WarmingSettings:
     largest_teams: int
     last_viewed_window: timedelta
     ignore_api_dashboard_access: bool
+    dashboard_viewed_window: timedelta
 
 
 @frozen
@@ -148,17 +155,28 @@ def load_warming_settings() -> WarmingSettings:
             days=_as_int(values["CACHE_WARMING_LAST_VIEWED_DAYS"], minimum=1, maximum=MAX_VIEWED_WINDOW_DAYS)
         ),
         ignore_api_dashboard_access=bool(values["CACHE_WARMING_IGNORE_API_DASHBOARD_ACCESS"]),
+        dashboard_viewed_window=timedelta(
+            hours=_as_int(
+                values["CACHE_WARMING_DASHBOARD_VIEWED_HOURS"], minimum=0, maximum=MAX_VIEWED_WINDOW_DAYS * 24
+            )
+        ),
     )
 
 
 def _skip_reason(
-    *, duration: Optional[float], last_seen: Optional[datetime], settings: WarmingSettings, now: datetime
+    *,
+    on_dashboard: bool,
+    duration: Optional[float],
+    last_seen: Optional[datetime],
+    settings: WarmingSettings,
+    now: datetime,
 ) -> Optional[SkipReason]:
-    if duration is None:
-        return None
-    if settings.max_seconds and duration > settings.max_seconds:
+    if duration is not None and settings.max_seconds and duration > settings.max_seconds:
         return "over_max_duration"
-    if settings.expensive_seconds and duration > settings.expensive_seconds:
+    if on_dashboard and settings.dashboard_viewed_window:
+        if last_seen is None or last_seen < now - settings.dashboard_viewed_window:
+            return "dashboard_not_recently_viewed"
+    if duration is not None and settings.expensive_seconds and duration > settings.expensive_seconds:
         if last_seen is None or last_seen < now - settings.expensive_viewed_window:
             return "expensive_not_recently_viewed"
     return None
@@ -287,7 +305,11 @@ def insights_to_keep_fresh(team: Team, *, settings: WarmingSettings, shared_only
 
     for insight_id, dashboard_id, last_seen in candidates:
         reason = _skip_reason(
-            duration=durations.get((insight_id, dashboard_id)), last_seen=last_seen, settings=settings, now=now
+            on_dashboard=dashboard_id is not None,
+            duration=durations.get((insight_id, dashboard_id)),
+            last_seen=last_seen,
+            settings=settings,
+            now=now,
         )
         if reason is None:
             insights.append((insight_id, dashboard_id))
@@ -369,6 +391,7 @@ def schedule_warming_for_teams_task():
                     "skipped_dashboard_not_viewed_by_person": selection.skipped.get(
                         "dashboard_not_viewed_by_person", 0
                     ),
+                    "skipped_dashboard_not_recently_viewed": selection.skipped.get("dashboard_not_recently_viewed", 0),
                 },
             )
 

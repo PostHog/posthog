@@ -487,6 +487,13 @@ CONSTANCE_CONFIG = {
         "release has run for CACHE_WARMING_LAST_VIEWED_DAYS. Turn it off if dashboards open on old results.",
         bool,
     ),
+    "CACHE_WARMING_DASHBOARD_VIEWED_HOURS": (
+        get_from_env("CACHE_WARMING_DASHBOARD_VIEWED_HOURS", default=0, type_cast=int),
+        "How recently a dashboard must have been opened for insight cache warming to keep its insights warm. "
+        "A dashboard outside this window calculates when someone next opens it. 0 turns it off, so dashboards "
+        "use CACHE_WARMING_LAST_VIEWED_DAYS. Maximum 8760 (365 days).",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -565,6 +572,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CACHE_WARMING_LARGEST_TEAMS",
     "CACHE_WARMING_LAST_VIEWED_DAYS",
     "CACHE_WARMING_IGNORE_API_DASHBOARD_ACCESS",
+    "CACHE_WARMING_DASHBOARD_VIEWED_HOURS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
