@@ -45,7 +45,13 @@ describe('workflowFoldersLogic', () => {
                         { id: 'cards', path: 'Billing/Cards', type: 'folder' },
                         { id: 'empty', path: 'Empty', type: 'folder' },
                         { id: 'dashboards', path: 'Reports', type: 'folder' },
-                        { id: 'report', path: 'Reports/Overview', type: 'dashboard', ref: 'synthetic-report' },
+                        {
+                            id: 'report',
+                            path: 'Reports/Overview',
+                            type: 'insight',
+                            ref: 'synthetic-report',
+                            meta: { type: 'SQL' },
+                        },
                         { id: 'unfiled', path: 'Unfiled', type: 'folder' },
                         { id: 'cohorts', path: 'Unfiled/Cohorts', type: 'folder' },
                         { id: 'direct', path: 'Billing/Welcome', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id },
@@ -69,7 +75,7 @@ describe('workflowFoldersLogic', () => {
                         200,
                         paginated(
                             entries.filter((entry) =>
-                                type?.startsWith('-') ? entry.type === 'dashboard' : entry.type === type
+                                type?.startsWith('-') ? entry.type === 'insight' : entry.type === type
                             )
                         ),
                     ]
@@ -584,6 +590,12 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderDraftError).toBe(EXISTS)
     })
 
+    it("keeps the metadata of other products' files it writes into the shared tree", async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const report = projectTreeDataLogic.values.folders['Reports']?.find((entry) => entry.id === 'report')
+        expect(report?.meta).toEqual({ type: 'SQL' })
+    })
+
     it("paints the folders before other products' files load, and checks folder names once they have", async () => {
         logic.unmount()
         let releaseOtherFiles!: () => void
@@ -627,9 +639,9 @@ describe('workflowFoldersLogic', () => {
     })
 
     it.each([
-        ['every scan fails', false],
-        ["only the other products' scan fails, before the folder scans answer", true],
-    ])('reports a failed folder index when %s, and recovers on retry', async (_, folderScansSucceed) => {
+        ['every scan fails', false, true],
+        ["only the other products' scan fails, before the folder scans answer", true, false],
+    ])('reports a failed scan when %s, and recovers on retry', async (_, folderScansSucceed, blocksContents) => {
         await expectLogic(logic).toFinishAllListeners()
         let releaseFolderScans!: () => void
         const folderScansHeld = new Promise<void>((resolve) => (releaseFolderScans = resolve))
@@ -647,10 +659,14 @@ describe('workflowFoldersLogic', () => {
         await expectLogic(logic, () => logic.actions.loadBrowser()).toDispatchActions(['loadOtherFilesFailure'])
         releaseFolderScans()
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.browserLoadFailed).toBe(true)
+        expect(logic.values.browserLoadFailed).toBe(blocksContents)
+        expect(logic.values.otherFilesScanFailed).toBe(true)
         useMocks({ get: { '/api/projects/:team_id/file_system/': () => [200, paginated([])] } })
-        await expectLogic(logic, () => logic.actions.loadBrowser()).toFinishAllListeners()
+        await expectLogic(logic, () =>
+            blocksContents ? logic.actions.loadBrowser() : logic.actions.loadOtherFiles()
+        ).toFinishAllListeners()
         expect(logic.values.browserLoadFailed).toBe(false)
+        expect(logic.values.otherFilesScanFailed).toBe(false)
     })
 
     it('restores folders when the project tree prunes during an index refresh', async () => {
