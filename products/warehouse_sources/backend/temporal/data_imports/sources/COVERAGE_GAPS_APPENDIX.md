@@ -12009,20 +12009,20 @@ Note: The official index supplied the operation inventory; individual Markdown p
 
 ## Systeme.io — **thin**
 
-Today (7): `communities`, `contacts`, `courses`, `enrollments`, `memberships`, `newsletters`, `tags`
+Today (13): `campaign_steps`, `campaigns`, `communities`, `contacts`, `course_modules_with_lectures`, `courses`, `digital_products`, `enrollments`, `funnels`, `memberships`, `newsletters`, `physical_products`, `tags`
 
 Diffed against: <https://developer.systeme.io/llms.txt>
 
-- [ ] `Subscriptions (GET /api/payment/subscriptions)` — analyze subscription growth, cancellations, and recurring revenue by price plan (high)
-- [ ] `Email statistics (GET /api/mailing/statistics/newsletters; GET /api/mailing/statistics/campaign-steps; GET /api/mailing/statistics/automation-emails)` — compare messages sent, opens, clicks, bounces, and spam reports across email types (high)
+- [ ] `Subscriptions (GET /api/payment/subscriptions)` — analyze subscription growth, cancellations, and recurring revenue by price plan (high); skipped: the list requires a `contact` filter, so a table needs one request per contact on every sync
+- [ ] `Email statistics (GET /api/mailing/statistics/newsletters; GET /api/mailing/statistics/campaign-steps; GET /api/mailing/statistics/automation-emails)` — compare messages sent, opens, clicks, bounces, and spam reports across email types (high); skipped: all three routes are marked Beta (contract may change without notice) and need a send-date window of 31 days or less, so the counts of older sends never refresh
 - [x] `Digital products (GET /api/payment/digital-products)` — analyze the digital product catalog alongside courses and subscription offerings (medium)
 - [x] `Physical products (GET /api/payment/physical-products)` — analyze physical product offerings and compare them with digital products (medium)
 - [x] `Campaigns (GET /api/mailing/campaigns)` — analyze automated email campaigns alongside newsletters (medium)
 - [x] `Campaign steps (GET /api/mailing/campaigns/{campaignId}/steps)` — connect email performance to each message and its position in a campaign (medium)
-- [ ] `Funnels (GET /api/funnels)` — identify marketing funnels for comparisons with contacts and their source URLs (medium)
+- [x] `Funnels (GET /api/funnels)` — identify marketing funnels for comparisons with contacts and their source URLs (medium)
 - [ ] `Funnel steps (GET /api/funnels/{funnelId}/steps)` — describe funnel pages and their sequence for acquisition analysis (medium)
 - [ ] `Bookings (GET /api/booking-calendar/bookings)` — analyze appointment demand and booking activity alongside contact growth (medium)
-- [ ] `Course modules with lectures (GET /api/school/courses/{courseId}/modules-with-lectures)` — describe course structure and teaching content alongside course enrollments (medium)
+- [x] `Course modules with lectures (GET /api/school/courses/{courseId}/modules-with-lectures)` — describe course structure and teaching content alongside course enrollments (medium)
 
 Note: The official index supplied collection operations; individual Markdown pages supplied embedded OpenAPI definitions and response schemas. Direct API specification downloads required authentication. Email statistics are documented as beta, while campaign steps, funnel steps, and course modules need parent IDs. Contact field names and tags already appear in contacts; webhooks, files, domains, and automation configuration are excluded.
 
