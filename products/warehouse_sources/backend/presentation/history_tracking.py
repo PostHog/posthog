@@ -59,10 +59,11 @@ def report_history_table_deleted(
     user: "User | AnonymousUser",
     schema: ExternalDataSchema,
     *,
-    trigger: Literal["mode_change", "delete_action"],
+    trigger: Literal["mode_change", "delete_action", "mask"],
     request: Optional["Request"] = None,
 ) -> None:
-    """`trigger` tells a drop chosen while switching history off from one made later on its own."""
+    """`trigger` tells a drop chosen while switching history off from one made later on its own, and from a
+    mask that empties the table."""
     report_user_action(
         user,
         HISTORY_TABLE_DELETED_EVENT,

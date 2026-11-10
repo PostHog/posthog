@@ -13,9 +13,9 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { ToolbarMenu } from '~/toolbar/floating/components/bar/ToolbarMenu'
-import { HeatmapVariantPicker } from '~/toolbar/floating/components/stats/HeatmapVariantPicker'
 import { elementsLogic } from '~/toolbar/shared/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/shared/elements/heatmapToolbarMenuLogic'
+import { HeatmapVariantPicker } from '~/toolbar/shared/elements/HeatmapVariantPicker'
 import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
 import { heatmapCaptureLogic } from '~/toolbar/shared/stats/heatmapCaptureLogic'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
@@ -109,6 +109,9 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         loadingAllElementStats,
         loadAllPagesLoaded,
         scrollDepthPosthogJsError,
+        heatmapVariantFilter,
+        heatmapVariantFlags,
+        heatmapVariantFilterGate,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -122,6 +125,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         startAreaSelection,
         cancelAreaSelection,
         selectHeatmapAreaFilter,
+        setHeatmapVariantFilter,
     } = useActions(heatmapToolbarMenuLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -193,7 +197,13 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         }}
                         dateOptions={heatmapDateOptions}
                     />
-                    <HeatmapVariantPicker />
+                    <HeatmapVariantPicker
+                        variantFilter={heatmapVariantFilter}
+                        variantFlags={heatmapVariantFlags}
+                        variantFilterGate={heatmapVariantFilterGate}
+                        onChange={setHeatmapVariantFilter}
+                        data-attr="heatmap-variant-filter"
+                    />
                     <LemonButton
                         size="small"
                         type="secondary"
