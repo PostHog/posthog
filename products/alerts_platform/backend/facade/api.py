@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
@@ -219,6 +220,16 @@ def native_configuration_keys(
     `list_configurations`. With `created_by_uuid`, only the ones that user created."""
     return platform_reads.native_configuration_keys(
         team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
+    )
+
+
+def native_configuration_ids(
+    *, team_id: int, source_kind: SourceKind, source_config_key: str, values: Collection[Any]
+) -> tuple[UUID, ...]:
+    """Ids of the team's alerts of a kind with no source row whose `source_config[key]` is one of
+    `values`, such as the alerts on a set of insights."""
+    return platform_reads.native_configuration_ids(
+        team_id=team_id, source_kind=source_kind.value, source_config_key=source_config_key, values=values
     )
 
 

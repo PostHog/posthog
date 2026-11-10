@@ -3,35 +3,33 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.contrib.admin import AdminSite
-from django.contrib.messages.storage.fallback import FallbackStorage
-from django.core.exceptions import PermissionDenied
-from django.test import RequestFactory
+from django.contrib.messages import get_messages
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.admin.external_data_schema_admin import ExternalDataSchemaAdmin
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-_ADMIN_MODULE = "products.warehouse_sources.backend.admin.external_data_schema_admin"
+_ACTIONS_MODULE = "products.warehouse_sources.backend.logic.schema_staff_actions"
 _SHARED_MODULE = "products.warehouse_sources.backend.ad_hoc_sync"
+TOOL_URL = "/admin/console/tools/warehouse-sources/"
 
 
-class TestExternalDataSchemaAdmin(BaseTest):
+class TestWarehouseSourcesConsoleTool(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.user.is_staff = True
         self.user.save()
-        self.admin = ExternalDataSchemaAdmin(ExternalDataSchema, AdminSite())
-        self.factory = RequestFactory()
+        self.client.force_login(self.user)
 
-    def _request(self, method: str, data: dict | None = None):
-        request = getattr(self.factory, method)("/", data=data or {})
-        request.session = {}
-        request._messages = FallbackStorage(request)
-        request.user = self.user
-        return request
+    def _run(self, schema: ExternalDataSchema, operation: str, data: dict | None = None):
+        return self.client.post(
+            f"{TOOL_URL}{operation}/?schema={schema.id}", {"reason": "Customer asked", **(data or {})}
+        )
+
+    @staticmethod
+    def _messages(response) -> list[str]:
+        return [str(message) for message in get_messages(response.wsgi_request)]
 
     def _schema(self, **kwargs) -> ExternalDataSchema:
         source = ExternalDataSource.objects.create(
@@ -43,19 +41,42 @@ class TestExternalDataSchemaAdmin(BaseTest):
         )
         return ExternalDataSchema.objects.create(team_id=self.team.pk, source=source, name="public.users", **kwargs)
 
-    def test_trigger_sync_get_redirects_to_change_page(self) -> None:
-        # Guards the admin-app-label reverse: resolving the change URL must not raise NoReverseMatch.
-        schema = self._schema()
-        response = self.admin.trigger_sync_view(self._request("get"), schema.id)
-        assert response.status_code == 302
-        assert str(schema.id) in response.url
+    def test_schema_page_shows_partitioning_jobs_and_operations(self) -> None:
+        schema = self._schema(sync_type_config={"partition_mode": "md5", "partition_count": 30})
 
-    def test_pause_schedule_redirects_to_change_page(self) -> None:
+        response = self.client.get(f"{TOOL_URL}?schema={schema.id}")
+
+        content = response.content.decode()
+        assert response.status_code == 200
+        assert "public.users" in content and "partition_count" in content
+        assert "No jobs found for this schema." in content
+        for label in ("Repartition", "Trigger sync", "Pause schedule", "Unpause schedule", "Recreate schedule"):
+            assert label in content
+
+    def test_source_page_lists_its_schemas(self) -> None:
         schema = self._schema()
-        with patch(f"{_ADMIN_MODULE}.pause_external_data_schedule"):
-            response = self.admin.pause_schedule_view(self._request("post"), schema.id)
+
+        response = self.client.get(f"{TOOL_URL}?source={schema.source_id}")
+
+        assert response.status_code == 200
+        assert f"{TOOL_URL}?schema={schema.id}" in response.content.decode()
+
+    def test_pause_schedule_returns_to_the_schema_page(self) -> None:
+        schema = self._schema()
+        with patch(f"{_ACTIONS_MODULE}.pause_external_data_schedule") as mock_pause:
+            response = self._run(schema, "pause-schedule")
         assert response.status_code == 302
-        assert str(schema.id) in response.url
+        assert response["Location"] == f"{TOOL_URL}?schema={schema.id}"
+        mock_pause.assert_called_once_with(str(schema.id))
+
+    @parameterized.expand([("repartition",), ("trigger-sync",), ("pause-schedule",), ("recreate-schedule",)])
+    def test_old_admin_urls_redirect_to_the_schema_page(self, action: str) -> None:
+        schema = self._schema()
+
+        response = self.client.get(f"/admin/warehouse_sources/externaldataschema/{schema.id}/{action}/")
+
+        assert response.status_code == 302
+        assert response["Location"] == f"{TOOL_URL}?schema={schema.id}"
 
     def test_reset_streaming_cdc_flips_to_snapshot_non_billable(self) -> None:
         schema = self._schema(
@@ -65,14 +86,14 @@ class TestExternalDataSchemaAdmin(BaseTest):
         )
 
         with (
-            patch(f"{_ADMIN_MODULE}.sync_connect"),
+            patch(f"{_ACTIONS_MODULE}.sync_connect"),
             patch(f"{_SHARED_MODULE}.is_schedule_paused", return_value=True),
             # No sync of the table can hand over, so the reset is staged here. The real check reads
             # the load queue, which lives in a database this test does not create.
             patch(f"{_SHARED_MODULE}.cancel_sync_that_could_hand_over", return_value=False),
             patch(f"{_SHARED_MODULE}.start_external_data_workflow") as mock_start,
         ):
-            response = self.admin.trigger_sync_view(self._request("post", {"reset_pipeline": "on"}), schema.id)
+            response = self._run(schema, "trigger-sync", {"reset_pipeline": "on"})
 
         assert response.status_code == 302
         schema.refresh_from_db()
@@ -115,11 +136,11 @@ class TestExternalDataSchemaAdmin(BaseTest):
         schema = self._schema(sync_type_config=initial_config)
 
         with (
-            patch(f"{_ADMIN_MODULE}.sync_connect"),
-            patch(f"{_ADMIN_MODULE}._is_schedule_paused", return_value=True),
-            patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
+            patch(f"{_ACTIONS_MODULE}.sync_connect"),
+            patch(f"{_ACTIONS_MODULE}.is_schedule_paused", return_value=True),
+            patch(f"{_ACTIONS_MODULE}.start_external_data_workflow") as mock_start,
         ):
-            response = self.admin.repartition_view(self._request("post", post_data), schema.id)
+            response = self._run(schema, "repartition", post_data)
 
         assert response.status_code == 302
         schema.refresh_from_db()
@@ -183,17 +204,6 @@ class TestExternalDataSchemaAdmin(BaseTest):
                 },
             ),
             (
-                # Multi-select submits repeated values (a list) rather than a comma-joined string.
-                "to_md5_multiselect_keys",
-                {"partition_mode": "datetime", "partition_format": "month", "partitioning_enabled": True},
-                {"partition_mode": "md5", "partition_count": "10", "partitioning_keys": ["record_id", "action_date"]},
-                {
-                    "partition_mode": "md5",
-                    "partition_count": 10,
-                    "partition_keys": ["record_id", "action_date"],
-                },
-            ),
-            (
                 # In-place format change with the mode unchanged — keys carry over from the existing scheme.
                 "datetime_in_place_format_change",
                 {
@@ -221,11 +231,11 @@ class TestExternalDataSchemaAdmin(BaseTest):
         schema = self._schema(sync_type_config=initial_config)
 
         with (
-            patch(f"{_ADMIN_MODULE}.sync_connect"),
-            patch(f"{_ADMIN_MODULE}._is_schedule_paused", return_value=True),
-            patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
+            patch(f"{_ACTIONS_MODULE}.sync_connect"),
+            patch(f"{_ACTIONS_MODULE}.is_schedule_paused", return_value=True),
+            patch(f"{_ACTIONS_MODULE}.start_external_data_workflow") as mock_start,
         ):
-            response = self.admin.repartition_view(self._request("post", post_data), schema.id)
+            response = self._run(schema, "repartition", post_data)
 
         assert response.status_code == 302
         schema.refresh_from_db()
@@ -257,32 +267,16 @@ class TestExternalDataSchemaAdmin(BaseTest):
         schema = self._schema(sync_type_config={"partition_mode": "md5", "partition_count": 30})
 
         with (
-            patch(f"{_ADMIN_MODULE}.sync_connect"),
-            patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
+            patch(f"{_ACTIONS_MODULE}.sync_connect"),
+            patch(f"{_ACTIONS_MODULE}.start_external_data_workflow") as mock_start,
         ):
-            response = self.admin.repartition_view(self._request("post", post_data), schema.id)
+            response = self._run(schema, "repartition", post_data)
 
-        assert response.status_code == 302
+        assert response.status_code == 400
         schema.refresh_from_db()
         # Invalid input must not queue a repartition or kick off a run.
         assert "repartition_pending" not in schema.sync_type_config
         assert "reset_pipeline" not in schema.sync_type_config
-        mock_start.assert_not_called()
-
-    def test_change_partition_mode_denies_without_change_permission(self) -> None:
-        schema = self._schema(sync_type_config={"partition_mode": "md5", "partition_count": 30})
-        post_data = {"partition_mode": "md5", "partition_count": "10"}
-
-        with (
-            patch(f"{_ADMIN_MODULE}.sync_connect"),
-            patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
-            patch.object(self.admin, "has_change_permission", return_value=False),
-        ):
-            with self.assertRaises(PermissionDenied):
-                self.admin.repartition_view(self._request("post", post_data), schema.id)
-
-        schema.refresh_from_db()
-        assert "partition_mode_override" not in schema.sync_type_config
         mock_start.assert_not_called()
 
     @parameterized.expand([(True,), (False,)])
@@ -294,33 +288,11 @@ class TestExternalDataSchemaAdmin(BaseTest):
         # non-billable one).
         schema = self._schema(should_sync=should_sync)
 
-        with patch(f"{_ADMIN_MODULE}.sync_external_data_job_workflow") as mock_sync:
-            response = self.admin.recreate_schedule_view(self._request("post"), schema.id)
+        with patch(f"{_ACTIONS_MODULE}.sync_external_data_job_workflow") as mock_sync:
+            response = self._run(schema, "recreate-schedule")
 
         assert response.status_code == 302
-        assert str(schema.id) in response.url
         mock_sync.assert_called_once_with(schema, create=True, should_sync=should_sync, trigger_immediately=False)
-
-    def test_recreate_schedule_get_does_not_recreate(self) -> None:
-        schema = self._schema()
-
-        with patch(f"{_ADMIN_MODULE}.sync_external_data_job_workflow") as mock_sync:
-            response = self.admin.recreate_schedule_view(self._request("get"), schema.id)
-
-        assert response.status_code == 302
-        mock_sync.assert_not_called()
-
-    def test_recreate_schedule_denies_without_change_permission(self) -> None:
-        schema = self._schema()
-
-        with (
-            patch(f"{_ADMIN_MODULE}.sync_external_data_job_workflow") as mock_sync,
-            patch.object(self.admin, "has_change_permission", return_value=False),
-        ):
-            with self.assertRaises(PermissionDenied):
-                self.admin.recreate_schedule_view(self._request("post"), schema.id)
-
-        mock_sync.assert_not_called()
 
     def test_recreate_schedule_rejects_direct_query_source(self) -> None:
         # Direct-query sources have no per-schema schedules by design; recreating one would
@@ -335,22 +307,23 @@ class TestExternalDataSchemaAdmin(BaseTest):
         )
         schema = ExternalDataSchema.objects.create(team_id=self.team.pk, source=source, name="public.users")
 
-        with patch(f"{_ADMIN_MODULE}.sync_external_data_job_workflow") as mock_sync:
-            response = self.admin.recreate_schedule_view(self._request("post"), schema.id)
+        with patch(f"{_ACTIONS_MODULE}.sync_external_data_job_workflow") as mock_sync:
+            page = self.client.get(f"{TOOL_URL}?schema={schema.id}")
+            response = self._run(schema, "recreate-schedule")
 
-        assert response.status_code == 302
-        assert str(schema.id) in response.url
+        assert "Recreate schedule" not in page.content.decode()
+        assert response.status_code == 404
         mock_sync.assert_not_called()
 
     def test_recreate_schedule_temporal_failure_flashes_error(self) -> None:
-        # A Temporal outage must surface as an admin flash message, not a 500.
+        # A Temporal outage must surface as a console message, not a 500.
         schema = self._schema()
 
         with patch(
-            f"{_ADMIN_MODULE}.sync_external_data_job_workflow",
+            f"{_ACTIONS_MODULE}.sync_external_data_job_workflow",
             side_effect=Exception("connect failed"),
         ):
-            response = self.admin.recreate_schedule_view(self._request("post"), schema.id)
+            response = self._run(schema, "recreate-schedule")
 
         assert response.status_code == 302
-        assert str(schema.id) in response.url
+        assert "Failed to recreate schedule: connect failed" in self._messages(response)
