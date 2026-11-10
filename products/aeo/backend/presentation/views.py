@@ -68,6 +68,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSetCounts,
     PromptSetDomain,
     PromptSetEngineCounts,
+    PromptSetModeComparison,
     PromptSetOverview,
     PromptSetRankings,
     PromptSetSearch,
@@ -479,6 +480,33 @@ class AEOPromptSetSearchSerializer(DataclassSerializer):
         }
 
 
+class AEOPromptSetModeComparisonSerializer(DataclassSerializer):
+    no_search_mention_rate = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Share (0-1) of the no-search answers that name the brand. Null without answers.",
+    )
+    web_search_mention_rate = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Share (0-1) of the web-search answers to the same prompts that name the brand or cite a target domain. Null without answers.",
+    )
+
+    class Meta:
+        dataclass = PromptSetModeComparison
+        ref_name = "AEOPromptSetModeComparison"
+        extra_kwargs = {
+            "engine": {"help_text": ENGINE_HELP},
+            "prompts": {"help_text": "Distinct prompts this engine answered without search in the window."},
+            "no_search_answers": {"help_text": "Answered no-search checks: answers from training data alone."},
+            "no_search_mentioned": {"help_text": "Of those, how many name the brand."},
+            "web_search_answers": {
+                "help_text": "Answered web-search checks from this engine for the same prompts in the window."
+            },
+            "web_search_mentioned": {"help_text": "Of those, how many name the brand or cite a target domain."},
+        }
+
+
 class AEOPromptSetOverviewSerializer(DataclassSerializer):
     current = AEOPromptSetCountsSerializer(help_text="Checks across the prompt set in the last 'days' days.")
     previous = AEOPromptSetCountsSerializer(help_text="The same counts for the 'days' days before 'window_from'.")
@@ -497,6 +525,10 @@ class AEOPromptSetOverviewSerializer(DataclassSerializer):
     top_searches = AEOPromptSetSearchSerializer(
         many=True,
         help_text=f"The {MAX_OVERVIEW_SEARCHES} web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project.",
+    )
+    memory_vs_search = AEOPromptSetModeComparisonSerializer(
+        many=True,
+        help_text="Per engine, how often its answers name the brand without web search (training data alone) against with web search, over the same prompts in the current window, ordered by engine. Empty until no-search checks exist. Every other count in the overview covers web-search checks only.",
     )
 
     class Meta:
@@ -1056,7 +1088,9 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             f"Gets an overview of the project's whole AEO prompt set for the last 'days' days (default {STATS_DAYS}) in "
             "the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the "
             "brand-mention rate, the same counts for the window before it, the current window split per answer "
-            "engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most."
+            "engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Those counts "
+            "cover web-search checks. 'memory_vs_search' compares each engine's brand-mention rate without web search "
+            "against with it, over the same prompts."
         ),
         responses={200: OpenApiResponse(response=AEOPromptSetOverviewSerializer)},
         tags=["web_analytics"],

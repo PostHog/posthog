@@ -1,21 +1,27 @@
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 import requests
 from parameterized import parameterized
 
 from products.aeo.backend.engines import (
+    ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
     GATEWAY_MAX_ATTEMPTS,
+    MAX_WEB_SEARCHES_PER_PROMPT,
     OPENAI_MAX_OUTPUT_TOKENS,
     CitationCheck,
     ClaudeWebSearchEngine,
     OpenAIWebSearchEngine,
     _SharedBackoff,
     anthropic_truncated_error,
+    available_no_search_engines,
     build_check_fields,
     gateway_post_json,
     is_target_url,
@@ -227,12 +233,38 @@ def test_openai_engine_run_wires_response_error(_name: str, body: dict, expected
         assert check.cited_urls  # completed body carries citations
 
 
-def test_claude_engine_calls_web_search_directly() -> None:
-    captured: dict = {}
+CLAUDE_SEARCH_TOOLS = [
+    {
+        "type": ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
+        "name": "web_search",
+        "max_uses": MAX_WEB_SEARCHES_PER_PROMPT,
+        "allowed_callers": ["direct"],
+    }
+]
+OPENAI_SEARCH_TOOLS = [{"type": "web_search"}]
 
-    def fake_post(_session, _url, _headers, payload, **_kwargs):
-        captured["payload"] = payload
-        return ANTHROPIC_BODY
+
+@parameterized.expand(
+    [
+        ("claude_web_search", ClaudeWebSearchEngine, True, ANTHROPIC_BODY, "/messages", CLAUDE_SEARCH_TOOLS),
+        ("claude_no_search", ClaudeWebSearchEngine, False, ANTHROPIC_BODY, "/messages", None),
+        ("openai_web_search", OpenAIWebSearchEngine, True, OPENAI_RESPONSES_BODY, "/responses", OPENAI_SEARCH_TOOLS),
+        ("openai_no_search", OpenAIWebSearchEngine, False, OPENAI_RESPONSES_BODY, "/responses", None),
+    ]
+)
+def test_gateway_engines_send_the_search_tool_only_with_search(
+    _name: str,
+    engine_class: Any,
+    search: bool,
+    body: dict[str, Any],
+    path: str,
+    expected_tools: list[dict[str, Any]] | None,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_post(_session, url, _headers, payload, **_kwargs):
+        captured.update(url=url, payload=payload)
+        return body
 
     with (
         patch(
@@ -242,12 +274,47 @@ def test_claude_engine_calls_web_search_directly() -> None:
         patch("products.aeo.backend.engines.ai_gateway_headers", return_value={}),
         patch("products.aeo.backend.engines.gateway_post_json", side_effect=fake_post),
     ):
-        check = ClaudeWebSearchEngine().run("best session replay tool", trace_id="t1", custom_properties={})
+        engine = engine_class(search=search)
+        check = engine.run("best session replay tool", trace_id="t1", custom_properties={})
+        web_search_model = engine_class().model
 
-    [tool] = captured["payload"]["tools"]
-    assert tool["allowed_callers"] == ["direct"]
-    assert check.error is None
-    assert check.cited_urls == ["https://posthog.com/session-replay", "https://example.com/reviews"]
+    fields = build_check_fields(
+        check=check,
+        run_id="run-1",
+        prompt_id="prompt-1",
+        prompt_text="best session replay tool",
+        prompt_source="manual",
+        prompt_hash="abc",
+        target_domains=["posthog.com"],
+    )
+    assert (captured["url"], captured["payload"]["model"]) == (f"https://gw.test/v1{path}", web_search_model)
+    assert check.error is None and fields["answer_text"]
+    assert (fields["engine"], fields["mode"]) == (engine_class.name, "web_search" if search else "no_search")
+    assert captured["payload"].get("tools") == expected_tools
+    assert fields["cited"] is search
+    assert bool(fields["cited_urls"] and fields["search_queries"]) is search
+    if not search:
+        assert (fields["retrieved_urls"], fields["target_urls"], fields["target_best_position"]) == ([], [], None)
+
+
+@parameterized.expand(
+    [
+        ("off", False, True, []),
+        ("on", True, True, [("claude-web-search", "no_search"), ("openai-web-search", "no_search")]),
+        ("on_without_a_gateway", True, False, []),
+    ]
+)
+def test_no_search_engines_need_the_setting_and_the_gateway(
+    _name: str, enabled: bool, gateway: bool, expected: list[tuple[str, str]]
+) -> None:
+    config = SimpleNamespace(url="https://gw.test/v1", api_key="k") if gateway else None
+    with (
+        override_settings(AEO_NO_SEARCH_ENABLED=enabled),
+        patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=config),
+    ):
+        engines = available_no_search_engines()
+
+    assert [(engine.name, engine.mode.value) for engine in engines] == expected
 
 
 def test_parse_exa_citations() -> None:

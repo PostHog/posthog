@@ -31,6 +31,8 @@ from posthog.security.llm_prompt_sanitization import (
     strip_llm_framing_markers,
 )
 
+from products.aeo.backend.facade.contracts import CheckMode
+
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
 EXA_TIMEOUT_SECONDS = 60
 EXA_ANSWER_URL = "https://api.exa.ai/answer"
@@ -63,6 +65,7 @@ class CitationCheck:
 
     engine: str
     model: str
+    mode: CheckMode = CheckMode.WEB_SEARCH
     # URLs the answer actually cites, in first-mention order.
     cited_urls: list[str] = field(default_factory=list)
     # URLs the engine retrieved/saw but didn't necessarily cite (Anthropic only).
@@ -95,6 +98,7 @@ class ParsedAnswer:
 class CitationEngine(Protocol):
     name: str
     model: str
+    mode: CheckMode
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck: ...
 
@@ -380,6 +384,7 @@ def build_check_fields(
         "prompt_hash": prompt_hash,
         "engine": check.engine,
         "model": check.model,
+        "mode": check.mode.value,
         "check_failed": check.error is not None,
         "error": sanitize_user_text(check.error, MAX_ERROR_LENGTH) if check.error is not None else None,
         "cited": bool(target_urls),
@@ -404,12 +409,16 @@ def _request_error(e: requests.RequestException) -> str:
 
 
 class ClaudeWebSearchEngine:
-    """Claude with Anthropic's native web_search server tool, via the AI gateway."""
+    """Claude with Anthropic's native web_search server tool, via the AI gateway.
+
+    With `search=False` the request carries no tool, so the answer comes from training data alone.
+    The engine name, model and gateway route stay the same, so cost attribution does not change."""
 
     name = "claude-web-search"
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, *, search: bool = True) -> None:
         self.model = model or settings.AEO_ANTHROPIC_MODEL
+        self.mode = CheckMode.WEB_SEARCH if search else CheckMode.NO_SEARCH
         gateway = resolve_ai_gateway_config()
         if gateway is None:
             raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
@@ -417,11 +426,13 @@ class ClaudeWebSearchEngine:
         self._sessions = _gateway_sessions()
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "max_tokens": MAX_ANSWER_TOKENS,
             "messages": [{"role": "user", "content": prompt}],
-            "tools": [
+        }
+        if self.mode == CheckMode.WEB_SEARCH:
+            payload["tools"] = [
                 {
                     "type": ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
                     "name": "web_search",
@@ -432,8 +443,7 @@ class ClaudeWebSearchEngine:
                     # eligible for zero data retention.
                     "allowed_callers": ["direct"],
                 }
-            ],
-        }
+            ]
         headers = {
             "Authorization": f"Bearer {self._gateway.api_key}",
             "anthropic-version": "2023-06-01",
@@ -444,28 +454,26 @@ class ClaudeWebSearchEngine:
                 self._sessions.get(), self._gateway.url.rstrip("/") + "/messages", headers, payload
             )
         except requests.RequestException as e:
-            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
+            return self._check(trace_id, error=_request_error(e))
         parsed = parse_anthropic_citations(body)
         if (truncated := anthropic_truncated_error(body, parsed.cited_urls)) is not None:
-            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=truncated)
-        return CitationCheck(
-            engine=self.name,
-            model=self.model,
-            trace_id=trace_id,
-            cited_urls=parsed.cited_urls,
-            retrieved_urls=parsed.retrieved_urls,
-            search_queries=parsed.search_queries,
-            answer_text=parsed.answer_text,
-        )
+            return self._check(trace_id, error=truncated)
+        return _answered_check(self, trace_id, parsed)
+
+    def _check(self, trace_id: str, *, error: str) -> CitationCheck:
+        return CitationCheck(engine=self.name, model=self.model, mode=self.mode, trace_id=trace_id, error=error)
 
 
 class OpenAIWebSearchEngine:
-    """An OpenAI model with its web search tool, via the AI gateway's /responses path."""
+    """An OpenAI model with its web search tool, via the AI gateway's /responses path.
+
+    With `search=False` the request carries no tool, the same as ClaudeWebSearchEngine."""
 
     name = "openai-web-search"
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, *, search: bool = True) -> None:
         self.model = model or settings.AEO_OPENAI_MODEL
+        self.mode = CheckMode.WEB_SEARCH if search else CheckMode.NO_SEARCH
         gateway = resolve_ai_gateway_config()
         if gateway is None:
             raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
@@ -473,12 +481,13 @@ class OpenAIWebSearchEngine:
         self._sessions = _gateway_sessions()
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "input": prompt,
-            "tools": [{"type": "web_search"}],
             "max_output_tokens": OPENAI_MAX_OUTPUT_TOKENS,
         }
+        if self.mode == CheckMode.WEB_SEARCH:
+            payload["tools"] = [{"type": "web_search"}]
         headers = {
             "Authorization": f"Bearer {self._gateway.api_key}",
             **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
@@ -488,18 +497,31 @@ class OpenAIWebSearchEngine:
                 self._sessions.get(), self._gateway.url.rstrip("/") + "/responses", headers, payload
             )
         except requests.RequestException as e:
-            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
+            return self._check(trace_id, error=_request_error(e))
         if (error := openai_response_error(body)) is not None:
-            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=error)
-        parsed = parse_openai_responses_citations(body)
+            return self._check(trace_id, error=error)
+        return _answered_check(self, trace_id, parse_openai_responses_citations(body))
+
+    def _check(self, trace_id: str, *, error: str) -> CitationCheck:
+        return CitationCheck(engine=self.name, model=self.model, mode=self.mode, trace_id=trace_id, error=error)
+
+
+def _answered_check(engine: CitationEngine, trace_id: str, parsed: ParsedAnswer) -> CitationCheck:
+    if engine.mode == CheckMode.NO_SEARCH:
+        # Without a search nothing in the answer is a retrieved source, so the check keeps only the
+        # text and never counts as cited. Readers of citation rates rely on that.
         return CitationCheck(
-            engine=self.name,
-            model=self.model,
-            trace_id=trace_id,
-            cited_urls=parsed.cited_urls,
-            search_queries=parsed.search_queries,
-            answer_text=parsed.answer_text,
+            engine=engine.name, model=engine.model, mode=engine.mode, trace_id=trace_id, answer_text=parsed.answer_text
         )
+    return CitationCheck(
+        engine=engine.name,
+        model=engine.model,
+        trace_id=trace_id,
+        cited_urls=parsed.cited_urls,
+        retrieved_urls=parsed.retrieved_urls,
+        search_queries=parsed.search_queries,
+        answer_text=parsed.answer_text,
+    )
 
 
 class ExaAnswerEngine:
@@ -513,6 +535,7 @@ class ExaAnswerEngine:
 
     name = "exa-answer"
     model = "exa-answer"
+    mode = CheckMode.WEB_SEARCH
 
     def __init__(self) -> None:
         self._sessions = _ThreadSessions(trust_env=True)
@@ -548,3 +571,10 @@ def available_engines() -> list[CitationEngine]:
     if settings.EXA_API_KEY:
         engines.append(ExaAnswerEngine())
     return engines
+
+
+def available_no_search_engines() -> list[CitationEngine]:
+    """No-search variants of the gateway engines, when the mode is turned on."""
+    if not settings.AEO_NO_SEARCH_ENABLED or resolve_ai_gateway_config() is None:
+        return []
+    return [ClaudeWebSearchEngine(search=False), OpenAIWebSearchEngine(search=False)]

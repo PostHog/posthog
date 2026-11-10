@@ -36,6 +36,7 @@ from products.aeo.backend.facade.contracts import (
     BrandStatus,
     BrandSyncResult,
     BrandUpdate,
+    CheckMode,
     CitationGap,
     CitationRunSummary,
     Prompt,
@@ -53,6 +54,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSetCounts,
     PromptSetDomain,
     PromptSetEngineCounts,
+    PromptSetModeComparison,
     PromptSetOverview,
     PromptSetRankings,
     PromptSetSearch,
@@ -112,6 +114,7 @@ def list_prompts(
         answered = AEOCitationCheck.objects.for_team(team_id).filter(
             Q(prompt_version=OuterRef("current_version")) | Q(prompt_version__isnull=True, prompt__current_version=1),
             prompt_id=OuterRef("pk"),
+            mode=CheckMode.WEB_SEARCH,
             check_failed=False,
             created_at__gte=timezone.now() - dt.timedelta(days=NEEDS_IMPROVEMENT_DAYS),
         )
@@ -207,10 +210,10 @@ def list_prompt_checks(
     since: dt.datetime | None = None,
     include_answer_text: bool = True,
 ) -> tuple[list[PromptCheck], int]:
-    """One page of a prompt's check history, newest first, and the total count. With
+    """One page of a prompt's web-search check history, newest first, and the total count. With
     `include_answer_text` off, `answer_text` is None on every check and is not read from the database."""
     prompt = _get_prompt_row(team_id, prompt_id)
-    checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id)
+    checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id, mode=CheckMode.WEB_SEARCH)
     if engine is not None:
         checks = checks.filter(engine=engine)
     if since is not None:
@@ -256,7 +259,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
     in the team's timezone."""
     prompt = _get_prompt_row(team_id, prompt_id)
     target_domains: list[str] = settings.AEO_TARGET_DOMAINS
-    checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id)
+    checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id, mode=CheckMode.WEB_SEARCH)
     engines = tuple(
         PromptEngineStats(
             engine=row["engine"],
@@ -363,12 +366,12 @@ def _top_domains(
             """
             SELECT host, count(*) AS checks_citing
             FROM posthog_aeo_citation_check, jsonb_array_elements_text(top_cited_domains) AS host
-            WHERE team_id = %s AND created_at >= %s AND check_failed = false
+            WHERE team_id = %s AND created_at >= %s AND check_failed = false AND mode = %s
             GROUP BY host
             ORDER BY checks_citing DESC, host
             LIMIT %s
             """,
-            [team_id, since, MAX_OVERVIEW_DOMAINS],
+            [team_id, since, CheckMode.WEB_SEARCH.value, MAX_OVERVIEW_DOMAINS],
         )
         rows = cursor.fetchall()
     return tuple(
@@ -394,6 +397,7 @@ _TOP_SEARCHES_SQL = """
                 CASE WHEN jsonb_typeof(check_row.search_queries) = 'array' THEN check_row.search_queries ELSE '[]'::jsonb END
             ) AS query
         WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+            AND check_row.mode = %s
     ),
     ranked AS (
         SELECT query, count(DISTINCT prompt_id) AS prompts, count(*) AS answers,
@@ -425,7 +429,9 @@ def _top_searches(team_id: int, *, since: dt.datetime) -> tuple[PromptSetSearch,
     each with the prompts that ran it most."""
     team_id = resolve_effective_team_id(team_id)
     with connection.cursor() as cursor:
-        cursor.execute(_TOP_SEARCHES_SQL, [team_id, since, MAX_OVERVIEW_SEARCHES, MAX_SEARCH_PROMPTS])
+        cursor.execute(
+            _TOP_SEARCHES_SQL, [team_id, since, CheckMode.WEB_SEARCH.value, MAX_OVERVIEW_SEARCHES, MAX_SEARCH_PROMPTS]
+        )
         rows = cursor.fetchall()
     texts = {
         row["id"]: row["prompt"]
@@ -451,8 +457,9 @@ def _top_searches(team_id: int, *, since: dt.datetime) -> tuple[PromptSetSearch,
 
 
 def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> PromptSetOverview:
-    """Checks across the whole prompt set over the last `days` days in the team's timezone, the same
-    counts for the `days` days before, and the current window split per engine and per topic."""
+    """Web-search checks across the whole prompt set over the last `days` days in the team's timezone,
+    the same counts for the `days` days before, the current window split per engine and per topic, and
+    how often each engine names the brand without search against with it."""
     target_domains: list[str] = settings.AEO_TARGET_DOMAINS
     tz = ZoneInfo(timezone_name)
     window_to = timezone.now().astimezone(tz).date()
@@ -461,7 +468,7 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
     previous_start = window_start - dt.timedelta(days=days)
     counts = _check_counts(target_domains, prompts=True)
 
-    checks = AEOCitationCheck.objects.for_team(team_id)
+    checks = AEOCitationCheck.objects.for_team(team_id).filter(mode=CheckMode.WEB_SEARCH)
     current = checks.filter(created_at__gte=window_start)
     previous = checks.filter(created_at__gte=previous_start, created_at__lt=window_start)
     engines = tuple(
@@ -510,6 +517,46 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
             target_domains=target_domains,
         ),
         top_searches=_top_searches(team_id, since=window_start),
+        memory_vs_search=_memory_vs_search(team_id, since=window_start, target_domains=target_domains),
+    )
+
+
+def _memory_vs_search(
+    team_id: int, *, since: dt.datetime, target_domains: list[str]
+) -> tuple[PromptSetModeComparison, ...]:
+    """Per engine, the mention rate of its no-search answers against its web-search answers to the same
+    prompts. A prompt runs without search once a week, so comparing all web-search answers would weigh
+    the daily prompts the no-search side never saw."""
+    answered = AEOCitationCheck.objects.for_team(team_id).filter(created_at__gte=since, check_failed=False)
+    no_search = answered.filter(mode=CheckMode.NO_SEARCH)
+
+    def per_engine(checks: QuerySet[AEOCitationCheck]) -> dict[str, tuple[int, int, int]]:
+        rows = (
+            checks.values("engine")
+            .annotate(
+                answers=Count("id"),
+                mentioned=Count("id", filter=mention_filter(target_domains)),
+                prompts=Count("prompt_id", distinct=True),
+            )
+            .order_by("engine")
+        )
+        return {row["engine"]: (row["answers"], row["mentioned"], row["prompts"]) for row in rows}
+
+    memory = per_engine(no_search)
+    if not memory:
+        return ()
+    compared_prompt = Exists(no_search.filter(prompt_id=OuterRef("prompt_id"), engine=OuterRef("engine")))
+    search = per_engine(answered.filter(compared_prompt, mode=CheckMode.WEB_SEARCH))
+    return tuple(
+        PromptSetModeComparison(
+            engine=engine,
+            prompts=prompts,
+            no_search_answers=answers,
+            no_search_mentioned=mentioned,
+            web_search_answers=search.get(engine, (0, 0, 0))[0],
+            web_search_mentioned=search.get(engine, (0, 0, 0))[1],
+        )
+        for engine, (answers, mentioned, prompts) in memory.items()
     )
 
 
@@ -860,7 +907,7 @@ def _latest_checks(team_id: int, prompt_ids: list[uuid.UUID]) -> dict[uuid.UUID,
         return {}
     rows = (
         AEOCitationCheck.objects.for_team(team_id)
-        .filter(prompt_id__in=prompt_ids)
+        .filter(prompt_id__in=prompt_ids, mode=CheckMode.WEB_SEARCH)
         .order_by("prompt_id", "engine", "-created_at")
         .distinct("prompt_id", "engine")
         .values("prompt_id", "engine", "cited", "check_failed", "target_best_position", "search_queries", "created_at")

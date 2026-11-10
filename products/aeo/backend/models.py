@@ -11,6 +11,7 @@ from products.aeo.backend.facade.contracts import (
     BrandKind,
     BrandSource,
     BrandStatus,
+    CheckMode,
 )
 
 
@@ -170,6 +171,20 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
         max_length=64, help_text="Answer engine: claude-web-search, openai-web-search, exa-answer."
     )
     model = models.CharField(max_length=128, help_text="Engine model that answered.")
+    # db_default so existing rows read as web-search checks without a table rewrite.
+    mode = models.CharField(
+        max_length=32,
+        choices=CheckMode.choices,
+        default=CheckMode.WEB_SEARCH.value,
+        db_default=CheckMode.WEB_SEARCH.value,
+        help_text="How the engine answered: 'web_search' with its search tool, 'no_search' from training data alone.",
+    )
+    mode_config = models.JSONField(
+        default=dict,
+        db_default={},
+        blank=True,
+        help_text="Settings the mode ran with that do not change what kind of answer it is, such as a locale.",
+    )
 
     check_failed = models.BooleanField(
         default=False,

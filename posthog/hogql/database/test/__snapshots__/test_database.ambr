@@ -2781,6 +2781,26 @@
                   "table": null,
                   "type": "string"
               },
+              "mode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "mode",
+                  "id": null,
+                  "name": "mode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "mode_config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "mode_config",
+                  "id": null,
+                  "name": "mode_config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
               "check_failed": {
                   "chain": null,
                   "fields": null,
@@ -17915,6 +17935,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "mode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "mode",
+                  "id": null,
+                  "name": "mode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "mode_config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "mode_config",
+                  "id": null,
+                  "name": "mode_config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
               },
               "check_failed": {
                   "chain": null,

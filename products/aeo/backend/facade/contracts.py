@@ -59,6 +59,13 @@ class CitationGap:
         return self.cited_checks / self.checks if self.checks else 0.0
 
 
+class CheckMode(LabeledStrEnum):
+    """How an engine answered: with its web search tool, or from its training data alone."""
+
+    WEB_SEARCH = "web_search", "Web search"
+    NO_SEARCH = "no_search", "No search"
+
+
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 PROMPT_TOPIC_MAX_LENGTH = 200
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
@@ -209,7 +216,7 @@ def _rate(part: int, whole: int) -> float | None:
 
 @frozen
 class PromptSetCounts:
-    """Checks across the prompt set in one window, all engines. Rates leave failed checks out."""
+    """Web-search checks across the prompt set in one window, all engines. Rates leave failed checks out."""
 
     checks: int
     failed: int
@@ -273,6 +280,29 @@ class PromptSetSearch:
 
 
 @frozen
+class PromptSetModeComparison:
+    """One engine's answers without search against its answers with search in the window.
+
+    Both sides cover the same prompts: the ones that got at least one answered no-search check
+    from this engine in the window."""
+
+    engine: str
+    prompts: int
+    no_search_answers: int
+    no_search_mentioned: int
+    web_search_answers: int
+    web_search_mentioned: int
+
+    @property
+    def no_search_mention_rate(self) -> float | None:
+        return _rate(self.no_search_mentioned, self.no_search_answers)
+
+    @property
+    def web_search_mention_rate(self) -> float | None:
+        return _rate(self.web_search_mentioned, self.web_search_answers)
+
+
+@frozen
 class PromptSetOverview:
     """How the whole prompt set did over the last `days` days, against the `days` days before."""
 
@@ -289,6 +319,7 @@ class PromptSetOverview:
     topics: tuple[PromptSetTopicCounts, ...]
     top_domains: tuple[PromptSetDomain, ...]
     top_searches: tuple[PromptSetSearch, ...]
+    memory_vs_search: tuple[PromptSetModeComparison, ...]
 
 
 class PromptOrigin(LabeledStrEnum):

@@ -1,8 +1,9 @@
 import uuid
 import datetime as dt
 import threading
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, wait
-from typing import NoReturn
+from typing import Any, NoReturn
 
 import pytest
 import time_machine
@@ -16,6 +17,7 @@ from posthog.models.team import Team
 
 from products.aeo.backend import runner
 from products.aeo.backend.engines import CitationCheck, build_check_fields
+from products.aeo.backend.facade.contracts import CheckMode
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks, select_prompts
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
@@ -86,6 +88,7 @@ def test_run_day_start_is_the_latest_boundary_at_or_before_now(now: dt.datetime,
 class _StubEngine:
     name = "stub-engine"
     model = "stub"
+    mode = CheckMode.WEB_SEARCH
 
     def __init__(self) -> None:
         self.calls = 0
@@ -308,3 +311,80 @@ def test_a_prompt_recorded_by_another_run_is_not_recorded_twice(team: Team, answ
     # Two runs writing the same prompt at once must serialize on its row; this is the only
     # observable trace of that lock short of a multi-connection test.
     assert any("FOR UPDATE" in query["sql"] for query in queries.captured_queries)
+
+
+def test_no_search_weekday_spreads_prompts_evenly_and_never_moves() -> None:
+    days = Counter(runner.no_search_weekday(uuid.UUID(int=i * 7919)) for i in range(7000))
+
+    assert sorted(days) == list(range(7))
+    assert all(900 <= count <= 1100 for count in days.values())
+    assert runner.no_search_weekday(uuid.UUID("01a1c3ba-8f9e-0000-1f4c-02a77e57ae01")) == 4
+
+
+class _NoSearchEngine(_StubEngine):
+    mode = CheckMode.NO_SEARCH
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        self.calls += 1
+        return CitationCheck(engine=self.name, model=self.model, mode=self.mode, answer_text="PostHog, from memory.")
+
+
+class _FailsFirstOnQ0(_StubEngine):
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        if prompt == "q0?" and not getattr(self, "failed_once", False):
+            self.failed_once = True
+            return CitationCheck(engine=self.name, model=self.model, error="HTTPError: status=503")
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+
+
+@pytest.mark.parametrize("enabled", [True, False], ids=["enabled", "disabled"])
+def test_no_search_checks_run_on_the_rotation_day_once_across_resumed_runs(team: Team, settings, enabled: bool) -> None:
+    settings.AEO_RUN_CONCURRENCY = 2
+    settings.AEO_NO_SEARCH_ENABLED = enabled
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(14)])
+    prompts = {p.prompt: p.id for p in AEOPrompt.objects.for_team(team.id)}
+    weekday = runner.no_search_weekday(prompts["q0?"])
+    due = {text for text, prompt_id in prompts.items() if runner.no_search_weekday(prompt_id) == weekday}
+    # 2026-11-02 is a Monday, so this lands on q0's rotation day, after the 07:00 UTC run-day start.
+    run_day = dt.datetime(2026, 11, 2, 12, 0, tzinfo=dt.UTC) + dt.timedelta(days=weekday)
+    web_search = _FailsFirstOnQ0()
+    no_search = _NoSearchEngine()
+
+    with time_machine.travel(run_day, tick=False):
+        for _ in range(3):
+            run_citation_checks(team, engines=[web_search], no_search_engines=[no_search] if enabled else None)
+
+    checks = AEOCitationCheck.objects.for_team(team.id)
+    no_search_rows = checks.filter(mode=CheckMode.NO_SEARCH)
+    assert sorted(no_search_rows.values_list("prompt_text", flat=True)) == (sorted(due) if enabled else [])
+    assert no_search.calls == (len(due) if enabled else 0)
+    assert not no_search_rows.filter(cited=True).exists()
+    assert checks.filter(mode=CheckMode.WEB_SEARCH, check_failed=False).count() == 14
+
+
+def test_a_resumed_prompt_keeps_the_no_search_checks_another_dispatch_recorded(team: Team) -> None:
+    upsert_prompts(team, [PromptCandidate(text="q0?", source="imported")])
+    prompt = AEOPrompt.objects.for_team(team.id).get()
+    checked_before = timezone.now() - dt.timedelta(hours=1)
+
+    def fields(check: CitationCheck) -> dict[str, Any]:
+        return build_check_fields(
+            check=check,
+            run_id=str(uuid.uuid4()),
+            prompt_id=str(prompt.id),
+            prompt_text=prompt.prompt,
+            prompt_source=prompt.prompt_source,
+            prompt_hash=prompt.prompt_hash,
+            target_domains=["posthog.com"],
+        )
+
+    no_search = fields(CitationCheck(engine="stub-engine", model="stub", mode=CheckMode.NO_SEARCH, answer_text="a"))
+    web_failed = fields(CitationCheck(engine="stub-engine", model="stub", error="engine down"))
+    web_answered = fields(CitationCheck(engine="stub-engine", model="stub", cited_urls=["https://posthog.com/a"]))
+
+    first = runner._record_prompt_checks(team, team.id, "run-a", prompt, [web_failed, no_search], checked_before)
+    second = runner._record_prompt_checks(team, team.id, "run-b", prompt, [web_answered, no_search], checked_before)
+
+    assert (first, second) == ("written", "written")
+    checks = AEOCitationCheck.objects.for_team(team.id)
+    assert (checks.filter(mode=CheckMode.NO_SEARCH).count(), checks.count()) == (1, 3)

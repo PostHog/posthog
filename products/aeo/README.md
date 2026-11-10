@@ -21,6 +21,7 @@ Environment (all default empty — the runner is a no-op until configured):
 | `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.          |
 | `AEO_TARGET_DOMAINS`                       | Domains counted as "us" in citations (default `posthog.com`).  |
 | `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                        |
+| `AEO_NO_SEARCH_ENABLED`                    | Adds weekly no-search checks (default off). See below.         |
 
 The scheduled task is additionally gated per team by the `aeo-citation-tracking` feature flag.
 
@@ -77,6 +78,18 @@ A prompt keeps its id, so its checks, stats and detail view stay in one place. I
 - `DELETE` or `PATCH {"archived": true}` archives a prompt: it is turned off, never runs, and keeps its versions and checks. `PATCH {"archived": false}` restores it, and it stays off unless the same request sends `"active": true`. An archived prompt accepts no other change until it is restored.
 - Each check records the version that ran in `prompt_version`. Checks recorded before versions existed have none.
 
+### No-search checks
+
+With `AEO_NO_SEARCH_ENABLED` on, each prompt also runs once a week on Claude and OpenAI with the web search tool left out, so the answer comes from the model's training data alone.
+It is the baseline for "what the model remembers about us": training-data familiarity shapes even the answers that search.
+
+- A prompt gets its no-search checks on the run day whose UTC weekday equals a SHA-256 hash of its id modulo 7, so about a seventh of the set runs each day and a prompt keeps its day.
+- They run in the same daily run, as extra engine-mode pairs, and are written in the same per-prompt claim as the web-search checks. A dispatch that resumes a killed run skips the prompts that already have no-search checks that run day.
+- They use the same engine id, model, gateway route and `$ai_generation` tags as the web-search checks, plus `aeo_mode`, so their cost is attributed the same way.
+- A no-search check stores `mode = 'no_search'`, the answer text, and empty citations, retrieved URLs and searches. It is never `cited`, so only the mention rate and sentiment apply.
+- Exa answers from its own search results, so it has no no-search variant.
+- Every citation and mention rate, ranking, gap, stat and opportunity reads web-search checks only. The overview's `memory_vs_search` compares each engine's mention rate without search against with search, over the same prompts.
+
 ### Which prompts a run takes
 
 A run takes the whole prompt set, up to `AEO_MAX_PROMPTS_PER_RUN` (default 2,000), and checks `AEO_RUN_CONCURRENCY` prompts at a time (default 16).
@@ -87,18 +100,19 @@ Within a topic, prompts never checked come first, then the least recently checke
 
 `system.aeo_citation_checks` — one row per prompt × engine × run, read-only in HogQL:
 
-| Column                                                                   | Meaning                                                                                                             |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
-| `prompt_version`                                                         | The prompt version that ran. Null for checks recorded before prompts had versions.                                  |
-| `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.            |
-| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                          |
-| `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
-| `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
-| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic exposes retrieved results; others don't).                                 |
-| `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.               |
-| `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                        |
-| `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs). |
+| Column                                                                   | Meaning                                                                                                              |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                                |
+| `prompt_version`                                                         | The prompt version that ran. Null for checks recorded before prompts had versions.                                   |
+| `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.             |
+| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                           |
+| `mode`, `mode_config`                                                    | `web_search`, or `no_search` for an answer from training data alone; `mode_config` holds settings the mode ran with. |
+| `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                       |
+| `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                 |
+| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic exposes retrieved results; others don't).                                  |
+| `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.                |
+| `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                         |
+| `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs).  |
 
 ## The join (the product thesis)
 
@@ -109,7 +123,7 @@ Per cited URL path: citations → AI-agent crawls → AI-channel sessions → co
 SELECT toStartOfDay(created_at) AS day, engine,
        countIf(cited) / countIf(NOT check_failed) AS citation_rate
 FROM system.aeo_citation_checks
-WHERE created_at >= now() - INTERVAL 30 DAY
+WHERE created_at >= now() - INTERVAL 30 DAY AND mode = 'web_search'
 GROUP BY day, engine ORDER BY day
 
 -- crawls for a cited path (asset noise and bulk fetchers excluded)
@@ -139,6 +153,7 @@ Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-
 Measured in October 2026: about \$0.06 per OpenAI check and \$0.14 per Claude check, provider web-search fees and tokens included (`$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event).
 A daily run of 1,000 prompts on both engines is about \$200.
 Exa adds \$5 per 1,000 requests (`cost_usd` on the check event).
+No-search checks cost about a quarter (Claude) to two fifths (OpenAI) of a web-search check, since they pay no search fees and read no search results. On the weekly rotation a set of about 1,300 prompts runs about 190 a day, roughly \$8 a day (an estimate, not measured).
 
 ## Out of scope
 

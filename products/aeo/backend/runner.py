@@ -15,6 +15,7 @@ gateway-key owner's project, not the checked team's, and carries the
 from __future__ import annotations
 
 import uuid
+import hashlib
 import datetime as dt
 import threading
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
@@ -32,8 +33,13 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
-from products.aeo.backend.engines import CitationEngine, available_engines, build_check_fields
-from products.aeo.backend.facade.contracts import CitationRunSummary
+from products.aeo.backend.engines import (
+    CitationEngine,
+    available_engines,
+    available_no_search_engines,
+    build_check_fields,
+)
+from products.aeo.backend.facade.contracts import CheckMode, CitationRunSummary
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.temporal.brand_sentiment import start_brand_sentiment_workflow
 
@@ -44,6 +50,7 @@ def run_citation_checks(
     team: Team,
     *,
     engines: Optional[list[CitationEngine]] = None,
+    no_search_engines: Optional[list[CitationEngine]] = None,
     limit: Optional[int] = None,
     record: bool = True,
     stop: Optional[threading.Event] = None,
@@ -55,8 +62,12 @@ def run_citation_checks(
     the prompts it covered. With record=False the engines still run (and cost
     money) but nothing is written — smoke-test mode. Setting `stop` ends the run
     after the prompt in hand and drops the queued ones.
+
+    `no_search_engines` run as extra checks on the prompts whose weekly no-search day is today
+    (see `no_search_weekday`), inside the same per-prompt claim as the web-search checks.
     """
     engines = engines if engines is not None else available_engines()
+    no_search_engines = no_search_engines if no_search_engines is not None else available_no_search_engines()
     if not engines:
         logger.warning("aeo_citation_run_no_engines", team_id=team.id)
         return _empty_summary(team, "no engines configured (AI_GATEWAY_URL/AI_GATEWAY_API_KEY, EXA_API_KEY)"), []
@@ -78,6 +89,10 @@ def run_citation_checks(
     # bulk_create skips RootTeamMixin.save(), so map a child environment to its parent here, as reads do.
     canonical_team_id = team.parent_team_id or team.id
     target_domains: list[str] = settings.AEO_TARGET_DOMAINS
+    no_search_due = _no_search_due(team, prompts, checked_before) if no_search_engines else set()
+    engines_per_prompt = {
+        prompt.id: [*engines, *no_search_engines] if prompt.id in no_search_due else engines for prompt in prompts
+    }
     checks: list[dict[str, Any]] = []
     engine_failures = 0
     rows_written = 0
@@ -86,7 +101,10 @@ def run_citation_checks(
     # Engine calls are network-bound and run in worker threads. Database writes stay on
     # this thread, so the workers never open their own Django connections.
     pool = ThreadPoolExecutor(max_workers=max(1, settings.AEO_RUN_CONCURRENCY))
-    futures = {pool.submit(_check_prompt, team, run_id, engines, target_domains, prompt): prompt for prompt in prompts}
+    futures = {
+        pool.submit(_check_prompt, team, run_id, engines_per_prompt[prompt.id], target_domains, prompt): prompt
+        for prompt in prompts
+    }
     stopped = False
     done = 0
     superseded = 0
@@ -100,7 +118,7 @@ def run_citation_checks(
                     result = future.result()
                 except Exception as e:
                     # One prompt's unexpected engine error must not end a run that takes hours.
-                    engine_failures += len(engines)
+                    engine_failures += len(engines_per_prompt[futures[future].id])
                     logger.exception(
                         "aeo_citation_prompt_crashed",
                         team_id=team.id,
@@ -192,6 +210,7 @@ def _check_prompt(
                 "aeo_prompt_id": str(prompt.id),
                 "aeo_run_id": run_id,
                 "aeo_prompt_source": prompt.prompt_source,
+                "aeo_mode": engine.mode.value,
                 # No $ai_ prefix, so the gateway keeps this on the $ai_generation
                 # event, which lets usage attribute spend back to the checked team.
                 "team_id": str(team.id),
@@ -224,6 +243,33 @@ def _check_prompt(
     return PromptCheckResult(prompt=prompt, fields_per_engine=fields_per_engine, failures=failures)
 
 
+def no_search_weekday(prompt_id: uuid.UUID) -> int:
+    """The weekday (Monday is 0) on which a prompt gets its no-search checks.
+
+    A hash of the id, so the day is the same on every worker and across restarts, which Python's
+    salted `hash()` is not. It spreads the set over the week, about a seventh of it per day."""
+    digest = hashlib.sha256(str(prompt_id).encode()).digest()
+    return int.from_bytes(digest[:8], "big") % 7
+
+
+def _no_search_due(team: Team, prompts: list[AEOPrompt], checked_before: dt.datetime) -> set[uuid.UUID]:
+    """Prompts whose no-search day is this run day and that have no no-search check since it began.
+
+    The weekday is the run day's, in UTC, so it stays the same for every dispatch of that run day.
+    A dispatch that resumes a killed run skips the prompts it already recorded no-search checks for,
+    including ones whose web-search checks all failed and so left the prompt unclaimed."""
+    weekday = checked_before.astimezone(dt.UTC).weekday()
+    candidates = [prompt.id for prompt in prompts if no_search_weekday(prompt.id) == weekday]
+    if not candidates:
+        return set()
+    recorded = set(
+        AEOCitationCheck.objects.for_team(team.id)
+        .filter(prompt_id__in=candidates, mode=CheckMode.NO_SEARCH, created_at__gte=checked_before)
+        .values_list("prompt_id", flat=True)
+    )
+    return set(candidates) - recorded
+
+
 def _drop_queued(pool: ThreadPoolExecutor, pending: set[Future[_T]]) -> set[Future[_T]]:
     """Cancel the prompts no worker has started and return the ones still running.
 
@@ -251,9 +297,11 @@ def _record_prompt_checks(
     The claim is a conditional update of `last_checked_at`: a run that lost its lease can still
     have this prompt in flight while the dispatch that replaced it records the same prompt, and
     whichever claims second drops its result instead of writing a duplicate."""
-    prompt_rows = [AEOCitationCheck(team_id=canonical_team_id, **fields) for fields in fields_per_engine]
-    # A prompt every engine failed on was not really checked, so leave it first in line for the next run.
-    answered = any(not fields["check_failed"] for fields in fields_per_engine)
+    # A prompt every web-search engine failed on was not really checked, so leave it first in line for
+    # the next run. No-search answers do not count, because the next run skips their engines.
+    answered = any(
+        not fields["check_failed"] and fields["mode"] == CheckMode.WEB_SEARCH for fields in fields_per_engine
+    )
     try:
         # The fail-closed manager refuses writes without a team scope, and none of the callers
         # (the Celery task, the management command) run inside one.
@@ -284,7 +332,17 @@ def _record_prompt_checks(
                     "aeo_citation_prompt_superseded", team_id=team.id, run_id=run_id, prompt_id=str(prompt.id)
                 )
                 return "superseded"
-            AEOCitationCheck.objects.bulk_create(prompt_rows)
+            if (
+                any(fields["mode"] == CheckMode.NO_SEARCH for fields in fields_per_engine)
+                and AEOCitationCheck.objects.for_team(team.id)
+                .filter(prompt_id=prompt.id, mode=CheckMode.NO_SEARCH, created_at__gte=checked_before)
+                .exists()
+            ):
+                # Another dispatch recorded this prompt's no-search checks after this run chose its engines.
+                fields_per_engine = [fields for fields in fields_per_engine if fields["mode"] != CheckMode.NO_SEARCH]
+            AEOCitationCheck.objects.bulk_create(
+                [AEOCitationCheck(team_id=canonical_team_id, **fields) for fields in fields_per_engine]
+            )
     except Exception as e:
         logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
         return "failed"

@@ -29,6 +29,7 @@ from products.aeo.backend.facade.contracts import (
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
+    CheckMode,
     PromptSetRankings,
     RankedBrand,
     RankedBrandDay,
@@ -64,6 +65,7 @@ _BRAND_DAYS_SQL = """
     FROM posthog_aeo_citation_check AS check_row
     CROSS JOIN unnest(%s::text[], %s::text[], %s::bool[]) AS brand(domain, pattern, is_target)
     WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
     GROUP BY brand.domain, day
 """
 
@@ -75,6 +77,7 @@ _CITED_HOSTS_SQL = """
             CASE WHEN jsonb_typeof(check_row.top_cited_domains) = 'array' THEN check_row.top_cited_domains ELSE '[]'::jsonb END
         ) AS host
     WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
 """
 # The host to registrable domain mapping arrives as two parallel arrays.
 _DOMAIN_ANSWERS_SQL = """
@@ -86,6 +89,7 @@ _DOMAIN_ANSWERS_SQL = """
         ) AS cited_host
     WHERE lower(cited_host) = mapping.host
         AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
     GROUP BY mapping.domain
 """
 # URLs per host never overlap, so a domain's distinct URLs are the sum over its hosts.
@@ -98,6 +102,7 @@ _DOMAIN_URLS_SQL = """
         ) AS url
     WHERE lower(substring(url from '^[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^@/?#]*@)?([^/:?#]+)')) = mapping.host
         AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
     GROUP BY mapping.domain
 """
 _PAGES_SQL = """
@@ -107,6 +112,7 @@ _PAGES_SQL = """
             CASE WHEN jsonb_typeof(check_row.cited_urls) = 'array' THEN check_row.cited_urls ELSE '[]'::jsonb END
         ) AS url
     WHERE url <> '' AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
     GROUP BY url
     ORDER BY count(DISTINCT check_row.id) DESC, url
     LIMIT %s
@@ -129,7 +135,7 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
     # Every read stops at the same instant, so a check written mid-request can't make the counts disagree.
     until = timezone.now()
     answered = AEOCitationCheck.objects.for_team(team_id).filter(
-        created_at__gte=window_start, created_at__lt=until, check_failed=False
+        created_at__gte=window_start, created_at__lt=until, check_failed=False, mode=CheckMode.WEB_SEARCH
     )
     answers = answered.count()
 

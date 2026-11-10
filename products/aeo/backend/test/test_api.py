@@ -49,6 +49,7 @@ class TestAEOPromptAPI(APIBaseTest):
         answer_text: str | None = None,
         cited_urls: list[str] | None = None,
         search_queries: list[str] | None = None,
+        mode: str = "web_search",
     ) -> str:
         with team_scope(self.team.pk):
             prompt = AEOPrompt.objects.get(id=prompt_id)
@@ -63,6 +64,7 @@ class TestAEOPromptAPI(APIBaseTest):
                 prompt_version=prompt.current_version,
                 engine=engine,
                 model=engine,
+                mode=mode,
                 cited=cited,
                 target_best_position=position,
                 check_failed=check_failed,
@@ -359,6 +361,7 @@ class TestAEOPromptAPI(APIBaseTest):
         )
         self._record_check(checked_id, "claude-web-search", minutes_ago=90, check_failed=True)
         self._record_check(checked_id, "claude-web-search", minutes_ago=30, cited=True, position=2)
+        self._record_check(checked_id, "claude-web-search", minutes_ago=1, mode="no_search", answer_text="From memory.")
 
         listed = {row["prompt"]: row for row in self.client.get(self.url).json()["results"]}
         retrieved = self.client.get(f"{self.url}{checked_id}/").json()
@@ -386,6 +389,7 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(ids["only failed?"], "exa-answer", minutes_ago=10, check_failed=True)
         self._record_check(ids["cited long ago?"], "exa-answer", minutes_ago=60 * 24 * 40, cited=True)
         self._record_check(ids["cited long ago?"], "exa-answer", minutes_ago=10, cited=False)
+        self._record_check(ids["never checked?"], "claude-web-search", minutes_ago=10, mode="no_search")
         # A citation on the old wording must not hide a current wording that no engine cites.
         self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": "edited?"}]}, format="json")
         edited_id = next(row["id"] for row in self.client.get(self.url).json()["results"] if row["prompt"] == "edited?")
@@ -521,6 +525,9 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(prompt_id, "exa-answer", minutes_ago=day, check_failed=True)
         self._record_check(prompt_id, "claude-web-search", minutes_ago=2 * day, cited=True, position=3)
         self._record_check(prompt_id, "claude-web-search", minutes_ago=40 * day)
+        self._record_check(
+            prompt_id, "claude-web-search", minutes_ago=30, mode="no_search", answer_text="Example is a good pick."
+        )
 
         with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
             response = self.client.get(f"{self.url}{prompt_id}/stats/")
@@ -718,6 +725,23 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=35 * day, search_queries=["funnel tools"])
         self._record_check(ids["replay?"], "exa-answer", minutes_ago=40 * day, cited=True, position=4)
         self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=70 * day, cited=True)
+        no_search: list[tuple[str, str, int, str | None, bool]] = [
+            ("funnels?", "claude-web-search", 20, "Example has funnels.", False),
+            ("retention?", "claude-web-search", day, "Example tracks retention.", False),
+            ("surveys?", "claude-web-search", day, "Try a survey tool.", False),
+            ("surveys?", "claude-web-search", 2 * day, None, True),
+            ("funnels?", "openai-web-search", 30, "Example, among others.", False),
+            ("replay?", "claude-web-search", 40 * day, "Example records sessions.", False),
+        ]
+        for prompt, engine, minutes_ago, answer_text, failed in no_search:
+            self._record_check(
+                ids[prompt],
+                engine,
+                minutes_ago=minutes_ago,
+                answer_text=answer_text,
+                check_failed=failed,
+                mode="no_search",
+            )
 
         with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
             response = self.client.get(f"{self.url}overview/")
@@ -792,6 +816,28 @@ class TestAEOPromptAPI(APIBaseTest):
             ("example funnels", 1, 1, 1, ["claude-web-search"], ["funnels?"]),
             ("session replay", 1, 1, 0, ["claude-web-search"], ["replay?"]),
         ]
+        assert overview["memory_vs_search"] == [
+            {
+                "engine": "claude-web-search",
+                "prompts": 3,
+                "no_search_answers": 3,
+                "no_search_mentioned": 2,
+                "web_search_answers": 1,
+                "web_search_mentioned": 1,
+                "no_search_mention_rate": 2 / 3,
+                "web_search_mention_rate": 1.0,
+            },
+            {
+                "engine": "openai-web-search",
+                "prompts": 1,
+                "no_search_answers": 1,
+                "no_search_mentioned": 1,
+                "web_search_answers": 0,
+                "web_search_mentioned": 0,
+                "no_search_mention_rate": 1.0,
+                "web_search_mention_rate": None,
+            },
+        ]
         child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
         via_child = get_prompt_set_overview(child.id, timezone_name="UTC", days=7)
         assert [domain.domain for domain in via_child.top_domains] == ["docs.example.com", "rival.example.org"]
@@ -831,6 +877,7 @@ class TestAEOPromptAPI(APIBaseTest):
             ids["funnels?"], "openai-web-search", minutes_ago=10, check_failed=True, cited_urls=["https://rival.io/x"]
         )
         self._record_check(ids["replay?"], "claude-web-search", minutes_ago=35 * day, answer_text="Example.")
+        self._record_check(ids["replay?"], "claude-web-search", minutes_ago=day, answer_text="Rival.", mode="no_search")
         # Written after the request's snapshot instant, so no count may include it.
         self._record_check(
             ids["replay?"], "exa-answer", minutes_ago=-5, answer_text="Late.", cited_urls=["https://late.example.net/x"]

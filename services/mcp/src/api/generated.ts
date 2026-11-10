@@ -425,6 +425,31 @@ export namespace Schemas {
       engine: string;
     }
 
+    export interface AEOPromptSetModeComparison {
+      /**
+         * Share (0-1) of the no-search answers that name the brand. Null without answers.
+         * @nullable
+         */
+      readonly no_search_mention_rate: number | null;
+      /**
+         * Share (0-1) of the web-search answers to the same prompts that name the brand or cite a target domain. Null without answers.
+         * @nullable
+         */
+      readonly web_search_mention_rate: number | null;
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+      /** Distinct prompts this engine answered without search in the window. */
+      prompts: number;
+      /** Answered no-search checks: answers from training data alone. */
+      no_search_answers: number;
+      /** Of those, how many name the brand. */
+      no_search_mentioned: number;
+      /** Answered web-search checks from this engine for the same prompts in the window. */
+      web_search_answers: number;
+      /** Of those, how many name the brand or cite a target domain. */
+      web_search_mentioned: number;
+    }
+
     export interface AEOPromptSetTopicCounts {
       /**
          * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
@@ -494,6 +519,8 @@ export namespace Schemas {
       top_domains: AEOPromptSetDomain[];
       /** The 20 web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project. */
       top_searches: AEOPromptSetSearch[];
+      /** Per engine, how often its answers name the brand without web search (training data alone) against with web search, over the same prompts in the current window, ordered by engine. Empty until no-search checks exist. Every other count in the overview covers web-search checks only. */
+      memory_vs_search: AEOPromptSetModeComparison[];
       /** Length of each window in days. */
       days: number;
       /** First day of the current window, in the project's timezone. */
