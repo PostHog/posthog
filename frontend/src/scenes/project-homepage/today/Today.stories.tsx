@@ -1108,6 +1108,8 @@ export const HomeOnNewProject: Story = {
                 '/api/environments/:team_id/': { ...MOCK_DEFAULT_TEAM, ingested_event: false },
                 '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
                 '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [], pulse: [], pulse_slots: [] },
+                '/api/environments/:team_id/file_system/': { results: [], count: 0 },
+                '/api/projects/:team_id/file_system/frequent/': [],
             },
         }),
         (Story) => {
@@ -1539,4 +1541,27 @@ export const HomeWithComposer: Story = {
             FEATURE_FLAGS.PHAI_SANDBOX_MODE,
         ],
     },
+}
+
+export const HomeWhenSetupIsDone: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
+                '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
+                '/api/users/@me/integrations/': {
+                    results: [
+                        {
+                            kind: 'github',
+                            installation_id: '1',
+                            repository_selection: 'all',
+                            account: { type: 'Organization', name: 'example' },
+                            github_login: 'example',
+                            uses_shared_installation: false,
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
 }

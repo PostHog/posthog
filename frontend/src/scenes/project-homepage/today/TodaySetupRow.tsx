@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronRight, IconRocket } from '@posthog/icons'
+import { IconChevronRight, IconHide, IconRocket } from '@posthog/icons'
 import {
     Button,
     Dialog,
@@ -12,6 +12,9 @@ import {
     DialogTitle,
     IconStack,
     IconStackItem,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
 } from '@posthog/quill'
 
 import { TodayGetStarted } from './TodayGetStarted'
@@ -48,6 +51,24 @@ export function TodaySetupRow(): JSX.Element {
                         </p>
                     </div>
                     <div className="TodayRow__end">
+                        <div className="TodayRow__actions">
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <Button
+                                            variant="link-muted"
+                                            size="icon-sm"
+                                            aria-label="Hide this guide"
+                                            onClick={hideGuide}
+                                            data-attr="today-get-started-row-hide"
+                                        />
+                                    }
+                                >
+                                    <IconHide className="size-3.5" />
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom">Hide this guide</TooltipContent>
+                            </Tooltip>
+                        </div>
                         <IconChevronRight className="TodayRow__arrow" aria-hidden />
                     </div>
                 </li>
@@ -57,19 +78,18 @@ export function TodaySetupRow(): JSX.Element {
                     <DialogHeader>
                         <DialogTitle>Set up PostHog</DialogTitle>
                         <DialogDescription>
-                            <span translate="no">{`${doneCount} of ${steps.length} done. `}</span>
-                            <span>Install PostHog, connect your code and bring in your team.</span>
+                            <span translate="no">{`${doneCount} of ${steps.length} steps done`}</span>
                         </DialogDescription>
                     </DialogHeader>
                     <DialogBody>
                         <TodayGetStarted />
                     </DialogBody>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={hideGuide} data-attr="today-get-started-hide">
+                    <DialogFooter className="sm:justify-between">
+                        <Button variant="link-muted" onClick={hideGuide} data-attr="today-get-started-hide">
                             Hide this guide
                         </Button>
-                        <Button variant="primary" onClick={closeGuide} data-attr="today-get-started-close">
-                            Done
+                        <Button variant="outline" onClick={closeGuide} data-attr="today-get-started-close">
+                            Close
                         </Button>
                     </DialogFooter>
                 </DialogContent>

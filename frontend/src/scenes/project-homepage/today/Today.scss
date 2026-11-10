@@ -338,12 +338,6 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
 }
 
-.TodayEmpty {
-    padding: 20px 16px;
-    border: 1px dashed var(--today-line);
-    border-radius: 8px;
-}
-
 .TodayPulseEmpty {
     display: flex;
     flex-direction: column;
@@ -436,9 +430,24 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--success-foreground);
 }
 
+.TodayGetStarted__installFooter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
+}
+
+.TodayGetStarted__waiting {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--muted-foreground);
+}
+
 .TodayGetStarted__manual {
-    align-self: flex-start;
-    margin-top: 2px;
     font-size: 12px;
 }
 
@@ -839,10 +848,6 @@ html[data-today-transition]::view-transition-new(root) {
     margin: 0 -12px;
     list-style: none;
 
-    &--explore {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
     @container main-content (max-width: 700px) {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -911,6 +916,10 @@ html[data-today-transition]::view-transition-new(root) {
         @container main-content (max-width: 480px) {
             flex-shrink: 0;
         }
+    }
+
+    .TodayJumpList--explore & {
+        white-space: normal;
     }
 }
 

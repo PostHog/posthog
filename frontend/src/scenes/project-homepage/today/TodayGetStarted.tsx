@@ -10,6 +10,7 @@ import {
     ItemGroup,
     ItemMedia,
     ItemTitle,
+    Spinner,
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -56,7 +57,7 @@ function StepAction({ step }: { step: TodayGetStartedStep }): JSX.Element | null
                     onClick={() => stepActed('install', 'manual')}
                     data-attr="today-get-started-install-manual"
                 >
-                    Or install it manually
+                    Install manually
                 </Button>
             )
         case 'github':
@@ -114,7 +115,13 @@ export function TodayGetStarted(): JSX.Element {
                         {!step.done && step.key === 'install' ? (
                             <>
                                 <TodayWizardCommand onCopy={() => stepActed('install', 'copy')} />
-                                <StepAction step={step} />
+                                <div className="TodayGetStarted__installFooter">
+                                    <span className="TodayGetStarted__waiting">
+                                        <Spinner className="size-3" />
+                                        <span>Waiting for your first event</span>
+                                    </span>
+                                    <StepAction step={step} />
+                                </div>
                             </>
                         ) : null}
                     </ItemContent>
