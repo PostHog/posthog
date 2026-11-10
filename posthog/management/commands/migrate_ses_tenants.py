@@ -9,6 +9,7 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from posthog.integrations import CrossTeamFilter, IntegrationManager
+from posthog.management.commands.flag_legacy_oauth_integrations import paged_rows
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +52,11 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
         print("Setting up SES tenants for domains:", domains)  # noqa: T201
     else:
         print("Setting up SES tenants for all SES email identities")  # noqa: T201
-    integrations = IntegrationManager.email.any.list_across_teams(
+    integrations = paged_rows(
+        IntegrationManager.email.any,
         CrossTeamFilter(
             team_ids=tuple(team_ids) if team_ids else None, where_in={"domain": tuple(domains)} if domains else {}
-        )
+        ),
     )
 
     # Collect unique (team_id, domain) pairs to avoid duplicate work per domain

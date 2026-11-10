@@ -1,16 +1,32 @@
+import dataclasses
+from collections.abc import Iterator
+
 from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
-from posthog.integrations import CrossTeamFilter, IntegrationManager
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationReader, IntegrationRecord
 from posthog.models.integration import CONFIG_LEGACY_OAUTH_CLIENT, issuing_oauth_client_ids
 
 logger = structlog.get_logger(__name__)
 
 # Kinds whose current client id we can name, so `aud` can be compared against it.
 CURRENT_CLIENT_ID_SETTING = {"bing-ads": "BING_ADS_CLIENT_ID"}
+
+PAGE_SIZE = 200
+
+
+def paged_rows(accessor: IntegrationReader, row_filter: CrossTeamFilter) -> Iterator[IntegrationRecord]:
+    """Read the rows in pages, so memory stays bounded however many rows match."""
+    after_id: int | None = None
+    while True:
+        page = accessor.list_across_teams(dataclasses.replace(row_filter, limit=PAGE_SIZE, after_id=after_id))
+        yield from page
+        if len(page) < PAGE_SIZE:
+            return
+        after_id = page[-1].id
 
 
 class Command(BaseCommand):
@@ -38,7 +54,7 @@ class Command(BaseCommand):
 
         counts = {"legacy": 0, "current": 0, "unknown": 0}
         accessor = getattr(IntegrationManager, kind.replace("-", "_")).oauth
-        for integration in accessor.list_across_teams(CrossTeamFilter()):
+        for integration in paged_rows(accessor, CrossTeamFilter()):
             client_ids = issuing_oauth_client_ids(integration)
             if not client_ids:
                 # No id_token to read, so the refresh path stays the only signal for this row.
