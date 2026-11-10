@@ -5,7 +5,7 @@ import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
 import {
-    MAX_WAITING_ACQUIRES_WITH_DEADLINE,
+    MAX_ABANDONED_ACQUIRES,
     RedisClient,
     RedisClientPipeline,
     RedisV2,
@@ -319,9 +319,7 @@ describe('claimSandboxCaps', () => {
         it('refuses at once while abandoned claims still wait for a connection, and claims again once storage answers', async () => {
             store.stopAnswering()
             const abandoned = await Promise.all(
-                Array.from({ length: MAX_WAITING_ACQUIRES_WITH_DEADLINE }, () =>
-                    claimSandboxCaps(stalling, caps, sameSend())
-                )
+                Array.from({ length: MAX_ABANDONED_ACQUIRES }, () => claimSandboxCaps(stalling, caps, sameSend()))
             )
             expect(abandoned).toEqual(abandoned.map(() => unavailable))
 
@@ -334,6 +332,16 @@ describe('claimSandboxCaps', () => {
                 async () => expect(await claimSandboxCaps(stalling, caps, sameSend())).toMatchObject({ ok: true }),
                 30_000
             )
+        })
+
+        it('claims a burst of more sends than that limit on one connection while storage answers', async () => {
+            const roomy = { team: 100, recipient: 100 }
+
+            const burst = await Promise.all(
+                Array.from({ length: 3 * MAX_ABANDONED_ACQUIRES }, () => claimSandboxCaps(stalling, roomy, sameSend()))
+            )
+
+            expect(burst).toEqual(burst.map(() => expect.objectContaining({ ok: true })))
         })
     })
 

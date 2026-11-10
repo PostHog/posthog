@@ -6,9 +6,9 @@ import { logger } from '~/common/utils/logger'
 import { SandboxTenantMirror } from './sandbox-tenant-admission'
 
 export const AUTHORIZATION_TIMEOUT_MS = 2_000
-export const MAX_WAITING_AUTHORIZATION_CONNECTIONS = 8
+export const MAX_ABANDONED_AUTHORIZATION_CONNECTIONS = 8
 
-const waitingConnections = new WeakMap<PostgresRouter, number>()
+const abandonedConnections = new WeakMap<PostgresRouter, number>()
 
 export type SandboxAuthorization =
     | {
@@ -173,7 +173,7 @@ async function queryBeforeDeadline<Row extends QueryResultRow>(
         }, timeoutMs)
     })
     try {
-        const client = await Promise.race([connectUnlessQueueFull(db, use, () => expired), deadline])
+        const client = await connectUnlessStalled(db, use, deadline, () => expired)
         let failure: Error | undefined
         const onClientError = (error: Error): void => {
             failure = error
@@ -203,25 +203,27 @@ async function queryBeforeDeadline<Row extends QueryResultRow>(
     }
 }
 
-async function connectUnlessQueueFull(
+async function connectUnlessStalled(
     db: PostgresRouter,
     use: PostgresUse,
-    isAbandoned: () => boolean
+    deadline: Promise<never>,
+    expired: () => boolean
 ): Promise<PoolClient> {
-    const waiting = waitingConnections.get(db) ?? 0
-    if (waiting >= MAX_WAITING_AUTHORIZATION_CONNECTIONS) {
-        throw new Error(`${waiting} sandbox email reads are already waiting for a connection`)
+    const abandoned = abandonedConnections.get(db) ?? 0
+    if (abandoned >= MAX_ABANDONED_AUTHORIZATION_CONNECTIONS) {
+        throw new Error(`${abandoned} sandbox email reads gave up on a connection that has not arrived`)
     }
-    waitingConnections.set(db, waiting + 1)
     const connecting = db.connect(use)
-    const stopWaiting = (): void => {
-        waitingConnections.set(db, (waitingConnections.get(db) ?? 1) - 1)
-    }
-    void connecting.then((client) => {
-        stopWaiting()
-        if (isAbandoned()) {
-            client.release()
+    try {
+        return await Promise.race([connecting, deadline])
+    } catch (error) {
+        if (expired()) {
+            abandonedConnections.set(db, (abandonedConnections.get(db) ?? 0) + 1)
+            void connecting
+                .then((client) => client.release())
+                .catch(() => undefined)
+                .finally(() => abandonedConnections.set(db, (abandonedConnections.get(db) ?? 1) - 1))
         }
-    }, stopWaiting)
-    return await connecting
+        throw error
+    }
 }

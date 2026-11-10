@@ -11,7 +11,7 @@ import {
 } from '~/tests/helpers/sql'
 import { Team } from '~/types'
 
-import { MAX_WAITING_AUTHORIZATION_CONNECTIONS, readSandboxAuthorization } from './sandbox-authorization'
+import { MAX_ABANDONED_AUTHORIZATION_CONNECTIONS, readSandboxAuthorization } from './sandbox-authorization'
 
 const SANDBOX_SENDER_TABLES = `
     CREATE TABLE workflows_sandboxsendertenantstate (
@@ -213,19 +213,16 @@ describe('readSandboxAuthorization', () => {
             await onePoolRouter.end()
         })
 
-        it('refuses at once while enough reads wait for a connection, also after they time out, until the pool frees one', async () => {
+        it('refuses at once after enough reads gave up waiting for a connection, until the pool frees one', async () => {
             await createMember(memberEmail, organizationId, true)
             const busy = await onePoolRouter.connect(PostgresUse.COMMON_WRITE)
             const queued = (): Promise<string> => new Promise((resolve) => setTimeout(resolve, 100, 'queued'))
             try {
-                const waiting = Array.from({ length: MAX_WAITING_AUTHORIZATION_CONNECTIONS }, () =>
-                    readThrough(onePoolRouter)
+                const gaveUp = await Promise.all(
+                    Array.from({ length: MAX_ABANDONED_AUTHORIZATION_CONNECTIONS }, () => readThrough(onePoolRouter))
                 )
+                expect(gaveUp).toEqual(gaveUp.map(() => unavailable))
 
-                expect(
-                    await Promise.race([readThrough(onePoolRouter), waiting[0].then(() => 'a waiting read')])
-                ).toEqual(unavailable)
-                expect(await Promise.all(waiting)).toEqual(waiting.map(() => unavailable))
                 expect(await Promise.race([readThrough(onePoolRouter), queued()])).toEqual(unavailable)
             } finally {
                 busy.release()
@@ -233,6 +230,23 @@ describe('readSandboxAuthorization', () => {
             ;(await onePoolRouter.connect(PostgresUse.COMMON_WRITE)).release()
 
             expect(await readThrough(onePoolRouter)).toMatchObject({ ok: true, storedAddress: memberEmail })
+        })
+
+        it('serves a burst of more reads than that limit while the pool keeps answering', async () => {
+            await createMember(memberEmail, organizationId, true)
+
+            const burst = await Promise.all(
+                Array.from({ length: 3 * MAX_ABANDONED_AUTHORIZATION_CONNECTIONS }, () =>
+                    readSandboxAuthorization(onePoolRouter, {
+                        teamId: team.id,
+                        recipient: memberEmail,
+                        tenantName,
+                        timeoutMs: 10_000,
+                    })
+                )
+            )
+
+            expect(burst).toEqual(burst.map(() => expect.objectContaining({ ok: true, storedAddress: memberEmail })))
         })
 
         it('hands a connection that arrives after the deadline back to the pool', async () => {

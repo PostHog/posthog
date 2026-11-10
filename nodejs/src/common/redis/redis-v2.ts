@@ -39,11 +39,12 @@ export type RedisV2 = {
 // A non-fatal client can fail to connect at once, for example on a wrong password. generic-pool retries a
 // failed create immediately while a caller waits, so without this pause the pool reconnects in a tight loop.
 const NON_FATAL_CREATE_RETRY_DELAY_MS = 1000
-export const MAX_WAITING_ACQUIRES_WITH_DEADLINE = 8
+export const MAX_ABANDONED_ACQUIRES = 8
 
 export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 => {
     const nonFatal = config.connection.exitOnRepeatedErrors === false
     let lastCreateFailureAt = 0
+    let abandonedAcquires = 0
     const pool = createPool<RedisClient>(
         {
             create: async () => {
@@ -85,12 +86,18 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
         const deadlineAt = options.deadlineMs === undefined ? undefined : Date.now() + options.deadlineMs
         let client: RedisClient
         try {
-            if (deadlineAt !== undefined && pool.pending >= MAX_WAITING_ACQUIRES_WITH_DEADLINE) {
-                throw new Error(`Redis call ${options.name} found ${pool.pending} callers already waiting for a client`)
+            if (deadlineAt !== undefined && abandonedAcquires >= MAX_ABANDONED_ACQUIRES) {
+                throw new Error(
+                    `Redis call ${options.name} found ${abandonedAcquires} callers that gave up on a client`
+                )
             }
             const acquiring = pool.acquire()
             client = await beforeDeadline(acquiring, deadlineAt, options.name, () => {
-                acquiring.then((lateClient) => pool.release(lateClient)).catch(() => undefined)
+                abandonedAcquires++
+                acquiring
+                    .then((lateClient) => pool.release(lateClient))
+                    .catch(() => undefined)
+                    .finally(() => abandonedAcquires--)
             })
         } catch (error) {
             // A pool with acquireTimeoutMillis rejects here, and the guard must not report a delay afterwards.
