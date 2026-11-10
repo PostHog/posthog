@@ -1,9 +1,13 @@
+import io
 import os
 import sys
 import json
 import stat
 import hashlib
 import subprocess
+import http.client
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -353,11 +357,36 @@ def test_comparable_keeps_scalars_that_pnpm_reads_differently_apart(one: bytes, 
     assert (prover.comparable(one) == prover.comparable(other)) is same
 
 
-def test_comparable_refuses_a_repeated_key_and_an_alias() -> None:
-    with pytest.raises(Refused, match="repeats a key"):
-        prover.comparable(b"a: 1\na: 2\n")
-    with pytest.raises(Refused, match="alias"):
-        prover.comparable(b"a: &x 1\nb: *x\n")
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        (b"a: 1\na: 2\n", "repeats a key"),
+        (b"a: &x 1\nb: *x\n", "an alias or an explicit tag"),
+        (b"hasBin: !!int true\n", "an alias or an explicit tag"),
+        (b"a: !!map {}\n", "an alias or an explicit tag"),
+    ],
+)
+def test_comparable_refuses_yaml_that_pnpm_never_writes(text: bytes, reason: str) -> None:
+    with pytest.raises(Refused, match=reason):
+        prover.comparable(text)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [ConnectionResetError("reset"), http.client.IncompleteRead(b"{"), urllib.error.URLError("unreachable")],
+)
+def test_fetch_retries_a_transport_failure(monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
+    class Response(io.BytesIO):
+        def read(self, *_: object) -> bytes:
+            if failures:
+                raise failures.pop()
+            return b"{}"
+
+    failures = [error]
+    monkeypatch.setattr(prover.OPENER, "open", lambda request, timeout: Response())
+    monkeypatch.setattr(prover.time, "sleep", lambda seconds: None)
+
+    assert prover.fetch(urllib.request.Request("https://registry.npmjs.org/left-pad")) == b"{}"
 
 
 def test_frozen_workspace_settings_drop_the_repository_exclusions() -> None:

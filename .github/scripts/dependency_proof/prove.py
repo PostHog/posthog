@@ -9,6 +9,7 @@ import json
 import time
 import secrets
 import subprocess
+import http.client
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -181,7 +182,8 @@ def fetch(request: urllib.request.Request, attempts: int = 3) -> bytes:
             # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- the scheme is checked above, and both callers build the URL from a constant https origin
             with OPENER.open(request, timeout=60) as response:
                 return response.read()
-        except (urllib.error.URLError, TimeoutError) as error:
+        # OSError covers a refused or reset connection and a timeout, and HTTPException a body cut short.
+        except (OSError, http.client.HTTPException) as error:
             if attempt == attempts - 1 or (isinstance(error, urllib.error.HTTPError) and error.code < 500):
                 raise
             time.sleep(2**attempt)
@@ -438,10 +440,11 @@ def load_workspace(git: Git, ref: str, directory: str) -> dict[str, Any]:
 
 
 def load_yaml(text: bytes) -> dict[str, Any]:
-    # pnpm never writes an alias, and one would let two texts build one structure. The C parser
-    # skips a Python compose hook, so the event stream is read for it.
-    if any(isinstance(event, yaml.AliasEvent) for event in yaml.parse(text, Loader=StrictLoader)):
-        raise Refused("a YAML file uses an alias")
+    # pnpm never writes an alias or an explicit tag, and either would let two texts build one
+    # structure. The C parser skips a Python compose hook, so the event stream is read for them.
+    for event in yaml.parse(text, Loader=StrictLoader):
+        if isinstance(event, yaml.AliasEvent) or getattr(event, "tag", None) is not None:
+            raise Refused("a YAML file uses an alias or an explicit tag")
     loaded = yaml.load(text, Loader=StrictLoader) or {}
     if not isinstance(loaded, dict):
         raise Refused("a settings file is not a mapping")
