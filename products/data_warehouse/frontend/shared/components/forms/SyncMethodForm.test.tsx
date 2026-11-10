@@ -77,6 +77,42 @@ describe('SyncMethodForm', () => {
         expect(getInitialRadioState({ ...baseSchema, xmin_available: false }, true, true, keyResolvable)).toBe(expected)
     })
 
+    describe('shared settings of the keyed methods', () => {
+        afterEach(cleanup)
+
+        it.each([
+            ['cdc', true, true],
+            ['xmin', true, false],
+            ['incremental', true, false],
+            ['append', false, false],
+            ['full_refresh', false, false],
+        ] as const)('%s shows the primary key: %s, output tables: %s', (syncType, showsKey, showsOutputTables) => {
+            render(
+                <SyncMethodForm
+                    schema={{
+                        ...baseSchema,
+                        sync_type: syncType,
+                        cdc_available: true,
+                        incremental_available: true,
+                        append_available: true,
+                        incremental_field: 'updated_at',
+                        incremental_fields: [
+                            { field: 'updated_at', field_type: 'datetime', label: 'updated_at', type: 'datetime' },
+                        ],
+                    }}
+                    availableColumns={[{ field: 'id', label: 'id', type: 'integer', nullable: false }]}
+                    detectedPrimaryKeys={['id']}
+                    primaryKeyDetectionSupported
+                    onClose={() => {}}
+                    onSave={() => {}}
+                />
+            )
+
+            expect(screen.queryByText('Primary key') !== null).toBe(showsKey)
+            expect(screen.queryByText('Output tables') !== null).toBe(showsOutputTables)
+        })
+    })
+
     describe('output tables of an incremental table', () => {
         afterEach(cleanup)
 
