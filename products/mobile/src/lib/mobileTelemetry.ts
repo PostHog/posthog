@@ -188,13 +188,8 @@ export async function instrumentApiRequest(
         if (!isCancelled(error) || isDeadlineTimeout(signal)) {
             recordSafely(() => {
                 const durationMs = Date.now() - startedAt
-                const candidateErrorType = isDeadlineTimeout(signal)
-                    ? signal?.reason instanceof Error
-                        ? signal.reason.name
-                        : ''
-                    : error instanceof Error
-                      ? error.name
-                      : ''
+                const failure: unknown = isDeadlineTimeout(signal) ? signal?.reason : error
+                const candidateErrorType = failure instanceof Error ? failure.name : ''
                 const errorType = /^[A-Za-z][A-Za-z0-9]{0,39}$/.test(candidateErrorType)
                     ? candidateErrorType
                     : 'NetworkError'
