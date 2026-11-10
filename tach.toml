@@ -1151,6 +1151,7 @@ layer = "modules"
 path = "products.tracing"
 depends_on = [
     "posthog", "products.access_control",
+    "products.alerts_platform",
     "products.logs",
 ]
 layer = "modules"

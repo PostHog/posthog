@@ -38,7 +38,13 @@ from posthog.models.user import User
 from posthog.query_cache.single_flight import skip_query_single_flight
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
-from posthog.tasks.alerts.utils import AlertEvaluationResult, render_alert_insight_chart, skip_because_of_weekend
+from posthog.tasks.alerts.utils import (
+    CHART_RENDER_TIMEOUT,
+    AlertEvaluationResult,
+    InsightChartRenderFailed,
+    render_alert_insight_chart_or_raise,
+    skip_because_of_weekend,
+)
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 
@@ -157,6 +163,10 @@ _QUERY_LIMIT = RateLimit(
 
 class ChartRenderPoolFull(Exception):
     """Every chart render slot is taken. The activity retries later, holding no worker slot meanwhile."""
+
+
+class ChartRenderTimedOut(Exception):
+    """The export ran out of time, so the firing goes out without its chart."""
 
 
 # How many threads of the shared AI pool the parallel run may hold, so a stalled platform check
@@ -1139,10 +1149,12 @@ def _wants_chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> b
 
 
 def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> RenderedChart | None:
-    """Render the chart a firing of this alert sends, or None when none applies or the render fails.
+    """Render the chart a firing of this alert sends, or None when none applies.
 
     The evaluation workflow calls this after the check, so the render never holds the check's slot.
-    Raises `ChartRenderPoolFull` when the render pool has no room.
+    Raises `ChartRenderPoolFull` when the render pool has no room, `ChartRenderTimedOut` when the
+    export used its whole time limit and returned nothing, and `InsightChartRenderFailed` when the
+    render fails otherwise.
     """
     if not admit_evaluation_slots(
         [alert_id],
@@ -1155,7 +1167,14 @@ def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> Re
         alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
         if alert is None:
             return None
-        chart = render_alert_insight_chart(alert)
+        started = time.monotonic()
+        try:
+            chart = render_alert_insight_chart_or_raise(alert)
+        except InsightChartRenderFailed as error:
+            # A timed-out export fails like any other, so only its duration tells the two apart.
+            if time.monotonic() - started >= CHART_RENDER_TIMEOUT.total_seconds():
+                raise ChartRenderTimedOut() from error
+            raise
         return (
             RenderedChart(asset_id=chart.asset_id, render_user_id=chart.render_user_id) if chart is not None else None
         )

@@ -521,10 +521,14 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         enabled: bool,
         existing: AlertConfiguration,
     ) -> str | None:
-        """The real-time limit an update would break, or None. Call it inside the update's transaction,
-        after the AI detector's admission, so the lock order matches `create_limit_error`'s. An update
-        that adds an active real-time alert holds the team's insight alert lock until the transaction
-        ends, so two updates cannot both pass the count. Any other update takes no lock."""
+        """The real-time limit an update would break, or None. `existing` is the alert as it was before
+        the update.
+
+        Call it inside the update's transaction, after the update has written the alert and its platform
+        copy: the platform takes a copy's row lock before this lock, so taking this one first could
+        deadlock with it. An update that adds an active real-time alert holds the team's insight alert
+        lock until the transaction ends, so two updates cannot both pass the count. Any other update
+        takes no lock."""
         if not cls._adds_active_real_time(
             calculation_interval=calculation_interval, enabled=enabled, existing=existing
         ):

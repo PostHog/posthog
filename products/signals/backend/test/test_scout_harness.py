@@ -89,6 +89,7 @@ from products.signals.backend.scout_harness.runner import (
     _background_backoff_props,
     _create_run_row,
     _failure_streak_runs_in_window,
+    _inbox_reports_search_available,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -599,6 +600,59 @@ class TestActivitySummarySearchAvailability(SimpleTestCase):
         ):
             assert _activity_summary_search_available(MagicMock(), None) is False
         capture.assert_called_once()
+
+
+class TestInboxReportsSearchRecipe(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("signal_channel_on", [], True, False, True),
+            ("signal_channel_off", [], False, False, False),
+            ("report_both_on", ["emit_report", "edit_report"], True, False, True),
+            ("report_both_off", ["emit_report", "edit_report"], False, False, False),
+            ("report_edit_only_on", ["edit_report"], True, False, True),
+            ("private_trial_keeps_the_list", ["emit_report", "edit_report"], True, True, False),
+        ]
+    )
+    def test_inbox_searches_use_the_search_tool_only_when_available(
+        self, _name: str, allowed_tools: list[str], available: bool, private_trial: bool, uses_search: bool
+    ) -> None:
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-inbox-search",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=allowed_tools,
+                files=[],
+                skill_id="skill-1",
+                origin="custom",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            inbox_reports_search_available=available,
+            is_private_trial=private_trial,
+        )
+
+        assert ("Call `inbox-reports-search`" in prompt) is uses_search
+        assert ("Call `inbox-reports-list`" in prompt) is not uses_search
+        # Both recipes keep reports out of the shared inbox in scope, or a scout re-files its own unlisted reports.
+        assert "include_unlisted=true" in prompt
+
+    @parameterized.expand(
+        [
+            ("unnarrowed", None, True, True),
+            ("allowlist_holds_tool", ["inbox-reports-search"], True, True),
+            ("allowlist_omits_tool", ["inbox-reports-list"], True, False),
+            ("search_flag_off", None, False, False),
+        ]
+    )
+    def test_availability_resolves_from_the_flag_and_the_run_allowlist(
+        self, _name: str, allowlist: list[str] | None, flag_on: bool, expected: bool
+    ) -> None:
+        with patch("products.signals.backend.scout_harness.runner.report_search_enabled", return_value=flag_on):
+            assert _inbox_reports_search_available(MagicMock(), allowlist) is expected
 
 
 class TestCheckoutSection(SimpleTestCase):

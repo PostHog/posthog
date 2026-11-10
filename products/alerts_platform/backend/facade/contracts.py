@@ -34,6 +34,7 @@ class SourceKind(StrEnum):
     WAREHOUSE_SOURCE = "warehouse_source"
     WAREHOUSE_DESTINATION = "warehouse_destination"
     METRICS = "metrics"
+    TRACES = "traces"
 
 
 @frozen
@@ -1473,6 +1474,28 @@ class MessageLink:
 class MessageImage:
     url: str
     alt_text: str
+
+
+# Marks the block where a source's image goes, so an image that renders after the message lands replaces it.
+SLACK_IMAGE_SLOT_BLOCK_ID: Final = "alert_image"
+
+
+@frozen
+class LateImageResult:
+    """What adding a late image to an evaluation's Slack messages did.
+
+    `waiting` counts the Slack destinations with no message for the evaluation yet, because its
+    delivery has not sent it, or because the destination is not delivered natively.
+    """
+
+    edited: int
+    waiting: int
+
+    def __add__(self, other: LateImageResult) -> LateImageResult:
+        return LateImageResult(edited=self.edited + other.edited, waiting=self.waiting + other.waiting)
+
+
+NO_LATE_IMAGE: Final = LateImageResult(edited=0, waiting=0)
 
 
 @frozen
