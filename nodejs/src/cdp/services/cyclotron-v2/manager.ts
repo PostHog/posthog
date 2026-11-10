@@ -833,10 +833,11 @@ export class CyclotronV2Manager {
     }
 
     private isFullFromLastDepth(): Promise<boolean> | boolean {
-        if (this.lastDepthFull === null) {
+        const now = Date.now()
+        if (this.lastDepthFull === null || now >= this.depthCheckExpiresAt + this.depthCheckIntervalMs) {
             return this.refreshDepth()
         }
-        if (Date.now() >= this.depthCheckExpiresAt) {
+        if (now >= this.depthCheckExpiresAt) {
             void this.refreshDepth()
         }
         return this.lastDepthFull

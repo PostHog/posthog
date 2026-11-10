@@ -767,7 +767,7 @@ describe('Cyclotron V2', () => {
                 })
             })
 
-            it('with the background depth check, refuses an enqueue once a refresh finds the queue full', async () => {
+            it('with the background depth check, refuses an enqueue once a refresh finds the queue full, and recounts after an idle spell', async () => {
                 await withHeldDepthQueries(
                     { backgroundDepthCheck: true, depthLimit: 2 },
                     async (m, depth, expireInterval) => {
@@ -778,6 +778,17 @@ describe('Cyclotron V2', () => {
 
                         await expect(m.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
                         expect(await storedJobs()).toBe(2)
+
+                        await assertPool.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1', [QUEUE])
+                        expireInterval()
+                        expireInterval()
+                        const afterIdle = m.createJob({ teamId: 1, queueName: QUEUE })
+                        await depth.entered()
+                        expect(await stillPendingAfter(afterIdle, 200)).toBe(true)
+
+                        await depth.release()
+                        await afterIdle
+                        expect(await storedJobs()).toBe(1)
                     }
                 )
             })
@@ -820,7 +831,7 @@ describe('Cyclotron V2', () => {
                 await sleep(intervalMs + 50)
                 await expect(m.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
 
-                await sleep(intervalMs * 2)
+                await sleep(intervalMs * 1.5)
                 const afterStall = m.createJob({ teamId: 1, queueName: QUEUE })
                 expect(await stillPendingAfter(afterStall, 200)).toBe(true)
 
