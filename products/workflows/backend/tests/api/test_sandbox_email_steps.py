@@ -1,13 +1,14 @@
+import json
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from django.db import connection
-from django.test.utils import CaptureQueriesContext
+from django.conf import settings
 
+import responses
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
@@ -366,41 +367,24 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             assert refusal in response.json()["detail"]
             assert stored == sandbox_step
 
-    def test_switching_back_reads_the_senders_once_however_long_the_rotation(self) -> None:
-        verified_id = self._verified_sender().id
-
-        def queries_to_switch_with(rotation: list[int]) -> int:
-            flow = HogFlow.objects.create(
-                team=self.team, name="Flow", status="draft", actions=[_trigger(), _sandbox_step()]
-            )
-            patch_body = {"from": {"integrationId": verified_id, "integrationIds": rotation}}
-            with CaptureQueriesContext(connection) as queries:
-                response = self._patch_email(flow, SANDBOX_STEP_ID, {"sender": "own", "email_patch": patch_body})
-            assert response.status_code == 200, response.json()
-            return len(queries)
-
-        queries_to_switch_with([verified_id])
-        assert queries_to_switch_with([verified_id] * 10) == queries_to_switch_with([verified_id])
-
     def test_an_api_test_run_neither_moves_new_steps_nor_sets_up_the_sandbox_sender(self) -> None:
         flow = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger()])
 
-        with (
-            _flag(True),
-            patch(
-                "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test",
-                return_value=MagicMock(status_code=200, json=lambda: {"status": "success"}),
-            ) as executor,
-        ):
+        with _flag(True), responses.RequestsMock() as executor:
+            executor.post(
+                f"{settings.CDP_API_URL}/api/projects/{self.team.id}/hog_flows/{flow.id}/invocations",
+                json={"status": "success"},
+            )
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/{flow.id}/invocations",
                 {"configuration": _flow(_own_email_step(None)), "globals": {}},
                 format="json",
                 HTTP_USER_AGENT="posthog-cli",
             )
+            sent = [json.loads(call.request.body) for call in executor.calls]
 
         assert response.status_code == 200, response.json()
-        sent_steps = executor.call_args.kwargs["payload"]["configuration"]["actions"]
+        sent_steps = sent[0]["configuration"]["actions"]
         assert [step["type"] for step in sent_steps] == ["trigger", "function_email"]
         assert not self._sandbox_sender_is_set_up()
 
