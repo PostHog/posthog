@@ -62,7 +62,7 @@
     "adm-zip": "^0.6.1",
     "electron": "^42.11.16",
     "electron-builder": "^26.15.3",
-    "electron-vite": "^6.0.0",
+    "electron-vite": "^4.0.1",
     "jest-image-snapshot": "^6.5.2",
     "jimp": "^1.6.1",
     "jsdom": "^26.0.0",
