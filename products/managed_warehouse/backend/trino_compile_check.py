@@ -18,13 +18,14 @@ from pydantic import ValidationError
 from posthog.schema import HogQLQuery
 
 from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.escape_sql import escape_trino_string
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.managed_warehouse.backend.trino_compiler import TrinoTargetUnavailable
+from products.managed_warehouse.backend.trino_compiler import TrinoTarget, TrinoTargetUnavailable, resolve_trino_target
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 from products.managed_warehouse.backend.trino_materialization import compile_trino_shadow_query
 
@@ -83,6 +84,8 @@ def check_trino_compile(
     Yields one row per saved query as soon as it is checked, so a caller can keep partial results.
     """
     saved_queries = _load_saved_queries(team.pk, saved_query_ids, limit, skip_ids)
+    # Raised before any row is yielded, so a missing or flaky target never lands in a resume file as a model failure.
+    target = resolve_trino_target(team) if saved_queries else None
     connection_context = (
         connect_managed_warehouse_trino(
             str(team.organization_id), principal=f"posthog:trino-compile-check:team:{team.pk}"
@@ -92,7 +95,7 @@ def check_trino_compile(
     )
     with connection_context as connection:
         for saved_query in saved_queries:
-            yield _check(team, saved_query, connection)
+            yield _check(team, saved_query, target, connection)
 
 
 def _load_saved_queries(
@@ -109,14 +112,19 @@ def _load_saved_queries(
     return list(queryset[:limit] if limit is not None else queryset)
 
 
-def _check(team: Team, saved_query: DataWarehouseSavedQuery, connection: Connection | None) -> TrinoCompileCheckRow:
+def _check(
+    team: Team,
+    saved_query: DataWarehouseSavedQuery,
+    target: TrinoTarget | None,
+    connection: Connection | None,
+) -> TrinoCompileCheckRow:
     from trino.exceptions import TrinoQueryError  # noqa: PLC0415 -- keeps the optional driver off startup paths
 
     saved_query_id, name = str(saved_query.id), saved_query.name
     # Endpoint models are rebuilt from their endpoint version before each build. That rebuild writes,
     # so the check reads the stored query, which is the last rebuild.
     try:
-        compiled = compile_trino_shadow_query(team, HogQLQuery.model_validate(saved_query.query))
+        compiled = compile_trino_shadow_query(team, HogQLQuery.model_validate(saved_query.query), target=target)
     except _COMPILE_ERRORS as error:
         code = error.feature_code if isinstance(error, TrinoLoweringError) else type(error).__name__
         return _failed(saved_query_id, name, TrinoCompileCheckStage.COMPILE, code, error)
@@ -126,14 +134,35 @@ def _check(team: Team, saved_query: DataWarehouseSavedQuery, connection: Connect
     sql, parameters = convert_pyformat_placeholders(compiled.sql, compiled.values)
     cursor = connection.cursor()
     try:
-        cursor.execute(f"EXPLAIN {sql}", parameters or None)
+        cursor.execute(_explain_statement(sql, parameters))
         cursor.fetchall()
     except TrinoQueryError as error:
         code = error.error_name or type(error).__name__
         return _failed(saved_query_id, name, TrinoCompileCheckStage.EXPLAIN, code, error)
+    except BaseHogQLError as error:
+        # escape_trino_string refuses a NUL, which the printer binds instead of inlining.
+        return _failed(saved_query_id, name, TrinoCompileCheckStage.EXPLAIN, type(error).__name__, error)
     finally:
         cursor.close()
     return TrinoCompileCheckRow(saved_query_id=saved_query_id, name=name, stage=TrinoCompileCheckStage.EXPLAIN)
+
+
+def _explain_statement(sql: str, parameters: list[object]) -> str:
+    if not parameters:
+        return f"EXPLAIN {sql}"
+    # Trino plans the statement inside EXPLAIN without the values bound to the outer statement, so a
+    # parameterized EXPLAIN fails with "Incorrect number of parameters". EXPLAIN EXECUTE IMMEDIATE binds the
+    # values to the planned statement.
+    values = ", ".join(_explain_literal(value) for value in parameters)
+    return f"EXPLAIN EXECUTE IMMEDIATE {escape_trino_string(sql)} USING {values}"
+
+
+def _explain_literal(value: object) -> str:
+    # The Trino printer binds only strings. Any other type means the printer changed, and its literal form
+    # must be decided here rather than guessed.
+    if not isinstance(value, str):
+        raise TypeError(f"Trino compile check cannot bind a {type(value).__name__} value to EXPLAIN")
+    return escape_trino_string(value)
 
 
 def _failed(

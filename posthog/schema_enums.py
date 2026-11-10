@@ -1554,6 +1554,7 @@ class ExperimentMetricType(StrEnum):
     MEAN = "mean"
     RATIO = "ratio"
     RETENTION = "retention"
+    QUANTILE = "quantile"
 
 
 class PrecomputationMode(StrEnum):
@@ -2077,6 +2078,25 @@ class LogsSparklineRankBy(StrEnum):
     BYTES = "bytes"
 
 
+class MCPDashboardSection(StrEnum):
+    KPIS = "kpis"
+    PERIOD_TOTALS = "periodTotals"
+    TOOL_ROWS = "toolRows"
+    SESSION_ROWS = "sessionRows"
+    HARNESS_ROWS = "harnessRows"
+    MODEL_ROWS = "modelRows"
+    PROTOCOL_VERSION_ROWS = "protocolVersionRows"
+    ACTIVITY_ROWS = "activityRows"
+    TOOL_DAILY_ROWS = "toolDailyRows"
+    MODEL = "model"
+    PROTOCOL_VERSION = "protocolVersion"
+    TOOL = "tool"
+    ERROR_TYPE = "errorType"
+    LAB_USERS = "labUsers"
+    NAMED_MODEL_USERS = "namedModelUsers"
+    RELIABILITY = "reliability"
+
+
 class NeighborDirection(StrEnum):
     BEFORE = "before"
     AFTER = "after"
@@ -2171,6 +2191,12 @@ class MarketingAnalyticsOrderByEnum(StrEnum):
     DESC = "DESC"
 
 
+class MarketingAnalyticsRecommendationCpaBenchmarkSource(StrEnum):
+    TARGET_CPA = "target_cpa"
+    CAMPAIGN = "campaign"
+    ACCOUNT = "account"
+
+
 class MarketingAnalyticsRecommendationImpactDirection(StrEnum):
     SAVE = "save"
     GAIN = "gain"
@@ -2184,6 +2210,7 @@ class MarketingAnalyticsRecommendationImpactType(StrEnum):
 
 
 class MarketingAnalyticsRecommendationLevel(StrEnum):
+    ACCOUNT = "account"
     CAMPAIGN = "campaign"
     SEARCH_TERM = "search_term"
 
@@ -2199,6 +2226,12 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
     KEYWORD_GAP = "keyword_gap"
     SPEND_WITHOUT_CONVERSIONS = "spend_without_conversions"
     STRIKING_DISTANCE = "striking_distance"
+    KEYWORD_TRACKING = "keyword_tracking"
+
+
+class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
+    CONVERSION_ACTION_TABLES_NOT_SYNCED = "conversion_action_tables_not_synced"
+    PERFORMANCE_MAX_SEARCH_TERMS_COUNT_PRIMARY_CONVERSIONS = "performance_max_search_terms_count_primary_conversions"
 
 
 class MarketingAnalyticsRecommendationsSourceType(StrEnum):
@@ -2558,6 +2591,7 @@ class NodeKind(StrEnum):
     MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
+    MCP_DASHBOARD_QUERY = "MCPDashboardQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
@@ -2669,6 +2703,7 @@ class ProductIntentContext(StrEnum):
     METRICS_DOCS_VIEWED = "metrics_docs_viewed"
     METRICS_VIEWER_QUERY_RUN = "metrics_viewer_query_run"
     METRICS_SQL_QUERY_RUN = "metrics_sql_query_run"
+    METRICS_DERIVED_QUERY_RUN = "metrics_derived_query_run"
     METRICS_QUERY_SAVED = "metrics_query_saved"
     METRICS_FIRST_INGESTED = "metrics_first_ingested"
     METRICS_SCRAPE_AGENT_SNIPPET_COPIED = "metrics_scrape_agent_snippet_copied"

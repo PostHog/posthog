@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 84 enabled ops
+ * PostHog API - MCP 85 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -300,6 +300,18 @@ export const SignalsConfigCreateBody = () => zod.object({
         .describe(
             "Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply."
         ),
+    default_slack_notification_min_priority: zod
+        .union([
+            zod
+                .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+                .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Minimum report priority for the project's team Slack channel. P0 is highest. Null includes all reports, including reports without a priority. A set threshold excludes reports without a priority. Personal notification settings are separate.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4"
+        ),
     default_slack_notification_integration: zod
         .number()
         .nullish()
@@ -537,7 +549,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of your stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. It only reads the stored ranking and never starts a build. With no stored personal ranking, it is the recommended order."
+            "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order."
         ),
     source_id: zod
         .string()
@@ -1894,6 +1906,65 @@ export const SignalsReportsRankingOutcomesListParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Rank the project's inbox reports by how well they match a query, best match first. A hybrid search merges keyword matches on the title and summary with semantic matches on the report's meaning. Reports older than 3 months can match on keywords only. Returns at most 25 results, with no total count and no pages: rephrase the query for different results.
+ * @summary Search inbox reports
+ */
+export const SignalsReportsSearchParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsSearchQueryIncludeUnlistedDefault = false
+export const signalsReportsSearchQueryLimitDefault = 10
+export const signalsReportsSearchQueryLimitMax = 25
+
+export const signalsReportsSearchQueryQueryMax = 1000
+
+export const signalsReportsSearchQuerySearchModeDefault = `hybrid`
+
+export const SignalsReportsSearchQueryParams = () => zod.object({
+    created_after: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('ISO 8601 datetime. Keeps reports created at or after this time.'),
+    include_unlisted: zod
+        .boolean()
+        .default(signalsReportsSearchQueryIncludeUnlistedDefault)
+        .describe(
+            'Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false.'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(signalsReportsSearchQueryLimitMax)
+        .default(signalsReportsSearchQueryLimitDefault)
+        .describe('The most results to return, best match first.'),
+    query: zod
+        .string()
+        .min(1)
+        .max(signalsReportsSearchQueryQueryMax)
+        .describe(
+            'What to look for: natural language, such as a description of the issue, or an exact string, such as an error message or an entity name.'
+        ),
+    search_mode: zod
+        .enum(['hybrid', 'semantic', 'keyword'])
+        .default(signalsReportsSearchQuerySearchModeDefault)
+        .describe(
+            '`hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the semantic search fails. `keyword` requires every query word in the title or the summary. Words such as `a` or `is` are too short to look up, so the keyword search leaves them out.\n\n\* `hybrid` - Hybrid\n\* `semantic` - Semantic\n\* `keyword` - Keyword'
+        ),
+    status: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, failed, suppressed. Defaults to every status, dismissed reports included.'
         ),
 })
 

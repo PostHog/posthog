@@ -255,9 +255,12 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
+    IP_RESTRICTIONS = 'ip_restrictions',
     MEMBER_GOVERNANCE = 'member_governance',
     SSF = 'ssf',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
+    SELF_DRIVING_TRIAL_ALLOWANCE_MICROUSD = 'self_driving_trial_allowance_microusd',
+    SELF_DRIVING_TRIAL_REPORTS = 'self_driving_trial_reports',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -649,6 +652,9 @@ export interface OrganizationType extends OrganizationBasicType {
     read_only_mcp_access?: boolean
     member_notice?: OrganizationMemberNoticeApi | null
     allow_publicly_shared_resources: boolean
+    ip_restrictions?: string[]
+    ip_restrictions_enabled?: boolean
+    ip_restrictions_warning?: string | null
     metadata?: OrganizationMetadata
     member_count: number
     default_anonymize_ips?: boolean
@@ -6601,6 +6607,8 @@ export type SchemaIncrementalFieldsResponse = {
     primary_key_detection_supported?: boolean
     cdc_available?: boolean
     xmin_available?: boolean
+    /** Whether the organization can keep a history table for an incremental table. */
+    incremental_history_available?: boolean
 }
 
 // numeric is snowflake specific and objectid is mongodb specific
@@ -6632,6 +6640,7 @@ export interface ExternalDataSourceSyncSchema {
     append_available: boolean
     cdc_available?: boolean
     xmin_available?: boolean
+    incremental_history_available?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     supports_webhooks: boolean
     /** True when the resource has no API list endpoint and can only be populated via webhooks

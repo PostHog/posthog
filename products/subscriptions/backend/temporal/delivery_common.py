@@ -7,7 +7,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.email import EmailDeliveryError
 from posthog.exceptions_capture import capture_exception
-from posthog.integrations import IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 
@@ -153,7 +153,12 @@ async def deliver_email(
 
 
 def _resolve_slack_integration(subscription: Subscription) -> IntegrationRecord | None:
-    integration: IntegrationRecord | None = subscription.integration
+    integration: IntegrationRecord | None = None
+    if subscription.integration_id is not None:
+        try:
+            integration = IntegrationManager.any.get(subscription.team_id, subscription.integration_id)
+        except IntegrationNotFound:
+            pass
     if integration is not None and integration.kind != "slack":
         LOGGER.warning(
             "deliver_subscription.invalid_integration_kind",
