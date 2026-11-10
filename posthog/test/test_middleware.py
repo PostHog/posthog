@@ -3042,6 +3042,36 @@ def test_oauth_coop_middleware(path, query_string, session_next, expected_coop):
 
 @parameterized.expand(
     [
+        ("manual_refresh", "manual_refresh"),
+        ("cache_warming", None),
+        ("not_a_reason", None),
+    ]
+)
+def test_chqueries_middleware_tags_client_refresh_reason(param, expected):
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
+    from posthog.middleware import CHQueries
+
+    reset_query_tags()
+    captured: dict = {}
+
+    def get_response(req):
+        captured["refresh_reason"] = get_query_tags().refresh_reason
+        return HttpResponse("ok")
+
+    request = RequestFactory().get("/api/projects/@current/insights/1/", {"refresh_reason": param})
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+
+    CHQueries(get_response)(request)
+
+    assert captured["refresh_reason"] == expected
+
+
+@parameterized.expand(
+    [
         ("posthog/mcp-server v1", "mcp"),
         ("Mozilla/5.0", "web"),
         ("posthog/code", "posthog_code"),

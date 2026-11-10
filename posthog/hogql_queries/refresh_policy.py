@@ -12,6 +12,7 @@ rule that an explicit client `?refresh=` always wins.
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
     SharedExecutionSettings,
@@ -84,7 +85,9 @@ def resolve_execution_mode(
     # refreshing still gets CACHE_ONLY even after a surface default is flipped off cache-only.
     # The surface default applies only when no refresh param is present at all.
     if _refresh_param_present(request):
-        execution_mode = execution_mode_from_refresh(refresh_requested_by_client(request))
+        refresh = refresh_requested_by_client(request)
+        tag_queries(refresh_requested=str(refresh).lower())
+        execution_mode = execution_mode_from_refresh(refresh)
     else:
         execution_mode = SURFACE_DEFAULT_EXECUTION_MODE[surface]
 

@@ -198,6 +198,8 @@ def _process_query_request(
 
     query_id = client_query_id or uuid7().hex
     execution_mode = execution_mode_from_refresh(request_data.refresh)
+    if request_data.refresh is not None:
+        tag_queries(refresh_requested=str(request_data.refresh).lower())
 
     if request_data.async_:  # TODO: Legacy async, use "refresh=async" instead
         execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE

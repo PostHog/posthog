@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework.request import Request
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
 
@@ -43,6 +44,7 @@ class TestResolveExecutionMode(SimpleTestCase):
             mode, cache_age = resolve_execution_mode(_request(refresh), surface=surface)
             assert mode == expected, surface
             assert cache_age is None
+            assert get_query_tags().refresh_requested == refresh
 
     def test_explicit_refresh_false_stays_cache_only_when_surface_default_is_flipped(self) -> None:
         # An explicit ?refresh=false is the client opting out of a recompute; it must stay
@@ -73,5 +75,6 @@ class TestResolveExecutionMode(SimpleTestCase):
         shared_mode, shared_cache_age = resolve_execution_mode(
             _request("force_blocking"), surface=ComputeSurface.SHARED, is_shared=True
         )
+        assert get_query_tags().refresh_requested == "force_blocking"
         assert shared_mode == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         assert shared_cache_age is not None and shared_cache_age > 0
