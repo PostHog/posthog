@@ -277,7 +277,7 @@ describe('checkSandboxRecipient', () => {
                     check({ frequencyCap: realFrequencyCap(shared) })
                 )
                 expect(await Promise.all(stalled)).toEqual(stalled.map(() => ({ ok: true })))
-                expect(await check()).toEqual({ ok: true })
+                expect(await check({ address: `uncached-${teamId}@example.com` })).toEqual({ ok: true })
 
                 await lockHolder.query('COMMIT')
                 await waitForExpect(async () => {
