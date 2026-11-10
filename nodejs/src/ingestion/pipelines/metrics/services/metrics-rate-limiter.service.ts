@@ -178,19 +178,31 @@ export class MetricsRateLimiterService {
             throw new Error('Failed to rate limit')
         }
 
-        return idCosts.map(([id, ,], index) => {
+        let commandFailed = false
+        const results = idCosts.flatMap(([id, ,], index): [string, MetricsRateLimit][] => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
+            if (this.config.METRICS_LIMITER_FAIL_OPEN && tokenRes[0]) {
+                // A team with no result has no limit, so filterMessages allows its messages.
+                commandFailed = true
+                return []
+            }
             const tokensBefore = Number(tokenRes[1]?.[0] ?? this.config.METRICS_LIMITER_BUCKET_SIZE_KB)
             const tokensAfter = Number(tokenRes[1]?.[1] ?? this.config.METRICS_LIMITER_BUCKET_SIZE_KB)
             return [
-                id,
-                {
-                    tokensBefore,
-                    tokensAfter,
-                    isRateLimited: tokensAfter <= 0,
-                },
+                [
+                    id,
+                    {
+                        tokensBefore,
+                        tokensAfter,
+                        isRateLimited: tokensAfter <= 0,
+                    },
+                ],
             ]
         })
+        if (commandFailed) {
+            metricsRateLimiterRedisErrorsCounter.inc()
+        }
+        return results
     }
 
     private isRateLimitingEnabledForTeam(teamId: number): boolean {

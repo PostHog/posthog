@@ -50,6 +50,13 @@ describe('MetricsRateLimiterService when Redis is unavailable', () => {
     it.each([
         ['returns no result', jest.fn().mockResolvedValue(null)],
         ['throws', jest.fn().mockRejectedValue(new Error('pool acquire timeout'))],
+        [
+            'returns command errors',
+            jest.fn().mockResolvedValue([
+                [new Error('Connection is closed'), null],
+                [new Error('Connection is closed'), null],
+            ]),
+        ],
     ])('allows every message and counts the error when fail-open is on and Redis %s', async (_, usePipeline) => {
         const service = createService(true, usePipeline)
 
