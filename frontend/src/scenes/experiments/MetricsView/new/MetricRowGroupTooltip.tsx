@@ -4,19 +4,45 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric, isExperimentQuantileMetric } from '~/queries/schema/schema-general'
 
 import {
     type ExperimentVariantResult,
     formatChanceToWinForGoal,
     formatDeltaPercent,
     formatIntervalPercent,
+    formatMetricValue,
     formatPValue,
+    formatQuantileLevel,
     getIntervalLabel,
     isBayesianResult,
     isSignificant,
     isWinning,
+    metricSupportsTimeseries,
 } from '../shared/utils'
+
+const renderValueRows = (variantResult: ExperimentVariantResult, metric: ExperimentMetric): JSX.Element =>
+    isExperimentQuantileMetric(metric) ? (
+        <>
+            <div className="flex justify-between items-center">
+                <span className="text-muted-alt font-semibold">{formatQuantileLevel(metric.quantile)}:</span>
+                <span className="font-semibold">{formatMetricValue(variantResult, metric)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+                <span className="text-muted-alt font-semibold">Events:</span>
+                <span className="font-semibold">
+                    {variantResult.denominator_sum != null ? humanFriendlyNumber(variantResult.denominator_sum) : '—'}
+                </span>
+            </div>
+        </>
+    ) : (
+        <div className="flex justify-between items-center">
+            <span className="text-muted-alt font-semibold">Total value:</span>
+            <span className="font-semibold">
+                {variantResult.sum != null ? humanFriendlyNumber(variantResult.sum) : '—'}
+            </span>
+        </div>
+    )
 
 export const renderTooltipContent = (
     variantResult: ExperimentVariantResult,
@@ -41,19 +67,14 @@ export const renderTooltipContent = (
                 )}
             </div>
 
-            <div className="flex justify-between items-center">
-                <span className="text-muted-alt font-semibold">Total value:</span>
-                <span className="font-semibold">
-                    {variantResult.sum != null ? humanFriendlyNumber(variantResult.sum) : '–'}
-                </span>
-            </div>
+            {renderValueRows(variantResult, metric)}
 
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">Exposures:</span>
                 <span className="font-semibold">
                     {variantResult.number_of_samples != null
                         ? humanFriendlyNumber(variantResult.number_of_samples)
-                        : '–'}
+                        : '—'}
                 </span>
             </div>
 
@@ -89,10 +110,12 @@ export const renderTooltipContent = (
                 <span className="font-semibold">{intervalPercent}</span>
             </div>
 
-            <div className="text-muted-alt text-xs mt-1 text-center flex items-center justify-center gap-1">
-                <IconCursorClick className="text-sm" />
-                Click to view timeseries
-            </div>
+            {metricSupportsTimeseries(metric) && (
+                <div className="text-muted-alt text-xs mt-1 text-center flex items-center justify-center gap-1">
+                    <IconCursorClick className="text-sm" />
+                    Click to view timeseries
+                </div>
+            )}
         </div>
     )
 }

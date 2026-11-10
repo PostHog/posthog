@@ -25,6 +25,8 @@ const status: WarehouseSuggestionStatusApi = {
     window_days: 30,
     paused_reason: null,
     refreshed_at: '2026-10-07T08:30:00Z',
+    waiting: 0,
+    can_show_more: false,
 }
 
 interface MaterializeOptions {
@@ -255,6 +257,11 @@ export const WarmingUp: Story = { args: { results: [], statusOverrides: { days_w
 export const NotEligible: Story = { args: { results: [], statusOverrides: { eligible: false } } }
 
 export const LoadFailed: Story = { args: { failing: true } }
+
+export const MoreWaiting: Story = {
+    args: { results: [], statusOverrides: { waiting: 4, can_show_more: true } },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
 
 export const ReviewDialogManySuggestions: Story = {
     args: { reviewOpen: true, results: manySuggestions },

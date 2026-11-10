@@ -1,6 +1,8 @@
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 _DOCS_URL = "https://help.swarmia.com/settings/integrations/swarmia-apis/export-api"
+_TEAMS_DOCS_URL = "https://help.swarmia.com/settings/integrations/swarmia-apis/team-management"
+_REPORTS_DOCS_URL = "https://help.swarmia.com/settings/integrations/swarmia-apis/built-in-reports"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "pull_requests": {
@@ -85,6 +87,58 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "custom_field": "Value of the configured custom field, inherited from the nearest parent issue when missing.",
             "swarmia_issue_type": "Swarmia's issue type classification for the issue.",
             "issue_key": "Key of the issue the effort is attributed to.",
+        },
+    },
+    "teams": {
+        "description": "Current teams in the Swarmia organization, with their hierarchy, issue tracker mappings, admins, and members.",
+        "docs_url": _TEAMS_DOCS_URL,
+        "columns": {
+            "id": "Swarmia ID of the team.",
+            "name": "Team name.",
+            "parent_id": "Swarmia ID of the parent team, or null for a top-level team.",
+            "external_id": "External ID assigned through the API, or null for a team that has none.",
+            "parent_external_id": "External ID of the parent team.",
+            "jira_project_keys": "Keys of the Jira projects the team owns, or null when the team has no Jira mapping.",
+            "linear_team_keys": "Keys of the Linear teams the team owns, or null when the team has no Linear mapping.",
+            "team_admins": "Email addresses of the admins assigned directly to the team.",
+            "members": "Team members (ID, email, GitHub username, country, name). Members attached through GitHub teams are not included.",
+        },
+    },
+    "code_metrics": {
+        "description": "Per-team code metrics from the Code metrics overview report, aggregated over complete ISO weeks (Monday to Sunday).",
+        "docs_url": _REPORTS_DOCS_URL,
+        "columns": {
+            "start_date": "First day of the reporting window (inclusive).",
+            "end_date": "Last day of the reporting window (inclusive).",
+            "team_id": "Swarmia ID of the team.",
+            "team_name": "Team name.",
+            "cycle_time_seconds": "Average pull request cycle time, in seconds.",
+            "review_rate_percent": "Share of merged pull requests that received an approval, as a percentage. Reviews from bots are excluded.",
+            "time_to_first_review_seconds": "Average time waiting for the first review, in seconds.",
+            "merged_count": "Number of merged pull requests.",
+            "merge_time_seconds": "Average time waiting to merge after approval, in seconds.",
+            "batch_size": "Average batch size (lines changed) of pull requests.",
+            "contributor_count": "Number of unique pull request authors.",
+            "average_in_progress": "Average number of pull requests in progress.",
+            "team_fte": "Average number of active developers (full-time equivalent) in the window.",
+            "merged_prs_by_fte": "Merged pull requests per active developer (full-time equivalent).",
+        },
+    },
+    "ai_adoption": {
+        "description": "Per-team AI coding assistant adoption and license use, aggregated over complete ISO weeks (Monday to Sunday).",
+        "docs_url": _REPORTS_DOCS_URL,
+        "columns": {
+            "start_date": "First day of the reporting window (inclusive).",
+            "end_date": "Last day of the reporting window (inclusive).",
+            "team_id": "Swarmia ID of the team.",
+            "team_name": "Team name.",
+            "enabled_ai_users": "Authors with an AI tool license during the window (ID, name, email).",
+            "active_ai_users": "Authors who used an AI tool during the window (ID, name, email).",
+            "enabled_ai_user_count": "Number of active authors with an AI tool license.",
+            "active_ai_user_count": "Number of active authors who used an AI tool.",
+            "contributor_count": "Number of team members who created at least one pull request in the window.",
+            "weekly_active_avg": "Average number of active AI tool users per week.",
+            "enabled_rate_percent": "Share of team members with an AI tool license, as a percentage.",
         },
     },
 }
