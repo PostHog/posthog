@@ -97,6 +97,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Feature flag failures',
         description: 'When a feature flag in your project fails to evaluate',
     },
+    event_stopped: {
+        label: 'Stopped events',
+        description: 'When an event your insights use stops arriving',
+    },
 }
 
 export function NotificationTitle({

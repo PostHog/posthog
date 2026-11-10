@@ -5,6 +5,7 @@ from typing import Any
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 
 logger = structlog.get_logger(__name__)
 
@@ -33,6 +34,7 @@ def execute_clickhouse_health_team_query(
     lookback_days: int | None = None,
     params: Mapping[str, Any] | None = None,
     settings: Mapping[str, Any] | None = None,
+    workload: Workload | None = None,
 ) -> list[tuple[Any, ...]]:
     if lookback_days is not None and lookback_days <= 0:
         raise ValueError(f"lookback_days must be > 0, got {lookback_days}")
@@ -59,4 +61,6 @@ def execute_clickhouse_health_team_query(
         query_settings.update(settings)
 
     logger.info("running health clickhouse query", team_count=len(team_ids))
-    return sync_execute(sql, query_params, settings=query_settings)
+    if workload is None:
+        return sync_execute(sql, query_params, settings=query_settings)
+    return sync_execute(sql, query_params, settings=query_settings, workload=workload)

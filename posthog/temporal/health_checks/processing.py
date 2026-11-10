@@ -2,6 +2,7 @@ import time
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.health_checks.alerts import emit_health_check_alert
 from posthog.temporal.health_checks.db import resolve_stale_issues_with_deltas, upsert_issues_with_deltas
 from posthog.temporal.health_checks.framework import health_check_class_for_kind
@@ -90,5 +91,12 @@ def _process_batch_detection(
         for issue in newly_resolved:
             emit_health_check_alert(issue, status="resolved")
     emit_health_check_signals(newly_active)
+
+    if check_cls is not None and newly_active:
+        try:
+            check_cls.on_issues_fired(newly_active)
+        except Exception as e:
+            logger.exception("on_issues_fired failed", kind=kind)
+            capture_exception(e, additional_properties={"kind": kind})
 
     return result

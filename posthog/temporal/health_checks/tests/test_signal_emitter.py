@@ -183,21 +183,41 @@ class TestEmitHealthCheckSignals(SimpleTestCase):
         capture.assert_called_once()
 
 
+class _FiringHookCheck(HealthCheck):
+    received: list[list[HealthIssue]] = []
+    raises = False
+
+    @classmethod
+    def on_issues_fired(cls, issues: list[HealthIssue]) -> None:
+        cls.received.append(issues)
+        if cls.raises:
+            raise RuntimeError("hook failed")
+
+
 class TestSeamEmitsSignalsOnFiringOnly(SimpleTestCase):
-    @parameterized.expand([("dry_run_off", False)])
-    def test_signal_emitted_for_newly_active_not_resolved(self, _name: str, dry_run: bool):
+    @parameterized.expand([("hook_succeeds", False), ("hook_raises", True)])
+    def test_signal_emitted_for_newly_active_not_resolved(self, _name: str, hook_raises: bool):
         firing = _make_issue(kind="k")
         resolved = _make_issue(kind="k")
+        _FiringHookCheck.received = []
+        _FiringHookCheck.raises = hook_raises
 
         with (
+            patch(
+                "posthog.temporal.health_checks.processing.health_check_class_for_kind", return_value=_FiringHookCheck
+            ),
             patch("posthog.temporal.health_checks.processing.upsert_issues_with_deltas", return_value=[firing]),
             patch(
                 "posthog.temporal.health_checks.processing.resolve_stale_issues_with_deltas", return_value=[resolved]
             ),
             patch("posthog.temporal.health_checks.processing.emit_health_check_alert") as emit_alert,
             patch("posthog.temporal.health_checks.processing.emit_health_check_signals") as emit_signals,
+            patch("posthog.temporal.health_checks.processing.capture_exception") as capture,
         ):
-            _process_batch_detection([42], "k", lambda team_ids: {}, dry_run=dry_run)
+            result = _process_batch_detection([42], "k", lambda team_ids: {}, dry_run=False)
 
         emit_signals.assert_called_once_with([firing])
         emit_alert.assert_has_calls([call(firing, status="firing"), call(resolved, status="resolved")])
+        assert _FiringHookCheck.received == [[firing]]
+        assert result.issues_resolved == 1
+        assert capture.called is hook_raises
