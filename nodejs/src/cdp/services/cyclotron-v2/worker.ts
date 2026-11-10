@@ -288,25 +288,31 @@ export class CyclotronV2Worker {
                 this.lastPollTime = new Date()
                 const rows = this.fairDequeue ? await this.fairDequeueJobs() : await this.dequeueJobs()
 
-                if (rows.length === 0) {
-                    pollsCounter.labels({ queue: this.queueName, outcome: 'empty' }).inc()
-                    if (this.includeEmptyBatches) {
-                        await processBatch([])
-                    }
-                    await this.backOff()
-                    continue
-                }
-
-                pollsCounter.labels({ queue: this.queueName, outcome: 'jobs' }).inc()
-                this.resetBackOff()
-                const jobs = rows.map((row) => this.wrapJob(row))
-                await processBatch(jobs)
+                await this.handleDequeuedRows(rows, processBatch)
             } catch (err) {
                 consumerLoopErrorsCounter.labels({ queue: this.queueName }).inc()
                 logger.error('CyclotronV2Worker consumer loop error', { error: String(err) })
                 await this.backOff()
             }
         }
+    }
+
+    protected async handleDequeuedRows(
+        rows: RawJobRow[],
+        processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>
+    ): Promise<void> {
+        if (rows.length === 0) {
+            pollsCounter.labels({ queue: this.queueName, outcome: 'empty' }).inc()
+            if (this.includeEmptyBatches) {
+                await processBatch([])
+            }
+            await this.backOff()
+            return
+        }
+
+        pollsCounter.labels({ queue: this.queueName, outcome: 'jobs' }).inc()
+        this.resetBackOff()
+        await processBatch(rows.map((row) => this.wrapJob(row)))
     }
 
     protected async backOff(): Promise<void> {

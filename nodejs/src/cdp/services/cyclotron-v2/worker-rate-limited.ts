@@ -61,19 +61,7 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
                     ? await this.fairDequeueJobs(effectiveLimit)
                     : await this.dequeueJobs(effectiveLimit)
 
-                if (rows.length === 0) {
-                    pollsCounter.labels({ queue: this.queueName, outcome: 'empty' }).inc()
-                    if (this.includeEmptyBatches) {
-                        await processBatch([])
-                    }
-                    await this.backOff()
-                    continue
-                }
-
-                pollsCounter.labels({ queue: this.queueName, outcome: 'jobs' }).inc()
-                this.resetBackOff()
-                const jobs = rows.map((row) => this.wrapJob(row))
-                await processBatch(jobs)
+                await this.handleDequeuedRows(rows, processBatch)
             } catch (err) {
                 consumerLoopErrorsCounter.labels({ queue: this.queueName }).inc()
                 logger.error('CyclotronV2RateLimitedWorker consumer loop error', { error: String(err) })
