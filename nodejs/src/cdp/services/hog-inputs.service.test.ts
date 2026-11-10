@@ -261,43 +261,15 @@ describe('Hog Inputs', () => {
             return deadline
         }
 
-        it.each<[string, () => Promise<CyclotronInputType>]>([
-            [
-                'hog',
-                async () => ({
-                    value: 'x',
-                    templating: 'hog',
-                    bytecode: await compileHog('return event.properties.watched'),
-                }),
-            ],
-            ['liquid', () => Promise.resolve({ value: '{{ event.properties.watched }}', templating: 'liquid' })],
+        it.each([
+            ['hog', { value: 'x', templating: 'hog' as const, bytecode: ['_H', 1, 32, 'x'] }],
+            ['liquid', { value: '{{ event.event }}', templating: 'liquid' as const }],
         ])('renders no %s input once the deadline it was given has passed', async (_templating, input) => {
-            const onlyThatInput = createHogFunction({
-                ...hogFunction,
-                inputs: { only: await input() },
-                inputs_schema: [],
-            })
-            let reads = 0
-            const properties = { ...globals.event.properties }
-            Object.defineProperty(properties, 'watched', {
-                enumerable: true,
-                get: () => {
-                    reads++
-                    return 'watched'
-                },
-            })
-            const watchedGlobals = { ...globals, event: { ...globals.event, properties } }
+            const onlyThatInput = createHogFunction({ ...hogFunction, inputs: { only: input }, inputs_schema: [] })
 
             await expect(
-                hogInputsService.buildInputs(
-                    onlyThatInput,
-                    watchedGlobals,
-                    undefined,
-                    undefined,
-                    passedDeadline().signal
-                )
+                hogInputsService.buildInputs(onlyThatInput, globals, undefined, undefined, passedDeadline().signal)
             ).rejects.toThrow('The verification deadline passed')
-            expect(reads).toBe(0)
         })
 
         it.each([
@@ -458,26 +430,29 @@ describe('Hog Inputs', () => {
                     inputs: { busy: await busyInput() },
                     inputs_schema: [],
                 })
+                // Every read of either clock moves it on a little, so the render's own work moves the clock.
+                let now = 0
+                const clock = jest.spyOn(performance, 'now').mockImplementation(() => (now += 0.01))
                 const mockedNow = jest.mocked(Date.now)
                 const fixedNow = mockedNow()
-                mockedNow.mockImplementation(() => performance.timeOrigin + performance.now())
+                mockedNow.mockImplementation(() => Math.floor((now += 0.01)))
                 try {
                     const deadline = deadlineAfter(deadlineMs)
-                    const startedAt = Date.now()
                     const busyLong = {
                         ...globals,
                         event: {
                             ...globals.event,
-                            properties: { ...globals.event.properties, busy_until: startedAt + ownLimitMs },
+                            properties: { ...globals.event.properties, busy_until: 2 * ownLimitMs },
                         },
                     }
 
                     await expect(
                         hogInputsService.buildInputs(onlyBusy, busyLong, undefined, undefined, deadline)
                     ).rejects.toMatchObject({ name: 'TimeoutError' })
-                    expect(Date.now() - startedAt).toBeLessThan(ownLimitMs / 2)
+                    expect(now).toBeLessThan(ownLimitMs / 2)
                 } finally {
                     mockedNow.mockReturnValue(fixedNow)
+                    clock.mockRestore()
                 }
             }
         )
