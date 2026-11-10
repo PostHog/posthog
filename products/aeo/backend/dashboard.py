@@ -1,4 +1,8 @@
-"""The "AI visibility weekly" dashboard: SQL insights over `system.aeo_citation_checks`.
+"""The "AI visibility weekly" dashboard: insights over `system.aeo_citation_checks`.
+
+The rates are Trends insights, so people can change their dates and breakdowns
+like any other insight. The tiles Trends cannot express, a change in points per
+topic and the pages to watch, are SQL insights.
 
 Every query reads the brand catalog from `system.aeo_brands` when it runs, so the
 branded split and the own and competitor pages follow catalog edits without
@@ -22,6 +26,7 @@ from products.dashboards.backend.facade.api import DashboardRef, create_dashboar
 DASHBOARD_NAME = "AI visibility weekly"
 DASHBOARD_TAG = "ai-visibility"
 TREND_WEEKS = 8
+CHECKS_TABLE = "system.aeo_citation_checks"
 
 # A brand a person ignored counts as neither own nor competitor.
 _BRANDS_OF_KIND = "SELECT groupArray({expr}) FROM system.aeo_brands WHERE kind = '{kind}' AND status != 'ignored'"
@@ -31,6 +36,15 @@ _COMPETITOR_DOMAINS = _BRANDS_OF_KIND.format(expr="lower(domain)", kind="competi
 # Domain labels are letters, digits and hyphens, so the names need no regex escaping.
 _BRAND_REGEX = r"concat('(?i)\\b(', arrayStringConcat(brand_names, '|'), ')\\b')"
 _NAMES_BRAND = "notEmpty(brand_names) AND match({field}, brand_regex)"
+
+# The same rules as HogQL filters on a Trends series, which has no WITH clause to hold the names.
+# `arrayExists` over an empty catalog is false, so without an own brand nothing names the brand.
+_TRENDS_NAMES_BRAND = (
+    r"arrayExists(name -> match({field}, concat('(?i)\\b', name, '\\b')), "
+    f"({_BRAND_NAMES}))"
+)
+_TRENDS_ANSWERED_NON_BRANDED = f"NOT check_failed AND NOT {_TRENDS_NAMES_BRAND.format(field='prompt_text')}"
+_TRENDS_MENTIONED = f"cited OR {_TRENDS_NAMES_BRAND.format(field="ifNull(answer_text, '')")}"
 
 
 def _answers(days: int) -> str:
@@ -61,19 +75,6 @@ def _rate(condition: str, week: str) -> str:
 
 _THIS_WEEK = "days_ago <= 7"
 _WEEK_BEFORE = "days_ago > 7"
-
-SCORECARD_SQL = f"""
-SELECT
-    {_rate("mentioned", _THIS_WEEK)} AS visibility,
-    {_rate("mentioned", _WEEK_BEFORE)} AS previous_visibility,
-    round(visibility - previous_visibility, 1) AS visibility_change,
-    {_rate("cited", _THIS_WEEK)} AS citation_rate,
-    {_rate("cited", _WEEK_BEFORE)} AS previous_citation_rate,
-    round(citation_rate - previous_citation_rate, 1) AS citation_rate_change,
-    countIf({_THIS_WEEK}) AS answers,
-    countIf({_WEEK_BEFORE}) AS previous_answers
-FROM ({_answers(14)})
-"""
 
 TOPICS_SQL = f"""
 SELECT
@@ -131,20 +132,71 @@ ORDER BY topic, role
 LIMIT 300
 """
 
-# Weeks end yesterday, so the last point is the scorecard's report week.
-TREND_SQL = f"""
-SELECT
-    toDate(now()) - 1 - 7 * intDiv(days_ago - 1, 7) AS week_ending,
-    round(100 * countIf(mentioned) / count(), 1) AS visibility,
-    round(100 * countIf(cited) / count(), 1) AS citation_rate,
-    count() AS answers
-FROM ({_answers(7 * TREND_WEEKS)})
-GROUP BY week_ending
-ORDER BY week_ending
-"""
+# Trends counts days in the project's timezone. "-7d" to "-1d" is the last 7 complete days, and the
+# previous period the comparison picks is the 7 days before, as in the SQL tiles.
+_LAST_WEEK = {"date_from": "-7d", "date_to": "-1d"}
+
+
+def _checks_series(condition: str | None = None) -> dict[str, Any]:
+    properties = [{"type": "hogql", "key": _TRENDS_ANSWERED_NON_BRANDED}]
+    if condition:
+        properties.append({"type": "hogql", "key": condition})
+    return {
+        "kind": "DataWarehouseNode",
+        "id": CHECKS_TABLE,
+        "table_name": CHECKS_TABLE,
+        "timestamp_field": "timestamp",
+        "id_field": "id",
+        "distinct_id_field": "prompt_id",
+        "math": "total",
+        "properties": properties,
+    }
+
+
+def _rate_query(
+    formulas: dict[str, str],
+    *,
+    display: str,
+    date_range: dict[str, Any],
+    interval: str,
+    compare: bool = False,
+) -> dict[str, Any]:
+    """A Trends query over answered non-branded checks: series A counts every answer, B the ones that
+    mention the brand and C the ones that cite the site. `formulas` maps each display name to a rate over A."""
+    return {
+        "kind": "InsightVizNode",
+        "source": {
+            "kind": "TrendsQuery",
+            "series": [_checks_series(), _checks_series(_TRENDS_MENTIONED), _checks_series("cited")],
+            "interval": interval,
+            "dateRange": date_range,
+            "compareFilter": {"compare": compare},
+            "trendsFilter": {
+                "display": display,
+                "formulaNodes": [{"formula": formula, "custom_name": name} for name, formula in formulas.items()],
+                "aggregationAxisFormat": "percentage_scaled",
+                "decimalPlaces": 1,
+            },
+        },
+    }
+
+
+VISIBILITY = {"Visibility": "B / A"}
+CITATION_RATE = {"Citation rate": "C / A"}
+
+VISIBILITY_QUERY = _rate_query(VISIBILITY, display="BoldNumber", date_range=_LAST_WEEK, interval="day", compare=True)
+CITATION_RATE_QUERY = _rate_query(
+    CITATION_RATE, display="BoldNumber", date_range=_LAST_WEEK, interval="day", compare=True
+)
+TREND_QUERY = _rate_query(
+    VISIBILITY | CITATION_RATE,
+    display="ActionsLineGraph",
+    date_range={"date_from": f"-{TREND_WEEKS}w"},
+    interval="week",
+)
 
 SUBSCRIBE_TEXT = """\
-**AI visibility weekly** compares the last 7 complete days with the 7 days before, over non-branded prompts: prompts that don't name your brand. Visibility is the share of answers that mention your brand or cite your site. Changes are in percentage points.
+**AI visibility weekly** compares the last 7 complete days with the 7 days before, over non-branded prompts: prompts that don't name your brand. Visibility is the share of answers that mention your brand or cite your site. The topic changes are in percentage points.
 
 Own and competitor pages come from the brand catalog, and branded prompts from the names of your own brands, so the numbers follow your catalog edits.
 
@@ -154,21 +206,20 @@ Own and competitor pages come from the brand catalog, and branded prompts from t
 _TILE_HEIGHT = 5
 
 
-def _sql_tile(
-    name: str, description: str, query: str, *, x: int, y: int, w: int, h: int = _TILE_HEIGHT, **settings: Any
-) -> dict[str, Any]:
+def _tile(name: str, description: str, query: dict[str, Any], *, x: int, y: int, w: int) -> dict[str, Any]:
     return {
         "type": "INSIGHT",
         "name": name,
         "description": description,
-        "query": {
-            "kind": "DataVisualizationNode",
-            "source": {"kind": "HogQLQuery", "query": textwrap.dedent(query).strip()},
-            **settings,
-        },
-        "layouts": {"sm": {"x": x, "y": y, "w": w, "h": h}},
+        "query": query,
+        "layouts": {"sm": {"x": x, "y": y, "w": w, "h": _TILE_HEIGHT}},
         "color": None,
     }
+
+
+def _sql_tile(name: str, description: str, query: str, *, x: int, y: int, w: int) -> dict[str, Any]:
+    source = {"kind": "HogQLQuery", "query": textwrap.dedent(query).strip()}
+    return _tile(name, description, {"kind": "DataVisualizationNode", "source": source}, x=x, y=y, w=w)
 
 
 def build_dashboard_tiles() -> list[dict[str, Any]]:
@@ -179,27 +230,30 @@ def build_dashboard_tiles() -> list[dict[str, Any]]:
             "layouts": {"sm": {"x": 0, "y": 0, "w": 12, "h": 3}},
             "color": None,
         },
-        _sql_tile(
+        _tile(
             "Non-branded visibility this week",
-            "Mention rate and citation rate in percent over the last 7 complete days, against the 7 days before, "
-            "with the number of answers behind each.",
-            SCORECARD_SQL,
+            "Share of answers that mention your brand or cite your site over the last 7 complete days, "
+            "against the 7 days before.",
+            VISIBILITY_QUERY,
             x=0,
             y=3,
-            w=6,
+            w=3,
         ),
-        _sql_tile(
+        _tile(
+            "Non-branded citation rate this week",
+            "Share of answers that cite your site over the last 7 complete days, against the 7 days before.",
+            CITATION_RATE_QUERY,
+            x=3,
+            y=3,
+            w=3,
+        ),
+        _tile(
             "Visibility trend",
-            f"Weekly non-branded mention rate and citation rate in percent over the last {TREND_WEEKS} weeks.",
-            TREND_SQL,
+            f"Weekly non-branded visibility and citation rate over the last {TREND_WEEKS} weeks.",
+            TREND_QUERY,
             x=6,
             y=3,
             w=6,
-            display="ActionsLineGraph",
-            chartSettings={
-                "xAxis": {"column": "week_ending"},
-                "yAxis": [{"column": "visibility"}, {"column": "citation_rate"}],
-            },
         ),
         _sql_tile(
             "Topics",

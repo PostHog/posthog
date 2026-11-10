@@ -74,7 +74,8 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 ### Weekly dashboard
 
 `POST aeo_prompts/create_dashboard/` (the "Create AI visibility dashboard" button on the Overview, MCP tool `aeo-prompts-create-dashboard`, off until the route is deployed) creates an "AI visibility weekly" dashboard tagged `ai-visibility`.
-Its SQL insights (`dashboard.py`) read `system.aeo_citation_checks` over non-branded prompts: visibility and citation rate for the last 7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week trend.
+Its insights (`dashboard.py`) read `system.aeo_citation_checks` over non-branded prompts: visibility and citation rate for the last 7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week trend.
+The rates and the trend are Trends insights, so people can change their dates and breakdowns. Topics and pages to watch stay SQL insights, because Trends cannot rank topics by the change in points or pick the pages per topic.
 Each query reads `system.aeo_brands`, the brand catalog, when it runs. Own and competitor pages come from the `own` and `competitor` kinds, and a prompt is branded when it names the first label of an own domain, so the dashboard follows catalog edits.
 This differs from the branded split above, which reads `AEO_TARGET_DOMAINS`, when the own domain has not been cited yet and so is not in the catalog.
 People get it weekly through a regular dashboard subscription, in Slack or email.
@@ -111,6 +112,11 @@ Within a topic, prompts never checked come first, then the least recently checke
 | `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.               |
 | `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                        |
 | `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs). |
+| `timestamp`, `distinct_id`, `person_id`                                  | Computed: `created_at`, and `prompt_id` twice. They let a Trends series read the table (see below).                 |
+
+A Trends series reads the table as `{"kind": "DataWarehouseNode", "table_name": "system.aeo_citation_checks", "timestamp_field": "timestamp", "id_field": "id", "distinct_id_field": "prompt_id"}`.
+A rate is two series and a formula, for example cited answers over answered ones.
+The actor is the prompt, so a "unique users" count over this table counts prompts.
 
 ## The join (the product thesis)
 
