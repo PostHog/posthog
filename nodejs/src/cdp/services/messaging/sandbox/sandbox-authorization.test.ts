@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 
 import { defaultConfig } from '~/common/config/config'
+import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import {
@@ -11,7 +12,7 @@ import {
 } from '~/tests/helpers/sql'
 import { Team } from '~/types'
 
-import { MAX_ABANDONED_AUTHORIZATION_CONNECTIONS, readSandboxAuthorization } from './sandbox-authorization'
+import { MAX_PENDING_AUTHORIZATION_CONNECTIONS, readSandboxAuthorization } from './sandbox-authorization'
 
 const SANDBOX_SENDER_TABLES = `
     CREATE TABLE workflows_sandboxsendertenantstate (
@@ -219,7 +220,7 @@ describe('readSandboxAuthorization', () => {
             const queued = (): Promise<string> => new Promise((resolve) => setTimeout(resolve, 100, 'queued'))
             try {
                 const gaveUp = await Promise.all(
-                    Array.from({ length: MAX_ABANDONED_AUTHORIZATION_CONNECTIONS }, () => readThrough(onePoolRouter))
+                    Array.from({ length: MAX_PENDING_AUTHORIZATION_CONNECTIONS }, () => readThrough(onePoolRouter))
                 )
                 expect(gaveUp).toEqual(gaveUp.map(() => unavailable))
 
@@ -236,7 +237,7 @@ describe('readSandboxAuthorization', () => {
             await createMember(memberEmail, organizationId, true)
 
             const burst = await Promise.all(
-                Array.from({ length: 3 * MAX_ABANDONED_AUTHORIZATION_CONNECTIONS }, () =>
+                Array.from({ length: 3 * MAX_PENDING_AUTHORIZATION_CONNECTIONS }, () =>
                     readSandboxAuthorization(onePoolRouter, {
                         teamId: team.id,
                         recipient: memberEmail,
@@ -247,6 +248,30 @@ describe('readSandboxAuthorization', () => {
             )
 
             expect(burst).toEqual(burst.map(() => expect.objectContaining({ ok: true, storedAddress: memberEmail })))
+        })
+
+        it('opens at most that many connections to a database that stops answering a burst of reads', async () => {
+            const database = new URL(defaultConfig.DATABASE_URL)
+            const proxy = new StallingValkeyProxy({ host: database.hostname, port: Number(database.port || 5432) })
+            database.host = `127.0.0.1:${await proxy.start()}`
+            const wide = new PostgresRouter({
+                ...defaultConfig,
+                DATABASE_URL: database.toString(),
+                POSTGRES_CONNECTION_POOL_SIZE: 3 * MAX_PENDING_AUTHORIZATION_CONNECTIONS,
+            })
+            try {
+                proxy.stopAnswering()
+
+                const burst = await Promise.all(
+                    Array.from({ length: 3 * MAX_PENDING_AUTHORIZATION_CONNECTIONS }, () => readThrough(wide))
+                )
+
+                expect(burst).toEqual(burst.map(() => unavailable))
+                expect(proxy.openConnections).toBeLessThanOrEqual(MAX_PENDING_AUTHORIZATION_CONNECTIONS)
+            } finally {
+                proxy.stop()
+                await wide.end()
+            }
         })
 
         it('hands a connection that arrives after the deadline back to the pool', async () => {

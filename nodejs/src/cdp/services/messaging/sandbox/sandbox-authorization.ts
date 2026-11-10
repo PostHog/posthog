@@ -1,14 +1,24 @@
-import { PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
+import { AcquisitionGate } from '~/common/utils/acquisition-gate'
 import { PostgresRouter, PostgresUse, TransactionClient } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 
 import { SandboxTenantMirror } from './sandbox-tenant-admission'
 
 export const AUTHORIZATION_TIMEOUT_MS = 2_000
-export const MAX_ABANDONED_AUTHORIZATION_CONNECTIONS = 8
+export const MAX_PENDING_AUTHORIZATION_CONNECTIONS = 8
 
-const abandonedConnections = new WeakMap<PostgresRouter, number>()
+const connectionGates = new WeakMap<PostgresRouter, AcquisitionGate>()
+
+const connectionGate = (db: PostgresRouter): AcquisitionGate => {
+    let gate = connectionGates.get(db)
+    if (!gate) {
+        gate = new AcquisitionGate(MAX_PENDING_AUTHORIZATION_CONNECTIONS, 'sandbox email reads')
+        connectionGates.set(db, gate)
+    }
+    return gate
+}
 
 export type SandboxAuthorization =
     | {
@@ -164,16 +174,20 @@ async function queryBeforeDeadline<Row extends QueryResultRow>(
     timeoutMs: number,
     tag: string
 ): Promise<QueryResult<Row>> {
-    let expired = false
+    const deadlineAt = Date.now() + timeoutMs
+    const client = await connectionGate(db).acquire(
+        () => db.connect(use),
+        deadlineAt,
+        (late) => late.release()
+    )
     let timer: NodeJS.Timeout | undefined
     const deadline = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-            expired = true
-            reject(new Error(`The ${tag} read passed its ${timeoutMs} ms deadline`))
-        }, timeoutMs)
+        timer = setTimeout(
+            () => reject(new Error(`The ${tag} read passed its ${timeoutMs} ms deadline`)),
+            Math.max(0, deadlineAt - Date.now())
+        )
     })
     try {
-        const client = await connectUnlessStalled(db, use, deadline, () => expired)
         let failure: Error | undefined
         const onClientError = (error: Error): void => {
             failure = error
@@ -200,30 +214,5 @@ async function queryBeforeDeadline<Row extends QueryResultRow>(
         }
     } finally {
         clearTimeout(timer)
-    }
-}
-
-async function connectUnlessStalled(
-    db: PostgresRouter,
-    use: PostgresUse,
-    deadline: Promise<never>,
-    expired: () => boolean
-): Promise<PoolClient> {
-    const abandoned = abandonedConnections.get(db) ?? 0
-    if (abandoned >= MAX_ABANDONED_AUTHORIZATION_CONNECTIONS) {
-        throw new Error(`${abandoned} sandbox email reads gave up on a connection that has not arrived`)
-    }
-    const connecting = db.connect(use)
-    try {
-        return await Promise.race([connecting, deadline])
-    } catch (error) {
-        if (expired()) {
-            abandonedConnections.set(db, (abandonedConnections.get(db) ?? 0) + 1)
-            void connecting
-                .then((client) => client.release())
-                .catch(() => undefined)
-                .finally(() => abandonedConnections.set(db, (abandonedConnections.get(db) ?? 1) - 1))
-        }
-        throw error
     }
 }

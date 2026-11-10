@@ -1,6 +1,7 @@
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
+import { AcquisitionGate } from '~/common/utils/acquisition-gate'
 import { RedisPoolConfig, createRedisFromConfig } from '~/common/utils/db/redis'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
@@ -39,12 +40,11 @@ export type RedisV2 = {
 // A non-fatal client can fail to connect at once, for example on a wrong password. generic-pool retries a
 // failed create immediately while a caller waits, so without this pause the pool reconnects in a tight loop.
 const NON_FATAL_CREATE_RETRY_DELAY_MS = 1000
-export const MAX_ABANDONED_ACQUIRES = 8
+export const MAX_PENDING_ACQUIRES_WITH_DEADLINE = 8
 
 export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 => {
     const nonFatal = config.connection.exitOnRepeatedErrors === false
     let lastCreateFailureAt = 0
-    let abandonedAcquires = 0
     const pool = createPool<RedisClient>(
         {
             create: async () => {
@@ -76,6 +76,10 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
             ...(config.acquireTimeoutMillis !== undefined ? { acquireTimeoutMillis: config.acquireTimeoutMillis } : {}),
         }
     )
+    const acquireGate = new AcquisitionGate(
+        MAX_PENDING_ACQUIRES_WITH_DEADLINE,
+        `Redis pool ${config.connection.name ?? 'redis'}`
+    )
 
     const useClient: RedisV2['useClient'] = async (options, callback) => {
         const timeout = timeoutGuard(
@@ -86,19 +90,14 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
         const deadlineAt = options.deadlineMs === undefined ? undefined : Date.now() + options.deadlineMs
         let client: RedisClient
         try {
-            if (deadlineAt !== undefined && abandonedAcquires >= MAX_ABANDONED_ACQUIRES) {
-                throw new Error(
-                    `Redis call ${options.name} found ${abandonedAcquires} callers that gave up on a client`
-                )
-            }
-            const acquiring = pool.acquire()
-            client = await beforeDeadline(acquiring, deadlineAt, options.name, () => {
-                abandonedAcquires++
-                acquiring
-                    .then((lateClient) => pool.release(lateClient))
-                    .catch(() => undefined)
-                    .finally(() => abandonedAcquires--)
-            })
+            client =
+                deadlineAt === undefined
+                    ? await pool.acquire()
+                    : await acquireGate.acquire(
+                          () => pool.acquire(),
+                          deadlineAt,
+                          (lateClient) => pool.release(lateClient)
+                      )
         } catch (error) {
             // A pool with acquireTimeoutMillis rejects here, and the guard must not report a delay afterwards.
             clearTimeout(timeout)
