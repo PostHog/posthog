@@ -481,6 +481,35 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert len(response.json()["short_id"]) > 0
 
+    def test_create_notebook_rejects_duplicate_short_id_without_changing_existing_notebook(self):
+        notebook = Notebook.objects.create(team=self.team, short_id="reportA", title="Original report")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "Replacement report", "short_id": notebook.short_id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "unique"
+        assert response.json()["attr"] == "short_id"
+        notebook.refresh_from_db()
+        assert notebook.title == "Original report"
+        assert Notebook.objects.filter(team=self.team, short_id=notebook.short_id).count() == 1
+
+    def test_create_notebook_allows_short_id_used_in_another_team(self):
+        other_team = Team.objects.create(organization=self.organization)
+        Notebook.objects.create(team=other_team, short_id="reportA", title="Other report")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "New report", "short_id": "reportA"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Notebook.objects.get(team=self.team, short_id="reportA").title == "New report"
+
     @parameterized.expand(
         [
             ("too long", "a" * 13),

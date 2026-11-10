@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -20,6 +19,8 @@ import { urls } from 'scenes/urls'
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { InsightVizNode, Node, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { DashboardType } from '~/types'
+
+import { notebooksCreate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
 
 import type { NotebookType } from '../scenes/notebooks/types'
 
@@ -220,12 +221,20 @@ export const notebooksModel = kea<notebooksModelType>([
             [] as NotebookListItemType[],
             {
                 createNotebook: async ({ title, location, content, onCreate, shortId }) => {
-                    const notebook = await api.notebooks.create({
+                    const projectId = String(values.currentProjectId)
+                    let created = true
+                    const notebook = (await notebooksCreate(projectId, {
                         title,
                         content: defaultNotebookContent(title, content),
                         _create_in_folder: getLastNewFolder(),
                         ...(shortId ? { short_id: shortId } : {}),
-                    })
+                    }).catch((error) => {
+                        if (shortId && error.code === 'unique' && error.attr === 'short_id') {
+                            created = false
+                            return notebooksRetrieve(projectId, shortId)
+                        }
+                        throw error
+                    })) as unknown as NotebookListItemType
 
                     await openNotebook(notebook.short_id, location, (logic) => {
                         onCreate?.(logic)
@@ -235,17 +244,19 @@ export const notebooksModel = kea<notebooksModelType>([
                     // (emitted for every creation path) is the source of truth for counts. This
                     // one keeps the browser/session context for UI-funnel analysis without
                     // double-counting UI creations.
-                    posthog.capture(`notebook created (client)`, {
-                        short_id: notebook.short_id,
-                        is_markdown: true,
-                    })
+                    if (created) {
+                        posthog.capture(`notebook created (client)`, {
+                            short_id: notebook.short_id,
+                            is_markdown: true,
+                        })
+                    }
 
                     void addProductIntent({
                         product_type: ProductKey.NOTEBOOKS,
                         intent_context: ProductIntentContext.NOTEBOOK_CREATED,
                     })
 
-                    return [notebook, ...values.notebooks]
+                    return [notebook, ...values.notebooks.filter((existing) => existing.short_id !== notebook.short_id)]
                 },
 
                 deleteNotebook: async ({ shortId, title }) => {

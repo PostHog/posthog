@@ -7,7 +7,7 @@ from uuid import UUID
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404, JsonResponse
 from django.utils.timezone import now
@@ -398,12 +398,20 @@ class NotebookSerializer(NotebookMinimalSerializer):
         validated_data["text_content"] = markdown_collab.get_markdown_notebook_markdown(validated_data["content"])
 
         created_by = validated_data.pop("created_by", request.user)
-        notebook = Notebook.objects.create(
-            team=team,
-            created_by=created_by,
-            last_modified_by=request.user,
-            **validated_data,
-        )
+        try:
+            with transaction.atomic():
+                notebook = Notebook.objects.create(
+                    team=team,
+                    created_by=created_by,
+                    last_modified_by=request.user,
+                    **validated_data,
+                )
+        except IntegrityError:
+            if short_id and Notebook.objects.filter(team=team, short_id=short_id).exists():
+                raise serializers.ValidationError(
+                    {"short_id": "A notebook with this ID already exists. Open the existing notebook."}, code="unique"
+                )
+            raise
 
         log_notebook_activity(
             activity="created",
