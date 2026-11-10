@@ -1195,15 +1195,15 @@ class StamphogGitHubClient:
             raise StamphogGitHubError(f"No merge base in the compare payload for {base_sha}...{head_sha}")
         return sha
 
-    def _commit_graphql(
-        self, repo: str, query: str, variables: dict[str, Any], *, timeout: int, priority: Priority = Priority.BATCH
-    ) -> dict:
+    def _commit_graphql(self, repo: str, query: str, variables: dict[str, Any], *, timeout: int) -> dict:
         """Run a query against one commit object of ``repo`` and return that commit's fields.
 
         Raises on any HTTP, GraphQL, or shape failure. Most of these queries feed an advisory
         signal, so the default is the sheddable BATCH lane.
         """
-        commit = self._repository_graphql(repo, query, variables, timeout=timeout, priority=priority).get("object")
+        commit = self._repository_graphql(repo, query, variables, timeout=timeout, priority=Priority.BATCH).get(
+            "object"
+        )
         if not isinstance(commit, dict):
             raise StamphogGitHubError(f"Commit not found in {repo}")
         return commit
