@@ -829,16 +829,18 @@ describe('sidepanelTicketsLogic', () => {
             { id: 't-open', status: 'open', message_count: 1, unread_count: 2, created_at: '2026-07-13T00:00:00Z' },
             { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
             { id: 't-hold', status: 'on_hold', message_count: 1, created_at: '2026-07-12T00:00:00Z' },
+            { id: 't-escalated', status: 'escalated', message_count: 1, created_at: '2026-07-11T00:00:00Z' },
         ] as ConversationTicket[])
 
         expect(logic.values.ticketFilterCounts).toEqual({
             unread: 1,
-            active: 2,
-            all: 3,
+            active: 3,
+            all: 4,
             new: 0,
             open: 1,
             pending: 0,
             on_hold: 1,
+            escalated: 1,
             resolved: 1,
         })
     })

@@ -47,13 +47,21 @@ export function AISection(): JSX.Element {
         aiSuggestionsLoading,
         aiDiagnosticsEnabled,
         aiDiagnosticsLoading,
+        aiEscalationCoversFixRun,
+        aiEscalationCoversFixRunLoading,
+        selfDrivingEscalationAvailable,
         aiEnabledChannels,
         aiAllChannels,
         aiResolutionChannels,
         aiReplyModes,
     } = useValues(supportSettingsLogic)
-    const { setAiSuggestionsEnabled, setAiDiagnosticsEnabled, setAiResolutionChannels, setAiReplyMode } =
-        useActions(supportSettingsLogic)
+    const {
+        setAiSuggestionsEnabled,
+        setAiDiagnosticsEnabled,
+        setAiEscalationCoversFixRun,
+        setAiResolutionChannels,
+        setAiReplyMode,
+    } = useActions(supportSettingsLogic)
 
     const isChannelActive = (channel: TicketChannel): boolean => aiEnabledChannels.includes(channel)
 
@@ -116,6 +124,33 @@ export function AISection(): JSX.Element {
                                 checked={aiDiagnosticsEnabled}
                                 onChange={(checked) => setAiDiagnosticsEnabled(checked)}
                                 loading={aiDiagnosticsLoading}
+                            />
+                        </div>
+                    </LemonCard>
+                </SceneSection>
+            )}
+
+            {aiSuggestionsEnabled && selfDrivingEscalationAvailable && (
+                <SceneSection
+                    title="Escalated tickets"
+                    titleSize="sm"
+                    className="my-8"
+                    description="A ticket shows as escalated while a Self-driving agent researches it. The ticket returns to open when the research ends."
+                >
+                    <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
+                        <div className="flex items-center gap-4 justify-between">
+                            <div>
+                                <label className="font-medium">Keep tickets escalated while a fix is written</label>
+                                <p className="text-xs text-muted-alt mb-0">
+                                    When the agent starts a fix, the ticket stays escalated until the agent opens a pull
+                                    request.
+                                </p>
+                            </div>
+                            <LemonSwitch
+                                checked={aiEscalationCoversFixRun}
+                                onChange={(checked) => setAiEscalationCoversFixRun(checked)}
+                                loading={aiEscalationCoversFixRunLoading}
+                                data-attr="support-ai-escalation-covers-fix-run"
                             />
                         </div>
                     </LemonCard>

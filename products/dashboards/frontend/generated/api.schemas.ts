@@ -1162,6 +1162,7 @@ export const ConversationsRecentTicketsWidgetConfigApiStatus = {
     Open: 'open',
     Pending: 'pending',
     OnHold: 'on_hold',
+    Escalated: 'escalated',
     Resolved: 'resolved',
     All: 'all',
 } as const

@@ -129,7 +129,7 @@ export const ConversationsTicketsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`.'
+            'Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `escalated`, `resolved`.'
         ),
     tags: zod
         .string()
@@ -181,13 +181,13 @@ export const ConversationsTicketsPartialUpdateParams = () => zod.object({
 export const ConversationsTicketsPartialUpdateBody = () => zod
     .object({
         status: zod
-            .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+            .enum(['new', 'open', 'pending', 'on_hold', 'escalated', 'resolved'])
             .describe(
-                '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `escalated` - Escalated to Self-driving\n\* `resolved` - Resolved'
             )
             .optional()
             .describe(
-                'Ticket status: new, open, pending, on_hold, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                'Ticket status: new, open, pending, on_hold, escalated, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `escalated` - Escalated to Self-driving\n\* `resolved` - Resolved'
             ),
         priority: zod
             .union([
@@ -462,9 +462,9 @@ export const ConversationsViewsCreateBody = () => zod.object({
             status: zod
                 .array(
                     zod
-                        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+                        .enum(['new', 'open', 'pending', 'on_hold', 'escalated', 'resolved'])
                         .describe(
-                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `escalated` - Escalated to Self-driving\n\* `resolved` - Resolved'
                         )
                 )
                 .optional()
@@ -628,9 +628,9 @@ export const ConversationsViewsPartialUpdateBody = () => zod.object({
             status: zod
                 .array(
                     zod
-                        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+                        .enum(['new', 'open', 'pending', 'on_hold', 'escalated', 'resolved'])
                         .describe(
-                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `escalated` - Escalated to Self-driving\n\* `resolved` - Resolved'
                         )
                 )
                 .optional()

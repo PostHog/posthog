@@ -16,7 +16,7 @@ ONE_TITLE = "Ticket #{number} assigned to {role} breaches its SLA within 24 hour
 MANY_TITLE = "{count} tickets assigned to {role} breach their SLA within 24 hours"
 ONE_DETAIL = "Open it and reply before the deadline."
 MANY_DETAIL = "Ticket #{number} is the soonest."
-OPEN_STATUSES = ("new", "open", "pending", "on_hold")
+OPEN_STATUSES = ("new", "open", "pending", "on_hold", "escalated")
 
 
 def _candidate(breach: RoleSlaBreach) -> HighlightCandidate:

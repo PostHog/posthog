@@ -5,6 +5,7 @@ import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { ticketStatusTagLabel } from '../../ticketStatusTagLabel'
 import { MessageInput } from '../Chat/MessageInput'
 import { MessageList } from '../Chat/MessageList'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
@@ -61,7 +62,7 @@ export function Ticket({
                     }
                     size="small"
                 >
-                    {currentTicket?.status === 'on_hold' ? 'On hold' : currentTicket?.status}
+                    {ticketStatusTagLabel(currentTicket?.status, 'customer')}
                 </LemonTag>
             </div>
             <LemonDivider />

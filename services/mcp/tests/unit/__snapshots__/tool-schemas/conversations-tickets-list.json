@@ -75,7 +75,7 @@
             "type": "boolean"
         },
         "status": {
-            "description": "Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`.",
+            "description": "Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `escalated`, `resolved`.",
             "type": "string"
         },
         "tags": {

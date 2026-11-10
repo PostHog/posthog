@@ -315,6 +315,18 @@ describe('supportSettingsLogic', () => {
         })
     })
 
+    describe('aiEscalationCoversFixRun selector', () => {
+        it.each([
+            ['the setting is not set', { widget_enabled: true }, false],
+            ['the setting is true', { ai_escalation_covers_fix_run: true }, true],
+        ])('%s', async (_label, settings, expected) => {
+            initKeaTests(true, { conversations_settings: settings } as unknown as TeamType)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toMatchValues({ aiEscalationCoversFixRun: expected })
+        })
+    })
+
     describe('setAiDiagnosticsEnabled', () => {
         it('sets loading state and dispatches updateCurrentTeam', async () => {
             logic = supportSettingsLogic()

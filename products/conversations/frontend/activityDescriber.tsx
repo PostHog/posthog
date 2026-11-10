@@ -14,6 +14,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { WorkflowActivityLink } from './components/WorkflowActivityLink/WorkflowActivityLink'
+import { ticketStatusLabels } from './types'
 
 const nameOrLinkToTicket = (
     ticketNumber: string | undefined,
@@ -38,6 +39,11 @@ const formatAssignee = (
     return 'unknown'
 }
 
+// A status shows as its raw value in the activity log. `escalated` alone does not say who took the ticket.
+function describeStatus(value: unknown): string {
+    return value === 'escalated' ? ticketStatusLabels.escalated : (value as string)
+}
+
 const ticketActionsMapping: Record<
     string,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
@@ -46,8 +52,8 @@ const ticketActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed status from <strong>{change?.before as string}</strong> to{' '}
-                    <strong>{change?.after as string}</strong>
+                    changed status from <strong>{describeStatus(change?.before)}</strong> to{' '}
+                    <strong>{describeStatus(change?.after)}</strong>
                 </>,
             ],
         }

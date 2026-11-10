@@ -2650,7 +2650,7 @@ support_tickets: PostgresTable = PostgresTable(
             name="distinct_id", description="Distinct id of the person who opened the ticket."
         ),
         "status": StringDatabaseField(
-            name="status", description="Ticket status: 'new', 'open', 'pending', 'on_hold', or 'resolved'."
+            name="status", description="Ticket status: 'new', 'open', 'pending', 'on_hold', 'escalated', or 'resolved'."
         ),
         "priority": StringDatabaseField(
             name="priority", nullable=True, description="Ticket priority, e.g. 'low', 'high'."

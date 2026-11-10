@@ -139,8 +139,8 @@
                 "status": {
                     "description": "Ticket statuses to include. Empty or omitted means all statuses.",
                     "items": {
-                        "description": "* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved",
-                        "enum": ["new", "open", "pending", "on_hold", "resolved"],
+                        "description": "* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `escalated` - Escalated to Self-driving\n* `resolved` - Resolved",
+                        "enum": ["new", "open", "pending", "on_hold", "escalated", "resolved"],
                         "type": "string"
                     },
                     "type": "array"

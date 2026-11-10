@@ -33,7 +33,7 @@ class TestTicketSlaHighlight(SimpleTestCase):
                 3,
                 "3 tickets assigned to Support breach their SLA within 24 hours",
                 "Ticket #12 is the soonest.",
-                f"/support/tickets?assignee=role:{ROLE_ID}&status=new&status=open&status=pending&status=on_hold&order_by=sla_due_at",
+                f"/support/tickets?assignee=role:{ROLE_ID}&status=new&status=open&status=pending&status=on_hold&status=escalated&order_by=sla_due_at",
             ),
         ]
     )

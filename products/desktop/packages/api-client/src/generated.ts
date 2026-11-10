@@ -6867,7 +6867,14 @@ export namespace Schemas {
     }>;
     export type ConversationsRecentTicketsWidgetConfig = Partial<{
         limit: number;
-        status: "new" | "open" | "pending" | "on_hold" | "resolved" | "all";
+        status:
+            | "new"
+            | "open"
+            | "pending"
+            | "on_hold"
+            | "escalated"
+            | "resolved"
+            | "all";
         priorities: Array<"low" | "medium" | "high" | "critical">;
         channel: "widget" | "email" | "slack" | "teams" | "github" | "all";
         assignees: Array<("me" | "unassigned") | WidgetAssigneeFilter>;
@@ -16630,6 +16637,7 @@ export namespace Schemas {
      * * `open` - Open
      * * `pending` - Pending
      * * `on_hold` - On hold
+     * * `escalated` - Escalated to Self-driving
      * * `resolved` - Resolved
      */
     export type TicketStatusEnum =
@@ -16637,6 +16645,7 @@ export namespace Schemas {
         | "open"
         | "pending"
         | "on_hold"
+        | "escalated"
         | "resolved";
     /**
      * * `low` - Low

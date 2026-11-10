@@ -252,7 +252,12 @@ def validate_conversations_settings(
             raise serializers.ValidationError(
                 {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
             )
-    for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave", "slack_nudge_enabled"):
+    for toggle_key in (
+        "slack_notify_on_join",
+        "slack_notify_on_leave",
+        "slack_nudge_enabled",
+        "ai_escalation_covers_fix_run",
+    ):
         if toggle_key in value:
             value[toggle_key] = bool(value[toggle_key])
     if "slack_alert_channel_id" in value:

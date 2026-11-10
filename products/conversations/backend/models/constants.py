@@ -31,6 +31,8 @@ class TicketStatus(models.TextChoices):
     OPEN = "open", "Open"
     PENDING = "pending", "Pending"
     ON_HOLD = "on_hold", "On hold"
+    # Set while a Self-driving agent works on the ticket. A person cannot pick it.
+    ESCALATED = "escalated", "Escalated to Self-driving"
     RESOLVED = "resolved", "Resolved"
 
 

@@ -477,6 +477,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     open: 0,
                     pending: 0,
                     on_hold: 0,
+                    escalated: 0,
                     resolved: 0,
                 }
                 for (const ticket of tickets) {

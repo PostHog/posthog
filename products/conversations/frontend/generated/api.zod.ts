@@ -83,13 +83,13 @@ export const ConversationsMacrosPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
     .object({
         status: zod
-            .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+            .enum(['new', 'open', 'pending', 'on_hold', 'escalated', 'resolved'])
             .describe(
-                '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `escalated` - Escalated to Self-driving\n\* `resolved` - Resolved'
             )
             .optional()
             .describe(
-                'Ticket status: new, open, pending, on_hold, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                'Ticket status: new, open, pending, on_hold, escalated, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `escalated` - Escalated to Self-driving\n\* `resolved` - Resolved'
             ),
         priority: zod
             .union([
@@ -139,13 +139,13 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
 export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         status: zod
-            .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+            .enum(['new', 'open', 'pending', 'on_hold', 'escalated', 'resolved'])
             .describe(
-                '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `escalated` - Escalated to Self-driving\n\* `resolved` - Resolved'
             )
             .optional()
             .describe(
-                'Ticket status: new, open, pending, on_hold, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                'Ticket status: new, open, pending, on_hold, escalated, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `escalated` - Escalated to Self-driving\n\* `resolved` - Resolved'
             ),
         priority: zod
             .union([
@@ -339,12 +339,12 @@ export const ConversationsTicketsBulkUpdateStatusCreateBody = /* @__PURE__ */ zo
         .max(conversationsTicketsBulkUpdateStatusCreateBodyIdsMax)
         .describe('List of ticket UUIDs to update.'),
     status: zod
-        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+        .enum(['new', 'open', 'pending', 'on_hold', 'escalated', 'resolved'])
         .describe(
-            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `escalated` - Escalated to Self-driving\n\* `resolved` - Resolved'
         )
         .describe(
-            'New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+            'New status to apply to all selected tickets: new, open, pending, on_hold, escalated, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `escalated` - Escalated to Self-driving\n\* `resolved` - Resolved'
         ),
 })
 
@@ -452,9 +452,9 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
             status: zod
                 .array(
                     zod
-                        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+                        .enum(['new', 'open', 'pending', 'on_hold', 'escalated', 'resolved'])
                         .describe(
-                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `escalated` - Escalated to Self-driving\n\* `resolved` - Resolved'
                         )
                 )
                 .optional()
@@ -600,9 +600,9 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
             status: zod
                 .array(
                     zod
-                        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+                        .enum(['new', 'open', 'pending', 'on_hold', 'escalated', 'resolved'])
                         .describe(
-                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `escalated` - Escalated to Self-driving\n\* `resolved` - Resolved'
                         )
                 )
                 .optional()

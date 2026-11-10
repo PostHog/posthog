@@ -5,6 +5,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { urls } from 'scenes/urls'
 
+import { ticketStatusTagLabel } from '../../ticketStatusTagLabel'
 import { Ticket } from '../../types'
 
 interface PreviousTicketsPanelProps {
@@ -76,7 +77,7 @@ export function PreviousTicketsPanel({
                                                                   : 'default'
                                                         }
                                                     >
-                                                        {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
+                                                        {ticketStatusTagLabel(ticket.status, 'team')}
                                                     </LemonTag>
                                                 </div>
                                                 {ticket.last_message_text && (
