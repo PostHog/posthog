@@ -18,7 +18,6 @@ export async function claimSandboxCaps(
         return { ok: false, reason: 'cap_storage_unavailable' }
     }
     const recipientDigest = createHash('sha256').update(storedAddress.toLowerCase()).digest('hex')
-    // The organization hash tag puts both buckets in one cluster slot, which the one-script claim needs.
     const keyPrefix = `@posthog/sandbox-email/{${organizationId}}`
     const bucket = (key: string, cap: number) => ({
         key,

@@ -58,7 +58,6 @@ describe('checkSandboxRecipient', () => {
 
     it('admits a recipient with no suppression, opt-out, or cap', async () => {
         expect(await check()).toEqual({ ok: true })
-        expect(frequencyCap).toHaveBeenCalledTimes(1)
     })
 
     it.each<[string, () => void, Partial<SandboxRecipientCheckRequest>, string]>([

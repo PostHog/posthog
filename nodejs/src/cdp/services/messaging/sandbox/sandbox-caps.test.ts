@@ -1,15 +1,16 @@
 import { randomInt, randomUUID } from 'crypto'
+import { Redis } from 'ioredis'
 
+import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { closeHub, createHub } from '~/common/utils/db/hub'
-import { Hub } from '~/types'
+import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
+import { createRedisFromConfig } from '~/common/utils/db/redis'
 
 import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { claimSandboxCaps } from './sandbox-caps'
 
 describe('claimSandboxCaps', () => {
-    let hub: Hub
+    let client: Redis
     let redis: RedisV2
     let limiter: RateLimiterService
     let organizationId: string
@@ -19,22 +20,27 @@ describe('claimSandboxCaps', () => {
         claimSandboxCaps(limiter, caps, { organizationId, teamId: team, storedAddress })
 
     beforeAll(async () => {
-        hub = await createHub()
-        redis = createRedisV2PoolFromConfig({
-            connection: hub.CDP_REDIS_HOST
+        client = await createRedisFromConfig(
+            defaultConfig.CDP_REDIS_HOST
                 ? {
-                      url: hub.CDP_REDIS_HOST,
-                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                      url: defaultConfig.CDP_REDIS_HOST,
+                      options: { port: defaultConfig.CDP_REDIS_PORT, password: defaultConfig.CDP_REDIS_PASSWORD },
                   }
-                : { url: hub.REDIS_URL },
-            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-        })
+                : { url: defaultConfig.REDIS_URL }
+        )
+        redis = {
+            useClient: (_options, callback) => callback(client as unknown as RedisClient),
+            usePipeline: (_options, callback) => {
+                const pipeline = client.pipeline() as unknown as RedisClientPipeline
+                callback(pipeline)
+                return pipeline.exec()
+            },
+        }
         limiter = new RateLimiterService(redis, { name: 'sandbox-email-caps' })
     })
 
     afterAll(async () => {
-        await closeHub(hub)
+        await client.quit()
     })
 
     beforeEach(() => {
