@@ -10,9 +10,9 @@ use crate::app_context::AppContext;
 use crate::error::UnhandledError;
 use crate::issue_resolution::{send_issue_spiking_notification, Issue};
 use crate::metric_consts::{
-    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME, SPIKE_INCREMENT_ISSUE_BUCKETS_TIME,
-    SPIKE_INCREMENT_TEAM_BUCKETS_TIME, SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED,
-    SPIKE_ISSUES_SPIKING,
+    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_FETCH_BUCKETS_ERRORS, SPIKE_GET_SPIKING_ISSUES_TIME,
+    SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
+    SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
 };
 use crate::modes::processing::redis_heal::{heal_on_connection_error, HealGate};
 use crate::modes::processing::rules::spike::SpikeDetectionConfig;
@@ -420,7 +420,14 @@ async fn get_spiking_issues(
         .collect();
 
     let (issue_buckets, team_buckets) =
-        fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await?;
+        match fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await {
+            Ok(data) => data,
+            Err(err) => {
+                warn!("Failed to fetch spike detection buckets: {err}");
+                metrics::counter!(SPIKE_FETCH_BUCKETS_ERRORS).increment(1);
+                return Ok(vec![]);
+            }
+        };
 
     let team_baselines: HashMap<i32, f64> = compute_team_baselines(&team_buckets);
 
@@ -487,7 +494,7 @@ async fn fetch_bucket_data(
         .collect();
 
     let all_keys: Vec<String> = issue_keys.into_iter().chain(team_bucket_keys).collect();
-    let all_values = redis.mget(all_keys).await?;
+    let all_values = redis.get_multiple(all_keys).await?;
     let team_issue_counts = redis.scard_multiple(team_issue_set_keys).await?;
 
     let all_values: Vec<Option<i64>> = all_values
@@ -722,6 +729,32 @@ mod tests {
             get_rounded_to_minutes(dt, 12),
             "2025-12-16T12:24:00Z".to_string()
         );
+    }
+
+    #[tokio::test]
+    async fn test_bucket_reads_do_not_use_cross_slot_mget() {
+        let mut ctx = TestContext::new();
+        ctx.setup_issue_buckets(&[Some(10)]);
+        ctx.setup_team_buckets(&[Some(10)], &[1]);
+
+        ctx.get_spiking().await;
+
+        let ops: Vec<String> = ctx.redis.get_calls().into_iter().map(|c| c.op).collect();
+        assert!(ops.contains(&"get_multiple".to_string()));
+        assert!(!ops.contains(&"mget".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_bucket_read_error_skips_spike_detection() {
+        let mut ctx = TestContext::new();
+        ctx.redis
+            .mget_error(common_redis::CustomRedisError::Timeout);
+        let configs = HashMap::from([(ctx.team_id, SpikeDetectionConfig::default())]);
+        let samples = HashMap::from([(ctx.issue_id, spike_sample(ctx.issue_id))]);
+
+        let result = get_spiking_issues(&ctx.redis, &ctx.issues_by_id(), &samples, &configs).await;
+
+        assert!(result.unwrap().is_empty());
     }
 
     // ISSUE BUCKETS (most recent first): 500, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10
