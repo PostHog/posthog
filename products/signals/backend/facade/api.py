@@ -47,8 +47,6 @@ from products.signals.backend.activity_summary.read import (
 from products.signals.backend.activity_summary.search import (
     ActivitySummarySearchResult as ActivitySummarySearchResult,
     MatchKind as MatchKind,
-    SearchMode as SearchMode,
-    SemanticSearchUnavailable as SemanticSearchUnavailable,
     search_summaries,
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
@@ -78,6 +76,10 @@ from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalS
 from products.signals.backend.facade.source_scouts import (
     SOURCE_TEMPLATE_HASH_METADATA_KEY,
     SOURCE_TEMPLATE_METADATA_KEY,
+)
+from products.signals.backend.hybrid_search import (
+    SearchMode as SearchMode,
+    SemanticSearchUnavailable as SemanticSearchUnavailable,
 )
 from products.signals.backend.inbox_summary import (
     INBOX_SUMMARY_PERIOD as INBOX_SUMMARY_PERIOD,
