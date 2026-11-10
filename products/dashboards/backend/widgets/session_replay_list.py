@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 ValidatedSessionReplayListWidgetConfig = dict[str, Any]
 
 DEFAULT_RECORDINGS_DATE_FROM = "-7d"
+# Recordings queries read "all" as a calendar date (today), so a dashboard's "all time" range reads the
+# widest range that the widget offers.
+ALL_TIME_RECORDINGS_DATE_FROM = "-90d"
 
 ORDER_BY_TO_RECORDING_ORDER: dict[str, RecordingOrder] = {
     "start_time": RecordingOrder.START_TIME,
@@ -101,15 +104,14 @@ def _apply_dashboard_filters(
     update: dict[str, Any] = {}
     if dashboard_filters.has_date_range:
         update["date_from"], update["date_to"] = dashboard_filters.resolve_date_range(
-            config, DEFAULT_RECORDINGS_DATE_FROM
+            config, DEFAULT_RECORDINGS_DATE_FROM, all_time_date_from=ALL_TIME_RECORDINGS_DATE_FROM
         )
     if dashboard_filters.filter_test_accounts is not None:
         update["filter_test_accounts"] = dashboard_filters.filter_test_accounts
     if dashboard_filters.properties:
-        update["properties"] = [
-            *(query.model_dump(mode="json", exclude_none=True).get("properties") or []),
-            *dashboard_filters.properties,
-        ]
+        update["properties"] = dashboard_filters.with_properties(
+            query.model_dump(mode="json", exclude_none=True).get("properties")
+        )
     if not update:
         return query
     # Validate rather than assign, so the dashboard's property dicts become typed filters.
@@ -133,7 +135,9 @@ def _build_recordings_query(
     query = _build_saved_filter_recordings_query(team, config, saved_filter_id, user) if saved_filter_id else None
 
     if query is None:
-        date_from, date_to = dashboard_filters.resolve_date_range(config, DEFAULT_RECORDINGS_DATE_FROM)
+        date_from, date_to = dashboard_filters.resolve_date_range(
+            config, DEFAULT_RECORDINGS_DATE_FROM, all_time_date_from=ALL_TIME_RECORDINGS_DATE_FROM
+        )
         params: dict[str, Any] = {
             "limit": config["limit"],
             "offset": 0,

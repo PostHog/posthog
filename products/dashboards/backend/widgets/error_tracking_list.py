@@ -13,7 +13,10 @@ from products.dashboards.backend.widget_specs.configs import ERROR_TRACKING_LIST
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.dashboards.backend.widgets.dashboard_filters import NO_DASHBOARD_FILTERS, WidgetDashboardFilters
 from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
-from products.dashboards.backend.widgets.widget_filters import build_property_group_filter_from_widget_filters
+from products.dashboards.backend.widgets.widget_filters import (
+    build_event_property_filters_from_widget_filters,
+    build_property_group_filter,
+)
 from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
 from products.error_tracking.backend.facade.query_utils import (
     ERROR_TRACKING_LISTING_VOLUME_RESOLUTION,
@@ -53,8 +56,8 @@ def _build_error_tracking_list_query(
     if dashboard_filters.has_date_range:
         date_from, date_to = dashboard_filters.resolve_date_range(config, DEFAULT_ERROR_TRACKING_DATE_FROM)
         date_range_raw = {"date_from": date_from, "date_to": date_to}
-    filter_group = build_property_group_filter_from_widget_filters(
-        config.get("widgetFilters"), dashboard_filters.properties
+    filter_group = build_property_group_filter(
+        dashboard_filters.with_properties(build_event_property_filters_from_widget_filters(config.get("widgetFilters")))
     )
     return ErrorTrackingQuery(
         kind="ErrorTrackingQuery",

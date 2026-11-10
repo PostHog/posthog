@@ -70,12 +70,9 @@ def _resolve_person_display_names(team: Team, rows: list[SurveyResponseRow]) -> 
 def _resolve_date_bounds(
     config: dict[str, Any], team: Team, dashboard_filters: WidgetDashboardFilters
 ) -> tuple[datetime | None, datetime | None]:
-    """Translate the date range (e.g. ``-7d``) into concrete bounds.
-
-    A None bound is open, so with no range set stats and responses cover the survey's lifetime.
-    """
+    """A None bound is open, so with no range set stats and responses cover the survey's lifetime."""
     date_from, date_to = dashboard_filters.resolve_date_range(config, None)
-    return parse_widget_datetime(date_from, team), parse_widget_datetime(date_to, team)
+    return parse_widget_datetime(date_from, team), parse_widget_datetime(date_to, team, end_of_day=True)
 
 
 def run_survey_results_widget(

@@ -6564,29 +6564,20 @@ describe('dashboardLogic', () => {
             })
         })
 
-        it('refetches a fresh widget when the dashboard filters change, and sends them', async () => {
+        it('does not refetch a fresh widget for the same dashboard filters', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], filters: { date_from: '-30d' } })
             }).toFinishAllListeners()
             fetchRunWidgetsMock.mockClear()
 
             await expectLogic(logic, () => {
                 logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], filters: { date_from: '-30d' } })
             }).toFinishAllListeners()
-            await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], filters: { date_from: '-30d' } })
-            }).toFinishAllListeners()
 
-            expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(1)
-            expect(fetchRunWidgetsMock).toHaveBeenCalledWith(
-                String(MOCK_TEAM_ID),
-                5,
-                [WIDGET_TILE.id],
-                expect.objectContaining({ filtersOverride: expect.objectContaining({ date_from: '-30d' }) })
-            )
+            expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
         })
 
         it('does not fetch run_widgets on public placement', async () => {

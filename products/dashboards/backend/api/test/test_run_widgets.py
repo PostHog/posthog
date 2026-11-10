@@ -705,35 +705,43 @@ class TestDashboardRunWidgets(APIBaseTest):
     @parameterized.expand(
         [
             (
-                "activity_events_list",
-                "products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner",
-                run_activity_events_list_widget,
-                lambda query: (query.after, query.before, query.filterTestAccounts, query.properties[-1].key),
-                ("-30d", "-1d", True, "$browser"),
-            ),
-            (
                 "error_tracking_list",
                 "products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner",
                 run_error_tracking_list_widget,
+                {
+                    "limit": 5,
+                    "dateRange": {"date_from": "-1h"},
+                    "filterTestAccounts": False,
+                    "widgetFilters": {
+                        "filter-1": {
+                            "filterId": "filter-1",
+                            "propertyName": "$os",
+                            "optionId": "opt-1",
+                            "operator": "exact",
+                            "value": "Mac OS X",
+                        }
+                    },
+                },
                 lambda query: (
                     query.dateRange.date_from,
                     query.dateRange.date_to,
                     query.filterTestAccounts,
-                    query.filterGroup.values[0].values[-1].key,
+                    [prop.key for prop in query.filterGroup.values[0].values],
                 ),
-                ("-30d", "-1d", True, "$browser"),
+                ("-30d", "-1d", True, ["$os", "$browser"]),
             ),
             (
                 "logs_list",
                 "products.dashboards.backend.widgets.logs_list.LogsQueryRunner",
                 run_logs_list_widget,
+                {"limit": 5, "dateRange": {"date_from": "-1h"}},
                 lambda query: (query.dateRange.date_from, query.dateRange.date_to),
                 ("-30d", "-1d"),
             ),
         ]
     )
     def test_widget_runner_applies_dashboard_filters(
-        self, _widget_type: str, runner_path: str, run_widget: Any, read_query: Any, expected: tuple
+        self, _widget_type: str, runner_path: str, run_widget: Any, config: dict, read_query: Any, expected: tuple
     ) -> None:
         dashboard_filters = WidgetDashboardFilters(
             date_from="-30d",
@@ -745,12 +753,7 @@ class TestDashboardRunWidgets(APIBaseTest):
             mock_runner_cls.return_value.calculate.return_value = MagicMock(
                 model_dump=lambda mode="json": {"results": [], "hasMore": False}
             )
-            run_widget(
-                self.team,
-                {"limit": 5, "dateRange": {"date_from": "-1h"}, "filterTestAccounts": False},
-                user=self.user,
-                dashboard_filters=dashboard_filters,
-            )
+            run_widget(self.team, config, user=self.user, dashboard_filters=dashboard_filters)
 
         self.assertEqual(read_query(mock_runner_cls.call_args.kwargs["query"]), expected)
 
@@ -775,7 +778,7 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         query = mock_list_recordings.call_args.kwargs["query"]
         self.assertEqual((query.date_from, query.date_to, query.filter_test_accounts), ("-30d", "-1d", True))
-        self.assertEqual([prop.key for prop in query.properties or []][-1], "$current_url")
+        self.assertEqual([prop.key for prop in query.properties or []], ["$browser", "$current_url"])
 
     @parameterized.expand([("event", "$current_url"), ("person", "email")])
     @patch("products.dashboards.backend.widgets.activity_events_list.restricted_property_names")

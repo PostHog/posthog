@@ -2161,7 +2161,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             forceRefresh?: boolean
             previewUnsavedFilters?: boolean
         }) => payload,
-        /** `filters` defaults to the dashboard filters the insight tiles last loaded with. */
+        /** `filters` defaults to the applied dashboard filters (saved, URL, or a previewed change). */
         refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean; filters?: DashboardFilter }) =>
             payload,
         toggleTileGroup: (groupKey: string) => ({ groupKey }),
@@ -6051,7 +6051,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const widgetTileIds = tiles.filter((tile) => tile.widget).map((tile) => tile.id)
             if (widgetTileIds.length > 0) {
-                actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: waiting.forceRefresh })
+                actions.refreshDashboardWidgets({
+                    tileIds: widgetTileIds,
+                    forceRefresh: waiting.forceRefresh,
+                    filters: combineDashboardFilters(waiting.settings.filters, values.externalFilters),
+                })
             }
 
             const insightTiles = tiles.filter(
@@ -6102,8 +6106,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 filters ?? combineDashboardFilters(values.settingsForRefresh.filters, values.externalFilters),
                 values.savedDashboardSettings.filters.metricVariables ?? []
             )
-            // A tile loaded with other dashboard filters is stale whatever its age.
-            const filtersKey = JSON.stringify(filtersOverride)
+            // A tile loaded with other dashboard filters is stale whatever its age. The key holds only the
+            // filters that widgets read, so an interval or breakdown change does not reload every widget.
+            const filtersKey = JSON.stringify([
+                filtersOverride.date_from ?? null,
+                filtersOverride.date_to ?? null,
+                filtersOverride.filterTestAccounts ?? null,
+                filtersOverride.properties ?? null,
+            ])
             cache.widgetFiltersKeys ??= new Map<number, string>()
             const filtersChanged = (tileId: number): boolean => cache.widgetFiltersKeys.get(tileId) !== filtersKey
 
@@ -6168,14 +6178,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
                     }
                 } catch {
+                    const ownedTileIds = chunk.filter((tileId) => cache.widgetFiltersKeys.get(tileId) === filtersKey)
                     if (chunkSignal.aborted) {
                         // After a manual refresh a newer load owns the tile, and its status must stay with that load.
-                        actions.stopWidgetRefreshes(
-                            chunk.filter((tileId) => cache.widgetLoadSignals.get(tileId) === signal)
+                        const stoppedTileIds = ownedTileIds.filter(
+                            (tileId) => cache.widgetLoadSignals.get(tileId) === signal
                         )
+                        // The tile still shows results for its previous filters, so the next load must not skip it.
+                        stoppedTileIds.forEach((tileId) => cache.widgetFiltersKeys.delete(tileId))
+                        actions.stopWidgetRefreshes(stoppedTileIds)
                         return
                     }
-                    actions.setWidgetRefreshStatuses(chunk, false, DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
+                    actions.setWidgetRefreshStatuses(ownedTileIds, false, DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
                 } finally {
                     finish()
                 }

@@ -19,6 +19,8 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     merge_filters_by_priority,
     normalize_dashboard_filters_properties,
 )
+from posthog.hogql_queries.utils.dashboard_filter_conflicts import filters_contradict
+from posthog.hogql_queries.utils.query_date_range import CALENDAR_DAY_RE
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
 
@@ -41,10 +43,20 @@ class WidgetDashboardFilters:
         return self.date_from is not None or self.date_to is not None
 
     def resolve_date_range(
-        self, config: Mapping[str, Any], default_date_from: str | None
+        self,
+        config: Mapping[str, Any],
+        default_date_from: str | None,
+        *,
+        all_time_date_from: str | None = ALL_TIME_DATE_FROM,
     ) -> tuple[str | None, str | None]:
-        """The date range a widget queries: the dashboard's when it sets one, else the widget's preset."""
+        """The date range a widget queries: the dashboard's when it sets one, else the widget's preset.
+
+        Pass `all_time_date_from` when the widget's query cannot read the dashboard's "all time" value,
+        to replace it with the widest range that the query supports.
+        """
         if self.has_date_range:
+            if self.date_from == ALL_TIME_DATE_FROM:
+                return all_time_date_from, self.date_to
             return self.date_from or default_date_from, self.date_to
         date_range = config.get("dateRange")
         if isinstance(date_range, Mapping) and isinstance(date_range.get("date_from"), str):
@@ -57,16 +69,31 @@ class WidgetDashboardFilters:
         return resolve_filter_test_accounts(config, team)
 
     def with_properties(self, property_filters: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-        return [*(property_filters or []), *self.properties]
+        # Same rule as insight tiles: a widget filter that a dashboard filter contradicts is dropped, so
+        # `$browser = Chrome` on the widget and `$browser = Firefox` on the dashboard shows Firefox, not nothing.
+        own_filters = [
+            own
+            for own in property_filters or []
+            if not any(filters_contradict(own, dashboard_filter) for dashboard_filter in self.properties)
+        ]
+        return [*own_filters, *self.properties]
 
 
 NO_DASHBOARD_FILTERS = WidgetDashboardFilters()
 
 
-def parse_widget_datetime(value: str | None, team: Team) -> datetime | None:
+def parse_widget_datetime(value: str | None, team: Team, *, end_of_day: bool = False) -> datetime | None:
+    """Parse a widget date bound. "all" and None give an open bound.
+
+    Set `end_of_day` for an upper bound, so that a calendar day such as `2026-09-01` includes that whole
+    day, as it does on insight tiles.
+    """
     if value is None or value == ALL_TIME_DATE_FROM:
         return None
-    return relative_date_parse(value, team.timezone_info)
+    parsed = relative_date_parse(value, team.timezone_info)
+    if end_of_day and CALENDAR_DAY_RE.fullmatch(value.strip()):
+        return parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return parsed
 
 
 def build_widget_dashboard_filters(
@@ -75,8 +102,6 @@ def build_widget_dashboard_filters(
     supported: frozenset[WidgetDashboardFilterKind],
 ) -> WidgetDashboardFilters:
     """Merge the dashboard and tile filter layers like insight tiles do, keeping only the supported kinds."""
-    if not supported:
-        return NO_DASHBOARD_FILTERS
     effective = normalize_dashboard_filters_properties(
         merge_filters_by_priority(dashboard_filters or {}, tile_filters_overrides or {})
     )

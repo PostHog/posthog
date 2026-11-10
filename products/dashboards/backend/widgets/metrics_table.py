@@ -39,6 +39,8 @@ from products.metrics.backend.facade.contracts import (
 from products.metrics.backend.facade.enums import FilterOp, MetricAggregation, MetricRangeFunction
 
 DEFAULT_METRICS_TABLE_DATE_FROM = "-1h"
+# Metrics queries cover at most 30 days, so a dashboard's "all time" range reads the last 30 days.
+METRICS_TABLE_MAX_DATE_FROM = "-30d"
 
 # A counter column sums the per-series change, so each row is the total for its label value.
 _COUNTER_FUNCTIONS = {"rate": MetricRangeFunction.RATE, "increase": MetricRangeFunction.INCREASE}
@@ -137,11 +139,13 @@ def run_metrics_table_widget(
     if not group_by or not columns:
         return {"needsConfiguration": True, "groupBy": group_by, "columns": [], "rows": [], "totalCount": 0}
 
-    date_from_value, date_to_value = dashboard_filters.resolve_date_range(typed_config, DEFAULT_METRICS_TABLE_DATE_FROM)
+    date_from_value, date_to_value = dashboard_filters.resolve_date_range(
+        typed_config, DEFAULT_METRICS_TABLE_DATE_FROM, all_time_date_from=METRICS_TABLE_MAX_DATE_FROM
+    )
     date_from = parse_widget_datetime(date_from_value, team) or relative_date_parse(
         DEFAULT_METRICS_TABLE_DATE_FROM, team.timezone_info
     )
-    date_to = parse_widget_datetime(date_to_value, team) or timezone.now()
+    date_to = parse_widget_datetime(date_to_value, team, end_of_day=True) or timezone.now()
     clauses = tuple(_clause(index, column, group_by) for index, column in enumerate(columns))
 
     def run(max_buckets: int) -> list[MetricSeries]:

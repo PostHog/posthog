@@ -380,7 +380,6 @@ class _RunWidgetQueryWorkItem(TypedDict):
     query_fn: Any
     config: dict[str, Any]
     user: User | None
-    # Only set for widget types that declare `dashboard_filters` support.
     dashboard_filters: NotRequired[WidgetDashboardFilters]
 
 
@@ -4221,7 +4220,7 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
         distinct_id = str(cast(User, request.user).distinct_id)
-        dashboard_filters = filters_override_requested_by_client(request, dashboard)
+        requested_dashboard_filters = filters_override_requested_by_client(request, dashboard)
 
         tiles_by_id = {
             tile.id: tile
@@ -4305,9 +4304,21 @@ class DashboardsViewSet(
             }
             supported_dashboard_filters = registry_entry.get("dashboard_filters") or frozenset()
             if supported_dashboard_filters:
-                work_item["dashboard_filters"] = build_widget_dashboard_filters(
-                    dashboard_filters, tile.filters_overrides, supported_dashboard_filters
-                )
+                try:
+                    work_item["dashboard_filters"] = build_widget_dashboard_filters(
+                        requested_dashboard_filters, tile.filters_overrides, supported_dashboard_filters
+                    )
+                except ValueError:
+                    # Rows saved before filter validation can hold property groups that cannot merge. Fail
+                    # only this tile, so the other tiles in the batch still load.
+                    logger.exception("dashboard_run_widgets_filters_invalid", tile_id=tile_id)
+                    results_by_id[tile_id] = {
+                        "tile_id": tile_id,
+                        "widget_type": widget.widget_type,
+                        "result": None,
+                        "error": "Couldn't apply the dashboard filters to this tile. Clear the dashboard and tile filters, then try again.",
+                    }
+                    continue
             query_work_items.append(work_item)
 
         if query_work_items:

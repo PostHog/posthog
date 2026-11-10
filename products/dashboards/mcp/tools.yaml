@@ -665,7 +665,11 @@ tools:
             IDs (tiles with a widget field). Pass tile_ids as a comma-separated list. Each successful result is a
             widget-type-specific payload (see run_widgets OpenAPI response and dashboard-widget-catalog-list
             config_schema). Returns per-tile errors when the caller lacks product access for a widget type (see
-            required_product_access on dashboard-widget-catalog-list). Not available on public/shared dashboard views.
+            required_product_access on dashboard-widget-catalog-list). The dashboard's saved filters apply to the widgets
+            that support them: the date range applies to the events, error tracking, session replay, logs, metrics
+            table, and survey widgets, and test-account and property filters also apply to the events, error tracking,
+            and session replay widgets. Pass filters_override
+            to use other dashboard filters for this call only. Not available on public/shared dashboard views.
         param_overrides:
             id:
                 cast: string-int
