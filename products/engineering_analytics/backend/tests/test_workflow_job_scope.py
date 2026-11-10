@@ -77,7 +77,7 @@ class TestWorkflowJobScope(_WarehouseMixin):
                         job_id=job_id,
                         attempt_id=attempt_id,
                     ),
-                    **({"ref": None, "head_sha": None, "sha": "sha62"} if key.endswith(":tests") else {}),
+                    **({"head_sha": None, "sha": "sha62"} if key.endswith(":tests") else {}),
                 }
                 for key, job_id, attempt_id in (
                     ("ci.yml:wait-for-handoff", "1111111111", "2222222222"),
