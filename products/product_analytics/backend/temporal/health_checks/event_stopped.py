@@ -228,7 +228,8 @@ def _notification_for(team_id: int, issues: list[HealthIssue]) -> NotificationDa
         more = f" and {len(issues) - 3} more" if len(issues) > 3 else ""
         title = f"{len(issues)} events your insights use stopped arriving"
         body = (
-            f"No {names}{more} events in the last {STOPPED_AFTER.days} days. Check whether your code still sends them."
+            f"These events haven't arrived in the last {STOPPED_AFTER.days} days: {names}{more}. "
+            "Check whether your code still sends them."
         )
         source_url = "/data-management/events"
     return NotificationData(
