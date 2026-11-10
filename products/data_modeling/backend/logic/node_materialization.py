@@ -69,6 +69,8 @@ RELATED_RUN_RAN_RECENTLY_REFUSAL = (
     f"Every view in this run ran less than {humanize_cadence(MANUAL_RUN_MIN_INTERVAL)} ago, so it can't run again yet. "
     "To retry a failed view now, run that view on its own."
 )
+RUN_IN_PROGRESS_REFUSAL = "This view is still running. Try again when the run finishes."
+RELATED_RUN_IN_PROGRESS_REFUSAL = "A view in this run is still running. Try again when that run finishes."
 # A DAG run treats plain views as ephemeral and records no job for them, so they cannot show a recent run.
 DAG_BUILT_NODE_TYPES = SAVED_QUERY_NODE_TYPES - {NodeType.VIEW}
 # Long enough for the state changes that follow the start to commit before the workflow first reads them.
@@ -147,15 +149,16 @@ def _seconds_until_limit_ends(started_at: datetime, now: datetime) -> int:
     return math.ceil((started_at + MANUAL_RUN_MIN_INTERVAL - now).total_seconds())
 
 
-def raise_if_ran_recently(team_id: int, saved_query_id: UUID | str, *, from_browser_session: bool) -> None:
+def raise_if_manual_run_is_refused(team_id: int, saved_query_id: UUID | str, *, from_browser_session: bool) -> None:
     """Refuse a manual run of one view inside the limit. A failed or cancelled latest run can retry at once."""
-    if from_browser_session:
-        return
     now = timezone.now()
     for status, started_at in _latest_runs_inside_limit(
         team_id, {saved_query_id}, now=now, ignored_statuses=frozenset({DataModelingJobStatus.SKIPPED})
     ):
-        if status in (DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED):
+        if from_browser_session:
+            if status == DataModelingJobStatus.RUNNING:
+                raise MaterializationAlreadyRunningError(RUN_IN_PROGRESS_REFUSAL)
+        elif status in (DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED):
             raise MaterializationRanRecentlyError(
                 RAN_RECENTLY_REFUSAL, retry_after_seconds=_seconds_until_limit_ends(started_at, now)
             )
@@ -174,6 +177,13 @@ def _raise_if_every_view_ran_recently(team_id: int, saved_query_ids: AbstractSet
             RELATED_RUN_RAN_RECENTLY_REFUSAL,
             retry_after_seconds=min(_seconds_until_limit_ends(started_at, now) for _, started_at in latest_runs),
         )
+
+
+def _raise_if_any_view_is_running(team_id: int, saved_query_ids: AbstractSet[UUID | str]) -> None:
+    """Refuse a manual run while the latest run of any view it would build is still in progress."""
+    latest_runs = _latest_runs_inside_limit(team_id, saved_query_ids, now=timezone.now())
+    if any(status == DataModelingJobStatus.RUNNING for status, _ in latest_runs):
+        raise MaterializationAlreadyRunningError(RELATED_RUN_IN_PROGRESS_REFUSAL)
 
 
 def _get_node(team_id: int, node_id: UUID | str) -> Node:
@@ -237,12 +247,14 @@ def run_related_node_materializations(
 ) -> list[str]:
     node = _get_node(team_id, node_id)
     node_ids = _related_node_ids(node, direction=direction, user=user, hidden_types=hidden_types)
-    if not from_browser_session:
-        built_saved_query_ids = set(
-            Node.objects.filter(team_id=team_id, id__in=node_ids, type__in=DAG_BUILT_NODE_TYPES)
-            .exclude(saved_query__deleted=True)
-            .values_list("saved_query_id", flat=True)
-        )
+    built_saved_query_ids = set(
+        Node.objects.filter(team_id=team_id, id__in=node_ids, type__in=DAG_BUILT_NODE_TYPES)
+        .exclude(saved_query__deleted=True)
+        .values_list("saved_query_id", flat=True)
+    )
+    if from_browser_session:
+        _raise_if_any_view_is_running(team_id, built_saved_query_ids)
+    else:
         _raise_if_every_view_ran_recently(team_id, built_saved_query_ids)
 
     # The workflow skips suspended nodes, so an explicit run must resume every selected node first.

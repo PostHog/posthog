@@ -318,9 +318,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             403: OpenApiResponse(
                 description="You can't edit every view in the run, or engine is 'trino' and the organization has no managed warehouse."
             ),
-            409: OpenApiResponse(description="engine is 'trino' and a managed warehouse run is already in progress."),
+            409: OpenApiResponse(
+                description="engine is 'trino' and a managed warehouse run is already in progress, or the run started from the PostHog app and a view it would build is still running."
+            ),
             429: OpenApiResponse(
-                description="Every view this run would build ran too recently and has not changed since. Runs with engine 'trino' and runs started from the PostHog app have no such limit. The Retry-After header gives the wait in seconds."
+                description="Every view this run would build ran too recently and has not changed since. Runs with engine 'trino' and runs started from the PostHog app have no such limit; the app refuses a run only while a view is still running. The Retry-After header gives the wait in seconds."
             ),
         },
     )
@@ -337,7 +339,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             MissingDagNodeError,
             clear_incremental_state,
             materialize_saved_query,
-            raise_if_ran_recently,
+            raise_if_manual_run_is_refused,
             run_trino_node_materializations,
         )
 
@@ -386,7 +388,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                     )
             else:
                 # Checked before the watermark is dropped below, so a refused full refresh changes nothing.
-                raise_if_ran_recently(self.team_id, saved_query.id, from_browser_session=from_browser_session)
+                raise_if_manual_run_is_refused(self.team_id, saved_query.id, from_browser_session=from_browser_session)
                 if body.validated_data["full_refresh"]:
                     # Dropping the watermark is the whole mechanism: the next run finds no progress to
                     # build on and rebuilds. Commit it before dispatch, and outside any transaction the

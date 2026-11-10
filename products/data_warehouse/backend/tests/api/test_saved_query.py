@@ -3436,9 +3436,19 @@ class TestSavedQueryRun(APIBaseTest):
         else:
             mock_client.start_workflow.assert_called_once()
 
-    @parameterized.expand([("single_view", {}), ("with_direction", {"direction": "upstream"})])
+    @parameterized.expand(
+        [
+            ("single_view_completed", {}, DataModelingJob.Status.COMPLETED, 200),
+            ("with_direction_completed", {"direction": "upstream"}, DataModelingJob.Status.COMPLETED, 200),
+            ("single_view_running", {}, DataModelingJob.Status.RUNNING, 409),
+            ("full_refresh_running", {"full_refresh": True}, DataModelingJob.Status.RUNNING, 409),
+            ("with_direction_running", {"direction": "upstream"}, DataModelingJob.Status.RUNNING, 409),
+        ]
+    )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_run_from_a_browser_session_is_not_refused_soon_after_the_last_run(self, _name, body, mock_sync_connect):
+    def test_run_from_a_browser_session_is_refused_only_while_a_run_is_in_progress(
+        self, _name, body, job_status, expected_status, mock_sync_connect
+    ):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
         saved_query, _dag, node = self._make_saved_query_with_node("floored_view")
@@ -3447,7 +3457,7 @@ class TestSavedQueryRun(APIBaseTest):
         job = DataModelingJob.objects.create(
             team=self.team,
             saved_query=saved_query,
-            status=DataModelingJob.Status.COMPLETED,
+            status=job_status,
             engine=DataModelingJobEngine.CLICKHOUSE,
         )
         DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(minutes=5))
@@ -3457,8 +3467,8 @@ class TestSavedQueryRun(APIBaseTest):
             body,
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
-        mock_client.start_workflow.assert_called_once()
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(mock_client.start_workflow.call_count, 1 if expected_status == 200 else 0)
 
     @parameterized.expand(
         [
