@@ -719,10 +719,10 @@ export interface sqlEditorLogicValues {
     queryModifiers: HogQLQueryModifiers | null
     rejectText: string
     saveAsMetricModal: SaveAsMetricModalState | null
+    saveAsViewDisabledReason: string | null
     savingMetricAs: MetricSaveAction | null
     selectedConnectionId: string | undefined
     selectedConnectionSupportsHogQL: boolean
-    saveAsViewDisabledReason: string | null
     selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
     selectedQueryColumns: Record<string, boolean>
     selectedQueryTablesAndColumns: Record<string, Record<string, boolean>>
@@ -1316,6 +1316,7 @@ export interface sqlEditorLogicMeta {
         ) => boolean
         exportContext: (sourceQuery: DataVisualizationNode) => ExportContext
         selectedConnectionId: (sourceQuery: DataVisualizationNode) => string | undefined
+        saveAsViewDisabledReason: (sourceQuery: DataVisualizationNode) => string | null
         selectedSchemaConnectionId: (
             sourceQuery: DataVisualizationNode,
             selectedConnectionId: string | undefined
