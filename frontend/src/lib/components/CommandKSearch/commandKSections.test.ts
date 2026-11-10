@@ -345,6 +345,32 @@ describe('buildSections', () => {
         expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'persons', item: { id: 'person-1' } }])
     })
 
+    it('keeps the See all persons row when every person of a full page ranks into Best matches', () => {
+        const persons: SearchItem[] = Array.from({ length: SECONDARY_LIMIT }, (_, index) => ({
+            id: `person-${index}`,
+            name: `ada.l${index}@example.com`,
+            displayName: `ada.l${index}@example.com`,
+            category: 'persons',
+            record: { type: 'person', ref: String(index) },
+        }))
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { 'ada.l': [] } }
+        remote.persons = { cache: { 'ada.l': persons } }
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'ada.l', persons: 'ada.l' },
+                localQuery: 'ada.l',
+                personsFirst: true,
+            })
+        )
+
+        expect(sections.map((section) => [section.key, section.rows.map((row) => row.kind)])).toEqual([
+            ['best-matches', Array(SECONDARY_LIMIT).fill('item')],
+            ['persons', ['scope']],
+        ])
+    })
+
     test.each(['results', 'accounts'] as const)('waits for both ranked sources when %s loads first', (firstSource) => {
         const account: SearchItem = {
             id: 'account-1',

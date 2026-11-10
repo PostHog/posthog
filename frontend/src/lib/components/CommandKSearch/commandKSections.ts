@@ -183,9 +183,9 @@ function remoteSection(
     found: SearchItem[] = items
 ): CommandKSection | null {
     const limit = source === 'results' ? RESULTS_LIMIT : SECONDARY_LIMIT
-    return items.length > 0
-        ? { ...readySection(source, [...itemRows(source, items, limit), ...seeAllRows(source, found)]), state }
-        : null
+    // When ranking moves every found item into Results, the section keeps only its See all row.
+    const rows = [...itemRows(source, items, limit), ...seeAllRows(source, found)]
+    return rows.length > 0 ? { ...readySection(source, rows), state } : null
 }
 
 export interface SuggestionsLoading {
