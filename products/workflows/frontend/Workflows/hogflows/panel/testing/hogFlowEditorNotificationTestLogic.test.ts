@@ -606,6 +606,14 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             expect(logic.values.testRecipientDisabledReason).toEqual(reason)
         })
 
+        it('waits for the members before it judges who can receive a sandbox step test', async () => {
+            await expectLogic(workflowLogicInstance).toDispatchActions(['loadWorkflowSuccess'])
+            workflowLogicInstance.actions.setWorkflowValues({ actions: [SANDBOX_STEP] })
+            logic.actions.setSelectedNodeId('email')
+
+            expect(logic.values.testRecipientDisabledReason).toEqual('Loading verified members')
+        })
+
         it('records a sandbox test send for the tested step after the selection moves on', async () => {
             const events: { event: string; properties: unknown }[] = []
             jest.mocked(posthog.capture).mockImplementation((event, properties) => {

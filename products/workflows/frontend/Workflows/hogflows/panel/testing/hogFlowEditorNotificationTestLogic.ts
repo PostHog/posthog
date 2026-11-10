@@ -39,6 +39,7 @@ const STANDARD_SEARCH_RANGE = `-7d`
 export interface hogFlowEditorNotificationTestLogicValues {
     selectedNodeId: string | null // hogFlowEditorLogic
     meFirstMembers: OrganizationMemberType[] // membersLogic
+    members: OrganizationMemberType[] | null // membersLogic
     membersLoading: boolean // membersLogic
     workflow: HogFlow // workflowLogic
     workflowSanitized: HogFlow // workflowLogic
@@ -236,8 +237,9 @@ export interface hogFlowEditorNotificationTestLogicMeta {
         ) => string | null
         testRecipientDisabledReason: (
             sandboxTestMembers: OrganizationMemberType[] | null,
+            members: any,
             membersLoading: boolean,
-            membersLoadFailed: any,
+            membersLoadFailed: boolean,
             testRecipient: string | null
         ) => string | null
     }
@@ -271,7 +273,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             hogFlowEditorLogic,
             ['selectedNodeId'],
             membersLogic,
-            ['meFirstMembers', 'membersLoading'],
+            ['meFirstMembers', 'members', 'membersLoading'],
         ],
         actions: [
             hogFlowEditorLogic,
@@ -408,9 +410,10 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             },
         ],
         testRecipientDisabledReason: [
-            (s) => [s.sandboxTestMembers, s.membersLoading, s.membersLoadFailed, s.testRecipient],
+            (s) => [s.sandboxTestMembers, s.members, s.membersLoading, s.membersLoadFailed, s.testRecipient],
             (
                 sandboxTestMembers: OrganizationMemberType[] | null,
+                members: OrganizationMemberType[] | null,
                 membersLoading: boolean,
                 membersLoadFailed: boolean,
                 testRecipient: string | null
@@ -420,6 +423,9 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 }
                 if (sandboxTestMembers && membersLoadFailed) {
                     return "Couldn't load your organization's members. Refresh the page to try again."
+                }
+                if (sandboxTestMembers && members === null) {
+                    return 'Loading verified members'
                 }
                 if (sandboxTestMembers?.length === 0) {
                     return 'No one in your organization has verified their email address yet. Verify yours to send a sandbox test.'

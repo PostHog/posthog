@@ -51,10 +51,41 @@ describe('sandboxSenderLogic', () => {
     })
 
     it.each([
-        ['the sender was never set up', 'not attempted', "The sandbox sender isn't set up for this project yet."],
-        ['setting up the sender failed', 'fails', "This organization can't use the sandbox sender."],
-        ['setting up the sender succeeded', 'succeeds', null],
-    ])('tells a sandbox step when %s', async (_, provisioning, expectedProblem) => {
+        [
+            'the sender was never set up',
+            {},
+            'not attempted',
+            { problem: "The sandbox sender isn't set up for this project yet.", canSetUp: true },
+        ],
+        [
+            'the sender is being set up',
+            {},
+            'in flight',
+            { problem: "The sandbox sender isn't set up for this project yet.", canSetUp: true },
+        ],
+        [
+            'setting up the sender failed',
+            {},
+            'fails',
+            { problem: "This organization can't use the sandbox sender.", canSetUp: true },
+        ],
+        ['setting up the sender succeeded', {}, 'succeeds', null],
+        [
+            'the organization is blocked',
+            { organization_blocked: true },
+            'not attempted',
+            { problem: 'Sandbox email is turned off for your organization. Choose your own sender.', canSetUp: false },
+        ],
+        [
+            'the project cannot adopt the sender',
+            { adoption_enabled: false },
+            'not attempted',
+            {
+                problem: "The sandbox sender isn't available for this project. Choose your own sender.",
+                canSetUp: false,
+            },
+        ],
+    ])('tells a sandbox step when %s', async (_, statusOverrides, provisioning, expectedSetup) => {
         initKeaTests()
         useMocks({
             get: {
@@ -64,25 +95,32 @@ describe('sandboxSenderLogic', () => {
                     display_name: 'Example via PostHog',
                     organization_blocked: false,
                     adoption_enabled: true,
+                    ...statusOverrides,
                 },
             },
             post: {
-                '/api/projects/:team_id/workflow_email_sandbox/provision/': () =>
-                    provisioning === 'fails'
+                '/api/projects/:team_id/workflow_email_sandbox/provision/': async () => {
+                    if (provisioning === 'in flight') {
+                        await new Promise(() => {})
+                    }
+                    return provisioning === 'fails'
                         ? [403, { detail: "This organization can't use the sandbox sender." }]
-                        : [200, { integration_id: 11 }],
+                        : [200, { integration_id: 11 }]
+                },
             },
         })
         const logic = sandboxSenderLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSandboxStatusSuccess'])
 
-        if (provisioning !== 'not attempted') {
+        if (provisioning === 'in flight') {
+            logic.actions.provisionSandboxSender('sender_control')
+        } else if (provisioning !== 'not attempted') {
             logic.actions.provisionSandboxSender('sender_control')
             await expectLogic(logic).toFinishAllListeners()
         }
 
-        expect(logic.values.setupProblem).toEqual(expectedProblem)
+        expect(logic.values.sandboxSetup).toEqual(expectedSetup)
         logic.unmount()
     })
 })

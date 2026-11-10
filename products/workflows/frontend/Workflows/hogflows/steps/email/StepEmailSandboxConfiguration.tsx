@@ -21,7 +21,7 @@ export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmai
     const { actionValidationErrorsById, logicProps, workflow } = useValues(workflowLogic)
     const { sampleGlobals: realSampleGlobals } = useValues(hogFlowEditorTestLogic(logicProps))
     const { setWorkflowAction } = useActions(workflowLogic)
-    const { provisioning, provisionError, setupProblem } = useValues(sandboxSenderLogic)
+    const { provisioning, provisionError, sandboxSetup } = useValues(sandboxSenderLogic)
     const { provisionSandboxSender } = useActions(sandboxSenderLogic)
     const action = node.data
     const { chooseSender } = useActions(
@@ -42,16 +42,20 @@ export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmai
     return (
         <>
             <StepSchemaErrors />
-            {setupProblem && (
+            {sandboxSetup && (
                 <LemonBanner
                     type={provisionError ? 'error' : 'warning'}
-                    action={{
-                        children: provisionError ? 'Try again' : 'Set up the sandbox sender',
-                        loading: provisioning,
-                        onClick: () => provisionSandboxSender('sender_control'),
-                    }}
+                    action={
+                        sandboxSetup.canSetUp
+                            ? {
+                                  children: provisionError ? 'Try again' : 'Set up the sandbox sender',
+                                  loading: provisioning,
+                                  onClick: () => provisionSandboxSender('sender_control'),
+                              }
+                            : undefined
+                    }
                 >
-                    {setupProblem}
+                    {sandboxSetup.problem}
                 </LemonBanner>
             )}
             <SandboxSenderChoiceProvider actionId={action.id}>
