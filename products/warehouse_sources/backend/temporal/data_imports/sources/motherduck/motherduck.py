@@ -90,7 +90,13 @@ MOTHERDUCK_SYSTEM_DATABASES = ("md_information_schema", "system", "temp", "memor
 # extension's init, the same class a wrong database name or access token produces, so the class
 # below cannot tell an outage from a config problem. These are MotherDuck's own wordings for one.
 # Matched as one phrase: "please try again later" alone also ends other driver errors.
-MOTHERDUCK_TRANSIENT_ERRORS = ("could not connect to motherduck. please try again later",)
+# The second phrase is MotherDuck's own internal-error template, raised as an `Invalid Error`
+# mid-query (e.g. while streaming Arrow batches) rather than at connection time: a failure on
+# their side, not ours, with only their support-ticket error ID varying between occurrences.
+MOTHERDUCK_TRANSIENT_ERRORS = (
+    "could not connect to motherduck. please try again later",
+    "encountered an internal motherduck error",
+)
 
 MOTHERDUCK_UNAVAILABLE_MESSAGE = (
     "MotherDuck is temporarily unavailable, so PostHog couldn't connect. This isn't a problem with "

@@ -13,7 +13,7 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-from posthog.models.file_system.constants import DEFAULT_SURFACE, workflow_project_files_enabled
+from posthog.models.file_system.constants import DEFAULT_SURFACE, workflows_list_v2_enabled
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.tagged_items_relation import Taggable
@@ -337,7 +337,7 @@ class HogFlow(FileSystemSyncMixin, Taggable, UUIDTModel):
         # on a remote flag call, because the unfiled saver files the object at its default place later. A save
         # that asks for a folder comes from a request, and that placement exists only on this instance, so it
         # may call remote evaluation when local evaluation cannot decide.
-        return self.created_by is not None and workflow_project_files_enabled(
+        return self.created_by is not None and workflows_list_v2_enabled(
             self.team, self.created_by, only_evaluate_locally=self._create_in_folder is None
         )
 

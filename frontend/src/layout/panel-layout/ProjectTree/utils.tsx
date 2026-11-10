@@ -503,7 +503,7 @@ export function isFileTypeFilterEnabled(
     )
 }
 
-const LAUNCH_FLAGS: ReadonlySet<string> = new Set([FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES])
+const LAUNCH_FLAGS: ReadonlySet<string> = new Set([FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.WORKFLOWS_LIST_V2])
 
 export function isFileSystemEntryTypeEnabled(
     entry: Pick<FileSystemEntry, 'type'> & { path?: string },
@@ -514,7 +514,7 @@ export function isFileSystemEntryTypeEnabled(
     }
     const baseType = entry.type?.split('/')[0] ?? ''
     // The `workflows` type gives way to the `hog_flow` workflow files once they show, so lists offer one "Workflow"
-    if (baseType === 'workflows' && featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]) {
+    if (baseType === 'workflows' && featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]) {
         return false
     }
     const flag = Object.hasOwn(fileSystemTypes, baseType)

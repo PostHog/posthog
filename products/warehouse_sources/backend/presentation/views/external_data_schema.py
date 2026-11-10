@@ -123,6 +123,7 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
+    SettableSyncFrequency,
     WarehouseColumnSensitivity,
 )
 from products.warehouse_sources.backend.presentation.history_tracking import (
@@ -891,18 +892,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         ),
     )
     sync_frequency = serializers.ChoiceField(
-        choices=[
-            ("never", "never"),
-            ("5min", "5min"),
-            ("15min", "15min"),
-            ("30min", "30min"),
-            ("1hour", "1hour"),
-            ("6hour", "6hour"),
-            ("12hour", "12hour"),
-            ("24hour", "24hour"),
-            ("7day", "7day"),
-            ("30day", "30day"),
-        ],
+        choices=SettableSyncFrequency.choices,
         required=False,
         allow_null=True,
         help_text="How often to sync. The fastest sync frequency is 5 minutes.",
