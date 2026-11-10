@@ -74,10 +74,11 @@ def _schema_signature(inputs_schema: Any) -> dict:
 
 def _inputs_signature(inputs: Any, inputs_schema: Any, skipped: set[str]) -> dict:
     # Only inputs the schema declares are validated and kept, so an undeclared stored one is left out on both sides.
-    # Values compare as JSON text because Python equates `True` with `1`, which the worker prints differently.
+    # Values compare as JSON text because Python equates `True` with `1`, which the worker prints differently. Key
+    # order counts because code can read it. The editor sends back the order the API returned.
     declared = _schema_signature(inputs_schema).keys() - skipped
     return {
-        key: (json.dumps(item.get("value"), sort_keys=True, default=str), item.get("templating") == "liquid")
+        key: (json.dumps(item.get("value"), default=str), item.get("templating") == "liquid")
         for key, item in (inputs or {}).items()
         if isinstance(item, dict) and key in declared
     }
