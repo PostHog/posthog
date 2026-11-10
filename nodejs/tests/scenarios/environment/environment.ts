@@ -77,49 +77,12 @@ export function createEnvironment(): Environment {
             }
             mkdirSync(stateDir, { recursive: true })
             releaseLock = await holdRunLock(stateDir)
-            const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR)
-            if (plan.strangers.length > 0) {
-                throw strangerConflict(plan.strangers)
+            try {
+                await bringUp()
+            } catch (error) {
+                await stop()
+                throw error
             }
-            await terminate(plan, STOP_GRACE_MS)
-            await startStack(REPO_ROOT, stateDir, env)
-            const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets)
-            const groups = consumerGroupsOf(specs)
-            const killedLeftovers = plan.groups.length + plan.pids.length > 0
-            await waitForExpect(
-                async () => {
-                    const busy = await groupsWithMembers(groups)
-                    if (busy.length > 0) {
-                        throw new StackConflictError(
-                            `The CDP consumer groups ${busy.join(', ')} have members the runner did not start.`,
-                            'hogli down'
-                        )
-                    }
-                },
-                killedLeftovers ? GROUP_DRAINS_WITHIN_MS : 0,
-                PROBE_INTERVAL_MS
-            )
-            edge = await startProviderEdge({ port: EDGE_PORT, trackingKeys: secrets.encryptionSaltKeys })
-            await supervisor.start(specs.filter((spec) => spec.role === 'cdp-api'))
-            await waitForExpect(
-                () => expectOk(`http://127.0.0.1:${ROLE_PORTS['cdp-api']}/_health`),
-                TEMPLATES_WITHIN_MS,
-                PROBE_INTERVAL_MS
-            )
-            if ((await missingTemplates()).length > 0) {
-                await syncTemplates(REPO_ROOT, stateDir, env)
-            }
-            await waitForExpect(
-                async () => {
-                    const missing = await missingTemplates()
-                    if (missing.length > 0) {
-                        throw new Error(`Django has not synced the templates ${missing.join(', ')}.`)
-                    }
-                },
-                TEMPLATES_WITHIN_MS,
-                PROBE_INTERVAL_MS
-            )
-            await supervisor.start(specs.filter((spec) => spec.role !== 'cdp-api'))
         },
 
         async reset(settings) {
@@ -170,12 +133,60 @@ export function createEnvironment(): Environment {
 
         exits: (): RoleExit[] => supervisor.exits(),
 
-        async down() {
-            await supervisor.stop()
-            await edge?.close()
-            edge = undefined
-            await releaseLock?.()
-            releaseLock = undefined
-        },
+        down: stop,
+    }
+
+    async function bringUp(): Promise<void> {
+        const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR)
+        if (plan.strangers.length > 0) {
+            throw strangerConflict(plan.strangers)
+        }
+        await terminate(plan, STOP_GRACE_MS)
+        await startStack(REPO_ROOT, stateDir, env)
+        const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets)
+        const groups = consumerGroupsOf(specs)
+        const killedLeftovers = plan.groups.length + plan.pids.length > 0
+        await waitForExpect(
+            async () => {
+                const busy = await groupsWithMembers(groups)
+                if (busy.length > 0) {
+                    throw new StackConflictError(
+                        `The CDP consumer groups ${busy.join(', ')} have members the runner did not start.`,
+                        'hogli down'
+                    )
+                }
+            },
+            killedLeftovers ? GROUP_DRAINS_WITHIN_MS : 0,
+            PROBE_INTERVAL_MS
+        )
+        edge = await startProviderEdge({ port: EDGE_PORT, trackingKeys: secrets.encryptionSaltKeys })
+        await supervisor.start(specs.filter((spec) => spec.role === 'cdp-api'))
+        await waitForExpect(
+            () => expectOk(`http://127.0.0.1:${ROLE_PORTS['cdp-api']}/_health`),
+            TEMPLATES_WITHIN_MS,
+            PROBE_INTERVAL_MS
+        )
+        if ((await missingTemplates()).length > 0) {
+            await syncTemplates(REPO_ROOT, stateDir, env)
+        }
+        await waitForExpect(
+            async () => {
+                const missing = await missingTemplates()
+                if (missing.length > 0) {
+                    throw new Error(`Django has not synced the templates ${missing.join(', ')}.`)
+                }
+            },
+            TEMPLATES_WITHIN_MS,
+            PROBE_INTERVAL_MS
+        )
+        await supervisor.start(specs.filter((spec) => spec.role !== 'cdp-api'))
+    }
+
+    async function stop(): Promise<void> {
+        await supervisor.stop()
+        await edge?.close()
+        edge = undefined
+        await releaseLock?.()
+        releaseLock = undefined
     }
 }

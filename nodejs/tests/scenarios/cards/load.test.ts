@@ -148,6 +148,12 @@ describe('load', () => {
             'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: not a number of milliseconds at or above zero',
         ],
         [
+            'a stall timeout with a leading point, which the service reads as no number',
+            { ...card, valves: [emailWorkerKill], convergeWithin: '18s' },
+            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '.5' } },
+            'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: not a number of milliseconds at or above zero',
+        ],
+        [
             'a negative sweep interval',
             { ...card, valves: [emailWorkerKill], convergeWithin: '48s' },
             { ...profile, settings: { CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: '-30000' } },

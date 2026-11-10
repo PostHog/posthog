@@ -4,8 +4,7 @@ import path from 'path'
 import { parse, stringify } from 'yaml'
 import { z } from 'zod'
 
-import { getDefaultConfig } from '~/common/config/config'
-import { stringToBoolean } from '~/common/utils/env-utils'
+import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
 import { durationMs } from '../duration'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
@@ -94,11 +93,13 @@ function checkSchedules(card: Card): string[] {
     })
 }
 
-function checkStallBound(card: Card, setting: (name: string) => string): string[] {
+type Settings = Record<string, unknown>
+
+function checkStallBound(card: Card, config: Settings): string[] {
     if (!card.valves.some(({ valve }) => STALLING_VALVES.includes(valve))) {
         return []
     }
-    const milliseconds = (name: string): number => parseFloat(setting(name))
+    const milliseconds = (name: string): number => Number(config[name])
     const names = ['CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS', 'CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS']
     const unreadable = names.filter((name) => !(milliseconds(name) >= 0))
     if (unreadable.length > 0) {
@@ -142,7 +143,7 @@ function checkProfile(
     profile: Profile,
     definitions: Definitions,
     defaults: Record<string, unknown>,
-    setting: (name: string) => string
+    config: Settings
 ) {
     const queue = 'CDP_SES_WEBHOOKS_QUEUE_ENABLED'
     return [
@@ -152,7 +153,7 @@ function checkProfile(
         ...(profile.name === card.profile
             ? []
             : [`profile.name: ${profile.name} is not the card profile ${card.profile}`]),
-        ...(stringToBoolean(setting(queue))
+        ...(config[queue] === true
             ? [`profile.settings.${queue}: the queued SES feedback branch is not built yet, so it stays false`]
             : []),
         ...card.drive.traffic.flatMap(({ name }) => {
@@ -188,16 +189,15 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
     }
     const card = parsed.data
     const loaded = loadProfile(card, options.profilePath)
-    const defaults = getDefaultConfig() as unknown as Record<string, unknown>
-    const settings = 'profile' in loaded ? loaded.profile.settings : {}
-    const setting = (name: string): string => settings[name] ?? String(defaults[name])
+    const defaults = getDefaultConfig() as unknown as Settings
+    const config = overrideConfigWithEnv(defaults, 'profile' in loaded ? loaded.profile.settings : {})
 
     const problems = [
         ...checkNames(card, definitions),
         ...checkSchedules(card),
-        ...checkStallBound(card, setting),
+        ...checkStallBound(card, config),
         ...checkSuppression(card),
-        ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults, setting) : loaded.problems),
+        ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults, config) : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {
         throw new CardError(cardPath, problems)
