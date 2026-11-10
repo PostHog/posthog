@@ -9,8 +9,7 @@ from posthog.security.llm_prompt_sanitization import GENERIC_VALUE_MAX_LEN, SERI
 LOGGER = get_logger(__name__)
 
 MAX_SUMMARY_LENGTH = 2000
-# Trend, lifecycle and stickiness summaries print one line per series. This limit fits one line for each of
-# the default BREAKDOWN_VALUES_LIMIT breakdown values when the series labels are short.
+# Fits one line per series for the default BREAKDOWN_VALUES_LIMIT breakdown values when labels are short.
 MAX_SERIES_SUMMARY_LENGTH = 5000
 
 # Query kinds whose metric values map onto the insight's Y-axis format, so summary

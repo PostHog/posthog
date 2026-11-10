@@ -221,9 +221,7 @@ class TestBuildResultsSummaryValueFormat:
 
 class TestBuildResultsSummaryIncompletePeriod:
     def test_latest_and_change_follow_the_last_complete_period_not_the_window(self):
-        # An early spike makes the window trend fall while the latest complete period rose,
-        # and the final period is still collecting data. The summary used to report the
-        # window direction next to the rising latest value, which read as "dropped from 54 to 171".
+        # An early spike makes the window trend fall while the latest complete period rose.
         days = ["2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04", "2026-04-05", "2026-04-06"]
         results = [
             {"label": "Daily active users", "data": [220, 210, 60, 54, 171, 40], "days": days},
