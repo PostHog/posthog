@@ -12,7 +12,12 @@ export type SandboxCapClaim = { ok: true } | { ok: false; reason: 'daily_cap_rea
 export async function claimSandboxCaps(
     limiter: RateLimiterService,
     caps: SandboxCaps,
-    { organizationId, teamId, storedAddress }: { organizationId: string; teamId: number; storedAddress: string }
+    {
+        organizationId,
+        teamId,
+        storedAddress,
+        claimId,
+    }: { organizationId: string; teamId: number; storedAddress: string; claimId: string }
 ): Promise<SandboxCapClaim> {
     if (!isValidCap(caps.team) || !isValidCap(caps.recipient)) {
         return { ok: false, reason: 'cap_storage_unavailable' }
@@ -26,10 +31,14 @@ export async function claimSandboxCaps(
         refillPerSecond: cap / SECONDS_PER_DAY,
         ttlSeconds: BUCKET_TTL_SECONDS,
     })
-    const claim = await limiter.claimAllOrNothingAcross([
-        bucket(`${keyPrefix}/recipient/${recipientDigest}`, caps.recipient),
-        bucket(`${keyPrefix}/project/${teamId}`, caps.team),
-    ])
+    const claimDigest = createHash('sha256').update(`${teamId}\n${recipientDigest}\n${claimId}`).digest('hex')
+    const claim = await limiter.claimAllOrNothingAcross(
+        [
+            bucket(`${keyPrefix}/recipient/${recipientDigest}`, caps.recipient),
+            bucket(`${keyPrefix}/project/${teamId}`, caps.team),
+        ],
+        { key: `${keyPrefix}/claim/${claimDigest}`, ttlSeconds: BUCKET_TTL_SECONDS }
+    )
     if (claim === 'granted') {
         return { ok: true }
     }

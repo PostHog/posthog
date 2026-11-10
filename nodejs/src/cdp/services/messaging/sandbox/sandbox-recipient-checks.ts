@@ -1,13 +1,29 @@
+import { PostgresRouter } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 
 import { MessageOptOutRecord } from '../../../types'
 import { RecipientsManagerService } from '../../managers/recipients-manager.service'
-import { EmailSuppressionService } from '../email-suppression.service'
+import { EmailSuppressionConfig, EmailSuppressionService } from '../email-suppression.service'
 import { FrequencyCapCheck } from '../recipient-preferences.service'
+import { readerBeforeDeadline } from './sandbox-authorization'
+
+export const RECIPIENT_READ_TIMEOUT_MS = 2_000
 
 export type SandboxRecipientCheckDependencies = {
     suppression: Pick<EmailSuppressionService, 'isSuppressed'>
     recipients: Pick<RecipientsManagerService, 'get' | 'getPreference' | 'getAllMarketingMessagingPreference'>
+}
+
+export function sandboxRecipientReads(
+    db: PostgresRouter,
+    suppressionConfig: EmailSuppressionConfig,
+    timeoutMs: number = RECIPIENT_READ_TIMEOUT_MS
+): SandboxRecipientCheckDependencies {
+    const reader = readerBeforeDeadline(db, timeoutMs, 'sandbox-email-recipient')
+    return {
+        suppression: new EmailSuppressionService(reader, suppressionConfig),
+        recipients: new RecipientsManagerService(reader),
+    }
 }
 
 export type SandboxRecipientCheckRequest = {

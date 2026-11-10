@@ -248,6 +248,9 @@ describe('RateLimiterService', () => {
     })
 
     describe('claimAllOrNothingAcross', () => {
+        let claims = 0
+        const newClaim = () => ({ key: `${KEY}/across/claim-${++claims}`, ttlSeconds: 60 })
+
         it.each([
             ['a fraction', 0, 1.5],
             ['an expiry past Redis range', 1, 1e16],
@@ -255,7 +258,7 @@ describe('RateLimiterService', () => {
             const first = { key: `${KEY}/across/first`, requested: 1, capacity: 5, refillPerSecond: 0 }
             const second = { key: `${KEY}/across/second`, requested: 1, capacity: 5, refillPerSecond: 0 }
             const reqs = [first, second].map((req, i) => (i === badIndex ? { ...req, ttlSeconds } : req))
-            const claim = await limiter.claimAllOrNothingAcross(reqs)
+            const claim = await limiter.claimAllOrNothingAcross(reqs, newClaim())
             expect(claim).toBe('unavailable')
             expect(await limiter.claimUpTo({ ...first, requested: 5 })).toBe(5)
             expect(await limiter.claimUpTo({ ...second, requested: 5 })).toBe(5)
@@ -266,12 +269,12 @@ describe('RateLimiterService', () => {
                 { key: `${KEY}/across/refill-first`, requested: 1, capacity: 1, refillPerSecond: 0 },
                 { key: `${KEY}/across/refill-second`, requested: 1, capacity: 1, refillPerSecond: 0 },
             ]
-            expect(await limiter.claimAllOrNothingAcross(drained)).toBe('granted')
-            expect(await limiter.claimAllOrNothingAcross(drained)).toBe('denied')
+            expect(await limiter.claimAllOrNothingAcross(drained, newClaim())).toBe('granted')
+            expect(await limiter.claimAllOrNothingAcross(drained, newClaim())).toBe('denied')
 
             const refilling = drained.map((req) => ({ ...req, refillPerSecond: 50 }))
             await waitForExpect(
-                async () => expect(await limiter.claimAllOrNothingAcross(refilling)).toBe('granted'),
+                async () => expect(await limiter.claimAllOrNothingAcross(refilling, newClaim())).toBe('granted'),
                 2_000,
                 10
             )

@@ -1,4 +1,4 @@
-import { PoolClient, QueryResultRow } from 'pg'
+import { PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
 import { PostgresRouter, PostgresUse, TransactionClient } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
@@ -126,6 +126,45 @@ export async function queryPrimaryBeforeDeadline<Row extends QueryResultRow>(
     timeoutMs: number,
     tag: string = 'sandbox-email-authorization'
 ): Promise<Row[]> {
+    const { rows } = await queryBeforeDeadline<Row>(
+        db,
+        PostgresUse.COMMON_WRITE,
+        text,
+        values,
+        timeoutMs,
+        tag
+    )
+    return rows
+}
+
+export function readerBeforeDeadline(
+    db: PostgresRouter,
+    timeoutMs: number,
+    tag: string
+): Pick<PostgresRouter, 'query'> {
+    return {
+        query: async <Row extends QueryResultRow = any, Values extends any[] = any[]>(
+            target: PostgresUse | TransactionClient,
+            queryString: string | QueryConfig<Values>,
+            values: Values | undefined,
+            queryTag: string
+        ): Promise<QueryResult<Row>> => {
+            if (target instanceof TransactionClient) {
+                throw new Error(`The ${tag} reader cannot join the ${queryTag} transaction`)
+            }
+            return await queryBeforeDeadline<Row>(db, target, queryString, values, timeoutMs, `${tag}:${queryTag}`)
+        },
+    }
+}
+
+async function queryBeforeDeadline<Row extends QueryResultRow>(
+    db: PostgresRouter,
+    use: PostgresUse,
+    queryString: string | QueryConfig<any[]>,
+    values: unknown[] | undefined,
+    timeoutMs: number,
+    tag: string
+): Promise<QueryResult<Row>> {
     let expired = false
     let timer: NodeJS.Timeout | undefined
     const deadline = new Promise<never>((_, reject) => {
@@ -135,21 +174,21 @@ export async function queryPrimaryBeforeDeadline<Row extends QueryResultRow>(
         }, timeoutMs)
     })
     try {
-        const client = await Promise.race([connectUnlessQueueFull(db, () => expired), deadline])
+        const client = await Promise.race([connectUnlessQueueFull(db, use, () => expired), deadline])
         let failure: Error | undefined
         const onClientError = (error: Error): void => {
             failure = error
         }
         client.on('error', onClientError)
-        const tx = new TransactionClient(PostgresUse.COMMON_WRITE, client)
+        const tx = new TransactionClient(use, client)
         try {
             return await Promise.race([
                 (async () => {
                     await db.query(tx, 'BEGIN', undefined, tag)
                     await db.query(tx, `SET LOCAL statement_timeout = ${timeoutMs}`, undefined, tag)
-                    const { rows } = await db.query<Row>(tx, text, values, tag)
+                    const result = await db.query<Row>(tx, queryString, values, tag)
                     await db.query(tx, 'COMMIT', undefined, tag)
-                    return rows
+                    return result
                 })(),
                 deadline,
             ])
@@ -165,13 +204,17 @@ export async function queryPrimaryBeforeDeadline<Row extends QueryResultRow>(
     }
 }
 
-async function connectUnlessQueueFull(db: PostgresRouter, isAbandoned: () => boolean): Promise<PoolClient> {
+async function connectUnlessQueueFull(
+    db: PostgresRouter,
+    use: PostgresUse,
+    isAbandoned: () => boolean
+): Promise<PoolClient> {
     const waiting = waitingConnections.get(db) ?? 0
     if (waiting >= MAX_WAITING_AUTHORIZATION_CONNECTIONS) {
-        throw new Error(`${waiting} sandbox email authorization reads are already waiting for a connection`)
+        throw new Error(`${waiting} sandbox email reads are already waiting for a connection`)
     }
     waitingConnections.set(db, waiting + 1)
-    const connecting = db.connect(PostgresUse.COMMON_WRITE)
+    const connecting = db.connect(use)
     const stopWaiting = (): void => {
         waitingConnections.set(db, (waitingConnections.get(db) ?? 1) - 1)
     }

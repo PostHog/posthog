@@ -105,7 +105,7 @@ export class EmailSuppressionService {
     private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
 
     constructor(
-        private postgres: PostgresRouter,
+        private postgres: Pick<PostgresRouter, 'query'>,
         config: EmailSuppressionConfig
     ) {
         this.threshold = config.transientBounceThreshold
