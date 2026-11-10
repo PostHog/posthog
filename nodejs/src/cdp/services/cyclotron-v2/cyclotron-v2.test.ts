@@ -2335,16 +2335,19 @@ describe('Cyclotron V2', () => {
                     return holder
                 }
 
-                const finishesWithin = async (work: Promise<unknown>, ms: number): Promise<boolean> => {
-                    let timer: NodeJS.Timeout | undefined
-                    const deadline = new Promise<false>((resolve) => {
-                        timer = setTimeout(() => resolve(false), ms)
-                    })
-                    try {
-                        return await Promise.race([work.then(() => true), deadline])
-                    } finally {
-                        clearTimeout(timer)
+                const sentOrWaitingOnLock = async (sent: Promise<unknown>): Promise<'sent' | 'waiting on a lock'> => {
+                    let settled = false
+                    const done = sent.then(() => 'sent' as const).finally(() => (settled = true))
+                    while (!settled) {
+                        const waiting = await assertPool.query(
+                            `SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`
+                        )
+                        if (waiting.rowCount) {
+                            return 'waiting on a lock'
+                        }
+                        await new Promise((resolve) => setTimeout(resolve, 10))
                     }
+                    return await done
                 }
 
                 beforeEach(async () => {
@@ -2386,7 +2389,7 @@ describe('Cyclotron V2', () => {
                         let sent: Promise<unknown> = Promise.resolve()
                         try {
                             sent = sendFast()
-                            expect(await finishesWithin(sent, 1000)).toBe(true)
+                            expect(await sentOrWaitingOnLock(sent)).toBe('sent')
 
                             const [claimed] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
                             expect(claimed).toMatchObject({ teamId, priority: FAST })
@@ -2403,7 +2406,7 @@ describe('Cyclotron V2', () => {
                     let sent: Promise<unknown> = Promise.resolve()
                     try {
                         sent = manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, priority: FAST }])
-                        expect(await finishesWithin(sent, 200)).toBe(false)
+                        expect(await sentOrWaitingOnLock(sent)).toBe('waiting on a lock')
                     } finally {
                         await holder.query('ROLLBACK')
                         holder.release()
@@ -2411,27 +2414,31 @@ describe('Cyclotron V2', () => {
                     }
                 })
 
-                it("queues a team's first fast email on its own counter behind the fast email it already has waiting", async () => {
-                    await manager.bulkCreateJobs(
-                        Array.from({ length: 5 }, () => ({ teamId, queueName: EMAIL_QUEUE, priority: BULK }))
-                    )
-                    const [waitingId] = await manager.bulkCreateJobs([
-                        { teamId, queueName: EMAIL_QUEUE, priority: FAST },
-                    ])
+                it("keeps a team's fast email in send order while producers on and off the switch both write it", async () => {
                     const fastManager = createFastCounterManager()
-                    const [laterId] = await fastManager.bulkCreateJobs([
-                        { teamId, queueName: EMAIL_QUEUE, priority: FAST },
-                    ])
+                    const sendBulk = (): Promise<string[]> =>
+                        manager.bulkCreateJobs(
+                            Array.from({ length: 5 }, () => ({ teamId, queueName: EMAIL_QUEUE, priority: BULK }))
+                        )
+                    const sendFast = async (producer: CyclotronV2Manager): Promise<string> =>
+                        (await producer.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, priority: FAST }]))[0]
+
+                    const sentInOrder: string[] = []
+                    for (let round = 0; round < 2; round++) {
+                        await sendBulk()
+                        sentInOrder.push(await sendFast(manager))
+                        sentInOrder.push(await sendFast(fastManager))
+                    }
                     await fastManager.disconnect()
 
                     const drained: string[] = []
-                    for (let i = 0; i < 2; i++) {
+                    for (let i = 0; i < sentInOrder.length; i++) {
                         const [job] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
                         drained.push(job.id)
                         await job.ack()
                     }
 
-                    expect(drained).toEqual([waitingId, laterId])
+                    expect(drained).toEqual(sentInOrder)
                 })
             })
 

@@ -103,7 +103,7 @@ async function bumpFastEmailCounters(pool: Pool, incrementsByTeam: Map<number, n
     const counters = await incrementFastEmailCounters(pool, incrementsByTeam)
     const unseeded = new Map([...incrementsByTeam].filter(([teamId]) => !counters.has(teamId)))
     if (unseeded.size > 0) {
-        await seedFastEmailCountersFromSharedHighWater(pool, [...unseeded.keys()])
+        await seedFastEmailCounters(pool, [...unseeded.keys()])
         for (const [teamId, counter] of await incrementFastEmailCounters(pool, unseeded)) {
             counters.set(teamId, counter)
         }
@@ -117,8 +117,9 @@ async function incrementFastEmailCounters(
 ): Promise<Map<number, bigint>> {
     const result = await pool.query<{ team_id: number; counter: string }>(
         `UPDATE cyclotron_email_team_seq_fast AS seq
-         SET counter = seq.counter + t.increment
+         SET counter = GREATEST(seq.counter, COALESCE(shared.counter, 0)) + t.increment
          FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
+         LEFT JOIN cyclotron_email_team_seq AS shared ON shared.team_id = t.team_id
          WHERE seq.team_id = t.team_id
          RETURNING seq.team_id, seq.counter`,
         [[...incrementsByTeam.keys()], [...incrementsByTeam.values()]]
@@ -126,16 +127,11 @@ async function incrementFastEmailCounters(
     return new Map(result.rows.map((row) => [row.team_id, BigInt(row.counter)]))
 }
 
-async function seedFastEmailCountersFromSharedHighWater(pool: Pool, teamIds: number[]): Promise<void> {
+async function seedFastEmailCounters(pool: Pool, teamIds: number[]): Promise<void> {
     await pool.query(
         `INSERT INTO cyclotron_email_team_seq_fast (team_id, counter)
-         SELECT t.team_id,
-                GREATEST(
-                    (SELECT COALESCE(MAX(counter), 0) FROM cyclotron_email_team_seq_fast),
-                    COALESCE(shared.counter, 0)
-                )
+         SELECT t.team_id, (SELECT COALESCE(MAX(counter), 0) FROM cyclotron_email_team_seq_fast)
          FROM unnest($1::int[]) AS t(team_id)
-         LEFT JOIN cyclotron_email_team_seq AS shared ON shared.team_id = t.team_id
          ON CONFLICT (team_id) DO NOTHING`,
         [teamIds]
     )
