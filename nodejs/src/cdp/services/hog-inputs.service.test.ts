@@ -293,7 +293,7 @@ describe('Hog Inputs', () => {
                 }),
             ],
         ])(
-            'fails the inputs with the deadline error when the deadline passes while a hog input waits for its turn on the event loop because %s',
+            'runs no hog input whose deadline passes while it waits for its turn on the event loop because %s',
             async (_how, deadlineFor) => {
                 const busyFor = 30_000
                 const busy = await compileHog(
@@ -327,13 +327,16 @@ describe('Hog Inputs', () => {
                     const startedAt = Date.now()
                     const deadline = deadlineFor()
                     let outcome: unknown
-                    const busyForSeconds = {
-                        ...globals,
-                        event: {
-                            ...globals.event,
-                            properties: { ...globals.event.properties, busy_until: startedAt + busyFor },
+                    let programStarted = false
+                    const properties = { ...globals.event.properties }
+                    Object.defineProperty(properties, 'busy_until', {
+                        enumerable: false,
+                        get: () => {
+                            programStarted = true
+                            return startedAt + busyFor
                         },
-                    }
+                    })
+                    const busyForSeconds = { ...globals, event: { ...globals.event, properties } }
                     void hogInputsService
                         .buildInputs(onlyHog, busyForSeconds, undefined, undefined, deadline.signal)
                         .then(
@@ -352,6 +355,7 @@ describe('Hog Inputs', () => {
                     }
 
                     expect(outcome).toMatchObject({ name: 'TimeoutError' })
+                    expect(programStarted).toBe(false)
                 } finally {
                     mockedNow.mockReturnValue(fixedNow)
                     jest.useRealTimers()
