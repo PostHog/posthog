@@ -1,0 +1,13 @@
+<tr>
+    <td>
+        <input type="text"
+               name="{{ widget.name }}"
+               value="{{ value }}"
+               maxlength="64"
+               aria-label="IP address or CIDR block"
+               {% if widget.attrs.disabled %} disabled{% endif %}>
+    </td>
+    <td><button type="button"
+        data-remove-ip-restriction{% if widget.attrs.disabled %}
+        disabled{% endif %}>Remove</button></td>
+</tr>

@@ -1,0 +1,23 @@
+<div data-ip-restrictions-widget>
+    <table>
+        <thead>
+            <tr>
+                <th scope="col">IP address or CIDR block</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for value in widget.value %}
+                {% include "admin/widgets/ip_restriction_row.html" %}
+            {% empty %}
+                {% include "admin/widgets/ip_restriction_row.html" with value="" %}
+            {% endfor %}
+        </tbody>
+    </table>
+    <template>
+        {% include "admin/widgets/ip_restriction_row.html" with value="" %}
+    </template>
+    <button type="button"
+            data-add-ip-restriction{% if widget.attrs.disabled %}
+            disabled{% endif %}>Add IP address or CIDR block</button>
+</div>
