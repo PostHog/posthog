@@ -334,7 +334,10 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         ])
     })
 
-    function emailFlow(delayAfterEmail?: string, emailAfterDelay = false): HogFlow {
+    function emailFlow(
+        delayAfterEmail?: string,
+        stepAfterDelay: 'exit' | 'function_email' | 'function' = 'exit'
+    ): HogFlow {
         const emailStep = {
             type: 'function_email',
             config: {
@@ -352,6 +355,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 },
             },
         }
+        const emailAfterDelay = stepAfterDelay !== 'exit'
         const afterDelay = emailAfterDelay ? 'next_email' : 'exit'
         return new FixtureHogFlowBuilder()
             .withTeamId(team.id)
@@ -363,7 +367,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                     ...(delayAfterEmail && {
                         delay: { type: 'delay', config: { delay_duration: delayAfterEmail } },
                     }),
-                    ...(emailAfterDelay && { next_email: emailStep }),
+                    ...(emailAfterDelay && { next_email: { ...emailStep, type: stepAfterDelay } }),
                     exit: { type: 'exit', config: {} },
                 },
                 edges: [
@@ -911,18 +915,23 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     it.each([
         {
             next: 'finishes the run',
-            emailAfterDelay: false,
+            stepAfterDelay: 'exit',
             settles: async (id: string): Promise<unknown> => expect(await ended(id)).toBe('completed'),
         },
         {
             next: 'defers its next email step like a fresh send',
-            emailAfterDelay: true,
+            stepAfterDelay: 'function_email',
             settles: (id: string): Promise<unknown> => deferredRow(id, 1),
         },
-    ])(
+        {
+            next: 'defers its next function step that sends email like a fresh send',
+            stepAfterDelay: 'function',
+            settles: (id: string): Promise<unknown> => deferredRow(id, 1),
+        },
+    ] as const)(
         'after an email with files went out and a delay passed, $next while the room is taken, though the first due time is long past',
-        async ({ emailAfterDelay, settles }) => {
-            hogFlow = await insertEmailFlow('3s', emailAfterDelay)
+        async ({ stepAfterDelay, settles }) => {
+            hogFlow = await insertEmailFlow('3s', stepAfterDelay)
             await startWorker(roomFor(1))
             const [id] = await enqueue(transactionalSend([invoice.metadata], waitedTooLong()))
             const delayed = await waitForExpect(async () => {
@@ -948,7 +957,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     // Its own test: the send shares a batch with an uncached workflow, so its admission lookup waits in Postgres.
     it('runs a resumed send with files on the workflow its admission checked, when that workflow changes during the lookup', async () => {
         hogFlow = await insertEmailFlow('3s')
-        const changed = emailFlow('3s', true)
+        const changed = emailFlow('3s', 'function_email')
         await startWorker(roomFor(1))
         const [id] = await enqueue(transactionalSend([invoice.metadata]))
         await waitForExpect(async () => {
