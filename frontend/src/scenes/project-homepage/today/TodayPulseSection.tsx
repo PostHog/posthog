@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useId } from 'react'
 
-import { Skeleton } from '@posthog/quill'
+import { Button, Skeleton } from '@posthog/quill'
 
 import type { HighlightsApi, PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
 
@@ -61,11 +61,28 @@ export function TodayPulseSection(): JSX.Element | null {
         <section className="TodayHome__list" aria-labelledby={titleId}>
             <div className="TodayHome__headingRow">
                 <TodayHomeHeading id={titleId}>At a glance</TodayHomeHeading>
-                {canEdit && view !== 'empty' ? <TodayPulseEditor /> : null}
+                {canEdit ? (
+                    view === 'empty' ? (
+                        <TodayPulseEditor
+                            trigger={
+                                <Button
+                                    variant="link-muted"
+                                    size="sm"
+                                    className="-mx-2 -my-1 text-[13px]"
+                                    data-attr="today-pulse-empty-pin"
+                                >
+                                    Pin an insight
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <TodayPulseEditor />
+                    )
+                ) : null}
             </div>
             {view === 'loading' ? <TodayPulseSkeleton /> : null}
             {view === 'numbers' ? <TodayPulse metrics={pulseTiles} slots={pulseSlots} /> : null}
-            {view === 'empty' ? <TodayPulseEmpty canPin={canEdit} /> : null}
+            {view === 'empty' ? <TodayPulseEmpty /> : null}
         </section>
     )
 }

@@ -348,37 +348,60 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
 }
 
-.TodayPulse__ghostStatus {
-    display: block;
-    font-size: 13px;
-    line-height: 20px;
-    color: var(--today-faint);
-}
+.TodayPulse__ghostRow {
+    align-items: baseline;
+    min-height: 23px;
 
-.TodayPulse__ghostLine {
-    width: 100%;
-    height: 20px;
-    overflow: visible;
-    opacity: 0.4;
-    mask-image: linear-gradient(to right, transparent 0%, #000 70%);
-
-    polyline {
-        fill: none;
-        stroke: var(--today-muted);
-        stroke-linejoin: round;
-        stroke-linecap: round;
-        stroke-width: 1.5;
-        vector-effect: non-scaling-stroke;
+    .TodayPulse__ghostSetup:only-child {
+        align-self: flex-end;
+        line-height: 20px;
     }
 }
 
+.TodayPulse__ghostValue {
+    color: var(--today-faint);
+}
+
+.TodayPulse__ghostNote {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 13px;
+    color: var(--today-faint);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .TodayPulse__ghostSetup {
-    align-self: flex-start;
-    text-decoration: underline dotted;
+    font-size: 13px;
+    color: var(--today-muted);
+    text-decoration: underline;
+    text-decoration-color: var(--today-line);
     text-underline-offset: 3px;
 
     &:hover {
         color: var(--today-ink);
+        text-decoration-color: currentColor;
+    }
+}
+
+.TodayPulse__ghostLine {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+
+    line {
+        stroke: var(--today-line);
+        stroke-linecap: round;
+        stroke-width: 1.5;
+        vector-effect: non-scaling-stroke;
+    }
+
+    circle {
+        fill: var(--today-faint);
+    }
+
+    .TodayPulse__metric:not([data-configured]) & line {
+        stroke-dasharray: 2 4;
     }
 }
 
