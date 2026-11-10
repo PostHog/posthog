@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
@@ -92,31 +94,43 @@ describe('Generated email template tools', () => {
         afterEach(() => setConfirmedActionRuntime(undefined))
 
         it('sends the email the user confirmed', async () => {
-            setConfirmedActionRuntime({
-                codec: new SignedStateCodec(Buffer.alloc(32, 0x42)),
-                stash: new PayloadStash(inMemoryRedis()),
+            const received: { method?: string; url?: string; body: unknown }[] = []
+            const posthog = createServer((request, response) => {
+                let body = ''
+                request.on('data', (chunk) => (body += chunk))
+                request.on('end', () => {
+                    received.push({ method: request.method, url: request.url, body: JSON.parse(body) })
+                    response.setHeader('Content-Type', 'application/json')
+                    response.end(JSON.stringify({ id: 'send-1', status: 'queued' }))
+                })
             })
-            const context = createTestContext(
-                new ApiClient({ apiToken: 'test-token', baseUrl: 'https://us.posthog.test' })
-            )
-            await setActiveProjectAndOrg(context, '42', 'org-1')
-            const request = vi.spyOn(context.api, 'request').mockResolvedValue({ id: 'send-1' })
-            const confirmed = { ...codeSend, reply_to: ['support@example.com'], capture_engagement: false }
+            await new Promise<void>((resolve) => posthog.listen(0, '127.0.0.1', resolve))
+            try {
+                setConfirmedActionRuntime({
+                    codec: new SignedStateCodec(Buffer.alloc(32, 0x42)),
+                    stash: new PayloadStash(inMemoryRedis()),
+                })
+                const baseUrl = `http://127.0.0.1:${(posthog.address() as AddressInfo).port}`
+                const context = createTestContext(new ApiClient({ apiToken: 'test-token', baseUrl }))
+                await setActiveProjectAndOrg(context, '42', 'org-1')
+                const confirmed = { ...codeSend, reply_to: ['support@example.com'], capture_engagement: false }
 
-            const prepared = (await GENERATED_TOOL_MAP['workflows-send-email-prepare']!().handler(
-                context,
-                confirmed
-            )) as PrepareConfirmedActionResult
-            await GENERATED_TOOL_MAP['workflows-send-email-execute']!().handler(context, {
-                confirmation_hash: prepared.confirmation_hash,
-                confirmation: 'confirm',
-            })
+                const prepared = (await GENERATED_TOOL_MAP['workflows-send-email-prepare']!().handler(
+                    context,
+                    confirmed
+                )) as PrepareConfirmedActionResult
+                const sent = await GENERATED_TOOL_MAP['workflows-send-email-execute']!().handler(context, {
+                    confirmation_hash: prepared.confirmation_hash,
+                    confirmation: 'confirm',
+                })
 
-            expect(request).toHaveBeenCalledWith({
-                method: 'POST',
-                path: '/api/projects/42/messaging/send/email/',
-                body: confirmed,
-            })
+                expect(sent).toMatchObject({ id: 'send-1', status: 'queued' })
+                expect(received).toEqual([
+                    { method: 'POST', url: '/api/projects/42/messaging/send/email/', body: confirmed },
+                ])
+            } finally {
+                await new Promise((resolve) => posthog.close(resolve))
+            }
         })
     })
 })
