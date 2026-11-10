@@ -47,6 +47,7 @@ function createWorker(queueName = QUEUE, overrides?: Record<string, unknown>): C
         batchMaxSize: 100,
         pollDelayMs: 10,
         includeEmptyBatches: true,
+        boundedPolls: true,
         ...overrides,
     })
 }
@@ -1281,12 +1282,17 @@ describe('Cyclotron V2', () => {
             expect(row.transition_count).toBe(CYCLOTRON_COUNTER_MAX)
         })
 
-        it.each([
-            ['every due class fits in the batch', 100, [2, 0, 1], [0, 1, 2]],
-            ['the batch is smaller than the due rows', 3, [32000, 2, -5, 1, 0, 2], [-5, 0, 1]],
-        ])(
+        it.each(
+            [
+                ['every due class fits in the batch', 100, [2, 0, 1], [0, 1, 2]],
+                ['the batch is smaller than the due rows', 3, [32000, 2, -5, 1, 0, 2], [-5, 0, 1]],
+            ].flatMap(([label, ...rest]) => [
+                [`${label}, bounded polls`, ...rest, true],
+                [`${label}, legacy polls`, ...rest, false],
+            ]) as [string, number, number[], number[], boolean][]
+        )(
             'respects priority ordering (lower number = higher priority) when %s',
-            async (_label, batchMaxSize, priorities, expected) => {
+            async (_label, batchMaxSize, priorities, expected, boundedPolls) => {
                 await manager.createJob({
                     teamId: 1,
                     queueName: QUEUE,
@@ -1297,7 +1303,7 @@ describe('Cyclotron V2', () => {
                     await manager.createJob({ teamId: 1, queueName: QUEUE, priority })
                 }
 
-                const jobs = await dequeueOneBatch(createWorker(QUEUE, { batchMaxSize }))
+                const jobs = await dequeueOneBatch(createWorker(QUEUE, { batchMaxSize, boundedPolls }))
 
                 expect(jobs.map((j) => j.priority)).toEqual(expected)
             }
@@ -1544,6 +1550,7 @@ describe('Cyclotron V2', () => {
                         batchMaxSize: 100,
                         pollDelayMs: 10,
                         includeEmptyBatches: true,
+                        boundedPolls: true,
                         ...overrides,
                     },
                     getBatchLimit
@@ -1969,7 +1976,13 @@ describe('Cyclotron V2', () => {
                 (sent) =>
                     pollUntilSent(
                         new CyclotronV2RateLimitedWorker(
-                            { pool: { dbUrl: DB_URL }, queueName: BACKLOG_QUEUE, batchMaxSize: 100, pollDelayMs: 10 },
+                            {
+                                pool: { dbUrl: DB_URL },
+                                queueName: BACKLOG_QUEUE,
+                                batchMaxSize: 100,
+                                pollDelayMs: 10,
+                                boundedPolls: true,
+                            },
                             () => Promise.resolve(undefined)
                         ),
                         sent

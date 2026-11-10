@@ -1,5 +1,29 @@
 import { CYCLOTRON_COUNTER_MAX } from './types'
 
+const CLAIM_UPDATE = `UPDATE cyclotron_jobs
+SET status = 'running',
+    lock_id = $3,
+    last_heartbeat = NOW(),
+    last_transition = NOW(),
+    transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})`
+
+const CLAIM_RETURNING = `RETURNING
+    cyclotron_jobs.id,
+    cyclotron_jobs.team_id,
+    cyclotron_jobs.function_id,
+    cyclotron_jobs.queue_name,
+    cyclotron_jobs.priority,
+    cyclotron_jobs.scheduled,
+    cyclotron_jobs.created,
+    cyclotron_jobs.parent_run_id,
+    cyclotron_jobs.transition_count,
+    cyclotron_jobs.state,
+    cyclotron_jobs.distinct_id,
+    cyclotron_jobs.person_id,
+    cyclotron_jobs.action_id,
+    cyclotron_jobs.cancel_requested_at,
+    cyclotron_jobs.lock_id`
+
 const PRIORITY_CLASSES_CTE = `priority_classes AS (
     (SELECT priority FROM cyclotron_jobs
      WHERE status = 'available' AND queue_name = $1
@@ -41,29 +65,9 @@ available AS (
     ) due
     LIMIT $2
 )
-UPDATE cyclotron_jobs
-SET status = 'running',
-    lock_id = $3,
-    last_heartbeat = NOW(),
-    last_transition = NOW(),
-    transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
+${CLAIM_UPDATE}
 WHERE cyclotron_jobs.id = ANY(ARRAY(SELECT id FROM available))
-RETURNING
-    cyclotron_jobs.id,
-    cyclotron_jobs.team_id,
-    cyclotron_jobs.function_id,
-    cyclotron_jobs.queue_name,
-    cyclotron_jobs.priority,
-    cyclotron_jobs.scheduled,
-    cyclotron_jobs.created,
-    cyclotron_jobs.parent_run_id,
-    cyclotron_jobs.transition_count,
-    cyclotron_jobs.state,
-    cyclotron_jobs.distinct_id,
-    cyclotron_jobs.person_id,
-    cyclotron_jobs.action_id,
-    cyclotron_jobs.cancel_requested_at,
-    cyclotron_jobs.lock_id`
+${CLAIM_RETURNING}`
 
 const QUEUE_CLASSES_CTE = `queue_classes AS (
     (SELECT queue_name, priority FROM cyclotron_jobs
@@ -99,3 +103,21 @@ CROSS JOIN LATERAL (
 ) due
 WHERE due.count > 0
 GROUP BY c.queue_name`
+
+export const LEGACY_COUNT_WORK_SQL = `SELECT COUNT(*)::int AS n FROM (
+    SELECT 1 FROM cyclotron_jobs
+    WHERE status = 'available' AND queue_name = $1 AND scheduled <= NOW()
+    LIMIT $2
+) sub`
+
+export const LEGACY_DEQUEUE_JOBS_SQL = `WITH available AS (
+    SELECT id FROM cyclotron_jobs
+    WHERE status = 'available' AND queue_name = $1 AND scheduled <= NOW()
+    ORDER BY priority ASC, scheduled ASC
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+)
+${CLAIM_UPDATE}
+FROM available
+WHERE cyclotron_jobs.id = available.id
+${CLAIM_RETURNING}`

@@ -5,7 +5,7 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
 
-import { COUNT_WORK_SQL, DEQUEUE_JOBS_SQL } from './due-rows-sql'
+import { COUNT_WORK_SQL, DEQUEUE_JOBS_SQL, LEGACY_COUNT_WORK_SQL, LEGACY_DEQUEUE_JOBS_SQL } from './due-rows-sql'
 import { assignEmailDequeueSeq } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
@@ -235,6 +235,7 @@ export class CyclotronV2Worker {
     private readonly heartbeatTimeoutMs: number
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
+    private readonly boundedPolls: boolean
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = createCyclotronPool('worker', {
@@ -247,6 +248,7 @@ export class CyclotronV2Worker {
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
+        this.boundedPolls = config.boundedPolls ?? false
         // Fair (per-team round-robin) dequeue is the email queue's ordering.
         // `dequeue_seq` is only ever assigned for email jobs (see
         // CyclotronV2Manager), so deriving this from the queue name keeps the
@@ -303,13 +305,19 @@ export class CyclotronV2Worker {
      * concurrency × poll rate and rate-limiter refill absorbs the slack.
      */
     protected async countWork(limit: number): Promise<number> {
-        const result = await this.pool.query<{ n: number }>(COUNT_WORK_SQL, [this.config.queueName, limit])
+        const result = await this.pool.query<{ n: number }>(
+            this.boundedPolls ? COUNT_WORK_SQL : LEGACY_COUNT_WORK_SQL,
+            [this.config.queueName, limit]
+        )
         return result.rows[0].n
     }
 
     protected async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
-        const result = await this.pool.query<RawJobRow>(DEQUEUE_JOBS_SQL, [this.config.queueName, limit, lockId])
+        const result = await this.pool.query<RawJobRow>(
+            this.boundedPolls ? DEQUEUE_JOBS_SQL : LEGACY_DEQUEUE_JOBS_SQL,
+            [this.config.queueName, limit, lockId]
+        )
         // UPDATE...RETURNING doesn't preserve the CTE's ORDER BY,
         // so re-sort to maintain priority ordering within the batch
         // TODO: Do we care about this in reality?
