@@ -125,8 +125,8 @@ tools:
             rank of the first target URL among the cited URLs, `search_queries`: the web searches the engine ran while
             answering, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an empty
             string selects prompts with no topic), by `active`, and by `branded` (true for prompts whose text names the
-            brand, false for the rest; each prompt carries the same `branded` flag). Archived prompts are left out unless
-            `include_archived` is true; they carry `archived_at`. Results are paginated with `limit`/`offset` and
+            brand, false for the rest; each prompt carries the same `branded` flag). Archived prompts are left out
+            unless `include_archived` is true; they carry `archived_at`. Results are paginated with `limit`/`offset` and
             ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find
             a prompt id before calling `aeo-prompts-update`.
         feature_flag: aeo-citation-tracking
@@ -147,10 +147,10 @@ tools:
             answers, with `is_target` marking the project's own domains. `top_searches` lists the web searches the
             engines ran most while answering, ranked by how many prompts triggered them, with how many of those answers
             cited the project and up to five of the prompts. `branded` picks the checks every count covers: `all`
-            (default), `branded` (the prompt names the brand) or `non_branded`. Prefer `non_branded` to judge visibility,
-            because a prompt that names the brand almost always gets an answer that mentions it.
-            `branded_answers` and `non_branded_answers` give the answered checks on each side in the current window,
-            so you can say how many answers a rate comes from. Use it to answer "how are we doing overall", "which topics
+            (default), `branded` (the prompt names the brand) or `non_branded`. Prefer `non_branded` to judge
+            visibility, because a prompt that names the brand almost always gets an answer that mentions it.
+            `branded_answers` and `non_branded_answers` give the answered checks on each side in the current window, so
+            you can say how many answers a rate comes from. Use it to answer "how are we doing overall", "which topics
             or engines mention or cite us least", "how many prompts are never cited", "which sites do the engines cite
             instead of us" and "what do the engines search for". For one prompt, use `aeo-prompts-stats-get`.
         feature_flag: aeo-citation-tracking
@@ -208,23 +208,6 @@ tools:
             last update.
         requires_ai_consent: true
         feature_flag: aeo-citation-tracking
-    aeo-prompts-weekly-report-get:
-        operation: aeo_prompts_weekly_report
-        enabled: false
-        disabled_reason: Enable after the aeo_prompts/weekly_report route is deployed, so MCP never serves a tool whose route 404s.
-        title: Get the weekly AI visibility report
-        description: >
-            Get the weekly AI visibility report over non-branded prompts: the 7 days ending on `end_date` (default
-            yesterday, the last complete day in the project's timezone) against the 7 days before. `scorecard` has
-            `visibility` (share of answers that name the brand or cite the site) and `citation_rate`, each with the
-            previous week and the change (a share: 0.05 is 5 percentage points), and `answers`, the sample size.
-            `topics` lists every topic's visibility change, biggest move first. `pages` lists up to three pages to
-            watch, each within one topic: the site's page whose citation rate gained most (`owned_gained`), the one
-            that lost most (`owned_lost`) and the competitor page that gained most (`competitor_gained`); ownership
-            comes from the brand catalog. `actions` holds up to three actions derived from them by fixed rules. Use it
-            to answer "how did we do this week" and "what should we work on next". Report the sample size with every
-            rate. The same report can be sent weekly to Slack or email as a subscription.
-        feature_flag: aeo-citation-tracking
     aeo-prompts-topics-list:
         operation: aeo_prompts_topics
         enabled: true
@@ -270,4 +253,21 @@ tools:
         param_overrides:
             id:
                 description: The prompt id (a UUID), from `aeo-prompts-list`.
+        feature_flag: aeo-citation-tracking
+    aeo-prompts-weekly-report-get:
+        operation: aeo_prompts_weekly_report
+        enabled: false
+        disabled_reason: Enable after the aeo_prompts/weekly_report route is deployed, so MCP never serves a tool whose route 404s.
+        title: Get the weekly AI visibility report
+        description: >
+            Get the weekly AI visibility report over non-branded prompts: the 7 days ending on `end_date` (default
+            yesterday, the last complete day in the project's timezone) against the 7 days before. `scorecard` has
+            `visibility` (share of answers that name the brand or cite the site) and `citation_rate`, each with the
+            previous week and the change (a share: 0.05 is 5 percentage points), and `answers`, the sample size.
+            `topics` lists every topic's visibility change, biggest move first. `pages` lists up to three pages to
+            watch, each within one topic: the site's page whose citation rate gained most (`owned_gained`), the one that
+            lost most (`owned_lost`) and the competitor page that gained most (`competitor_gained`); ownership comes
+            from the brand catalog. `actions` holds up to three actions derived from them by fixed rules. Use it to
+            answer "how did we do this week" and "what should we work on next". Report the sample size with every rate.
+            The same report can be sent weekly to Slack or email as a subscription.
         feature_flag: aeo-citation-tracking

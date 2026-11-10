@@ -220,9 +220,9 @@ tools:
             idempotent: true
         title: Get subscription
         description: 'Fetch a single subscription by numeric ID. Returns its kind (`resource_type`: insight, dashboard,
-            ai_prompt or ai_visibility_report), target (`target_type`/`target_value`, host-only for a Teams webhook), schedule, enabled state,
-            and AI-summary settings. Metadata only — for the send history and delivered reports, use
-            `subscriptions-deliveries-list` / `subscriptions-deliveries-retrieve`.'
+            ai_prompt or ai_visibility_report), target (`target_type`/`target_value`, host-only for a Teams webhook),
+            schedule, enabled state, and AI-summary settings. Metadata only — for the send history and delivered
+            reports, use `subscriptions-deliveries-list` / `subscriptions-deliveries-retrieve`.'
         response:
             exclude:
                 - invite_message
