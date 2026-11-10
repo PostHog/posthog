@@ -40,6 +40,7 @@ def test_keeps_timestamps_as_text_like_the_frontend_parser(source: str, expected
         "a: !!bool invalid\n",
         'a: !!float ""\n',
         "a: " + "[" * (MAX_FLOW_DEPTH + 1) + "]" * (MAX_FLOW_DEPTH + 1) + "\n",
+        "%TAG !e! tag:yaml.org,2002:\n---\na: !e!str b\n",
     ],
     ids=[
         "duplicate key",
@@ -53,6 +54,7 @@ def test_keeps_timestamps_as_text_like_the_frontend_parser(source: str, expected
         "malformed bool tag",
         "malformed float tag",
         "flow nesting past the cap",
+        "TAG directive",
     ],
 )
 def test_rejects_sources_that_cannot_load(source: str) -> None:
