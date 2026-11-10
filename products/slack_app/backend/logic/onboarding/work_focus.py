@@ -8,7 +8,7 @@ Only the suggestions and their links leave it.
 import json
 import asyncio
 from datetime import datetime, time, timedelta
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -72,8 +72,11 @@ DAILY_MIN_MESSAGES = 1
 SENT_KEY_TIMEOUT_SECONDS = 2 * 24 * 60 * 60
 MAX_MESSAGE_CHARS = 500
 
-# Onboarding promotes PostHog, so its model calls must not spend the team's AI credits.
-WORK_FOCUS_AI_PRODUCT = "slack_app_onboarding"
+# The model calls spend the team's PostHog AI credits, the same as the other Slack app calls.
+WORK_FOCUS_AI_PRODUCT = "slack_app"
+# Every Slack app call shares the product, so the captured generation carries this property to say which run made it.
+WORK_FOCUS_FLOW_PROPERTY = "slack_app_flow"
+WorkFocusFlow = Literal["slack_app_onboarding", "slack_app_daily_focus"]
 # Jev ranks the messages, because a judgment costs far less than generated text, and only the few messages it keeps
 # reach the model that writes. One question for each message, and a request takes 32 questions at most.
 ONBOARDING_PRIVACY_LINE = "🔒 I read your recent messages once and kept nothing. Each one starts its own thread."
@@ -192,9 +195,11 @@ def find_and_send_work_focus(integration: WorkspaceIntegration, slack_user_id: s
     state = resolve_onboarding(slack_workspace_id, slack_user_id)
     if state is not None and state.work_focus_at:
         return "already_done"
-    # Not stored, so the work focus can still run once the organization allows AI data processing.
+    # Not stored, so the work focus can still run once the organization allows AI data processing or has credits.
     if not has_ai_approval(integration.team_id):
         return "no_ai_consent"
+    if _out_of_ai_credits(integration):
+        return "out_of_ai_credits"
     outcome = _find_and_send(integration, slack_user_id)
     update_onboarding(slack_workspace_id, slack_user_id, work_focus_outcome=outcome)
     return outcome
@@ -222,7 +227,14 @@ def find_and_send_daily_focus(integration: WorkspaceIntegration, slack_user_id: 
         return "missing_bot_scope"
     zone = person_zone(integration, slack_user_id)
     reschedule_daily_focus(integration, slack_user_id, zone)
-    found = _find(integration, slack_user_id, after=since, min_messages=DAILY_MIN_MESSAGES, pages=DAILY_SEARCH_PAGES)
+    found = _find(
+        integration,
+        slack_user_id,
+        after=since,
+        min_messages=DAILY_MIN_MESSAGES,
+        pages=DAILY_SEARCH_PAGES,
+        flow="slack_app_daily_focus",
+    )
     if isinstance(found, str):
         return found
     blocks = [
@@ -236,7 +248,7 @@ def find_and_send_daily_focus(integration: WorkspaceIntegration, slack_user_id: 
 
 
 def _out_of_ai_credits(integration: WorkspaceIntegration) -> bool:
-    """Nobody asked for the daily run, so a team without AI credits gets no run and no message about it."""
+    """Nobody asked for a work focus, so a team without AI credits gets no run and no message about it."""
     from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the Slack import path
         is_team_over_ai_credit_budget,
     )
@@ -275,7 +287,13 @@ def _daily_focus_footer(integration: WorkspaceIntegration, slack_user_id: str) -
 
 
 def _find_and_send(integration: WorkspaceIntegration, slack_user_id: str) -> str:
-    found = _find(integration, slack_user_id, after=timezone.now() - SEARCH_LOOKBACK, min_messages=MIN_MESSAGES)
+    found = _find(
+        integration,
+        slack_user_id,
+        after=timezone.now() - SEARCH_LOOKBACK,
+        min_messages=MIN_MESSAGES,
+        flow="slack_app_onboarding",
+    )
     if found == "no_search_scope":
         return found
     # Turned on before the quiet outcomes return and before the DM, so a retry after a failed write still finds it on.
@@ -302,6 +320,7 @@ def _find(
     *,
     after: datetime,
     min_messages: int,
+    flow: WorkFocusFlow,
     pages: int = SEARCH_PAGES,
 ) -> _Found | str:
     """The suggestions from the messages sent after ``after``, or the outcome that stops the run."""
@@ -315,14 +334,14 @@ def _find(
     if len(messages) < min_messages:
         return "not_enough_messages"
     try:
-        candidates = _rank(integration, messages)
+        candidates = _rank(integration, messages, flow=flow)
     except Exception as error:
         logger.warning("slack_app_work_focus_rank_failed", exc_info=True)
         raise WorkFocusTransientError("rank failed") from error
     if not candidates:
         return "nothing_actionable"
     try:
-        focus = _write(integration, candidates)
+        focus = _write(integration, candidates, flow=flow)
     except Exception as error:
         logger.warning("slack_app_work_focus_model_failed", exc_info=True)
         raise WorkFocusTransientError("write failed") from error
@@ -441,14 +460,16 @@ def _collect(found: dict[tuple[str, str], _FoundMessage], message: dict[str, Any
     )
 
 
-def _rank(integration: WorkspaceIntegration, messages: list[_FoundMessage]) -> list[_FoundMessage]:
+def _rank(
+    integration: WorkspaceIntegration, messages: list[_FoundMessage], *, flow: WorkFocusFlow
+) -> list[_FoundMessage]:
     """The messages most likely to hold work for PostHog, most likely first."""
     # No TypeSafe fallback: the messages are customer text, and TypeSafe is a third party.
     client = build_system_one_client(
         model=RANK_MODEL,
         ai_product=WORK_FOCUS_AI_PRODUCT,
         team_id=integration.team_id,
-        properties={"slack_app_classifier": "work_focus_rank"},
+        properties={"slack_app_classifier": "work_focus_rank", WORK_FOCUS_FLOW_PROPERTY: flow},
         timeout=RANK_TIMEOUT_SECONDS,
         privacy_mode=True,
     )
@@ -475,11 +496,15 @@ def _rank(integration: WorkspaceIntegration, messages: list[_FoundMessage]) -> l
     return [messages[index] for _, index in scored[:MAX_CANDIDATES]]
 
 
-def _write(integration: WorkspaceIntegration, candidates: list[_FoundMessage]) -> WorkFocus:
+def _write(integration: WorkspaceIntegration, candidates: list[_FoundMessage], *, flow: WorkFocusFlow) -> WorkFocus:
     client = build_ai_gateway_openai_client(
         settings.AI_GATEWAY_API_KEY,
         ai_product=WORK_FOCUS_AI_PRODUCT,
-        properties={"slack_app_classifier": "work_focus_write", "team_id": str(integration.team_id)},
+        properties={
+            "slack_app_classifier": "work_focus_write",
+            WORK_FOCUS_FLOW_PROPERTY: flow,
+            "team_id": str(integration.team_id),
+        },
     ).with_options(timeout=WRITE_TIMEOUT_SECONDS, max_retries=0)
     numbered = "\n".join(
         f"[{index}]{f' in #{message.channel_name}' if message.channel_name else ''}: {message.content}"

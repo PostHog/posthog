@@ -173,6 +173,11 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     assert [call.kwargs["params"].get("cursor") for call in searches] == [None, "page-2", None, "page-2"]
     assert {call.kwargs["params"]["channel_types"] for call in searches} == {"public_channel,im"}
     assert slack["ranker"].call_args.kwargs["privacy_mode"] is True
+    # Both calls bill the team's PostHog AI credits, and say which run made them.
+    assert slack["ranker"].call_args.kwargs["ai_product"] == "slack_app"
+    assert slack["ranker"].call_args.kwargs["properties"]["slack_app_flow"] == "slack_app_onboarding"
+    assert slack["writer"].call_args.kwargs["ai_product"] == "slack_app"
+    assert slack["writer"].call_args.kwargs["properties"]["slack_app_flow"] == "slack_app_onboarding"
     create = slack["writer"].return_value.with_options.return_value.chat.completions.create
     assert create.call_args.kwargs["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
     written_from = create.call_args.kwargs["messages"][1]["content"]
@@ -225,7 +230,7 @@ def test_sends_nothing_without_a_usable_search_or_answer(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("reason", ["rate_limited", "no_ai_consent", "model_failed"])
+@pytest.mark.parametrize("reason", ["rate_limited", "no_ai_consent", "out_of_ai_credits", "model_failed"])
 def test_runs_that_cannot_finish_yet_store_nothing_so_they_run_later(
     reason: str, org_team_user, link_user, slack: dict[str, MagicMock]
 ) -> None:
@@ -239,6 +244,9 @@ def test_runs_that_cannot_finish_yet_store_nothing_so_they_run_later(
     elif reason == "no_ai_consent":
         Organization.objects.filter(id=org.id).update(is_ai_data_processing_approved=False)
         assert find_and_send_work_focus(integration, SLACK_USER_ID) == "no_ai_consent"
+    elif reason == "out_of_ai_credits":
+        with patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=True):
+            assert find_and_send_work_focus(integration, SLACK_USER_ID) == "out_of_ai_credits"
     else:
         slack["writer"].return_value.with_options.return_value.chat.completions.create.side_effect = TimeoutError()
         with pytest.raises(WorkFocusTransientError):
@@ -433,6 +441,7 @@ def test_a_daily_run_reads_since_the_last_run_and_sends_once(
     assert action_ids(blocks)[-1] == DAILY_FOCUS_OFF_ACTION_ID
     assert "I read your messages since Friday" in all_block_text(blocks)
     assert "(America/New_York)" in all_block_text(blocks)
+    assert slack["writer"].call_args.kwargs["properties"]["slack_app_flow"] == "slack_app_daily_focus"
     # The run fetched the timezone again, so Tuesday's run moves to 09:00 in New York.
     assert SlackDailyFocus.objects.unscoped().get().next_run_at == datetime(2026, 11, 10, 14, 0, tzinfo=UTC)
 
