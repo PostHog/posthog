@@ -1458,7 +1458,7 @@ class TestAdminConsoleApiKeys(BaseTest):
         outsider = User.objects.create_and_join(other, "outsider@example.com", None)
         unscoped = self._personal_key(label="Unscoped key")
         scoped_here = self._personal_key(label="Scoped here key", scoped_organizations=[str(self.organization.pk)])
-        out_of_reach = [
+        untouched = [
             self._personal_key(label="Scoped elsewhere key", scoped_organizations=[str(other.pk)]),
             self._personal_key(label="Outsider key", user=outsider),
         ]
@@ -1469,9 +1469,11 @@ class TestAdminConsoleApiKeys(BaseTest):
         )
         preview = self.client.post(url, {"exposed_at": "https://example.com/leak", "reason": "Keys leaked"})
         assert preview.status_code == 200
+        untouched.append(self._personal_key(label="Created after the preview key"))
         confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+        replayed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
 
-        assert confirmed.status_code == 302
+        assert confirmed.status_code == 302 and replayed.status_code == 302
         assert "Unscoped key" in tool.content.decode() and "Outsider key" not in tool.content.decode()
         table = next(block for block in preview.context["page"].blocks if isinstance(block, Table))
         assert {(row.cells[0].text, row.cells[3].text) for row in table.rows if isinstance(row, Row)} == {
@@ -1479,10 +1481,8 @@ class TestAdminConsoleApiKeys(BaseTest):
             ("Scoped here key", "This organization only"),
         }
         assert set(
-            PersonalAPIKey.objects.filter(pk__in=[key.pk for key in out_of_reach]).values_list(
-                "secure_value", flat=True
-            )
-        ) == {key.secure_value for key in out_of_reach}
+            PersonalAPIKey.objects.filter(pk__in=[key.pk for key in untouched]).values_list("secure_value", flat=True)
+        ) == {key.secure_value for key in untouched}
         in_reach = PersonalAPIKey.objects.filter(pk__in=[unscoped.pk, scoped_here.pk])
         if operation == "revoke-all":
             assert not in_reach.exists()
@@ -1494,6 +1494,19 @@ class TestAdminConsoleApiKeys(BaseTest):
             exposed.delay.assert_any_call(
                 self.user.id, unscoped.id, unscoped.mask_value, "This key was detected at https://example.com/leak."
             )
+
+    @parameterized.expand([("roll-all",), ("revoke-all",)])
+    def test_an_organization_operation_refuses_more_keys_than_the_preview_lists(self, operation: str) -> None:
+        keys = [self._personal_key(label=f"Key {index}") for index in range(2)]
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/{operation}/"
+
+        with patch("posthog.admin.console.api_key_panels.KEYS_LIST_LIMIT", 1):
+            preview = self.client.post(url, {"reason": "Keys leaked"})
+
+        assert preview.status_code == 400
+        assert "confirm_token" not in preview.context
+        assert "too many to change at once" in preview.content.decode()
+        assert PersonalAPIKey.objects.filter(secure_value__in=[key.secure_value for key in keys]).count() == 2
 
     @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")

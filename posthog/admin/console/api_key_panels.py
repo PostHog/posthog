@@ -1,13 +1,15 @@
 from collections import defaultdict
+from datetime import datetime
 from typing import cast
 
 from django import forms
 from django.contrib import messages
 from django.contrib.admin.models import CHANGE, LogEntry
 from django.core.exceptions import ValidationError
-from django.db.models import Model
-from django.http import HttpRequest, HttpResponse
+from django.db.models import Model, QuerySet
+from django.http import HttpRequest, HttpResponse, QueryDict
 from django.urls import reverse
+from django.utils import timezone
 
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Panel
 from posthog.admin.console.records import RECORD_TYPES
@@ -214,42 +216,47 @@ class OrganizationPersonalApiKeys:
                 reaching.add(key.pk)
         return reaching
 
+    def previewed(self, key_ids: list[str]) -> QuerySet[PersonalAPIKey]:
+        """The keys the preview listed that still reach the organization."""
+        return get_organization_personal_api_keys(self.organization).filter(pk__in=key_ids)
+
     def blocks(self) -> list[Notice | Table]:
         keys = self.keys(KEYS_LIST_LIMIT + 1)
         shown = keys[:KEYS_LIST_LIMIT]
-        reaching = self.reaching_other_organizations(shown)
-        user_record = RECORD_TYPES["user"]
-        blocks: list[Notice | Table] = [
-            Table(
-                columns=("Key", "Value", "Owner", "Works in", "Last used", "Last rolled"),
-                rows=tuple(
-                    Row(
-                        cells=(
-                            Cell(text=key.label or "No label"),
-                            Cell(text=key.mask_value or "", mono=True),
-                            Cell(text=key.user.email, href=user_record.url(key.user)),
-                            Cell(text="Other organizations too" if key.pk in reaching else "This organization only"),
-                            Cell(
-                                text=key.last_used_at.strftime("%b %-d, %Y") if key.last_used_at else "Never",
-                                muted=key.last_used_at is None,
-                            ),
-                            # The time of day is shown so staff can confirm a roll they ran a moment ago.
-                            Cell(
-                                text=key.last_rolled_at.strftime("%b %-d, %Y, %H:%M UTC")
-                                if key.last_rolled_at
-                                else "Never",
-                                muted=key.last_rolled_at is None,
-                            ),
-                        )
-                    )
-                    for key in shown
-                ),
-                empty_text="No personal API key can reach this organization.",
-            )
-        ]
+        blocks: list[Notice | Table] = [self.table(shown)]
         if len(keys) > len(shown):
             blocks.append(Notice(text=f"{self.count() - len(shown)} more keys are not listed."))
         return blocks
+
+    def table(self, keys: list[PersonalAPIKey]) -> Table:
+        reaching = self.reaching_other_organizations(keys)
+        user_record = RECORD_TYPES["user"]
+        return Table(
+            columns=("Key", "Value", "Owner", "Works in", "Last used", "Last rolled"),
+            rows=tuple(
+                Row(
+                    cells=(
+                        Cell(text=key.label or "No label"),
+                        Cell(text=key.mask_value or "", mono=True),
+                        Cell(text=key.user.email, href=user_record.url(key.user)),
+                        Cell(text="Other organizations too" if key.pk in reaching else "This organization only"),
+                        Cell(
+                            text=key.last_used_at.strftime("%b %-d, %Y") if key.last_used_at else "Never",
+                            muted=key.last_used_at is None,
+                        ),
+                        # The time of day is shown so staff can confirm a roll they ran a moment ago.
+                        Cell(
+                            text=key.last_rolled_at.strftime("%b %-d, %Y, %H:%M UTC")
+                            if key.last_rolled_at
+                            else "Never",
+                            muted=key.last_rolled_at is None,
+                        ),
+                    )
+                )
+                for key in keys
+            ),
+            empty_text="No personal API key can reach this organization.",
+        )
 
 
 def organization_keys_tool_url(organization: Organization) -> str:
@@ -257,7 +264,24 @@ def organization_keys_tool_url(organization: Organization) -> str:
     return f"{tool_url}?organization={organization.pk}"
 
 
-class RollOrganizationKeysForm(forms.Form):
+class OrganizationKeysForm(forms.Form):
+    # The preview fills these in and the confirmation token signs them. The confirm step then changes only the keys
+    # staff saw, and a second confirm of the same preview skips the keys that the first one rolled.
+    previewed_key_ids = forms.CharField(widget=forms.HiddenInput, required=False)
+    previewed_at = forms.DateTimeField(widget=forms.HiddenInput, required=False)
+
+    def remember_preview(self, keys: list[PersonalAPIKey], at: datetime) -> None:
+        assert isinstance(self.data, QueryDict)
+        data = self.data.copy()
+        data["previewed_key_ids"] = ",".join(key.pk for key in keys)
+        data["previewed_at"] = at.isoformat()
+        self.data = data
+
+    def clean_previewed_key_ids(self) -> list[str]:
+        return [key_id for key_id in self.cleaned_data["previewed_key_ids"].split(",") if key_id]
+
+
+class RollOrganizationKeysForm(OrganizationKeysForm):
     exposed_at = forms.CharField(
         label="Where the keys were exposed",
         required=False,
@@ -266,65 +290,81 @@ class RollOrganizationKeysForm(forms.Form):
     reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
 
 
-class RevokeOrganizationKeysForm(forms.Form):
+class RevokeOrganizationKeysForm(OrganizationKeysForm):
     reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
 
 
-def preview_roll_organization_keys(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
-    assert isinstance(obj, Organization)
-    return Page(
-        blocks=(
-            Notice(
-                text=(
-                    "Every key below gets a new value. A key that works in other organizations too stops working "
-                    "there as well, until its owner rolls it."
-                )
-            ),
-            *OrganizationPersonalApiKeys(obj).blocks(),
+def _preview_organization_keys(obj: Model, form: forms.Form, notice: str) -> Page:
+    assert isinstance(obj, Organization) and isinstance(form, OrganizationKeysForm)
+    organization_keys = OrganizationPersonalApiKeys(obj)
+    keys = organization_keys.keys(KEYS_LIST_LIMIT + 1)
+    if len(keys) > KEYS_LIST_LIMIT:
+        form.add_error(
+            None,
+            f"More than {KEYS_LIST_LIMIT} personal API keys can reach this organization, which is too many to "
+            "change at once. Roll the keys from each owner's page instead.",
         )
+        return Page(blocks=())
+    form.remember_preview(keys, timezone.now())
+    return Page(blocks=(Notice(text=notice), organization_keys.table(keys)))
+
+
+def preview_roll_organization_keys(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
+    return _preview_organization_keys(
+        obj,
+        form,
+        "Every key below gets a new value. A key that works in other organizations too stops working there as "
+        "well, until its owner rolls it.",
     )
 
 
 def preview_revoke_organization_keys(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
-    assert isinstance(obj, Organization)
-    return Page(
-        blocks=(
-            Notice(
-                text=(
-                    "Every key below is deleted. A key that works in other organizations too is deleted for "
-                    "those organizations as well. The owners get no email."
-                )
-            ),
-            *OrganizationPersonalApiKeys(obj).blocks(),
-        )
+    return _preview_organization_keys(
+        obj,
+        form,
+        "Every key below is deleted. A key that works in other organizations too is deleted for those "
+        "organizations as well. The owners get no email.",
     )
+
+
+def _report_skipped(request: HttpRequest, form: forms.Form, changed: int) -> None:
+    skipped = len(form.cleaned_data["previewed_key_ids"]) - changed
+    if skipped:
+        messages.warning(request, f"Skipped {pluralize(skipped, 'key')} that changed since the preview.")
 
 
 def roll_organization_personal_api_keys(
     request: HttpRequest, obj: Model, form: forms.Form | None
 ) -> HttpResponse | None:
-    assert isinstance(obj, Organization) and form is not None
+    assert isinstance(obj, Organization) and isinstance(form, OrganizationKeysForm)
     more_info = _more_info(form)
-    keys = OrganizationPersonalApiKeys(obj).keys()
+    previewed = OrganizationPersonalApiKeys(obj).previewed(form.cleaned_data["previewed_key_ids"])
+    if previewed_at := form.cleaned_data["previewed_at"]:
+        previewed = previewed.exclude(last_rolled_at__gte=previewed_at)
+    keys = list(previewed)
     # Each key is saved on its own, because the auth cache invalidation and the activity log run on per-row signals.
     for key in keys:
         old_mask_value = key.mask_value
         PersonalAPIKeySerializer(instance=key).roll(key)
         send_personal_api_key_exposed.delay(key.user_id, key.id, old_mask_value, more_info)
         _log_change(request, key, "Rolled key.")
-    messages.success(request, f"Rolled {pluralize(len(keys), 'personal API key')} and notified the owners.")
+    if keys:
+        messages.success(request, f"Rolled {pluralize(len(keys), 'personal API key')} and notified the owners.")
+    _report_skipped(request, form, len(keys))
     return None
 
 
 def revoke_organization_personal_api_keys(
     request: HttpRequest, obj: Model, form: forms.Form | None
 ) -> HttpResponse | None:
-    assert isinstance(obj, Organization)
-    keys = OrganizationPersonalApiKeys(obj).keys()
+    assert isinstance(obj, Organization) and isinstance(form, OrganizationKeysForm)
+    keys = list(OrganizationPersonalApiKeys(obj).previewed(form.cleaned_data["previewed_key_ids"]))
     # Each key is deleted on its own, because the auth cache invalidation and the activity log run on per-row signals.
     for key in keys:
         key.delete()
-    messages.success(request, f"Deleted {pluralize(len(keys), 'personal API key')}.")
+    if keys:
+        messages.success(request, f"Deleted {pluralize(len(keys), 'personal API key')}.")
+    _report_skipped(request, form, len(keys))
     return None
 
 
