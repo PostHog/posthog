@@ -1198,8 +1198,8 @@ class StamphogGitHubClient:
     def _commit_graphql(self, repo: str, query: str, variables: dict[str, Any], *, timeout: int) -> dict:
         """Run a query against one commit object of ``repo`` and return that commit's fields.
 
-        Raises on any HTTP, GraphQL, or shape failure. Most of these queries feed an advisory
-        signal, so the default is the sheddable BATCH lane.
+        Raises on any HTTP, GraphQL, or shape failure. These queries feed an advisory signal, so
+        they run on the sheddable BATCH lane.
         """
         commit = self._repository_graphql(repo, query, variables, timeout=timeout, priority=Priority.BATCH).get(
             "object"
