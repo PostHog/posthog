@@ -1,16 +1,25 @@
 import re
 from datetime import datetime, timedelta
+from functools import partial
 
 from django.utils import timezone
 
 from products.experiments.backend.facade.api import (
     count_enrolled_people,
+    get_stored_primary_result,
     list_ended_experiments_without_conclusion,
+    list_own_running_experiments,
     list_running_experiments,
 )
-from products.experiments.backend.facade.contracts import EndedExperiment, RunningExperiment
-from products.today.backend.facade.contracts import HighlightCandidate, HighlightContext, HighlightFindings
-from products.today.backend.facade.enums import HighlightLabel
+from products.experiments.backend.facade.contracts import EndedExperiment, RunningExperiment, StoredPrimaryResult
+from products.today.backend.facade.contracts import (
+    HighlightCandidate,
+    HighlightContext,
+    HighlightExperimentResult,
+    HighlightFindings,
+    HighlightMetric,
+)
+from products.today.backend.facade.enums import HighlightLabel, HighlightMetricReason, HighlightUnit
 from products.today.backend.facade.highlight_helpers import short, users
 
 ENDED = "Experiment ‘{experiment}’ ended {when}"
@@ -22,6 +31,7 @@ ENDED_WINDOW_DAYS = 7
 LONG_RUNNING_DAYS = 60
 JUST_CROSSED_DAYS = 67
 MIN_PEOPLE = 100
+NUMBER_CANDIDATES = 10
 
 
 def _days_since(context: HighlightContext, moment: datetime) -> int:
@@ -66,6 +76,49 @@ def _few_users(experiment: RunningExperiment, enrolled: int) -> HighlightCandida
     )
 
 
+def _number(experiment: RunningExperiment, result: StoredPrimaryResult) -> HighlightMetric | None:
+    direction = -1 if result.goal == "decrease" else 1
+    ranked = sorted(
+        (variant for variant in result.variants if variant.change is not None),
+        key=lambda variant: (variant.change or 0) * direction,
+        reverse=True,
+    )
+    shown = next((variant for variant in ranked if variant.significant), ranked[0] if ranked else None)
+    if shown is None or shown.change is None:
+        return None
+    return HighlightMetric(
+        key=f"experiment:{experiment.id}",
+        name=_name(experiment.name, 60),
+        value=shown.change * 100,
+        unit=HighlightUnit.NUMBER,
+        change_pct=None,
+        series=[],
+        url=f"/experiments/{experiment.id}",
+        reason=HighlightMetricReason.EXPERIMENT,
+        experiment=HighlightExperimentResult(
+            metric_name=result.metric_name,
+            variant=shown.key,
+            control=result.baseline.key,
+            variants=len(result.variants),
+            significant=bool(shown.significant),
+            favorable=shown.change * direction > 0,
+            people=result.baseline.number_of_samples + sum(variant.number_of_samples for variant in result.variants),
+        ),
+    )
+
+
+def _experiment_number(context: HighlightContext) -> HighlightMetric | None:
+    running = list_own_running_experiments(team_id=context.team.id, user_id=context.user.id, limit=NUMBER_CANDIDATES)
+    for experiment in running:
+        if f"experiment:{experiment.id}" in context.hidden:
+            continue
+        result = get_stored_primary_result(team_id=context.team.id, experiment_id=experiment.id)
+        number = _number(experiment, result) if result is not None else None
+        if number is not None:
+            return number
+    return None
+
+
 def find_experiment_highlights(context: HighlightContext) -> HighlightFindings:
     now = timezone.now()
     ended = list_ended_experiments_without_conclusion(
@@ -86,9 +139,11 @@ def find_experiment_highlights(context: HighlightContext) -> HighlightFindings:
         None,
     )
     counted = [] if enrolled is None else [(experiment, enrolled.get(experiment.flag_key, 0)) for experiment in running]
+    number = context.guard("experiments_number", partial(_experiment_number, context), None)
     return HighlightFindings(
         items=(
             *(_ended(context, experiment) for experiment in ended),
             *(_few_users(experiment, people) for experiment, people in counted if people < MIN_PEOPLE),
-        )
+        ),
+        pulse=(number,) if number is not None else (),
     )

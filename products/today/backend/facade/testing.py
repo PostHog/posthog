@@ -11,5 +11,12 @@ from ..logic.highlight_types import Context
 from .contracts import HighlightContext
 
 
-def highlight_context(*, team: Team, user: User, today: date, scopes: frozenset[str] | None = None) -> HighlightContext:
-    return Context(team, user, today, scopes)
+def highlight_context(
+    *,
+    team: Team,
+    user: User,
+    today: date,
+    scopes: frozenset[str] | None = None,
+    hidden: frozenset[str] = frozenset(),
+) -> HighlightContext:
+    return Context(team, user, today, scopes, hidden=hidden)

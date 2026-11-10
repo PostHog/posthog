@@ -61,14 +61,29 @@ describe('todayPulseEditorRows', () => {
             ignoredOpen: true,
             expected: [['s1']],
         },
+        {
+            name: 'an experiment number, which cannot be pinned',
+            pulsePins: ['a'],
+            pinnedThisTime: [],
+            others: ['s1', 'experiment:7', 's2'],
+            expected: [['a'], ['s1', 's2', 'r1', 'x']],
+        },
     ])(
         'keeps rows in place for $name',
-        ({ search = '', pulsePins, pinnedThisTime, ignored = [], ignoredOpen = false, expected }) => {
+        ({
+            search = '',
+            pulsePins,
+            pinnedThisTime,
+            others = ['s1', 's2'],
+            ignored = [],
+            ignoredOpen = false,
+            expected,
+        }) => {
             const { groups } = editorRows({
                 search,
                 pulsePins: pulsePins.map(row),
                 pinnedOnOpen: [row('a')],
-                othersOnOpen: [row('s1'), row('s2')],
+                othersOnOpen: others.map(row),
                 pinnedThisTime: pinnedThisTime.map(row),
                 recentInsights: [row('r1'), row('x')],
                 searchInsights: [],

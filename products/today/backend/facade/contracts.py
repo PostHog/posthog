@@ -175,6 +175,17 @@ class HighlightMover:
 
 
 @dataclass(frozen=True)
+class HighlightExperimentResult:
+    metric_name: str
+    variant: str
+    control: str
+    variants: int
+    significant: bool
+    favorable: bool
+    people: int
+
+
+@dataclass(frozen=True)
 class HighlightMetric:
     key: str
     name: str
@@ -193,6 +204,7 @@ class HighlightMetric:
     last_opened: date | None = None
     movers: list[HighlightMover] = field(default_factory=list)
     previous_value: float | None = None
+    experiment: HighlightExperimentResult | None = None
 
 
 @dataclass(frozen=True)
@@ -312,6 +324,7 @@ class HighlightContext(Protocol):
     team: "Team"
     user: "User"
     today: date
+    hidden: frozenset[str]
 
     def allows(self, *required: str) -> bool: ...
 

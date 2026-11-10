@@ -10,6 +10,7 @@ import type { HighlightMetricApi } from 'products/today/frontend/generated/api.s
 
 import { TodayChange } from './TodayChange'
 import { todayNumber } from './todayNumbers'
+import { experimentComparison, experimentPeople, experimentVerdict } from './todayPulseExperiment'
 import { pulseChange, pulsePeriodCaption, pulsePriorLabel } from './todayPulseFacts'
 import { TodayPulseMovers } from './TodayPulseMovers'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
@@ -17,6 +18,9 @@ import { TodayPulsePinButton } from './TodayPulsePinButton'
 import type { TodayTone } from './todayTone'
 
 function openLabel(metric: HighlightMetricApi): string {
+    if (metric.experiment) {
+        return 'Open experiment'
+    }
     return metric.dashboard_id !== null || metric.reason === 'dashboard' ? 'Open dashboard' : 'Open insight'
 }
 
@@ -42,6 +46,7 @@ export function TodayPulseCard({
     onHide: () => void
 }): JSX.Element {
     const change = pulseChange(metric)
+    const experiment = metric.experiment
     return (
         <div className="TodayPulseCard flex flex-col" data-attr="today-pulse-card">
             <div className="flex flex-col gap-4 p-3 pb-3">
@@ -51,20 +56,36 @@ export function TodayPulseCard({
                             {metric.name}
                         </Text>
                         <Text size="xs" variant="muted" render={<span />} className="shrink-0">
-                            {pulsePeriodCaption(metric)}
+                            {experiment ? experiment.metric_name : pulsePeriodCaption(metric)}
                         </Text>
                     </div>
-                    <div className="flex flex-wrap items-baseline gap-x-2">
-                        <Heading size="xl" render={<span />} className="tabular-nums" translate="no">
-                            {formatValue(metric.value)}
-                        </Heading>
-                        {change.value !== null && (
-                            <span className="text-sm text-muted-foreground">
-                                <TodayChange change={change.value} unit={change.unit} tone={tone} />
-                                <span> {pulsePriorLabel(metric)}</span>
-                            </span>
-                        )}
-                    </div>
+                    {experiment ? (
+                        <>
+                            <div className="flex flex-wrap items-baseline gap-x-2">
+                                <Heading size="xl" render={<span />} className="tabular-nums">
+                                    <TodayChange change={metric.value} tone={tone} />
+                                </Heading>
+                                <span className="text-sm text-muted-foreground">
+                                    {experimentComparison(experiment)}
+                                </span>
+                            </div>
+                            <Text size="xs" variant="muted" render={<span />}>
+                                {`${experimentVerdict(experiment)} · ${experimentPeople(experiment)}`}
+                            </Text>
+                        </>
+                    ) : (
+                        <div className="flex flex-wrap items-baseline gap-x-2">
+                            <Heading size="xl" render={<span />} className="tabular-nums" translate="no">
+                                {formatValue(metric.value)}
+                            </Heading>
+                            {change.value !== null && (
+                                <span className="text-sm text-muted-foreground">
+                                    <TodayChange change={change.value} unit={change.unit} tone={tone} />
+                                    <span> {pulsePriorLabel(metric)}</span>
+                                </span>
+                            )}
+                        </div>
+                    )}
                 </div>
                 {metric.movers.length > 1 && (
                     <div className="flex flex-col gap-1">
@@ -80,7 +101,7 @@ export function TodayPulseCard({
                 {!pinned && (
                     <Text size="xs" variant="muted" render={<span />} className="inline-flex items-center gap-1">
                         <IconSparkles className="size-3 shrink-0" />
-                        Suggested based on your usage
+                        {experiment ? 'You run this experiment' : 'Suggested based on your usage'}
                     </Text>
                 )}
             </div>

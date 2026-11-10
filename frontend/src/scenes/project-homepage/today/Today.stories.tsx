@@ -30,6 +30,7 @@ import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { HighlightsApi } from 'products/today/frontend/generated/api.schemas'
 
+import { TodayPulseCard } from './TodayPulseCard'
 import { readyPulseSlots, withReadySlots } from './todayTestFixtures'
 
 const ADA = {
@@ -591,6 +592,7 @@ const HIGHLIGHTS: HighlightsApi = withReadySlots({
             opened_days: 9,
             last_opened: '2026-09-27',
             previous_value: 3956,
+            experiment: null,
             movers: [
                 { label: 'Paid plans', value: 2610, change_pct: 9.2 },
                 { label: 'Free plan', value: 1420, change_pct: 1.8 },
@@ -614,6 +616,7 @@ const HIGHLIGHTS: HighlightsApi = withReadySlots({
             opened_days: null,
             last_opened: null,
             previous_value: 1017,
+            experiment: null,
             movers: [],
         },
         {
@@ -633,6 +636,7 @@ const HIGHLIGHTS: HighlightsApi = withReadySlots({
             opened_days: null,
             last_opened: null,
             previous_value: 353,
+            experiment: null,
             movers: [],
         },
         {
@@ -652,6 +656,7 @@ const HIGHLIGHTS: HighlightsApi = withReadySlots({
             opened_days: null,
             last_opened: null,
             previous_value: 18012,
+            experiment: null,
             movers: [],
         },
     ],
@@ -781,6 +786,33 @@ const REVENUE_METRIC: HighlightsApi['pulse'][number] = {
     url: '/insights/arr01',
     value_format: { format: 'numeric', prefix: '$', postfix: null, decimal_places: 0 },
     previous_value: 46600,
+}
+
+const EXPERIMENT_METRIC: HighlightsApi['pulse'][number] = {
+    ...HIGHLIGHTS.pulse[0],
+    key: 'experiment:42',
+    name: 'Checkout redesign',
+    value: 8.2,
+    unit: 'number',
+    change_pct: null,
+    series: [],
+    period_starts: [],
+    url: '/experiments/42',
+    value_format: null,
+    reason: 'experiment',
+    opened_days: null,
+    last_opened: null,
+    movers: [],
+    previous_value: null,
+    experiment: {
+        metric_name: 'Checkout conversion',
+        variant: 'test',
+        control: 'control',
+        variants: 1,
+        significant: true,
+        favorable: true,
+        people: 4120,
+    },
 }
 
 function storyHighlights(): HighlightsApi {
@@ -1378,6 +1410,25 @@ function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
     )
 }
 
+export const ExperimentNumberHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayPulseCard
+                metric={EXPERIMENT_METRIC}
+                tone="good"
+                formatValue={String}
+                onOpen={noop}
+                pinned={false}
+                pinDisabledReason="Experiments can't be pinned"
+                onTogglePin={noop}
+                hideDisabledReason={null}
+                onHide={noop}
+            />
+        </HoverCardFrame>
+    ),
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
 export const SessionHoverCard: Story = {
     render: () => (
         <HoverCardFrame>
@@ -1509,6 +1560,21 @@ export const HomePulseMixed: Story = {
         }),
     ],
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomeWithExperimentNumber: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': withReadySlots({
+                    ...HIGHLIGHTS,
+                    items: [],
+                    pulse: [EXPERIMENT_METRIC, ...HIGHLIGHTS.pulse.slice(0, 3)],
+                }),
+            },
+        }),
+    ],
+    parameters: { testOptions: { snapshotBrowsers: [], waitForSelector: '[data-pulse-key="experiment:42"]' } },
 }
 
 export const HomePulseEmptyAndError: Story = {

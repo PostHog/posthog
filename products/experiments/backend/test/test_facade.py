@@ -322,6 +322,23 @@ class TestHighlightFacts(BaseTest):
 
         assert [(e.name, e.flag_key) for e in found] == [(name, listed[name]) for name in expected]
 
+    def test_lists_own_running_experiments_with_any_exposure_newest_first(self) -> None:
+        now = timezone.now()
+        self._experiment("Onboarding tips", start_date=now - timedelta(days=80))
+        self._experiment("Custom exposure", start_date=now - timedelta(days=2), exposure_criteria=PAGEVIEW_EXPOSURE)
+        self._experiment("Checkout copy", start_date=now - timedelta(days=10))
+        self._experiment("Draft")
+        self._experiment("Ended", start_date=now - timedelta(days=30), end_date=now - timedelta(days=1))
+        self._experiment("Archived", start_date=now - timedelta(days=30), archived=True)
+        self._experiment("Deleted", start_date=now - timedelta(days=30), deleted=True)
+        self._experiment(
+            "Not yours", start_date=now - timedelta(days=5), created_by=self._create_user("other@example.com")
+        )
+
+        found = api.list_own_running_experiments(team_id=self.team.pk, user_id=self.user.pk, limit=2)
+
+        assert [e.name for e in found] == ["Custom exposure", "Checkout copy"]
+
 
 @time_machine.travel("2026-10-28T12:00:00Z", tick=False)
 class TestConnectExperimentChanged(BaseTest):

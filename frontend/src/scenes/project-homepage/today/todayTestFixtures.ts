@@ -60,6 +60,7 @@ export function makePulseMetric(overrides: Partial<HighlightMetricApi> = {}): Hi
         last_opened: '2026-09-29',
         movers: [],
         previous_value: 100,
+        experiment: null,
         ...overrides,
     }
 }

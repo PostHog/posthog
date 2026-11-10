@@ -7,9 +7,14 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.experiments.backend import today_highlights
-from products.experiments.backend.facade.contracts import EndedExperiment, RunningExperiment
+from products.experiments.backend.facade.contracts import (
+    EndedExperiment,
+    RunningExperiment,
+    StoredArmResult,
+    StoredPrimaryResult,
+)
 from products.experiments.backend.facade.today_highlights import HIGHLIGHT_SOURCES
-from products.today.backend.facade.contracts import HighlightFindings
+from products.today.backend.facade.contracts import HighlightExperimentResult, HighlightFindings
 from products.today.backend.facade.testing import highlight_context
 
 MONDAY = date(2026, 10, 12)
@@ -19,19 +24,109 @@ ENDED = EndedExperiment(id=7, name="Pricing page layout experiment", ended_at=NO
 RUNNING = RunningExperiment(
     id=9, name="Onboarding tips", started_at=NOW - timedelta(days=62), flag_key="onboarding-tips"
 )
+OWN = [
+    RunningExperiment(id=id, name=name, started_at=NOW - timedelta(days=5), flag_key=f"flag-{id}")
+    for id, name in ((11, "Checkout redesign experiment"), (12, "Pricing copy"), (13, "Signup flow"))
+]
+
+
+def stored(*variants: StoredArmResult, goal: str | None = None) -> StoredPrimaryResult:
+    return StoredPrimaryResult(
+        metric_name="Conversion rate",
+        metric_type="funnel",
+        proportion=True,
+        goal=goal,
+        baseline=StoredArmResult(key="control", number_of_samples=2000, mean=0.1),
+        variants=variants,
+    )
+
+
+def arm(key: str, change: float | None, significant: bool | None = False) -> StoredArmResult:
+    return StoredArmResult(key=key, number_of_samples=2100, mean=0.11, change=change, significant=significant)
 
 
 @time_machine.travel(NOW, tick=False)
 class TestExperiments(BaseTest):
-    def _find(self, today: date, running: MagicMock, enrolled: MagicMock) -> HighlightFindings:
+    def _find(
+        self,
+        today: date,
+        running: MagicMock,
+        enrolled: MagicMock,
+        results: MagicMock | None = None,
+        hidden: frozenset[str] = frozenset(),
+    ) -> HighlightFindings:
         registered = next(s for s in HIGHLIGHT_SOURCES if s.name == "experiments")
-        context = highlight_context(team=self.team, user=self.user, today=today)
+        context = highlight_context(team=self.team, user=self.user, today=today, hidden=hidden)
         with (
             patch.object(today_highlights, "list_ended_experiments_without_conclusion", return_value=[ENDED]),
             patch.object(today_highlights, "list_running_experiments", running),
             patch.object(today_highlights, "count_enrolled_people", enrolled),
+            patch.object(today_highlights, "list_own_running_experiments", return_value=OWN),
+            patch.object(today_highlights, "get_stored_primary_result", results or MagicMock(return_value=None)),
         ):
             return registered.find(context)
+
+    @parameterized.expand(
+        [
+            (
+                "a significant winner",
+                stored(arm("test", 0.082, True)),
+                8.2,
+                HighlightExperimentResult("Conversion rate", "test", "control", 1, True, True, 4100),
+            ),
+            (
+                "significance before size",
+                stored(arm("bold", 0.2), arm("calm", 0.05, True)),
+                5.0,
+                HighlightExperimentResult("Conversion rate", "calm", "control", 2, True, True, 6200),
+            ),
+            (
+                "the leader when nothing is significant",
+                stored(arm("bold", -0.03), arm("calm", 0.04, None)),
+                4.0,
+                HighlightExperimentResult("Conversion rate", "calm", "control", 2, False, True, 6200),
+            ),
+            (
+                "a metric that should decrease",
+                stored(arm("test", -0.1, True), goal="decrease"),
+                -10.0,
+                HighlightExperimentResult("Conversion rate", "test", "control", 1, True, True, 4100),
+            ),
+            (
+                "a loss",
+                stored(arm("test", -0.06, True)),
+                -6.0,
+                HighlightExperimentResult("Conversion rate", "test", "control", 1, True, False, 4100),
+            ),
+        ]
+    )
+    def test_the_number_compares_the_variant_to_show_with_the_control(
+        self, _name: str, result: StoredPrimaryResult, value: float, experiment: HighlightExperimentResult
+    ) -> None:
+        found = self._find(
+            TUESDAY, MagicMock(return_value=[]), MagicMock(return_value={}), MagicMock(return_value=result)
+        )
+
+        self.assertEqual(
+            [(m.key, m.name, round(m.value, 6), m.url, m.reason, m.experiment) for m in found.pulse],
+            [("experiment:11", "Checkout redesign", value, "/experiments/11", "experiment", experiment)],
+        )
+
+    def test_the_number_skips_ignored_experiments_and_results_without_a_change(self) -> None:
+        results = MagicMock(
+            side_effect=lambda *, team_id, experiment_id: {12: stored(arm("test", None)), 13: stored(arm("test", 0.1))}[
+                experiment_id
+            ]
+        )
+
+        found = self._find(
+            TUESDAY, MagicMock(return_value=[]), MagicMock(return_value={}), results, frozenset({"experiment:11"})
+        )
+
+        self.assertEqual(
+            ([m.key for m in found.pulse], [call.kwargs["experiment_id"] for call in results.call_args_list]),
+            (["experiment:13"], [12, 13]),
+        )
 
     def test_an_ended_experiment_without_a_decision_is_an_opportunity(self) -> None:
         found = self._find(TUESDAY, MagicMock(return_value=[]), MagicMock(return_value={}))
@@ -77,7 +172,13 @@ class TestExperiments(BaseTest):
 
         self.assertEqual([c.title for c in found.items][1:], [title] if title else [])
 
-    def test_a_failed_count_keeps_the_ended_reminders(self) -> None:
-        found = self._find(TUESDAY, MagicMock(return_value=[RUNNING]), MagicMock(side_effect=TimeoutError("slow")))
+    @parameterized.expand(
+        [
+            ("count", MagicMock(side_effect=TimeoutError("slow")), MagicMock(return_value=None)),
+            ("result read", MagicMock(return_value={"onboarding-tips": 150}), MagicMock(side_effect=TimeoutError())),
+        ]
+    )
+    def test_a_failed_read_keeps_the_ended_reminders(self, _name: str, enrolled: MagicMock, results: MagicMock) -> None:
+        found = self._find(TUESDAY, MagicMock(return_value=[RUNNING]), enrolled, results)
 
-        self.assertEqual([c.key for c in found.items], ["experiment_ended:7"])
+        self.assertEqual(([c.key for c in found.items], found.pulse), (["experiment_ended:7"], ()))
