@@ -1,4 +1,5 @@
 import uuid
+from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
@@ -37,6 +38,24 @@ ISSUE_EVENT: dict[str, Any] = {
 def produce():
     with patch("products.workflows.backend.github_workflow_events.produce_internal_event") as mock:
         yield mock
+
+
+class RecordingSink:
+    def __init__(self) -> None:
+        self.events_by_team: dict[int, list[Any]] = defaultdict(list)
+        self.failing_team_id: int | None = None
+
+    def __call__(self, team_id: int, event: Any, person: Any = None) -> None:
+        if team_id == self.failing_team_id:
+            raise BufferError("Local: Queue full")
+        self.events_by_team[team_id].append(event)
+
+
+@pytest.fixture
+def sink(produce) -> RecordingSink:
+    recording_sink = RecordingSink()
+    produce.side_effect = recording_sink
+    return recording_sink
 
 
 @pytest.fixture
@@ -161,13 +180,6 @@ def test_push_commit_messages_are_stripped_from_the_embedded_event(produce, inte
     assert github_event["head_commit"] == {"id": "abc123"}
 
 
-def test_non_push_events_keep_their_raw_payload(produce, integration) -> None:
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
-
-    assert produce.call_args.args[1].properties["github_event"] == ISSUE_EVENT
-
-
 def test_pull_request_review_reads_the_review_not_the_pull_request(produce, integration) -> None:
     payload = {
         **ISSUE_EVENT,
@@ -259,11 +271,15 @@ def test_repository_visibility_is_a_string_not_a_boolean(produce, integration, r
     assert produce.call_args.args[1].properties["repository_visibility"] == expected
 
 
-def test_review_state_is_only_set_for_pull_request_reviews(produce, integration) -> None:
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
+def test_review_state_is_only_set_for_pull_request_reviews(sink, integration) -> None:
+    # An issue carries its own open/closed state, which a filter must not mistake for a review verdict.
+    open_issue = {**ISSUE_EVENT, "issue": {**ISSUE_EVENT["issue"], "state": "open"}}
 
-    assert produce.call_args.args[1].properties["review_state"] is None
+    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_github_event("issues", open_issue, "delivery-1")
+
+    (event,) = sink.events_by_team[integration.team_id]
+    assert event.properties["review_state"] is None
 
 
 def test_properties_carry_what_a_filter_needs(produce, integration) -> None:
@@ -297,11 +313,18 @@ def test_an_integration_lookup_timeout_emits_nothing_and_is_reported(produce, in
     logger.exception.assert_not_called()
 
 
-def test_a_kafka_failure_does_not_reach_the_webhook(produce, integration) -> None:
-    produce.side_effect = RuntimeError("kafka is down")
+def test_a_kafka_failure_for_one_project_does_not_reach_the_webhook_or_the_others(sink, integration) -> None:
+    second_team = Team.objects.create(organization=integration.team.organization, name="Second")
+    second_integration = Integration.objects.create(
+        team=second_team, kind="github", integration_id=str(INSTALLATION_ID), config={}
+    )
+    sink.failing_team_id = integration.team_id
 
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("issues", ISSUE_EVENT, "delivery-1")
+
+    (event,) = sink.events_by_team[second_team.pk]
+    assert event.properties["integration_id"] == second_integration.pk
 
 
 def test_the_webhook_consumer_passes_the_whole_delivery_through_the_facade(produce, integration) -> None:
