@@ -53,7 +53,12 @@ class TestBackendsBehaveTheSame(BaseTest):
             self.fake = self.enterContext(fake_integrations_backend(token_refresher=self._count_refresh))
         else:
             self.enterContext(
-                patch.object(OauthIntegration, "refresh_access_token", autospec=True, side_effect=self._django_refresh)
+                patch.object(
+                    OauthIntegration,
+                    "token_refresh_patch",
+                    autospec=True,
+                    side_effect=lambda oauth: self._count_refresh(oauth.integration),
+                )
             )
         self.other_team = Team.objects.create(organization=self.organization, name="Other")
         self.ids = {name: self._seed(name, kind, config) for name, (kind, config) in ROWS.items()}
@@ -62,13 +67,6 @@ class TestBackendsBehaveTheSame(BaseTest):
     def _count_refresh(self, record: IntegrationRecord) -> IntegrationPatch:
         self.refreshes.append(record.id)
         return _refreshed_tokens(record)
-
-    def _django_refresh(self, oauth: OauthIntegration) -> None:
-        patch_ = self._count_refresh(oauth.integration)
-        if patch_.errors:
-            oauth.integration.errors = patch_.errors
-        oauth.integration.sensitive_config = {**oauth.integration.sensitive_config, **patch_.sensitive_config_patch}
-        oauth.integration.save()
 
     def _seed(
         self,
@@ -594,3 +592,26 @@ class TestBackendsBehaveTheSame(BaseTest):
         assert self.refreshes == ([row_id] if token == "new" or fail else [])
         for record in (row, stored):
             assert (record.access_token, record.errors) == (token, errors)
+
+    @parameterized.expand(
+        [
+            ("row_without_a_token", None, "new"),
+            ("row_with_a_token", "old", "old"),
+        ]
+    )
+    def test_refresh_access_token_reads_an_empty_stale_token_as_no_token(
+        self, _name: str, stored_token: str | None, token: str
+    ) -> None:
+        sensitive_config: dict[str, Any] = {"refresh_token": "r1"}
+        if stored_token is not None:
+            sensitive_config["access_token"] = stored_token
+        row_id = self._seed(
+            "resend-account",
+            "resend",
+            {"expires_in": 900, "refreshed_at": int(time.time())},
+            sensitive_config=sensitive_config,
+        )
+
+        row = IntegrationManager.resend.oauth.refresh_access_token(self.team.id, row_id, stale_access_token="")
+
+        assert (row.access_token, self._stored(row_id).access_token) == (token, token)
