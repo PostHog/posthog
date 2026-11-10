@@ -308,6 +308,40 @@ describe("checkoutExistingPullRequest", () => {
       target_project_id: 1,
     };
 
+    it.each(["fetch", "checkout"])(
+      "preserves local changes when %s fails",
+      async (failedCommand) => {
+        const { runCommand: baseCommand, calls } = buildRunCommand({
+          currentBranch: "main",
+          currentHead: OTHER_OID,
+          originUrl: "https://gitlab.com/acme/platform/api.git",
+        });
+        const runCommand: RunCommand = async (
+          executable,
+          args,
+          cwd,
+          signal,
+        ) => {
+          if (executable === "git" && args[0] === failedCommand) {
+            throw new Error("command failed");
+          }
+          return baseCommand(executable, args, cwd, signal);
+        };
+        const result = await checkoutExistingPullRequest({
+          repositoryPath: "/tmp/repo",
+          prUrl: MR_URL,
+          runCommand,
+          lookupGitlabMergeRequest: async () => mergeRequest,
+        });
+        expect(result.status).toBe("failed");
+        expect(
+          calls.mock.calls.some(
+            ([, args]) => args[0] === "reset" || args.includes("--force"),
+          ),
+        ).toBe(false);
+      },
+    );
+
     it.each([
       {
         name: "fetches and checks out the MR source branch from origin",

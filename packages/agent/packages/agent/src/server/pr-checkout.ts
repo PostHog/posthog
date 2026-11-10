@@ -320,12 +320,6 @@ async function checkoutExistingGitlabMergeRequest({
           : ["checkout", "-b", branch, "--track", `origin/${branch}`],
       );
     } catch (error) {
-      await restoreRepoState(
-        runCommand,
-        repositoryPath,
-        currentBranch,
-        currentHead,
-      );
       return {
         status: "failed",
         error: redactUrlCredentials(error),
