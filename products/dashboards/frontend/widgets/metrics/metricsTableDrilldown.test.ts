@@ -114,6 +114,17 @@ describe('buildMetricsTableDrilldown', () => {
         expect(errors.query.dateRange).toEqual(expectedDateRange)
     })
 
+    it('measures a dashboard range from midnight in the project timezone', () => {
+        // 01:00 UTC is 17:00 the day before in Los Angeles, so "today" there is 17 hours long, not one.
+        jest.useFakeTimers().setSystemTime(new Date('2026-11-10T01:00:00Z'))
+        const keys = Array.from({ length: 50 }, (_, index) => `/api/${index}`)
+
+        const drilldown = buildMetricsTableDrilldown(CONFIG, keys, { date_from: 'dStart' }, 'America/Los_Angeles')
+
+        expect(drilldown.interval).toEqual('minute_15')
+        jest.useRealTimers()
+    })
+
     it('matches several rows with one anchored regex that escapes the values', () => {
         const [errors] = buildMetricsTableDrilldown(CONFIG, ['GET /api/traces/{id}', 'POST /api/chat']).charts
 

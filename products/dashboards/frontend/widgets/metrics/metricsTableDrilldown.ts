@@ -74,9 +74,10 @@ const DASHBOARD_INTERVALS: Record<IntervalType, string> = {
     year: 'week',
 }
 
-function spanSeconds(dateFrom: string, dateTo: string | null): number | null {
-    const from = dateStringToDayJs(dateFrom)
-    const to = dateTo ? dateStringToDayJs(dateTo) : dayjs()
+/** Measured in the project's timezone, where the backend resolves the same strings. */
+function spanSeconds(dateFrom: string, dateTo: string | null, timezone: string): number | null {
+    const from = dateStringToDayJs(dateFrom, timezone)
+    const to = dateTo ? dateStringToDayJs(dateTo, timezone) : dayjs()
     if (!from?.isValid() || !to?.isValid() || !to.isAfter(from)) {
         return null
     }
@@ -89,9 +90,10 @@ function drilldownInterval(
     interval: string | null,
     dateFrom: string,
     dateTo: string | null,
-    rowCount: number
+    rowCount: number,
+    timezone: string
 ): string | null {
-    const span = spanSeconds(dateFrom, dateTo)
+    const span = spanSeconds(dateFrom, dateTo, timezone)
     if (span === null) {
         return interval
     }
@@ -112,7 +114,10 @@ function drilldownInterval(
 /** The dashboard range as the metrics query must receive it. That query reads a date-only end as midnight, so a
  * dashboard end that means the whole day gets its last second. A range longer than the query allows keeps its end
  * and loses its start. */
-function dashboardDateRange(filters: MetricsTableDrilldownDashboardFilters): {
+function dashboardDateRange(
+    filters: MetricsTableDrilldownDashboardFilters,
+    timezone: string
+): {
     dateFrom: string
     dateTo: string | null
 } {
@@ -121,14 +126,14 @@ function dashboardDateRange(filters: MetricsTableDrilldownDashboardFilters): {
     if (dateTo && !filters.explicitDate && DATE_ONLY.test(dateTo)) {
         dateTo = `${dateTo}T23:59:59`
     }
-    const span = spanSeconds(dateFrom, dateTo)
+    const span = spanSeconds(dateFrom, dateTo, timezone)
     if (span === null || span <= MAX_SPAN_DAYS * 86_400) {
         return { dateFrom, dateTo }
     }
     if (!dateTo) {
         return { dateFrom: `-${MAX_SPAN_DAYS}d`, dateTo }
     }
-    const to = dateStringToDayJs(dateTo)
+    const to = dateStringToDayJs(dateTo, timezone)
     return { dateFrom: to ? to.subtract(MAX_SPAN_DAYS, 'day').format('YYYY-MM-DDTHH:mm:ss') : dateFrom, dateTo }
 }
 
@@ -154,18 +159,19 @@ function columnClause(column: MetricsTableColumn, groupBy: string, keys: string[
 export function buildMetricsTableDrilldown(
     config: DrilldownConfig,
     keys: string[],
-    dashboardFilters?: MetricsTableDrilldownDashboardFilters | null
+    dashboardFilters?: MetricsTableDrilldownDashboardFilters | null,
+    timezone: string = 'UTC'
 ): MetricsTableDrilldown {
     const { dateFrom, dateTo } =
         dashboardFilters && (dashboardFilters.date_from || dashboardFilters.date_to)
-            ? dashboardDateRange(dashboardFilters)
+            ? dashboardDateRange(dashboardFilters, timezone)
             : { dateFrom: config.dateRange?.date_from ?? DEFAULT_DATE_FROM, dateTo: null }
     const groupBy = config.groupBy
     if (!groupBy || keys.length === 0) {
         return { dateFrom, dateTo, interval: null, charts: [] }
     }
     const requested = dashboardFilters?.interval ? DASHBOARD_INTERVALS[dashboardFilters.interval] : config.interval
-    const interval = drilldownInterval(requested ?? null, dateFrom, dateTo, keys.length)
+    const interval = drilldownInterval(requested ?? null, dateFrom, dateTo, keys.length, timezone)
     const dateRange = dateTo ? { date_from: dateFrom, date_to: dateTo } : { date_from: dateFrom }
     return {
         dateFrom,

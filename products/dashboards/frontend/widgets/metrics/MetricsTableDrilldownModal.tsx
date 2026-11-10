@@ -1,7 +1,10 @@
+import { useValues } from 'kea'
+
 import { LemonModal } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { dateFilterToText } from 'lib/utils/dateFilters'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { Query } from '~/queries/Query/Query'
 
@@ -41,10 +44,11 @@ export function MetricsTableDrilldownModal({
     dashboardFilters?: MetricsTableDrilldownDashboardFilters | null
     onClose: () => void
 }): JSX.Element | null {
+    const { timezone } = useValues(teamLogic)
     if (keys.length === 0) {
         return null
     }
-    const { dateFrom, dateTo, interval, charts } = buildMetricsTableDrilldown(config, keys, dashboardFilters)
+    const { dateFrom, dateTo, interval, charts } = buildMetricsTableDrilldown(config, keys, dashboardFilters, timezone)
     const rangeText = dateFilterToText(dateFrom, dateTo, 'Last hour')
     const intervalLabel = interval ? INTERVAL_LABELS[interval] : undefined
     return (
