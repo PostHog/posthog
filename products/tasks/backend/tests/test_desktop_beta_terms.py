@@ -1,12 +1,14 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.event_usage import groups
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
@@ -39,6 +41,38 @@ class TestDesktopBetaTermsAPI(APIBaseTest):
         self.assertFalse(check_response.json()["is_desktop_beta_terms_accepted"])
         self.assertEqual(accept_response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(DesktopBetaTermsAcceptance.objects.exists())
+
+    @patch("products.tasks.backend.presentation.views.desktop.posthoganalytics.capture")
+    def test_admin_can_withdraw_terms_idempotently(self, capture) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.post(self.url)
+        capture.reset_mock()
+
+        first_response = self.client.post(f"{self.url}revoke/")
+        second_response = self.client.post(f"{self.url}revoke/")
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(first_response.json()["is_desktop_beta_terms_accepted"])
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(DesktopBetaTermsAcceptance.objects.exists())
+        self.assertFalse(self.client.get(self.url).json()["is_desktop_beta_terms_accepted"])
+        capture.assert_called_once_with(
+            distinct_id=self.user.distinct_id,
+            event="desktop beta terms withdrawn",
+            groups=groups(self.organization),
+        )
+
+    def test_member_cannot_withdraw_terms(self) -> None:
+        DesktopBetaTermsAcceptance.objects.create(
+            organization=self.organization,
+            accepted_by_user_id=self.user.id,
+        )
+
+        response = self.client.post(f"{self.url}revoke/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(DesktopBetaTermsAcceptance.objects.filter(organization=self.organization).exists())
 
     def test_admin_cannot_accept_terms_for_another_organization(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -80,11 +114,15 @@ class TestDesktopBetaTermsAPI(APIBaseTest):
 
         check_response = self.client.get(project_url)
         accept_response = self.client.post(project_url)
+        revoke_response = self.client.post(f"{project_url}revoke/")
 
         self.assertEqual(check_response.status_code, status.HTTP_200_OK)
         self.assertFalse(check_response.json()["is_desktop_beta_terms_accepted"])
         self.assertEqual(accept_response.status_code, status.HTTP_200_OK, accept_response.json())
         self.assertTrue(accept_response.json()["is_desktop_beta_terms_accepted"])
+        self.assertEqual(revoke_response.status_code, status.HTTP_200_OK, revoke_response.json())
+        self.assertFalse(revoke_response.json()["is_desktop_beta_terms_accepted"])
+        self.assertFalse(DesktopBetaTermsAcceptance.objects.exists())
 
     def test_project_scoped_member_can_check_but_not_accept_terms(self) -> None:
         self._authenticate_with_project_scoped_token()
@@ -103,6 +141,21 @@ class TestDesktopBetaTermsAPI(APIBaseTest):
         self.assertEqual(self.client.get(project_url).status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.post(project_url).status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(DesktopBetaTermsAcceptance.objects.exists())
+
+    def test_project_scoped_read_only_token_cannot_withdraw_terms(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        DesktopBetaTermsAcceptance.objects.create(
+            organization=self.organization,
+            accepted_by_user_id=self.user.id,
+        )
+        self._authenticate_with_project_scoped_token(scope="organization:read")
+        project_url = f"/api/projects/{self.team.id}/desktop_beta_terms/"
+
+        response = self.client.post(f"{project_url}revoke/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(DesktopBetaTermsAcceptance.objects.filter(organization=self.organization).exists())
 
     def test_project_scoped_token_cannot_access_another_project(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

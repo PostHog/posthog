@@ -4,13 +4,18 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { desktopBetaTermsCreate, desktopBetaTermsList } from 'products/tasks/frontend/generated/api'
+import {
+    desktopBetaTermsCreate,
+    desktopBetaTermsList,
+    desktopBetaTermsRevoke,
+} from 'products/tasks/frontend/generated/api'
 
 import { desktopBetaTermsLogic } from './desktopBetaTermsLogic'
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
     desktopBetaTermsCreate: jest.fn(),
     desktopBetaTermsList: jest.fn(),
+    desktopBetaTermsRevoke: jest.fn(),
 }))
 
 describe('desktopBetaTermsLogic', () => {
@@ -21,6 +26,7 @@ describe('desktopBetaTermsLogic', () => {
         initKeaTests(true, undefined, undefined, MOCK_DEFAULT_ORGANIZATION)
         jest.mocked(desktopBetaTermsList).mockResolvedValue({ is_desktop_beta_terms_accepted: false })
         jest.mocked(desktopBetaTermsCreate).mockResolvedValue({ is_desktop_beta_terms_accepted: true })
+        jest.mocked(desktopBetaTermsRevoke).mockResolvedValue({ is_desktop_beta_terms_accepted: false })
         logic = desktopBetaTermsLogic({ projectId })
         logic.mount()
     })
@@ -29,7 +35,7 @@ describe('desktopBetaTermsLogic', () => {
         logic.unmount()
     })
 
-    it('loads and accepts the beta terms through the current project', async () => {
+    it('loads, accepts, and withdraws the beta terms through the current project', async () => {
         await expectLogic(logic)
             .toDispatchActions(['loadDesktopBetaTermsAcceptedSuccess'])
             .toMatchValues({ desktopBetaTermsAccepted: false })
@@ -46,5 +52,15 @@ describe('desktopBetaTermsLogic', () => {
         expect(desktopBetaTermsCreate).toHaveBeenCalledTimes(1)
         expect(desktopBetaTermsCreate).toHaveBeenCalledWith(projectId)
         expect(desktopBetaTermsCreate).not.toHaveBeenCalledWith(MOCK_DEFAULT_ORGANIZATION.id)
+
+        logic.actions.revokeDesktopBetaTerms()
+
+        await expectLogic(logic)
+            .toDispatchActions(['revokeDesktopBetaTermsSuccess'])
+            .toMatchValues({ desktopBetaTermsAccepted: false })
+
+        expect(desktopBetaTermsRevoke).toHaveBeenCalledTimes(1)
+        expect(desktopBetaTermsRevoke).toHaveBeenCalledWith(projectId)
+        expect(desktopBetaTermsRevoke).not.toHaveBeenCalledWith(MOCK_DEFAULT_ORGANIZATION.id)
     })
 })
