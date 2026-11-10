@@ -501,22 +501,35 @@ export class CyclotronV2Janitor {
 
     /**
      * Deletes idempotency keys whose window has closed. A key is only ever claimed again after it
-     * expires, so a missed sweep costs space and never a duplicate send.
+     * expires, so a missed sweep costs space and never a duplicate send. A key whose job still
+     * exists is kept, so that a repeat cannot insert a second job with the same id.
      */
     sweepExpiredIdempotencyKeys(): Promise<number> {
-        return this.sweepExpiredRows('cyclotron_idempotency_keys', idempotencyKeysSweptCounter)
+        return this.sweepExpiredRows(
+            'cyclotron_idempotency_keys',
+            idempotencyKeysSweptCounter,
+            'AND NOT EXISTS (SELECT 1 FROM cyclotron_jobs WHERE cyclotron_jobs.id = cyclotron_idempotency_keys.id)'
+        )
     }
 
+    // SKIP LOCKED leaves a row that a writer holds, so the sweep never waits on it and holds up the
+    // janitor's other work. The outer expiry check stops the delete of a row that a writer renewed
+    // after the subquery selected it.
     private async sweepExpiredRows(
         table: 'conversion_watchers' | 'cyclotron_idempotency_keys',
-        sweptCounter: Counter
+        sweptCounter: Counter,
+        keepCondition = ''
     ): Promise<number> {
         try {
             const result = await this.pool.query(
                 `DELETE FROM ${table}
                  WHERE id IN (
-                     SELECT id FROM ${table} WHERE expires_at <= NOW() LIMIT $1
-                 )`,
+                     SELECT id FROM ${table}
+                     WHERE expires_at <= NOW() ${keepCondition}
+                     LIMIT $1
+                     FOR UPDATE SKIP LOCKED
+                 )
+                 AND expires_at <= NOW()`,
                 [this.cleanupBatchSize]
             )
             const deleted = result.rowCount ?? 0

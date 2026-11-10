@@ -208,6 +208,13 @@ async function dequeueOneBatch(worker: CyclotronV2Worker, timeoutMs = 2000): Pro
     return captured
 }
 
+async function backendsWaitingOnLocks(): Promise<number> {
+    const { rows } = await assertPool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`
+    )
+    return rows[0].n
+}
+
 async function backendsNamed(applicationName: string): Promise<number> {
     const { rows } = await assertPool.query<{ n: number }>(
         'SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE application_name = $1',
@@ -1533,18 +1540,12 @@ describe('Cyclotron V2', () => {
                 fingerprint,
             })
 
-            it('queues one job per id and tells a repeat from a reused key, within a batch and across calls', async () => {
+            it('queues one job per id and tells a repeat from a reused key', async () => {
                 const id = uuidv7()
 
-                expect(await manager.createJobsIdempotently([keyed(id, 'a'), keyed(id, 'a'), keyed(id, 'b')])).toEqual([
-                    'created',
-                    'replayed',
-                    'mismatch',
-                ])
-                expect(await manager.createJobsIdempotently([keyed(id, 'a'), keyed(id, 'b')])).toEqual([
-                    'replayed',
-                    'mismatch',
-                ])
+                expect(await manager.createJobsIdempotently([keyed(id, 'a')])).toEqual(['created'])
+                expect(await manager.createJobsIdempotently([keyed(id.toUpperCase(), 'a')])).toEqual(['replayed'])
+                expect(await manager.createJobsIdempotently([keyed(id, 'b')])).toEqual(['mismatch'])
                 expect(await totalJobCount()).toBe(1)
             })
 
@@ -1558,29 +1559,45 @@ describe('Cyclotron V2', () => {
                 expect(await totalJobCount()).toBe(1)
             })
 
-            it('reclaims an expired key the janitor has not swept yet', async () => {
+            it.each([
+                ['reclaims it once its job is gone', true, ['created']],
+                ['keeps it while its job still exists', false, ['mismatch']],
+            ])('for an expired key the janitor has not swept, %s', async (_name, jobGone, expected) => {
                 const id = uuidv7()
                 await manager.createJobsIdempotently([keyed(id, 'a')])
-                await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                if (jobGone) {
+                    await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                }
                 await assertPool.query(
                     `UPDATE cyclotron_idempotency_keys SET expires_at = NOW() - interval '1 second' WHERE id = $1`,
                     [id]
                 )
 
-                expect(await manager.createJobsIdempotently([keyed(id, 'b')])).toEqual(['created'])
+                expect(await manager.createJobsIdempotently([keyed(id, 'b')])).toEqual(expected)
                 expect(await totalJobCount()).toBe(1)
             })
 
-            it('queues once when concurrent calls carry the same id', async () => {
-                const id = uuidv7()
+            it('does not deadlock when concurrent calls carry the same ids in opposite orders', async () => {
+                const [first, second] = [uuidv7(), uuidv7()].sort()
+                await manager.createJobsIdempotently([keyed(first, 'a'), keyed(second, 'a')])
+                // Row locks are granted in request order. The blocker holds `first`, the call given
+                // [first, second] queues for it, then the call given [second, first] queues behind.
+                // Without the sort, the second call would already hold `second`, and the two calls
+                // deadlock when the blocker lets go.
+                const blocker = await assertPool.connect()
+                await blocker.query('BEGIN')
+                await blocker.query('SELECT id FROM cyclotron_idempotency_keys WHERE id = $1 FOR UPDATE', [first])
+                const inOrder = manager.createJobsIdempotently([keyed(first, 'a'), keyed(second, 'a')])
+                await waitForExpect(async () => expect(await backendsWaitingOnLocks()).toBe(1), 2000, 10)
+                const reversed = manager.createJobsIdempotently([keyed(second, 'a'), keyed(first, 'a')])
+                await waitForExpect(async () => expect(await backendsWaitingOnLocks()).toBe(2), 2000, 10)
+                await blocker.query('ROLLBACK')
+                blocker.release()
 
-                const outcomes = await Promise.all([
-                    manager.createJobsIdempotently([keyed(id, 'a')]),
-                    manager.createJobsIdempotently([keyed(id, 'a')]),
+                expect(await Promise.all([inOrder, reversed])).toEqual([
+                    ['replayed', 'replayed'],
+                    ['replayed', 'replayed'],
                 ])
-
-                expect(outcomes.flat().sort()).toEqual(['created', 'replayed'])
-                expect(await totalJobCount()).toBe(1)
             })
         })
     })
@@ -4199,11 +4216,21 @@ describe('Cyclotron V2', () => {
             }
             const expiredKey = uuidv7()
             const liveKey = uuidv7()
+            const expiredKeyWithJob = uuidv7()
+            const lockedKey = uuidv7()
             await insertKey(expiredKey, new Date(Date.now() - 60_000))
             await insertKey(liveKey, new Date(Date.now() + 3_600_000))
+            await insertKey(expiredKeyWithJob, new Date(Date.now() - 60_000))
+            await manager.createJob({ id: expiredKeyWithJob, teamId: 1, queueName: QUEUE })
+            await insertKey(lockedKey, new Date(Date.now() - 60_000))
+            const writer = await assertPool.connect()
+            await writer.query('BEGIN')
+            await writer.query('SELECT id FROM cyclotron_idempotency_keys WHERE id = $1 FOR UPDATE', [lockedKey])
 
             const janitor = createJanitor()
             await janitor.runOnce()
+            await writer.query('ROLLBACK')
+            writer.release()
 
             const remaining = await assertPool.query(`SELECT id FROM conversion_watchers WHERE id = ANY($1::uuid[])`, [
                 [expired, live],
@@ -4211,9 +4238,9 @@ describe('Cyclotron V2', () => {
             expect(remaining.rows.map((r) => r.id)).toEqual([live])
             const remainingKeys = await assertPool.query(
                 `SELECT id FROM cyclotron_idempotency_keys WHERE id = ANY($1::uuid[])`,
-                [[expiredKey, liveKey]]
+                [[expiredKey, liveKey, expiredKeyWithJob, lockedKey]]
             )
-            expect(remainingKeys.rows.map((r) => r.id)).toEqual([liveKey])
+            expect(remainingKeys.rows.map((r) => r.id).sort()).toEqual([liveKey, expiredKeyWithJob, lockedKey].sort())
 
             await janitor.stop()
         })

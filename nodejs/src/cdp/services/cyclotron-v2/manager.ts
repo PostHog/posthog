@@ -446,53 +446,49 @@ export class CyclotronV2Manager {
 
     /**
      * Queues each job unless an earlier call already queued a job with the same id, and returns one
-     * outcome per input, in input order.
+     * outcome per input, in input order. The ids in one call must be unique.
      *
-     * The idempotency key row and the job are written in one transaction. A failure between the two
-     * writes therefore leaves neither, and the caller's retry can queue the job. A concurrent call
-     * with the same id waits on this call's row lock until it commits, and then reports `replayed`
-     * or `mismatch`. A key expires `IDEMPOTENCY_KEY_TTL_MS` after its job is due, and a later call
-     * with the same id then queues a new job.
+     * The idempotency key row and the job are written in one transaction, so a failure leaves
+     * neither and the caller's retry can queue the job. A concurrent call with the same id waits on
+     * the key's row lock until this call commits. A key expires `IDEMPOTENCY_KEY_TTL_MS` after its
+     * job is due, and once its job also no longer exists, the same id queues a new job.
      */
     async createJobsIdempotently(inputs: CyclotronV2IdempotentJobInit[]): Promise<CyclotronV2IdempotentOutcome[]> {
         if (inputs.length === 0) {
             return []
         }
 
-        const jobs = inputs.map(({ job }) => CyclotronV2JobInitSchema.parse(job))
-        if (jobs.some((job) => job.overwriteExisting)) {
+        // Postgres returns ids in lowercase. Sorting makes every call lock key rows in the same
+        // order, so two calls that share ids cannot deadlock.
+        const entries = inputs
+            .map(({ job, fingerprint }) => ({
+                id: job.id.toLowerCase(),
+                job: CyclotronV2JobInitSchema.parse(job),
+                fingerprint,
+            }))
+            .sort((a, b) => (a.id < b.id ? -1 : 1))
+        if (new Set(entries.map((entry) => entry.id)).size < entries.length) {
+            throw new Error('createJobsIdempotently needs unique ids')
+        }
+        if (entries.some((entry) => entry.job.overwriteExisting)) {
             throw new Error('createJobsIdempotently does not support overwriteExisting')
         }
 
         await this.insertGuard()
 
-        // One statement cannot claim the same key row twice, so a batch that repeats an id, such as
-        // a retry that was produced twice, claims only its first occurrence. The rest compare their
-        // fingerprint against that first occurrence.
-        const firstIndexById = new Map<string, number>()
-        inputs.forEach(({ job }, i) => {
-            if (!firstIndexById.has(job.id)) {
-                firstIndexById.set(job.id, i)
-            }
-        })
-        const firstIndices = [...firstIndexById.values()]
-        const firstIds = firstIndices.map((i) => inputs[i].job.id)
-        const firstJobs = firstIndices.map((i) => jobs[i])
-
         // Assigned before the transaction so that the per-team counter row is not locked until
-        // commit. A job that turns out to be a repeat leaves a gap in its team's sequence, and the
-        // fair dequeue order does not need the sequence to be contiguous.
-        const firstDequeueSeqs = await this.computeEmailDequeueSeqs(firstJobs)
+        // commit. A repeat leaves a gap in its team's sequence, which the fair dequeue order allows.
+        const dequeueSeqs = await this.computeEmailDequeueSeqs(entries.map((entry) => entry.job))
 
         const now = Date.now()
         const client = await this.pool.connect()
-        const claimedIds = new Set<string>()
+        let claimedIds: Set<string>
         const storedFingerprints = new Map<string, string>()
         try {
             await client.query('BEGIN')
 
-            // An expired key that the janitor has not swept yet is claimed again, so the key's
-            // window ends at expires_at and not at the next sweep.
+            // A key that expired is claimed again before the janitor sweeps it, but not while its
+            // job still exists, because a second job with the same id would fail on the primary key.
             const claimed = await client.query<{ id: string }>(
                 `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
                  SELECT unnest($1::uuid[]), unnest($2::int[]), unnest($3::text[]), unnest($4::timestamptz[])
@@ -502,34 +498,33 @@ export class CyclotronV2Manager {
                      expires_at = EXCLUDED.expires_at,
                      created_at = NOW()
                  WHERE cyclotron_idempotency_keys.expires_at <= NOW()
+                     AND NOT EXISTS (SELECT 1 FROM cyclotron_jobs WHERE cyclotron_jobs.id = cyclotron_idempotency_keys.id)
                  RETURNING id`,
                 [
-                    firstIds,
-                    firstJobs.map((job) => job.teamId),
-                    firstIndices.map((i) => inputs[i].fingerprint),
-                    firstJobs.map(
-                        (job) => new Date(Math.max(now, job.scheduled?.getTime() ?? now) + IDEMPOTENCY_KEY_TTL_MS)
+                    entries.map((entry) => entry.id),
+                    entries.map((entry) => entry.job.teamId),
+                    entries.map((entry) => entry.fingerprint),
+                    entries.map(
+                        ({ job }) => new Date(Math.max(now, job.scheduled?.getTime() ?? now) + IDEMPOTENCY_KEY_TTL_MS)
                     ),
                 ]
             )
-            for (const { id } of claimed.rows) {
-                claimedIds.add(id)
-            }
+            claimedIds = new Set(claimed.rows.map((row) => row.id))
 
-            const claimedPositions = firstIds.flatMap((id, position) => (claimedIds.has(id) ? [position] : []))
-            if (claimedPositions.length > 0) {
+            const toInsert = entries.flatMap((entry, i) => (claimedIds.has(entry.id) ? [{ ...entry, i }] : []))
+            if (toInsert.length > 0) {
                 await this.insertJobRows(
                     client,
-                    claimedPositions.map((position) => firstJobs[position]),
-                    claimedPositions.map((position) => firstIds[position]),
-                    claimedPositions.map((position) => firstDequeueSeqs[position]),
+                    toInsert.map((entry) => entry.job),
+                    toInsert.map((entry) => entry.id),
+                    toInsert.map((entry) => dequeueSeqs[entry.i]),
                     ''
                 )
             }
 
             // Each statement in a read committed transaction reads a new snapshot, so this sees a
             // key that a concurrent call committed while the claim above waited on its lock.
-            const unclaimedIds = firstIds.filter((id) => !claimedIds.has(id))
+            const unclaimedIds = entries.filter((entry) => !claimedIds.has(entry.id)).map((entry) => entry.id)
             if (unclaimedIds.length > 0) {
                 const stored = await client.query<{ id: string; fingerprint: string }>(
                     `SELECT id, fingerprint FROM cyclotron_idempotency_keys WHERE id = ANY($1::uuid[])`,
@@ -537,11 +532,6 @@ export class CyclotronV2Manager {
                 )
                 for (const { id, fingerprint } of stored.rows) {
                     storedFingerprints.set(id, fingerprint)
-                }
-                if (storedFingerprints.size < unclaimedIds.length) {
-                    // The key expired and was swept between the claim and this read. Failing lets the
-                    // caller's retry claim it.
-                    throw new Error('Idempotency key was swept before its outcome could be read')
                 }
             }
 
@@ -561,17 +551,13 @@ export class CyclotronV2Manager {
             client.release()
         }
 
-        return inputs.map(({ job, fingerprint }, i) => {
-            const firstIndex = firstIndexById.get(job.id)!
-            let outcome: CyclotronV2IdempotentOutcome
-            if (i === firstIndex && claimedIds.has(job.id)) {
-                outcome = 'created'
-            } else {
-                const storedFingerprint = claimedIds.has(job.id)
-                    ? inputs[firstIndex].fingerprint
-                    : storedFingerprints.get(job.id)
-                outcome = storedFingerprint === fingerprint ? 'replayed' : 'mismatch'
-            }
+        return inputs.map(({ job, fingerprint }) => {
+            const id = job.id.toLowerCase()
+            const outcome: CyclotronV2IdempotentOutcome = claimedIds.has(id)
+                ? 'created'
+                : storedFingerprints.get(id) === fingerprint
+                  ? 'replayed'
+                  : 'mismatch'
             idempotentInsertsCounter.labels({ outcome }).inc()
             return outcome
         })
