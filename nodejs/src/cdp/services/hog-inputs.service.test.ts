@@ -1,8 +1,6 @@
 import '~/tests/helpers/mocks/date.mock'
 
 import { DateTime } from 'luxon'
-import { randomUUID } from 'node:crypto'
-import { register } from 'prom-client'
 import { inspect } from 'util'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -295,17 +293,17 @@ describe('Hog Inputs', () => {
         ])(
             'runs no hog input whose deadline passes while it waits for its turn on the event loop because %s',
             async (_how, deadlineFor) => {
-                const matchesARegex = await compileHog(`return match('x', event.properties.pattern)`)
+                const busyFor = 3000
+                const busy = await compileHog(
+                    `while (toUnixTimestampMilli(now()) < event.properties.busy_until) { } return 'done'`
+                )
                 const onlyHog = createHogFunction({
                     ...hogFunction,
-                    inputs: { only: { value: 'x', templating: 'hog', bytecode: matchesARegex } },
+                    inputs: { only: { value: 'x', templating: 'hog', bytecode: busy } },
                     inputs_schema: [],
                 })
-                const hogRegexesBuilt = async (): Promise<number> => {
-                    const metric = await register.getSingleMetric('re2_objects_created_total')?.get()
-                    return metric?.values.find((v) => v.labels.source === 'hog-exec:regex.match')?.value ?? 0
-                }
-                const builtBefore = await hogRegexesBuilt()
+                const mockedNow = jest.mocked(Date.now)
+                const fixedNow = mockedNow()
                 const threshold = getEventLoopYieldThresholdMs()
                 await new Promise((resolve) => setTimeout(resolve, 5))
                 configureEventLoopYield(0)
@@ -323,17 +321,19 @@ describe('Hog Inputs', () => {
                 })
                 const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
                 try {
+                    mockedNow.mockImplementation(() => Number(process.hrtime.bigint() / 1_000_000n))
+                    const startedAt = Date.now()
                     const deadline = deadlineFor()
                     let outcome: unknown
-                    const withAPatternOfItsOwn = {
+                    const busyForSeconds = {
                         ...globals,
                         event: {
                             ...globals.event,
-                            properties: { ...globals.event.properties, pattern: `never-built-${randomUUID()}` },
+                            properties: { ...globals.event.properties, busy_until: startedAt + busyFor },
                         },
                     }
                     void hogInputsService
-                        .buildInputs(onlyHog, withAPatternOfItsOwn, undefined, undefined, deadline.signal)
+                        .buildInputs(onlyHog, busyForSeconds, undefined, undefined, deadline.signal)
                         .then(
                             () => (outcome = 'rendered'),
                             (error: unknown) => (outcome = error)
@@ -350,8 +350,9 @@ describe('Hog Inputs', () => {
                     }
 
                     expect(outcome).toMatchObject({ name: 'TimeoutError' })
-                    expect(await hogRegexesBuilt()).toBe(builtBefore)
+                    expect(Date.now() - startedAt).toBeLessThan(busyFor / 2)
                 } finally {
+                    mockedNow.mockReturnValue(fixedNow)
                     jest.useRealTimers()
                     configureEventLoopYield(threshold)
                 }
