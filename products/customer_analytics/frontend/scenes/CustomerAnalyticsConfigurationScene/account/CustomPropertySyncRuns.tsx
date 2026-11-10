@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { IconExternal, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
@@ -17,6 +19,7 @@ import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import type { CustomPropertySyncRunApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { CustomPropertySyncRunLogs } from './CustomPropertySyncRunLogs'
 import { runOutcomeNote } from './customPropertyTypes'
 
 const TAG_TYPE_BY_RUN_STATUS: Record<string, LemonTagType> = {
@@ -87,6 +90,8 @@ export interface CustomPropertySyncRunsProps {
     loading: boolean
     loadFailed: boolean
     targetType: TargetType
+    /** The warehouse table or view a person or group source reads from. Rows expand into the run's progress log. */
+    logSourceId?: string | null
     syncsUrl?: string | null
     searchTerm: string
     entryCount: number
@@ -102,6 +107,7 @@ export function CustomPropertySyncRuns({
     loading,
     loadFailed,
     targetType,
+    logSourceId,
     syncsUrl,
     searchTerm,
     entryCount,
@@ -298,6 +304,24 @@ export function CustomPropertySyncRuns({
                 rowKey="id"
                 size="small"
                 nouns={['run', 'runs']}
+                expandable={
+                    !accountRuns && logSourceId
+                        ? {
+                              // A run recorded before its job id was stored has no log lines to find.
+                              rowExpandable: (run) => !!run.workflow_run_id,
+                              onRowExpand: (run) =>
+                                  // Pinned: analytics event name, renaming breaks dashboards.
+                                  posthog.capture('warehouse property run logs viewed', {
+                                      target_type: targetType,
+                                      run_status: run.status,
+                                  }),
+                              expandedRowRender: (run) => (
+                                  <CustomPropertySyncRunLogs run={run} logSourceId={logSourceId} />
+                              ),
+                              noIndent: true,
+                          }
+                        : undefined
+                }
                 pagination={{
                     controlled: true,
                     pageSize: 20,

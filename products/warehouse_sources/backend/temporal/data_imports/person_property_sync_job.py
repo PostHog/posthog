@@ -34,6 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertyFailedRunInputs,
     PersonPropertySyncActivityInputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_run_log import (
+    PersonPropertyRunLog,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     failed_run_error,
     is_worker_interruption,
@@ -151,6 +154,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
 
 @activity.defn
 async def record_failed_person_property_sync_runs_activity(inputs: PersonPropertyFailedRunInputs) -> None:
+    PersonPropertyRunLog(inputs.team_id, inputs.binding).failed(inputs.error)
     await record_failed_runs(
         team_id=inputs.team_id,
         binding=inputs.binding,

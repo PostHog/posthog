@@ -434,6 +434,9 @@ class PersonPropertySyncRunRecord:
     skipped_missing_person: int
     error: str | None
     count_failure: bool = True
+    # The Temporal run that did the work, so the run's progress lines can be found in log_entries.
+    workflow_id: str | None = None
+    workflow_run_id: str | None = None
 
 
 PersonPropertySyncRecorder = Callable[[PersonPropertySyncRunRecord], None]
