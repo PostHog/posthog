@@ -739,6 +739,11 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("event != null"), "isNotNull(events.event)")
         self.assertEqual(self._expr("1 == null"), "0")
         self.assertEqual(self._expr("1 != null"), "1")
+        printed = self._select(
+            "SELECT 1 FROM events AS a LEFT JOIN (SELECT event, distinct_id, uuid FROM events) AS b "
+            "ON a.event = b.event AND b.distinct_id IS NULL AND b.uuid IS NOT NULL"
+        )
+        self.assertIn("ON and(equals(a.event, b.event), isNull(b.distinct_id), isNotNull(b.uuid))", printed)
 
     def test_fields_and_properties(self):
         self.assertEqual(
