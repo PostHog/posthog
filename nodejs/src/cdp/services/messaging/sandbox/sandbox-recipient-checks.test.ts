@@ -211,6 +211,7 @@ describe('checkSandboxRecipient', () => {
             updated_at: 0,
         }
         let lockHolder: Client
+        let warmFrequencyCap: () => Promise<FrequencyCapCheck>
 
         const realFrequencyCap = (): (() => Promise<FrequencyCapCheck>) => {
             const preferences = new RecipientPreferencesService(
@@ -239,10 +240,8 @@ describe('checkSandboxRecipient', () => {
                 'test:cap-one-marketing-email-a-week'
             )
             expect(await check({ frequencyCap: realFrequencyCap() })).toEqual({ ok: true })
-            expect(await check({ frequencyCap: realFrequencyCap() })).toEqual({
-                ok: false,
-                reason: 'frequency_capped',
-            })
+            warmFrequencyCap = realFrequencyCap()
+            expect(await check({ frequencyCap: warmFrequencyCap })).toEqual({ ok: false, reason: 'frequency_capped' })
 
             lockHolder = new Client({ connectionString: defaultConfig.DATABASE_URL })
             lockHolder.on('error', () => undefined)
@@ -261,14 +260,20 @@ describe('checkSandboxRecipient', () => {
             expect(await check({ frequencyCap: realFrequencyCap() })).toEqual({ ok: true })
         })
 
-        it('skips the cap check while earlier checks past their deadline still wait for it', async () => {
+        it('skips the cap check while earlier checks past their deadline still wait, and checks again once they finish', async () => {
             const stalled = Array.from({ length: MAX_PENDING_FREQUENCY_CAP_CHECKS }, () =>
                 check({ frequencyCap: realFrequencyCap() })
             )
             expect(await Promise.all(stalled)).toEqual(stalled.map(() => ({ ok: true })))
+            expect(await check({ frequencyCap: warmFrequencyCap })).toEqual({ ok: true })
 
-            frequencyCap = { capped: true, nextSlotAt: 0, holdHours: null }
-            expect(await check()).toEqual({ ok: true })
+            await lockHolder.query('COMMIT')
+            await waitForExpect(async () => {
+                expect(await check({ frequencyCap: warmFrequencyCap })).toEqual({
+                    ok: false,
+                    reason: 'frequency_capped',
+                })
+            }, 3_000)
         })
     })
 })

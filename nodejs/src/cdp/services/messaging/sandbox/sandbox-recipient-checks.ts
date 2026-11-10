@@ -39,9 +39,11 @@ function frequencyCapRunner(timeoutMs: number): FrequencyCapRunner {
             return { capped: false }
         }
         pending += 1
-        const running = check().finally(() => {
-            pending -= 1
-        })
+        const running = Promise.resolve()
+            .then(check)
+            .finally(() => {
+                pending -= 1
+            })
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<FrequencyCapCheck>((resolve) => {
             timer = setTimeout(() => {
