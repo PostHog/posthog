@@ -1533,13 +1533,10 @@ const rustCrate = (crate) => `rust:crate:${crate}`
 const RUST_DETERMINATOR = 'rust:determinator'
 
 // The lanes that import a native module built from the cargo workspace.
-// nodejs/package.json is the only dependent of the three binding packages
-// (@posthog/hogvm-node, @posthog/replay-anonymizer, @posthog/ai-research-v4-native) today,
-// and the test suite re-derives that from pnpm-workspace.yaml so a second
-// dependent fails there rather than silently going unclaimed here. The
-// image-scrub sidecar under nodejs/src/ingestion loads the replay-anonymizer
-// addon too, built from the crate rather than installed from the package.
-// A binding change claims every node lane.
+// A native binding crate (@posthog/hogvm-node, @posthog/replay-anonymizer,
+// @posthog/ai-research-v4-native) claims the lanes of the packages that depend
+// on it, through nodeLanesForBinding; one the inventory cannot name claims every
+// node lane.
 const NODE_INGESTION = 'node:ingestion'
 const NODE_SUB_LANES = [
     ['node:recording-rasterizer', 'nodejs/src/session-replay/recording-rasterizer'],
@@ -1559,6 +1556,22 @@ const INGESTION_AI_RESEARCH = 'ingestion:ai-research'
 const INGESTION_PACKAGE_LANES = [INGESTION, INGESTION_SESSION_REPLAY, INGESTION_AI_EVENTS]
 const INGESTION_LANES = [...INGESTION_PACKAGE_LANES, INGESTION_AI_RESEARCH]
 const INGESTION_AI_RESEARCH_DIR = 'ingestion/node/packages/ai-research/'
+
+// The root files every Node package builds from. They are unattributable, so
+// they widen to every lane, and the universal set leaves the ingestion lanes
+// out on purpose; these few claim them on top, because ingestion's CI runs on
+// them (ingestion-node.yml watches the same list, and the test holds the two
+// equal). The lockfile is attributed per importer instead, and
+// pnpm-workspace.yaml stays out because its catalog pins reach a package only
+// through the lockfile.
+const INGESTION_ROOT_BUILD_INPUTS = ['.nvmrc', 'package.json', 'patches/', 'turbo.json']
+const INGESTION_ROOT_INPUTS_LEFT_TO_THE_LOCKFILE = ['pnpm-lock.yaml', 'pnpm-workspace.yaml']
+
+function isIngestionRootBuildInput(file) {
+    return INGESTION_ROOT_BUILD_INPUTS.some((input) =>
+        input.endsWith('/') ? file.startsWith(input) : file === input
+    )
+}
 
 function ingestionLanesFor(file) {
     if (/^\.github\/workflows\/ingestion-rust\.yml$/.test(file)) {
@@ -1620,8 +1633,13 @@ function allKnownTargets(context) {
             targets.add(target)
         }
     }
+    // Ingestion's crates are reached through the ingestion lanes, which this
+    // set leaves out, so they contribute no crate lane here either.
+    const ingestionCrates = rustInventory.ingestionCrates || new Set()
     for (const crate of rustInventory.crateNames) {
-        targets.add(rustCrate(crate))
+        if (!ingestionCrates.has(crate)) {
+            targets.add(rustCrate(crate))
+        }
     }
     // "ALL" overlapped the prose lane too, so a docs PR serialized behind a
     // lockfile bump. Keeping prose here preserves that exactly rather than
@@ -1986,6 +2004,14 @@ function applyRustNonCrateLanes(file, targets, context) {
 }
 
 function computeTargets(changedFiles, context) {
+    const targets = computeTargetsOfFiles(changedFiles, context)
+    if (targets === ALL || !changedFiles.some(isIngestionRootBuildInput)) {
+        return targets
+    }
+    return [...new Set([...targets, ...INGESTION_LANES])].sort()
+}
+
+function computeTargetsOfFiles(changedFiles, context) {
     const {
         products,
         isolatedProducts,
@@ -3206,6 +3232,8 @@ function buildContext(repoRoot) {
 }
 
 module.exports = {
+    INGESTION_ROOT_BUILD_INPUTS,
+    INGESTION_ROOT_INPUTS_LEFT_TO_THE_LOCKFILE,
     computeTargets,
     ingestionLanesFor,
     INGESTION_SESSION_REPLAY,

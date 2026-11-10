@@ -50,6 +50,8 @@ const {
     INGESTION_SESSION_REPLAY,
     INGESTION_AI_EVENTS,
     INGESTION_LANES,
+    INGESTION_ROOT_BUILD_INPUTS,
+    INGESTION_ROOT_INPUTS_LEFT_TO_THE_LOCKFILE,
 } = require('./trunk-impacted-targets')
 const { tachDependents } = require('./turbo-discover')
 
@@ -79,6 +81,7 @@ const CONTEXT = {
 
 // What a widening decision now uploads in place of the "ALL" sentinel.
 const EVERYTHING = allKnownTargets(CONTEXT)
+const withIngestionLanes = (targets) => [...new Set([...targets, ...INGESTION_LANES])].sort()
 
 // A graph the tach map walked all three products into, so their importer sets
 // are known. The base CONTEXT deliberately holds none, which covers the case
@@ -158,10 +161,11 @@ test('a change to the lane rules themselves stays universal', () => {
         '.github/scripts/trunk-lane-telemetry.js',
         '.github/scripts/turbo-discover.js',
         '.github/workflows/trunk-impacted-targets.yml',
-        'turbo.json',
     ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), EVERYTHING, file)
     }
+    // turbo-discover reads turbo.json too, and the Node packages build from it.
+    assert.deepEqual(computeTargets(['turbo.json'], CONTEXT), withIngestionLanes(EVERYTHING))
 })
 
 // tach.toml is read by the lane rules too, so it carries the same hazard, but
@@ -178,9 +182,14 @@ test('the tach graph claims the python lanes rather than every lane', () => {
 // the mirror image, and neither workspace resolves against the other's files.
 // Only the root files narrow: a product's own manifests keep the product's lanes.
 test('a lockfile claims its own toolchain rather than every lane', () => {
-    for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json']) {
+    for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['tsconfig.json'], CONTEXT), file)
     }
+    // The root manifest is also a build input of the ingestion packages.
+    assert.deepEqual(
+        computeTargets(['package.json'], CONTEXT),
+        withIngestionLanes(computeTargets(['tsconfig.json'], CONTEXT))
+    )
     for (const file of ['uv.lock', 'pyproject.toml']) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
     }
@@ -524,7 +533,7 @@ test('the paths-filter action and its CI share the ci-tooling lane', () => {
 test('pnpm patches take the JS lanes and depot.json the repo-config lane', () => {
     assert.deepEqual(
         computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT),
-        computeTargets(['tsconfig.json'], CONTEXT)
+        withIngestionLanes(computeTargets(['tsconfig.json'], CONTEXT))
     )
     assert.deepEqual(computeTargets(['depot.json'], CONTEXT), ['repo-config'])
 })
@@ -1402,11 +1411,17 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         'depot.json',
         '.github/workflows/_rust-build-images.yml',
     ]
+    // The ingestion lanes are the one deliberate exception: a widened PR never
+    // claims them, only a rule that names an ingestion dependency does.
     for (const file of everyRule) {
         const targets = computeTargets([file], CONTEXT)
         assert.notEqual(targets, ALL, `${file} should enumerate`)
         for (const target of targets) {
-            assert.equal(EVERYTHING.includes(target), true, `${target} (from ${file}) is missing from allKnownTargets`)
+            assert.equal(
+                EVERYTHING.includes(target) || INGESTION_LANES.includes(target),
+                true,
+                `${target} (from ${file}) is missing from allKnownTargets`
+            )
         }
     }
 })
@@ -2361,6 +2376,36 @@ test('ingestion claims only its own lane', () => {
     assert.deepEqual(computeTargets(['ingestion/README.md'], CONTEXT), computeTargets(['README.md'], CONTEXT))
     assert.equal(EVERYTHING.includes(INGESTION), false)
     assert.equal(EVERYTHING.includes(INGESTION_AI_RESEARCH), false)
+})
+
+// The universal set leaves the ingestion lanes out, so the root files every
+// Node package builds from claim them on top of it: those changes run
+// ingestion's CI and must serialize with it in the queue.
+test('a root build input claims the ingestion lanes on top of its own', () => {
+    for (const file of ['turbo.json', 'package.json', '.nvmrc', 'patches/some-dep.patch']) {
+        const targets = computeTargets([file], CONTEXT)
+        for (const lane of INGESTION_LANES) {
+            assert.equal(targets.includes(lane), true, `${file} should claim ${lane}`)
+        }
+    }
+    for (const file of ['tsconfig.json', 'pnpm-workspace.yaml', 'pnpm-lock.yaml', 'README.md']) {
+        assert.equal(computeTargets([file], CONTEXT).includes(INGESTION), false, file)
+    }
+    assert.equal(computeTargets(['turbo.json', 'README.md'], CONTEXT).includes(INGESTION), true)
+})
+
+// Both lists come from one fact, which root files ingestion's build reads; this
+// keeps the lane claim and the CI trigger from drifting apart.
+test('the root build inputs are the root entries of the ingestion workflow filter', () => {
+    const workflow = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/ingestion-node.yml'), 'utf8')
+    const filter = workflow.slice(workflow.indexOf('filters: |'), workflow.indexOf('\n    check:'))
+    const rootEntries = [...filter.matchAll(/^\s+- '([^']+)'$/gm)]
+        .map((match) => match[1])
+        .filter((entry) => !entry.includes('/') || /^[^/]+\/\*\*$/.test(entry))
+        .map((entry) => entry.replace(/\*\*$/, ''))
+        .filter((entry) => !INGESTION_ROOT_INPUTS_LEFT_TO_THE_LOCKFILE.includes(entry))
+        .sort()
+    assert.deepEqual(rootEntries, [...INGESTION_ROOT_BUILD_INPUTS].sort())
 })
 
 test('the AI research pipelines inside the ingestion tree have a lane of their own', () => {
