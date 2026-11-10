@@ -3,6 +3,7 @@ import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import {
     HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -11,7 +12,8 @@ import {
 } from '../hogflows/batch-resolver.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager } from './manager'
+import { CyclotronV2Manager, assignEmailDequeueSeq } from './manager'
+import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
@@ -1930,22 +1932,38 @@ describe('Cyclotron V2', () => {
                 expect(await readTeamCounter(teamId)).toBe(3n)
             })
 
-            it("starts a new team's counter at the existing max (Hatchet p_max_assigned)", async () => {
-                // Without this, a brand-new tenant's burst would slot in at
-                // counter=1 and cut ahead of every established team's
-                // in-flight emails. Hatchet's pattern: first-ever insert for
-                // a team starts at `MAX(counter) + 1` across the table, so
-                // they line up *next to* existing teams instead of jumping
-                // the queue. Subsequent emails for that team keep
-                // incrementing normally.
-                await manager.bulkCreateJobs([{ teamId: 1, queueName: EMAIL_QUEUE }])
-                await manager.bulkCreateJobs([{ teamId: 1, queueName: EMAIL_QUEUE }])
-                // Team 2's first ever email → counter = max(2) + 1 = 3, not 1.
-                await manager.bulkCreateJobs([{ teamId: 2, queueName: EMAIL_QUEUE }])
+            it.each([
+                [
+                    'bulkCreateJobs',
+                    async (teamId: number): Promise<void> => {
+                        await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
+                    },
+                ],
+                [
+                    'assignEmailDequeueSeq (reschedule into email)',
+                    async (teamId: number): Promise<void> => {
+                        await assignEmailDequeueSeq(assertPool, teamId)
+                    },
+                ],
+            ])(
+                "starts a new team's counter at the existing max (Hatchet p_max_assigned) via %s",
+                async (_path, assignOne) => {
+                    // Without this, a brand-new tenant's burst would slot in at
+                    // counter=1 and cut ahead of every established team's
+                    // in-flight emails. Hatchet's pattern: first-ever insert for
+                    // a team starts at `MAX(counter) + 1` across the table, so
+                    // they line up *next to* existing teams instead of jumping
+                    // the queue. Subsequent emails for that team keep
+                    // incrementing normally.
+                    await assignOne(1)
+                    await assignOne(1)
+                    // Team 2's first ever email → counter = max(2) + 1 = 3, not 1.
+                    await assignOne(2)
 
-                expect(await readTeamCounter(1)).toBe(2n)
-                expect(await readTeamCounter(2)).toBe(3n)
-            })
+                    expect(await readTeamCounter(1)).toBe(2n)
+                    expect(await readTeamCounter(2)).toBe(3n)
+                }
+            )
 
             it("doesn't let a new team's batch cut ahead of an established team's in-flight email", async () => {
                 // The inversion scenario the Hatchet pattern is designed to fix:
@@ -2829,6 +2847,148 @@ describe('Cyclotron V2', () => {
             expect(remaining.rows.map((r) => r.id)).toEqual([live])
 
             await janitor.stop()
+        })
+    })
+
+    describe('dropped Postgres connections', () => {
+        const DROP_APP = 'cyclotron-v2-drop-test'
+        const DROP_DB_URL = `${DB_URL}?application_name=${DROP_APP}`
+        let stops: (() => Promise<unknown>)[] = []
+
+        afterEach(async () => {
+            await Promise.all(stops.map((stop) => stop()))
+            stops = []
+        })
+
+        async function droppedClientCount(pool: string): Promise<number> {
+            const metric = register.getSingleMetric('cdp_cyclotron_v2_pg_client_errors_total')
+            const samples = metric ? (await metric.get()).values : []
+            return samples.find((sample) => sample.labels.pool === pool)?.value ?? 0
+        }
+
+        async function terminateDropTestBackends(): Promise<void> {
+            await assertPool.query(
+                'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = $1',
+                [DROP_APP]
+            )
+        }
+
+        async function dropIdleClients(pool: string): Promise<void> {
+            const before = await droppedClientCount(pool)
+            await waitForExpect(
+                async () => {
+                    const idle = await assertPool.query(
+                        `SELECT 1 FROM pg_stat_activity WHERE application_name = $1 AND state = 'idle'`,
+                        [DROP_APP]
+                    )
+                    expect(idle.rowCount).toBeGreaterThan(0)
+                },
+                2000,
+                10
+            )
+            await terminateDropTestBackends()
+            await waitForExpect(async () => expect(await droppedClientCount(pool)).toBeGreaterThan(before), 2000, 10)
+        }
+
+        it.each([
+            {
+                pool: 'manager',
+                start: async () => {
+                    const dropManager = createManager({ pool: { dbUrl: DROP_DB_URL } })
+                    stops.push(() => dropManager.disconnect())
+                    await dropManager.connect()
+                    return () => dropManager.createJob({ teamId: 1, queueName: QUEUE })
+                },
+            },
+            {
+                pool: 'janitor',
+                start: async () => {
+                    const janitor = createJanitor({ pool: { dbUrl: DROP_DB_URL } })
+                    stops.push(() => janitor.stop())
+                    await janitor.runOnce()
+                    return () => janitor.runOnce()
+                },
+            },
+        ])('$pool survives a dropped idle client and queries on a fresh one', async ({ pool, start }) => {
+            const useAgain = await start()
+            await dropIdleClients(pool)
+            await expect(useAgain()).resolves.toBeDefined()
+        })
+
+        it('worker keeps dequeuing and acking after its idle client is dropped', async () => {
+            const worker = createWorker(QUEUE, {
+                pool: { dbUrl: DROP_DB_URL },
+                includeEmptyBatches: false,
+                pollDelayMs: 300,
+            })
+            stops.push(() => worker.disconnect())
+            await worker.connect(async (jobs) => {
+                await Promise.all(jobs.map((job) => job.ack()))
+            })
+            await dropIdleClients('worker')
+
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            await waitForExpect(async () => expect((await queryJob(id)).status).toBe('completed'), 2000, 10)
+        })
+
+        it('counts one drop of a checked-out client once', async () => {
+            const pool = createCyclotronPool('worker', { connectionString: DROP_DB_URL })
+            const client = await pool.connect()
+            stops.push(async () => {
+                client.release(true)
+                await pool.end()
+            })
+            const before = await droppedClientCount('worker')
+            const ended = new Promise((resolve) => client.once('end', resolve))
+
+            await terminateDropTestBackends()
+            await ended
+
+            expect(await droppedClientCount('worker')).toBe(before + 1)
+        })
+
+        it('a check-in on a dropped client commits nothing, and the janitor hands the job back once', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            const worker = createWorker(QUEUE, { pool: { dbUrl: DROP_DB_URL } })
+            stops.push(() => worker.disconnect())
+            const [job] = await dequeueOneBatch(worker)
+
+            const holder = await assertPool.connect()
+            try {
+                await holder.query('BEGIN')
+                await holder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+                const checkIn = expect(
+                    job.bulkCreateAndCheckIn({
+                        newJobs: [{ teamId: 1, queueName: QUEUE }],
+                        selfDisposition: { kind: 'ack' },
+                    })
+                ).rejects.toThrow()
+                await waitForExpect(
+                    async () => {
+                        const waiting = await assertPool.query(
+                            `SELECT 1 FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock'`,
+                            [DROP_APP]
+                        )
+                        expect(waiting.rowCount).toBeGreaterThan(0)
+                    },
+                    2000,
+                    10
+                )
+                await terminateDropTestBackends()
+                await checkIn
+            } finally {
+                await holder.query('ROLLBACK')
+                holder.release()
+            }
+
+            expect(await totalJobCount()).toBe(1)
+            expect((await queryJob(id)).status).toBe('running')
+
+            const janitor = createJanitor()
+            stops.push(() => janitor.stop())
+            await janitor.runOnce()
+            const retried = await dequeueOneBatch(worker)
+            expect(retried.map((j) => j.id)).toEqual([id])
         })
     })
 })

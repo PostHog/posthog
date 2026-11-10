@@ -29,21 +29,29 @@ jobs:
             contents: read
             pull-requests: write
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/actions/paths-filter
+                      .github/scripts/post-reminder-section.mjs
+                      frontend/bin/ci-report/update-ci-report.mjs
+                      rust/replay-anonymizer/Cargo.toml
+                  sparse-checkout-cone-mode: false
 
             - name: Check if crate code changed
               id: changed-files
-              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
+              uses: ./.github/actions/paths-filter
               with:
-                  files_yaml: |
+                  filters: |
                       crate:
-                      - rust/replay-anonymizer/**
+                        - 'rust/replay-anonymizer/**'
 
             - name: Compare crate version against crates.io
               shell: bash
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  CRATE_CHANGED: ${{ steps.changed-files.outputs.crate_any_changed }}
+                  CRATE_CHANGED: ${{ steps.changed-files.outputs.crate }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
               run: |
                   if [[ "$CRATE_CHANGED" != 'true' ]]; then
@@ -93,14 +101,16 @@ jobs:
             run:
                 working-directory: rust
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
 
             - name: Check if crate code changed in this push
               id: changed-files
-              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: step-security/changed-files@v47.0.5
               with:
                   files_yaml: |
                       crate:
@@ -148,7 +158,8 @@ jobs:
             # GitHub's own cache (fork-isolated, master-write-only below), so it stays.
             - name: Cache Rust dependencies
               if: steps.version.outputs.publish-needed == 'true'
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: swatinem/rust-cache@v2.9.1
               with:
                   shared-key: 'v2-rust-nodejs'
                   workspaces: rust
@@ -157,7 +168,8 @@ jobs:
             - name: Authenticate with crates.io
               if: steps.version.outputs.publish-needed == 'true'
               id: auth
-              uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: rust-lang/crates-io-auth-action@v1.0.4
 
             - name: Publish to crates.io
               if: steps.version.outputs.publish-needed == 'true'

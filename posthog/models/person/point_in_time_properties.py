@@ -19,6 +19,7 @@ from posthog.hogql.query import execute_hogql_query
 if TYPE_CHECKING:
     from posthog.models.person import Person
     from posthog.models.team import Team
+    from posthog.models.user import User
 
 
 DEFAULT_PROPERTY_ROW_LIMIT = 100_000
@@ -157,6 +158,7 @@ def build_person_properties_at_time(
     timeout: Optional[int] = 30,
     row_limit: int = DEFAULT_PROPERTY_ROW_LIMIT,
     lower_bound: Optional[datetime] = None,
+    user: Optional["User"] = None,
 ) -> dict[str, Any]:
     """
     Build person properties at a specific point in time from ClickHouse events.
@@ -169,6 +171,9 @@ def build_person_properties_at_time(
         timeout: Query timeout in seconds (default: 30)
         row_limit: Maximum property update rows to ship back from ClickHouse (default 100_000).
         lower_bound: Optional lower bound for the time range scan. If not provided, defaults to timestamp - 2 years.
+        user: The user the properties are being read for. When set, property-level access control is applied for
+            that user: HogQL masks restricted person properties inside `$set` / `$set_once`. API callers that return
+            the result to a user MUST pass it.
 
     Returns:
         Dict containing person properties as they existed at the specified timestamp.
@@ -214,6 +219,7 @@ def build_person_properties_at_time(
             "row_limit": ast.Constant(value=row_limit),
         },
         team=team,
+        user=user,
         query_type="person_properties_at_time",
         settings=HogQLGlobalSettings(max_execution_time=timeout),
         # row_limit is the only LIMIT this scan wants. The default context caps a top-level LIMIT at
@@ -224,7 +230,8 @@ def build_person_properties_at_time(
         # person profile regardless of retention, so a floored scan rebuilds a profile that never existed and
         # drops every property set before the window. The scan reconstructs person state. It does not expose
         # events past the floor.
-        context=HogQLContext(team_id=team.pk, limit_top_select=False, apply_events_retention_floor=False),
+        # HogQL loads the user's property restrictions from the context to mask `$set` / `$set_once`.
+        context=HogQLContext(team_id=team.pk, user=user, limit_top_select=False, apply_events_retention_floor=False),
     )
 
     return _reconstruct_properties(response.results, include_set_once)

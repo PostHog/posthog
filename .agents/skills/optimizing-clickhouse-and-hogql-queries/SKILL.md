@@ -92,7 +92,7 @@ Eyeball the ClickHouse SQL for these before reaching for tools. To instead work 
 - **`LIMIT 1 BY` with `ORDER BY version DESC`** for one row per group with a monotonic version column.
 - **Filter before FINAL** (if truly needed): make the WHERE selective on the sort-key prefix so few parts are merged.
 
-PostHog-specific: per [`CLAUDE.md`](../../../CLAUDE.md), new person/group access should go through personhog (`get_personhog_client`), not raw `person` / `groups`. A raw `FROM person FINAL` in new code usually wants the personhog move, not tuning.
+PostHog-specific: per [`.agents/architecture.md`](../../architecture.md), new person/group access should go through personhog (`get_personhog_client`), not raw `person` / `groups`. A raw `FROM person FINAL` in new code usually wants the personhog move, not tuning.
 
 ### JSON operations on properties
 

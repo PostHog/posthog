@@ -84,6 +84,7 @@ class TestBatchImportModel(BaseTest):
                     {"key": "day-2", "current_offset": 0, "total_size": None},
                     {"key": "day-3", "current_offset": 0, "total_size": None},
                 ],
+                "re-sending the interrupted chunk of part day-2 from offset 8999000",
             ),
             (
                 "inflight_part_with_known_total",
@@ -96,6 +97,7 @@ class TestBatchImportModel(BaseTest):
                     {"key": "day-1", "current_offset": 0, "total_size": None},
                     {"key": "day-2", "current_offset": 0, "total_size": None},
                 ],
+                "kept the saved offset of part day-2, which does not match the interrupted chunk",
             ),
             (
                 "first_part_inflight",
@@ -108,12 +110,29 @@ class TestBatchImportModel(BaseTest):
                     {"key": "day-1", "current_offset": 0, "total_size": None},
                     {"key": "day-2", "current_offset": 0, "total_size": None},
                 ],
+                "kept the saved offset of part day-2, which does not match the interrupted chunk",
+            ),
+            (
+                "interrupted_last_chunk_of_a_finished_part",
+                [
+                    {"key": "day-1", "current_offset": 1000, "total_size": 1000},
+                    {"key": "day-2", "current_offset": 8999445, "total_size": 8999445},
+                    {"key": "day-3", "current_offset": 0, "total_size": None},
+                ],
+                "day-2",
+                [
+                    {"key": "day-1", "current_offset": 1000, "total_size": 1000},
+                    {"key": "day-2", "current_offset": 0, "total_size": None},
+                    {"key": "day-3", "current_offset": 0, "total_size": None},
+                ],
+                "re-sending the interrupted chunk of part day-2 from offset 8999000",
             ),
             (
                 "job_paused_before_any_read",
                 [{"key": "day-1", "current_offset": 0, "total_size": None}],
                 "day-1",
                 [{"key": "day-1", "current_offset": 0, "total_size": None}],
+                "kept the saved offset of part day-2, which does not match the interrupted chunk",
             ),
             (
                 # url_list part keys are credential-bearing URLs: the returned key (and the
@@ -135,11 +154,12 @@ class TestBatchImportModel(BaseTest):
                         "total_size": None,
                     }
                 ],
+                "kept the saved offset of part day-2, which does not match the interrupted chunk",
             ),
         ]
     )
     def test_resume_with_inflight_part_reset_resets_first_unfinished_part(
-        self, _name, initial_parts, expected_reset_key, expected_parts
+        self, _name, initial_parts, expected_reset_key, expected_parts, expected_rewind_note
     ):
         batch_import = self._paused_import({"parts": initial_parts})
 
@@ -149,6 +169,10 @@ class TestBatchImportModel(BaseTest):
         batch_import.refresh_from_db()
         assert batch_import.state is not None
         self.assertNotIn("X-Amz-Signature", batch_import.status_message or "")
+        self.assertEqual(
+            batch_import.status_message,
+            f"Resumed by admin with part {expected_reset_key} reset to offset 0; {expected_rewind_note}",
+        )
         self.assertEqual(batch_import.state["parts"], expected_parts)
         self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
         self.assertIsNone(batch_import.lease_id)
@@ -158,18 +182,71 @@ class TestBatchImportModel(BaseTest):
         self.assertIsNone(batch_import.display_status_message)
         self.assertIsNone(batch_import.pending_commit)
 
-    def test_resume_after_pause_keeps_progress_and_clears_lease(self):
+    @parameterized.expand(
+        [
+            (
+                "marker_matches_part",
+                {"key": "day-2", "from_offset": 8999000, "to_offset": 8999445, "events": 40},
+                8999000,
+                960,
+                "Resumed by admin; re-sending the interrupted chunk of part day-2 from offset 8999000",
+            ),
+            (
+                "marker_from_a_worker_that_did_not_count_events",
+                {"key": "day-2", "from_offset": 8999000, "to_offset": 8999445},
+                8999000,
+                1000,
+                "Resumed by admin; re-sending the interrupted chunk of part day-2 from offset 8999000",
+            ),
+            (
+                "part_already_at_chunk_start",
+                {"key": "day-2", "from_offset": 8999445, "to_offset": 9000000, "interrupted": 3, "events": 40},
+                8999445,
+                1000,
+                "Resumed by admin; re-sending the interrupted chunk of part day-2 from offset 8999445",
+            ),
+            ("no_marker", None, 8999445, 1000, "Resumed by admin"),
+            (
+                "marker_offset_mismatch",
+                {"key": "day-2", "from_offset": 100, "to_offset": 200, "events": 40},
+                8999445,
+                1000,
+                "Resumed by admin; kept the saved offset of part day-2, which does not match the interrupted chunk",
+            ),
+            (
+                "marker_part_missing",
+                {"key": "day-9", "from_offset": 8999000, "to_offset": 8999445, "events": 40},
+                8999445,
+                1000,
+                "Resumed by admin; kept the saved offset of part day-9, which does not match the interrupted chunk",
+            ),
+        ]
+    )
+    def test_resume_after_pause_rewinds_an_interrupted_chunk_and_clears_lease(
+        self, _name, pending_commit, expected_day_2_offset, expected_events_emitted, expected_message
+    ):
         batch_import = self._paused_import({"parts": self.MIXED_PROGRESS_PARTS})
         stale_copy = BatchImport.objects.get(id=batch_import.id)
         worker_progress = {
-            "parts": [*self.MIXED_PROGRESS_PARTS[:2], {"key": "day-3", "current_offset": 77, "total_size": None}]
+            "parts": [*self.MIXED_PROGRESS_PARTS[:2], {"key": "day-3", "current_offset": 77, "total_size": None}],
+            "events_emitted": 1000,
         }
-        BatchImport.objects.filter(id=batch_import.id).update(state=worker_progress)
+        BatchImport.objects.filter(id=batch_import.id).update(state=worker_progress, pending_commit=pending_commit)
 
         stale_copy.resume_after_pause()
 
         batch_import.refresh_from_db()
-        self.assertEqual(batch_import.state, worker_progress)
+        assert batch_import.state is not None
+        self.assertEqual(
+            batch_import.state["parts"],
+            [
+                self.MIXED_PROGRESS_PARTS[0],
+                {"key": "day-2", "current_offset": expected_day_2_offset, "total_size": None},
+                {"key": "day-3", "current_offset": 77, "total_size": None},
+            ],
+        )
+        self.assertEqual(batch_import.state["events_emitted"], expected_events_emitted)
+        self.assertEqual(batch_import.status_message, expected_message)
         self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
         self.assertIsNone(batch_import.lease_id)
         self.assertIsNone(batch_import.leased_until)
@@ -177,6 +254,23 @@ class TestBatchImportModel(BaseTest):
         self.assertIsNone(batch_import.backoff_until)
         self.assertIsNone(batch_import.display_status_message)
         self.assertIsNone(batch_import.pending_commit)
+
+    def test_resume_after_pause_redacts_the_rewound_part_key(self):
+        url_key = "https://u:p@example.com/d.jsonl?X-Amz-Signature=abc"
+        batch_import = self._paused_import({"parts": [{"key": url_key, "current_offset": 50, "total_size": None}]})
+        BatchImport.objects.filter(id=batch_import.id).update(
+            pending_commit={"key": url_key, "from_offset": 10, "to_offset": 50}
+        )
+
+        batch_import.resume_after_pause()
+
+        batch_import.refresh_from_db()
+        assert batch_import.state is not None
+        self.assertEqual(batch_import.state["parts"][0], {"key": url_key, "current_offset": 10, "total_size": None})
+        self.assertEqual(
+            batch_import.status_message,
+            "Resumed by admin; re-sending the interrupted chunk of part https://example.com/d.jsonl from offset 10",
+        )
 
     @parameterized.expand(
         [
@@ -205,15 +299,6 @@ class TestBatchImportModel(BaseTest):
             for method in ("resume_after_pause", "resume_with_inflight_part_reset")
             for case, row, refused in (
                 ("marker_and_live_lease", {"leased_until": timedelta(minutes=5)}, True),
-                (
-                    "legacy_commit_message_and_live_lease",
-                    {
-                        "leased_until": timedelta(minutes=5),
-                        "pending_commit": None,
-                        "status_message": "Starting commit of part day-2 to offset 9, consumed 9 additional bytes",
-                    },
-                    True,
-                ),
                 ("marker_and_expired_lease", {"leased_until": -timedelta(minutes=1)}, False),
                 ("marker_and_no_lease", {"lease_id": None, "leased_until": None}, False),
             )
@@ -792,6 +877,27 @@ class TestBatchImportAdminChangeForm(BaseTest):
             any("FOR UPDATE" in q["sql"] and "posthog_batchimport" in q["sql"] for q in queries.captured_queries)
         )
 
+    def test_save_resume_rewinds_from_the_row_locked_at_save(self):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"sink": {"type": "capture", "send_rate": 5000}},
+            status=BatchImport.Status.PAUSED,
+            state={"parts": [{"key": "day-1", "current_offset": 100, "total_size": None}]},
+        )
+        form = self._post_admin_form(batch_import, self._form_values(batch_import), {"status": "running"})
+        BatchImport.objects.filter(id=batch_import.id).update(
+            state=self.WORKER_STATE, pending_commit={"key": "day-1", "from_offset": 8000, "to_offset": 9000}
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self._save(form)
+
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.state, {"parts": [{"key": "day-1", "current_offset": 8000, "total_size": None}]})
+        self.assertIsNone(batch_import.pending_commit)
+        self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
+
     def test_save_rejects_a_page_without_initial_values(self):
         batch_import = BatchImport.objects.create(
             team=self.team,
@@ -810,13 +916,13 @@ class TestBatchImportAdminChangeForm(BaseTest):
 
     @parameterized.expand(
         [
-            ("rate_change_keeps_worker_status", "running", "paused", {"send_rate": "500"}, "paused", 500),
-            ("operator_pause", "running", "running", {"status": "paused"}, "paused", 5000),
-            ("operator_resume", "paused", "paused", {"status": "running"}, "running", 5000),
+            ("rate_change_keeps_worker_status", "running", "paused", {"send_rate": "500"}, "paused", 500, 9000),
+            ("operator_pause", "running", "running", {"status": "paused"}, "paused", 5000, 9000),
+            ("operator_resume_rewinds_the_chunk", "paused", "paused", {"status": "running"}, "running", 5000, 8000),
         ]
     )
     def test_save_writes_only_operator_edits(
-        self, _name, shown_status, worker_status, edits, expected_status, expected_send_rate
+        self, _name, shown_status, worker_status, edits, expected_status, expected_send_rate, expected_offset
     ):
         batch_import = BatchImport.objects.create(
             team=self.team,
@@ -842,9 +948,14 @@ class TestBatchImportAdminChangeForm(BaseTest):
         batch_import.refresh_from_db()
         self.assertEqual(batch_import.status, expected_status)
         self.assertEqual(batch_import.import_config["sink"]["send_rate"], expected_send_rate)
-        self.assertEqual(batch_import.state, self.WORKER_STATE)
+        self.assertEqual(
+            batch_import.state, {"parts": [{"key": "day-1", "current_offset": expected_offset, "total_size": None}]}
+        )
         if expected_status == "running":
-            self.assertEqual(batch_import.status_message, "Resumed by admin")
+            self.assertEqual(
+                batch_import.status_message,
+                "Resumed by admin; re-sending the interrupted chunk of part day-1 from offset 8000",
+            )
             self.assertIsNone(batch_import.lease_id)
             self.assertIsNone(batch_import.leased_until)
             self.assertEqual(batch_import.backoff_attempt, 0)
@@ -1343,19 +1454,28 @@ class TestBatchImportAPI(APIBaseTest):
             backoff_attempt=5,
             backoff_until=datetime.now(tz=UTC) + timedelta(hours=1),
             display_status_message="Job paused after a failed commit",
-            pending_commit={"key": "part-1", "from_offset": 0, "to_offset": 100},
+            pending_commit={"key": "part-1", "from_offset": 0, "to_offset": 100, "events": 30},
+            state={"parts": [{"key": "part-1", "current_offset": 100, "total_size": 500}], "events_emitted": 250},
         )
 
         response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/resume")
 
         self.assertEqual(response.status_code, 200)
         batch_import.refresh_from_db()
+        assert batch_import.state is not None
+        self.assertEqual(
+            batch_import.state,
+            {"parts": [{"key": "part-1", "current_offset": 0, "total_size": 500}], "events_emitted": 220},
+        )
         self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
         self.assertIsNone(batch_import.lease_id)
         self.assertIsNone(batch_import.leased_until)
         self.assertEqual(batch_import.backoff_attempt, 0)
         self.assertIsNone(batch_import.backoff_until)
-        self.assertEqual(batch_import.status_message, "Resumed by user")
+        self.assertEqual(
+            batch_import.status_message,
+            "Resumed by user; re-sending the interrupted chunk of part part-1 from offset 0",
+        )
         self.assertIsNone(batch_import.display_status_message)
         self.assertIsNone(batch_import.pending_commit)
         logged_fields = [

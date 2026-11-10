@@ -29,6 +29,7 @@ _HEADLINES: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.RESOLVED: "{kind} alert '{name}' is resolved",
     AlertEventKind.ERRORED: "{kind} alert '{name}' could not be checked",
     AlertEventKind.BROKEN: "{kind} alert '{name}' is turned off",
+    AlertEventKind.VERDICT_CHANGED: "{kind} alert '{name}' has a new verdict",
 }
 
 # The symbols the legacy messages use, so a pilot team sees the same state at a glance on both paths.
@@ -37,6 +38,7 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.RESOLVED: "🟢",
     AlertEventKind.ERRORED: "🟡",
     AlertEventKind.BROKEN: "⚠️",
+    AlertEventKind.VERDICT_CHANGED: "🔄",
 }
 
 UNTRACKED_GROUPS_LABEL: Final = "Untracked groups"
@@ -47,10 +49,12 @@ _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.BILLING: "Billing",
     SourceKind.WAREHOUSE_SOURCE: "Warehouse sync",
     SourceKind.WAREHOUSE_DESTINATION: "Warehouse destination",
+    SourceKind.METRICS: "Metric",
+    SourceKind.TRACES: "Trace",
 }
 
 # What a held row says, when cooldown or mute kept its announcement and only its incident moved.
-_INCIDENT_KINDS: Final[dict[IncidentAction, AlertEventKind]] = {
+INCIDENT_KINDS: Final[dict[IncidentAction, AlertEventKind]] = {
     IncidentAction.TRIGGER: AlertEventKind.FIRING,
     IncidentAction.RESOLVE: AlertEventKind.RESOLVED,
 }
@@ -177,7 +181,7 @@ def build_message(
     """
     kind = transition.kind
     if kind == AlertEventKind.CHECK and incident_action is not None:
-        kind = _INCIDENT_KINDS[incident_action]
+        kind = INCIDENT_KINDS[incident_action]
     headline = _HEADLINES.get(kind)
     if headline is None:
         # `announcement` returns a check row only for a group whose incident moved, so a check
@@ -190,6 +194,9 @@ def build_message(
     failure_kinds = (AlertEventKind.ERRORED, AlertEventKind.BROKEN)
     if transition.kind in failure_kinds:
         details = list(_failure_details(transition, announcement.consecutive_failures))
+    elif transition.kind == AlertEventKind.VERDICT_CHANGED:
+        # The row records no measurement, so the breach details would state the threshold without a value.
+        details = list(description.details)
     else:
         details = list(description.details or _breach_details(transition))
     if overflowed:

@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 import unittest.mock
@@ -703,6 +704,71 @@ class TestHogFlowRun(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         mock_invocation.assert_not_called()
+
+    @unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_manual_invocation")
+    def test_run_starts_a_manual_trigger_for_the_calling_user(self, mock_manual_invocation, mock_invocation):
+        self._mock_success(mock_manual_invocation)
+        workflow = self._create_workflow(trigger_type="manual", variables=[{"key": "greeting", "default": "Hello"}])
+
+        response = self.client.post(self._run_url(workflow.id), {"variables": {"name": "Ada"}}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"status": "queued", "invocation_id": "abc-123"}
+        mock_manual_invocation.assert_called_once_with(
+            team_id=self.team.id,
+            hog_flow_id=str(workflow.id),
+            user_id=self.user.email,
+            variables={"greeting": "Hello", "name": "Ada"},
+        )
+        mock_invocation.assert_not_called()
+
+    @unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_manual_invocation")
+    def test_run_refuses_a_manual_trigger_for_a_workflows_viewer(self, mock_manual_invocation, mock_invocation):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="viewer")
+        workflow = self._create_workflow(trigger_type="manual")
+
+        response = self.client.post(self._run_url(workflow.id))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_manual_invocation.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("token_rejected", 401, "Invalid manual run token", 502, "The workflow engine refused the call."),
+            ("template_refused", 422, "The trigger refused the run (400): bad input", 422, "The trigger refused"),
+            ("disabled", 429, "Disabled", 429, "This workflow was disabled"),
+            ("no_run_started", 500, "The trigger did not start a run.", 502, "The trigger did not start a run."),
+        ]
+    )
+    @unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_manual_invocation")
+    def test_run_reports_a_refused_manual_trigger_as_a_message(
+        self, _name, cdp_status, cdp_error, expected_status, expected_detail, mock_manual_invocation, mock_invocation
+    ):
+        mock_response = unittest.mock.MagicMock()
+        mock_response.status_code = cdp_status
+        mock_response.json.return_value = {"error": cdp_error}
+        mock_response.text = json.dumps({"error": cdp_error})
+        mock_manual_invocation.return_value = mock_response
+        workflow = self._create_workflow(trigger_type="manual")
+
+        response = self.client.post(self._run_url(workflow.id))
+
+        assert response.status_code == expected_status
+        assert response.json()["detail"].startswith(expected_detail)
+
+    @override_settings(WORKFLOWS_CANCEL_JWT_SECRETS=[])
+    @unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_manual_invocation")
+    def test_run_refuses_a_manual_trigger_when_its_signing_key_is_unset(self, mock_manual_invocation, mock_invocation):
+        workflow = self._create_workflow(trigger_type="manual")
+
+        responses = [self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="retry-me") for _ in range(2)]
+
+        assert [r.status_code for r in responses] == [503, 503]
+        mock_manual_invocation.assert_not_called()
 
     def test_run_rejects_non_schedule_trigger(self, mock_invocation):
         workflow = self._create_workflow(trigger_type="batch")

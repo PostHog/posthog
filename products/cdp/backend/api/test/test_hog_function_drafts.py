@@ -6,7 +6,9 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.api.hog_function import HogFunctionViewSet
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -614,7 +616,7 @@ class TestHogFunctionRevisions(DraftTestCase):
         content = {"inputs_schema": [], "inputs": {}, "mappings": mappings}
         HogFunction.objects.filter(id=function_id).update(mappings=mappings, draft=content)
         function = HogFunction.objects.get(id=function_id)
-        self._revisions(function_id).create(team_id=self.team.id, hog_function=function, version=1, content=content)
+        self._revisions(function_id).filter(version=1).update(content=content)
 
         for suffix in ("", "/revisions/1"):
             response = self.client.get(self._url(function_id, suffix))
@@ -631,16 +633,19 @@ class TestHogFunctionRevisions(DraftTestCase):
         assert function.draft == content
         assert self._revisions(function_id).get(version=1).content == content
 
-    def test_first_live_config_change_also_snapshots_the_outgoing_config(self):
+    @parameterized.expand([("created_with_a_revision", False), ("created_before_creation_revisions", True)])
+    def test_first_live_config_change_keeps_the_outgoing_config(self, _name: str, legacy: bool):
         function_id = self._create()
+        if legacy:
+            self._revisions(function_id).delete()
 
         self._live_edit(function_id, {"hog": EDITED_HOG})
 
-        revisions = list(self._revisions(function_id).order_by("version"))
+        revisions = list(self._revisions(function_id).select_related("created_by").order_by("version"))
         assert [revision.version for revision in revisions] == [1, 2]
         # Rollback to the state before the revision system saw this function must be possible.
         assert revisions[0].content["hog"] == LIVE_HOG
-        assert revisions[0].created_by is None
+        assert revisions[0].created_by == (None if legacy else self.user)
         assert revisions[1].content["hog"] == EDITED_HOG
         assert revisions[1].created_by == self.user
 
@@ -657,7 +662,7 @@ class TestHogFunctionRevisions(DraftTestCase):
 
         self._live_edit(function_id, payload)
 
-        assert not self._revisions(function_id).exists()
+        assert list(self._revisions(function_id).values_list("version", flat=True)) == [1]
         assert HogFunction.objects.get(id=function_id).version == 1
 
     def test_recompiled_filter_bytecode_does_not_create_a_revision(self):
@@ -669,7 +674,7 @@ class TestHogFunctionRevisions(DraftTestCase):
 
         self._live_edit(function_id, {"name": "Renamed"})
 
-        assert not self._revisions(function_id).exists()
+        assert list(self._revisions(function_id).values_list("version", flat=True)) == [1]
         assert HogFunction.objects.get(id=function_id).version == 1
 
     def test_revisions_list_is_newest_first_and_omits_config(self):
@@ -692,6 +697,39 @@ class TestHogFunctionRevisions(DraftTestCase):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["content"]["hog"] == LIVE_HOG
         assert "token" not in response.json()["content"]["inputs"]
+
+    @parameterized.expand(
+        [
+            ("deleted_with_a_session", True, None, status.HTTP_200_OK),
+            ("deleted_with_a_read_only_key", True, ["hog_function:read"], status.HTTP_403_FORBIDDEN),
+            ("live_with_a_read_only_key", False, ["hog_function:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_deleted_function_history_needs_write_access(
+        self, _name: str, deleted: bool, key_scopes: list[str] | None, expected_status: int
+    ):
+        function_id = self._create()
+        if deleted:
+            self._live_edit(function_id, {"deleted": True})
+        headers = {}
+        if key_scopes is not None:
+            key_value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="Read only", user=self.user, secure_value=hash_key_value(key_value), scopes=key_scopes
+            )
+            self.client.logout()
+            headers = {"authorization": f"Bearer {key_value}"}
+
+        listed = self.client.get(self._url(function_id, "/revisions"), headers=headers)
+        detail = self.client.get(self._url(function_id, "/revisions/1"), headers=headers)
+
+        assert (listed.status_code, detail.status_code) == (expected_status, expected_status)
+        if expected_status == status.HTTP_200_OK:
+            assert [result["version"] for result in listed.json()["results"]] == [1]
+            assert detail.json()["content"]["hog"] == LIVE_HOG
+        if deleted and key_scopes is None:
+            listed_ids = [function["id"] for function in self.client.get(self._url()).json()["results"]]
+            assert function_id not in listed_ids
 
     def test_unknown_revision_is_a_404(self):
         function_id = self._create()

@@ -52,6 +52,12 @@ globs = [
 ]
 mark-changed = ["feature-flags", "hypercache-server", "common-hypercache"]
 
+# common-cohort-team-access tests its query against the table that these migrations build.
+# Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = ["../products/cohorts/backend/migrations/**"]
+mark-changed = ["common-cohort-team-access"]
+
 # replay-core-v4's tests read the encryption vectors the Node writers pin.
 # Must come BEFORE the catch-all rule below.
 [[path-rule]]
@@ -92,6 +98,12 @@ mark-changed = "all"
 [[path-rule]]
 globs = ["../posthog/security/crosslang/**"]
 mark-changed = ["common-dns"]
+
+# The AI event limits: capture mirrors them, and a parity test in that crate fails when
+# the two differ. Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = ["../products/ai_observability/shared/crosslang/**"]
+mark-changed = ["capture"]
 
 # Catch-all for files outside the rust workspace (Python, frontend, CI, docs,
 # etc.) — these are not crate source and should not trigger rust rebuilds.

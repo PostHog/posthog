@@ -1,6 +1,6 @@
 ---
 name: suggesting-data-imports
-description: 'Use when the user asks about revenue, payments, subscriptions, billing, CRM deals, support tickets, ad spend, production database tables, or other data PostHog does not collect natively — or wants to join or correlate PostHog product events with that external business data. Also use when a query fails because a table does not exist or returns no results for expected external data. The data warehouse can import from SaaS tools (Stripe, Hubspot, Zendesk, etc.), ad platforms, production databases (Postgres, MySQL, BigQuery, Snowflake), and other arbitrary data sources. Covers checking existing sources, identifying the right source type, and guiding the setup.'
+description: 'Use when the user asks about revenue, payments, subscriptions, billing, CRM deals, support tickets, ad spend, production database tables, bucket files, or local file uploads. Also use when the user wants to join PostHog events with external data, or when a query fails because an expected table is missing. The data warehouse can import from SaaS tools, ad platforms, databases, object storage, and uploaded files. Covers checking existing sources, identifying the right source type, and guiding setup.'
 ---
 
 # Suggesting data imports
@@ -19,6 +19,7 @@ PostHog collects product analytics events, persons, sessions, and groups via its
 - The user asks "how do I get my X data into PostHog?"
 - Analysis requires joining PostHog events with external data
 - The user asks about exporting PostHog data for comparison elsewhere (in a google sheet, external warehouse, etc)
+- The user wants to import files from a bucket or upload a local file
 
 ## Workflow
 
@@ -27,6 +28,7 @@ PostHog collects product analytics events, persons, sessions, and groups via its
 Listen for signals that the user needs external data:
 
 - They mention a specific tool or system (Stripe, Hubspot, Zendesk, their production database, etc.)
+- They mention bucket files or a local CSV, JSON, or Parquet file
 - A query references a table that doesn't exist in PostHog
 - They want to analyze something PostHog doesn't track natively (revenue, support tickets, CRM deals, etc.)
 
@@ -59,6 +61,9 @@ definitions. Match the user's need to a source:
 | Project management         | Linear                                         | issues, projects                            |
 | Error tracking (external)  | Sentry                                         | issues, events                              |
 
+For bucket files, use `AmazonS3`, `GoogleCloudStorage`, `AzureBlob`, or `CloudflareR2`. For local files, use the
+PostHog app upload flow. It creates a `FileUpload` source.
+
 ### 4. Suggest the import
 
 Present the recommendation concisely:
@@ -76,6 +81,9 @@ discover tables → sync defaults → create, in one call), with `data-warehouse
 credentials securely in the browser rather than in chat. For anything beyond the happy path (hand-picking tables,
 non-default sync types, webhooks, CDC), hand off to the **`setting-up-a-data-warehouse-source`** skill, which covers
 the full flow, sync-type selection, webhook registration, and prefix guidance. Do not duplicate that workflow here.
+
+For a local file, direct the user to upload it in the PostHog app. The upload creates a `FileUpload` source. No MCP
+tool uploads files.
 
 ### 6. Show what's possible after import
 

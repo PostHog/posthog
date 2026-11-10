@@ -38,6 +38,7 @@ import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.co
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
+import { CdpSesWebhooksConsumer } from './cdp/consumers/cdp-ses-webhooks.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
 import { createCdpOutputsRegistry } from './cdp/outputs/registry'
@@ -98,6 +99,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpProcessedEvents ||
             capabilities.cdpDataWarehouseEvents ||
             capabilities.cdpInternalEvents ||
+            capabilities.cdpSesWebhooks ||
             capabilities.cdpPersonUpdates ||
             capabilities.cdpLegacyOnEvent ||
             capabilities.cdpApi ||
@@ -138,7 +140,8 @@ export class PluginServer implements NodeServer {
         // Build typed deps objects for consumers. `emailValidationValkey` and `frequencyCapValkey`
         // are null in the shared deps and set only by the cyclotron workers that run the hogflow
         // email action (see `withEmailActionValkeys` at their loaders below) — no
-        // other consumer touches the SES or frequency cap Valkey.
+        // other consumer touches the SES or frequency cap Valkey, except cdp-api, which reads
+        // the MX-verdict cache to check a transactional email's recipient.
         const cdpDeps: CdpConsumerBaseDeps | undefined = needsCdp
             ? {
                   postgres: this.postgres!,
@@ -245,7 +248,13 @@ export class PluginServer implements NodeServer {
                     : null
                 const api = new CdpApi(
                     this.config,
-                    { ...cdpDeps!, idempotencyValkey: createIdempotencyValkeyPool(this.config) },
+                    {
+                        ...cdpDeps!,
+                        idempotencyValkey: createIdempotencyValkeyPool(this.config),
+                        emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation', {
+                            optional: true,
+                        }),
+                    },
                     { hogQueue: kafkaQueue, hogflowQueue: postgresV2Queue },
                     batchResolverProducer
                 )
@@ -308,6 +317,14 @@ export class PluginServer implements NodeServer {
                 const worker = new CdpCyclotronWorkerHogFlow(this.config, this.withEmailActionValkeys(cdpDeps!), queue)
                 await worker.start()
                 return worker.service
+            })
+        }
+
+        if (capabilities.cdpSesWebhooks) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpSesWebhooksConsumer(this.config, cdpDeps!)
+                await consumer.start()
+                return consumer.service
             })
         }
 
@@ -457,8 +474,9 @@ export class PluginServer implements NodeServer {
     /**
      * Grants the SES Valkey pool that backs the shared MX-verdict cache to a worker's
      * deps. Only the cyclotron workers that run the hogflow email action call this, so
-     * the pool is never opened on other CDP consumers or cdp-api — an idle Valkey sized
-     * for the SES rate limiter shouldn't hold connections from pods that never validate.
+     * the pool is never opened on other CDP consumers — an idle Valkey sized for the SES
+     * rate limiter shouldn't hold connections from pods that never validate. cdp-api
+     * opens the same MX pool itself, for the transactional email recipient check.
      * Null when no SES Valkey host is configured (local dev), in which case
      * EmailValidationService degrades to its local cache + DNS.
      *

@@ -2,7 +2,8 @@ from posthog.test.base import BaseTest
 
 from posthog.management.commands.migrate_hooks import migrate_hooks
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hook import Hook
@@ -18,7 +19,7 @@ class TestMigrateHooks(BaseTest):
 
     def setUp(self):
         super().setUp()
-        self.action = Action.objects.create(
+        self.action = create_action(
             created_by=self.user,
             name="Test Action",
             team_id=self.team.id,

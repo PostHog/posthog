@@ -380,6 +380,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # retry must catch it. Match the stable prefix + reason and leave pgcat's non-transient reasons
     # (e.g. BadConfig) to surface.
     "could not get connection from the pool - allserversdown",
+    # PgBouncer's own pool-checkout timeout: a client already holds its PgBouncer-facing socket but
+    # waits past `query_wait_timeout` for a backend to free up in transaction/statement-pooling mode.
+    # PgBouncer reports this as a bare, SQLSTATE-less "query_wait_timeout" over a raw error packet
+    # that doesn't follow the normal error-message framing, which psycopg surfaces as ProtocolViolation
+    # rather than OperationalError. Same transient pool-capacity class as pgcat's AllServersDown and
+    # Supavisor's ECHECKOUT* above — a slot frees the moment another transaction returns its backend —
+    # so a fresh reconnect recovers.
+    "query_wait_timeout",
     # psycopg's own message when `PQconnectStart` reports the connection BAD before the handshake
     # ever begins and libpq has no server-reported error text to attach (see
     # `psycopg.generators._connect` / `psycopg.pq.misc._clean_error_message`). Unlike every other
@@ -400,6 +408,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # fresh reconnect recovers once the backend is reachable again. Match the stable phrase and
     # exclude the volatile upstream ip:port.
     "failed to connect to upstream",
+    # The twin of "authentication did not complete within" above for a Neon compute that's still
+    # mid-wake when the proxy gives up on it: "ERROR:  The endpoint is taking longer than expected
+    # to become active. Please wait a moment and try again." — Neon's own message explicitly asks
+    # for a retry. With sslmode=prefer (require_ssl off), this failed SSL attempt makes libpq fall
+    # back to a second, unencrypted one, which Neon separately refuses ("connection is insecure
+    # (try using `sslmode=require`)") — a second line appended to the same message, so matching this
+    # substring alone still classifies the whole thing. Same transient wake class as the other Neon
+    # entries here; a fresh connect after a short backoff succeeds once the compute finishes waking.
+    "taking longer than expected to become active",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -429,6 +446,11 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # "(authenticated)" wrapper would be too broad: a non-:closed "Internal error (authenticated): ..."
 # could be a permanent pooler/protocol failure that should surface immediately, not be retried.
 #
+# ":einval" is the same shape with a different Erlang reason: gen_tcp returns it (POSIX EINVAL,
+# "invalid argument") when a socket operation is attempted on a connection the port has already
+# torn down — the same dead-backend-socket condition as ":closed", just raised on whichever side of
+# the race loses after the peer closes. A fresh reconnect recovers the same way.
+#
 # Neon's own compute-side WAL relay ("walsender") surfaces the same generic XX000 InternalError_
 # when it loses connectivity to a safekeeper — the storage-tier peer that actually holds the WAL,
 # since a Neon compute doesn't keep it locally: "[walsender] Failed to read WAL (...): failed to
@@ -441,6 +463,7 @@ _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "echeckoutretries",
     "echeckouttimeout",
     "internal error (authenticated): :closed",
+    "internal error (authenticated): :einval",
     "failed to connect to safekeeper",
 )
 

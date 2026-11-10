@@ -1,5 +1,6 @@
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 import time_machine
@@ -10,6 +11,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.schema import (
+    BreakdownNotAppliedWarning,
     CompareFilter,
     DataWarehouseNode,
     DateRange,
@@ -52,6 +54,7 @@ class TestMarketingCostFallback(SimpleTestCase):
             series=[precomputed],
             marketingAnalyticsCostFallback=MarketingAnalyticsCostFallback(series=[live], sourceIds=["a"]),
         )
+        warning = BreakdownNotAppliedWarning(type="breakdown_not_applied", message="Costs are shown by source.")
         original_calculate = TrendsQueryRunner.calculate
         built: list[tuple[MagicMock, dict[str, Any], list[str]]] = []
 
@@ -78,7 +81,7 @@ class TestMarketingCostFallback(SimpleTestCase):
             team: Team,
             date_ranges: Sequence[QueryDateRange],
             get_database: Callable[[], Database],
-        ) -> TrendsQuery:
+        ) -> SimpleNamespace:
             assert len(date_ranges) == 2
             assert date_ranges[0].date_from() == datetime(2025, 1, 10, 5, tzinfo=UTC)
             assert date_ranges[1].date_from().year == (2024 if compare_to else 2025)
@@ -86,7 +89,8 @@ class TestMarketingCostFallback(SimpleTestCase):
             result = query.model_copy(deep=True)
             result.marketingAnalyticsCostFallback = None
             result.series = [precomputed if ready else live]
-            return result
+            # Importing the resolver's result type here would count as this test driving marketing analytics code.
+            return SimpleNamespace(query=result, warning=None if ready else warning)
 
         with (
             patch("posthog.hogql_queries.query_runner.Database.create_for", side_effect=create_for),
@@ -102,6 +106,7 @@ class TestMarketingCostFallback(SimpleTestCase):
         ):
             result = TrendsQueryRunner(query=query, team=team, user=user).calculate()
         assert result.results[0]["label"] == ("marketing_costs_precomputed" if ready else "source_stats")
+        assert result.warnings == (None if ready else [warning])
         assert len(built) == (1 if ready else 2)
         for _, kwargs, _ in built:
             assert kwargs["user"] is user

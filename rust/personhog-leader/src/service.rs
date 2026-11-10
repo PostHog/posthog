@@ -1,14 +1,16 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use chrono::{TimeZone, Utc};
 use dashmap::DashMap;
 use metrics::{counter, histogram};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
     FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest, GetPersonResponse,
-    Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
-    SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    Person, RaisePersonVersionRequest, RaisePersonVersionResponse, ReleaseFenceRequest,
+    ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse, SealedSourceSnapshot,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tonic::{Request, Response, Status};
@@ -97,6 +99,22 @@ struct Committed {
     proto: Person,
     _lock: OwnedMutexGuard<()>,
     _inflight: InflightGuard,
+}
+
+/// Registers the revival outcomes at zero. A revival under a standing
+/// death document is rare, so a series born at its first one would hide
+/// that one from `increase()`.
+fn register_revival_metrics() {
+    for outcome in [
+        "served",
+        "row_below_death",
+        "tombstoned",
+        "no_fallback",
+        "load_error",
+    ] {
+        counter!("personhog_leader_revivals_total", "outcome" => outcome).increment(0);
+    }
+    drop(histogram!("personhog_leader_person_load_duration_ms", "source" => "revival"));
 }
 
 pub struct PersonHogLeaderService {
@@ -223,6 +241,7 @@ impl PersonHogLeaderService {
         authority: Arc<AuthorityClock>,
         emitted_versions: Arc<EmittedVersions>,
     ) -> Self {
+        register_revival_metrics();
         let committer = Arc::new(Committer {
             cache: Arc::clone(&cache),
             dirty_index: Arc::clone(&dirty_index),
@@ -446,6 +465,73 @@ impl PersonHogLeaderService {
         }
     }
 
+    /// A live PG row above the death version can only be a stub-create
+    /// revival under the same id. Caller holds the per-key lock.
+    async fn serve_revival(
+        &self,
+        partition: u32,
+        key: &PersonCacheKey,
+        person: CachedPerson,
+    ) -> Result<CachedPerson, Status> {
+        if !person.is_deleted {
+            return Ok(person);
+        }
+        let Some(fallback) = &self.fallback else {
+            counter!("personhog_leader_revivals_total", "outcome" => "no_fallback").increment(1);
+            return Ok(person);
+        };
+        let started = Instant::now();
+        let result = load_person_from_pg(&fallback.pool, &fallback.table, key).await;
+        histogram!("personhog_leader_person_load_duration_ms", "source" => "revival")
+            .record(started.elapsed().as_secs_f64() * 1000.0);
+        match result {
+            Ok(Some(row)) if row.version > person.version => {
+                counter!("personhog_leader_revivals_total", "outcome" => "served").increment(1);
+                tracing::info!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    death_version = person.version,
+                    version = row.version,
+                    "serving a person revived in Postgres over its death document"
+                );
+                self.cache.put(partition, key.clone(), row.clone());
+                Ok(row)
+            }
+            Ok(Some(row)) => {
+                // The tombstone precedes the release, so a live row this
+                // low is a pre-death read; it must not revive the person.
+                counter!("personhog_leader_revivals_total", "outcome" => "row_below_death")
+                    .increment(1);
+                tracing::warn!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    death_version = person.version,
+                    version = row.version,
+                    "a live Postgres row sits at or below the death document"
+                );
+                Ok(person)
+            }
+            Ok(None) => {
+                counter!("personhog_leader_revivals_total", "outcome" => "tombstoned").increment(1);
+                Ok(person)
+            }
+            Err(e) => {
+                counter!("personhog_leader_revivals_total", "outcome" => "load_error").increment(1);
+                counter!("personhog_leader_pg_fallback_errors_total").increment(1);
+                tracing::error!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    error = %e,
+                    "PG revival check failed"
+                );
+                // Callers read not-found as gone, which this could not establish.
+                Err(Status::unavailable(
+                    "could not check whether a destroyed person was revived; retry",
+                ))
+            }
+        }
+    }
+
     /// Look up a person from cache, falling back to PG on miss.
     /// Acquires a per-key lock.
     async fn lookup_or_load(
@@ -453,12 +539,13 @@ impl PersonHogLeaderService {
         partition: u32,
         key: &PersonCacheKey,
     ) -> Result<CachedPerson, Status> {
-        // Fast path: cache hit (no lock needed)
+        // Fast path: cache hit (no lock needed); a death document takes the locked path.
         match self.cache.get(partition, key) {
-            CacheLookup::Found(person) => {
+            CacheLookup::Found(person) if !person.is_deleted => {
                 Self::record_cache_hit();
                 return Ok(person);
             }
+            CacheLookup::Found(_) => {}
             CacheLookup::PartitionNotOwned => {
                 return Err(Status::failed_precondition(format!(
                     "partition {} not owned by this leader",
@@ -473,12 +560,13 @@ impl PersonHogLeaderService {
         let _guard = mutex.lock().await;
 
         // Double-check cache -- another request may have loaded it
-        if let CacheLookup::Found(person) = self.cache.get(partition, key) {
+        let person = if let CacheLookup::Found(person) = self.cache.get(partition, key) {
             Self::record_cache_hit();
-            return Ok(person);
-        }
-
-        self.recover_or_load(partition, key).await
+            person
+        } else {
+            self.recover_or_load(partition, key).await?
+        };
+        self.serve_revival(partition, key, person).await
     }
 
     /// Look up a person from cache, falling back to PG on miss.
@@ -488,17 +576,20 @@ impl PersonHogLeaderService {
         partition: u32,
         key: &PersonCacheKey,
     ) -> Result<CachedPerson, Status> {
-        match self.cache.get(partition, key) {
+        let person = match self.cache.get(partition, key) {
             CacheLookup::Found(person) => {
                 Self::record_cache_hit();
-                Ok(person)
+                person
             }
-            CacheLookup::PartitionNotOwned => Err(Status::failed_precondition(format!(
-                "partition {} not owned by this leader",
-                partition
-            ))),
-            CacheLookup::PersonNotFound => self.recover_or_load(partition, key).await,
-        }
+            CacheLookup::PartitionNotOwned => {
+                return Err(Status::failed_precondition(format!(
+                    "partition {} not owned by this leader",
+                    partition
+                )))
+            }
+            CacheLookup::PersonNotFound => self.recover_or_load(partition, key).await?,
+        };
+        self.serve_revival(partition, key, person).await
     }
 
     /// The shared tail of every document write: refuse unapplyable records,
@@ -574,12 +665,16 @@ impl Committer {
     /// The producer was acquired on the capture's topic, so its records land there.
     #[allow(clippy::result_large_err)]
     fn stream_of(&self, partition: u32) -> Result<Stream, Status> {
-        let topic = self
+        let (topic, cluster) = self
             .captures
             .get(&partition)
-            .map(|c| Arc::clone(&c.topic))
+            .map(|c| (Arc::clone(&c.topic), c.cluster.clone()))
             .ok_or_else(|| not_served(partition))?;
-        Ok(Stream { topic, partition })
+        Ok(Stream {
+            topic,
+            cluster,
+            partition,
+        })
     }
 
     async fn commit(
@@ -739,25 +834,45 @@ impl PersonHogLeaderService {
     }
 }
 
+/// The first instant Postgres accepts in a `timestamptz`: Julian day 0,
+/// which Postgres documents as 4713 BC (Julian calendar) and chrono
+/// renders as -4713-11-24 (proleptic Gregorian). chrono reaches much
+/// further back, so this is the binding bound.
+const PG_TIMESTAMPTZ_MIN_MS: i64 = -210_866_803_200_000;
+
 /// Upper bound on the epoch-millisecond timestamps the leader will put in
-/// a changelog record: the last instant of year 9999. Comfortably inside
-/// both chrono's representable range and Postgres's `timestamptz` range,
-/// so any value under this bound is bindable by the writer.
+/// a changelog record: the last instant of year 9999. Inside both chrono's
+/// and Postgres's ranges; nothing legitimate sits above it.
 const MAX_EPOCH_MS_YEAR_9999: i64 = 253_402_300_799_999;
+
+/// Whether the writer can bind this epoch-millisecond value as a
+/// `timestamptz`: chrono must represent it and Postgres must accept it.
+/// Rows written before personhog carry a client's zero `DateTime` (year 1)
+/// as `created_at`, and those must keep writing.
+fn writeable_epoch_ms(ms: i64) -> bool {
+    (PG_TIMESTAMPTZ_MIN_MS..=MAX_EPOCH_MS_YEAR_9999).contains(&ms)
+        && Utc.timestamp_millis_opt(ms).single().is_some()
+}
 
 /// The granularity `last_seen_at` is stored at. Matches ingestion's own
 /// hourly truncation so both write paths produce identical stored values.
 const MS_PER_HOUR: i64 = 3_600_000;
+
+/// Floors to the hour on either side of the epoch; `%` would round a
+/// negative value up to the next hour instead.
+fn floor_to_hour(ms: i64) -> i64 {
+    ms.div_euclid(MS_PER_HOUR) * MS_PER_HOUR
+}
 
 /// The changelog contract: every produced record must be applyable by the
 /// writer's upsert verbatim. Properties are guaranteed by admission
 /// (NUL sanitization plus the exact size measure); this checks the
 /// remaining writer-bound fields against the writer's bind conversions —
 /// uuid must parse, team_id must fit the column's `integer`, and the
-/// timestamps must sit inside a sanity range ([1970, 9999]) any
-/// legitimate value satisfies. The legacy jsonb columns have no cache
-/// field and are unconditionally empty in `cached_person_into_proto`, so a
-/// record structurally cannot carry values the writer would refuse there.
+/// timestamps must convert to a `timestamptz`. The legacy jsonb columns
+/// have no cache field and are unconditionally empty in
+/// `cached_person_into_proto`, so a record structurally cannot carry
+/// values the writer would refuse there.
 fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     if Uuid::parse_str(&p.uuid).is_err() {
         return Err("uuid does not parse as a UUID".to_string());
@@ -768,15 +883,17 @@ fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
             p.team_id
         ));
     }
-    if p.created_at < 0 || p.created_at > MAX_EPOCH_MS_YEAR_9999 {
+    if !writeable_epoch_ms(p.created_at) {
         return Err(format!(
-            "created_at epoch {} is outside sane bounds",
+            "created_at epoch {} is not representable as a timestamp",
             p.created_at
         ));
     }
     if let Some(t) = p.last_seen_at {
-        if !(0..=MAX_EPOCH_MS_YEAR_9999).contains(&t) {
-            return Err(format!("last_seen_at epoch {t} is outside sane bounds"));
+        if !writeable_epoch_ms(t) {
+            return Err(format!(
+                "last_seen_at epoch {t} is not representable as a timestamp"
+            ));
         }
     }
     Ok(())
@@ -1119,13 +1236,11 @@ impl PersonHogLeader for PersonHogLeaderService {
         // UTC-normalized timestamps, expressed in epoch terms — so record
         // volume is bounded at one per person-hour by construction, not
         // by trusting callers to coarsen.
-        let requested_last_seen = req
-            .last_seen_at
-            .filter(|t| (0..=MAX_EPOCH_MS_YEAR_9999).contains(t));
+        let requested_last_seen = req.last_seen_at.filter(|t| writeable_epoch_ms(*t));
         if requested_last_seen != req.last_seen_at {
             counter!("personhog_leader_last_seen_discarded_total").increment(1);
         }
-        let requested_last_seen = requested_last_seen.map(|t| t - t % MS_PER_HOUR);
+        let requested_last_seen = requested_last_seen.map(floor_to_hour);
         // Max-merge: the stored value only ever advances, and an advance
         // is a change in its own right — ingestion's direct write path
         // persists a last-seen-only advance, so this path must too.
@@ -1293,6 +1408,137 @@ impl PersonHogLeader for PersonHogLeaderService {
             person: Some(committed.proto),
             updated: true,
         }))
+    }
+
+    async fn raise_person_version(
+        &self,
+        request: Request<RaisePersonVersionRequest>,
+    ) -> Result<Response<RaisePersonVersionResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
+        let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
+        if req.min_version <= 0 {
+            return Err(Status::invalid_argument("min_version must be positive"));
+        }
+        self.check_authority(partition)?;
+
+        let Some(inflight_guard) = self.inflight.try_begin(partition) else {
+            return Err(Status::failed_precondition(format!(
+                "partition {partition} is fenced for handoff; writes are rejected"
+            )));
+        };
+
+        let cache_key = PersonCacheKey {
+            team_id: req.team_id,
+            person_id: req.person_id,
+        };
+        let mutex = self
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let lock_wait = std::time::Instant::now();
+        let guard = mutex.lock_owned().await;
+        histogram!("personhog_leader_person_lock_wait_ms")
+            .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
+
+        if !self.dirty_index.can_admit(&cache_key) {
+            counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
+                .increment(1);
+            return Err(Status::resource_exhausted(
+                "dirty index at capacity: the writer is behind and this raise cannot be \
+                 tracked; retry later",
+            ));
+        }
+
+        if let Some(fence) = self.check_fence(&cache_key) {
+            counter!("personhog_leader_writes_fenced_total").increment(1);
+            if let Some(healer) = &self.fence_healer {
+                healer.maybe_heal(cache_key.clone(), fence);
+            }
+            return Err(fenced_status(&fence));
+        }
+
+        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+        self.check_authority(partition)?;
+        if person.is_deleted {
+            return Err(Status::not_found("person is destroyed"));
+        }
+
+        if person.version >= req.min_version {
+            counter!("personhog_leader_version_raises_total", "outcome" => "at_or_above")
+                .increment(1);
+            return self.authoritative_ok(
+                partition,
+                RaisePersonVersionResponse {
+                    person: Some(cached_person_into_proto(person)),
+                    raised: false,
+                },
+            );
+        }
+
+        // A spent version may already be in the changelog, so the raise must clear it.
+        let floor = self
+            .emitted_versions
+            .floor_for(partition, &cache_key, person.version);
+        let version = floor
+            .checked_add(1)
+            .ok_or_else(|| Status::invalid_argument("no version left above the emitted floor"))?
+            .max(req.min_version);
+        let mut raised = CachedPerson { version, ..person };
+
+        // A stored row over the size limit would stop the writer's partition, so trim it as an update does.
+        let stored = raised
+            .parse_properties()
+            .map_err(|e| Status::internal(format!("cached properties unparseable: {e}")))?;
+        let stored_size = jsonb_column_size(&stored);
+        if stored_size >= self.size_limits.threshold {
+            match trim_properties_to_fit_size(&stored, self.size_limits.trim_target) {
+                TrimResult::Trimmed(trimmed) => {
+                    counter!("personhog_leader_properties_trimmed_total").increment(1);
+                    self.warnings.emit(&SizeViolationWarning {
+                        team_id: cache_key.team_id,
+                        person_uuid: raised.uuid.clone(),
+                        message: "Oversized person properties were trimmed to fit the size limit"
+                            .to_string(),
+                    });
+                    raised.properties = serde_json::to_vec(&trimmed).map_err(|e| {
+                        Status::internal(format!("serialize trimmed properties: {e}"))
+                    })?;
+                }
+                TrimResult::Fits => {}
+                TrimResult::CannotFit => {
+                    counter!(
+                        "personhog_leader_version_raises_total",
+                        "outcome" => "rejected_unremediable"
+                    )
+                    .increment(1);
+                    return Err(semantic_refusal(
+                        format!(
+                            "person properties exceed the size limit: stored state is \
+                             {stored_size} bytes (jsonb) and protected properties alone exceed \
+                             the {} trim target",
+                            self.size_limits.trim_target,
+                        ),
+                        "person-too-large",
+                    ));
+                }
+            }
+        }
+
+        let committed = self
+            .commit_document(partition, &cache_key, raised, guard, inflight_guard)
+            .await?;
+        counter!("personhog_leader_version_raises_total", "outcome" => "raised").increment(1);
+
+        self.authoritative_ok(
+            partition,
+            RaisePersonVersionResponse {
+                person: Some(committed.proto),
+                raised: true,
+            },
+        )
     }
 
     async fn fold_person_document(
@@ -1590,11 +1836,14 @@ impl PersonHogLeader for PersonHogLeaderService {
             .max();
 
         // The version is a max-merge over the target's floor and every
-        // sealed version, plus one: at or above every source's death
-        // document, which derives from the same sealed + 1 (equal when
-        // the highest sealed version dominates — harmless, the streams
-        // are per-person), and re-applying the fold only bumps it again
-        // — convergent under at-least-once delivery.
+        // sealed version, plus one. A source's death document starts
+        // from the same sealed + 1, so the fold sits at or above it and
+        // equals it when the highest sealed version dominates. A source
+        // row that moved after its seal raises its death document above
+        // the fold. The streams are per-person, so the relation is a
+        // convention, not a collision guard. Re-applying the fold only
+        // bumps the version again, so it converges under at-least-once
+        // delivery.
         let base_version = self
             .emitted_versions
             .floor_for(partition, &cache_key, person.version);
@@ -1681,6 +1930,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
+    use chrono::Datelike;
     use common_kafka::config::KafkaConfig;
     use envconfig::Envconfig;
     use personhog_proto::personhog::types::v1::{LifecycleOpType, ReleaseOutcome};
@@ -1688,6 +1938,70 @@ mod tests {
 
     use super::*;
     use crate::recovery::RecoveryConfig;
+
+    /// A client's zero `DateTime` serialises as year 1, and persons created
+    /// from such events before personhog carry it as `created_at`.
+    const YEAR_ONE_MS: i64 = -62_135_596_800_000;
+
+    #[test]
+    fn writeable_accepts_what_the_writer_binds_and_refuses_the_rest() {
+        let person = CachedPerson {
+            id: 1,
+            uuid: "00000000-0000-0000-0000-000000000001".to_string(),
+            team_id: 7,
+            properties: b"{}".to_vec(),
+            created_at: YEAR_ONE_MS,
+            version: 1,
+            is_identified: false,
+            is_deleted: false,
+            last_seen_at: Some(YEAR_ONE_MS),
+        };
+        assert_eq!(assert_writeable(&person), Ok(()));
+        assert!(
+            Utc.timestamp_millis_opt(YEAR_ONE_MS).single().is_some(),
+            "the writer converts with the same call, so year 1 binds"
+        );
+
+        // The bounds are Postgres's, not chrono's: both ends convert, and
+        // one millisecond past either end is refused.
+        let floor = Utc.timestamp_millis_opt(PG_TIMESTAMPTZ_MIN_MS).unwrap();
+        assert_eq!(
+            (floor.year(), floor.month(), floor.day()),
+            (-4713, 11, 24),
+            "Julian day 0 in the proleptic Gregorian calendar"
+        );
+        assert!(Utc
+            .timestamp_millis_opt(MAX_EPOCH_MS_YEAR_9999)
+            .single()
+            .is_some());
+        assert!(writeable_epoch_ms(PG_TIMESTAMPTZ_MIN_MS));
+        assert!(writeable_epoch_ms(MAX_EPOCH_MS_YEAR_9999));
+        assert!(!writeable_epoch_ms(PG_TIMESTAMPTZ_MIN_MS - 1));
+        assert!(!writeable_epoch_ms(MAX_EPOCH_MS_YEAR_9999 + 1));
+
+        for (field, created_at, last_seen_at) in [
+            ("created_at", i64::MIN, None),
+            ("created_at", PG_TIMESTAMPTZ_MIN_MS - 1, None),
+            ("created_at", i64::MAX, None),
+            ("last_seen_at", YEAR_ONE_MS, Some(-300_000_000_000_000)),
+            ("last_seen_at", YEAR_ONE_MS, Some(i64::MAX)),
+        ] {
+            let refused = CachedPerson {
+                created_at,
+                last_seen_at,
+                ..person.clone()
+            };
+            let reason = assert_writeable(&refused).expect_err(field);
+            assert!(reason.starts_with(field), "{reason}");
+        }
+    }
+
+    #[test]
+    fn last_seen_floors_to_the_hour_on_both_sides_of_the_epoch() {
+        assert_eq!(floor_to_hour(3_600_000 + 1), 3_600_000);
+        assert_eq!(floor_to_hour(YEAR_ONE_MS + 1234), YEAR_ONE_MS);
+        assert_eq!(floor_to_hour(-1), -MS_PER_HOUR);
+    }
 
     fn make_key(team_id: i64, person_id: i64) -> PersonCacheKey {
         PersonCacheKey { team_id, person_id }
@@ -1818,6 +2132,7 @@ mod tests {
             Arc::new(DashMap::from_iter([(
                 0,
                 crate::coordination::Capture {
+                    cluster: None,
                     topic: Arc::from("personhog_updates"),
                     config: personhog_coordination::types::ChangelogConfig::new(
                         "personhog_updates",

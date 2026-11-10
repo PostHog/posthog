@@ -1,29 +1,38 @@
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import AlertCondition, InsightThreshold, IntervalType, NodeKind
 
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 
 from posthog.api.services.query import ExecutionMode
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.hogql_queries.validation.validate_query import rule_violation_message
+from posthog.models.team import Team
+from posthog.query_creator_access import CreatorLeftOrganizationError, assert_creator_can_run
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
-from posthog.utils import get_from_dict_or_attr
+from posthog.utils import get_from_dict_or_attr, relative_date_parse_with_delta_mapping
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
 from products.alerts.backend.evaluation.contract import (
+    CREATOR_LEFT_DISABLE_REASON,
+    CREATOR_LOST_ACCESS_DISABLE_REASON,
     AlertExtractionError,
+    AlertOwnerAccessError,
     ComparableSeries,
     DetectorExtractor,
     ExtractionResult,
     Extractor,
+    cache_age_seconds_for_alert,
     execution_mode_for_alert,
 )
 from products.alerts.backend.evaluation.delay import (
@@ -66,6 +75,51 @@ def _resolve_execution_mode(alert: AlertConfiguration, kind: NodeKind, query: ob
     raw_interval = get_from_dict_or_attr(query, "interval") if kind == NodeKind.TRENDS_QUERY else None
     interval = IntervalType(raw_interval) if raw_interval is not None else None
     return execution_mode_for_alert(interval, high_frequency=alert.is_high_frequency_interval)
+
+
+def _query_interval(query: object) -> IntervalType | None:
+    # Metrics insights use interval strings outside the enum (``minute_5``, ``$window``).
+    try:
+        raw_interval = get_from_dict_or_attr(query, "interval")
+    except AttributeError:
+        return None
+    if raw_interval is None:
+        return None
+    try:
+        return IntervalType(raw_interval)
+    except ValueError:
+        return None
+
+
+def _ends_in_the_past(query: object, *, now: datetime, team: Team) -> bool:
+    # The shared rule caches a closed range forever, and the override would replace that rule.
+    try:
+        date_range = get_from_dict_or_attr(query, "dateRange")
+    except AttributeError:
+        return False
+    if date_range is None:
+        return False
+    try:
+        date_to = get_from_dict_or_attr(date_range, "date_to")
+    except AttributeError:
+        return False
+    if not isinstance(date_to, str):
+        return False
+    parsed, delta_mapping, _position = relative_date_parse_with_delta_mapping(date_to, ZoneInfo(team.timezone), now=now)
+    return delta_mapping is None and parsed < now
+
+
+def _resolve_cache_age_seconds(alert: AlertConfiguration, query: object, execution_mode: ExecutionMode) -> int | None:
+    # Read for every kind, unlike _resolve_execution_mode, because funnels also hit the cache.
+    if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+        return None
+    if get_from_dict_or_attr(query, "kind") == NodeKind.METRICS_QUERY:
+        # Metrics already age on a minute threshold, so a bucket limit would loosen it.
+        return None
+    now = datetime.now(UTC)
+    if _ends_in_the_past(query, now=now, team=alert.team):
+        return None
+    return cache_age_seconds_for_alert(_query_interval(query), now=now, team=alert.team)
 
 
 @contextmanager
@@ -116,7 +170,9 @@ def run_extractor(
     """
     try:
         with query_slot(), owner_sql_errors(query):
-            return extractor.extract(alert, insight, query, execution_mode)
+            # Resolve inside the slot so a slot wait cannot push the window past a bucket boundary.
+            cache_age_seconds = _resolve_cache_age_seconds(alert, query, execution_mode)
+            return extractor.extract(alert, insight, query, execution_mode, cache_age_seconds)
     except DRFValidationError as err:
         if getattr(err, "served_from_query_failure_cache", False):
             raise
@@ -259,6 +315,22 @@ class PerSeriesEvaluation:
     truncated: bool = False
 
 
+@contextmanager
+def _owner_can_run(alert: AlertConfiguration) -> Iterator[None]:
+    """Turn an owner who can no longer run the alert into the alert's own error, which disables it.
+
+    The query runs with the owner's access, so the owner is checked before it: a query that reads no
+    restricted table still succeeds, and the query itself only checks tables and runner resources.
+    """
+    try:
+        assert_creator_can_run(alert.created_by, alert.team, alert.insight)
+        yield
+    except CreatorLeftOrganizationError as err:
+        raise AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON) from err
+    except (TableAccessDeniedError, UserAccessControlError) as err:
+        raise AlertOwnerAccessError(CREATOR_LOST_ACCESS_DISABLE_REASON) from err
+
+
 def check_alert_per_series(
     alert: AlertConfiguration, *, query_slot: QuerySlot = nullcontext
 ) -> PerSeriesEvaluation | AlertEvaluationResult:
@@ -272,7 +344,7 @@ def check_alert_per_series(
     if alert.detector_config:
         raise AlertExtractionError("Per-series evaluation supports threshold alerts only")
     try:
-        with _resolved_query(alert) as resolved:
+        with _owner_can_run(alert), _resolved_query(alert) as resolved:
             extracted = _extract_for_threshold(alert, resolved.insight, resolved.query, resolved.kind, query_slot)
     except DelayedEvaluationUnavailable as err:
         return AlertEvaluationResult(value=None, breaches=[], skipped_reason=str(err))
@@ -303,7 +375,8 @@ def check_alert_for_insight(
     alert: AlertConfiguration, *, evaluation_id: str | None = None, query_slot: QuerySlot = nullcontext
 ) -> AlertEvaluationResult:
     try:
-        return _check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot)
+        with _owner_can_run(alert):
+            return _check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot)
     except DelayedEvaluationUnavailable as err:
         if is_llm_detector_config(alert.detector_config):
             raise LLMDetectorUnavailableError(str(err)) from err

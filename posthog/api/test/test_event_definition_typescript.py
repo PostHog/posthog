@@ -25,7 +25,13 @@ from rest_framework import status
 
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator, TypeScriptTypesGenerator
-from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
+
+from products.event_definitions.backend.models import (
+    EventDefinition,
+    EventSchema,
+    SchemaPropertyGroup,
+    SchemaPropertyGroupProperty,
+)
 
 from ee.models.event_definition import EnterpriseEventDefinition
 

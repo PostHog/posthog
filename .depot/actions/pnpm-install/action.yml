@@ -1,6 +1,7 @@
 # Depot mirror of .github/actions/pnpm-install (same pattern as .depot/actions/setup-sqlx-cli).
-# Kept equivalent to canonical except for the `inputs.install` guards and the master-gated
-# "Save pnpm store" step below. actions/cache routes to Depot Cache, so shared keys do not
+# Kept equivalent to canonical except for the `inputs.install` guards, the master-gated
+# "Save pnpm store" step below, and the timeout-minutes on both restores, which GitHub Actions
+# rejects in a composite step. actions/cache routes to Depot Cache, so shared keys do not
 # collide.
 name: Install pnpm dependencies
 description: |
@@ -55,6 +56,8 @@ runs:
         - name: Restore pnpm store
           id: restore
           if: inputs.install != 'false'
+          timeout-minutes: 2
+          continue-on-error: true
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-store.outputs.path }}
@@ -75,6 +78,8 @@ runs:
         - name: Restore pnpm lockfile verdict
           id: restore-verdict
           if: inputs.install != 'false'
+          timeout-minutes: 2
+          continue-on-error: true
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
@@ -94,8 +99,9 @@ runs:
         # Save only on the default branch. Caches written on a PR/branch ref are
         # scoped to that ref alone — no other branch can read them, they evict
         # the shared master cache, and they only ever help that one PR's re-runs.
+        # `depot ci run` (event `api`) has the master ref but runs an unreviewed local patch.
         - name: Save pnpm store
-          if: inputs.install != 'false' && github.ref == 'refs/heads/master' && steps.restore.outputs.cache-hit != 'true'
+          if: inputs.install != 'false' && github.ref == 'refs/heads/master' && github.event_name != 'api' && steps.restore.outputs.cache-hit != 'true'
           uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-store.outputs.path }}
@@ -103,7 +109,7 @@ runs:
 
         # On a verdict miss the install above ran the check itself, so the record is pnpm's own.
         - name: Save pnpm lockfile verdict
-          if: inputs.install != 'false' && github.ref == 'refs/heads/master' && steps.restore-verdict.outputs.cache-hit != 'true'
+          if: inputs.install != 'false' && github.ref == 'refs/heads/master' && github.event_name != 'api' && steps.restore-verdict.outputs.cache-hit != 'true'
           uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl

@@ -29,7 +29,10 @@ fi
 # Migration aid: after the common/hogli/ -> tools/hogli/ + tools/hogli-commands/
 # restructure, users with stale venvs see `ModuleNotFoundError: hogli`. Catch it
 # early and point at `uv sync`. Safe to delete once everyone has re-activated.
-HOGLI_IMPORT_ERR="$("$PYTHON_CMD" -c "import hogli" 2>&1)" || true
+# -P keeps the current directory off sys.path. Hooks run this from the worktree
+# being checked out, whose branch could otherwise ship a `hogli` package that
+# shadows the installed one.
+HOGLI_IMPORT_ERR="$("$PYTHON_CMD" -P -c "import hogli" 2>&1)" || true
 if [[ -n "$HOGLI_IMPORT_ERR" && "$HOGLI_IMPORT_ERR" == *"No module named 'hogli'"* ]]; then
     cat >&2 <<'EOF'
 error: the `hogli` package is not importable from your active venv.
@@ -45,4 +48,4 @@ EOF
     exit 127
 fi
 
-exec "$PYTHON_CMD" -m hogli "$@"
+exec "$PYTHON_CMD" -P -m hogli "$@"

@@ -1,6 +1,6 @@
 import asyncio
 import datetime as dt
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 
 from temporalio import activity, workflow
@@ -23,6 +23,8 @@ from products.alerts_platform.backend.temporal.metrics import (
     increment_deliveries_previewed,
     increment_discovery_omitted,
     increment_holds_expired,
+    record_tick_end,
+    record_tick_keys,
     safe_record,
 )
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
@@ -36,8 +38,11 @@ with workflow.unsafe.imports_passed_through():
     from asgiref.sync import sync_to_async
 
     from posthog.sync import database_sync_to_async_pool
+    from posthog.temporal.common.metrics import record_schedule_to_start_latency
+    from posthog.temporal.common.schedule import a_describe_schedule
 
     from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
+    from products.alerts_platform.backend.delivery.routing import deliver_routes
     from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL, ThreadBusy
     from products.alerts_platform.backend.facade.contracts import (
         AlertBatchKey,
@@ -56,8 +61,13 @@ with workflow.unsafe.imports_passed_through():
     from products.alerts_platform.backend.logic import delivery_holds
     from products.alerts_platform.backend.logic.demand import discover_demand
     from products.alerts_platform.backend.logic.inventory import count_inventory
-    from products.alerts_platform.backend.temporal.inventory_metrics import push_inventory
+    from products.alerts_platform.backend.temporal.inventory_metrics import (
+        TickScheduleRuns,
+        push_inventory,
+        push_tick_schedule_runs,
+    )
     from products.alerts_platform.backend.temporal.postgres import check_postgres_connection
+    from products.alerts_platform.backend.temporal.schedule import SCHEDULE_ID
     from products.alerts_platform.backend.temporal.sources import SOURCE_BINDINGS, discovery_limits
 
 
@@ -98,11 +108,16 @@ NO_TRANSITION_EVENTS_PATCH = "alerts-platform-no-transition-events"
 # at most SOURCE_DISPATCH_TIMEOUT, so a deploy later the sequential branch can go and the check can
 # become `workflow.deprecate_patch(CONCURRENT_EVALUATION_STARTS_PATCH)`.
 CONCURRENT_EVALUATION_STARTS_PATCH = "alerts-platform-concurrent-evaluation-starts"
+# A delivery run that recorded this sends to the team's routed receivers after every part's own
+# sends. Older runs replay without the routes activity.
+ROUTED_DELIVERY_PATCH = "alerts-platform-routed-delivery"
 # From the first busy result to the start of a later attempt. An attempt that starts this late
 # finds every claim the first one saw already stale, so a thread still held is a newer send's.
 BUSY_WAIT_LIMIT = PENDING_CLAIM_TTL + BUSY_RETRY_DELAY
 # The last attempt can start one attempt and one delay past the limit.
 DELIVERY_EXECUTION_TIMEOUT = 3 * DELIVERY_SCHEDULE_TO_CLOSE + BUSY_WAIT_LIMIT + BUSY_RETRY_DELAY
+# Leaves most of the inventory activity's 20 seconds to the inventory count after a stalled describe.
+SCHEDULE_DESCRIBE_TIMEOUT = dt.timedelta(seconds=5)
 
 
 @frozen
@@ -119,16 +134,34 @@ async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs
     return demand
 
 
+async def _tick_schedule_runs() -> TickScheduleRuns | None:
+    """The tick schedule's own run counts. Temporal's namespace metrics do not say which schedule skipped."""
+    try:
+        async with asyncio.timeout(SCHEDULE_DESCRIBE_TIMEOUT.total_seconds()):
+            info = (await a_describe_schedule(activity.client(), SCHEDULE_ID)).info
+    except Exception as error:
+        await LOGGER.awarning("alerts_platform_schedule_describe_failed", error=str(error))
+        return None
+    return TickScheduleRuns(
+        started=info.num_actions,
+        skipped_overlap=info.num_actions_skipped_overlap,
+        missed_catchup=info.num_actions_missed_catchup_window,
+    )
+
+
 @activity.defn
 async def alerts_platform_record_inventory_activity() -> None:
     """A failed count is logged rather than raised, so a slow count never reads as a failed workflow."""
+    schedule_runs = await _tick_schedule_runs()
+    # A failed push is logged and captured inside `push_registry`, never raised.
+    if schedule_runs is not None:
+        await asyncio.to_thread(push_tick_schedule_runs, schedule_runs)
     now = dt.datetime.now(dt.UTC)
     try:
         inventories = await database_sync_to_async_pool(count_inventory)(now)
     except Exception as error:
         await LOGGER.awarning("alerts_platform_inventory_failed", error=str(error))
         return
-    # A failed push is logged and captured inside `push_registry`, never raised.
     await asyncio.to_thread(push_inventory, inventories)
 
 
@@ -153,10 +186,10 @@ async def alerts_platform_emit_transitions_activity(request: AlertDeliveryReques
 
 @activity.defn
 async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest) -> None:
-    """Sends what one evaluation decided, once destinations are live for the team.
+    """Sends what one evaluation decided, for an alert the platform owns.
 
-    Until then it records what it would have sent and contacts nobody, which is the same shape
-    the activity has had since the PoC.
+    For an alert its source still owns it records a preview and contacts nobody, because the
+    source sends its own message.
 
     The delivery package is synchronous: it reads the history, resolves destinations through
     the ORM and posts over a blocking client. Django refuses an ORM call from a thread with a
@@ -196,6 +229,29 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
     )
 
 
+@activity.defn
+async def alerts_platform_deliver_routes_activity(request: AlertDeliveryRequest) -> None:
+    """Sends what one evaluation decided to the team's routed receivers."""
+    try:
+        sent = await database_sync_to_async_pool(deliver_routes)(request)
+    except ThreadBusy as error:
+        await LOGGER.ainfo(
+            "alerts_platform_routed_delivery_thread_busy",
+            source=request.source.value,
+            configuration_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+        )
+        raise NonReportableApplicationError(str(error), type=THREAD_BUSY, non_retryable=True) from error
+    if sent:
+        await LOGGER.ainfo(
+            "alerts_platform_routed_delivered",
+            source=request.source.value,
+            configuration_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+            sent=sent,
+        )
+
+
 @workflow.defn(name="alerts-platform-deliver-preview")
 class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
     inputs_cls = AlertDeliveryRequest
@@ -221,7 +277,14 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
                 await self._send(request)
             except ActivityError as error:
                 send_failures.append(error)
-        failures = [*send_failures, *emission_failures]
+        route_failures: list[ActivityError] = []
+        if workflow.patched(ROUTED_DELIVERY_PATCH):
+            for request in parts:
+                try:
+                    await self._send(request, alerts_platform_deliver_routes_activity)
+                except ActivityError as error:
+                    route_failures.append(error)
+        failures = [*send_failures, *emission_failures, *route_failures]
         if failures:
             raise failures[0]
 
@@ -234,13 +297,17 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _send(self, request: AlertDeliveryRequest) -> None:
+    async def _send(
+        self,
+        request: AlertDeliveryRequest,
+        send: Callable[[AlertDeliveryRequest], Awaitable[None]] = alerts_platform_deliver_preview_activity,
+    ) -> None:
         busy_deadline: dt.datetime | None = None
         while True:
             started_at = workflow.now()
             try:
                 await workflow.execute_activity(
-                    alerts_platform_deliver_preview_activity,
+                    send,
                     request,
                     start_to_close_timeout=DELIVERY_START_TO_CLOSE,
                     schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
@@ -265,7 +332,7 @@ def delivery_workflow_id(delivery: AlertDeliveryRequest) -> str:
 
 
 def delivery_execution_timeout(delivery: AlertDeliveryRequest) -> dt.timedelta:
-    return DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts)
+    return 2 * DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts)
 
 
 async def start_deliveries(
@@ -532,6 +599,26 @@ def _should_continue_as_new() -> bool:
     return workflow.info().is_continue_as_new_suggested()
 
 
+def _finished_tick(result: OrchestrateResult, cutoff_iso: str) -> OrchestrateResult:
+    """Records how long the tick took from its scheduled minute.
+
+    The tick logs no other line, so this one is how an investigation reads a single tick's numbers.
+    """
+    duration = workflow.now() - dt.datetime.fromisoformat(cutoff_iso)
+    safe_record(record_tick_end, duration=duration, deadline_reached=result.deadline_reached)
+    # The log formatter drops `extra` fields, so the numbers go in the message.
+    workflow.logger.info(
+        "Alerts platform tick finished: scheduled_at=%s duration_ms=%d dispatched=%d remaining=%d pages=%d deadline_reached=%s",
+        cutoff_iso,
+        int(duration.total_seconds() * 1000),
+        sum(page.dispatched for page in result.pages),
+        result.remaining,
+        len(result.pages),
+        result.deadline_reached,
+    )
+    return result
+
+
 @workflow.defn(name="alerts-platform-orchestrate")
 class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
     """One minute tick. Discovers demand once, then pages source dispatchers until the demand is
@@ -550,6 +637,12 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
                 SearchAttributeKey.for_datetime("TemporalScheduledStartTime"), info.workflow_start_time
             )
             now = workflow.now()
+            record_schedule_to_start_latency(
+                "alerts_platform_tick_start_delay_ms",
+                scheduled_time=cutoff,
+                started_time=info.start_time,
+                description="Time from a tick's scheduled minute to its first workflow task",
+            )
             hard_stop = info.execution_timeout or (TICK_DISPATCH_BUDGET + TICK_HARD_STOP_MARGIN)
             inputs = replace(
                 inputs,
@@ -572,6 +665,7 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
             )
             demand = discovered.batch_keys_by_source
             inputs = replace(inputs, omitted=sum(discovered.omitted_by_source.values()))
+            safe_record(record_tick_keys, sum(len(keys) for keys in demand.values()) + inputs.omitted)
         else:
             demand = inputs.demand
 
@@ -589,7 +683,9 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
                     + inputs.omitted
                     + sum(recorded.undispatched for recorded in pages)
                 )
-                return OrchestrateResult(pages=pages, remaining=remaining, deadline_reached=True)
+                return _finished_tick(
+                    OrchestrateResult(pages=pages, remaining=remaining, deadline_reached=True), cutoff_iso
+                )
             # One list, so the settled results below can be read back against the source that
             # produced each one.
             paged = sorted(demand.items())
@@ -650,10 +746,13 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
             if demand and _should_continue_as_new():
                 workflow.continue_as_new(replace(inputs, page=page, demand=demand, pages=pages))
 
-        return OrchestrateResult(
-            pages=pages,
-            remaining=inputs.omitted + sum(recorded.undispatched for recorded in pages),
-            deadline_reached=False,
+        return _finished_tick(
+            OrchestrateResult(
+                pages=pages,
+                remaining=inputs.omitted + sum(recorded.undispatched for recorded in pages),
+                deadline_reached=False,
+            ),
+            cutoff_iso,
         )
 
 
@@ -679,6 +778,7 @@ DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [
 DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_deliver_activity,
     alerts_platform_deliver_preview_activity,
+    alerts_platform_deliver_routes_activity,
     alerts_platform_emit_transitions_activity,
     alerts_platform_find_expired_holds_activity,
     alerts_platform_release_expired_holds_activity,

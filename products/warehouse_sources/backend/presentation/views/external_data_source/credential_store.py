@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 import dataclasses
 from typing import Any, cast
 from urllib.parse import quote
@@ -17,10 +18,12 @@ from rest_framework.response import Response
 from posthog.api.utils import action
 from posthog.models.user import User
 
+from products.warehouse_sources.backend.facade import warehouse_migration as migrations
 from products.warehouse_sources.backend.facade.models import PendingSourceCredential
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.source_management import known_source_key
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
 
-from . import base, helpers
+from . import base
 
 
 class SourceConnectLinkSerializer(serializers.Serializer):
@@ -43,14 +46,20 @@ class SourceConnectLinkSerializer(serializers.Serializer):
 
 
 class SourceCredentialCreateSerializer(serializers.Serializer):
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         help_text="The source type these credentials are for (e.g. 'Stripe', 'Postgres').",
     )
     payload = serializers.DictField(
         help_text=(
             "Connection details as flat keys for the source_type — the same fields the create flow accepts "
             "(host, port, password, API key, …). Checked against a live connection before being stored."
+        ),
+    )
+    migration_item_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "The migration item whose prefilled settings the connect page showed. Every prefilled setting must "
+            "keep its value, or the request is rejected before PostHog connects anywhere."
         ),
     )
 
@@ -125,8 +134,7 @@ class DatabaseSchemaRequestSerializer(serializers.Serializer):
     detected primary keys and incremental cursors.
     """
 
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         help_text="The source type to validate against.",
     )
 
@@ -163,13 +171,27 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
             if isinstance(value, str):
                 payload[key] = value.strip()
 
-        source_type_model = ExternalDataSourceType(source_type)
+        migration_item_id = serializer.validated_data.get("migration_item_id")
+        if migration_item_id is not None:
+            # Checked before the live connection test, which sends the secret to the payload's host.
+            changed = migrations.prefill_mismatches(self.team_id, migration_item_id, payload)
+            if changed is None:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST, data={"message": "This migration item doesn't exist."}
+                )
+            if changed:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            f"These settings no longer match the migration: {', '.join(changed)}. "
+                            "Reload this link to see the current ones, or set up a new source instead."
+                        )
+                    },
+                )
+
+        source_type_model = known_source_key(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
-        if helpers.source_feature_flag_missing(source, self.team):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers._source_unavailable_message(source_type)},
-            )
 
         error_response, _ = self._validate_source_config_and_credentials(source, source_type_model, payload)
         if error_response is not None:
@@ -247,7 +269,17 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
                 location=OpenApiParameter.QUERY,
                 required=True,
                 description="The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').",
-            )
+            ),
+            OpenApiParameter(
+                name="migration_item_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Optional warehouse migration item. The connect page then shows the item's non-secret settings "
+                    "from the vendor, so the user only enters the secret."
+                ),
+            ),
         ],
         responses=SourceConnectLinkSerializer,
     )
@@ -267,7 +299,7 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
                 data={"message": "Missing required parameter: source_type"},
             )
         try:
-            source_type_model = ExternalDataSourceType(source_type)
+            source_type_model = known_source_key(source_type)
         except ValueError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -280,18 +312,42 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
             f"connect their {source_type} account" if oauth_field else f"enter their {source_type} connection details"
         )
 
+        connect_url = (
+            f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"
+        )
+        create_step = 'call data-warehouse-source-setup with {"credential_id": <id>} in the payload'
+        migration_item_id = request.query_params.get("migration_item_id")
+        if migration_item_id and not migrations.is_migration_import_enabled(
+            self.team, getattr(request.user, "distinct_id", None)
+        ):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Importing from Fivetran is not available to this project."},
+            )
+        if migration_item_id:
+            try:
+                item = migrations.find_migration_item(self.team_id, uuid.UUID(migration_item_id))
+            except ValueError:
+                item = None
+            if item is None:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Unknown migration_item_id '{migration_item_id}'"},
+                )
+            connect_url += f"&migration_id={item.migration_id}&migration_item_id={item.id}"
+            # The apply tool creates the source with the planned tables, prefix and schedule.
+            create_step = f'call warehouse-migration-item-apply with {{"item_id": "{item.id}", "credential_id": <id>}}'
+
         data = {
             "source_type": source_type,
             "auth_method": "oauth" if oauth_field else "credentials",
-            "connect_url": (
-                f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"
-            ),
+            "connect_url": connect_url,
             "instructions": (
                 f"Share this link with the user. They {action_phrase} directly in PostHog — never ask them to "
                 "paste credentials or tokens into the chat. The page only stores the connection details; it does "
                 "not create the source. Once the user confirms they're done, find the stored credential id via "
-                f"data-warehouse-stored-credentials-list (source_type='{source_type}', newest first) and call "
-                'data-warehouse-source-setup with {"credential_id": <id>} in the payload. Stored credentials are '
+                f"data-warehouse-stored-credentials-list (source_type='{source_type}', newest first) and "
+                f"{create_step}. Stored credentials are "
                 "single-use, expire after 24 hours, and are only visible to and consumable by the PostHog user "
                 "who entered them — so the page must be filled by the same user this session authenticates as."
             ),

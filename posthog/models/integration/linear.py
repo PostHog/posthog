@@ -1,5 +1,10 @@
 """Linear integration."""
 
+import re
+import math
+import time
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -13,6 +18,40 @@ from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed
 
 logger = structlog.get_logger(__name__)
 
+_ISSUE_IDENTIFIER = re.compile(r"([A-Za-z0-9]+)-([0-9]+)")
+
+# Linear counts requests over a one-hour window, so its reset time is never further away than that.
+_RATE_LIMIT_WINDOW_SECONDS = 3600
+_RATE_LIMIT_DEFAULT_WAIT_SECONDS = 60
+
+# Linear creates a workspace's webhook when the workspace authorizes the app, so an authorization from
+# before the app had webhooks never gets one. Reading webhooks needs the `admin` scope, which this app
+# does not request, so the authorization date is the only signal. Deliveries were arriving by this
+# time, so an authorization after it has a webhook. An earlier one may have one too, and reconnecting
+# it costs the person one click.
+_WEBHOOKS_AVAILABLE_SINCE = datetime(2026, 10, 30, 16, 0, tzinfo=UTC)
+
+
+class LinearIntegrationError(Exception):
+    """A Linear read that failed, so the caller retries instead of acting on a guessed answer."""
+
+
+class LinearRateLimitedError(LinearIntegrationError):
+    """Linear refused a read because the token spent its hourly budget. Retry after `retry_after_seconds`."""
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(f"Linear rate limit exceeded, retry in {retry_after_seconds}s")
+        self.retry_after_seconds = retry_after_seconds
+
+
+def _rate_limit_wait_seconds(response: requests.Response) -> int:
+    reset_ms = response.headers.get("X-RateLimit-Requests-Reset")
+    try:
+        wait = math.ceil(int(reset_ms) / 1000 - time.time()) if reset_ms else _RATE_LIMIT_DEFAULT_WAIT_SECONDS
+    except ValueError:
+        wait = _RATE_LIMIT_DEFAULT_WAIT_SECONDS
+    return min(max(wait, 1), _RATE_LIMIT_WINDOW_SECONDS)
+
 
 class LinearIntegration:
     integration: model.Integration
@@ -22,6 +61,14 @@ class LinearIntegration:
             raise Exception("LinearIntegration init called with Integration with wrong 'kind'")
 
         self.integration = model.integration_model(integration)
+
+    def authorized_before_webhooks(self) -> bool:
+        # A connection without `authorized_at` last authorized before the field existed, so `created_at`
+        # is the only date it has. One that reconnected after `_WEBHOOKS_AVAILABLE_SINCE` but before this
+        # field existed still shows the banner, and its next reconnect writes `authorized_at`.
+        authorized_at = self.integration.config.get("authorized_at")
+        last_authorized = datetime.fromtimestamp(authorized_at, UTC) if authorized_at else self.integration.created_at
+        return last_authorized < _WEBHOOKS_AVAILABLE_SINCE
 
     def url_key(self) -> str:
         return common.dot_get(self.integration.config, "data.viewer.organization.urlKey")
@@ -141,6 +188,68 @@ class LinearIntegration:
         body = self.query(update_query, variables={"id": issue_id, "stateId": nodes[0]["id"]})
         if body.get("errors") or not common.dot_get(body, "data.issueUpdate.success"):
             raise ValidationError(f"Failed to move the Linear issue to a {state_type} state")
+
+    def issue_state_types(self, identifiers: Sequence[str]) -> dict[str, str]:
+        """The workflow state category of each issue, keyed by identifier.
+
+        An identifier that Linear does not return is absent from the result: the issue was
+        deleted, the token cannot read it, or it moved to another team and has a new identifier.
+        The issues connection answers those cases with no node, where `issue(id:)` answers with
+        an error, so a failed request is always a failed request. Raises LinearIntegrationError.
+        """
+        filters: list[dict[str, Any]] = []
+        for identifier in identifiers:
+            match = _ISSUE_IDENTIFIER.fullmatch(identifier)
+            if match is not None:
+                filters.append({"team": {"key": {"eq": match.group(1)}}, "number": {"eq": int(match.group(2))}})
+        if not filters:
+            return {}
+
+        states_query = """
+        query IssueStates($filter: IssueFilter!, $first: Int!) {
+            issues(filter: $filter, first: $first, includeArchived: true) {
+                nodes { identifier state { type } }
+            }
+        }
+        """
+        body = self._read(states_query, variables={"filter": {"or": filters}, "first": len(filters)})
+        nodes = common.dot_get(body, "data.issues.nodes")
+        if body.get("errors") or not isinstance(nodes, list):
+            raise LinearIntegrationError("Failed to read the Linear issue states")
+        return {
+            node["identifier"]: node["state"]["type"]
+            for node in nodes
+            if isinstance(node.get("identifier"), str) and isinstance((node.get("state") or {}).get("type"), str)
+        }
+
+    def workflow_state_type(self, state_id: str) -> str | None:
+        state_query = """
+        query WorkflowStateType($id: ID!) {
+            workflowStates(filter: { id: { eq: $id } }, first: 1, includeArchived: true) { nodes { type } }
+        }
+        """
+        body = self._read(state_query, variables={"id": state_id})
+        nodes = common.dot_get(body, "data.workflowStates.nodes")
+        if body.get("errors") or not isinstance(nodes, list):
+            raise LinearIntegrationError("Failed to read the Linear workflow state")
+        state_type = nodes[0].get("type") if nodes else None
+        return state_type if isinstance(state_type, str) else None
+
+    def _read(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        """`query`, but a rate-limited answer raises LinearRateLimitedError with the time until Linear resets."""
+        response = requests.post(
+            "https://api.linear.app/graphql",
+            headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
+            json={"query": query, "variables": variables},
+            timeout=10,
+        )
+        body = response.json()
+        error_codes = {
+            (error.get("extensions") or {}).get("code") for error in body.get("errors") or [] if isinstance(error, dict)
+        }
+        if response.status_code == 429 or "RATELIMITED" in error_codes:
+            raise LinearRateLimitedError(_rate_limit_wait_seconds(response))
+        return body
 
     def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing Linear issues by title / identifier for the link-existing flow.

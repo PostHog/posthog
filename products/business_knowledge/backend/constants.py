@@ -252,3 +252,40 @@ BK_MCP_SCOPE = "business_knowledge:read"
 # It reads the project to find its organization, and the business knowledge tools sit behind a flag
 # targeted by organization, so without project:read the search tool is hidden.
 BK_MCP_SCOPES = [BK_MCP_SCOPE, "user:read", "project:read"]
+
+DOCS_SEARCH_TOOL = "docs-search"
+# Read tools the token's scopes unlock but the answer never needs. Knowledge content can carry
+# injected instructions, so hide anything that reads the asker's own data.
+BK_HIDDEN_TOOLS = (
+    DOCS_SEARCH_TOOL,
+    "user-get",
+    "user-home-settings-get",
+    "llma-personal-spend",
+    "reminder-get",
+    "reminders-list",
+    "project-get",
+    "mcp-connections-list",
+    "mcp-connection-tools-list",
+    "tasks-list",
+    "tasks-retrieve",
+    "tasks-runs-list",
+    "tasks-runs-retrieve",
+    "tasks-runs-session-logs-retrieve",
+    "tasks-artifacts-list",
+    "tasks-config-list",
+    "tasks-me-config-list",
+    "tasks-models-retrieve",
+    "channel-list",
+    "channel-retrieve",
+    "channel-instructions-retrieve",
+    "inbox-reports-list",
+    "inbox-reports-retrieve",
+    "inbox-report-artefacts-list",
+    "inbox-report-artefacts-retrieve",
+    "inbox-report-checks-list",
+    "inbox-report-checks-retrieve",
+    "inbox-source-configs-list",
+    "inbox-source-configs-retrieve",
+    "task-context-wiki-channel-resolve",
+    "task-context-wiki-page-retrieve",
+)

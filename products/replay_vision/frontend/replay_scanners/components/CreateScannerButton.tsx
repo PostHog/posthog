@@ -5,9 +5,10 @@ import { useState } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 

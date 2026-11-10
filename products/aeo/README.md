@@ -37,11 +37,23 @@ python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 
 # 3. Real run (also runs daily via celery beat for allowlisted+flagged teams):
 python manage.py run_aeo_citation_checks --team-id <id>
+
 ```
+
+### Add and edit in the app
+
+The AI visibility page in Web analytics (`/web/content-autopilot`) has an Overview tab for the prompt-set summary and a Prompts tab to add prompts (one per line, with an optional topic), edit a prompt's text or topic, turn prompts on or off, and archive them.
+Its Opportunities and Drafts tabs are content autopilot, which drafts pages for prompts where the engines did not cite the site.
+
+### Suggested prompts
+
+`POST /api/projects/<id>/aeo_prompts/suggest/` takes a `domain` (plus optional `brand`, `description`, `competitors`, `topics` and `count`) and returns a pending job. A Celery task asks Claude, through the AI gateway with web search, for prompts a buyer would ask, each labeled with a topic, a circle (differentiation, battleground, vulnerability, table stakes or branded), a funnel stage and a branded flag. Poll `GET aeo_prompts/suggest/<job id>/` for the result; jobs live in the cache for an hour after their last update, and a job still pending after 8 minutes reads as failed. Imported suggestions record `via: suggestion` in their evidence.
+Nothing is saved as a prompt: a person imports the ones they keep. Suggestions need the organization's AI data processing approval, and prompts the project already tracks are left out.
+The MCP tools for it (`aeo-prompts-suggest`, `aeo-prompts-suggestion-get`) ship disabled until the route is deployed.
 
 ### Import over the API
 
-`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=` and `?active=true|false`; archived prompts are left out unless `?include_archived=true`; each prompt carries `latest_checks`, its newest check per engine, and its `current_version` and `version_count`), lists topics with `GET topics/`, returns one prompt's check history with `GET <prompt_id>/checks/` (newest first, filter with `?engine=` and `?version=`) and its per-engine totals and 30-day daily counts with `GET <prompt_id>/stats/`, lists its versions with `GET <prompt_id>/versions/` (newest first), edits a prompt with `PATCH <prompt_id>/`, archives one with `DELETE <prompt_id>/`, and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
+`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=` and `?active=true|false`; archived prompts are left out unless `?include_archived=true`; each prompt carries `latest_checks`, its newest check per engine, and its `current_version` and `version_count`), lists topics with `GET topics/`, sums up the whole set with `GET overview/?days=30` (prompts tracked, checks, citation and mention rates against the window before, the same per engine and per topic, and the domains the engines cite most), returns one prompt's check history with `GET <prompt_id>/checks/` (newest first, filter with `?engine=` and `?version=`) and its per-engine totals and 30-day daily counts with `GET <prompt_id>/stats/`, lists its versions with `GET <prompt_id>/versions/` (newest first), edits a prompt with `PATCH <prompt_id>/`, archives one with `DELETE <prompt_id>/`, and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
 
 ```bash
 curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
@@ -50,9 +62,9 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 ```
 
 - A request takes up to 2,000 prompts. Send larger sets in batches of a few hundred.
-- A re-import matches prompts by the normalized text of their current version. It updates the topic and the evidence, and keeps each prompt's on/off state. A new text creates a prompt with version 1.
+- A re-import matches prompts by the normalized text of their current version. It updates the topic, merges the new evidence into the stored evidence (an omitted `external_visibility` keeps its value), and keeps each prompt's on/off state. A new text creates a prompt with version 1.
 - A re-import of an archived prompt's text leaves it archived and counts it as `skipped`.
-- The same operations are PostHog MCP tools (`products/aeo/mcp/tools.yaml`), gated by the same flag: `aeo-prompts-list`, `aeo-prompts-get`, `aeo-prompts-update`, `aeo-prompts-archive`, `aeo-prompts-versions-list`, `aeo-prompts-import`, `aeo-prompts-topics-list`, `aeo-prompts-checks-list` and `aeo-prompts-stats-get`.
+- The same operations are PostHog MCP tools (`products/aeo/mcp/tools.yaml`), gated by the same flag: `aeo-prompts-list`, `aeo-prompts-get`, `aeo-prompts-update`, `aeo-prompts-archive`, `aeo-prompts-versions-list`, `aeo-prompts-import`, `aeo-prompts-topics-list`, `aeo-prompts-checks-list`, `aeo-prompts-stats-get` and `aeo-prompts-overview-get`.
 - `external_visibility` (0-100) is the share of answers that mention the brand, as reported by the tool the set came from. It is kept in the prompt's evidence to benchmark against our own rates.
 
 ### Editing, versions and archiving
@@ -111,9 +123,16 @@ WHERE $channel_type = 'AI' AND $entry_pathname = '/docs/session-replay'
   AND $start_timestamp >= now() - INTERVAL 30 DAY
 ```
 
+## Brand catalog
+
+`posthog_aeo_brand` holds one row per registrable domain the engines cite: the project itself (`own`, from `AEO_TARGET_DOMAINS`), competitors, publishers such as review and community sites, and domains nobody has labeled yet (`unknown`, status `suggested`).
+After each daily run, `sync_brands_from_run` in `catalog.py` adds every domain the run's answers cited that the catalog does not have yet. It makes no external calls.
+It only inserts, so a rename, a new label or an ignored brand survives every run. How often a brand is cited is computed from the checks when it is read, not stored on the brand.
+People review the catalog over the API (`/api/projects/<id>/aeo_brands/`) or the `aeo-brands-*` MCP tools.
+
 ## Content autopilot
 
-Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Its Prompts tab lists the prompt set with each prompt's latest result per engine, and a switch on each row turns the prompt on or off. A "Show archived" switch adds archived prompts to the list. Clicking a prompt opens its detail: its current version, citation rate per engine, a 30-day grid of results, the latest answer per engine, its versions when it has more than one, and the full check history with the version each check ran. The detail can archive and restore the prompt. Adding prompts or changing their text goes through the API or the MCP tools. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
+Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Its Prompts tab opens with an overview of the last 30 days against the 30 days before (prompts tracked, checks run, mention and citation rates), the citation rate per engine per day, the mention rate per topic (a row filters the list to that topic), and the sites the engines cite most. Below it lists the prompt set with each prompt's latest result per engine, and a switch on each row turns the prompt on or off. A "Show archived" switch adds archived prompts to the list. Clicking a prompt opens its detail: its current version, citation rate per engine, a 30-day grid of results, the latest answer per engine, its versions when it has more than one, and the full check history with the version each check ran. The detail can archive and restore the prompt. Adding prompts or changing their text goes through the API or the MCP tools. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
 
 ## Cost
 

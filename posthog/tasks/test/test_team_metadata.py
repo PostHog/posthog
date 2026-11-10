@@ -1,10 +1,15 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
 from posthog.models.project import Project
-from posthog.tasks.team_metadata import update_related_teams_metadata_cache_task
+from posthog.storage import object_storage
+from posthog.tasks.team_metadata import (
+    clear_team_metadata_cache_for_token_task,
+    team_metadata_hypercache,
+    update_related_teams_metadata_cache_task,
+)
 
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
@@ -43,3 +48,22 @@ class TestRelatedTeamsMetadataFanoutTask(BaseTest):
             update_related_teams_metadata_cache_task(organization_id=self.organization.id)
 
         mock_logger.exception.assert_called_once()
+
+
+class TestClearTeamMetadataCacheForTokenTask(BaseTest):
+    def test_skips_a_token_that_belongs_to_a_team(self) -> None:
+        with patch.object(team_metadata_hypercache, "delete_cache_entry") as mock_delete:
+            clear_team_metadata_cache_for_token_task(self.team.api_token)
+
+        mock_delete.assert_not_called()
+
+    def test_failed_mirror_delete_raises_so_the_task_retries(self) -> None:
+        mirror = Mock()
+        mirror.delete.side_effect = ConnectionError("mirror down")
+
+        with (
+            patch.object(team_metadata_hypercache, "secondary_cache_client", mirror),
+            patch.object(object_storage, "delete"),
+            self.assertRaises(ConnectionError),
+        ):
+            clear_team_metadata_cache_for_token_task("phc_retired_token")
