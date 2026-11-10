@@ -43,6 +43,7 @@ from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.common.utils import configure_asyncify_executor, shutdown_asyncify_executor
+from posthog.temporal.common.workflow_catalog import register_workflow_info
 from posthog.temporal.data_modeling.metrics import (
     DATA_MODELING_DURATION_HISTOGRAM_BUCKETS,
     DATA_MODELING_DURATION_HISTOGRAM_METRICS,
@@ -560,6 +561,8 @@ async def create_worker(
     )
     if workflow_poller_behavior is not None:
         poller_kwargs["workflow_task_poller_behavior"] = workflow_poller_behavior
+
+    register_workflow_info(task_queue, workflows)
 
     if target_memory_usage is not None:
         worker = Worker(
