@@ -61,7 +61,6 @@ from posthog.api.tagged_item import (
 )
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.constants import PropertyOperatorType
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.exceptions import InsufficientScope
@@ -649,26 +648,37 @@ BATCH_FLAG_CONDITION_REJECTION = (
 INCOMPLETE_AUDIENCE_CONDITION = "An audience filter is incomplete. Finish it or remove it."
 
 
-def _has_incomplete_condition(properties: Any) -> bool:
-    if isinstance(properties, list):
-        return any(_has_incomplete_condition(prop) for prop in properties)
-    if not isinstance(properties, dict):
-        return False
-    prop_type = properties.get("type")
-    if isinstance(prop_type, str) and prop_type in PropertyOperatorType and isinstance(properties.get("values"), list):
-        return _has_incomplete_condition(properties["values"])
+def _is_condition_group(condition: Any) -> bool:
+    return isinstance(condition, dict) and "type" in condition and "values" in condition
+
+
+def _builds_property(condition: Any) -> bool:
     try:
-        Property(**properties)
-    except PropertyValidationError:
-        return True
-    except (TypeError, exceptions.ValidationError):
+        Property(**condition)
+    except (PropertyValidationError, exceptions.ValidationError, TypeError):
         return False
-    return False
+    return True
+
+
+def _has_unbuildable_condition(conditions: Any) -> bool:
+    if _is_condition_group(conditions):
+        conditions = conditions["values"]
+    if not isinstance(conditions, list):
+        return False
+    return any(
+        _has_unbuildable_condition(condition) if _is_condition_group(condition) else not _builds_property(condition)
+        for condition in conditions
+    )
 
 
 def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
-    # The property parser drops a condition it can't build, which would size and send to a wider audience.
-    if _has_incomplete_condition((filters or {}).get("properties")):
+    properties = (filters or {}).get("properties")
+    if isinstance(properties, str) and properties.strip():
+        try:
+            properties = json.loads(properties)
+        except json.JSONDecodeError:
+            properties = None
+    if _has_unbuildable_condition(properties):
         raise exceptions.ValidationError(INCOMPLETE_AUDIENCE_CONDITION)
     # Cohorts are expanded so a flag condition nested inside one is still caught.
     property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
