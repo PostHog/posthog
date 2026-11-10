@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { withLegendValues } from '../../components/Legend/legendItemsFromSeries'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
@@ -59,7 +60,7 @@ const BAND_LABELS = ['total']
 
 export function ProportionBar<Meta = unknown>({ onError, ...rest }: ProportionBarProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <ProportionBarInner {...rest} onError={onError} />
         </ChartErrorBoundary>
     )
@@ -91,8 +92,13 @@ function ProportionBarInner<Meta = unknown>({
     const legendConfig: ChartLegendConfig = { show: true, position: 'bottom', align: 'start', ...legend }
     const { visibleSeries, legendProps } = useChartLegend(series, theme, legendConfig)
     const legendItems = useMemo(
-        () => proportionLegendItems(series, theme, valueFormatter, legendProps.hiddenKeys),
-        [series, theme, valueFormatter, legendProps.hiddenKeys]
+        () =>
+            withLegendValues(
+                proportionLegendItems(series, theme, valueFormatter, legendProps.hiddenKeys),
+                series,
+                legendProps.table?.values
+            ),
+        [series, theme, valueFormatter, legendProps.hiddenKeys, legendProps.table?.values]
     )
     const colorByKey = new Map(legendItems.map((item) => [item.key, item.color]))
     // Tooltips and clicks hand back the consumer's own series, not the single-value copies the bar draws.

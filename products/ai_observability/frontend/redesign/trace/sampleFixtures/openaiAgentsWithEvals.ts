@@ -1,6 +1,7 @@
 import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { EvalResult, NodeProperties, ThreadMessage } from '../types'
-import { SampleNodeDetail, SampleTraceFixture, sampleStats } from './sampleTraceFixture'
+import { jsonContent, messagesContent, messagesSides } from './sampleContent'
+import { SampleNodeDetail, SampleTraceFixture, sampleRaw, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = 'trace_5gL08JNGqLvX2XcwWRWBmJgj6s6VwJcE'
 const AGENT_SPAN_ID = 'span_xCcAWaoMGK3OoppmlOJIXhhd'
@@ -69,7 +70,7 @@ const planOutput: ThreadMessage[] = [
     {
         id: `${PLAN_GENERATION_ID}-out-1`,
         role: 'assistant',
-        parts: [{ kind: 'toolCall', name: 'search_hotels', args: {} }],
+        parts: [{ kind: 'toolCall', name: 'search_hotels', args: {}, result: null }],
         isInternal: true,
         sourceNodeId: PLAN_GENERATION_ID,
     },
@@ -227,16 +228,15 @@ function generationDetail(
     rawProperties: Record<string, unknown>
 ): SampleNodeDetail {
     return {
-        content: { kind: 'messages', input, output },
+        content: messagesContent(input, output),
         error: null,
         properties: { ...traceProperties, timestamp, provider: 'openai' },
         evals: { status: 'ready', results: evalResults },
-        raw: {
-            event: '$ai_generation',
-            id,
-            createdAt: timestamp,
+        raw: sampleRaw('generation', id, {
+            name: '$ai_generation',
+            timestamp: timestamp,
             properties: { ...sharedRawProperties, $ai_span_id: id, $ai_model: MODEL, ...rawProperties },
-        },
+        }),
     }
 }
 
@@ -256,27 +256,20 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
     initialNodeId: ANSWER_GENERATION_ID,
     details: {
         [TRACE_ID]: {
-            content: { kind: 'io', input: null, output: null },
+            content: jsonContent(null, null),
             error: null,
             properties: traceProperties,
             evals: { status: 'ready', results: traceEvals },
-            raw: {
-                id: TRACE_ID,
-                createdAt: TRACE_TIMESTAMP,
-                traceName: 'Trip Planning',
-                totalLatency: 8.377000093460083,
-                traceMetadata: { userId: '9432f4d0-1a38-7c4a-a840-a22446331b7d' },
-            },
+            raw: sampleRaw('trace', TRACE_ID, null),
         },
         [AGENT_SPAN_ID]: {
-            content: { kind: 'io', input: null, output: null },
+            content: jsonContent(null, null),
             error: null,
             properties: { ...traceProperties, timestamp: AGENT_TIMESTAMP },
             evals: { status: 'ready', results: [] },
-            raw: {
-                event: '$ai_span',
-                id: AGENT_SPAN_ID,
-                createdAt: AGENT_TIMESTAMP,
+            raw: sampleRaw('span', AGENT_SPAN_ID, {
+                name: '$ai_span',
+                timestamp: AGENT_TIMESTAMP,
                 properties: {
                     ...sharedRawProperties,
                     $ai_span_id: AGENT_SPAN_ID,
@@ -294,7 +287,7 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
                         'convert_currency',
                     ],
                 },
-            },
+            }),
         },
         [PLAN_GENERATION_ID]: generationDetail(PLAN_GENERATION_ID, TRACE_TIMESTAMP, planInput, planOutput, [planEval], {
             $ai_response_id: 'resp_t6UzdDRX3JALmEQgkpmbjNstpSizyPOtAY3iwM7txHDAbsznsI',
@@ -305,14 +298,13 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
             $ai_tool_call_count: 1,
         }),
         [TOOL_SPAN_ID]: {
-            content: { kind: 'io', input: '{}', output: SEARCH_RESULTS },
+            content: jsonContent('{}', SEARCH_RESULTS),
             error: null,
             properties: traceProperties,
             evals: { status: 'ready', results: [] },
-            raw: {
-                event: '$ai_span',
-                id: TOOL_SPAN_ID,
-                createdAt: TRACE_TIMESTAMP,
+            raw: sampleRaw('span', TOOL_SPAN_ID, {
+                name: '$ai_span',
+                timestamp: TRACE_TIMESTAMP,
                 properties: {
                     ...sharedRawProperties,
                     $ai_span_id: TOOL_SPAN_ID,
@@ -321,7 +313,7 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
                     $ai_latency: 0,
                     $ai_input_state: '{}',
                 },
-            },
+            }),
         },
         [ANSWER_GENERATION_ID]: generationDetail(
             ANSWER_GENERATION_ID,
@@ -343,7 +335,7 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
             {
                 id: TRACE_ID,
                 timestamp: TRACE_TIMESTAMP,
-                messages: [...answerInput, ...answerOutput],
+                ...messagesSides(answerInput, answerOutput),
                 error: null,
             },
         ],

@@ -24,6 +24,9 @@ Also available to Claude Code / Codex via `hogli sync:skill`.
 - **exploring-llm-evaluations** — how to manage and investigate AI observability
   evaluations (`hog`, `llm_judge`, and `sentiment`), run them on specific generations,
   query individual results, and generate AI-powered summaries of pass/fail/N/A patterns for boolean evaluations.
+- **managing-llm-prompts** — how to create, version, and release prompts with prompt
+  management, move hardcoded prompts out of application code, connect the SDK fetch
+  with a fallback, and confirm that the application really fetches the prompt.
 
 Skills for managing skills themselves (`skills-store`, `working-with-skills`) now live in
 the standalone Skills product — see `products/skills/skills/`.

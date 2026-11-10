@@ -11,7 +11,11 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 # - "incident_export": required `start_time`/`end_time` window, chunked client-side (incidents).
 # - "postmortems": required `fromDate`/`toDate`/`limit` window, single request per team.
 # - "schedule_rotations": walks each team's v4 schedules and lists the rotations of every schedule.
-PaginationStyle = Literal["none", "offset", "cursor", "incident_export", "postmortems", "schedule_rotations"]
+# - "audit_logs": required `startDate`/`endDate` date window, chunked client-side, with
+#   `pageNumber`/`pageSize` pages and a `metadata.totalCount` counter inside each window.
+PaginationStyle = Literal[
+    "none", "offset", "cursor", "incident_export", "postmortems", "schedule_rotations", "audit_logs"
+]
 
 
 @frozen
@@ -36,6 +40,15 @@ _CREATED_AT_INCREMENTAL: list[IncrementalField] = [
         "label": "created_at",
         "type": IncrementalFieldType.DateTime,
         "field": "created_at",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+_TIMESTAMP_INCREMENTAL: list[IncrementalField] = [
+    {
+        "label": "timestamp",
+        "type": IncrementalFieldType.DateTime,
+        "field": "timestamp",
         "field_type": IncrementalFieldType.DateTime,
     },
 ]
@@ -106,6 +119,14 @@ SQUADCAST_ENDPOINTS: dict[str, SquadcastEndpointConfig] = {
     ),
     "teams": SquadcastEndpointConfig(
         path="/v3/teams",
+    ),
+    "audit_logs": SquadcastEndpointConfig(
+        # Org-level. The required `startDate` filter keys on the log's own `timestamp` at day
+        # granularity, so incremental runs re-read the watermark's day and merge dedupes on `id`.
+        path="/v3/audit-logs",
+        pagination="audit_logs",
+        partition_key="timestamp",
+        incremental_fields=_TIMESTAMP_INCREMENTAL,
     ),
 }
 

@@ -11,22 +11,8 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("actions", "0001_squash_2026_09_07_initial"),
-        ("conversations", "0001_squash_2026_09_07_initial"),
-        ("customer_analytics", "0001_squash_2026_09_07_initial"),
-        ("dashboards", "0001_squash_2026_09_07_initial"),
-        ("ee", "0001_squash_2026_09_07_initial"),
-        ("endpoints", "0001_squash_2026_09_07_initial"),
-        ("event_definitions", "0001_squash_2026_09_07_initial"),
-        ("experiments", "0001_squash_2026_09_07_initial"),
-        ("exports", "0001_squash_2026_09_07_initial"),
-        ("feature_flags", "0001_squash_2026_09_07_initial"),
-        ("notebooks", "0001_squash_2026_09_07_initial"),
         ("posthog", "0000_squash_stub"),
         ("posthog", "0001_squash_2026_09_07_initial"),
-        ("product_analytics", "0001_squash_2026_09_07_initial"),
-        ("replay_vision", "0001_squash_2026_09_07_initial"),
-        ("user_interviews", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

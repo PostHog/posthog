@@ -14,7 +14,7 @@ import { AnalyticsStep } from './steps/AnalyticsStep'
 import { VariantsStep } from './steps/VariantsStep'
 
 export function ExperimentWizard(): JSX.Element {
-    const { currentStep, isLastStep, isFirstStep, isExperimentSubmitting, stepValidationErrors, hasFormErrors } =
+    const { currentStep, isLastStep, isFirstStep, isExperimentSubmitting, stepValidationErrors, saveDisabledReason } =
         useValues(experimentWizardLogic)
     const { nextStep, prevStep, setStep, saveExperiment } = useActions(experimentWizardLogic)
 
@@ -68,7 +68,7 @@ export function ExperimentWizard(): JSX.Element {
                         type="primary"
                         onClick={saveExperiment}
                         loading={isExperimentSubmitting}
-                        disabledReason={hasFormErrors ? 'Please fix all errors before saving' : undefined}
+                        disabledReason={saveDisabledReason}
                     >
                         Save as draft
                     </LemonButton>

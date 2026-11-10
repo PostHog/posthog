@@ -3,7 +3,13 @@ import pytest
 import structlog
 from parameterized import parameterized_class
 
-from products.subscriptions.backend.temporal.results_summarizer import MAX_SUMMARY_LENGTH, build_results_summary
+from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
+
+from products.subscriptions.backend.temporal.results_summarizer import (
+    MAX_SERIES_SUMMARY_LENGTH,
+    build_results_summary,
+    last_period_is_incomplete,
+)
 
 
 class TestBuildResultsSummaryEmpty:
@@ -24,7 +30,7 @@ class TestBuildResultsSummaryEmpty:
                 {"label": "Pageviews", "data": [100, 120, 110, 130, 150]},
                 {"label": "Signups", "data": [10, 12, 8, 15, 20]},
             ],
-            ["Pageviews", "latest=150", "avg=", "trend=up", "Signups", "latest=20"],
+            ["Pageviews", "latest=150", "change=up 15%", "avg=", "window trend=up", "Signups", "latest=20"],
         ),
         (
             "trends_with_count_only",
@@ -48,13 +54,19 @@ class TestBuildResultsSummaryEmpty:
             "trends_stable",
             "TrendsQuery",
             [{"label": "Flat metric", "data": [100, 100, 100, 100]}],
-            ["Flat metric", "trend=stable"],
+            ["Flat metric", "change=no change", "window trend=stable"],
+        ),
+        (
+            "trends_up_from_zero",
+            "TrendsQuery",
+            [{"label": "New feature", "data": [0, 0, 5]}],
+            ["New feature", "latest=5", "change=up from 0"],
         ),
         (
             "trends_down",
             "TrendsQuery",
             [{"label": "Declining", "data": [200, 180, 100, 80]}],
-            ["Declining", "trend=down"],
+            ["Declining", "change=down 20%", "window trend=down"],
         ),
         (
             "funnels_basic",
@@ -90,7 +102,7 @@ class TestBuildResultsSummaryEmpty:
             "lifecycle_uses_trends",
             "LifecycleQuery",
             [{"label": "New", "data": [10, 20, 30]}],
-            ["New", "latest=30", "trend=up"],
+            ["New", "latest=30", "window trend=up"],
         ),
         (
             "unknown_query_uses_generic",
@@ -165,7 +177,7 @@ class TestBuildResultsSummaryEmpty:
                 "median latest=200",
                 "overall min=10",
                 "overall max=2,900",
-                "median trend=up",
+                "median window trend=up",
             ],
         ),
     ],
@@ -213,11 +225,158 @@ class TestBuildResultsSummaryValueFormat:
         assert "latest=360,000" in summary
 
 
+class TestBuildResultsSummaryIncompletePeriod:
+    def test_latest_and_change_follow_the_last_complete_period_not_the_window(self):
+        # An early spike makes the window trend fall while the latest complete period rose.
+        days = ["2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04", "2026-04-05", "2026-04-06"]
+        results = [
+            {"label": "Daily active users", "data": [220, 210, 60, 54, 171, 40], "days": days},
+            {
+                "label": "Daily active users",
+                "data": [90, 95, 100, 98, 97, 99],
+                "days": days,
+                "compare_label": "previous",
+            },
+        ]
+
+        current, previous = build_results_summary("TrendsQuery", results, last_period_incomplete=True).split("\n")
+
+        assert "latest=171 (2026-04-05)" in current
+        assert "previous point=54, change=up 217%" in current
+        assert "in progress=40 (2026-04-06)," in current
+        assert "min=54" in current
+        assert "window trend=down" in current
+        assert "latest=99 (2026-04-06)" in previous
+        assert "in progress" not in previous
+
+    def test_only_an_incomplete_period(self):
+        results = [{"label": "Signups", "data": [12], "days": ["2026-04-06"]}]
+        summary = build_results_summary("TrendsQuery", results, last_period_incomplete=True)
+        assert summary == "- Signups: in progress=12 (2026-04-06)"
+
+    @pytest.mark.parametrize(
+        "query_kind,query_results,interval,expected",
+        [
+            (
+                "TrendsQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-06T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-06T16:00:00+00:00",
+                },
+                None,
+                True,
+            ),
+            (
+                "TrendsQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-05T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-06T16:00:00+00:00",
+                },
+                None,
+                False,
+            ),
+            (
+                "StickinessQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-06T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-06T16:00:00+00:00",
+                },
+                None,
+                False,
+            ),
+            ("TrendsQuery", {"resolved_date_range": None, "last_refresh": "2026-04-06T16:00:00+00:00"}, None, False),
+            (
+                "TrendsQuery",
+                {"resolved_date_range": {"date_to": "not a date"}, "last_refresh": "2026-04-06"},
+                None,
+                False,
+            ),
+            (
+                "TrendsQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-06T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-06T16:00:00+00:00",
+                    "result": [{"days": ["2026-04-03", "2026-04-06"]}],
+                },
+                "day",
+                True,
+            ),
+            # Saturday run of a weekdays-only daily trend: the runner dropped Saturday's
+            # bucket, so the returned Friday ended before the refresh.
+            (
+                "TrendsQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-11T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-11T16:00:00+00:00",
+                    "result": [{"days": ["2026-04-09", "2026-04-10"]}],
+                },
+                "day",
+                False,
+            ),
+            (
+                "TrendsQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-06T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-06T16:00:00+00:00",
+                    "result": [{"days": ["2026-03-30"]}],
+                },
+                "week",
+                True,
+            ),
+            (
+                "TrendsQuery",
+                {
+                    "resolved_date_range": {"date_to": "2026-04-06T23:59:59.999999-07:00"},
+                    "last_refresh": "2026-04-06T16:00:00+00:00",
+                    "result": [
+                        {"days": ["2026-03-30", "2026-03-31"], "compare_label": "previous"},
+                        {"days": ["2026-04-05", "2026-04-06"], "compare_label": "current"},
+                    ],
+                },
+                "day",
+                True,
+            ),
+        ],
+    )
+    def test_last_period_is_incomplete(self, query_kind, query_results, interval, expected):
+        assert last_period_is_incomplete(query_kind, query_results, interval=interval) is expected
+
+
+class TestBuildResultsSummaryStickiness:
+    def test_lists_activity_frequency_bins_without_temporal_fields(self):
+        results = [
+            {
+                "label": "Pageview",
+                "data": [500, 200, 120, 80, 60, 40, 90],
+                "days": [1, 2, 3, 4, 5, 6, 7],
+                "labels": ["1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"],
+                "count": 1090,
+            }
+        ]
+
+        summary = build_results_summary("StickinessQuery", results, last_period_incomplete=True)
+
+        assert summary == (
+            "- Pageview: by periods active: 1 day=500, 2 days=200, 3 days=120, 4 days=80, "
+            "5 days=60, 6 days=40, 7 days=90, total=1,090"
+        )
+
+
 class TestBuildResultsSummaryTruncation:
+    def test_default_breakdown_keeps_every_series_line(self):
+        days = [f"2026-04-{day:02d}" for day in range(1, 31)]
+        results = [
+            {"label": f"Pageview - Country {i}", "data": [1000 + i * 37 + day * 11 for day in range(30)], "days": days}
+            for i in range(BREAKDOWN_VALUES_LIMIT)
+        ]
+        summary = build_results_summary("TrendsQuery", results, last_period_incomplete=True)
+        assert "truncated" not in summary
+        assert len(summary.split("\n")) == BREAKDOWN_VALUES_LIMIT
+
     def test_long_results_are_truncated(self):
-        results = [{"label": f"Series {i}", "data": list(range(100))} for i in range(50)]
+        results = [{"label": f"Series {i}", "data": list(range(100))} for i in range(100)]
         summary = build_results_summary("TrendsQuery", results)
-        assert len(summary) <= MAX_SUMMARY_LENGTH + len("\n... (truncated)")
+        assert len(summary) <= MAX_SERIES_SUMMARY_LENGTH + len("\n... (truncated)")
         assert "truncated" in summary
 
 

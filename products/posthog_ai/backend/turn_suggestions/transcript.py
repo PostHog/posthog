@@ -299,7 +299,9 @@ class HumanTurnCounter:
         return True
 
 
-def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
+def build_turn_transcript(
+    entries: Iterable[dict[str, Any]], *, assistant_text_limit: int | None = ASSISTANT_TEXT_LIMIT
+) -> TurnTranscript:
     """Fold stream entries into the transcript of the turn after the last user message.
 
     Human messages are counted the way the thread counts them: a ``_posthog/user_message`` frame, or a
@@ -394,8 +396,10 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
     return TurnTranscript(
         human_messages=tuple(human_messages),
         latest_turn_complete=latest_turn_complete,
-        assistant_text=truncate_text(
-            _join_messages(assistant_messages), ASSISTANT_TEXT_LIMIT, collapse_whitespace=False
+        assistant_text=(
+            _join_messages(assistant_messages).strip()
+            if assistant_text_limit is None
+            else truncate_text(_join_messages(assistant_messages), assistant_text_limit, collapse_whitespace=False)
         ),
         tool_calls=tuple(
             TranscriptToolCall(

@@ -16,7 +16,6 @@ from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -50,6 +49,7 @@ from products.error_tracking.backend.tests.api.issue_summary_states import (
     lock_held,
     summary_state,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class FakeQueryResponse:

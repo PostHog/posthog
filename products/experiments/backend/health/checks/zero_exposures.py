@@ -59,7 +59,10 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
     # deletion.
     if flag is None or flag.deleted:
         return _cause_unknown(evidence, unit, ended=ctx.has_ended)
-    if ctx.is_paused:
+    events = ctx.exposure_events
+    # A flag that no code called since launch exposes nobody after a resume either, so the missing calls are the cause.
+    never_called = events is not None and events.required_flag_key is not None and ctx.flag_called_during_run is False
+    if ctx.is_paused and not never_called:
         # Info, because the flag-state check already reports the pause, and a pause needs no fix.
         return _finding(
             subcode=EXPERIMENT_PAUSED,
@@ -72,7 +75,6 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
             evidence=evidence,
             actions=(),
         )
-    events = ctx.exposure_events
     if events is None:
         return _cause_unknown(evidence, unit, ended=ctx.has_ended)
     if events.required_flag_key is None:
@@ -132,6 +134,10 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
                 "example with getFeatureFlag in the browser or with get_flag on the result of evaluate_flags in Python. "
                 f"{no_call_recorded} New calls can take up to {LAST_CALLED_AT_LAG} to show up here."
             )
+            if ctx.is_paused:
+                detail += (
+                    " The experiment is also paused, and resuming it exposes nobody until your code reads the flag."
+                )
         # Info after the end, because no change to the code can expose more users then, so the finding only explains
         # the empty results.
         return _finding(
@@ -198,19 +204,31 @@ def _test_accounts_filtered_out(
 ) -> ExperimentHealthFinding:
     exposed_units = f"the only {unit}" if exposed == 1 else f"all {exposed:,} {unit}s"
     served = f'{exposed_units} that got a variant of the feature flag "{flag_key}"'
-    fix = 'Turn off "Filter out internal and test users" in the exposure criteria'
+    turn_off = '"Filter out internal and test users" in the exposure criteria'
+    # When the filters match every user who got a variant, usually only the team's own users got one, and the filter
+    # then works as intended.
     if ended:
         title = f"No {unit}s exposed: the test account filter removed all of them"
         detail = (
             f"No {unit}s were exposed while the experiment ran, because the exposure criteria filter out test "
-            f"accounts, and the project's test account filters matched {served}. {fix} to count them."
+            f"accounts, and the project's test account filters matched {served}. If these were your own team's "
+            f"{unit}s, the experiment didn't reach other {unit}s. Otherwise turn off {turn_off} to count them."
+        )
+        actions: tuple[ExperimentHealthFindingActionKind, ...] = (
+            ExperimentHealthFindingActionKind.EDIT_EXPOSURE_CRITERIA,
         )
     else:
         title = f"No {unit}s exposed: the test account filter removes all of them"
         detail = (
             f"The exposure criteria filter out test accounts, and the project's test account filters match {served} "
-            f"during the experiment, so nobody is counted as exposed. {fix}, or change the project's test account "
-            f"filters so that they don't match your {unit}s."
+            "during the experiment, so nobody is counted as exposed. If these are your own team's "
+            f"{unit}s, the experiment hasn't reached other {unit}s yet. The code that reads the flag may only run in "
+            "development, or the release conditions may include only your team. Otherwise change the project's test "
+            f"account filters so that they don't match your {unit}s, or turn off {turn_off}."
+        )
+        actions = (
+            ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG,
+            ExperimentHealthFindingActionKind.EDIT_EXPOSURE_CRITERIA,
         )
     return _finding(
         subcode=CALLS_NOT_COUNTED,
@@ -219,7 +237,7 @@ def _test_accounts_filtered_out(
         title=title,
         detail=detail,
         evidence=evidence,
-        actions=(ExperimentHealthFindingActionKind.EDIT_EXPOSURE_CRITERIA,),
+        actions=actions,
     )
 
 
