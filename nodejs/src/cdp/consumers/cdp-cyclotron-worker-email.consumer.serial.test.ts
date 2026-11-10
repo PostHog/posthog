@@ -207,6 +207,7 @@ class CyclotronProxy {
 
 const completes = (request: string): boolean => request.includes("SET status = 'completed'")
 const fails = (request: string): boolean => request.includes("SET status = 'failed'")
+const dequeues = (request: string): boolean => request.includes("SET status = 'running'")
 const defers = (request: string): boolean => request.includes('dequeue_seq = COALESCE')
 const writeOf =
     (write: (request: string) => boolean, id: string) =>
@@ -333,7 +334,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         ])
     })
 
-    function insertEmailFlow(delayAfterEmail?: string, emailAfterDelay = false): Promise<HogFlow> {
+    function emailFlow(delayAfterEmail?: string, emailAfterDelay = false): HogFlow {
         const emailStep = {
             type: 'function_email',
             config: {
@@ -352,31 +353,31 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             },
         }
         const afterDelay = emailAfterDelay ? 'next_email' : 'exit'
-        return insertHogFlow(
-            hub.postgres,
-            new FixtureHogFlowBuilder()
-                .withTeamId(team.id)
-                .withStatus('active')
-                .withWorkflow({
-                    actions: {
-                        trigger: { type: 'trigger', config: { type: 'api' } },
-                        email: emailStep,
-                        ...(delayAfterEmail && {
-                            delay: { type: 'delay', config: { delay_duration: delayAfterEmail } },
-                        }),
-                        ...(emailAfterDelay && { next_email: emailStep }),
-                        exit: { type: 'exit', config: {} },
-                    },
-                    edges: [
-                        { from: 'trigger', to: 'email', type: 'continue' },
-                        { from: 'email', to: delayAfterEmail ? 'delay' : 'exit', type: 'continue' },
-                        ...(delayAfterEmail ? [{ from: 'delay', to: afterDelay, type: 'continue' }] : []),
-                        ...(emailAfterDelay ? [{ from: 'next_email', to: 'exit', type: 'continue' }] : []),
-                    ],
-                } as any)
-                .build()
-        )
+        return new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withWorkflow({
+                actions: {
+                    trigger: { type: 'trigger', config: { type: 'api' } },
+                    email: emailStep,
+                    ...(delayAfterEmail && {
+                        delay: { type: 'delay', config: { delay_duration: delayAfterEmail } },
+                    }),
+                    ...(emailAfterDelay && { next_email: emailStep }),
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email', type: 'continue' },
+                    { from: 'email', to: delayAfterEmail ? 'delay' : 'exit', type: 'continue' },
+                    ...(delayAfterEmail ? [{ from: 'delay', to: afterDelay, type: 'continue' }] : []),
+                    ...(emailAfterDelay ? [{ from: 'next_email', to: 'exit', type: 'continue' }] : []),
+                ],
+            } as any)
+            .build()
     }
+
+    const insertEmailFlow = (...shape: Parameters<typeof emailFlow>): Promise<HogFlow> =>
+        insertHogFlow(hub.postgres, emailFlow(...shape))
 
     async function startWorker(
         limits: InFlightLimits | null,
@@ -808,6 +809,19 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         return { caught: workflowLookupWaits().then(() => ({ release: () => holder.query('COMMIT') })) }
     }
 
+    // The worker subscribed before this listener, so it has handled the reload once this listener hears it.
+    async function reloadWorkflow(id: string): Promise<void> {
+        const heard = new Promise<void>((resolve) =>
+            hub.pubSub.on<{ hogFlowIds: string[] }>('reload-hog-flows', ({ hogFlowIds }) => {
+                if (hogFlowIds.includes(id)) {
+                    resolve()
+                }
+            })
+        )
+        await hub.pubSub.publish('reload-hog-flows', JSON.stringify({ teamId: team.id, hogFlowIds: [id] }))
+        await heard
+    }
+
     function postgresThatStopsWaitingOnLocks(): PostgresRouter {
         const withLockTimeout = (connection: string): string => {
             const url = new URL(connection)
@@ -930,6 +944,52 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             expect(delivered()).toEqual([['invoice.pdf']])
         }
     )
+
+    // Its own test: the send shares a batch with an uncached workflow, so its admission lookup waits in Postgres.
+    it('runs a resumed send with files on the workflow its admission checked, when that workflow changes during the lookup', async () => {
+        hogFlow = await insertEmailFlow('3s')
+        const changed = emailFlow('3s', true)
+        await startWorker(roomFor(1))
+        const [id] = await enqueue(transactionalSend([invoice.metadata]))
+        await waitForExpect(async () => {
+            const row = await jobRow(id)
+            expect({ status: row.status, inbox: delivered() }).toEqual({
+                status: 'available',
+                inbox: [['invoice.pdf']],
+            })
+        })
+
+        const nextDequeue = cyclotron.hold(dequeues)
+        const roomTaker = transactionalSend([invoice.metadata], { functionId: (await insertEmailFlow()).id })
+        await enqueue(roomTaker)
+        const dequeue = await nextDequeue
+        await waitForExpect(async () => {
+            const { rows } = await db.query('SELECT scheduled <= now() AS due FROM cyclotron_jobs WHERE id = $1', [id])
+            expect(rows[0].due).toBe(true)
+        }, 10_000)
+        bucket.answer = 'hold'
+        const holder = await lockWorkflowTable()
+        await holder.query('UPDATE posthog_hogflow SET actions = $1, edges = $2 WHERE id = $3', [
+            JSON.stringify(changed.actions),
+            JSON.stringify(changed.edges),
+            hogFlow.id,
+        ])
+        dequeue.release()
+        await workflowLookupWaits()
+        await reloadWorkflow(hogFlow.id)
+        await holder.query('COMMIT')
+
+        await waitForExpect(async () => {
+            const { status } = await jobRow(id)
+            expect({ status, downloadsWaiting: bucket.heldRequests }).toEqual({
+                status: 'completed',
+                downloadsWaiting: 1,
+            })
+        })
+        bucket.release()
+        expect(await ended(roomTaker.id)).toBe('completed')
+        expect(delivered()).toEqual([['invoice.pdf'], ['invoice.pdf']])
+    })
 
     it.each([
         {
