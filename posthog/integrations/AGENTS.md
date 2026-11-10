@@ -10,5 +10,6 @@ Read `README.md` before you change the SDK or add an operation.
 - Refresh an OAuth token with `IntegrationManager.<kind>.oauth.refresh_access_token(team_id, id, stale_access_token=...)`. Do not lock a row yourself.
 - When an operation is missing, add a small named operation to the SDK. Do not widen `find(where=...)`, which compares named config keys for equality only, and never return a queryset.
 - Keep ORM code in `backend/django_backend.py`. An accessor in `accessors.py` holds the scope rules and calls `current_backend()`. A new storage primitive goes in `backend/protocol.py` and in both `DjangoBackend` and `FakeBackend`, with a case in `test/test_backends.py`.
-- The model moves behind an HTTP API in the credentials service. Every operation must work over that transport: no callbacks into caller code inside a transaction, no querysets, no model instances that callers write.
+- The model moves behind an HTTP API in the credentials service. Every operation must work over that transport: no callbacks into caller code inside the transaction of the backend, no querysets, no model instances that callers write.
+- Do not add a foreign key to `Integration` or a model signal receiver on it. Do the work in a delete or saved hook (`products/<product>/backend/integration_hooks.py`, see "Run work on delete and write" in `README.md`).
 - When you move a file to the SDK, lower its count in `model_access_baseline.txt`, or remove the line at zero.
