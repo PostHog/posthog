@@ -355,7 +355,7 @@ class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
     def _url(self, trace_id: str, node_segment: str) -> str:
         return f"/api/projects/{self.team.id}/ai_observability/traces/{_encode(trace_id)}/nodes/{node_segment}/"
 
-    def test_returns_the_properties_as_ingested_and_names_the_io_keys(self) -> None:
+    def test_returns_the_event_identity_without_its_raw_properties(self) -> None:
         _create_node_trace(self.team)
 
         response = self.client.get(self._url("trace-1", _encode(GENERATION)))
@@ -364,8 +364,8 @@ class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
         body = response.json()
         assert (body["id"], body["kind"], body["error"]) == (GENERATION, "generation", None)
         assert body["metadata"]["provider"] == "openai"
-        assert body["event"]["ioKeys"] == {"input": "$ai_input", "output": "$ai_output_choices", "tools": "$ai_tools"}
-        assert body["event"]["properties"]["$ai_input"] == QUESTION
+        assert set(body["event"]) == {"name", "uuid", "timestamp"}
+        assert body["event"]["uuid"] == GENERATION
 
     @parameterized.expand(
         [
@@ -426,7 +426,7 @@ class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
         body = self.client.get(self._url(trace_id, _encode(trace_id))).json()
 
         assert (body["id"], body["kind"]) == (trace_id, "trace")
-        assert body["event"]["ioKeys"]["input"] == "$ai_input_state"
+        assert set(body["event"]) == {"name", "uuid", "timestamp"}
         assert body["content"] == {
             "input": {"kind": "json", "value": {"question": "Why?"}},
             "output": {"kind": "json", "value": None},
@@ -467,15 +467,6 @@ class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
 
         url = f"/api/projects/{self.team.id}/ai_observability/traces/{trace_segment}/nodes/{node_segment}/"
         assert self.client.get(url).status_code == 400
-
-    def test_masks_properties_the_viewer_may_not_read(self) -> None:
-        _restrict_property(self, "secret_plan")
-        _create_node_trace(self.team, extra_properties={"secret_plan": "enterprise"})
-
-        properties = self.client.get(self._url("trace-1", _encode(GENERATION))).json()["event"]["properties"]
-
-        assert "secret_plan" not in properties
-        assert properties["$ai_provider"] == "openai"
 
 
 class TestTraceNodeRawView(ClickhouseTestMixin, APIBaseTest):

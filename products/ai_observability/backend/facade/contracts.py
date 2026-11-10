@@ -95,10 +95,13 @@ class TraceNodeMetadata(Contract):
     prompt_version: float | None
 
 
-class TraceNodeEvent(Contract):
+class TraceNodeDetailEvent(Contract):
     name: str
     uuid: str
     timestamp: datetime
+
+
+class TraceNodeEvent(TraceNodeDetailEvent):
     properties: dict[str, Any] = Field(
         description="The event's properties as ingested, including its input and output values."
     )
@@ -196,7 +199,7 @@ class TraceNodeDetail(Contract):
     kind: TraceNodeKind
     error: str | None
     metadata: TraceNodeMetadata
-    event: TraceNodeEvent | None
+    event: TraceNodeDetailEvent | None
     content: TraceNodeContent = Field(description="The node's input and output, ready to render.")
 
 

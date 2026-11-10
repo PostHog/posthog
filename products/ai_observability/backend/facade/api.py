@@ -262,6 +262,10 @@ def _to_node_event(event: NodeEvent) -> contracts.TraceNodeEvent:
     )
 
 
+def _to_node_detail_event(event: NodeEvent) -> contracts.TraceNodeDetailEvent:
+    return contracts.TraceNodeDetailEvent(name=event.row.event, uuid=event.row.uuid, timestamp=event.row.timestamp)
+
+
 def _to_node_raw(node_id: str, event: NodeEvent | None) -> contracts.TraceNodeRaw:
     if event is None:
         return contracts.TraceNodeRaw(id=node_id, kind="trace", event=None)
@@ -293,7 +297,7 @@ def _to_node_detail(team_id: int, node_id: str, event: NodeEvent | None) -> cont
             prompt_name=metadata.prompt_name,
             prompt_version=metadata.prompt_version,
         ),
-        event=_to_node_event(event),
+        event=_to_node_detail_event(event),
         content=step_content(
             event.kind,
             node_id,

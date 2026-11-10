@@ -1773,6 +1773,12 @@ export interface TraceNodeMetadataApi {
     promptVersion: number | null
 }
 
+export interface TraceNodeDetailEventApi {
+    name: string
+    uuid: string
+    timestamp: string
+}
+
 export type TraceMessageRoleEnumApi = (typeof TraceMessageRoleEnumApi)[keyof typeof TraceMessageRoleEnumApi]
 
 export const TraceMessageRoleEnumApi = {
@@ -1861,7 +1867,7 @@ export interface TraceNodeDetailApi {
     kind: TraceNodeKindEnumApi
     error: string | null
     metadata: TraceNodeMetadataApi
-    event: TraceNodeEventApi | null
+    event: TraceNodeDetailEventApi | null
     /** The node's input and output, ready to render. */
     content: TraceNodeContentApi
 }

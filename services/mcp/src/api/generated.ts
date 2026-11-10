@@ -117388,12 +117388,18 @@ export namespace Schemas {
       promptVersion: number | null;
     }
 
+    export interface TraceNodeDetailEvent {
+      name: string;
+      uuid: string;
+      timestamp: string;
+    }
+
     export interface TraceNodeDetail {
       id: string;
       kind: TraceNodeKindEnum;
       error: string | null;
       metadata: TraceNodeMetadata;
-      event: TraceNodeEvent | null;
+      event: TraceNodeDetailEvent | null;
       /** The node's input and output, ready to render. */
       content: TraceNodeContent;
     }
