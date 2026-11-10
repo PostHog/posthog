@@ -660,6 +660,7 @@ mod tests {
 
     fn event(team_id: i32, issue_id: Option<Uuid>) -> LinkedPipelineItem {
         Ok(ExceptionEvent {
+            distinct_id: None,
             exception_list: ExceptionList(vec![]),
             proposed_issue_name: None,
             proposed_issue_description: None,

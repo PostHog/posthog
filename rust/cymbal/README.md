@@ -12,21 +12,33 @@ Temporal lifecycle workflow for every issue-created, issue-reopened, or
 issue-spiking notification. Issue-created is capped per team per hour (see
 [Issue-created rate limit](#issue-created-rate-limit-notifications-mode)).
 
-## Adaptive ingestion project cap (processing mode)
+## Adaptive ingestion (processing mode)
 
 Adaptive ingestion is off by default.
-Set `ADAPTIVE_INGESTION_MODE=shadow` to calculate hypothetical project-cap decisions.
+Set `ADAPTIVE_INGESTION_MODE=shadow` to calculate hypothetical decisions.
 A project must also have `adaptive_ingestion_enabled` saved as true and be selected by the team allowlist or rollout percentage.
 Deploy the settings migration before enabling shadow mode.
 
-For each UTC day, the cap is three times the greater of 500 exceptions and the median of the previous 14 daily counts.
-Days without exceptions count as zero.
-Once a project passes the cap, a stable hash of the team and event ID selects 10% of subsequent exceptions as hypothetical keeps.
-The other exceptions receive a `sample_project` decision.
 The adaptive stage never drops an exception.
 Existing manual limits run first; spike alerts and billing keep their current behavior.
 The counters and metrics include only exceptions admitted by manual limits.
-Replayed exceptions count again, and late events can change the previous-day counts.
+
+Two rules run in order, and the first rule that decides is recorded:
+
+1. **Loop collapse.**
+   A client is the event's distinct ID, or its session ID when it has no distinct ID.
+   Past 20 exceptions of one issue from one client in a 10-minute window, or 100 in a UTC day, further exceptions receive a `collapse` decision.
+   Each issue tracks at most 50,000 clients a day; a client past that limit is marked `client_cap_reached` and is never collapsed by the daily limit.
+   An exception with neither ID is marked `no_client` and skips this rule.
+2. **Project cap.**
+   For each UTC day, the cap is three times the greater of 500 exceptions and the median of the previous 14 daily counts.
+   Days without exceptions count as zero.
+   Exceptions that the loop rule collapsed do not count toward the cap or the daily counts.
+   Once a project passes the cap, a stable hash of the team and event ID selects 10% of subsequent exceptions as hypothetical keeps.
+   The other exceptions receive a `sample_project` decision.
+
+Windows and days follow the processing clock, not the event timestamp.
+Replayed exceptions count again.
 Treat shadow decisions as estimates until the replay behavior is addressed before enforcement.
 
 | Variable | Default | Effect |
@@ -34,16 +46,33 @@ Treat shadow decisions as estimates until the replay behavior is addressed befor
 | `ADAPTIVE_INGESTION_MODE` | `off` | Set to `shadow` to record decisions without enforcing them. |
 | `ADAPTIVE_INGESTION_TEAMS` | empty | Comma-separated team IDs included in shadow mode. |
 | `ADAPTIVE_INGESTION_TEAM_PERCENT` | `0` | Percentage of other teams selected by a stable hash, from 0 to 100. |
+| `ADAPTIVE_INGESTION_LOOP_SHORT_LIMIT` | `20` | Exceptions of one issue kept per client in a 10-minute window. |
+| `ADAPTIVE_INGESTION_LOOP_DAY_LIMIT` | `100` | Exceptions of one issue kept per client in a UTC day. |
+| `ADAPTIVE_INGESTION_LOOP_CLIENT_CAP` | `50000` | Clients tracked per issue in each window. |
 | `ADAPTIVE_INGESTION_PROJECT_MULTIPLIER` | `3.0` | Multiplier applied to the 14-day median. |
 | `ADAPTIVE_INGESTION_PROJECT_FLOOR` | `500` | Minimum typical-day count before the multiplier. |
 | `ADAPTIVE_INGESTION_PROJECT_KEEP_PERCENT` | `10` | Percentage hypothetically kept after the cap. |
 
-Decisions, the baseline, the allowance, and the daily count are attached to processed exceptions as `$adaptive_ingestion_*` properties.
+Decisions and the numbers behind them are attached to processed exceptions as `$adaptive_ingestion_*` properties.
+`$adaptive_ingestion_timestamp` is the processing time, in Unix seconds, that selected the windows.
 Cymbal removes incoming properties with that prefix so only processing supplies these results.
-`cymbal_adaptive_ingestion_decisions_total` counts hypothetical keeps and samples.
-A Redis failure or invalid event timestamp records `$adaptive_ingestion_error` and makes the adaptive rule fail open.
-Manual limits have already applied.
-The per-project counters expire after 15 days; starting shadow mode without 14 days of history uses an allowance of 1,500.
+`cymbal_adaptive_ingestion_decisions_total` counts hypothetical keeps, collapses, and samples.
+A Redis failure records `$adaptive_ingestion_error` and makes both rules fail open.
+Starting shadow mode without 14 days of history uses a project allowance of 1,500.
+
+### Counters
+
+One script call per team per batch writes every counter and returns the counts the rules decide from.
+All keys carry the `{team_id}` hash tag.
+
+| Key | Type | Fields | Expiry |
+| --- | --- | --- | --- |
+| `et:c1:{team_id}:days` | hash | `n<day>`: exceptions counted that day; `x<day>`: exceptions the loop rule collapsed | 16 days after the last new day; fields older than 14 days are deleted |
+| `et:c1:{team_id}:l:<day>:<issue_id>` | hash | one field per client: its count for the issue that day | one hour after the UTC day ends |
+| `et:c1:{team_id}:s:<window>:<issue_id>` | hash | one field per client: its count for the issue in the 10-minute window | 11 minutes |
+
+`<day>` and `<window>` are the Unix time divided by 86,400 and by 600.
+A client field is the first 64 bits of the SHA-256 of the client ID, in hexadecimal.
 
 ## Issue-created rate limit (notifications mode)
 

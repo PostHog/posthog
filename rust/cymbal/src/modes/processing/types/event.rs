@@ -109,7 +109,7 @@ impl TryFrom<ClickHouseEvent> for AnyEvent {
             timestamp: value.timestamp,
             properties,
             // We don't preserve all properties from ClickhouseEvent
-            others: HashMap::new(),
+            others: HashMap::from([("distinct_id".to_string(), Value::String(value.distinct_id))]),
         })
     }
 }
@@ -165,6 +165,20 @@ mod test {
             captured_at: None,
             historical_migration: None,
         }
+    }
+
+    #[test]
+    fn client_id_is_the_distinct_id_then_the_session_id() {
+        let mut parsed = ExceptionEvent::<Parsed>::try_from(make_exception_event("boom")).unwrap();
+        assert_eq!(parsed.client_id(), Some("test"));
+
+        parsed.distinct_id = Some(String::new());
+        assert_eq!(parsed.client_id(), None);
+
+        parsed
+            .props
+            .insert("$session_id".into(), Value::String("session".into()));
+        assert_eq!(parsed.client_id(), Some("session"));
     }
 
     #[test]
