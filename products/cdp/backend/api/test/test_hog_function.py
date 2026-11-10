@@ -28,7 +28,12 @@ from products.cdp.backend.api.hog_function import (
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-from products.cdp.backend.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
+from products.cdp.backend.models.hog_functions.hog_function import (
+    DEFAULT_STATE,
+    MAX_EXECUTION_ORDER,
+    HogFunction,
+    HogFunctionState,
+)
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.helpers import mock_transpile
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -1219,7 +1224,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "value": "I AM SECRET",
                     "order": 0,
                 },
-                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopDxFtIztV_BWe5ApI2TtI57CYnHc8Meh0Qo-Ii9TRkDbxtU0E48PqNx6eqhGROrzCtN2rORP2bj-BM983QSq6ufd6CpPUqUUvSHhvhP0klo",
+                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1Txdova1LGOzaeT-wm3rcdlM5mFI--I0NEHhfTCSP2c0mY9mHSdrOKj0biqX7SIAB_Zn7We1Xyp-msWTqSs1OYnnXHHg6kcpmjm2slU2WVlR5AJ_",
                 {"secret": True},
                 [],
             ),
@@ -2858,7 +2863,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             else configuration
         )
         with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invocation:
-            mock_invocation.return_value = MagicMock(status_code=500, json=lambda: {"errors": ["Worker failed"]})
+            mock_invocation.return_value = MagicMock(
+                status_code=500,
+                json=lambda: {"errors": ["Worker failed"], "request_origins": ["https://example.com"]},
+            )
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/{function_id}/invocations/",
                 data={"configuration": tested_configuration, "mock_async_functions": mock_async_functions},
@@ -2882,6 +2890,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "input_references": {"payload": ["workspace"]},
             "mapping_input_references": {"mapping_text": ["mapping_workspace"]},
             "hog": EXAMPLE_FULL["hog"],
+            "request_origins": ["https://example.com"],
         }
         assert "0e02d917-563f-4050-9725-aad881b69937" not in json.dumps(detail)
 
@@ -3773,6 +3782,51 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert names_in_order[0] == "Transform B", "B should be first (order 1, most recently updated)"
         assert names_in_order[1] == "Transform A", "A should be second (order 1, updated earlier)"
         assert names_in_order[2] == "Transform C", "C should be last (order 3)"
+
+    @parameterized.expand([("create",), ("reenable",), ("undelete",)])
+    def test_transformation_placed_at_end_when_sibling_holds_max_execution_order(self, action: str):
+        HogFunction.objects.create(
+            team=self.team, name="Last", type="transformation", hog="return event", execution_order=MAX_EXECUTION_ORDER
+        )
+
+        if action == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={"name": "New", "type": "transformation", "hog": "return event"},
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+        else:
+            sibling = HogFunction.objects.create(
+                team=self.team,
+                name="Sibling",
+                type="transformation",
+                hog="return event",
+                inputs_schema=[],
+                execution_order=1,
+                enabled=False,
+                deleted=action == "undelete",
+            )
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{sibling.id}/",
+                data={"enabled": True} if action == "reenable" else {"deleted": False},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert response.json()["execution_order"] == MAX_EXECUTION_ORDER
+
+    def test_rearrange_rejects_execution_order_above_column_max(self):
+        function = HogFunction.objects.create(
+            team=self.team, name="Transform", type="transformation", hog="return event", execution_order=1
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/rearrange/",
+            data={"orders": {str(function.id): MAX_EXECUTION_ORDER + 1}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        function.refresh_from_db()
+        assert function.execution_order == 1
 
     def test_create_in_folder(self):
         response = self.client.post(

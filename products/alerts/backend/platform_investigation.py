@@ -199,6 +199,9 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
             outcomes=(replace(outcome, groups=(group,), held_delivery=metrics_held),),
             deliveries=() if metrics_held else evaluation.deliveries,
         )
+    if group.kind != AlertEventKind.FIRING:
+        # A firing check that announces nothing gives the agent no message to gate or follow up on.
+        return evaluation
     decision = decide_investigation(
         alert,
         firing=True,
@@ -219,7 +222,7 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
             outcomes=(replace(outcome, groups=(group,), held_delivery=held),),
             deliveries=() if held else evaluation.deliveries,
         )
-    if group.kind == AlertEventKind.FIRING and carried_verdict_suppresses(alert, decision):
+    if carried_verdict_suppresses(alert, decision):
         # As the insight stack: the firing still moves the alert's state and `last_notified_at`.
         group = replace(
             group,

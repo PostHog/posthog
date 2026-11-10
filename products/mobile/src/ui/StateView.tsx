@@ -11,10 +11,22 @@ interface StateViewProps {
     icon?: ReactNode
     actionLabel?: string
     onAction?: () => void
+    /** A quieter action under the first one, such as a fallback. */
+    secondaryActionLabel?: string
+    onSecondaryAction?: () => void
     testID?: string
 }
 
-export function StateView({ title, message, icon, actionLabel, onAction, testID }: StateViewProps): ReactElement {
+export function StateView({
+    title,
+    message,
+    icon,
+    actionLabel,
+    onAction,
+    secondaryActionLabel,
+    onSecondaryAction,
+    testID,
+}: StateViewProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     return (
@@ -23,8 +35,23 @@ export function StateView({ title, message, icon, actionLabel, onAction, testID 
             <Text style={styles.title}>{title}</Text>
             {message ? <Text style={styles.message}>{message}</Text> : null}
             {actionLabel && onAction ? (
-                <Pressable44 onPress={onAction} style={styles.action} pressedBackground={colors.inkHover}>
+                <Pressable44
+                    onPress={onAction}
+                    style={styles.action}
+                    pressedBackground={colors.inkHover}
+                    testID={testID ? `${testID}-action` : undefined}
+                >
                     <Text style={styles.actionText}>{actionLabel}</Text>
+                </Pressable44>
+            ) : null}
+            {secondaryActionLabel && onSecondaryAction ? (
+                <Pressable44
+                    onPress={onSecondaryAction}
+                    style={styles.secondaryAction}
+                    pressedBackground={colors.sunken}
+                    testID={testID ? `${testID}-secondary-action` : undefined}
+                >
+                    <Text style={styles.secondaryActionText}>{secondaryActionLabel}</Text>
                 </Pressable44>
             ) : null}
         </View>
@@ -73,5 +100,18 @@ const useStyles = createStyles(({ colors }) => ({
     actionText: {
         ...type.buttonSmall,
         color: colors.onInk,
+    },
+    secondaryAction: {
+        height: 44,
+        paddingHorizontal: 20,
+        borderRadius: radii.pill,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    secondaryActionText: {
+        ...type.buttonSmall,
+        color: colors.ink,
     },
 }))

@@ -1610,6 +1610,7 @@ CREATE TABLE posthog.metrics4_samples (
   has_labels SimpleAggregateFunction(max, UInt8),
   instrumentation_scope SimpleAggregateFunction(any, String),
   histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
+  histogram_bounds_hash UInt64,
   _topic SimpleAggregateFunction(any, LowCardinality(String)),
   timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(Delta(8), Default),
   observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
@@ -1629,7 +1630,7 @@ CREATE TABLE posthog.metrics4_samples (
   PROJECTION service_freshness_by_hour (SELECT team_id, time_bucket, service_name, max(arrayMax(timestamp_arr))
 GROUP BY
   team_id, time_bucket, service_name)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 128, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') PRIMARY KEY (team_id, metric_name, time_bucket, series_fingerprint) ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, histogram_bounds_hash) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 128, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_series (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -2092,7 +2093,7 @@ CREATE TABLE posthog.sharded_events (
 CREATE TABLE posthog.sharded_events_json (
   uuid UUID,
   event String,
-  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32) TTL toDateTime(inserted_at) + toIntervalDay(60),
   properties_null_keys Array(LowCardinality(String)),
   temporary_properties_null_keys Array(LowCardinality(String)) TTL toDateTime(inserted_at) + toIntervalDay(60),
@@ -3290,7 +3291,7 @@ CREATE TABLE posthog.trace_spans_kafka_metrics (
   max_timestamp SimpleAggregateFunction(max, DateTime64(9)),
   max_created_at SimpleAggregateFunction(max, DateTime64(9)),
   max_lag SimpleAggregateFunction(max, UInt64)
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.usage_report_events_preagg (
   date Date,
   team_id Int64,
@@ -3810,7 +3811,7 @@ CREATE TABLE posthog.writable_events_dead_letter_queue (
 CREATE TABLE posthog.writable_events_json (
   uuid UUID,
   event String,
-  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32),
   properties_null_keys Array(LowCardinality(String)),
   temporary_properties_null_keys Array(LowCardinality(String)),
@@ -4016,6 +4017,7 @@ CREATE TABLE posthog.writable_metrics4_samples (
   has_labels SimpleAggregateFunction(max, UInt8),
   instrumentation_scope SimpleAggregateFunction(any, String),
   histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
+  histogram_bounds_hash UInt64,
   _topic SimpleAggregateFunction(any, LowCardinality(String)),
   timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))),
   observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))),
@@ -5404,11 +5406,12 @@ FROM
     GROUP BY
       team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_samples TO posthog.writable_metrics4_samples (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime, series_fingerprint UInt64, original_expiry_date Date32, resource_fingerprint UInt64, service_name String, metric_type String, unit String, aggregation_temporality String, is_monotonic UInt8, has_labels UInt8, instrumentation_scope String, histogram_bounds Array(Float64), _topic String, timestamp_arr Array(DateTime64(6)), value_arr Array(Float64), count_arr Array(UInt64), histogram_counts_arr Array(Array(UInt64)), trace_id_arr Array(String), span_id_arr Array(String), trace_flags_arr Array(Int32)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_samples TO posthog.writable_metrics4_samples (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime, series_fingerprint UInt64, histogram_bounds_hash UInt64, original_expiry_date Date32, resource_fingerprint UInt64, service_name String, metric_type String, unit String, aggregation_temporality String, is_monotonic UInt8, has_labels UInt8, instrumentation_scope String, histogram_bounds Array(Float64), _topic String, timestamp_arr Array(DateTime64(6)), value_arr Array(Float64), count_arr Array(UInt64), histogram_counts_arr Array(Array(UInt64)), trace_id_arr Array(String), span_id_arr Array(String), trace_flags_arr Array(Int32)) AS SELECT
   team_id,
   metric_name,
   toDateTime(toStartOfHour(timestamp)) AS time_bucket,
   series_fingerprint,
+  if(empty(input.histogram_bounds), 0, cityHash64(input.histogram_bounds)) AS histogram_bounds_hash,
   toDate32(original_expiry_timestamp) AS original_expiry_date,
   any(resource_fingerprint) AS resource_fingerprint,
   any(service_name) AS service_name,
@@ -5427,9 +5430,9 @@ CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_samples TO posthog.w
   groupArray(10000)(trace_id) AS trace_id_arr,
   groupArray(10000)(span_id) AS span_id_arr,
   groupArray(10000)(trace_flags) AS trace_flags_arr
-FROM posthog.metrics4_input
+FROM posthog.metrics4_input AS input
 GROUP BY
-  team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date;
+  team_id, metric_name, time_bucket, series_fingerprint, histogram_bounds_hash, original_expiry_date;
 CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_series TO posthog.writable_metrics4_series (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, metric_type LowCardinality(String), unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, service_name LowCardinality(String), instrumentation_scope String, resource_attributes Map(LowCardinality(String), String), attributes Map(LowCardinality(String), String), timestamp DateTime64(6), original_expiry_timestamp DateTime64(6)) AS SELECT
   team_id,
   metric_name,
@@ -6817,7 +6820,7 @@ CREATE TABLE posthog.events (
 CREATE TABLE posthog.events_json (
   uuid UUID,
   event String,
-  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32),
   properties_null_keys Array(LowCardinality(String)),
   temporary_properties_null_keys Array(LowCardinality(String)),

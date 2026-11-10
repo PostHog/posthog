@@ -306,6 +306,7 @@ export const FEATURE_FLAGS = {
     DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2: 'dwh-custom-source-oauth2', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_RENAME_SAVED_VIEW: 'data-warehouse-rename-saved-view', // owner: #team-data-modeling
     DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: #team-data-modeling
+    DEFINITION_USAGE_SECTION: 'definition-usage-section', // owner: @thmsobrmlr #team-product-analytics, gates the query usage section on property and event definition pages
     DISCUSSIONS_SLACK_SYNC: 'discussions-slack-sync', // owner: #team-platform-features
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
@@ -332,6 +333,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_WIZARD_REPLAY_VISION_CARD: 'experiment-wizard-replay-vision-card', // owner: #team-experiments multivariate=control,test, shows the create wizard's Replay Vision option as a card with a toggle instead of a checkbox; gate on === 'test'
     EXPERIMENTS_EXCLUDED_VARIANTS: 'experiments-excluded-variants', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST: 'experiments-freeze-exposure-aa-test', // owner: @mp-hog #team-experiments multivariate=control,test, dogfood A/A used to validate the freeze-exposure lifecycle action
+    EXPERIMENTS_QUANTILE_METRICS: 'experiments-quantile-metrics', // owner: @andehen #team-experiments, offers the percentile metric type when creating or editing a metric
     EXPERIMENTS_RECALCULATION_RATE_LIMIT: 'experiment-metric-recalculation-rate-limit', // owner: @rodrigoi #team-experiments, five-minute window between manual metric reloads
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SYNC_QUERIES: 'experiments-sync-queries', // owner: @andehen #team-experiments
@@ -359,6 +361,7 @@ export const FEATURE_FLAGS = {
     INBOX_INTERVIEW_INVITE: 'inbox-interview-invite', // owner: #team-self-driving, gates the interview invite after report feedback
     INBOX_MCP_USED: 'inbox-mcp-used', // owner: #team-self-driving, hides the MCP banner after confirmed Inbox tool use
     INBOX_MODEL_SORT: 'inbox-model-sort', // owner: #team-self-driving, gates the ranking model sort options and the score tag on inbox cards
+    INBOX_PERSONALIZED_SORT: 'inbox-personalized-sort', // owner: #team-self-driving, gates the Personalized sort on the inbox report list
     INBOX_REPORT_FEEDBACK_BANG: 'inbox-report-feedback-bang', // owner: #team-self-driving, gates the party hog that pops on a report thumbs-up in the inbox and on the Today home page
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_SOURCE_FILTER: 'inbox-source-filter', // owner: #team-self-driving, gates the Source filter on the inbox report list
@@ -374,7 +377,6 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_COMMUNITY_SKILLS: 'llm-analytics-community-skills', // owner: #team-ai-observability
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-ai-observability #team-posthog-ai
     LLM_ANALYTICS_EVAL_SETTLING_STRATEGY: 'llm-analytics-eval-settling-strategy', // owner: #team-ai-observability
-    LLM_ANALYTICS_JUDGE_IMAGES: 'llm-analytics-judge-images', // owner: #team-ai-observability
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
     LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
@@ -423,6 +425,7 @@ export const FEATURE_FLAGS = {
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-posthog-ai
     MAX_WEB_ANALYTICS_NUDGE: 'posthog-ai-web-analytics-nudge', // owner: @jordanm-posthog #team-web-analytics
+    MCP_ANALYTICS_DASHBOARD_BATCH: 'mcp-analytics-dashboard-batch', // owner: #team-mcp-analytics, one request per MCP analytics dashboard load vs one per section, compared on `time to see data`
     MCP_ANALYTICS_INTENT_ROUTING: 'mcp-analytics-intent-routing', // owner: #project-mcp-analytics
     MCP_ANALYTICS_LEADERBOARD_HOME: 'mcp-analytics-leaderboard-home', // owner: #team-mcp-analytics, trial of the public leaderboard layout on the MCP analytics home tab
     MCP_ANALYTICS_SETUP_MODE: 'mcp-analytics-setup-mode', // owner: #team-mcp-analytics, the fullscreen setup walkthrough after a user picks an install route
@@ -438,7 +441,6 @@ export const FEATURE_FLAGS = {
     METRICS_QUERY_LANGUAGES: 'metrics-query-languages', // owner: #team-apm — lets a metrics insight switch between the builder, PromQL and SQL
     METRICS_SUGGESTED_DASHBOARDS: 'metrics-suggested-dashboards', // owner: #team-apm — suggests bank dashboards that fit the ingested metrics, and runs the AI analysis and generation for the team
     ML_INFERENCE_DECISIONS: 'ml-inference-decisions', // owner: #team-ai-research, gates the decisions playground; the API checks the same flag server side
-    NEW_COMMAND_K_SEARCH: 'new-command-k-search', // owner: @adamleithp #team-platform-ux, gates the Command K search with smart filters
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
     NOTEBOOK_SANDBOX_FREE_COMPUTE: 'notebook-sandbox-free-compute', // owner: #team-data-tools, shows the notebook sandbox rate crossed out at $0.00 / h
@@ -457,6 +459,7 @@ export const FEATURE_FLAGS = {
     PI_ACP: 'pi-acp', // owner: #team-agent-infrastructure, Pi runs write ACP and show on the web run surface
     PIPELINE_STATUS_PAGE: 'pipeline-status-page', // owner: @clr182 #team-support
     PLATFORM_ALERTS: 'platform-alerts', // owner: #team-apm, gates the shared alerts platform read API and UI
+    PLATFORM_ALERTS_ROUTING: 'platform-alerts-routing', // owner: #team-apm, turns on team-wide receivers and routes for platform alerts
     PLATFORM_ALERTS_SOURCE_WAREHOUSE: 'platform-alerts-source-warehouse', // owner: #team-warehouse-sources, opens warehouse sync alerts in the platform API without platform-alerts
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai
     POSTHOG_AI_CHANGELOG: 'posthog-ai-changelog', // owner: #team-posthog-ai
@@ -517,14 +520,13 @@ export const FEATURE_FLAGS = {
     SEARCH_DEBOUNCE_ALL: 'search-debounce-all', // owner: @adamleithp #team-platform-ux
     SEARCH_RE_RANK: 'search-re-rank', // owner: @adamleithp #team-platform-ux
     SEEKBAR_PREVIEW_SCRUBBING: 'seekbar-preview-scrubbing', // owner: @pauldambra #team-replay
-    SELECTOR_MATCH_CHANGE_NOTICE: 'selector-match-change-notice', // owner: @thmsobrmlr #team-product-analytics, gates the selector match change notice on insights
     SHOPIFY_DWH: 'shopify-dwh', // owner: #team-warehouse-sources
     SHOW_DATA_PIPELINES_NAV_ITEM: 'show-data-pipelines-nav-item', // owner: @raquelmsmith
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SIGNUP_AA_TEST_4_WAY: 'signup-aa-test-4-way', // owner: @andehen #team-experiments multivariate=control,test-1,test-2,test-3
-    SLACK_APP_WORKSPACE_SETUP: 'slack-app-workspace-setup', // owner: #team-surfaces, sends new Slack app installs to the web setup
     SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
+    SMALL_SOFTWARE_APPS: 'small-software-apps', // owner: @DanielVisca, shows the canvas app tile in the dashboard add-widget picker; the backend gates tile creation on the same key
     SQL_EDITOR_BI_MODE: 'sql-editor-bi-mode', // owner: @mariusandra #team-data-tools
     SQL_EDITOR_SAVE_AS_CHOOSER: 'sql-editor-save-as-chooser', // owner: #team-data-tools
     SQL_EDITOR_VIM_MODE: 'sql-editor-vim-mode', // owner: @arthurdedeus
@@ -568,6 +570,7 @@ export const FEATURE_FLAGS = {
     TRACING_TRACE_OPERATIONS_TAB: 'tracing-trace-operations-tab', // owner: #team-apm — gates the Operations tab in the trace view's span inspector
     TRACING_UI_V2: 'tracing-ui-v2',
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics
+    UI_CUSTOMIZATION: 'ui-customization', // owner: #team-surfaces, enables personal UI layouts
     UNIFIED_APM_PRODUCT: 'unified-apm-product', // owner: #team-apm (@jonmcwest, @frankh), gates the shared APM product backing logs, tracing, and metrics
     UPTIME_MONITORING: 'uptime-monitoring', // owner: #team-apm, gates the unreleased uptime monitoring product
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
@@ -577,6 +580,9 @@ export const FEATURE_FLAGS = {
     VISION_EXPERIMENT_SCANNER: 'experiment-scanner', // owner: #team-replay, experiment scanners overall: the type in the scanner editor, creating one from experiments, and the variants tab
     VISION_SCANNER_WIZARD_RECORDINGS_FIRST: 'vision-scanner-wizard-recordings-first', // owner: #team-replay multivariate=control,test, new scanner wizard and goal overview ask which recordings to watch before the prompt; gate on === 'test'
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
+    WAREHOUSE_COLUMN_SENSITIVITY: 'warehouse-column-sensitivity', // owner: #team-warehouse-sources, flags and suggests masking personal or secret columns
+    WAREHOUSE_HISTORY_ACCESS_RULES: 'warehouse-history-access-rules', // owner: #team-warehouse-sources, offers to give a table's history table the same access rules
+    WAREHOUSE_MIGRATION_IMPORT: 'warehouse-migration-import', // owner: #team-warehouse-sources — gates importing a Fivetran setup
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
     WAREHOUSE_SUGGESTIONS: 'warehouse-suggestions', // owner: #team-data-modeling
@@ -691,6 +697,10 @@ export const SSO_PROVIDER_NAMES: Record<SSOProvider, string> = {
 }
 
 export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
+/** The PostHog Chrome extension, which shows the toolbar in a side panel next to the website. */
+export const TOOLBAR_CHROME_EXTENSION_ID = 'khajokjedaapggnioajbdaoaaedaaoeg'
+export const TOOLBAR_CHROME_EXTENSION_URL = `https://chromewebstore.google.com/detail/posthog/${TOOLBAR_CHROME_EXTENSION_ID}`
+
 export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w.-]+)+[\w\-._~:/?#[\]@!$&'()*+,;=]+$/gi
 
 export const CLOUD_HOSTNAMES = {
@@ -759,6 +769,9 @@ export const TAILWIND_BREAKPOINTS = {
 export const INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID = 'insight-alert-firing'
 export const INSIGHT_ALERT_DESTINATION_LOGIC_KEY = 'insightAlertDestination'
 export const INSIGHT_ALERT_FIRING_EVENT_ID = '$insight_alert_firing'
+// Only the alerts platform sends these, so an insight alert's PagerDuty destination pages only while the platform owns the alert.
+export const INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID = '$insight_alert_incident_opened'
+export const INSIGHT_ALERT_INCIDENT_CLOSED_EVENT_ID = '$insight_alert_incident_closed'
 
 export const LOGS_ALERT_FIRING_SUB_TEMPLATE_ID = 'logs-alert-firing'
 export const LOGS_ALERT_FIRING_EVENT_ID = '$logs_alert_firing'

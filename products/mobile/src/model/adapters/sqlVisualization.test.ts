@@ -243,10 +243,10 @@ describe('sqlVisualization', () => {
     test.each<[string, Record<string, unknown>, SqlCell[][], string]>([
         ['a bar chart over dates', { display: 'ActionsBar' }, [['2026-10-01', 1, 2]], 'chart'],
         [
-            'a line chart over text',
+            'a line chart over a numeric axis',
             { display: 'ActionsLineGraph', chartSettings: { xAxis: { column: 'signups' } } },
             [],
-            'web',
+            'chart',
         ],
         ['a transposed table', { display: 'ActionsTable', tableSettings: { transpose: true } }, [], 'web'],
         ['a scatter plot', { display: 'ScatterPlot' }, [], 'web'],
@@ -265,7 +265,7 @@ describe('sqlVisualization', () => {
     })
 
     test.each<[string, string, string]>([
-        ['a bar chart over text as ranked bars', 'ActionsBar', 'bars'],
+        ['a bar chart over text as a category chart', 'ActionsBar', 'chart'],
         ['a pie of two y columns on the web', 'ActionsPie', 'web'],
     ])('shows %s', (_name, display, expected) => {
         const types: [string, string][] = [

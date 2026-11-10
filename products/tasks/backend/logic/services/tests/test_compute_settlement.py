@@ -12,6 +12,7 @@ from django.utils import timezone
 
 import httpx
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import hash_key_value
@@ -364,6 +365,53 @@ class TestComputeSettlement(BaseTest):
         untouched = self._reload(hogland_open)
         assert untouched.ended_at is None
         assert untouched.compute_settled_at is None
+
+    def test_settle_since_leaves_earlier_rows_alone(self) -> None:
+        before = self._session(user_attributed_at=self.now - timedelta(hours=4), ended_at=self.now - timedelta(hours=3))
+        after = self._session(ended_at=self.now - timedelta(minutes=30))
+
+        with (
+            override_settings(GATEWAY_COMPUTE_SETTLE_SINCE=(self.now - timedelta(hours=1)).isoformat()),
+            patch(HTTPX_POST, return_value=_ok()) as post,
+            patch("posthog.metrics.push_registry") as push,
+        ):
+            assert settle_overdue_sandbox_compute(self.now) == [SettlementOutcome.SETTLED]
+
+        assert post.call_count == 1
+        body = post.call_args.kwargs["json"]
+        assert body["amount_usd"] == "2.311200"
+        assert body["detail"]["attributed_seconds"] == 5400.0
+        assert self._reload(before).compute_settled_at is None
+        assert self._reload(after).compute_settled_at is not None
+        registry = push.call_args.args[1]
+        assert registry.get_sample_value("posthog_tasks_sandbox_sessions_unsettled_over_hour") == 0
+
+    @parameterized.expand(
+        [
+            ("malformed_settle_since", "GATEWAY_COMPUTE_SETTLE_SINCE", "not-a-date"),
+            ("future_settle_since", "GATEWAY_COMPUTE_SETTLE_SINCE", None),
+            ("unresolved_wallet", "SANDBOX_AI_GATEWAY_MINT_KEY", "phs_unknown_mint_key"),
+        ]
+    )
+    def test_deployment_error_stops_sweep_and_still_pushes_gauges(
+        self, _name: str, setting: str, value: str | None
+    ) -> None:
+        self._session(ended_at=self.now - timedelta(minutes=90))
+        labels = {"outcome": "deployment_error"}
+        errors_before = REGISTRY.get_sample_value("posthog_tasks_compute_settlements_total", labels) or 0
+
+        with (
+            override_settings(**{setting: value or (self.now + timedelta(days=1)).isoformat()}),
+            patch(HTTPX_POST) as post,
+            patch("posthog.metrics.push_registry") as push,
+        ):
+            assert settle_overdue_sandbox_compute(self.now) == []
+
+        post.assert_not_called()
+        assert REGISTRY.get_sample_value("posthog_tasks_compute_settlements_total", labels) == errors_before + 1
+        registry = push.call_args.args[1]
+        assert registry.get_sample_value("posthog_tasks_sandbox_sessions_unsettled_over_hour") is not None
+        assert registry.get_sample_value("posthog_tasks_sandbox_sessions_parked", {"reason": "http_409"}) is not None
 
     @parameterized.expand([("flag_on", True, 1), ("flag_off", False, 0)])
     def test_sweep_pushes_gauges_after_settling(self, _name: str, enabled: bool, expected_unsettled: int) -> None:

@@ -57,6 +57,56 @@ Update the answers there when the extension starts to send new data.
 
 The content script never sends usage events or logs, because it mounts the toolbar without `instrument`.
 
+## Releases
+
+The extension's version lives in `release/package.json`, which isn't an npm package. `release/CHANGELOG.md` lists what each version changed.
+The "Release toolbar extension" workflow (`.github/workflows/release-toolbar-extension.yml`) bumps them from [Sampo](https://github.com/bruits/sampo) changesets and submits the build to the Chrome Web Store.
+
+When a pull request changes what the extension does, add a changeset to it from `frontend/src/toolbar/extension/release/`:
+
+```sh
+sampo add --package npm/@posthog/toolbar-extension --bump patch --message "Describe the change for the changelog"
+```
+
+Use `minor` or `major` instead of `patch` when it fits, and commit the new file in `release/.sampo/changesets/`. Install the CLI with `cargo install sampo --locked`.
+
+After the pull request merges, the workflow:
+
+1. Posts in the client libraries approvals channel on Slack, and waits for a reviewer of the `Release toolbar extension` environment to approve the run. The Slack thread follows the release pull request.
+2. Opens a release pull request that bumps `release/package.json`, adds the changesets to the changelog and deletes them.
+3. Approves that pull request with the release app and sends it to the merge queue.
+
+When the release pull request merges, the workflow runs again:
+
+4. It builds the extension from the merge commit and checks that the manifest has the new version.
+5. It uploads the zip to the Chrome Web Store and submits it for review. Chrome publishes it when the review passes.
+6. It creates the `toolbar-extension/vX.Y.Z` GitHub release with the zip.
+
+Changesets that land while a release is open go into the next release.
+Never edit the version or the changelog by hand.
+To retry a failed publish, run the workflow from `master` with the merge commit of the release pull request.
+If the failed run already uploaded the zip, also check `skip_upload`, because the store doesn't take the same version twice.
+Publishes run one at a time. A release that waits behind another is skipped when a newer one replaces it, because the newer version carries its changes.
+
+### Setup
+
+The workflow needs two GitHub environments:
+
+- `Release toolbar extension`, with required reviewers. It approves each release, and the workflow refuses to release while it has none.
+- `chrome-web-store`, limited to the `master` branch, with these variables:
+
+| Variable                                      | Value                                                                                |
+| --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `CHROME_WEB_STORE_PUBLISHER_ID`               | The ID in **Publisher > Settings** of the Chrome Web Store developer dashboard       |
+| `CHROME_WEB_STORE_ITEM_ID`                    | The extension's ID, in its store URL                                                 |
+| `CHROME_WEB_STORE_SERVICE_ACCOUNT`            | The email of a Google Cloud service account                                          |
+| `CHROME_WEB_STORE_WORKLOAD_IDENTITY_PROVIDER` | The workload identity provider that lets this repository act as that service account |
+
+The service account needs no Google Cloud roles. Add its email in the **Account** section of the developer dashboard, which lets it manage the publisher's items.
+The Chrome Web Store API must be on in its Google Cloud project.
+The workload identity provider trusts GitHub's OIDC tokens, and should accept only `PostHog/posthog` in the `chrome-web-store` environment.
+Grant that principal `roles/iam.workloadIdentityUser` on the service account.
+
 ## Store listing images
 
 `store-listing/images/` holds the images of the Chrome Web Store listing: five 1280×800 screenshots, the 440×280 small promo tile and the 1400×560 marquee promo tile.
@@ -160,6 +210,8 @@ Use a site in the project's authorized URLs.
 14. Click **Experiments** and open an experiment. Open a variant: the page shows it. Edit its HTML: the page changes as you type. Close the variant, then go back: the page shows its original state.
 15. Create an experiment, pick an element for a transformation with **Select element**, edit it, and save it. Open a page whose snippet sets `disable_web_experiments`: **Experiments** shows a warning.
 16. Switch the browser to dark mode. The panel follows it.
+17. Open a new tab, or a site that isn't an authorized URL. The panel lists the project's authorized URLs. Click one: it opens in a new tab, and the panel stays open on it.
+18. Open the PostHog app. The panel asks you to open your website, not to add the PostHog app to the authorized URLs.
 
 ## Future: Firefox
 

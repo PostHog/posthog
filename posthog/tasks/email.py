@@ -24,6 +24,7 @@ from posthog.dataclasses import frozen
 from posthog.email import (
     EMAIL_TASK_KWARGS,
     EmailMessage,
+    EmailRecipientUndeliverableError,
     get_email_team_and_org_context,
     is_email_available,
     is_http_email_service_available,
@@ -734,7 +735,8 @@ def send_code_based_verification(user_id: int, code: str) -> None:
         },
     )
     message.add_user_recipient(user)
-    message.send(send_async=False)
+    if message.send(send_async=False):
+        raise EmailRecipientUndeliverableError("the login code email was refused as undeliverable")
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="login verification code sent",
@@ -1545,7 +1547,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         run_at = (job.last_run_at if job else None) or sq.last_run_at
         # `is_materialized` stays True after a pause, so read the cadence and the table instead.
         # Pausing clears the cadence and keeps the table; reverting clears both.
-        if qid in declared_targets or sq.sync_frequency_interval is not None:
+        if qid in declared_targets:
             schedule = "scheduled"
         elif sq.table_id is not None:
             schedule = "paused"

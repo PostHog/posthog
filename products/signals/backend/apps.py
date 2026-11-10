@@ -22,8 +22,10 @@ class SignalsConfig(AppConfig):
             activity_logging,  # noqa: F401
             implementation_pr_cache,
             receivers,  # noqa: F401
+            task_profiles,
         )
 
+        task_profiles.register()
         receivers.connect_task_run_assignment_sync()
         implementation_pr_cache.connect_implementation_pr_cache_receivers()
         self._register_task_spend_updates()

@@ -44,12 +44,12 @@ def _series_fingerprint(
 
     Same inputs as `compute_series_fingerprint` in capture-logs, so two seeded
     series collide exactly when the real ingest would merge them. Ingest
-    fingerprints before it stamps the synthetic `$originalTimestamp` attribute
+    fingerprints before it stamps the synthetic `posthog.original_timestamp` attribute
     on a skewed point, so that key is left out here too. It does NOT have to
     equal the Rust hash: the seeder owns both the series and its samples, so it
     only has to be stable per label-set.
     """
-    identity_attributes = sorted((k, v) for k, v in attributes.items() if k != "$originalTimestamp")
+    identity_attributes = sorted((k, v) for k, v in attributes.items() if k != "posthog.original_timestamp")
     return _fingerprint(
         metric_name, metric_type, service_name, sorted(resource_attributes.items()), identity_attributes
     )
@@ -88,6 +88,7 @@ def seed_metric(
     trace_id: str = "",
     span_id: str = "",
     count: int = 1,
+    has_labels: bool = True,
 ) -> None:
     """Insert one `metrics4_input` row per `(timestamp, value)` point; the
     ingest MVs write the metrics4 samples, series, names and attribute rollups
@@ -104,6 +105,9 @@ def seed_metric(
 
     Histogram inputs (`histogram_bounds`, `histogram_counts`) are passed
     through verbatim; only relevant when `metric_type='histogram'`.
+
+    `has_labels=False` seeds samples the way capture sends them after the first
+    labelled sample of a window: they write no `metric_series` row.
     """
     attributes = dict(labels or {})
     resource_attributes = dict(resource_labels or {})
@@ -135,7 +139,7 @@ def seed_metric(
                 "trace_id": trace_id,
                 "span_id": span_id,
                 "trace_flags": 0,
-                "has_labels": True,
+                "has_labels": has_labels,
                 "unit": unit,
                 "aggregation_temporality": aggregation_temporality,
                 "is_monotonic": is_monotonic,
