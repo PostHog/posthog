@@ -19,6 +19,7 @@ from products.posthog_ai.backend.message_routing import (
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
+from products.posthog_ai.backend.task_profiles import POSTHOG_AI
 from products.tasks.backend.facade import (
     api as tasks_facade,
     warm as warm_facade,
@@ -79,9 +80,9 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert result.just_created_run is True
         assert result.trace_id == "trace-1"
 
-        # Task.create_and_run called with the PostHog AI origin and no repo / no PR.
+        # Task.create_and_run called with the PostHog AI profile and no repo / no PR.
         _, kwargs = m_car.call_args
-        assert kwargs["origin_product"] == Task.OriginProduct.POSTHOG_AI
+        assert kwargs["profile"] == POSTHOG_AI
         assert kwargs["repository"] is None
         assert kwargs["create_pr"] is False
         assert kwargs["mode"] == "interactive"

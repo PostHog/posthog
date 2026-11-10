@@ -4,7 +4,10 @@ Code outside the logic layer reads and writes a source's ``job_inputs`` only thr
 through the model field. Each method delegates to the store in ``logic/source_inputs.py``.
 """
 
-from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.contracts import (
+    SourceCredentialsMissingError,
+    UnreadableSourceInputsError,
+)
 from products.warehouse_sources.backend.logic import (
     source_credentials as _credentials,
     source_credentials_rollout as _rollout,
@@ -33,4 +36,4 @@ class SourceInputsStore:
     credentials_usages = staticmethod(_credentials.WarehouseSourceCredentialsStore.other_usages)
 
 
-__all__ = ["SourceInputsStore", "UnreadableSourceInputsError"]
+__all__ = ["SourceCredentialsMissingError", "SourceInputsStore", "UnreadableSourceInputsError"]

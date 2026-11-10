@@ -7,7 +7,7 @@ Search includes both categories, and table actions use the name shown in the tre
 
 The PostHog catalog includes `posthog.ai_events` for AI observability, `posthog.session_replay_events` for recordings, and `posthog.trace_spans` for tracing.
 `posthog.metrics` contains metric data points; join `posthog.metric_series` for their labels.
-`posthog.flag_evaluations` appears when enabled for the organization.
+`posthog.flag_evaluations` appears for every organization on PostHog Cloud. On a self-hosted instance it appears only when the organization's flag_evaluations mode reads that table.
 These tables come from the backend catalog without a separate sidebar allowlist.
 Namespace-only tables retain their `posthog.` prefix when requesting fields.
 
@@ -36,6 +36,15 @@ Failed field requests can be retried by collapsing and expanding the table.
 Tables and nested joins expand on the first click, including after scrolling.
 The virtualized tree keeps each rendered row under a parent keyed by the item ID.
 Changing the visible range preserves the focused row so mouse-down and mouse-up reach the same element.
+Right-clicking a row opens the same actions as its `...` menu.
+Row tooltips show the table or column description from the HogQL schema when one is set.
+A collapsed table or view's tooltip also says that a click shows its columns.
+The System folder tooltip describes project metadata, query logs, and schema information.
+The empty editor placeholder says "Write a SQL query."
+The plus button next to Run opens a new SQL editor in a new browser tab, with an empty query instead of the current tab's unsaved working copy.
+When the database panel is collapsed, this button follows the connection selector.
+System tables mark `team_id` hidden, so it is absent from the tree, `SELECT *`, and `system.information_schema.columns`.
+The team guard still filters on it.
 
 There is no timed background request for all fields.
 Consumers that need fields across the catalog must request them explicitly with `ensureAllTableFields`.
@@ -44,6 +53,8 @@ Warehouse series, warehouse property menus, and the data quality check editor ex
 After that request, catalog reloads also restore complete fields for consumers of the shared store.
 Schema mutations refresh previously hydrated or pending tables, as well as expanded nodes.
 Saved-query lists expose metadata only; refreshing them preserves the query and columns already fetched for an open editor tab.
+When the window regains focus, the saved-query and folder lists reload, so views saved in another browser tab appear.
+The catalog refreshes on focus only when a view was added, removed, or renamed, because a catalog reload empties the tree while it runs.
 
 In PostHog Warehouse, sidebar search accepts `status:failed`, `status:running`, and `status:completed` to filter materialized views by their latest run status.
 The Models tab accepts the same status tokens and combines them with its name and lineage search syntax.
@@ -61,6 +72,11 @@ Invalid cadence values return 400.
 `edited_history_id` protects query updates from concurrent edits and is ignored on create.
 `soft_update` skips column inference and external table discovery on create and update, and skips the revision conflict check on update.
 Query validation and revision updates still run.
+
+An update that removes columns used by a direct downstream view returns `breaking_column_change` before it writes the query.
+The response names the removed columns and up to three affected views that the caller can access.
+Send the same update with `acknowledge_breaking_changes=true` to confirm the change.
+The SQL editor shows this response in a confirmation dialog and retries only after confirmation.
 
 `deleted` is read-only.
 Use DELETE to remove a saved query so DAG cleanup, join cleanup, materialization cleanup, and name release run together.

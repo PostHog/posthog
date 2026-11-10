@@ -21,6 +21,7 @@ from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
+from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     ExternalDataSchema,
@@ -382,11 +383,6 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
         source = base.SourceRegistry.get_source(source_type_model)
-        if helpers.source_feature_flag_missing(source, self.team):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers._source_unavailable_message(source_type)},
-            )
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:
             return Response(
@@ -476,7 +472,13 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
                 "available_columns": [
-                    {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                    {
+                        "field": col_name,
+                        "label": col_name,
+                        "type": col_type,
+                        "nullable": nullable,
+                        "sensitivity": classify_column_sensitivity(col_name, col_type),
+                    }
                     for col_name, col_type, nullable in schema.columns
                 ],
                 "detected_primary_keys": schema.detected_primary_keys,
@@ -577,6 +579,18 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         serializer.is_valid(raise_exception=True)
 
         schema_updates: list[dict[str, Any]] = serializer.validated_data["schemas"]
+        # Built once: the context builds the team's HogQL database.
+        serializer_context = self.get_serializer_context()
+        updated_schemas = self._apply_schema_updates(source, schema_updates, serializer_context)
+        return Response(
+            ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
+            status=status.HTTP_200_OK,
+        )
+
+    def _apply_schema_updates(
+        self, source: ExternalDataSource, schema_updates: list[dict[str, Any]], serializer_context: dict[str, Any]
+    ) -> list[ExternalDataSchema]:
+        """Save each schema update in its own transaction, then run its Temporal schedule changes."""
         schema_ids = [schema_update["id"] for schema_update in schema_updates]
 
         if len(set(schema_ids)) != len(schema_ids):
@@ -603,7 +617,6 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         )
         only_validation_errors = True
 
-        serializer_context = self.get_serializer_context()
         updated_schemas: list[ExternalDataSchema] = []
         # Each deferred action is paired with its schema so a post-commit failure can be attributed.
         post_commit_actions: list[tuple[ExternalDataSchema, Callable[[], None]]] = []
@@ -699,7 +712,4 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         if post_commit_error is not None:
             raise post_commit_error
 
-        return Response(
-            ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
-            status=status.HTTP_200_OK,
-        )
+        return updated_schemas

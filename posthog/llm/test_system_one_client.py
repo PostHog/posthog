@@ -50,9 +50,13 @@ ANSWERS = {
 }
 
 
-def _build(typesafe_fallback: TypeSafeFallback | None = FALLBACK) -> SystemOneClient:
+def _build(typesafe_fallback: TypeSafeFallback | None = FALLBACK, privacy_mode: bool = False) -> SystemOneClient:
     return build_system_one_client(
-        model=GATEWAY_MODEL, ai_product="test_product", typesafe_fallback=typesafe_fallback, distinct_id="team-7"
+        model=GATEWAY_MODEL,
+        ai_product="test_product",
+        typesafe_fallback=typesafe_fallback,
+        distinct_id="team-7",
+        privacy_mode=privacy_mode,
     )
 
 
@@ -112,9 +116,10 @@ class TestBuildSystemOneClient(SimpleTestCase):
             assert system_one_configured(FALLBACK)
             assert isinstance(_build(), GatewaySystemOneClient)
 
-    def test_gateway_request_reaches_the_system_one_route_with_its_labels(self) -> None:
+    @parameterized.expand([("labelled", False), ("private", True)])
+    def test_gateway_request_reaches_the_system_one_route_with_its_labels(self, _name: str, private: bool) -> None:
         with override_settings(**{**NOTHING, **GATEWAY}):
-            client = _build()
+            client = _build(privacy_mode=private)
         with patch.object(httpx.Client, "send", return_value=httpx.Response(200, json=ANSWERS)) as send:
             result = client.decide(state={"ticket": "Payouts fail"}, questions=QUESTIONS)
 
@@ -123,6 +128,7 @@ class TestBuildSystemOneClient(SimpleTestCase):
         assert request.headers["Authorization"] == "Bearer phs_test"
         assert request.headers["X-PostHog-Product"] == "test_product"
         assert request.headers["X-PostHog-Distinct-Id"] == "team-7"
+        assert request.headers.get("X-PostHog-Privacy-Mode") == ("true" if private else None)
         assert json.loads(request.content)["model"] == GATEWAY_MODEL
         assert result.model == GATEWAY_MODEL
         assert result.answers == {

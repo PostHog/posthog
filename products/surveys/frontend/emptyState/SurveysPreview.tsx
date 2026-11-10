@@ -2,7 +2,7 @@ import './SurveysPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 const NPS_SCORES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
@@ -15,7 +15,7 @@ const NPS_SCORES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
  * Answered/unanswered pairs are stacked in `__swap` grids, so nothing shifts.
  */
 export function SurveysPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('SurveysPreview', isStatic && 'SurveysPreview--static')}>

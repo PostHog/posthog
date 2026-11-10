@@ -22,6 +22,10 @@ export const manifest: ProductManifest = {
             listHref: () => urls.productTours(),
             iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
             filterKey: 'product_tour',
+            // Gate the type on the same flag as the ProductTours scene, which renders a 404 without it.
+            // Without this, Library object-type rows and tree type filters offer "Product tours" to
+            // everyone and link into that 404.
+            flag: FEATURE_FLAGS.PRODUCT_TOURS,
         },
     },
     treeItemsNew: [

@@ -20,6 +20,7 @@ from posthog.models.user import User
 from ee.billing.billing_manager import (
     BillingManagedByPartnerError,
     BillingManager,
+    BillingServiceRateLimited,
     BillingServiceResponseError,
     build_billing_token,
 )
@@ -73,6 +74,9 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
         BillingManager(license, user).authorize_with_shared_payment_token(team.organization, spt_token)
     except BillingManagedByPartnerError:
         logger.info("stripe_provisioning.spt_billing_refused_partner_managed", **log_context)
+        return False
+    except BillingServiceRateLimited:
+        logger.warning("stripe_provisioning.spt_billing_rate_limited", **log_context)
         return False
     except BillingServiceResponseError as error:
         capture_exception(

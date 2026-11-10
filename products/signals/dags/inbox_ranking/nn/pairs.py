@@ -60,7 +60,7 @@ from products.signals.dags.inbox_ranking.dataset.project_vectors import (
 )
 from products.signals.dags.inbox_ranking.nn.dag import NN_ASSET_KWARGS, NN_EXAMPLES_TABLE
 from products.signals.dags.inbox_ranking.training.dag import _LOOKBACK_MAPPING
-from products.signals.dags.inbox_ranking.training.families import PAIR_HEAD_NAMES
+from products.signals.dags.inbox_ranking.training.families import PAIR_VIEWER_HEAD_NAMES
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
 
 NN_PAIR_EXAMPLES_TABLE = "inbox_ranking_nn_pair_examples"
@@ -69,7 +69,7 @@ PAIR_EXAMPLES_SCHEMA_VERSION = 1
 # The report head whose rows, holdout and later label partition the pairs share.
 _REPORT_HEAD = HEADS_BY_NAME["open"]
 PAIR_HORIZON_DAYS = _REPORT_HEAD.horizon_days
-PAIR_HEADS = PAIR_HEAD_NAMES
+PAIR_HEADS = PAIR_VIEWER_HEAD_NAMES
 DAYS_SINCE_VIEW_CAP = DAYS_SINCE_LAST_VIEW_CAP
 REVIEWERS_SOURCE = "reviewers"
 IMPRESSIONS_SOURCE = "impressions"

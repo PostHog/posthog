@@ -1,0 +1,53 @@
+{# One registered Panel as a quill Card. `rendered` is a RenderedPanel from posthog/admin/console/views.py. #}
+<section class="quill-card group/card flex flex-col scroll-mt-4{% if rendered.panel.danger %} console-danger{% endif %}"
+         id="panel-{{ rendered.panel.key }}"
+         data-quill
+         data-slot="card"
+         data-size="default">
+    <div class="quill-card__header group/card-header" data-slot="card-header">
+        <h2 class="quill-card__title m-0 flex items-center gap-2"
+            data-slot="card-title">
+            {{ rendered.panel.title }}
+            {% if rendered.panel.danger %}
+                <span class="text-[13px] font-normal">
+                    {% include "admin_console/_badge.html" with label="Risky" tone="destructive" %}
+                </span>
+            {% endif %}
+        </h2>
+        <div class="quill-card__action flex items-center gap-1.5 text-[11px] text-muted-foreground"
+             data-slot="card-action"
+             title="Owned by {{ rendered.panel.owner.name }}">
+            {{ rendered.panel.owner.name }}
+            <img class="size-[18px]"
+                 src="/static/admin-console/crests/{{ rendered.panel.owner.crest }}.svg"
+                 alt="" />
+        </div>
+    </div>
+    <div class="quill-card__content flex flex-col gap-4"
+         data-slot="card-content">
+        {% if rendered.facts %}
+            <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 m-0">
+                {% for fact in rendered.facts %}
+                    <dt class="text-muted-foreground">{{ fact.label }}</dt>
+                    <dd class="m-0 min-w-0 break-words">
+                        {% if fact.href %}
+                            <a class="text-foreground underline decoration-border underline-offset-2 hover:decoration-current{% if fact.mono %} font-mono text-xs{% endif %}"
+                               href="{{ fact.href }}">{{ fact.value }}</a>
+                        {% elif fact.tone %}
+                            {% include "admin_console/_badge.html" with label=fact.value tone=fact.tone mono=fact.mono %}
+                        {% elif fact.mono %}
+                            <span class="font-mono text-xs">{{ fact.value }}</span>
+                        {% else %}
+                            {{ fact.value }}
+                        {% endif %}
+                    </dd>
+                {% endfor %}
+            </dl>
+        {% endif %}
+        {% if rendered.operations %}
+            <div class="pt-3 border-t border-border">
+                {% include "admin_console/_operations.html" with operations=rendered.operations %}
+            </div>
+        {% endif %}
+    </div>
+</section>

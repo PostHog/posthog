@@ -77,6 +77,12 @@ Only the selected onboarding run or open run details request hydration; discover
 Failed hydration waits 30 seconds before an automatic retry, and the onboarding retry button bypasses that delay.
 Run details load only tasks into shared state and use the dialog's existing artifact request.
 
+### Runs table
+
+Refreshing the same run keeps its row actions menu open.
+The menu closes if sorting, filtering, or pagination replaces that row with a different run.
+Menu actions use the latest run data, permissions, and in-flight state.
+
 ### Onboarding state
 
 The boolean flag `wizard-onboarding-cloud-runs-enabled` adds cloud and local tabs to both the standard and simple installation steps.

@@ -356,20 +356,21 @@ export function convertToHogFunctionFilterGlobal(
 
 const HOG_FILTERING_TIMEOUT_MS = 100
 
-function preFilterResult(filters: HogFunctionType['filters'], filterGlobals: HogFunctionFilterGlobals): boolean {
-    const eventMatches = filters?.events?.some((eventFilter) => {
-        // We need to test if the id is null (all events) or if it is in the list of event matchers
-        return eventFilter.id === null || eventFilter.id === filterGlobals.event
-    })
-
-    // If none of the event filters match we return false
-    if (!eventMatches) {
+/** An action is a saved event filter, so only an events-only list can reject on the name; a null id admits all. */
+export function rejectsEventName(filters: HogFunctionType['filters'], eventName: string): boolean {
+    if (!filters?.events?.length || filters.actions?.length) {
         return false
     }
-    // If we get here, there is at least one event filter and it checks this event type
-    // hence we say its a match and return true
-    return true
+    return !filters.events.some((eventFilter) => eventFilter.id === null || eventFilter.id === eventName)
 }
+
+export const filteredMetric = (source: { team_id: number; id: string }): MinimalAppMetric => ({
+    team_id: source.team_id,
+    app_source_id: source.id,
+    metric_kind: 'other',
+    metric_name: 'filtered',
+    count: 1,
+})
 
 /**
  * Shared utility to check if an event matches the filters of a HogFunction.
@@ -413,7 +414,6 @@ export async function filterFunctionInstrumented(options: {
         metrics,
     }
 
-    let preFilterMatch = null
     // Narrows what the catch block can blame. Each step sets it before the call that can throw.
     let reason: FilterErrorReason = 'unknown'
 
@@ -428,23 +428,12 @@ export async function filterFunctionInstrumented(options: {
             return result
         }
 
-        // check whether we have a match with our pre-filter
-        // Only run if we have event filters and NO action filters (as actions are pre-saved event filters)
-        if (filters?.events?.length && !filters?.actions?.length) {
-            reason = 'prefilter'
-            preFilterMatch = preFilterResult(filters, filterGlobals)
-            if (preFilterMatch === false) {
-                hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__pre_filtered_out' })
-                result.match = false
-                metrics.push({
-                    team_id: fn.team_id,
-                    app_source_id: fn.id,
-                    metric_kind: 'other',
-                    metric_name: 'filtered',
-                    count: 1,
-                })
-                return result
-            }
+        reason = 'prefilter'
+        if (rejectsEventName(filters, filterGlobals.event)) {
+            hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__pre_filtered_out' })
+            result.match = false
+            metrics.push(filteredMetric(fn))
+            return result
         }
 
         if (!filters?.bytecode) {
@@ -484,13 +473,7 @@ export async function filterFunctionInstrumented(options: {
         result.match = typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
 
         if (!result.match) {
-            metrics.push({
-                team_id: fn.team_id,
-                app_source_id: fn.id,
-                metric_kind: 'other',
-                metric_name: 'filtered',
-                count: 1,
-            })
+            metrics.push(filteredMetric(fn))
         }
     } catch (error) {
         const errorClass = classifyFilterError(error, reason, filters)

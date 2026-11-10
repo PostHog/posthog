@@ -17,7 +17,7 @@ export function AIConsentStep(): JSX.Element {
     const { dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
     const { setPendingApprovalRedirect } = useActions(aiConsentLogic)
     const { acceptDataProcessing } = useAsyncActions(aiConsentLogic)
-    const { completeStep, skipStep } = useActions(slackAppWorkspaceSetupLogic)
+    const { completeStep, skipStep, stepFailed } = useActions(slackAppWorkspaceSetupLogic)
     const { location } = useValues(router)
     const [approving, setApproving] = useState(false)
 
@@ -34,6 +34,9 @@ export function AIConsentStep(): JSX.Element {
         try {
             await acceptDataProcessing()
             completeStep('ai_consent')
+        } catch (error) {
+            stepFailed('ai_consent', error instanceof Error ? error.message : String(error))
+            throw error
         } finally {
             setApproving(false)
         }

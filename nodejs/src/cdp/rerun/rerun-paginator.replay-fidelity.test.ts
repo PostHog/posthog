@@ -111,7 +111,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
                 parent_run_id: 'run-1',
                 attempts: 0,
                 last_scheduled_at: '2026-06-01 09:00:00.000000',
-                first_scheduled_at: '2026-06-01 09:00:00.000000',
+                run_first_scheduled_at: '2026-06-01 09:00:00.000000',
                 // decodeInvocationGlobals treats a leading '{' as raw JSON.
                 invocation_globals: JSON.stringify(persistedState),
             },
@@ -182,7 +182,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
                 parent_run_id: '',
                 attempts: 0,
                 last_scheduled_at: '2026-06-01 09:00:00.000000',
-                first_scheduled_at: '2026-06-01 09:00:00.000000',
+                run_first_scheduled_at: '2026-06-01 09:00:00.000000',
                 invocation_globals: JSON.stringify(persistedState),
             },
         ]
@@ -221,7 +221,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
                 parent_run_id: '',
                 attempts: 0,
                 last_scheduled_at: '2026-06-01 09:00:00.000000',
-                first_scheduled_at: '2026-06-01 09:00:00.000000',
+                run_first_scheduled_at: '2026-06-01 09:00:00.000000',
                 invocation_globals: JSON.stringify(persistedState),
             },
         ]

@@ -346,33 +346,33 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
             }
             scheduleNextChart()
         }
+        const reportGalleryViewed = (): void => {
+            scheduleNextChart()
+            if (!values.galleryOpen || values.insightDataLoading) {
+                return
+            }
+            const eligiblePreviews = values.previews.filter((preview) => !preview.option.disabledReason)
+            const loadedPreviews = eligiblePreviews.filter((preview) => preview.response !== null)
+            const samplePreviews = loadedPreviews.filter((preview) => preview.sample)
+            posthog.capture('insight chart alternatives viewed', {
+                current_display: values.currentDisplay,
+                eligible_chart_count: eligiblePreviews.length,
+                eligible_displays: eligiblePreviews.map((preview) => preview.option.display),
+                preview_count: loadedPreviews.length,
+                preview_displays: loadedPreviews.map((preview) => preview.option.display),
+                sample_preview_count: samplePreviews.length,
+                sample_preview_displays: samplePreviews.map((preview) => preview.option.display),
+                suggested_displays: eligiblePreviews
+                    .filter((preview) => preview.suggested)
+                    .map((preview) => preview.option.display),
+                all_previews_loaded: eligiblePreviews.length > 0 && loadedPreviews.length === eligiblePreviews.length,
+            })
+        }
         return {
             showNextChart: scheduleNextChart,
-            openGallery: scheduleNextChart,
+            openGallery: reportGalleryViewed,
             closeGallery: scheduleNextChart,
-            toggleGallery: () => {
-                scheduleNextChart()
-                if (!values.galleryOpen || values.insightDataLoading) {
-                    return
-                }
-                const eligiblePreviews = values.previews.filter((preview) => !preview.option.disabledReason)
-                const loadedPreviews = eligiblePreviews.filter((preview) => preview.response !== null)
-                const samplePreviews = loadedPreviews.filter((preview) => preview.sample)
-                posthog.capture('insight chart alternatives viewed', {
-                    current_display: values.currentDisplay,
-                    eligible_chart_count: eligiblePreviews.length,
-                    eligible_displays: eligiblePreviews.map((preview) => preview.option.display),
-                    preview_count: loadedPreviews.length,
-                    preview_displays: loadedPreviews.map((preview) => preview.option.display),
-                    sample_preview_count: samplePreviews.length,
-                    sample_preview_displays: samplePreviews.map((preview) => preview.option.display),
-                    suggested_displays: eligiblePreviews
-                        .filter((preview) => preview.suggested)
-                        .map((preview) => preview.option.display),
-                    all_previews_loaded:
-                        eligiblePreviews.length > 0 && loadedPreviews.length === eligiblePreviews.length,
-                })
-            },
+            toggleGallery: reportGalleryViewed,
             loadDataSuccess: rememberLoadedTimeSeries,
             setInsightData: rememberLoadedTimeSeries,
         }

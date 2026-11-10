@@ -54,7 +54,7 @@ TICKET_LOOKBACK_MINUTES = 5
 MAX_TICKETS_PER_TEAM_PER_RUN = 10
 MAX_TICKETS_PER_RUN = 50
 
-MASTER_FLAG = "product-support-ai-suggestion"
+MASTER_FLAG = "product-support-ai-suggestion-orgs"
 
 # Minimum number of READY BK sources required before the coordinator will draft replies.
 # Set to 0 locally to skip the BK readiness check entirely.
@@ -110,19 +110,16 @@ class CollectEligibleTicketsOutput:
 
 
 def _is_master_flag_enabled(team: Team) -> bool:
-    # The flag is targeted by project group; release conditions can match on the project's `uuid`,
-    # so it must be in group_properties — the headless worker only sends what's listed here (unlike
-    # posthog-js, which auto-attaches full group properties). Without it a uuid filter never matches.
+    # The flag is targeted by organization group, the same as `product-business-knowledge`. The headless
+    # worker only sends the group properties listed here (unlike posthog-js, which auto-attaches full
+    # group properties), so a release condition on any other organization property never matches.
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 MASTER_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id), "uuid": str(team.uuid)},
-                },
+                str(team.organization_id),
+                groups={"organization": str(team.organization_id)},
+                group_properties={"organization": {"id": str(team.organization_id)}},
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
@@ -153,10 +150,15 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     candidates: list[tuple[int, str, datetime, bool, int]] = []
     untriaged_ticket_ids: set[str] = set()
     skipped_ticket_ids_by_result: dict[str, list[str]] = {SKIPPED_TEAM_REPLIED: [], SKIPPED_CHANNEL_EXCLUDED: []}
+    # The flag is org-keyed, so evaluate it once per org per scan instead of once per ticket.
+    master_flag_by_org: dict[str, bool] = {}
     for ticket in recent_tickets:
         team = ticket.team
 
-        if not _is_master_flag_enabled(team):
+        org_key = str(team.organization_id)
+        if org_key not in master_flag_by_org:
+            master_flag_by_org[org_key] = _is_master_flag_enabled(team)
+        if not master_flag_by_org[org_key]:
             continue
 
         settings_dict = team.conversations_settings or {}

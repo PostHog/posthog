@@ -1,7 +1,7 @@
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
-import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import { CyclotronInvocationQueueParametersEmailType, EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 
 export const MAX_COPY_RECIPIENTS = 10
 
@@ -45,8 +45,10 @@ export const AcceptedSendSchema = z
 
 export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
 
+export type QueuedSend = AcceptedSend & { attachments?: readonly EmailAttachmentMetadata[] }
+
 export const acceptedSendEmailFields = (
-    send: AcceptedSend | undefined
+    send: QueuedSend | undefined
 ): Partial<CyclotronInvocationQueueParametersEmailType> => ({
     ...(send?.content && {
         subject: send.content.subject,
@@ -58,6 +60,7 @@ export const acceptedSendEmailFields = (
     ...(send?.replyTo && { replyTo: send.replyTo.join(', ') }),
     ...(send?.cc && { cc: send.cc.join(', ') }),
     ...(send?.bcc && { bcc: send.bcc.join(', ') }),
+    ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
 })
 
 // What Django sends to run a transactional email's workflow once.

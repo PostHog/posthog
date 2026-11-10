@@ -8,7 +8,8 @@ description: >
   dismiss, or snooze a report, or wants to see which signal sources are configured. Also use before you
   investigate an error, bug, metric change, or support ticket in code, to find research the Inbox already did.
   Covers listing, filtering, drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
-  or semantic search are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`.
+  or semantic search are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`,
+  which starts from the stored personal ranking (`view=for_you`, `sort=personal`).
 ---
 
 # Exploring the Inbox
@@ -25,25 +26,31 @@ Don't assume the user's project has reports, or that any signal sources are conf
 of projects don't have Inbox set up. Always run the setup-check workflow below before answering
 the user's actual question.
 
-## When to use this skill
+## Choose a workflow
 
-- "What's in my inbox?" / "What should I look at first?"
-- "Show me actionable reports" / "What's PostHog flagged recently?"
-- "Are there any reports about <topic / product area>?"
-- "What signal sources are configured for this project?"
-- The user pastes a report ID or URL and wants context
-- "Fix this inbox item" / "turn this report into a PR" / "implement this report" — see
-  _Workflow: act on an actionable report_
-- "Dismiss this" / "snooze this report" / "mark this resolved" / "I've fixed this" — see
-  _Workflow: resolve, dismiss, or snooze a report_
-- "Get this merged" / "run the suggested prompt on this report" — see
-  _Workflow: run an action on a report_
-- You are about to investigate an error, bug, metric change, or support ticket in code — see
-  _Workflow: check for existing work before you investigate_
+Read only the reference for the task. Read it before you use its write tools.
 
-When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports"), use the
-**`prioritizing-my-inbox`** skill. It ranks reports by the user's activity summary, the ranking model, and
-what waits on them.
+| User request                                                                | Read before you proceed                                                                                  |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Check what needs attention                                                  | Use the setup check and triage workflow below.                                                           |
+| Investigate an error, bug, metric change, or support ticket                 | Use the research search below. Skip the setup check for this search.                                     |
+| Read a report by ID or URL                                                  | Use the report detail workflow below.                                                                    |
+| Fix a report or open a pull request                                         | [Implementation and claims](references/implementation.md). Read before you claim or change code.         |
+| Run Get it merged, Make it green, a suggested prompt, or Ask; file a report | [Report actions and filing](references/report-actions.md). Read before you start a run or file a report. |
+| Resolve, dismiss, snooze, or restore a report                               | [Report state](references/report-state.md). Read before any state change.                                |
+| Rank reports or use prediction filters                                      | [Ranking](references/ranking.md). Read before you use model predictions.                                 |
+| Review or change configured sources                                         | [Sources](references/sources.md). Read before you change source settings.                                |
+
+**"My inbox" means `view=for_you`.**
+Without a `view`, `inbox-reports-list` returns reports from the whole project, not only the user's.
+When the user says "my inbox", "my reports", or "what needs me", pass `view: "for_you"`.
+Use project scope only when the user asks for the whole project or the team's inbox.
+
+When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports", "what should I
+look at today?"), use the **`prioritizing-my-inbox`** skill. Its first call is
+`{"view": "for_you", "sort": "personal", "limit": 10}`, which returns the user's stored personal ranking in one
+read. Check that the response's `ranker` is `personal` before you call the list personal, and do not pass
+`ordering` with it, because `ordering` replaces `sort`.
 
 For deeper investigation, hand off to other skills and tools:
 
@@ -68,6 +75,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | Tool                                  | Purpose                                                                                                       |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)                                                 |
+| `inbox-reports-search`                | Reports ranked by how well they match a query, by keywords and by meaning. Behind a rollout flag              |
 | `inbox-reports-retrieve`              | Full detail for a single report                                                                               |
 | `inbox-reports-claim`                 | Claim or release a report, and optionally attach its implementation PR                                        |
 | `inbox-reports-create`                | File a finding of your own as a report. It never starts an implementation run on its own                      |
@@ -83,13 +91,13 @@ _underlying detail_ — pair them when the user wants to dig in.
 | `inbox-source-configs-partial-update` | Toggle a source's `enabled` flag (or adjust its `config`)                                                     |
 | `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first)                                           |
 
-The `inbox-reports-*-list` / `-retrieve`, `inbox-report-artefacts-list` / `-retrieve`, and
+The `inbox-reports-*-list` / `-retrieve`, `inbox-reports-search`, `inbox-report-artefacts-list` / `-retrieve`, and
 `inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (resolve / dismiss / snooze a single report),
 `inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call),
 `inbox-reports-claim` (claim / release / attach a PR), see
-_Workflow: resolve, dismiss, or snooze a report_ — `inbox-reports-create` (file a report), see
-_Workflow: file a report_ — `inbox-report-actions-run` (start an agent run
-from a report action), see _Workflow: run an action on a report_ — and `inbox-source-configs-partial-update`, which flips a
+[report state workflow](references/report-state.md) — `inbox-reports-create` (file a report), see
+[report filing](references/report-actions.md#workflow-file-a-report) — `inbox-report-actions-run` (start an agent run
+from a report action), see [report actions](references/report-actions.md) — and `inbox-source-configs-partial-update`, which flips a
 source's `enabled` flag on or off (e.g. `{enabled: false}` to stop a source feeding the inbox);
 `-create` / `-update` exist too for standing a source up or replacing it wholesale. Pausing
 processing is not exposed via MCP.
@@ -107,11 +115,15 @@ What each report status means (in roughly the order a triage agent should care a
   judge held it back before anyone reviewed it. See _Dismissed and held-back reports_ below
 - `resolved` — the work the report asked for is done. Terminal: a resolved report never re-promotes,
   so a recurrence starts a fresh report linked back to it. Set automatically when a linked
-  implementation PR merges, or directly via `inbox-reports-set-state` (see the workflow below)
+  implementation PR merges, or directly via `inbox-reports-set-state` (see the [report state workflow](references/report-state.md))
 
 By default `inbox-reports-list` excludes `suppressed` reports and orders results by
 `-is_suggested_reviewer,status,-updated_at` — the user's own suggested reports first, then by
 status, then most recently updated. Refer to the tool's input schema for filter mechanics.
+
+To find the reports about a topic, such as before filing one, use `inbox-reports-search` when it is present.
+It ranks reports by relevance across every status, and matches a report that describes the topic in other words.
+The `search` filter on `inbox-reports-list` matches the exact text only.
 
 ## Dismissed and held-back reports
 
@@ -149,7 +161,7 @@ For a held-back review, call `inbox-reports-list` with `{"view": "held_back"}`. 
 the verdict. If the user decides that a report is valid, restore it with `state: "potential"`.
 The report goes back to the status it had before the judge held it back. If the user agrees with the
 verdict, call `state: "suppressed"` with a `dismissal_reason`. The report then moves from
-`held_back` to `dismissed`. See _Workflow: resolve, dismiss, or snooze a report_ for both calls.
+`held_back` to `dismissed`. See [report state workflow](references/report-state.md) for both calls.
 
 ## What "suggested reviewer" means
 
@@ -184,9 +196,10 @@ Practical implications for triage:
   the code, (b) the suggested logins came from commit history and no org member has that
   GitHub account linked (a reviewer set by `user_uuid` doesn't have this problem), or (c) the
   source material wasn't tied to a specific repo / commits.
-- If the user asks "what should _I_ look at?", lead with `is_suggested_reviewer: true`
-  reports: these are the ones routed to the user as a likely owner. Mention the rest as a
-  secondary group rather than mixing them in.
+- If the user asks "what should _I_ look at?", use `prioritizing-my-inbox`. When no stored
+  personal ranking applies, lead with `is_suggested_reviewer: true` reports: these are the
+  ones routed to the user as a likely owner. Mention the rest as a secondary group rather
+  than mixing them in.
 - If the user has _no_ suggested reports but the inbox isn't empty, say so explicitly
   ("nothing in the inbox is tied to code you've authored recently") rather than pretending
   the top of the list is personalized.
@@ -345,7 +358,7 @@ inbox-reports-list
 - The report has an open pull request: continue that work. Do not open a second pull request.
 - The report is resolved or dismissed: read why before you reopen the question.
 - You fix the problem: attach your pull request with `inbox-reports-claim` and `pr_url`, as in
-  _Workflow: act on an actionable report_. Its merge then resolves the report.
+  [implementation workflow](references/implementation.md). Its merge then resolves the report.
 
 ## Workflow: drill into a specific report
 
@@ -380,272 +393,25 @@ The layers complement each other: `inbox-report-artefacts-list` gives you the cu
 (evidence + judgments + PR/task-run history), and the `signals` skill lets you inspect the raw
 observations that produced it.
 
-## Workflow: act on an actionable report
+## Bulk changes need a count and a confirmation
 
-When the user wants to _do_ something about a report — "fix this inbox item", "turn this into a
-PR", "implement this" — not just read it. A `ready` report with
-`actionability: immediately_actionable` is the usual candidate. The discipline that matters here:
-**a report is a diagnosis, not ground truth — verify it against the actual code before you
-implement.** Reports from `signals_scout` (and any LLM-research source) are especially worth
-double-checking; their `summary` often reads as a confident root-cause with file and function
-names, but it can be stale or wrong.
+A bulk dismiss or resolve closes each report's open implementation PR, and every dismissal note steers later scout runs.
+Before you change more than one report:
 
-### Step 1 — Retrieve, check existing work, and claim it
-
-```json
-inbox-reports-retrieve
-{ "id": "<report_uuid>" }
-```
-
-Before doing any work, look at:
-
-- `already_addressed` — if `true`, the fix may already be in flight or merged; confirm with the
-  user before duplicating it.
-- `pull_requests` — inspect existing PRs before opening another; a report can have a stack or PRs across repositories.
-- `work_state` and `assignee` — show whether someone else has already picked it up. A takeover is
-  allowed, but make it deliberate rather than overlooking active work.
-- `status` — only `ready` reports carry a finished judgment. A `candidate` / `pending_input`
-  report hasn't been researched yet; don't implement off a half-formed summary.
-
-Before starting research or implementation, claim the report:
+1. Find the scope. "My inbox" is `view: "for_you"`. Use the whole project only when the user asks for it.
+2. Narrow the list on the server. For "older than N days", pass `created_before` with the cutoff. Do not read every page and filter on your side.
+3. Count the matches. Call `inbox-reports-list` with the same filters and `count_only: true`.
+4. Tell the user the count, the scope, and the filters, and get their confirmation before the first `inbox-reports-bulk-set-state` call.
+5. Change only the reports that the user confirmed. If the count grows while you work, or you find reports outside the confirmed scope, stop and ask again.
 
 ```json
-posthog:inbox-reports-claim
-{ "report_id": "<report_uuid>" }
-```
-
-Save the returned `assignee.claim_id` and pass it on subsequent work updates and artefact writes.
-Taking over another actor requires `takeover=true`; stale claim IDs are rejected.
-The claim is attributed to the current internal task or external MCP client. Claims do not expire, so
-release the report whenever you walk away without landing a fix — including when you dismiss it instead.
-Release clears ownership only; an attached pull request stays on the report, and release works from any
-status, so a dismissed report can be released too.
-
-### Step 2 — Verify the diagnosis against the code (do not skip)
-
-Start by reading the report's work log — its evidence and the judgments behind it:
-
-```json
-inbox-report-artefacts-list
-{ "report_id": "<report_uuid>" }
-```
-
-This surfaces the `signal_finding` evidence, the status/priority/actionability judgments, and any
-`commit` / `task_run` history — exactly the "why it exists and what's already been done" you need
-before touching code. Then the report's `summary` will name files, functions, and sometimes line
-numbers. **Open them and confirm the claim holds** — that the cited code exists, still looks the
-way the report describes, and actually produces the described failure. As a deeper fallback, pull
-the raw underlying signals via the `signals` skill (`metadata.report_id`) if you need the signal
-text behind the curated findings. If the diagnosis doesn't hold up, say so and stop — a wrong
-report is itself a useful finding (and a candidate for _dismiss_ below), not a license to write a
-speculative fix. Release the claim you took in Step 1 before you stop, so the report returns to the
-unclaimed view instead of reading as active work nobody is doing:
-
-```json
-posthog:inbox-reports-claim
-{ "report_id": "<report_uuid>", "claim_id": "<claim_uuid>", "release": true }
-```
-
-### Step 3 — Scope the fix to the right layer
-
-- If `source_products` includes `signals_scout` and the root cause is in a **scout's own
-  behavior** (the prompt it runs, a threshold it uses), the better fix is often the scout's
-  `SKILL.md`, not the harness. Note that per-team custom scouts live in the user's Skills Store,
-  not this repo, so the fix site may be out of reach of a repo PR — flag that to the user.
-- Otherwise treat it like any normal change: follow the repo's conventions (`CLAUDE.md`,
-  area-specific skills), make the change minimal, and add a regression test that would have caught
-  the reported failure.
-
-### Step 4 — Open the PR and attach it
-
-Open the PR following the repo's PR conventions, then attach it to the report:
-
-```json
-posthog:inbox-reports-claim
+inbox-reports-list
 {
-  "report_id": "<report_uuid>",
-  "claim_id": "<claim_uuid>",
-  "pull_requests": ["https://github.com/example/repository/pull/123"]
+  "view": "for_you",
+  "created_before": "<ISO 8601 cutoff>",
+  "count_only": true
 }
 ```
-
-PR links are additive and retries do not duplicate them. Send every known PR together so completion
-considers the entire stack. The same PR may be attached to multiple reports. Connected repositories receive immediate state
-validation and webhook updates. PRs from unconnected repositories are accepted with unknown state,
-so resolve those reports manually after the work lands. Also reference the report's `_posthogUrl`
-in the PR description so the loop is traceable from either side.
-
-**Don't resolve a report because you opened a PR.** A report resolves when all linked PRs are closed
-or merged and at least one merged. If all closed without merging, it is suppressed. Any open, draft,
-or unknown PR prevents automatic completion. Resolving by hand at PR-open
-time asserts work that hasn't landed, and a reviewer looking at the inbox can't tell the difference.
-Manual resolve is for fixes a PR merge will never cover — a skill-body change, a config change, a
-`NO_REPO` report — see the workflow below.
-
-## Workflow: run an action on a report
-
-A report can offer actions that start an agent run, the same ones the inbox shows as buttons:
-**Get it merged** (`get_it_merged`) fixes CI on the report's open, approved pull request and merges
-it, **Make it green** (`make_it_green`) fixes failing CI on its open pull request without merging,
-and each **suggested prompt** (`suggested_prompt`) sends one prompt the report suggests. **Ask**
-(`ask`) sends your own `message`, like Ask AI in the inbox. Use these instead of
-`tasks-create-and-run`: a run started here is linked to the report, so it shows in
-the report's runs, counts toward the report's task limit, and gets the report's code access rules.
-The two tools are rolling out behind a flag, so they can be missing from your tool list. If they
-are, send the person to the report's `_posthogUrl` to press the button.
-
-### Step 1 — List the actions
-
-```json
-posthog:inbox-report-actions-list
-{ "report_id": "<report_uuid>" }
-```
-
-Every action comes back, available or not. Pick one with `available: true`. When an action is not
-available, `disabled_reason` says why (no approved open PR, AI data processing not approved, and so
-on): tell the person rather than trying to run it. `text` is the message the run gets as its first
-request, so show it when the person wants to know what the agent will be asked to do.
-
-### Step 2 — Confirm, then run it
-
-Starting a run creates a task that spends the organization's usage, and Get it merged can merge a
-pull request. Confirm with the person before you run an action they did not ask for by name.
-
-```json
-posthog:inbox-report-actions-run
-{ "report_id": "<report_uuid>", "action": "suggested_prompt", "suggested_prompt_index": 0 }
-```
-
-Pass `suggested_prompt_index` only for `suggested_prompt`, with the value from the list.
-
-To ask about the report or request work the listed actions do not cover, use `ask` with a
-`message`. `ask` is not in the list. The run answers a question, and carries out requested work
-only while the report still has work to do and no pull request:
-
-```json
-posthog:inbox-report-actions-run
-{ "report_id": "<report_uuid>", "action": "ask", "message": "Which customers hit this error?" }
-```
-
-`get_it_merged` and `make_it_green` also take an optional `message`. It replaces the action's
-fixed request and keeps its instructions and gates. Pass it only when you know something the report
-does not, such as "#123 lands first, so rebase onto it after it merges" or "the migration check
-also fails on the base branch, so leave it".
-
-A `201`
-returns `task_id`, `run_id`, and `task_url`. Each successful call creates a new task, so do not
-retry it. If `run_error` is set, the task exists but its run did not start: report the error and do
-not start a second one.
-
-### Step 3 — Follow the run
-
-The run works in the background. Follow it with `tasks-runs-retrieve` using `task_id` and `run_id`,
-and give the person `task_url`. Nobody can answer questions in a background run, so when the agent
-needs a decision it writes a note to the report's work log. Read new notes with
-`inbox-report-artefacts-list`.
-
-### Errors
-
-Every refusal carries a `code`. Do not retry any of them unchanged.
-
-| Status | `code`                              | What to do                                                                                      |
-| ------ | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
-| 400    | `report_action_unavailable`         | The action is not available now. Tell the person the `detail`.                                  |
-| 403    | `report_action_unavailable`         | The organization has not approved AI data processing. An admin turns it on in settings.         |
-| 403    | `report_action_sandbox_refused`     | A task sandbox cannot start report actions. Ask a person to start it from their own session.    |
-| 409    | `report_action_run_active`          | A merge run is already working on the report. Follow the `task_id` and `run_id` in the body.    |
-| 429    | `signal_report_task_cap`            | The report reached its task limit. Work with the runs it already has.                           |
-| 429    | `throttled`, `usage_limit_exceeded` | A per-user or organization usage limit fired. Wait until it clears.                             |
-| 402    | `self_driving_free_trial`           | The organization is on a Self-driving free trial, which cannot open pull requests.              |
-| 404    | none                                | The report has no suggested prompt at that index. List the actions again and use a fresh index. |
-
-## Workflow: file a report
-
-Use `inbox-reports-create` when the user wants a finding of their own, often from their own
-agent, to land in the inbox. The tool is behind a rollout flag, so it is not always present.
-
-1. Search first. Call `inbox-reports-list` with `search` for the topic. If a report already covers
-   it, tell the user and work on that report instead of filing a near-duplicate.
-2. Send `title`, `summary`, at least one `evidence` entry, `actionability`, and
-   `actionability_explanation`. Add `suggested_reviewers` to route it to the people who should read it.
-3. Read the result. `report_status` is `ready`, `pending_input`, or `suppressed`. A suppressed report
-   carries `safety_explanation`. A resend returns the first report with `idempotent_replay` true.
-
-A filed report never starts an implementation run or opens a pull request on its own, even after a
-later edit. To start one, use _Workflow: run an action on a report_. Each person can file 20
-reports per project per day. A 429 says when the limit resets.
-
-## Workflow: resolve, dismiss, or snooze a report
-
-Three outcomes, one tool. Pick by what actually happened to the underlying issue:
-
-| The issue is…                                 | State        | Why                                                |
-| --------------------------------------------- | ------------ | -------------------------------------------------- |
-| fixed by work you did                         | `resolved`   | terminal; the report has served its purpose        |
-| not real, or not worth fixing                 | `suppressed` | dismissed from the inbox, with the reason recorded |
-| real but deferred, or fixed by something else | `potential`  | back into the pipeline; reappears if it recurs     |
-
-```json
-inbox-reports-set-state
-{
-  "id": "<report_uuid>",
-  "state": "suppressed",
-  "dismissal_reason": "analysis_wrong",
-  "dismissal_note": "Verified against products/foo/bar.py — the cited code path can't reach this state."
-}
-```
-
-- `state: "resolved"` marks the requested work done, and is terminal — a recurrence starts a fresh
-  report rather than reopening this one. Allowed from `ready` / `pending_input`, or from a
-  `suppressed` report that held one of those when archived; anything else returns `409`. **Only
-  resolve work that has actually landed.** A fix shipping as a PR resolves itself on merge (see
-  _Step 4_); resolve by hand only where the webhook can never reach — a skill-body edit, a config
-  change, a `NO_REPO` report. Record `dismissal_reason: "fixed_outside_posthog"` for that (the fix
-  landed without a pull request); use `pr_merged` when a pull request with the fix was merged but
-  did not resolve the report on its own; reserve `already_fixed` for an issue fixed before the
-  report was filed. Don't use `already_fixed` + `state: "potential"` when _you_ did the fixing:
-  that pairing means "fixed by something else, might recur", so the report comes back.
-- `state: "suppressed"` dismisses the report from the inbox; `state: "potential"` snoozes it back
-  into the pipeline. When snoozing, `snooze_for: <N>` holds it until it accumulates N more signals.
-- `dismissal_reason` must be one of the server-validated canonical codes — `already_fixed`,
-  `report_unclear`, `analysis_wrong`, `wrong_assignee`, `wrong_repo`, `wontfix_intentional`,
-  `wontfix_irrelevant`, `fixed_outside_posthog`, `no_action_needed`, `pr_merged`, `other` — an
-  unlisted value returns `400`. Reach for `other` plus a
-  `dismissal_note` for anything that doesn't fit a specific code. `dismissal_note` is free-form
-  (≤ 4000 chars). Both persist as a DISMISSAL
-  artefact, so the rationale survives later transitions — **always include them**, on a resolve too,
-  so a future reader knows _why_.
-- `wrong_repo` means the agent researched the report against the wrong repository. Pair it with
-  `corrected_repository` (`"owner/repo"`, case-insensitive; only allowed with this reason) naming
-  the right one: the correction is recorded on the dismissal and fed into every future repository
-  selection for the project, and when the named repository is connected to the project it also
-  becomes this report's own next selection. Without a usable correction the report's selection is
-  cleared instead, so a restored report re-selects rather than reusing the rejected repository.
-- `wrong_assignee` means the report reached the wrong person or team. It is routing feedback, not a
-  verdict that the report itself was wrong.
-- On a dismiss, snooze, or restore, the `dismissal_note` is also forwarded as a steering note to the
-  scout that filed the report, which every scout run reads at cold start, so what you write there is
-  what stops the same report being filed again. Write it for that reader: name the evidence that
-  settles it, not just the verdict. A resolve is not forwarded, since it says the report did its job
-  rather than that filing it was wrong; that note stays on the report. A `wrong_repo` dismissal is
-  forwarded even with no note: the steering note names the repository the report wrongly targeted
-  and, when you passed one, the `corrected_repository`. Forwarding needs the same skill-editing
-  access as leaving a scout note by hand, so on a project where you lack it the note still lands on
-  the report but does not reach the scout.
-- It's a destructive, non-idempotent transition and returns `409` if it isn't allowed from the
-  report's current status (and `400` if `dismissal_reason` isn't a canonical code). Confirm with
-  the user before suppressing, and capture _why_ in the note — a dismissal with no rationale is
-  worse than none. A report you dismissed because the diagnosis was wrong (Step 2 above) is the
-  textbook case: suppress it with `analysis_wrong` and the evidence in the note. A refunded report
-  is frozen: snooze and resolve both come back `409` / `skipped` with an explanatory `detail`.
-- To transition several reports at once, use `inbox-reports-bulk-set-state` with an `ids`
-  array (1–100). It applies the same `state` / `dismissal_reason` / `dismissal_note` /
-  `corrected_repository` / `snooze_for` to every id and returns a per-id `results` list (in request
-  order) plus a
-  `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. Each id is
-  processed independently, so the call returns `200` even on partial failure — an id whose
-  transition isn't allowed comes back as `skipped` (the single-report `409`) while the rest go
-  through. Inspect the per-id outcomes rather than assuming the whole batch succeeded.
 
 ## Workflow: filter by topic or source
 
@@ -674,98 +440,6 @@ inbox-reports-list
 If the keyword search returns nothing meaningful, hand off to the `signals` skill — semantic
 search over signal text via `embedText()` will catch reports the keyword filter missed.
 
-## Model predictions as building blocks
-
-The inbox ranking model predicts outcomes for each report. Each row of `inbox-reports-list` and
-`inbox-reports-retrieve` carries them in `ranking`:
-
-```json
-"ranking": {
-  "status": "scored",
-  "scored_at": "2026-10-24T05:12:00Z",
-  "predictions": [
-    { "outcome": "open", "probability": 0.21, "lift": 1.5, "readable": true },
-    { "outcome": "action", "probability": 0.09, "lift": 1.4, "readable": true },
-    { "outcome": "fix", "probability": 0.3, "lift": 2.7, "readable": true }
-  ]
-}
-```
-
-- `open`: a person opens the report. `action`: a person or their agent acts on it. `fix`:
-  someone fixes the problem it describes. Call `inbox-ranking-outcomes-list` for the current
-  meaning, horizon and base rate of each outcome, because they follow the served model.
-- A prediction says what may happen, never what did. A high `fix` probability does not mean the
-  report is fixed: read `status` and the PR fields for that.
-- A lift is the probability divided by the outcome's base rate. 1.0 is an average report, 2.7 is
-  2.7x as likely. Compare lifts across outcomes. Raw probabilities do not compare, because each
-  outcome has its own base rate.
-- `readable: false` means the training run could not measure the holdout AUC of that outcome.
-  Rank and filter on that outcome with caution.
-- `status` is `scored`, `stale` (the title or summary changed after scoring, so the predictions
-  describe the old text), `unscored` (no score yet, which is not a low score), or `not_available`
-  (the user cannot see the ranking model, so ordering and filtering by it return 400).
-- `inbox-reports-retrieve` also names the `model` that made the predictions. Predictions from
-  different models do not compare.
-
-Recipes:
-
-- Likely to get a fix: `view=actionable` with `ordering=-ranking_fix`.
-- Hidden gems: `priority=P3,P4` with `ranking_min_lift=fix:2`.
-- Probably noise: reports with a low lift on all three outcomes are candidates to dedupe or
-  dismiss. Read them before you act: a low lift is a hint, not a verdict.
-- Add `search` or `source_product` to any recipe to narrow it to a topic.
-
-`ranking_min_lift` and `ranking_min_probability` take comma-separated `<outcome>:<value>` pairs,
-and a report must meet every pair. Unscored and stale reports never match.
-
-Caveats:
-
-- The predictions are model estimates, and the top end over-predicts. Use them to rank and
-  filter, not as literal odds.
-- Most `fix` positives are also `action` positives, so do not add the two together.
-
-## Workflow: review configured sources
-
-When the user asks "which signal sources are set up?" or "is <product> hooked up?":
-
-```json
-inbox-source-configs-list
-{ "limit": 50 }
-```
-
-Each entry returns `id`, `source_product`, `source_type`, `enabled`, `status`, plus timestamps.
-For full details (including the per-source `config` JSON — recording filters, evaluation IDs,
-etc.):
-
-```json
-inbox-source-configs-retrieve
-{ "id": "<source_config_uuid>" }
-```
-
-Integration credentials live in a separate `Integration` model — they are **not** in the
-`config` blob, so it's safe to summarize the contents back to the user.
-
-The `status` field reflects the underlying data import or workflow:
-
-- `running` / `completed` — feeding signals normally
-- `failed` — the source isn't currently producing signals; flag this to the user
-
-To turn a source on or off, use `inbox-source-configs-partial-update` with the config's `id` and
-`{ "enabled": true | false }` — only the fields you pass change, so this is the right tool for a
-plain toggle (`-update` replaces the whole record; `-create` stands up a new source). Confirm with
-the user before flipping a source, since enabling one drives signal processing and spend.
-
-```json
-inbox-source-configs-partial-update
-{ "id": "<source_config_uuid>", "enabled": false }
-```
-
-To edit individual source settings, send only the top-level keys to change in `config_set` and keys to delete in `config_remove`.
-These edits preserve unrelated settings even when another editor saves at the same time.
-For guidance, set `config_set.steering` and include `default_not_actionable` in `config_remove`.
-Use `config_set.linear_team_ids` for Linear team selection.
-Reserve `config` for an intentional whole-object replacement; do not combine it with key edits.
-
 ## Tips
 
 - **Check setup before assuming the inbox is empty.** If `inbox-reports-list` returns `count: 0`,
@@ -785,7 +459,7 @@ Reserve `config` for an intentional whole-object replacement; do not combine it 
   (claim / release / attach a PR), and
   `inbox-source-configs-partial-update` (toggle a source's `enabled` flag). To _act_ on a report
   (implement a fix), claim it, verify the diagnosis against the code, then open and attach a PR — see
-  _Workflow: act on an actionable report_. A PR-backed fix is resolved automatically when the PR
+  [implementation workflow](references/implementation.md). A PR-backed fix is resolved automatically when the PR
   merges, so don't resolve it by hand at PR-open time. Always also surface the `_posthogUrl` deep-link
 - **Never implement a report's fix straight from its `summary`.** Reports — especially
   `signals_scout` ones — are LLM diagnoses; confirm the cited files / functions / behavior in the
