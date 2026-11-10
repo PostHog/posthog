@@ -86,6 +86,7 @@ export interface DotMatrixProps<D extends Record<string, unknown>>
     cellWidth?: number
     rowClassName?: (row: DotMatrixAxisItem) => string | null
     className?: string
+    embedded?: boolean
     legend?: false | DotMatrixLegendLabels
     loading?: boolean
     emptyState?: ReactNode

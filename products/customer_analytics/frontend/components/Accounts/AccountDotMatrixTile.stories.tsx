@@ -6,6 +6,8 @@ import { mswDecorator } from '~/mocks/browser'
 import type { AccountActivityMatrixResult, BookActivityMatrixResult } from '~/queries/schema/schema-general'
 
 import { BOOK_ACTIVITY_MATRIX_MOCK } from '../../__mocks__/bookActivityMatrixMock'
+import { createAccountViewContent } from '../../scenes/CustomerAnalyticsAccountScene/accountViewDocument'
+import { AccountViewTile } from '../../scenes/CustomerAnalyticsAccountScene/AccountViewTile'
 import { EMPTY_ACCOUNT_ACTIVITY_MATRIX } from './accountActivityMatrix'
 import { AccountDotMatrixTile } from './AccountDotMatrixTile'
 
@@ -74,6 +76,37 @@ type Story = StoryObj<typeof AccountDotMatrixTile>
 
 export const PersonActivity: Story = {
     decorators: [queryResponse(ACTIVITY)],
+}
+
+export const InWidgetHeader: Story = {
+    decorators: [queryResponse(ACTIVITY)],
+    parameters: { mockDate: '2026-10-28' },
+    render: (args) => (
+        <AccountViewTile
+            view={{
+                id: '11111111-2222-4333-8444-555555555555',
+                name: 'Activity',
+                visibility: 'private',
+                content: createAccountViewContent([]),
+                text_content: '',
+                version: 1,
+                created_by: 1,
+                last_modified_by: 1,
+                created_at: '2026-10-01T00:00:00Z',
+                updated_at: '2026-10-01T00:00:00Z',
+                can_edit: true,
+                can_delete: true,
+                can_change_visibility: true,
+            }}
+            component={{ nodeId: 'activity', kind: 'dot_matrix', span: 12, config: args.initialConfig }}
+            instanceId={args.instanceId!}
+            componentCount={2}
+            projectId={1}
+            accountId={args.accountId}
+            externalId="example-account"
+            spanClassName="col-span-12"
+        />
+    ),
 }
 
 export const NoUsageMetrics: Story = {

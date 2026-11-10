@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import type { DotMatrixProps } from 'lib/components/DotMatrix/types'
 
@@ -8,6 +8,7 @@ import type { AccountActivityMatrixResult } from '~/queries/schema/schema-genera
 import { initKeaTests } from '~/test/init'
 
 import { BOOK_ACTIVITY_MATRIX_MOCK } from '../../__mocks__/bookActivityMatrixMock'
+import { accountViewTileHeaderContext } from '../../scenes/CustomerAnalyticsAccountScene/accountViewTileHeaderContext'
 import type { ActivityMatrixDatum } from '../ProductActivity/activityMatrixTypes'
 import { EMPTY_ACCOUNT_ACTIVITY_MATRIX } from './accountActivityMatrix'
 import { AccountDotMatrixTile } from './AccountDotMatrixTile'
@@ -118,10 +119,24 @@ describe('AccountDotMatrixTile', () => {
     it('keeps identically named document tiles independent across mounted account views', () => {
         const firstSave = jest.fn()
         const secondSave = jest.fn()
-        render(
+        const { rerender } = render(
             <>
-                <AccountDotMatrixTile accountId="account-1" instanceId="same-node:0" onConfigChange={firstSave} />
-                <AccountDotMatrixTile accountId="account-1" instanceId="same-node:0" onConfigChange={secondSave} />
+                <header data-attr="first-header" />
+                <header data-attr="second-header" />
+            </>
+        )
+        const firstHeader = screen.getByTestId('first-header')
+        const secondHeader = screen.getByTestId('second-header')
+        rerender(
+            <>
+                <header data-attr="first-header" />
+                <header data-attr="second-header" />
+                <accountViewTileHeaderContext.Provider value={firstHeader}>
+                    <AccountDotMatrixTile accountId="account-1" instanceId="same-node:0" onConfigChange={firstSave} />
+                </accountViewTileHeaderContext.Provider>
+                <accountViewTileHeaderContext.Provider value={secondHeader}>
+                    <AccountDotMatrixTile accountId="account-1" instanceId="same-node:0" onConfigChange={secondSave} />
+                </accountViewTileHeaderContext.Provider>
             </>
         )
         fireEvent.click(screen.getAllByTestId('matrix-selection')[0])
@@ -131,6 +146,14 @@ describe('AccountDotMatrixTile', () => {
             'replay',
             'Select replay',
         ])
+        fireEvent.click(within(firstHeader).getByRole('button', { name: 'Options' }))
+        expect(within(secondHeader).getByRole('button', { name: 'Options' }).getAttribute('aria-expanded')).toBe(
+            'false'
+        )
+        fireEvent.click(screen.getByLabelText('Dot matrix weeks'))
+        fireEvent.click(screen.getByText('12 weeks'))
+        expect(firstSave).toHaveBeenCalledWith(expect.objectContaining({ weeks: 12 }))
+        expect(secondSave).not.toHaveBeenCalled()
     })
 
     it('restores changed parent config without writing it back', () => {
