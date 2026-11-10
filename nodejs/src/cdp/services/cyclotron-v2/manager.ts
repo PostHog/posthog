@@ -50,7 +50,7 @@ const HIGHEST_EMAIL_COUNTER = `GREATEST(
  * `NULL dequeue_seq` and bypass the per-team interleave (`NULLS FIRST` would
  * drain them ahead of any fair-ordered rows).
  *
- * A team's *first ever* email starts at `MAX(counter) + 1` across both tables
+ * A team's *first ever* email starts at `MAX(counter) + 1`
  * (Hatchet's `p_max_assigned` pattern), so a brand-new tenant can't enqueue a
  * burst that gets free priority over established tenants' in-flight emails.
  * Continuing tenants just increment their own counter as before. `COALESCE`
@@ -478,10 +478,6 @@ export class CyclotronV2Manager {
      *
      * Non-email jobs get NULL (leaves the existing FIFO ordering untouched).
      *
-     * A fixed number of counter queries per batch regardless of job count — per-team
-     * counters bump by the count of email jobs from that team in this batch,
-     * and we derive each job's individual counter value in memory.
-     *
      * A team's first-ever email starts at `MAX(counter) + 1` across the table
      * (Hatchet's `p_max_assigned` pattern), so a new tenant joining the
      * system can't enqueue a burst that gets free priority over established
@@ -528,10 +524,6 @@ export class CyclotronV2Manager {
         // contend; same-team inserts serialize briefly on the row. Returns the
         // new counter value per team — we then derive individual job counters
         // by subtracting back through the batch.
-        //
-        // Hatchet `p_max_assigned`: a team with no counter in either table
-        // starts at the highest counter of both, so it slots in next to
-        // established teams.
         const upsertResult = await this.pool.query<{ team_id: number; counter: string }>(
             `WITH batch AS (
                  SELECT t.team_id, t.increment, fast.counter AS fast_counter

@@ -2324,6 +2324,7 @@ describe('Cyclotron V2', () => {
 
                 const createFastCounterManager = (): CyclotronV2Manager =>
                     createManager({ fastEmailCounterTeams: String(teamId) })
+                const failsWhileARowIsLocked = { pool: { dbUrl: `${DB_URL}?options=-c%20lock_timeout%3D500` } }
 
                 const holdBulkCounterRow = async (): Promise<PoolClient> => {
                     await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, priority: BULK }])
@@ -2335,32 +2336,14 @@ describe('Cyclotron V2', () => {
                     return holder
                 }
 
-                const sentOrWaitingOn = async (
-                    holder: PoolClient,
-                    sent: Promise<unknown>
-                ): Promise<'sent' | 'waiting on the held row'> => {
-                    const holderPid = (await holder.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]
-                        .pid
-                    let settled = false
-                    const done = sent.then(() => 'sent' as const).finally(() => (settled = true))
-                    while (!settled) {
-                        const waiting = await assertPool.query(
-                            'SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
-                            [holderPid]
-                        )
-                        if (waiting.rowCount) {
-                            return 'waiting on the held row'
-                        }
-                        await new Promise((resolve) => setTimeout(resolve, 10))
-                    }
-                    return await done
-                }
-
                 it.each([
                     [
                         'sent straight to the email queue',
                         async (): Promise<() => Promise<unknown>> => {
-                            const fastManager = createFastCounterManager()
+                            const fastManager = createManager({
+                                fastEmailCounterTeams: String(teamId),
+                                ...failsWhileARowIsLocked,
+                            })
                             await fastManager.connect()
                             return async () => {
                                 try {
@@ -2378,7 +2361,10 @@ describe('Cyclotron V2', () => {
                         async (): Promise<() => Promise<unknown>> => {
                             await manager.createJob({ teamId, queueName: 'hogflow', priority: BULK })
                             const [hogflowJob] = await dequeueOneBatch(
-                                createWorker('hogflow', { fastEmailCounterTeams: String(teamId) })
+                                createWorker('hogflow', {
+                                    fastEmailCounterTeams: String(teamId),
+                                    ...failsWhileARowIsLocked,
+                                })
                             )
                             return () => hogflowJob.reschedule({ queueName: EMAIL_QUEUE, priority: FAST })
                         },
@@ -2388,34 +2374,30 @@ describe('Cyclotron V2', () => {
                     async (_path, prepareFastSend) => {
                         const sendFast = await prepareFastSend()
                         const holder = await holdBulkCounterRow()
-                        let sent: Promise<unknown> = Promise.resolve()
                         try {
-                            sent = sendFast()
-                            expect(await sentOrWaitingOn(holder, sent)).toBe('sent')
+                            await sendFast()
 
                             const [claimed] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
                             expect(claimed).toMatchObject({ teamId, priority: FAST })
                         } finally {
                             await holder.query('ROLLBACK')
                             holder.release()
-                            await sent.catch(() => undefined)
                         }
                     }
                 )
 
                 it('keeps fast email of a team outside the switch on the bulk counter row', async () => {
+                    const offSwitchManager = createManager(failsWhileARowIsLocked)
                     const holder = await holdBulkCounterRow()
-                    const sent = manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, priority: FAST }])
                     try {
-                        expect(await sentOrWaitingOn(holder, sent)).toBe('waiting on the held row')
+                        await expect(
+                            offSwitchManager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, priority: FAST }])
+                        ).rejects.toThrow('lock timeout')
                     } finally {
                         await holder.query('ROLLBACK')
                         holder.release()
+                        await offSwitchManager.disconnect()
                     }
-                    await sent
-
-                    const [claimed] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
-                    expect(claimed).toMatchObject({ teamId, priority: FAST })
                 })
 
                 const otherTeamId = 78
