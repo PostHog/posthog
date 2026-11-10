@@ -2496,6 +2496,11 @@ describe('CDP API', () => {
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['manager@example.com'] } }],
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['someone-else@example.com'] } }],
                 ],
+                [
+                    'another message category',
+                    ['transactional_email', { ...body, message_category: receipts }],
+                    ['transactional_email', { ...body, message_category: newsletter }],
+                ],
             ] as const)(
                 'rejects the key for a request with %s',
                 async (_desc, [firstRoute, first], [route, payload]) => {

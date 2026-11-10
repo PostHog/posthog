@@ -183,10 +183,10 @@ const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 
 const transactionalEmailFingerprint = (
     hogFlowId: string,
-    { to, distinct_id, variables }: TransactionalEmailRequest,
+    { to, distinct_id, variables, message_category }: TransactionalEmailRequest,
     send: AcceptedSend | undefined
 ): string => {
-    const templateRequest = [hogFlowId, to, distinct_id, variables]
+    const templateRequest = [hogFlowId, to, distinct_id, variables, ...(message_category ? [message_category] : [])]
     return IdempotencyKeys.fingerprint(
         send ? [...templateRequest, ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send)] : templateRequest
     )
