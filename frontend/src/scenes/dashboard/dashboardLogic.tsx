@@ -6106,8 +6106,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 filters ?? combineDashboardFilters(values.settingsForRefresh.filters, values.externalFilters),
                 values.savedDashboardSettings.filters.metricVariables ?? []
             )
-            // A tile loaded with other dashboard filters is stale whatever its age. The key holds only the
-            // filters that widgets read, so an interval or breakdown change does not reload every widget.
+            // The key holds only the filters that widgets read, so an interval or breakdown change does not
+            // reload every widget.
             const filtersKey = JSON.stringify([
                 filtersOverride.date_from ?? null,
                 filtersOverride.date_to ?? null,
