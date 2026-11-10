@@ -27,6 +27,8 @@ from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
+
 from posthog.api.cohort import (
     COHORT_USED_IN_PAGE_SIZE,
     AddPersonsToStaticCohortRequestSerializer,
@@ -136,7 +138,7 @@ _FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION = {
 }
 _HIDDEN_EVENT_REFUSAL = "its data is moving"
 _FLAG_CALL_TYPE_REFUSAL = "can use this event"
-_FLAG_CALL_WINDOW_REFUSAL = "88 days or less"
+_FLAG_CALL_WINDOW_REFUSAL = "90 days or less"
 _FLAG_CALL_KEY_REFUSAL = '"Feature flag" equals'
 _FLAG_CALL_COMPILE_REFUSAL = "can't calculate this criterion"
 _FLAG_CALL_FILTER_REFUSAL = "instead of a SQL expression"
@@ -3712,9 +3714,7 @@ email@example.org,
 
         self.assertEqual(response.status_code, 200, response.content)
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    @patch("posthog.api.cohort.report_user_action")
-    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture, patch_on_commit):
+    def _create_calculated_cohort_matching_p1_and_p2(self) -> int:
         _create_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
@@ -3783,9 +3783,13 @@ email@example.org,
         self.assertEqual(response.status_code, 201, response.content)
 
         cohort_id = response.json()["id"]
+        self.assertFalse(Cohort.objects.get(pk=cohort_id).is_calculating)
+        return cohort_id
 
-        while response.json()["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture, patch_on_commit):
+        cohort_id = self._create_calculated_cohort_matching_p1_and_p2()
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
         self.assertEqual(response.status_code, 200, response.content)
@@ -4621,77 +4625,7 @@ email@example.org,
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_duplicating_dynamic_cohort_as_static(self, patch_on_commit):
-        _create_person(
-            distinct_ids=["p1"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "something"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp=datetime.now() - timedelta(hours=12),
-        )
-
-        _create_person(
-            distinct_ids=["p2"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "not it"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p2",
-            timestamp=datetime.now() - timedelta(hours=12),
-        )
-
-        _create_person(
-            distinct_ids=["p3"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "not it"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p3",
-            timestamp=datetime.now() - timedelta(days=12),
-        )
-
-        flush_persons_and_events()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={
-                "name": "cohort A",
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "$some_prop",
-                                "value": "something",
-                                "type": "person",
-                                "operator": "exact",
-                            },
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "time_value": 1,
-                                "time_interval": "day",
-                                "value": "performed_event",
-                                "type": "behavioral",
-                            },
-                        ],
-                    }
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 201, response.content)
-
-        cohort_id = response.json()["id"]
-
-        while response.json()["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+        cohort_id = self._create_calculated_cohort_matching_p1_and_p2()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",
@@ -4709,12 +4643,6 @@ email@example.org,
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)
         self.assertEqual(new_cohort.is_static, True)
-
-        while new_cohort.is_calculating:
-            new_cohort.refresh_from_db()
-            import time
-
-            time.sleep(0.1)
         self.assertEqual(new_cohort.name, "cohort A (static copy)")
         self.assertEqual(new_cohort.is_calculating, False)
         self.assertEqual(new_cohort.errors_calculating, 0)
@@ -5359,7 +5287,7 @@ email@example.org,
         self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
         self.team.timezone = timezone
         self.team.save()
-        criterion = {**_FLAG_CALLED_CRITERION, "time_value": 88}
+        criterion = {**_FLAG_CALLED_CRITERION, "time_value": FLAG_EVALUATIONS_COMPLETE_DAYS - 1}
 
         with time_machine.travel(datetime(2026, 10, 27, 0, 30, tzinfo=UTC), tick=False):
             response = self.client.post(
@@ -8938,8 +8866,8 @@ class TestAddPersonsToStaticCohortRequestSerializer(SimpleTestCase):
 class TestFlagCallCriterionShapeProblem(SimpleTestCase):
     @parameterized.expand(
         [
-            ("last_88_days", {"time_value": 88, "time_interval": "day"}, False),
-            ("last_89_days", {"time_value": 89, "time_interval": "day"}, True),
+            ("last_90_days", {"time_value": 90, "time_interval": "day"}, False),
+            ("last_91_days", {"time_value": 91, "time_interval": "day"}, True),
             ("relative_12_weeks", {"explicit_datetime": "-12w"}, False),
             ("relative_13_weeks", {"explicit_datetime": "-13w"}, True),
             ("relative_2_months", {"explicit_datetime": "-2m"}, False),

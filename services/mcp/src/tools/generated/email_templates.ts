@@ -161,6 +161,7 @@ const workflowsMakeEmailTemplateTransactionalPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'workflows-make-email-template-transactional',
+            inputSchema: WorkflowsMakeEmailTemplateTransactionalSchema(),
             actionLabel: 'make email template transactional',
             messageTemplate:
                 "About to make email template '{id}' transactional. This can't be undone, and its sends will ignore marketing opt-outs. Reply 'confirm' to proceed.\n",
@@ -188,8 +189,8 @@ const workflowsMakeEmailTemplateTransactionalExecute = (): ToolBase<
         >(context, {
             incomingArgs: confirmationParams,
             purpose: 'workflows-make-email-template-transactional',
+            inputSchema: WorkflowsMakeEmailTemplateTransactionalSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
@@ -270,6 +271,7 @@ const workflowsSendEmailPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'workflows-send-email',
+            inputSchema: WorkflowsSendEmailSchema(),
             actionLabel: 'send email',
             messageTemplate: "About to send the email '{subject}' to {to}. Reply 'confirm' to send it.\n",
             codec: __runtime.codec,
@@ -288,8 +290,8 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
         const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof WorkflowsSendEmailSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'workflows-send-email',
+            inputSchema: WorkflowsSendEmailSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })

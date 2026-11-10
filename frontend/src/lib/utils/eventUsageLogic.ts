@@ -49,6 +49,7 @@ import {
     isExperimentExposureNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
     Node,
@@ -491,6 +492,14 @@ export function getEventPropertiesForMetric(
             return {
                 ...base,
                 ...getSourceProperties(metric.source),
+            }
+        }
+
+        if (isExperimentQuantileMetric(metric)) {
+            return {
+                ...base,
+                ...getSourceProperties(metric.source),
+                quantile: metric.quantile,
             }
         }
 

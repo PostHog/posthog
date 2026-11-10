@@ -12,9 +12,11 @@ import {
     LemonTable,
     LemonTag,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
 import type { AEOPromptApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
@@ -22,12 +24,10 @@ import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag
 import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
-import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
-import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
-import { draftableOpportunity, engineLabel } from './utils'
+import { draftableOpportunity, engineLabel, promptSearches } from './utils'
 
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
     const check = prompt.latest_checks.find((latest) => latest.engine === engine)
@@ -40,6 +40,37 @@ const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
             checkFailed={check.check_failed}
             position={check.target_best_position}
         />
+    )
+}
+
+const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element | null => {
+    const { primary, byEngine, distinct } = promptSearches(prompt)
+    if (!primary) {
+        return null
+    }
+    return (
+        <Tooltip
+            title={
+                <div className="flex flex-col gap-1">
+                    {byEngine.map(({ engine, queries }) => (
+                        <div key={engine}>
+                            <div className="font-semibold">{engineLabel(engine)} searched</div>
+                            {queries.map((query) => (
+                                <div key={query}>{query}</div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            }
+        >
+            <div
+                className="mt-0.5 text-xs text-muted truncate max-w-120"
+                tabIndex={0}
+                data-attr="content-autopilot-prompt-searches"
+            >
+                Searched for "{primary}"{distinct > 1 ? ` +${distinct - 1} more` : ''}
+            </div>
+        </Tooltip>
     )
 }
 
@@ -67,7 +98,6 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         setShowArchived,
     } = useActions(contentAutopilotPromptsLogic)
     const { opportunityByPromptId } = useValues(contentAutopilotLogic)
-    const { openPromptDetail } = useActions(contentAutopilotPromptDetailLogic)
 
     if (promptsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -200,12 +230,13 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                 <div className="py-2 min-w-60 break-words">
                                     <Link
                                         subtle
-                                        onClick={() => openPromptDetail(prompt.id)}
+                                        to={urls.webAnalyticsContentAutopilotPrompt(prompt.id)}
                                         className="text-left font-semibold"
                                         data-attr="content-autopilot-prompt-open-detail"
                                     >
                                         {prompt.prompt}
                                     </Link>
+                                    <PromptSearchesLine prompt={prompt} />
                                 </div>
                             ),
                         },
@@ -259,7 +290,6 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     ]}
                 />
             )}
-            <ContentAutopilotPromptDetail />
         </section>
     )
 }
