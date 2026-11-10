@@ -26,7 +26,6 @@ function ViewNameField({ isNew, pending }: { isNew: boolean; pending: PendingSub
 export function openWorkflowSavedViewDialog(onSubmit: (name: string) => Promise<void>, currentName?: string): void {
     let pendingSubmit: Promise<void> | null = null
     const listeners = new Set<() => void>()
-    // Enter submits without the button's loading state, so the field shows that the submit is running.
     const pending: PendingSubmit = {
         isPending: () => pendingSubmit !== null,
         subscribe: (listener) => {

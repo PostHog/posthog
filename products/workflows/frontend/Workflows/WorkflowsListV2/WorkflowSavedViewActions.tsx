@@ -7,7 +7,6 @@ import { openDeleteWorkflowSavedViewDialog, openWorkflowSavedViewDialog } from '
 import { PENDING_ACTION_REASONS, SavedViewAction } from './workflowSavedViews'
 import { workflowsSavedViewsLogic } from './workflowsSavedViewsLogic'
 
-// The dialogs stay open on a failed save, so the user can fix the name or retry.
 async function keepDialogOpenOnFailure(
     mutate: (onFailure: (failure: unknown) => void) => Promise<void>
 ): Promise<void> {

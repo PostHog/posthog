@@ -503,7 +503,6 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         ],
         keptSearch: [
             {} as Record<string, string>,
-            // The way back also needs the saved view, its additions and its columns, which `value` does not hold.
             buildUserScopedPersistenceConfig('workflows_list_v2_search__'),
             {
                 setKeptSearch: (_, { search }) => search,
@@ -711,8 +710,6 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 writeUrl()
             },
             setValue: ({ value, fromUrl }) => {
-                // A link can spell a filter another way, such as Folder: for in:, so the URL takes the canonical
-                // spelling. The rewrite parses to the same filters, so the next URL sync does not call setValue again.
                 if (!fromUrl || rawSearchParam('q') !== serializeFacetQuery(value.filters)) {
                     writeUrl()
                 }

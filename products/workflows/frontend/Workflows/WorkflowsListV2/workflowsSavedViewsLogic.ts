@@ -308,7 +308,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         setActiveViewId: (id: string) => ({ id }),
         applyView: (view: WorkflowSavedView) => ({ view }),
         resetView: (keepAddedFilters: boolean = false) => ({ keepAddedFilters }),
-        // `onFailure` lets a dialog stay open on a failure the toast already explained.
         saveViewAs: (name: string, onFailure?: (failure: unknown) => void) => ({ name, onFailure }),
         updateActiveView: true,
         renameView: (id: string, name: string, onFailure?: (failure: unknown) => void) => ({ id, name, onFailure }),
@@ -392,7 +391,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             [] as FacetFilter[],
             { setAddedFilters: (_, { filters }) => withoutFolderScope(filters), clearSavedViews: () => [] },
         ],
-        // The search text the user typed on top of the views, which carries across views like an added pill.
         addedText: [null as string | null, { setAddedText: (_, { text }) => text, clearSavedViews: () => null }],
         savedViewsLoadFailed: [
             false,
@@ -448,7 +446,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             (s) => [s.enabled, s.savedViews],
             (enabled: boolean, savedViews: WorkflowViewApi[] | null): boolean => enabled && savedViews !== null,
         ],
-        // Until the views answer, the list cannot know which view applies, so it shows no rows to act on.
         viewsResolving: [
             (s) => [s.enabled, s.savedViews, s.savedViewsLoadFailed],
             (enabled: boolean, savedViews: WorkflowViewApi[] | null, loadFailed: boolean): boolean =>
@@ -541,7 +538,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 columns: values.shownColumns.join(','),
                 added: serializeFacetQuery(values.addedFilters),
             }
-            // `typed` marks the search text as the user's own, which the text alone cannot tell when it matches the view.
             delete next.typed
             if (values.addedText !== null) {
                 next.typed = '1'
@@ -573,7 +569,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 throw error
             }
         }
-        // Each pending save keeps the keys of the filters added after its submit, including while it waits its turn.
         const additionTrackers = (): Set<Set<string>> => (cache.additionTrackers ??= new Set<Set<string>>())
         const trackAdditions = (): Set<string> => {
             const added = new Set<string>()
@@ -623,7 +618,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             lemonToast.error(savedViewFailureMessage(action, target?.name ?? 'this view', error))
             if (target && error instanceof ApiError && error.status === 409) {
                 actions.setConflictedViewId(target.id)
-                // Only Reset resolves a conflict, and an open dialog covers it.
                 return null
             }
             if (target && isMissingViewError(error)) {
@@ -640,7 +634,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             target?: WorkflowSavedView,
             onFailure?: (failure: unknown) => void
         ): Promise<void> => {
-            // Check the generation first: after an unmount, `values` reads whichever list mounted next.
             const stillCurrent = (): boolean =>
                 (cache.contextGeneration ?? 0) === generation && values.enabled && values.currentTeamId === teamId
             if (!stillCurrent() || !values.available) {
@@ -662,11 +655,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 }
             }
         }
-        /**
-         * Runs one mutation at a time. A different mutation waits for its turn instead of being dropped, so Undo
-         * clicked during a save still restores, and a dialog submitted during a restore still saves. A repeat of a
-         * mutation that is already running or waiting, such as a double click, adds nothing.
-         */
         const runMutation = (
             action: SavedViewAction,
             key: string,
@@ -679,7 +667,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 return Promise.resolve()
             }
             const generation = cache.contextGeneration ?? 0
-            // A new list context starts a new queue, so it never waits for a request it will ignore.
             if (cache.mutationQueueGeneration !== generation) {
                 cache.mutationQueueGeneration = generation
                 cache.mutationQueue = Promise.resolve()
@@ -699,12 +686,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     keys.delete(queueKey)
                 }
             }
-            // With nothing else running or waiting, start now, so the request carries the state of the click.
             const queued = keys.size === 1 ? execute() : (cache.mutationQueue as Promise<void>).then(execute)
             cache.mutationQueue = queued
             return queued
         }
-        // A queued write sends the version the view has when its turn comes, not the one it had when the user asked.
         const latestVersion = (view: WorkflowSavedView): number =>
             values.views.find((candidate) => candidate.id === view.id)?.version ?? view.version
         return {
@@ -776,7 +761,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     const currentViewId = values.activeViewId
                     const startValue = values.value
                     const startColumns = values.shownColumns
-                    // Edits made while the latest version loads stay, as changes to whatever the view resolves to.
                     const editedWhileLoading = (): boolean =>
                         values.value !== startValue || values.shownColumns !== startColumns
                     await runMutation(
@@ -828,9 +812,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 const id = raw.get('view') ?? 'all'
                 const explicit = raw.has('q') || raw.has('text') || raw.has('columns') || raw.has('added')
                 if (!values.available) {
-                    // The list writes the search to the URL while the views load, which makes a view-only link look
-                    // like a link with its own filters. Remember the link and what the list showed, so the view
-                    // still opens with its filters once it loads.
                     if (values.enabled && raw.has('view') && !explicit && cache.viewOnlyLink?.id !== id) {
                         cache.viewOnlyLink = { id, baseline: values.value }
                     }
@@ -843,7 +824,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 const viewOnlyLink: { id: string; baseline: FacetSearchValue } | undefined = cache.viewOnlyLink
                 cache.viewOnlyLink = undefined
                 if (view && viewOnlyLink?.id === id) {
-                    // Edits made while the views loaded stay, as changes to the view.
                     const edited = values.value
                     const baselineKeys = new Set(viewOnlyLink.baseline.filters.map((filter) => facetFilterKey(filter)))
                     actions.setAddedFilters(
@@ -874,8 +854,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         text: raw.has('text') ? (raw.get('text') ?? '') : (view?.state.text ?? ''),
                     }
                     actions.setValue(value)
-                    // `typed` marks typed text that matches the view. Text that differs from the view is always typed,
-                    // which also covers links written before `typed` existed.
                     const typed = raw.get('typed') === '1' || value.text.trim() !== (view?.state.text ?? '').trim()
                     actions.setAddedText(typed ? userText(value.text) : null)
                     const effectiveKeys = new Set(value.filters.map((filter) => facetFilterKey(filter)))
@@ -910,7 +888,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 }
             },
             saveViewAs: async ({ name, onFailure }) => {
-                // A save that waits its turn sends what the list showed at submit, not edits made while it waited.
                 const sourceViewId = values.activeViewId
                 const state = workflowViewState(values.value, values.shownColumns)
                 const added = trackAdditions()
@@ -1016,7 +993,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         }
                         if (current.default_key === 'my-workflows') {
                             actions.setDefaultView({ ...values.defaultView!, deleted: true })
-                            // A unique id, because dismissing an id also hides the next toast that reuses it.
                             cache.undoToastId = lemonToast.success('Deleted My workflows for everyone', {
                                 toastId: `workflows-undo-delete-${uuid()}`,
                                 button: { label: 'Undo', action: () => actions.restoreMyWorkflows() },
@@ -1048,7 +1024,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
     }),
     beforeUnmount(({ cache }) => {
         cache.contextGeneration = (cache.contextGeneration ?? 0) + 1
-        // Undo restores through this logic, so the toast can't outlive the list.
         if (cache.undoToastId) {
             lemonToast.dismiss(cache.undoToastId)
         }

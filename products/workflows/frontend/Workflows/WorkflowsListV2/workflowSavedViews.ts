@@ -61,10 +61,6 @@ export function workflowViewValue(state: WorkflowViewStateApi): FacetSearchValue
     }
 }
 
-/**
- * An `in:` pill is the open folder. A view never stores it, so opening a folder changes no view,
- * and picking a view leaves the folder. A negated `in:` hides a folder, so it is an ordinary filter.
- */
 export function isFolderScope(filter: FacetFilter): boolean {
     return filter.facet === 'in' && !filter.negated
 }
