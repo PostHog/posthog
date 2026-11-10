@@ -87,7 +87,10 @@ from products.alerts.backend.temporal.platform_evaluate import (
     run_platform_metrics_investigations_activity,
 )
 from products.alerts.backend.test.insight_alerts import create_insight_alert
-from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade import (
+    api as platform_facade,
+    testing as platform_testing,
+)
 from products.alerts_platform.backend.facade.api import list_configurations, record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -1294,6 +1297,24 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 0,
             ),
             ("a team without the all-firing scope", {}, PlatformAlertOwner.PLATFORM, None, 0, "investigated_only"),
+            (
+                "errors that interrupted breakdown values' firings resume them",
+                {},
+                PlatformAlertOwner.PLATFORM,
+                "errored after firing",
+                0,
+                "all_firing_alerts",
+                "breakdown",
+            ),
+            (
+                "errors after quiet breakdown values end in new episodes",
+                {},
+                PlatformAlertOwner.PLATFORM,
+                "errored after not_firing",
+                2,
+                "all_firing_alerts",
+                "breakdown",
+            ),
         ]
     )
     def test_a_firing_files_an_inbox_signal_only_when_it_starts_an_uninvestigated_episode(
@@ -1326,10 +1347,18 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             if before == "firing":
                 platform_testing.start_firing(configuration.id, team_id=self.team.id, at=CUTOFF - timedelta(hours=1))
             elif before is not None:
+                if shape == "breakdown" and before == "errored after firing":
+                    for value in ("Chrome", "Firefox"):
+                        platform_testing.start_firing(
+                            configuration.id, team_id=self.team.id, at=CUTOFF - timedelta(hours=1), grouping_key=value
+                        )
                 platform_testing.set_check_status(configuration.id, "errored")
         events: tuple[PlatformCheckEvent, ...] = (_check_event(previous_state="errored", state="errored"),)
         if before != "errored before the window":
-            interrupted = (before or "").removeprefix("errored after ") or "not_firing"
+            # A breakdown alert has no ungrouped instance, so its failure row found it quiet.
+            interrupted = (
+                "not_firing" if shape == "breakdown" else (before or "").removeprefix("errored after ") or "not_firing"
+            )
             events = (*events, _check_event(previous_state=interrupted, state="errored"))
         history = PlatformCheckEventPage(events=events, total=len(events))
 
@@ -1347,10 +1376,14 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             else:
                 outcome = self._fire(configuration)
             record_outcomes(self.team.id, (outcome,), CUTOFF)
-            prepared = prepare_platform_firing_signals(requested_firing_signals(self.team.id, (outcome,)))
+            with patch(
+                f"{_FIRING_SIGNAL_MODULE}.platform.get_configuration", wraps=platform_facade.get_configuration
+            ) as reads:
+                prepared = prepare_platform_firing_signals(requested_firing_signals(self.team.id, (outcome,)))
 
         assert len(prepared) == signals
         assert len({signal.alert_check_id for signal in prepared}) == signals
+        assert reads.call_count <= 1
 
     @parameterized.expand(
         [

@@ -17,6 +17,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.alerts.alert_firing_signal import (
     AlertFiringSignal,
@@ -64,15 +65,19 @@ def with_firing_signal(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
     its inbox signal. A breakdown alert marks every value whose firing starts its own episode. Only an
     owned check, because the insight stack signals for the rest.
 
-    Reads no history, so a slow read can never hold back the check. A firing after errors is marked
-    as such, and the emit activity decides whether the errors interrupted an earlier firing.
+    Reads no history, so a slow read can never hold back the check. An ungrouped firing after errors
+    is marked as such, and the emit activity decides whether the errors interrupted an earlier firing.
     """
     if not check.owned_by_platform or len(evaluation.outcomes) != 1:
         return evaluation
     outcome = evaluation.outcomes[0]
     if outcome.skipped:
         return evaluation
-    starting = {group.grouping_key for group in outcome.groups if _starts_episode(check, group)}
+    starting = {
+        group.grouping_key
+        for group in outcome.groups
+        if _starts_episode(check, group) and not _resumes_interrupted_value(check, group)
+    }
     if not starting:
         return evaluation
     if len(outcome.groups) == 1 and _agent_investigates(evaluation_alert(check)):
@@ -93,9 +98,21 @@ def _starts_episode(check: PlatformAlertCheckInput, group: GroupOutcome) -> bool
     return not group.muted_notification and check.instance(group.grouping_key).state != PlatformAlertState.FIRING.value
 
 
+def _resumes_interrupted_value(check: PlatformAlertCheckInput, group: GroupOutcome) -> bool:
+    """Whether errors interrupted this breakdown value's firing. The history the emit activity reads
+    holds only the ungrouped instance, so a value decides from its own, which keeps its firing's
+    start through a failed check."""
+    instance = check.instance(group.grouping_key)
+    return (
+        bool(group.grouping_key)
+        and instance.state == PlatformAlertState.ERRORED.value
+        and instance.firing_started_at is not None
+    )
+
+
 def _requesting_signal(check: PlatformAlertCheckInput, group: GroupOutcome) -> GroupOutcome:
     detail = {**group.source_detail, FIRING_SIGNAL_REQUESTED_KEY: str(check.destination_alert_id)}
-    if check.instance(group.grouping_key).state == PlatformAlertState.ERRORED.value:
+    if not group.grouping_key and check.instance().state == PlatformAlertState.ERRORED.value:
         detail[FIRING_SIGNAL_AFTER_ERRORS_KEY] = True
     return replace(group, source_detail=detail)
 
@@ -148,26 +165,31 @@ def prepare_platform_firing_signals(requests: tuple[FiringSignalRequest, ...]) -
     Reads the platform's configuration and its insight, not the insight stack's row, so an alert
     with no row signals too. Runs the gates against the alert as it is now, so an edit since the
     check can still stop a signal. Skips an alert that was deleted, disabled or handed back since.
-    Never raises.
+    Reads each configuration once, however many of its breakdown values started firing. Never raises.
     """
     signals = []
+    configured: dict[tuple[int, str], _ConfiguredAlert | None] = {}
     for request in requests:
         try:
-            found = _firing_alert(request)
-            if found is None:
+            key = (request.team_id, request.configuration_id)
+            if key not in configured:
+                # Set before the read, so a configuration that fails to read is not read again.
+                configured[key] = None
+                configured[key] = _configured_alert(request.team_id, request.configuration_id)
+            found = configured[key]
+            if found is None or not _records_firing(found.configuration, request):
                 continue
-            alert, configuration = found
             firing = FiringStart(
                 check_id=_episode_id(request),
                 started_at=request.episode_started_at,
                 triggered_dates=request.triggered_dates,
             )
             signal = prepare_platform_firing_signal(
-                alert,
+                found.alert,
                 firing,
                 breaches=list(request.breaches),
                 investigated=request.investigable
-                and _agent_investigates(_evaluated_alert(request.team_id, configuration)),
+                and _agent_investigates(_evaluated_alert(request.team_id, found.configuration)),
                 resumes_interrupted_episode=partial(_resumes_after_errors, request),
             )
         except Exception:
@@ -195,31 +217,33 @@ def _evaluated_alert(team_id: int, configuration: PlatformAlertConfigurationView
     return legacy_alert(team_id=team_id, alert_id=configuration.legacy_configuration_id)
 
 
-def _firing_alert(
-    request: FiringSignalRequest,
-) -> tuple[FiringAlert, PlatformAlertConfigurationView] | None:
+@frozen
+class _ConfiguredAlert:
+    alert: FiringAlert
+    configuration: PlatformAlertConfigurationView
+
+
+def _configured_alert(team_id: int, configuration_id: str) -> _ConfiguredAlert | None:
     """The alert as the gates read it, and its configuration, or None when it no longer signals."""
     configuration = platform.get_configuration(
-        team_id=request.team_id,
+        team_id=team_id,
         source_kinds=[SourceKind.INSIGHT.value],
-        configuration_id=UUID(request.configuration_id),
+        configuration_id=UUID(configuration_id),
     )
     if configuration is None or not configuration.enabled or configuration.owner != PlatformAlertOwner.PLATFORM.value:
         return None
-    if not _records_firing(configuration, request):
-        return None
-    insight = insight_of(request.team_id, configuration.source_config)
+    insight = insight_of(team_id, configuration.source_config)
     if insight is None:
         return None
     condition = configuration.source_config.get(SOURCE_CONDITION_KEY) or {}
     alert = FiringAlert(
-        team=Team.objects.select_related("organization").get(id=request.team_id),
+        team=Team.objects.select_related("organization").get(id=team_id),
         id=str(configuration.destination_alert_id),
         name=configuration.name,
         insight=insight,
         detector_config=condition.get("detector"),
     )
-    return alert, configuration
+    return _ConfiguredAlert(alert=alert, configuration=configuration)
 
 
 def _records_firing(configuration: PlatformAlertConfigurationView, request: FiringSignalRequest) -> bool:
