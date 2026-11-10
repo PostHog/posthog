@@ -601,6 +601,7 @@ class TestMintableGate:
             ("autoresearch", True),
             ("business_knowledge", True),
             ("context_layer", True),
+            ("knowledge_writer", True),
             ("task_analysis", True),
             ("image_builder", False),
             ("user_created", False),
