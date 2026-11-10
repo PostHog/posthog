@@ -121,6 +121,15 @@ PROJECTIONS: tuple[Projection, ...] = (
         ),
         outputs=("posthog/integrations/kinds_generated.py",),
     ),
+    Projection(
+        name="credentials-catalogue",
+        renderer="posthog/integrations/catalogue_projection.py",
+        inputs=(
+            "services/credentials-service/src/catalogue.ts",
+            "services/credentials-service/src/providers/*",
+        ),
+        outputs=("posthog/integrations/catalogue_generated.json",),
+    ),
 )
 
 

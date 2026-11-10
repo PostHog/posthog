@@ -221,6 +221,15 @@ on the two staleness signals, or neither degradation is observable.
 `/metrics` listens on its own port, which the chart keeps off the ingress; in-cluster Prometheus
 scrapes it unauthenticated, the same shape as every other service.
 
+## Provider registry
+
+`src/providers/` holds one spec per integration kind: authorize and token URLs, scopes, PKCE, client secret names with fallbacks for rotated apps, token info paths, refresh policy, minter, and the secret fields that `/resolve` may return.
+The service checks every spec with zod at boot and exits if one is invalid.
+The registry is the source of truth for `posthog/integrations/catalogue_generated.json`, which Django reads to build authorize URLs.
+
+To add a kind, write `src/providers/<kind>.ts`, add it to `src/providers/index.ts`, and run `hogli build:projections --only credentials-catalogue`.
+`src/catalogue.ts` and everything it imports must not import an npm package, because the projection check bundles it in a CI job with no `node_modules`.
+
 ## Isolation
 
 This package must not depend on the rest of the monorepo. It shares the pnpm workspace only for
