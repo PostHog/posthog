@@ -1,6 +1,7 @@
 //! Compares a Postgres snapshot with SlateDB person by person, by version. A SlateDB record newer
 //! than the snapshot is a write after it; anything else that differs is a divergence, logged by id.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -135,6 +136,9 @@ pub struct VerifyCounts {
     pub missing: u64,
     pub newer_in_slatedb: u64,
     pub rejected: u64,
+    /// Snapshot rows of a team listed as deleted; the erasure removed their keys, so they are
+    /// not judged.
+    pub erased_team: u64,
     /// Deleted teams that still have keys in SlateDB.
     pub deleted_teams_present: u64,
 }
@@ -148,6 +152,7 @@ impl VerifyCounts {
             "behind" => self.behind += 1,
             "missing" => self.missing += 1,
             "newer_in_slatedb" => self.newer_in_slatedb += 1,
+            "erased_team" => self.erased_team += 1,
             _ => self.rejected += 1,
         }
     }
@@ -160,6 +165,7 @@ impl VerifyCounts {
         self.missing += other.missing;
         self.newer_in_slatedb += other.newer_in_slatedb;
         self.rejected += other.rejected;
+        self.erased_team += other.erased_team;
         self.deleted_teams_present += other.deleted_teams_present;
     }
 
@@ -176,6 +182,7 @@ impl VerifyCounts {
             "missing": self.missing,
             "newer_in_slatedb": self.newer_in_slatedb,
             "rejected": self.rejected,
+            "erased_team": self.erased_team,
             "deleted_teams_present": self.deleted_teams_present,
         })
         .to_string()
@@ -198,6 +205,7 @@ impl VerifyCounts {
             missing: field("missing")?,
             newer_in_slatedb: field("newer_in_slatedb")?,
             rejected: field("rejected")?,
+            erased_team: field("erased_team")?,
             deleted_teams_present: field("deleted_teams_present")?,
         })
     }
@@ -372,6 +380,7 @@ impl Verifier<'_> {
             return Ok(counts);
         }
         let step = sample_every.max(1);
+        let erased: HashSet<i64> = self.deleted_teams().await?.into_iter().collect();
         let mut counts = VerifyCounts::default();
         let mut after = scan.start();
         loop {
@@ -380,6 +389,13 @@ impl Verifier<'_> {
                 break;
             };
             for scanned in page.into_iter().step_by(step) {
+                // The erasure removed these keys on purpose; the team check proves it did.
+                if erased.contains(&scanned.cursor().team_id) {
+                    counts.add("erased_team");
+                    counter!("personhog_verify_persons_total", "outcome" => "erased_team")
+                        .increment(1);
+                    continue;
+                }
                 let (outcome, row, stored) = match scanned {
                     Scanned::Record(row) | Scanned::Trimmed(row) => {
                         check(self.reader, self.pool, row).await?
@@ -450,20 +466,27 @@ impl Verifier<'_> {
         Ok(total)
     }
 
-    async fn check_deleted_teams(
-        &self,
-        index: usize,
-        workers: usize,
-    ) -> Result<u64, BackfillError> {
+    /// The teams the erasure removes, from the live database when one is given: a team deleted
+    /// after the snapshot is listed only there.
+    async fn deleted_teams(&self) -> Result<Vec<i64>, BackfillError> {
         let pool = self.live_pool.unwrap_or(self.pool);
         let teams: Vec<i32> =
             sqlx::query_scalar("SELECT team_id FROM personhog_deleted_teams ORDER BY team_id")
                 .fetch_all(pool)
                 .await?;
+        Ok(teams.into_iter().map(i64::from).collect())
+    }
+
+    async fn check_deleted_teams(
+        &self,
+        index: usize,
+        workers: usize,
+    ) -> Result<u64, BackfillError> {
         let mut present = 0;
-        for team_id in teams
+        for team_id in self
+            .deleted_teams()
+            .await?
             .into_iter()
-            .map(i64::from)
             .filter(|team_id| (*team_id as usize) % workers == index)
         {
             let outcome = if self.reader.team_has_keys(team_id).await? {

@@ -465,8 +465,9 @@ impl PropertyWriter {
     /// Each batch is scanned, deleted and made durable before the next, so memory stays at one
     /// batch whatever the team's size, and a restart resumes past the keys already gone. Each
     /// batch's I/O is bounded by `step_timeout`, since SlateDB retries object store errors without
-    /// limit: a shard that cannot finish a batch is left for the next pass, and the other shards
-    /// go on. The error of the first such shard comes back once every shard has been tried.
+    /// limit: a scan the deadline cuts short deletes what it found, a shard that cannot finish a
+    /// batch is left for the next pass, and the other shards go on. The error of the first such
+    /// shard comes back once every shard has been tried.
     pub async fn erase_team_in_batches(
         &self,
         team_id: i64,
@@ -483,12 +484,13 @@ impl PropertyWriter {
             let outcome: Result<(), PropertyStoreError> = async {
                 loop {
                     let start = Bytes::copy_from_slice(&encode_key(team_id, from));
-                    let keys = tokio::time::timeout(
-                        step_timeout,
-                        scan_keys(&db, start..=end.clone(), batch_keys),
+                    let keys = scan_keys(
+                        &db,
+                        start..=end.clone(),
+                        batch_keys,
+                        Instant::now() + step_timeout,
                     )
-                    .await
-                    .map_err(|_| PropertyStoreError::Timeout)??;
+                    .await?;
                     let Some(last) = keys.last().and_then(|key| person_id_of(key)) else {
                         break;
                     };
@@ -542,17 +544,27 @@ impl PropertyWriter {
     }
 }
 
+/// Up to `limit` keys of the range, or as many as the scan reached by `deadline`: a slow store
+/// makes smaller batches rather than none, and only a scan that found nothing by then has timed out.
 async fn scan_keys(
     db: &Db,
     range: std::ops::RangeInclusive<Bytes>,
     limit: usize,
+    deadline: Instant,
 ) -> Result<Vec<Bytes>, PropertyStoreError> {
+    let deadline = tokio::time::Instant::from_std(deadline);
     let mut keys = Vec::with_capacity(limit);
-    let mut found = db.scan(range).await?;
+    let mut found = tokio::time::timeout_at(deadline, db.scan(range))
+        .await
+        .map_err(|_| PropertyStoreError::Timeout)??;
     while keys.len() < limit {
-        match found.next().await? {
-            Some(kv) => keys.push(kv.key),
-            None => break,
+        match tokio::time::timeout_at(deadline, found.next()).await {
+            Ok(next) => match next? {
+                Some(kv) => keys.push(kv.key),
+                None => break,
+            },
+            Err(_) if !keys.is_empty() => break,
+            Err(_) => return Err(PropertyStoreError::Timeout),
         }
     }
     Ok(keys)

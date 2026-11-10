@@ -481,6 +481,16 @@ async fn verification_judges_each_person_by_version() {
     };
     let counts = verifier.run_worker(&run, 0, 1, 1000, 1).await.unwrap();
     assert_eq!(counts.deleted_teams_present, 1);
+    assert_eq!(
+        (
+            counts.checked,
+            counts.erased_team,
+            counts.missing,
+            counts.differs
+        ),
+        (6, 6, 0, 0),
+        "a listed team's rows are not judged"
+    );
     sqlx::query("DELETE FROM personhog_deleted_teams WHERE team_id = $1")
         .bind(team as i32)
         .execute(&pool)

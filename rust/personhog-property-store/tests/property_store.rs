@@ -1071,3 +1071,43 @@ async fn an_erasure_leaves_a_shard_whose_store_does_not_answer_and_erases_the_re
     slow.close().await;
     reader.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_erasure_on_a_slow_store_advances_by_smaller_batches() {
+    let dir = tempfile::tempdir().unwrap();
+    let writer = assigned_writer(&dir, 1).await;
+    // A value of a block each, so every key the scan reaches costs the store one request.
+    let value: &'static str =
+        Box::leak(format!(r#"{{"blob":"{}"}}"#, "x".repeat(64 * 1024)).into_boxed_str());
+    let persons: Vec<i64> = (1..)
+        .filter(|&id| shard_for(7, id, SHARDS) == 0)
+        .take(20)
+        .collect();
+    let records: Vec<PropertyRecord> = persons.iter().map(|&id| record(id, 1, value)).collect();
+    writer.put(&sole_partition(), 1, &records).await.unwrap();
+    writer.flush_memtables().await;
+    writer.close().await;
+    let slow = PropertyWriter::new(
+        &config(),
+        Arc::new(StalledShard {
+            inner: store(&dir),
+            shard: "shard-00000".to_string(),
+            fail: false,
+            delay: Some(Duration::from_millis(200)),
+        }),
+    );
+    slow.assign(&sole_partition(), 2, 1, || true).await.unwrap();
+
+    // Twenty blocks at this pace take four seconds, past the deadline; the scan keeps what it reached.
+    let erased = slow
+        .erase_team_in_batches(7, 100, Duration::from_secs(3))
+        .await;
+
+    assert_eq!(erased.unwrap(), persons.len());
+    let reader = PropertyReader::new(&config(), store(&dir));
+    for id in &persons {
+        assert_eq!(reader.get_fresh(7, *id).await.unwrap(), None, "person {id}");
+    }
+    slow.close().await;
+    reader.close().await;
+}
