@@ -2,6 +2,10 @@ import { Pool } from 'pg'
 import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
+import { HOG_INVOCATION_RESULTS_OUTPUT } from '~/common/outputs'
+import { IngestionOutput } from '~/common/outputs/ingestion-output'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { IngestionOutputMessage } from '~/common/outputs/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
@@ -10,7 +14,11 @@ import {
     deserializeResolverState,
     serializeResolverState,
 } from '../hogflows/batch-resolver.types'
-import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
+import {
+    HogInvocationResultRow,
+    HogInvocationResultsService,
+    HogInvocationResultsServiceOutput,
+} from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager, assignEmailDequeueSeq } from './manager'
 import { createCyclotronPool } from './pg-pool'
@@ -70,6 +78,19 @@ function createRealResults(): { service: HogInvocationResultsService; produce: j
     const produce = jest.fn().mockResolvedValue(undefined)
     const service = new HogInvocationResultsService({ produce } as any, { HOG_INVOCATION_RESULTS_ENABLED: true })
     return { service, produce }
+}
+
+class InMemoryResultsTopic extends IngestionOutputs<HogInvocationResultsServiceOutput> {
+    readonly rows: { output: string; row: HogInvocationResultRow }[] = []
+
+    constructor() {
+        super({} as Record<HogInvocationResultsServiceOutput, IngestionOutput>)
+    }
+
+    override produce(output: HogInvocationResultsServiceOutput, message: IngestionOutputMessage): Promise<void> {
+        this.rows.push({ output, row: parseJSON(message.value!.toString('utf-8')) as HogInvocationResultRow })
+        return Promise.resolve()
+    }
 }
 
 function parseProducedResult(produce: jest.Mock): Record<string, any> {
@@ -2777,8 +2798,11 @@ describe('Cyclotron V2', () => {
         it('gives up on a job that keeps stalling between deferrals', async () => {
             const id = await manager.createJob({ teamId: 1, queueName: 'email', functionId: uuidv7() })
             const worker = createWorker('email')
-            const { service } = createMockResults(true)
-            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2, stallBackoffBaseMs: 0 }, service)
+            const resultsTopic = new InMemoryResultsTopic()
+            const janitor = createJanitor(
+                { stallTimeoutMs: 1_000, maxTouchCount: 2, stallBackoffBaseMs: 0 },
+                new HogInvocationResultsService(resultsTopic, { HOG_INVOCATION_RESULTS_ENABLED: true })
+            )
             const stallAndSweep = async (): Promise<CyclotronV2CleanupResult> => {
                 const [job] = await dequeueOneBatch(worker)
                 await job.defer({ scheduledAt: new Date(Date.now() - 1_000) })
@@ -2793,7 +2817,20 @@ describe('Cyclotron V2', () => {
             try {
                 expect((await stallAndSweep()).stalled).toBe(1)
                 expect((await stallAndSweep()).stalled).toBe(1)
+                expect(resultsTopic.rows).toEqual([])
+
                 expect((await stallAndSweep()).poisonedIds).toEqual([id])
+                expect(resultsTopic.rows).toEqual([
+                    {
+                        output: HOG_INVOCATION_RESULTS_OUTPUT,
+                        row: expect.objectContaining({
+                            invocation_id: id,
+                            status: 'failed',
+                            error_kind: JANITOR_POISON_PILL_ERROR_KIND,
+                        }),
+                    },
+                ])
+                expect(await totalJobCount()).toBe(0)
             } finally {
                 await janitor.stop()
                 await worker.disconnect()
