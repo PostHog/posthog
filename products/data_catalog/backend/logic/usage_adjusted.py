@@ -31,7 +31,7 @@ from posthog.sync import database_sync_to_async
 from ..facade.contracts import AdjustedRun
 from ..facade.enums import HOGQL_DEFINITION_KIND, SCOUT_SOURCE, JudgeRelation, ShapeOutcome
 from ..models import Metric
-from .agent_sessions import stored_conversations
+from .agent_sessions import CATALOG_CALL_LOOKBACK, stored_conversations
 from .measure_fingerprint import MeasureExtractionError, extract_measures
 from .metric_fingerprint import CatalogIndex, definition_to_hogql
 from .usage_judge import JudgeVerdict, MetricBrief, judge_pair, require_ai_consent
@@ -63,9 +63,6 @@ _DESCRIBE_TOOLS = frozenset({"metric-describe", "data-catalog-metric-run"})
 _PAGE = timedelta(days=1)
 _MIN_PAGE = timedelta(hours=1)
 _PAGE_ROW_LIMIT = 50000
-
-# A describe call can come shortly before the window start and still precede a query in the window.
-_CATALOG_CALL_LOOKBACK = timedelta(days=1)
 
 # Trace ids come from `events`, which is ordered by time, because `ai_events` is ordered by trace and
 # a time filter alone would scan every trace of the telemetry team.
@@ -349,7 +346,7 @@ def _plan_detection(*, team_id: int, snapshot_id: UUID, telemetry_team_id: int) 
         fetch_catalog_calls(
             team=team,
             telemetry_team=telemetry_team,
-            window_start=window.start - _CATALOG_CALL_LOOKBACK,
+            window_start=window.start - CATALOG_CALL_LOOKBACK,
             window_end=window.end,
         ),
         units,
