@@ -1,4 +1,3 @@
-export * from './android'
 export * from './angular'
 export * from './astro'
 export * from './bubble'
