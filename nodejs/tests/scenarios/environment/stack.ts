@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'child_process'
 import { closeSync, openSync } from 'fs'
 import Redis from 'ioredis'
+import path from 'path'
 import { Client } from 'pg'
 import { setTimeout as sleep } from 'timers/promises'
 import { promisify } from 'util'
@@ -32,9 +33,9 @@ export async function poll<T>(probe: () => Promise<T | undefined>, timeoutMs: nu
     }
 }
 
-export async function hogli(repoRoot: string, args: string[], logFile: string): Promise<void> {
+async function hogli(repoRoot: string, args: string[], logFile: string, env: NodeJS.ProcessEnv): Promise<void> {
     const log = openSync(logFile, 'a')
-    const child = spawn(`${repoRoot}/bin/hogli`, args, { cwd: repoRoot, stdio: ['ignore', log, log] })
+    const child = spawn(`${repoRoot}/bin/hogli`, args, { cwd: repoRoot, env, stdio: ['ignore', log, log] })
     closeSync(log)
     const code = await new Promise<number | null>((resolve, reject) => {
         child.once('error', reject)
@@ -43,6 +44,15 @@ export async function hogli(repoRoot: string, args: string[], logFile: string): 
     if (code !== 0) {
         throw new Error(`hogli ${args.join(' ')} exited with ${code}; see ${logFile}`)
     }
+}
+
+export async function startStack(repoRoot: string, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
+    const config = path.join(stateDir, 'mprocs.yaml')
+    const logFile = path.join(stateDir, 'hogli.log')
+    const hogliEnv = { ...env, HOGLI_MPROCS_PATH: config, HOGLI_SKIP_ZOMBIE_CHECK: '1' }
+    await hogli(repoRoot, ['dev:generate', '--with', 'workflows', '--without', 'nodejs'], logFile, hogliEnv)
+    await hogli(repoRoot, ['up', '-d', '--custom', config], logFile, hogliEnv)
+    await hogli(repoRoot, ['wait'], logFile, hogliEnv)
 }
 
 export async function withPostgres<T>(run: (client: Client) => Promise<T>): Promise<T> {
