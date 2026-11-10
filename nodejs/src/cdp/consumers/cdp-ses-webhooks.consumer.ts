@@ -62,11 +62,21 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
         }
         // A failure stops new notifications and waits for those in flight, so no write outlives the failed batch.
         await Promise.all(Array.from({ length: SES_NOTIFICATIONS_IN_FLIGHT }, recordNext))
+        // Offsets commit after processBatch resolves, so the batch commits after the flush returns. The flush services
+        // log their own produce errors and do not throw them. The flush also runs for a failed batch, because the
+        // recorded notifications already grew the Redis counters of unique people, and a redelivery does not count
+        // those people again.
+        try {
+            await this.emailTrackingService.flush()
+        } catch (error) {
+            if (errors.length === 0) {
+                throw error
+            }
+            logger.error('[CdpSesWebhooksConsumer] Failed to flush a failed batch', { error: serializeError(error) })
+        }
         if (errors.length > 0) {
             throw errors[0]
         }
-        // Offsets commit after processBatch resolves, so the batch commits only after Kafka acks its writes.
-        await this.emailTrackingService.flush()
     }
 
     private async record(message: Message): Promise<SkipReason | null> {
